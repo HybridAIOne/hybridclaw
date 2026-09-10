@@ -705,10 +705,14 @@ test.each([
     if (compact) {
       expect(tools).not.toContain('**Files**:');
       expect(tools).not.toContain('**Skills**:');
-      expect(tools).toContain('Only the function schemas supplied with this request are directly callable');
-      expect(tools).toContain('call tool_catalog with action=list before describing additional tools');
+      expect(tools).toContain('Tool access has two paths: direct function calls');
+      expect(tools).toContain('A permitted catalog tool can run this way without its own directly exposed schema');
+      expect(tools).toContain('the target tool name in name, and its parameters in arguments');
+      expect(tools).toContain('Skills do not register functions or grant tool permissions');
+      expect(tools).not.toContain('Only the function schemas supplied with this request');
+      expect(tools).toContain('If tool_catalog is exposed, call it with action=list before describing additional tools');
       expect(tools).toContain('describe only if its arguments are unknown');
-      expect(tools).toContain('If tool_catalog is not exposed, use only the supplied functions');
+      expect(tools).toContain('When tool_catalog is absent, available tools are limited to the exposed functions');
       expect(tools).toContain('Discovery never bypasses tool permissions or action approvals');
     } else {
       expect(tools).toContain('**Files**: `read`');

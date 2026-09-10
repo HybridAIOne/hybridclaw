@@ -26,7 +26,7 @@ const CATALOG_TOOL: ToolDefinition = {
   function: {
     name: NAME,
     description:
-      'Discover tools in steps: action=list searches short summaries with query and offset; follow a result’s next call to describe its input schema; then action=call executes that exact name with matching arguments. Use keywords for the task, not a guessed tool name. If an exact name and its parameters are already known, skip discovery. Skills are instruction packages: discover them with skills_list, not a tool named after the skill. Calls keep normal permissions and approvals.',
+      'Run additional permitted tools through this catalog even when their own function schemas are not directly exposed. Discover tools in steps: action=list searches short summaries with query and offset; follow a result’s next call to describe its input schema; then action=call executes that exact name with matching arguments. Use keywords for the task, not a guessed tool name. If an exact name and its parameters are already known, skip discovery. Skills are instruction packages: discover them with skills_list, not a tool named after the skill. Calls keep normal permissions and approvals.',
     parameters: {
       type: 'object',
       properties: {
@@ -113,9 +113,13 @@ export class LocalToolCatalog {
     return [
       '## Local tool call boundary',
       names.length
-        ? `The only directly callable functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
+        ? `Directly exposed functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
         : 'No functions are exposed in this request.',
-      directory && !names.includes('read')
+      directory
+        ? 'Additional permitted tools are available through tool_catalog. Execute them with action=call, their exact name in name, and their parameters in arguments; their own schemas do not need to be directly exposed.'
+        : '',
+      'Skills are instruction packages, not tool functions. Reading a SKILL.md provides workflow instructions; it does not register tools or grant permissions.',
+      directory && this.byName.has('read') && !names.includes('read')
         ? 'To read a known skill file, call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
         : '',
       directory && this.byName.has('bash') && !names.includes('bash')
@@ -127,7 +131,9 @@ export class LocalToolCatalog {
       directory
         ? 'Discover only what is missing: list when the tool name is unknown, describe when its parameters are unknown, then call. Reuse schemas and skill instructions already returned in this request; do not repeat discovery before each action. The directory can reject tools that are unavailable or blocked.'
         : 'Tool discovery is not exposed. Do not claim access to any additional tools.',
-      'All tool calls must use the names in the supplied function schemas.',
+      directory
+        ? 'For catalog execution, the function name is tool_catalog and the target tool goes in its name argument. Listing or describing a tool does not add a directly callable function.'
+        : 'Direct function calls use the names in the supplied schemas.',
     ]
       .filter(Boolean)
       .join('\n');

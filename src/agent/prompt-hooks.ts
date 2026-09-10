@@ -290,7 +290,7 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
     (!context.allowedTools || context.allowedTools.includes('skills_list'));
   const directory =
     selection.discovery && directoryAvailable
-      ? 'Additional skills: use skills_list to search the full eligible skill directory when a relevant skill is absent above. If skills_list is not directly exposed, find and call it through tool_catalog. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
+      ? 'Additional skills: skills are instruction packages, not executable tools. Use skills_list to search the full eligible skill directory when a relevant skill is absent above. Call skills_list directly when exposed, or through tool_catalog when that catalog is exposed. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
       : '';
   return [prompt, directory].filter(Boolean).join('\n\n');
 }
@@ -491,10 +491,11 @@ function buildSafetyHook(context: PromptHookContext): string {
   const toolsSummary = compactLocalTools
     ? [
         '## Your Tools',
-        'Only the function schemas supplied with this request are directly callable. Tool names mentioned elsewhere in these instructions describe workflows, not additional exposed functions.',
-        'When tool_catalog is among those schemas, use action=list to discover additional permitted tools, action=describe to inspect a tool schema, and action=call with its exact name and arguments to execute it. For example, a known read call goes through tool_catalog with action=call; describe only if its arguments are unknown. Reuse schemas and skill instructions already loaded in this request.',
-        'When asked which tools are available, report the directly exposed names accurately and call tool_catalog with action=list before describing additional tools. Follow its pagination before claiming a complete inventory. Do not reconstruct the inventory from memory or examples in these instructions.',
-        'If tool_catalog is not exposed, use only the supplied functions and do not claim access to additional tools. Discovery never bypasses tool permissions or action approvals.',
+        'Tools execute actions; skills contain instructions for using tools. Skills do not register functions or grant tool permissions. Tool access has two paths: direct function calls and, when tool_catalog is exposed, catalog calls.',
+        'Direct calls use a function name from the schemas supplied with this request. Catalog calls use tool_catalog with action=call, the target tool name in name, and its parameters in arguments. A permitted catalog tool can run this way without its own directly exposed schema.',
+        'When tool_catalog is exposed, use action=list to discover permitted tools and action=describe to inspect unknown parameters. If read is available through the catalog, a known read call can use tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}; describe only if its arguments are unknown. Reuse schemas and skill instructions already loaded in this request.',
+        'When asked which tools are available, report the directly exposed names accurately. If tool_catalog is exposed, call it with action=list before describing additional tools and follow pagination before claiming a complete inventory. Do not reconstruct the inventory from memory or examples in these instructions.',
+        'When tool_catalog is absent, available tools are limited to the exposed functions. Tool names in workflow instructions or skill files do not establish availability. Discovery never bypasses tool permissions or action approvals.',
       ].join('\n')
     : buildToolsSummary({
         allowedTools: context.allowedTools,

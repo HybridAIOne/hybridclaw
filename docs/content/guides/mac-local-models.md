@@ -188,6 +188,13 @@ Active streams refresh their inactivity deadline; they have no three-minute
 wall-clock cutoff. Inactivity, cancellation, the admitted context, and finite
 transport size bounds still stop stalled or oversized requests.
 
+Skills provide workflow instructions in `SKILL.md`; tools execute actions. The
+supplied function schemas govern direct calls. When `tool_catalog` is exposed,
+additional permitted tools can run through its `call` action without becoming
+directly exposed functions. Put the target tool in `name` and its inputs in
+`arguments`; `skills_list` discovers skill instructions. Both execution paths
+retain the same permissions and approvals.
+
 For small local models, starring `read` and `bash` avoids catalog round trips for
 routine skill use. **Starred + directory** in Skills reduces the inline catalog;
 Full skill mode can still make a two-tool request large. These settings remain

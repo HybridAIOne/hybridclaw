@@ -93,7 +93,8 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     const next = await followup({ localStarterTools: ['memory'] });
     expect(next.status).toBe('success');
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['memory', 'tool_catalog']);
-    expect(requests.at(-1)?.messages[0].content).toContain('functions in this request are memory and tool_catalog.');
+    expect(requests.at(-1)?.messages[0].content).toContain('Directly exposed functions in this request are memory and tool_catalog.');
+    expect(requests.at(-1)?.messages[0].content).toContain('their own schemas do not need to be directly exposed');
     await followup({ localToolMode: 'full' });
     expect(requests.at(-1)?.tools).toHaveLength(114);
     expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);

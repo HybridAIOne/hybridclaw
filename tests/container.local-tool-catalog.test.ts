@@ -83,7 +83,12 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   const available = [tool('read'), tool('skills_list'), tool('bash')];
   const compact = new LocalToolCatalog(available, ['skills_list']);
   const prompt = compact.promptGuidance();
-  expect(prompt).toContain('functions in this request are skills_list and tool_catalog.');
+  expect(prompt).toContain('Directly exposed functions in this request are skills_list and tool_catalog.');
+  expect(prompt).toContain('Additional permitted tools are available through tool_catalog');
+  expect(prompt).toContain('their own schemas do not need to be directly exposed');
+  expect(prompt).toContain('the function name is tool_catalog and the target tool goes in its name argument');
+  expect(prompt).toContain('Skills are instruction packages, not tool functions');
+  expect(prompt).not.toContain('All tool calls must use the names in the supplied function schemas');
   expect(prompt).toContain('Never emit a direct read call');
   expect(prompt).toContain('Never emit a direct bash call');
   expect(prompt).toContain('"action":"call","name":"bash","arguments":{"command":');
@@ -97,7 +102,9 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   const noDiscovery = new LocalToolCatalog(available, ['skills_list'], true);
   expect(noDiscovery.promptGuidance()).toContain('Tool discovery is not exposed');
   expect(noDiscovery.promptGuidance()).not.toContain('call tool_catalog');
-  expect(new LocalToolCatalog([tool('skills_list')], []).promptGuidance()).not.toContain('name":"bash');
+  const restricted = new LocalToolCatalog([tool('skills_list')], []).promptGuidance();
+  expect(restricted).not.toContain('name":"bash');
+  expect(restricted).not.toContain('name":"read');
   expect(new LocalToolCatalog([]).promptGuidance()).toContain('No functions are exposed');
 });
 
