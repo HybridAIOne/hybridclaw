@@ -48,6 +48,9 @@ function writeConfig(endpoints: unknown, model = 'mac-mlx/spark-x2.5-4b') {
 
 describe('local model configuration integrity', () => {
   test.each([
+    { endpoints: [{ ...endpoint, baseUrl: 'https://example.com/v1' }], message: 'MLX requires http://127.0.0.1' },
+    { endpoints: [{ ...endpoint, baseUrl: 'http://test-key@example.com/v1' }], message: 'MLX requires http://127.0.0.1' },
+    { endpoints: [{ ...endpoint, zone: 'cloud' }], message: 'MLX endpoint zone must be local' },
     { endpoints: {}, message: 'local.endpoints must be an array' },
     { endpoints: [null], message: 'local.endpoints[0] must be an object' },
     {
@@ -195,4 +198,41 @@ describe('local model configuration integrity', () => {
     expect(config.getRuntimeConfigLoadError()).toBeNull();
     expect(config.getRuntimeConfig().local.endpoints[0]).toMatchObject(endpoint);
   });
+});
+
+// Full replacement and snapshot recovery deliberately do not reload invalid
+// disk state; incremental updates remain forbidden until the repair validates.
+test.each(['replacement', 'last-known-good'])('repairs invalid local settings through %s without editing the file', async (mode) => {
+  writeConfig([endpoint]);
+  const config = await import('../src/config/runtime-config.js');
+  const good = config.getRuntimeConfig();
+  const invalid = writeConfig([{ ...endpoint, type: 'unsupported-backend' }]);
+  expect(() => config.reloadRuntimeConfig()).toThrow();
+  expect(() => config.updateRuntimeConfig((draft) => { draft.ops.logLevel = 'debug'; })).toThrow();
+  expect(fs.readFileSync(configPath, 'utf8')).toBe(invalid);
+  const repaired = mode === 'replacement' ? config.saveRuntimeConfig(good) : config.restoreLastKnownGoodRuntimeConfig();
+  expect(repaired.local.endpoints[0]).toMatchObject(endpoint);
+  expect(config.getRuntimeConfigLoadError()).toBeNull();
+  expect(config.updateRuntimeConfig((draft) => { draft.ops.logLevel = 'debug'; }).ops.logLevel).toBe('debug');
+});
+
+test.each([
+  { ...endpoint, baseUrl: 'https://example.com/v1' },
+  { ...endpoint, zone: 'cloud' },
+])('blocks every partial update for invalid MLX transport without overwriting disk', async (invalidEndpoint) => {
+  writeConfig([endpoint]);
+  const config = await import('../src/config/runtime-config.js');
+  const before = writeConfig([invalidEndpoint]);
+  const updates = [
+    () => config.updateRuntimeConfig(() => {}),
+    () => config.migrateLegacySchedulerJobsFromRuntimeConfig(),
+    () => config.setRuntimeConfigSecretInput('ops.webApiToken', ''),
+    () => config.setRuntimeConfigLocalEndpointSecretInput('mac-mlx', ''),
+    () => config.setRuntimeConfigSlackWebhookSecretInput('example', ''),
+    () => config.setRuntimeConfigDiscordWebhookSecretInput('example', ''),
+  ];
+  for (const update of updates) {
+    expect(update).toThrow();
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  }
 });

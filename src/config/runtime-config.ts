@@ -5598,9 +5598,15 @@ function normalizeLocalEndpointConfigs(value: unknown): LocalEndpointConfig[] {
     });
     const endpointBaseUrl = normalizeBaseUrl(raw.baseUrl, fallbackBaseUrl);
     if (type === 'mlx') {
-      assertMlxEndpoint(endpointBaseUrl);
+      try {
+        assertMlxEndpoint(endpointBaseUrl);
+      } catch {
+        throw new LocalModelConfigError(
+          'MLX requires http://127.0.0.1:<port>/v1 on this Mac.',
+        );
+      }
       if (raw.zone !== undefined && raw.zone !== 'local')
-        throw new Error('MLX endpoint zone must be local.');
+        throw new LocalModelConfigError('MLX endpoint zone must be local.');
     }
     const pricing = normalizeLocalEndpointPricing(raw.pricing, name);
     endpoints.push({
@@ -9263,6 +9269,8 @@ function loadRuntimeConfigFromSources(
     patch: diskPatch,
     source: diskSource,
   } = loadConfigPatchFromDisk();
+  // A rejected file must not replace the last known valid recovery snapshot.
+  const normalized = normalizeRuntimeConfig(diskPatch);
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   } catch (err) {
@@ -9279,7 +9287,7 @@ function loadRuntimeConfigFromSources(
     containerSandboxModeExplicit: hasOwn(rawContainer, 'sandboxMode'),
     containerMaxConcurrentExplicit: hasOwn(rawContainer, 'maxConcurrent'),
   };
-  return normalizeRuntimeConfig(diskPatch);
+  return normalized;
 }
 
 function reloadRuntimeConfigFromSources(
@@ -9731,22 +9739,31 @@ function saveRuntimeConfigSource(
   return cloneConfig(normalized);
 }
 
+// Partial updates must never overwrite an invalid disk config with stale memory.
+// Full Admin saves and revision restores validate their replacement independently.
+function refreshBeforeConfigUpdate(
+  route: string,
+  operation: string,
+): RuntimeConfig {
+  try {
+    return loadRuntimeConfigFromSources({ route, source: 'external' });
+  } catch (err) {
+    if (err instanceof LocalModelConfigError) throw err;
+    console.warn(
+      `[runtime-config] ${operation} using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return currentConfig;
+  }
+}
+
 export function updateRuntimeConfig(
   mutator: (draft: RuntimeConfig) => void,
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  let baseConfig = currentConfig;
-  try {
-    baseConfig = loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-save',
-      source: 'external',
-    });
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  const baseConfig = refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-save',
+    'update',
+  );
   const draft = cloneConfig(baseConfig);
   mutator(draft);
   return saveRuntimeConfig(draft, meta);
@@ -9755,19 +9772,11 @@ export function updateRuntimeConfig(
 export function migrateLegacySchedulerJobsFromRuntimeConfig(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeSchedulerJob[] {
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-scheduler-job-migration',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] scheduler job migration using in-memory config source after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-scheduler-job-migration',
+    'scheduler job migration',
+  );
+  const baseSource = currentConfigSource;
 
   const currentLegacy = readLegacySchedulerJobsFromSource(baseSource);
   const legacyJobs = currentLegacy.hasJobs
@@ -9798,19 +9807,11 @@ export function setRuntimeConfigSecretInput(
   value: SecretInput | '',
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-secret-save',
+    'secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
@@ -9863,19 +9864,11 @@ export function setRuntimeConfigLocalEndpointSecretInput(
     throw new Error(`Invalid local endpoint name: ${endpointName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-local-endpoint-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] local endpoint secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-local-endpoint-secret-save',
+    'local endpoint secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const local = isRecord(draftSource.local) ? draftSource.local : {};
@@ -9902,19 +9895,11 @@ export function setRuntimeConfigSlackWebhookSecretInput(
     throw new Error(`Invalid Slack webhook target name: ${targetName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-slack-webhook-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] Slack webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-slack-webhook-secret-save',
+    'Slack webhook secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const slackWebhook = isRecord(draftSource.slackWebhook)
@@ -9942,19 +9927,11 @@ export function setRuntimeConfigDiscordWebhookSecretInput(
     throw new Error(`Invalid Discord webhook target name: ${targetName}`);
   }
 
-  let baseSource = currentConfigSource;
-  try {
-    loadRuntimeConfigFromSources({
-      route: 'runtime-config.refresh-before-discord-webhook-secret-save',
-      source: 'external',
-    });
-    baseSource = currentConfigSource;
-  } catch (err) {
-    if (err instanceof LocalModelConfigError) throw err;
-    console.warn(
-      `[runtime-config] Discord webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  refreshBeforeConfigUpdate(
+    'runtime-config.refresh-before-discord-webhook-secret-save',
+    'Discord webhook secret input update',
+  );
+  const baseSource = currentConfigSource;
 
   const draftSource = cloneConfig(baseSource);
   const discordWebhook = isRecord(draftSource.discordWebhook)
