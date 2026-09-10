@@ -193,10 +193,9 @@ export function LocalContextStar({
   if (settings.kind === 'tools' && name === 'tool_catalog') return null;
   const limit = !selected && settings.starred.length >= 9;
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={selected ? styles.starred : styles.star}
+    <button
+      type="button"
+      className={`${styles.starButton} ${selected ? styles.starred : styles.star}`}
       aria-label={`${selected ? 'Unstar' : 'Star'} ${name} in catalog`}
       aria-pressed={selected}
       title={
@@ -210,7 +209,7 @@ export function LocalContextStar({
       onClick={() => settings.toggle(name)}
     >
       <span aria-hidden="true">{selected ? '★' : '☆'}</span>
-    </Button>
+    </button>
   );
 }
 
