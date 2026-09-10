@@ -7,10 +7,11 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { GatewayLocalModelService } from '../src/gateway/gateway-local-model-service.js';
 import { GIB } from '../src/inference/local-model-catalog.js';
 
-const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn() }));
+const mocks = vi.hoisted(() => ({ install: vi.fn(), hardware: vi.fn(), home: vi.fn(), health: vi.fn(), read: vi.fn(), start: vi.fn(), stop: vi.fn(), invalidate: vi.fn() }));
 vi.mock('../src/inference/mlx-install.js', () => ({ installMlxModel: mocks.install, MlxSetupError: class extends Error {} }));
 vi.mock('../src/inference/local-model-catalog.js', async (original) => ({ ...await original<typeof import('../src/inference/local-model-catalog.js')>(), detectMacHardware: mocks.hardware }));
 vi.mock('../src/inference/mlx-runtime.js', () => ({ mlxHome: mocks.home, mlxHealth: mocks.health, readMlxInstallation: mocks.read, startMlxChild: mocks.start, stopMlxChild: mocks.stop, mlxCredentials: () => ({ token: 'test-key', baseUrl: 'http://127.0.0.1:8321/v1' }) }));
+vi.mock('../src/providers/local-discovery.js', () => ({ invalidateLocalModelDiscovery: mocks.invalidate }));
 let dir: string;
 let service: GatewayLocalModelService;
 beforeEach(() => {
@@ -73,4 +74,43 @@ test('uses only the authenticated loopback stop endpoint', async () => {
   service.command({ action: 'stop' });
   await vi.waitFor(async () => expect((await service.status()).job?.status).toBe('completed'));
   expect(request).toHaveBeenCalledWith('http://127.0.0.1:8321/control/stop', expect.objectContaining({ method: 'POST', headers: { Authorization: 'Bearer test-key' }, redirect: 'error' }));
+});
+
+
+test('invalidates discovery after background startup and unexpected model exit', async () => {
+  const child = new EventEmitter() as ChildProcess;
+  let ready!: (child: ChildProcess) => void;
+  mocks.start.mockImplementation(() => new Promise<ChildProcess>((resolve) => { ready = resolve; }));
+  service.command({ action: 'start' });
+  await vi.waitFor(() => expect(mocks.start).toHaveBeenCalled());
+  mocks.invalidate.mockClear();
+  ready(child);
+  await vi.waitFor(() => expect(mocks.invalidate).toHaveBeenCalled());
+  mocks.invalidate.mockClear();
+  child.emit('exit', 1);
+  expect(mocks.invalidate).toHaveBeenCalledOnce();
+});
+
+test('invalidates discovery when observed health changes outside a console job', async () => {
+  fs.writeFileSync(path.join(dir, 'installation.json'), '{}');
+  mocks.read.mockReturnValue({ model: 'spark-x2.5-4b', contextWindow: 40960 });
+  await service.status();
+  mocks.invalidate.mockClear();
+  mocks.health.mockResolvedValue({ status: 'ready' });
+  expect((await service.status()).running).toBe(true);
+  expect(mocks.invalidate).toHaveBeenCalledOnce();
+  await service.status();
+  expect(mocks.invalidate).toHaveBeenCalledOnce();
+  mocks.health.mockResolvedValue(null);
+  expect((await service.status()).running).toBe(false);
+  expect(mocks.invalidate).toHaveBeenCalledTimes(2);
+});
+
+test('invalidates discovery after a failed lifecycle operation without exposing its error', async () => {
+  mocks.start.mockRejectedValue(new Error('secret-private-payload'));
+  service.command({ action: 'start' });
+  await vi.waitFor(() => expect(mocks.invalidate).toHaveBeenCalled());
+  const result = await service.status();
+  expect(result.job?.status).toBe('failed');
+  expect(JSON.stringify(result)).not.toContain('secret-private-payload');
 });

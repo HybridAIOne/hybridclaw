@@ -1,7 +1,8 @@
 /**
  * Discovery caches endpoint-scoped model metadata without starting inference.
  * Callers can bound cache age for availability displays; failed refreshes
- * remove stale entries. Provider-wide health is a separate, aggregated probe.
+ * remove stale entries. Lifecycle invalidation supersedes in-flight probes;
+ * provider-wide health is a separate, aggregated probe.
  */
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
@@ -517,6 +518,7 @@ async function discoverEndpointModels(
 }
 
 export interface LocalDiscoveryStore {
+  invalidate: () => void;
   discoverAllModels: (opts?: {
     force?: boolean;
     maxAgeMs?: number;
@@ -532,6 +534,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
   let discoveryTimer: ReturnType<typeof setInterval> | null = null;
   let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
   let lastDiscoveryAtMs = 0;
+  let cacheRevision = 0;
   const discoveredByBackend = new Map<
     LocalBackendType,
     Map<string, LocalModelInfo>
@@ -607,6 +610,12 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     return discoveredById.get(normalized) || null;
   }
 
+  function invalidate(): void {
+    lastDiscoveryAtMs = 0;
+    cacheRevision += 1;
+    discoveryInFlight = null;
+  }
+
   async function discoverAllModels(opts?: {
     force?: boolean;
     maxAgeMs?: number;
@@ -631,6 +640,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 
     if (discoveryInFlight) return discoveryInFlight;
 
+    const revision = cacheRevision;
     discoveryInFlight = (async () => {
       try {
         const tasks: Array<Promise<LocalModelInfo[]>> = [];
@@ -679,6 +689,8 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
         }
 
         const discovered = (await Promise.all(tasks)).flat();
+        // A pre-start/pre-stop probe must not restore the previous lifecycle state.
+        if (revision !== cacheRevision) return discoverAllModels();
         const deduped: LocalModelInfo[] = [];
         const seen = new Set<string>();
         const orderedPrefixes = [
@@ -702,7 +714,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
         lastDiscoveryAtMs = Date.now();
         return deduped;
       } finally {
-        discoveryInFlight = null;
+        if (revision === cacheRevision) discoveryInFlight = null;
       }
     })();
 
@@ -732,6 +744,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
   }
 
   return {
+    invalidate,
     discoverAllModels,
     getDiscoveredModels,
     getDiscoveredModelNames,
@@ -742,6 +755,10 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 }
 
 const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
+
+export function invalidateLocalModelDiscovery(): void {
+  defaultLocalDiscoveryStore.invalidate();
+}
 
 export async function discoverAllLocalModels(opts?: {
   force?: boolean;

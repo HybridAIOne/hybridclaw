@@ -1,7 +1,8 @@
 /**
  * Console local-model jobs belong to the gateway, so navigation cannot cancel them.
  * Only fixed catalog IDs reach the shared installer; this is not a shell or a
- * provider editor. Status exposes no credentials or subprocess diagnostics.
+ * provider editor. Observed lifecycle changes invalidate model discovery.
+ * Status exposes no credentials or subprocess diagnostics.
  */
 import type { ChildProcess } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -25,6 +26,8 @@ import {
   startMlxChild,
   stopMlxChild,
 } from '../inference/mlx-runtime.js';
+
+import { invalidateLocalModelDiscovery } from '../providers/local-discovery.js';
 
 type Stage = MlxSetupStage | 'starting' | 'stopping';
 type Job = {
@@ -58,6 +61,7 @@ export class GatewayLocalModelService {
   private pending: Promise<void> | null = null;
   private child: ChildProcess | null = null;
   private closing = false;
+  private lastRunning: boolean | undefined;
 
   async status() {
     const hardware = detectMacHardware();
@@ -90,6 +94,10 @@ export class GatewayLocalModelService {
         installationError =
           'The saved installation could not be read. Run setup again to repair it.';
       }
+    }
+    if (this.lastRunning !== running) {
+      this.lastRunning = running;
+      invalidateLocalModelDiscovery();
     }
     return {
       hardware,
@@ -178,6 +186,7 @@ export class GatewayLocalModelService {
         },
       )
       .finally(() => {
+        invalidateLocalModelDiscovery();
         this.cancellation = null;
         this.pending = null;
       });
@@ -200,6 +209,7 @@ export class GatewayLocalModelService {
       this.child = child;
       child.once('exit', () => {
         if (this.child === child) this.child = null;
+        invalidateLocalModelDiscovery();
       });
       if (signal.aborted) {
         await stopMlxChild(child);

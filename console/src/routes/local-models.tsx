@@ -4,7 +4,7 @@
  * local checks pass; provider endpoint editing remains on Providers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { controlLocalModel, fetchLocalModels } from '../api/client';
 import type {
   AdminLocalModelCommand,
@@ -104,6 +104,13 @@ export function LocalModelsPage() {
     },
   });
   const data = query.data;
+  const running = data?.running;
+  const installedModelId = data?.installation?.modelId;
+  useEffect(() => {
+    if (running === undefined || !installedModelId) return;
+    // Commands return before startup finishes; refresh again on the observed state.
+    void client.invalidateQueries({ queryKey: ['models', token] });
+  }, [client, token, running, installedModelId]);
   const selected = data?.candidates.find(
     (model) =>
       model.id === (selectedId ?? data.recommended) &&

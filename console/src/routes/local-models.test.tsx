@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { AdminLocalModelsResponse } from '../api/types';
 import { renderWithProviders } from '../test-utils';
@@ -209,4 +209,43 @@ test('removes the setup recommendation after installation completes', async () =
   expect(
     screen.queryByRole('button', { name: 'Set up selected model' }),
   ).toBeNull();
+});
+
+test.each([
+  true,
+  false,
+])('invalidates picker status when background health changes to %s', async (running) => {
+  const installation = { modelId: 'spark-x2.5-4b', contextWindow: 40960 };
+  mocks.fetch.mockResolvedValue(status({ installation, running: !running }));
+  const { queryClient } = renderWithProviders(<LocalModelsPage />);
+  await screen.findByRole('button', {
+    name: running ? 'Start model' : 'Stop model',
+  });
+  queryClient.setQueryData(['models', 'test-key'], { models: [] });
+  expect(queryClient.getQueryState(['models', 'test-key'])?.isInvalidated).toBe(
+    false,
+  );
+
+  // The job finishes after command acceptance; this is the later polling response.
+  await act(async () => {
+    queryClient.setQueryData(
+      ['local-models', 'test-key'],
+      status({ installation, running }),
+    );
+  });
+  await waitFor(() =>
+    expect(
+      queryClient.getQueryState(['models', 'test-key'])?.isInvalidated,
+    ).toBe(true),
+  );
+  queryClient.setQueryData(['models', 'test-key'], { models: [] });
+  await act(async () => {
+    queryClient.setQueryData(
+      ['local-models', 'test-key'],
+      status({ installation, running, freeDiskBytes: 80 * GIB }),
+    );
+  });
+  expect(queryClient.getQueryState(['models', 'test-key'])?.isInvalidated).toBe(
+    false,
+  );
 });
