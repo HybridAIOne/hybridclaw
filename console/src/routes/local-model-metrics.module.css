@@ -22,65 +22,55 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  overflow: hidden;
 }
 .card {
-  --graph-color: var(--primary);
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--panel-bg);
+  padding: 16px 20px;
 }
-.card[data-metric="memoryPercent"] {
-  --graph-color: var(--success);
-}
-.card[data-metric="gpuPercent"] {
-  --graph-color: light-dark(#8056b3, #c4a7f5);
-}
-.card[data-metric="tokensPerSecond"] {
-  --graph-color: light-dark(#a16b13, #e6b966);
+.card + .card {
+  border-left: 1px solid var(--line);
 }
 .reading {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  font-size: 13px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
 }
 .reading > span,
 .detail {
   color: var(--muted-foreground);
 }
 .reading strong {
-  font-size: 15px;
+  color: var(--text);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .graph {
   display: block;
   width: 100%;
-  height: 54px;
+  height: 32px;
   margin: 12px 0 8px;
-  fill: var(--graph-color);
+  fill: var(--primary);
   overflow: visible;
 }
 .baseline {
   fill: none;
-  stroke: var(--border);
+  stroke: var(--line);
   vector-effect: non-scaling-stroke;
 }
 .line {
   fill: none;
-  stroke: var(--graph-color);
+  stroke: var(--primary);
   stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
-}
-.area {
-  opacity: 0.12;
 }
 .detail {
   font-size: 11px;
@@ -90,9 +80,19 @@
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .card:nth-child(odd) {
+    border-left: 0;
+  }
+  .card:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
 }
-@media (max-width: 420px) {
+@media (max-width: 360px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+  .card + .card {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 }

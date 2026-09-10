@@ -76,10 +76,6 @@ function Graph({
           .join(' ');
         return (
           <g key={points[0][0]}>
-            <path
-              className={styles.area}
-              d={`${path} L ${points.at(-1)?.[0]} 50 L ${points[0][0]} 50 Z`}
-            />
             <path className={styles.line} d={path} />
             {points.length === 1 && (
               <circle cx={points[0][0]} cy={points[0][1]} r="2" />
@@ -182,18 +178,12 @@ export function LocalModelMetrics({
       <div className={styles.heading}>
         <h2>Live activity</h2>
         <span>
-          {stale
-            ? 'Connection lost · refresh to resume'
-            : 'Last 60 seconds · updates every 2.5s'}
+          {stale ? 'Connection lost · refresh to resume' : 'Last 60 seconds'}
         </span>
       </div>
       <div className={styles.grid}>
         {cards.map((card) => (
-          <div
-            className={styles.card}
-            data-metric={card.reading}
-            key={card.reading}
-          >
+          <div className={styles.card} key={card.reading}>
             <div className={styles.reading}>
               <span>{card.label}</span>
               <strong>{card.display}</strong>
