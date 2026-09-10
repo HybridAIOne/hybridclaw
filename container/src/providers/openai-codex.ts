@@ -187,6 +187,11 @@ function buildCodexRequestBody(
     instructions: extractCodexInstructions(args.messages, args.provider),
     input: args.messages.flatMap(convertMessageToResponsesInput),
   };
+  if (args.sessionId) {
+    // Without a stable key the backend mints a random prompt_cache_key per
+    // request, so prefix-cache hits depend on load-balancer routing luck.
+    body.prompt_cache_key = args.sessionId;
+  }
   if (args.provider === 'openai' && args.maxTokens != null) {
     body.max_output_tokens = args.maxTokens;
   }
