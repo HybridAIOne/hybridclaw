@@ -123,7 +123,9 @@ In starred tool mode, the prompt identifies the supplied function schemas as the
 directly callable set and directs inventory questions through `tool_catalog`.
 The worker also appends a stable instruction naming its actual exposed schemas
 before inference. Skill instructions mentioning `read` do not expose `read`;
-when absent, the model must describe and call it through `tool_catalog`.
+when absent, the model calls it through `tool_catalog`. Description is needed
+only for unknown parameters; schemas and instructions already returned in the
+request can be reused.
 References to tool names in other instructions are workflow examples, not an
 expanded callable set. A description returns the `tool_catalog` invocation
 schema with the target's parameters nested under `arguments`. Every catalog
@@ -144,6 +146,16 @@ skip the search step. Schemas that cannot be validated locally fail before
 execution; discovery does not fetch external schema references.
 Directory tools run when the model calls them; they are not invoked automatically
 for every message. Full skill mode already includes the eligible skill list.
+
+A reasoning-only local response is not a completion confirmation. If generation
+ends without a visible answer or tool call, the turn reports an error. Reaching
+the output-token limit is reported separately from a context overflow; the
+runtime preserves recorded tool results and does not synthesize “Done.”
+
+For small local models, starring `read` and `bash` avoids catalog round trips for
+routine skill use. **Starred + directory** in Skills reduces the inline catalog;
+Full skill mode can still make a two-tool request large. These settings remain
+operator choices and do not bypass permissions.
 
 These controls apply to local models. Tools default to starred mode; skills
 default to full mode with no stars until you choose them. Full tool mode sends

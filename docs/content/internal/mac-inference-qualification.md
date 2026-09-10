@@ -192,6 +192,35 @@ along with root lint/typechecks, container lint, formatting, and the production
 build. Full unit/e2e suites, remote-provider/MCP execution, and Docker-to-Mac GPU
 execution were not rerun for this focused discovery change.
 
+## Reasoning-only completion regression (2026-09-10)
+
+A current-build gateway session exposed another failure with only `skills_list`
+starred and skills in Full mode. Its initial prompt contained about 18,000
+tokens. The first turn took 134.6 seconds for one tool description and two
+instruction reads. Its last model call consumed the entire 2,048-token output
+budget in 82.3 seconds, with no generator call or PDF artifact. The shared
+thinking parser supplied “Done.” for the otherwise empty answer, which was
+persisted as completed. The follow-up spent 91.2 seconds repeating descriptions
+and malformed catalog calls without creating the artifact.
+
+The parser and Ollama adapter preserve empty visible output instead of creating
+a completion claim. Local turns with no answer/tool call, or with a truncated
+final response, report an explicit error and retain prior tool records. The
+catalog guidance describes only unknown parameters; known read/shell calls
+and already-loaded instructions can be used directly through the wrapper.
+No model thinking setting, output budget, or operator star selection changes.
+
+Validation: 122 targeted tests, root/container lint and typechecks, formatting,
+and the production build passed. No new native inference qualification or full
+MCP/Docker GPU run was performed for this correction.
+
+Regression coverage exercises open and closed reasoning tags, both local
+provider transports in streaming/non-streaming modes, preserved finish reasons
+and usage, and real worker IPC. Synthetic reasoning-only completions cannot
+produce a successful “Done.” turn; valid tool calls following reasoning still
+execute through their normal checks. This does not establish improved native
+model reliability or latency.
+
 ## Reproducible measurement
 
 The [raw synthetic smoke report](mac-inference-smoke.json) was captured on an

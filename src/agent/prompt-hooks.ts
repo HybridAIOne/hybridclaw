@@ -492,7 +492,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     ? [
         '## Your Tools',
         'Only the function schemas supplied with this request are directly callable. Tool names mentioned elsewhere in these instructions describe workflows, not additional exposed functions.',
-        'When tool_catalog is among those schemas, use action=list to discover additional permitted tools, action=describe to inspect a tool schema, and action=call with its exact name and arguments to execute it. For example, if read is not directly exposed, describe and call read through tool_catalog before reading a skill file.',
+        'When tool_catalog is among those schemas, use action=list to discover additional permitted tools, action=describe to inspect a tool schema, and action=call with its exact name and arguments to execute it. For example, a known read call goes through tool_catalog with action=call; describe only if its arguments are unknown. Reuse schemas and skill instructions already loaded in this request.',
         'When asked which tools are available, report the directly exposed names accurately and call tool_catalog with action=list before describing additional tools. Follow its pagination before claiming a complete inventory. Do not reconstruct the inventory from memory or examples in these instructions.',
         'If tool_catalog is not exposed, use only the supplied functions and do not claim access to additional tools. Discovery never bypasses tool permissions or action approvals.',
       ].join('\n')

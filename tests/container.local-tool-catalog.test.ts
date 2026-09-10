@@ -87,7 +87,9 @@ test('prompt guidance reflects actual exposed schemas without granting hidden to
   expect(prompt).toContain('Never emit a direct read call');
   expect(prompt).toContain('Never emit a direct bash call');
   expect(prompt).toContain('"action":"call","name":"bash","arguments":{"command":');
-  expect(prompt).toContain('"action":"describe","name":"read"');
+  expect(prompt).toContain('describe when its parameters are unknown');
+  expect(prompt).toContain('do not repeat discovery before each action');
+  expect(prompt).not.toContain('first call tool_catalog');
   expect(prompt).toContain('unavailable or blocked');
   expect(compact.promptGuidance()).toBe(prompt);
   const direct = new LocalToolCatalog(available, ['read']);

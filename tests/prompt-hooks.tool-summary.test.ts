@@ -701,7 +701,7 @@ test.each([
       expect(tools).not.toContain('**Skills**:');
       expect(tools).toContain('Only the function schemas supplied with this request are directly callable');
       expect(tools).toContain('call tool_catalog with action=list before describing additional tools');
-      expect(tools).toContain('describe and call read through tool_catalog');
+      expect(tools).toContain('describe only if its arguments are unknown');
       expect(tools).toContain('If tool_catalog is not exposed, use only the supplied functions');
       expect(tools).toContain('Discovery never bypasses tool permissions or action approvals');
     } else {

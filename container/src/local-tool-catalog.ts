@@ -116,16 +116,16 @@ export class LocalToolCatalog {
         ? `The only directly callable functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
         : 'No functions are exposed in this request.',
       directory && !names.includes('read')
-        ? 'To read a skill file, first call tool_catalog with {"action":"describe","name":"read"}, then call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
+        ? 'To read a known skill file, call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
         : '',
       directory && this.byName.has('bash') && !names.includes('bash')
-        ? 'To run a command from skill instructions, first call tool_catalog with {"action":"describe","name":"bash"}, then call tool_catalog with {"action":"call","name":"bash","arguments":{"command":"the command"}}. Never emit a direct bash call: it is not an exposed function.'
+        ? 'To run a known command from skill instructions, call tool_catalog with {"action":"call","name":"bash","arguments":{"command":"the command"}}. Never emit a direct bash call: it is not an exposed function.'
         : '',
       directory && this.byName.has('skills_list')
         ? 'Skill discovery is staged: search skills_list summaries, request details with the exact skill name, then execute the returned next call to read its instructions. Search results are not skill instructions. Follow next.name and next.arguments exactly; discovery does not expose additional functions.'
         : '',
       directory
-        ? 'For other tools absent from the exposed functions, use tool_catalog to list or describe them, then call them through tool_catalog. The directory can reject tools that are unavailable or blocked.'
+        ? 'Discover only what is missing: list when the tool name is unknown, describe when its parameters are unknown, then call. Reuse schemas and skill instructions already returned in this request; do not repeat discovery before each action. The directory can reject tools that are unavailable or blocked.'
         : 'Tool discovery is not exposed. Do not claim access to any additional tools.',
       'All tool calls must use the names in the supplied function schemas.',
     ]
@@ -257,7 +257,7 @@ export class LocalToolCatalog {
         type: 'function',
         function: {
           name: NAME,
-          description: `Execute ${tool.function.name} using action="call", name="${tool.function.name}", and arguments matching the schema below. ${tool.function.description}`,
+          description: `Execute ${tool.function.name} using action="call", name="${tool.function.name}", and arguments matching the schema below. Use action="call" next; this schema remains valid for the request. ${tool.function.description}`,
           parameters: {
             type: 'object',
             properties: {

@@ -29,7 +29,7 @@ async function harness(replies: Array<Record<string, unknown>>, overrides: Parti
     requests.push(JSON.parse(text));
     const message = replies.shift() ?? { role: 'assistant', content: 'done' };
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ id: 'test', choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] }));
+    res.end(JSON.stringify({ id: 'test', choices: [{ message, finish_reason: message.finish_reason ?? (message.tool_calls ? 'tool_calls' : 'stop') }] }));
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -263,4 +263,27 @@ test('never recovers a mixed batch containing an unexposed direct function', asy
   expect(output.toolExecutions).toEqual([]);
   expect(requests).toHaveLength(1);
   expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
+});
+
+
+test.each(['length', 'stop'])('never marks reasoning-only local output as completed (%s)', async (finish_reason) => {
+  const { output, requests } = await harness([
+    catalog('call', 'read', { path: 'notes.txt' }),
+    { role: 'assistant', content: '<think>I still need to create the PDF', finish_reason },
+  ], { localStarterTools: ['skills_list'] });
+  expect(requests).toHaveLength(2);
+  expect(output.status).toBe('error');
+  expect(output.result).toBeNull();
+  expect(output.artifacts ?? []).toEqual([]);
+  expect(output.toolExecutions).toHaveLength(1);
+  expect(output.error).toContain(finish_reason === 'length' ? 'output-token limit' : 'no final answer');
+});
+
+test('keeps valid tool calls following reasoning instead of treating them as empty output', async () => {
+  const response = { ...catalog('call', 'read', { path: 'notes.txt' }), content: '<think>Read the file first.</think>' };
+  const { output, requests } = await harness([response, { role: 'assistant', content: 'Read completed.' }], { localStarterTools: ['skills_list'] });
+  expect(requests).toHaveLength(2);
+  expect(output.status).toBe('success');
+  expect(output.result).toBe('Read completed.');
+  expect(output.toolExecutions?.[0]).toMatchObject({ name: 'read', isError: false });
 });

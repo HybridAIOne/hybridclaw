@@ -1586,6 +1586,31 @@ async function processRequest(
       hasToolCalls: toolCalls.length > 0,
       ralphEnabled,
     });
+    if (
+      isLocal &&
+      toolCalls.length === 0 &&
+      (choice.finish_reason === 'length' || !assistantSegment.text?.trim())
+    ) {
+      const failed: ContainerOutput = {
+        status: 'error',
+        result: null,
+        toolsUsed,
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        error:
+          choice.finish_reason === 'length'
+            ? 'The local model reached its output-token limit before completing its response. Try a shorter prompt or a model with a larger output budget.'
+            : 'The local model returned no final answer or tool call. Reasoning alone does not confirm task completion.',
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: failed.status,
+        toolsUsed,
+      });
+      return failed;
+    }
     const branchChoice = assistantSegment.ralphChoice;
     if (
       provider === 'hybridai' &&
