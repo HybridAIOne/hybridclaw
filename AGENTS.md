@@ -250,6 +250,10 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 - Use `hybridclaw gateway status` to compare the PID file, API-reported PID,
   entrypoint, package root, Node version, Git commit/branch, and
   source-vs-build freshness before concluding that a gateway is stale.
+- Never change a linked binary or global CLI target without asking the user
+  first and receiving explicit approval. This includes `npm link` and creating
+  or replacing executable/package symlinks. For branch or worktree testing,
+  invoke the checkout-local CLI by its explicit path instead.
 - Do not restart the gateway unless the user explicitly requests or approves a
   restart. If a restart would help, report the exact reason and command instead.
 

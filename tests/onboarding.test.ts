@@ -615,6 +615,166 @@ test('tui bootstrap does not prompt for remote auth when trust is already accept
   expect(lines.join('\n')).not.toContain('Choose auth method');
 });
 
+test.each([false, true])(
+  'gateway bootstrap warns without changing an unknown default model (interactive=%s)',
+  async (interactive) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultModel = 'missing-provider/example-model';
+      config.hybridai.defaultChatbotId = '';
+    });
+    process.env.HOME = homeDir;
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+    process.env.HYBRIDAI_API_KEY = 'test-key';
+    process.chdir(homeDir);
+    for (const stream of [process.stdin, process.stdout]) {
+      Object.defineProperty(stream, 'isTTY', {
+        value: interactive,
+        configurable: true,
+      });
+    }
+    const questionSpy = vi.fn(async () => {
+      throw new Error('Unexpected onboarding prompt');
+    });
+    const closeSpy = vi.fn();
+    vi.doMock('node:readline/promises', () => ({
+      default: {
+        createInterface: () => ({ question: questionSpy, close: closeSpy }),
+      },
+    }));
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.resetModules();
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    runtimeConfig.acceptSecurityTrustModel({
+      acceptedAt: '2026-03-10T10:00:00.000Z',
+      acceptedBy: 'test',
+    });
+    const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+    const savedConfig = fs.readFileSync(configPath, 'utf-8');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const onboarding = await import('../src/onboarding.ts');
+
+    await expect(
+      onboarding.ensureRuntimeCredentials({
+        commandName: 'hybridclaw gateway start --foreground --sandbox=host',
+        requireCredentials: false,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logSpy.mock.calls.flat().join('\n')).toContain(
+      'Unknown provider prefix `missing-provider`',
+    );
+    expect(logSpy.mock.calls.flat().join('\n')).toContain(
+      'hybridclaw config set hybridai.defaultModel <model>',
+    );
+    expect(questionSpy).not.toHaveBeenCalled();
+    expect(closeSpy).toHaveBeenCalledTimes(interactive ? 1 : 0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(savedConfig);
+    const factory = await import('../src/providers/factory.ts');
+    await expect(
+      factory.resolveModelRuntimeCredentials({
+        model: 'missing-provider/example-model',
+      }),
+    ).rejects.toThrow(factory.UnknownModelProviderError);
+  },
+);
+
+test('an unknown model does not bypass non-interactive trust acceptance', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'missing-provider/example-model';
+    config.security.trustModelAccepted = false;
+  });
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  process.chdir(homeDir);
+  vi.stubEnv('HYBRIDCLAW_ACCEPT_TRUST', 'false');
+  for (const stream of [process.stdin, process.stdout]) {
+    Object.defineProperty(stream, 'isTTY', {
+      value: false,
+      configurable: true,
+    });
+  }
+  vi.resetModules();
+  const onboarding = await import('../src/onboarding.ts');
+  try {
+    await expect(
+      onboarding.ensureRuntimeCredentials({ requireCredentials: false }),
+    ).rejects.toThrow('Security trust model is not accepted');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+test('an unknown model still allows interactive trust acceptance', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'missing-provider/example-model';
+    config.security.trustModelAccepted = false;
+  });
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  process.chdir(homeDir);
+  for (const stream of [process.stdin, process.stdout]) {
+    Object.defineProperty(stream, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+  }
+  const questionSpy = vi.fn(async (prompt: string) => {
+    if (prompt.includes('Have you reviewed TRUST_MODEL.md')) return 'y';
+    if (prompt.includes('Type ACCEPT')) return 'ACCEPT';
+    if (prompt.includes('Accepted by')) return 'test';
+    throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+  });
+  const closeSpy = vi.fn();
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({ question: questionSpy, close: closeSpy }),
+    },
+  }));
+  vi.resetModules();
+  const onboarding = await import('../src/onboarding.ts');
+  await expect(
+    onboarding.ensureRuntimeCredentials({ requireCredentials: false }),
+  ).resolves.toBeUndefined();
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  expect(
+    runtimeConfig.isSecurityTrustAccepted(runtimeConfig.getRuntimeConfig()),
+  ).toBe(true);
+  expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
+    'missing-provider/example-model',
+  );
+  expect(questionSpy).toHaveBeenCalledTimes(3);
+  expect(closeSpy).toHaveBeenCalledOnce();
+});
+
+test.each([{}, { requireCredentials: false, force: true }])(
+  'explicit credential onboarding still rejects unknown providers (%j)',
+  async (options) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.hybridai.defaultModel = 'missing-provider/example-model';
+    });
+    process.env.HOME = homeDir;
+    process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+    process.chdir(homeDir);
+    for (const stream of [process.stdin, process.stdout]) {
+      Object.defineProperty(stream, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
+    }
+    vi.resetModules();
+    const onboarding = await import('../src/onboarding.ts');
+    await expect(onboarding.ensureRuntimeCredentials(options)).rejects.toThrow(
+      'Unknown provider prefix `missing-provider`',
+    );
+  },
+);
+
 test('interactive onboarding does not print the start hint after auth login', async () => {
   const { output } = await runHybridAIOnboarding('hybridclaw auth login');
 
