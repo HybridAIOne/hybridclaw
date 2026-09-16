@@ -274,3 +274,60 @@ test('readOutput outlives a silence longer than the inactivity window while acti
     expect.objectContaining({ status: 'success', result: 'ok' }),
   );
 });
+
+test('migrateLegacyAgentWorkspace copies across filesystems when rename reports EXDEV', async () => {
+  const homeDir = makeTempHome();
+  const workspacesDir = path.join(homeDir, 'workspaces');
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_WORKSPACES_DIR = workspacesDir;
+  vi.resetModules();
+
+  const { DATA_DIR } = await import('../src/config/config.ts');
+  const legacyWorkspace = path.join(DATA_DIR, 'agents', 'main', 'workspace');
+  fs.mkdirSync(path.join(legacyWorkspace, 'memory'), { recursive: true });
+  fs.writeFileSync(path.join(legacyWorkspace, 'memory', 'a.md'), 'kept', 'utf-8');
+
+  const realRename = fs.renameSync;
+  const target = path.join(workspacesDir, 'main');
+  vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+    if (String(from) === legacyWorkspace && String(to) === target) {
+      throw Object.assign(new Error('EXDEV: cross-device link'), { code: 'EXDEV' });
+    }
+    return realRename(from, to);
+  });
+
+  const { ensureAgentDirs } = await import('../src/infra/ipc.ts');
+  ensureAgentDirs('main');
+
+  expect(fs.readFileSync(path.join(target, 'memory', 'a.md'), 'utf-8')).toBe('kept');
+  expect(fs.existsSync(legacyWorkspace)).toBe(false);
+  expect(fs.existsSync(`${target}.migrating`)).toBe(false);
+});
+
+test('a failed workspace move throws and never leaves an empty target behind', async () => {
+  const homeDir = makeTempHome();
+  const workspacesDir = path.join(homeDir, 'workspaces');
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_WORKSPACES_DIR = workspacesDir;
+  vi.resetModules();
+
+  const { DATA_DIR } = await import('../src/config/config.ts');
+  const legacyWorkspace = path.join(DATA_DIR, 'agents', 'main', 'workspace');
+  fs.mkdirSync(legacyWorkspace, { recursive: true });
+  fs.writeFileSync(path.join(legacyWorkspace, 'notes.md'), 'kept', 'utf-8');
+
+  vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+    throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+  });
+
+  const { ensureAgentDirs } = await import('../src/infra/ipc.ts');
+  const target = path.join(workspacesDir, 'main');
+  expect(() => ensureAgentDirs('main')).toThrow(/Failed to move agent workspace/);
+  expect(fs.existsSync(target)).toBe(false);
+  expect(fs.readFileSync(path.join(legacyWorkspace, 'notes.md'), 'utf-8')).toBe('kept');
+
+  // Once the cause is fixed, the next boot migrates normally.
+  vi.restoreAllMocks();
+  ensureAgentDirs('main');
+  expect(fs.readFileSync(path.join(target, 'notes.md'), 'utf-8')).toBe('kept');
+});

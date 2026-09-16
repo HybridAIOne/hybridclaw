@@ -86,6 +86,10 @@ export function agentWorkspaceDir(agentId: string): string {
 /**
  * One-shot move of a workspace from the runtime-home layout into
  * HYBRIDCLAW_WORKSPACES_DIR. Skipped when the target already exists.
+ *
+ * A failed move throws instead of degrading: callers must not create an
+ * empty target afterwards, or the legacy workspace (identity, memory, files)
+ * would be orphaned forever and the agent silently start over.
  */
 export function migrateLegacyAgentWorkspace(agentId: string): boolean {
   if (!WORKSPACES_ROOT_DIR) return false;
@@ -94,16 +98,42 @@ export function migrateLegacyAgentWorkspace(agentId: string): boolean {
   if (fs.existsSync(target) || !fs.existsSync(legacy)) return false;
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.renameSync(legacy, target);
-    logger.info({ agentId, from: legacy, to: target }, 'Moved agent workspace');
-    return true;
+    try {
+      fs.renameSync(legacy, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+      moveAcrossFilesystems(legacy, target);
+    }
   } catch (error) {
-    logger.warn(
+    logger.error(
       { agentId, from: legacy, to: target, error },
-      'Failed to move agent workspace; keeping legacy location',
+      'Failed to move agent workspace into HYBRIDCLAW_WORKSPACES_DIR',
     );
-    return false;
+    throw new Error(
+      `Failed to move agent workspace ${legacy} to ${target}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
+  logger.info({ agentId, from: legacy, to: target }, 'Moved agent workspace');
+  return true;
+}
+
+/**
+ * Copy into a staging sibling, then rename into place, so a crash mid-copy
+ * never leaves a partial target that the existence guard would accept.
+ */
+function moveAcrossFilesystems(legacy: string, target: string): void {
+  const staging = `${target}.migrating`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  try {
+    fs.cpSync(legacy, staging, { recursive: true, preserveTimestamps: true });
+    fs.renameSync(staging, target);
+  } catch (error) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  fs.rmSync(legacy, { recursive: true, force: true });
 }
 
 /**
