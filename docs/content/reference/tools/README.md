@@ -11,3 +11,4 @@ These pages document individual built-in tools and their configuration.
 ## In This Section
 
 - [Web Search](./web-search.md)
+- [Feedback Drafts](./feedback-drafts.md)

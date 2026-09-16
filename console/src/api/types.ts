@@ -573,6 +573,11 @@ export interface AdminConfig {
     enableRag: boolean;
     models: string[];
   };
+  feedback: {
+    drafts: {
+      enabled: boolean;
+    };
+  };
   channelInstructions: {
     discord: string;
     discord_webhook: string;

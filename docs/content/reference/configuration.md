@@ -112,6 +112,11 @@ saved revision history directly.
   local image path such as `/icons/hybridai.png` or an HTTP(S) image URL.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
+- `feedback.drafts.enabled` (default `false`) offers the agent the
+  `report_feedback` tool so it can queue bug, idea, and missing-capability
+  reports about HybridClaw itself. Drafts are stored in the gateway database
+  and are never sent until an operator runs `/feedback send <id>`; see
+  [Feedback Drafts](./tools/feedback-drafts.md)
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
   runtime status reporting, including the target base URL, bot and agent ids,
   flush interval, and batch size

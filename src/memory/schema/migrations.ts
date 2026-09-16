@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 59;
+export const DATABASE_SCHEMA_VERSION = 60;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -1106,6 +1106,7 @@ function migrateV1(database: Database.Database): void {
   `);
   createDelegationJobsSchema(database);
   createResponseRatingsSchema(database);
+  createFeedbackDraftsSchema(database);
   recordMigration(database, 1, 'Initial schema');
 }
 
@@ -3586,6 +3587,46 @@ function migrateV59(
   );
 }
 
+function createFeedbackDraftsSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_drafts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      agent_id TEXT,
+      channel_id TEXT,
+      run_id TEXT,
+      model TEXT,
+      provider TEXT,
+      gateway_version TEXT,
+      trigger TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('bug', 'idea', 'missing_capability')),
+      title TEXT NOT NULL,
+      details TEXT NOT NULL,
+      area TEXT,
+      failure_mode TEXT,
+      task_category TEXT,
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'submitted', 'discarded', 'expired')),
+      viewed_at TEXT,
+      submitted_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_drafts_session_status
+      ON feedback_drafts(session_id, status, created_at);
+  `);
+}
+
+function migrateV60(database: Database.Database): void {
+  createFeedbackDraftsSchema(database);
+  recordMigration(
+    database,
+    60,
+    'Queue agent-drafted feedback reports for operator review',
+  );
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3731,6 +3772,7 @@ export function runMigrations(
   }
 
   if (currentVersion < 59) migrateV59(database, opts);
+  if (currentVersion < 60) migrateV60(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

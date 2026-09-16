@@ -1211,6 +1211,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 50000,
     },
     {
+      path: 'feedback.drafts.enabled',
+      section: 'feedback',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'gemini.baseUrl',
       section: 'gemini',
       kind: 'string',

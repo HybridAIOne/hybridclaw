@@ -25,6 +25,7 @@ export {
   withMemoryDatabaseRuntimeRevisionStore,
 } from './database.js';
 export * from './delegation-jobs.js';
+export * from './feedback-drafts.js';
 export * from './knowledge-graph.js';
 export * from './kv.js';
 export * from './messages.js';

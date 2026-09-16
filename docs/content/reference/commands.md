@@ -758,6 +758,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
 | `/status` | local and chat channels | Show runtime, session, and agent status |
 | `/thumbs up|down [comment]` or `/thumbs clear` | local and chat channels | Rate the last answer, optionally adding a correction or the expected answer |
+| `/feedback [list|view <id>|send <id> [--transcript]|discard <id>]` | local and chat channels | Review feedback drafts the agent queued about HybridClaw itself; drafts stay local until you send them |
 | `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode |
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
 | `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |

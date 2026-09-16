@@ -109,6 +109,11 @@
     ],
     "disabled": []
   },
+  "feedback": {
+    "drafts": {
+      "enabled": false
+    }
+  },
   "channelInstructions": {
     "discord": "",
     "discord_webhook": "",

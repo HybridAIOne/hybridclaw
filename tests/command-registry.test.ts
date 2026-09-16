@@ -1129,6 +1129,58 @@ test('registers context as a canonical slash/text command', async () => {
   expect(mapCanonicalCommandToGatewayArgs(['context'])).toEqual(['context']);
 });
 
+test('registers feedback as a text and slash command with review subcommands', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('feedback')).toBe(true);
+  expect(mapCanonicalCommandToGatewayArgs(['feedback'])).toEqual(['feedback']);
+  expect(
+    mapCanonicalCommandToGatewayArgs([
+      'feedback',
+      'send',
+      'fbd_0123456789',
+      '--transcript',
+    ]),
+  ).toEqual(['feedback', 'send', 'fbd_0123456789', '--transcript']);
+
+  const definition = buildCanonicalSlashCommandDefinitions([]).find(
+    (entry) => entry.name === 'feedback',
+  );
+  expect(definition?.options?.map((option) => option.name)).toEqual([
+    'list',
+    'view',
+    'send',
+    'discard',
+  ]);
+
+  const interaction = (
+    subcommand: string | null,
+    values: Record<string, string | null>,
+  ) => ({
+    commandName: 'feedback',
+    getSubcommand: () => subcommand,
+    getString: (name: string) => values[name] ?? null,
+  });
+  expect(parseCanonicalSlashCommandArgs(interaction(null, {}))).toEqual([
+    'feedback',
+    'list',
+  ]);
+  expect(
+    parseCanonicalSlashCommandArgs(
+      interaction('send', { id: 'fbd_0123456789', transcript: 'yes' }),
+    ),
+  ).toEqual(['feedback', 'send', 'fbd_0123456789', '--transcript']);
+  expect(
+    parseCanonicalSlashCommandArgs(interaction('view', { id: 'fbd_0123456789' })),
+  ).toEqual(['feedback', 'view', 'fbd_0123456789']);
+  expect(parseCanonicalSlashCommandArgs(interaction('discard', {}))).toBeNull();
+});
+
 test('registers thumbs as a text and slash command and maps ratings', async () => {
   const {
     buildCanonicalSlashCommandDefinitions,

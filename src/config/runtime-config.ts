@@ -1122,6 +1122,19 @@ const skillAutonomyRuleIndexes = new WeakMap<
   RuntimeSkillAutonomyRuleIndex
 >();
 
+export interface RuntimeFeedbackDraftsConfig {
+  /**
+   * Offer the `report_feedback` tool so the agent can queue bug/idea reports
+   * for operator review. Drafts stay local until an operator sends them with
+   * `/feedback send`.
+   */
+  enabled: boolean;
+}
+
+export interface RuntimeFeedbackConfig {
+  drafts: RuntimeFeedbackDraftsConfig;
+}
+
 export interface RuntimeConfig {
   version: number;
   audit: RuntimeAuditConfig;
@@ -1147,6 +1160,7 @@ export interface RuntimeConfig {
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
+  feedback: RuntimeFeedbackConfig;
   channelInstructions: RuntimeChannelInstructionsConfig;
   plugins: RuntimePluginsConfig;
   adaptiveSkills: AdaptiveSkillsConfig;
@@ -1631,6 +1645,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     disabled: [],
     httpRequest: {
       authRules: [],
+    },
+  },
+  feedback: {
+    drafts: {
+      enabled: false,
     },
   },
   channelInstructions: {
@@ -7847,6 +7866,16 @@ function normalizeRuntimeConfig(
             ? raw.tools.httpRequest.authRules
             : undefined,
           DEFAULT_RUNTIME_CONFIG.tools.httpRequest.authRules,
+        ),
+      },
+    },
+    feedback: {
+      drafts: {
+        enabled: normalizeBoolean(
+          isRecord(raw.feedback) && isRecord(raw.feedback.drafts)
+            ? raw.feedback.drafts.enabled
+            : undefined,
+          DEFAULT_RUNTIME_CONFIG.feedback.drafts.enabled,
         ),
       },
     },

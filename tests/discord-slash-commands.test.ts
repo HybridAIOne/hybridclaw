@@ -110,6 +110,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
     new Set([
       'status',
       'thumbs',
+      'feedback',
       'btw',
       'show',
       'approve',

@@ -88,6 +88,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'model',
   'status',
   'thumbs',
+  'feedback',
   'memory',
   'show',
   'approve',
@@ -326,6 +327,11 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description:
       'Rate the last answer; optionally add a correction or the expected answer',
   },
+  feedback: {
+    command: '/feedback [list|view <id>|send <id> [--transcript]|discard <id>]',
+    description:
+      'Review feedback drafts the agent queued about HybridClaw; nothing is sent without you',
+  },
   usage: {
     command: '/usage [summary|daily|monthly|model [daily|monthly] [agentId]]',
     description: 'Show usage',
@@ -506,6 +512,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'thumbs':
       return ['thumbs', ...parts.slice(1)];
+
+    case 'feedback':
+      return ['feedback', ...parts.slice(1)];
 
     case 'memory': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -725,6 +734,71 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'feedback',
+      description:
+        'Review feedback drafts the agent queued about HybridClaw (nothing is sent without you)',
+      tuiMenu: {
+        label: '/feedback [list|view|send|discard]',
+        insertText: '/feedback ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'list',
+          description: 'List queued feedback drafts for this session',
+        },
+        {
+          kind: 'subcommand',
+          name: 'view',
+          description: 'Show a draft in full before deciding',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Draft id (fbd_…)',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'send',
+          description: 'Send a reviewed draft to HybridAI',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Draft id (fbd_…)',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'transcript',
+              description:
+                'Set to "yes" to attach the recent conversation excerpt and turn trace',
+              choices: [
+                { name: 'yes', value: 'yes' },
+                { name: 'no', value: 'no' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'discard',
+          description: 'Discard a draft without sending it',
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Draft id (fbd_…)',
+              required: true,
+            },
+          ],
+        },
+      ],
     },
     {
       name: 'thumbs',
@@ -3241,6 +3315,26 @@ export function parseCanonicalSlashCommandArgs(
   switch (interaction.commandName) {
     case 'status':
       return ['status'];
+
+    case 'feedback': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (!subcommand || subcommand === 'list') return ['feedback', 'list'];
+      if (
+        subcommand === 'view' ||
+        subcommand === 'send' ||
+        subcommand === 'discard'
+      ) {
+        const id = normalizeStringOption(interaction, 'id', true);
+        if (!id) return null;
+        const transcript =
+          subcommand === 'send' &&
+          normalizeStringOption(interaction, 'transcript') === 'yes';
+        return transcript
+          ? ['feedback', subcommand, id, '--transcript']
+          : ['feedback', subcommand, id];
+      }
+      return null;
+    }
 
     case 'thumbs': {
       const subcommand = normalizeSubcommand(interaction);

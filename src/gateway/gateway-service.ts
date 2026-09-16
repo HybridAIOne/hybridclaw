@@ -505,6 +505,18 @@ import {
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import {
+  discardFeedbackDraft,
+  FeedbackDraftInvalidError,
+  FeedbackDraftNotFoundError,
+  FeedbackDraftSubmitError,
+  formatFeedbackDraftDetail,
+  formatFeedbackDraftLine,
+  isFeedbackDraftsEnabled,
+  listSessionFeedbackDrafts,
+  submitFeedbackDraft,
+  viewFeedbackDraft,
+} from './feedback-drafts.js';
+import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
   enableFullAutoSession,
@@ -11655,6 +11667,99 @@ export async function handleGatewayCommand(
           ({ command, description }) => `\`${command}\`: ${description}`,
         );
         return infoCommand('HybridClaw Commands', help.join('\n'));
+      }
+
+      case 'feedback': {
+        const usage =
+          'Usage: `/feedback list`, `/feedback view <id>`, `/feedback send <id> [--transcript]`, or `/feedback discard <id>`. Drafts are queued locally by the agent and are never sent without you.';
+        if (!isFeedbackDraftsEnabled()) {
+          return badCommand(
+            'Feedback Drafts Disabled',
+            'Feedback drafts are disabled on this gateway. Set `feedback.drafts.enabled` to `true` to let agents queue reports for review.',
+          );
+        }
+        const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
+        const operatorUserId = String(req.userId || '').trim() || 'web';
+        const sourceSurface =
+          parseSessionKey(session.id)?.channelKind ||
+          String(req.channelId || '').trim() ||
+          'web';
+        try {
+          if (sub === 'list') {
+            const drafts = listSessionFeedbackDrafts(session.id);
+            if (drafts.length === 0) {
+              return plainCommand(
+                'No queued feedback drafts in this session. The agent files one when it hits a HybridClaw bug, a missing capability, or a mistake of its own.',
+              );
+            }
+            return infoCommand(
+              'Feedback Drafts',
+              [
+                ...drafts.map((draft) => `- ${formatFeedbackDraftLine(draft)}`),
+                '',
+                'Review with `/feedback view <id>`, then `/feedback send <id> [--transcript]` or `/feedback discard <id>`. Unsent drafts expire after 30 days.',
+              ].join('\n'),
+            );
+          }
+          const draftId = parseIdArg(req.args, 2);
+          if (
+            (sub !== 'view' && sub !== 'send' && sub !== 'discard') ||
+            !draftId
+          ) {
+            return badCommand('Usage', usage);
+          }
+          if (sub === 'view') {
+            const draft = viewFeedbackDraft(draftId);
+            return infoCommand(
+              `Feedback Draft ${draft.id}`,
+              formatFeedbackDraftDetail(draft),
+            );
+          }
+          if (sub === 'discard') {
+            const draft = discardFeedbackDraft({
+              id: draftId,
+              operatorUserId,
+            });
+            return plainCommand(
+              `Discarded feedback draft \`${draft.id}\`. Nothing was sent.`,
+            );
+          }
+          const includeTranscript = req.args
+            .slice(3)
+            .some((arg) => String(arg).trim().toLowerCase() === '--transcript');
+          const submitted = await submitFeedbackDraft({
+            id: draftId,
+            operatorUserId,
+            includeTranscript,
+            sourceSurface,
+          });
+          return plainCommand(
+            [
+              `Sent feedback draft \`${submitted.draft.id}\` to HybridAI${
+                submitted.transcriptIncluded
+                  ? submitted.transcriptTruncated
+                    ? ' with a trimmed transcript excerpt'
+                    : ' with the transcript excerpt'
+                  : ' without a transcript'
+              }.`,
+              'Thank you — this helps improve HybridClaw.',
+            ].join(' '),
+          );
+        } catch (error) {
+          if (
+            error instanceof FeedbackDraftNotFoundError ||
+            error instanceof FeedbackDraftInvalidError
+          ) {
+            return badCommand('Feedback Draft', error.message);
+          }
+          if (error instanceof FeedbackDraftSubmitError) {
+            return badCommand(
+              'Feedback Not Sent',
+              `${error.message} The draft stays queued; retry with \`/feedback send ${parseIdArg(req.args, 2)}\`.`,
+            );
+          }
+          throw error;
+        }
       }
 
       case 'thumbs': {

@@ -227,6 +227,11 @@ import {
 } from './chat-result.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
+  createFeedbackDraft,
+  FeedbackDraftInvalidError,
+  FeedbackDraftsDisabledError,
+} from './feedback-drafts.js';
+import {
   completeGatewayAdminConnectorOAuthCallback,
   getGatewayAdminConnectorsWithPlatformState,
   logoutGatewayAdminConnector,
@@ -4020,6 +4025,69 @@ async function handleApiPluginTool(
     });
     sendJson(res, 200, { ok: true, result });
   } catch (error) {
+    throw new GatewayRequestError(
+      500,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+interface ApiFeedbackDraftRequestBody {
+  sessionId?: unknown;
+  channelId?: unknown;
+  agentId?: unknown;
+  model?: unknown;
+  provider?: unknown;
+  draft?: unknown;
+}
+
+function readOptionalBodyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Container callback for the `report_feedback` tool. The draft is validated
+ * and stored locally; it is only ever forwarded by `/feedback send`.
+ */
+async function handleApiFeedbackDraft(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiFeedbackDraftRequestBody;
+  const sessionId = readOptionalBodyString(body.sessionId);
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  try {
+    const result = createFeedbackDraft({
+      sessionId,
+      channelId: readOptionalBodyString(body.channelId),
+      agentId: readOptionalBodyString(body.agentId),
+      model: readOptionalBodyString(body.model),
+      provider: readOptionalBodyString(body.provider),
+      draft: body.draft,
+    });
+    sendJson(res, 200, {
+      ok: true,
+      deduplicated: result.deduplicated,
+      draft: {
+        id: result.draft.id,
+        status: result.draft.status,
+        title: result.draft.title,
+        createdAt: result.draft.created_at,
+        expiresAt: result.draft.expires_at,
+      },
+    });
+  } catch (error) {
+    if (error instanceof FeedbackDraftsDisabledError) {
+      sendJson(res, 403, { error: error.message });
+      return;
+    }
+    if (error instanceof FeedbackDraftInvalidError) {
+      sendJson(res, 400, { error: error.message });
+      return;
+    }
     throw new GatewayRequestError(
       500,
       error instanceof Error ? error.message : String(error),
@@ -11313,6 +11381,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/plugin/tool' && method === 'POST') {
             await handleApiPluginTool(req, res);
+            return;
+          }
+          if (pathname === '/api/feedback/draft' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiFeedbackDraft(req, res);
             return;
           }
           if (pathname === '/api/http/request' && method === 'POST') {

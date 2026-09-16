@@ -62,6 +62,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       enableRag: true,
       models: ['gpt-5'],
     },
+    feedback: { drafts: { enabled: false } },
     channelInstructions: {
       discord: '',
       discord_webhook: '',

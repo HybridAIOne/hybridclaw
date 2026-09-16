@@ -11,6 +11,8 @@
  * allowed call needs a human); this module only decides whether the tool is
  * offered to the model at all.
  */
+
+import { REPORT_FEEDBACK_TOOL_NAME } from '../../container/shared/feedback-drafts.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import {
   getRuntimeConfig,
@@ -23,10 +25,18 @@ export function mergeBlockedToolNames(params?: {
   runtimeDisabled?: Iterable<string>;
 }): string[] | undefined {
   const explicit = Array.isArray(params?.explicit) ? params.explicit : [];
+  const runtimeConfig = getRuntimeConfig();
   const runtimeDisabled =
-    params?.runtimeDisabled ?? getRuntimeDisabledToolNames(getRuntimeConfig());
+    params?.runtimeDisabled ?? getRuntimeDisabledToolNames(runtimeConfig);
+  const featureDisabled = runtimeConfig.feedback.drafts.enabled
+    ? []
+    : [REPORT_FEEDBACK_TOOL_NAME];
   const merged = [
-    ...normalizeTrimmedStringSet([...explicit, ...runtimeDisabled]),
+    ...normalizeTrimmedStringSet([
+      ...explicit,
+      ...runtimeDisabled,
+      ...featureDisabled,
+    ]),
   ];
   return merged.length > 0 ? merged : undefined;
 }

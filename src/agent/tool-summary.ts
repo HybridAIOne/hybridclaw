@@ -80,6 +80,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['video_generate'],
   },
   {
+    label: 'Feedback',
+    tools: ['report_feedback'],
+  },
+  {
     label: 'MCP',
     tools: [],
   },
