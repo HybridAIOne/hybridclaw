@@ -6407,7 +6407,59 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
-  test('renders raw HTML from stored docs as text instead of executable markup', async () => {
+  test.each([
+    {
+      name: 'inline code',
+      markdown: '`https://<public-host><voice.webhookPath>/webhook`',
+      expected:
+        '<code>https://&lt;public-host&gt;&lt;voice.webhookPath&gt;/webhook</code>',
+    },
+    {
+      name: 'fenced code with quotes and ampersands',
+      markdown: '```json\n{"host":"<public-host>","query":"a&b"}\n```',
+      expected:
+        '<pre><code class="language-json">{"host":"&lt;public-host&gt;","query":"a&amp;b"}\n</code></pre>',
+    },
+    {
+      name: 'indented code',
+      markdown: '    echo "<tag>" && echo \'&\'\n',
+      expected:
+        '<pre><code>echo "&lt;tag&gt;" &amp;&amp; echo \'&amp;\'\n</code></pre>',
+    },
+    {
+      name: 'literal entities in code',
+      markdown: '`&lt;literal&gt; &amp; &#60;`',
+      expected: '<code>&amp;lt;literal&amp;gt; &amp;amp; &amp;#60;</code>',
+    },
+    {
+      name: 'HTML in code',
+      markdown: '`<img src=x onerror=alert(1)>`',
+      expected: '<code>&lt;img src=x onerror=alert(1)&gt;</code>',
+    },
+  ])('preserves docs $name', async ({ markdown, expected }) => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'docs', 'content', 'guides', 'code.md'),
+      `# Code\n\n${markdown}\n`,
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/code' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(expected);
+    expect(res.body).not.toContain('<img src=x');
+  });
+
+  test.each([
+    '<script id="stored-injection">alert(1)</script>',
+    'Inline <img src=x onerror=alert(1)> markup.',
+    '<div onclick="alert(1)">Raw HTML</div>',
+  ])('renders raw HTML from stored docs as text: %s', async (markup) => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
       path.join(installRoot, 'docs', 'content', 'guides', 'stored-markup.md'),
@@ -6420,7 +6472,7 @@ describe('gateway HTTP server', () => {
         '',
         '# Stored Markup',
         '',
-        '<script id="stored-injection">alert(1)</script>',
+        markup,
         '',
       ].join('\n'),
       'utf8',
@@ -6434,7 +6486,11 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain('<script id="stored-injection">');
-    expect(res.body).toContain('&lt;script');
+    expect(res.body).not.toContain('<img src=x');
+    expect(res.body).not.toContain('<div onclick=');
+    expect(res.body).toContain(
+      markup.replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    );
   });
 
   test('returns a visible error for malformed docs frontmatter', async () => {
