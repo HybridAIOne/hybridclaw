@@ -65,6 +65,10 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import {
+  REPORT_FEEDBACK_TOOL_DEFINITION,
+  runReportFeedback,
+} from './tools/report-feedback.js';
+import {
   runGlobSearch,
   runGrepSearch,
   SEARCH_TOOL_DEFINITIONS,
@@ -3098,6 +3102,20 @@ async function executeToolInternal(
     case 'skills_list':
       return runSkillsList(args);
 
+    case 'report_feedback': {
+      const outcome = await runReportFeedback(args, {
+        gatewayBaseUrl,
+        gatewayApiToken,
+        sessionId: currentSessionId,
+        channelId: gatewayChannelId,
+        agentId: currentAgentId,
+        model: currentModelName,
+        provider: currentModelProvider,
+      });
+      if (!outcome.ok) return failTool(outcome.output);
+      return outcome.output;
+    }
+
     case 'bash': {
       if (typeof args.command !== 'string' || args.command.includes('\0')) {
         return failTool('Error: command must be a string without NUL bytes');
@@ -4270,6 +4288,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   ...SEARCH_TOOL_DEFINITIONS,
   BASH_TOOL_DEFINITION,
+  REPORT_FEEDBACK_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
