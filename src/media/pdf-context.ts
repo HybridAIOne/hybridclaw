@@ -219,6 +219,25 @@ function resolveDisplayPathToHost(
 ): string | null {
   const normalized = normalizePathSlashes(rawPath);
 
+  // Real paths win; the mount aliases below only apply in container mode.
+  if (path.isAbsolute(normalized)) {
+    const resolved = path.resolve(normalized);
+    for (const root of [
+      workspaceRoot,
+      DISCORD_MEDIA_CACHE_ROOT,
+      UPLOADED_MEDIA_CACHE_ROOT,
+      ...mountAliases.map((alias) => alias.hostPath),
+    ]) {
+      const resolvedRoot = path.resolve(root);
+      if (
+        resolved === resolvedRoot ||
+        resolved.startsWith(`${resolvedRoot}${path.sep}`)
+      ) {
+        return resolved;
+      }
+    }
+  }
+
   for (const alias of mountAliases) {
     if (
       normalized === alias.containerPath ||

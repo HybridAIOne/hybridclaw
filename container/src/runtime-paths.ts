@@ -2,27 +2,33 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const DEFAULT_WORKSPACE_ROOT_DISPLAY = '/workspace';
-function normalizeDisplayRoot(rawValue: string | undefined): string {
-  const trimmed = String(rawValue || '').trim();
-  if (!trimmed) return DEFAULT_WORKSPACE_ROOT_DISPLAY;
-  const normalized = normalizeSlashes(trimmed);
-  if (!path.posix.isAbsolute(normalized)) {
-    return DEFAULT_WORKSPACE_ROOT_DISPLAY;
-  }
-  return path.posix.normalize(normalized);
+const DEFAULT_WORKSPACE_ROOT = '/workspace';
+
+function normalizeSlashes(value: string): string {
+  return value.replace(/\\/g, '/');
 }
 
-export const WORKSPACE_ROOT_DISPLAY = normalizeDisplayRoot(
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT,
+/**
+ * The agent sees the workspace at its real path. The only time the model's
+ * view differs from the host's is the task-sandbox eval mode, where bash is
+ * proxied into a container that mounts the workspace at another path
+ * (HYBRIDCLAW_BASH_DOCKER_CWD); then that path is what the model works with.
+ */
+export const WORKSPACE_ROOT = path.resolve(
+  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || DEFAULT_WORKSPACE_ROOT,
 );
-export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
-export const UPLOADED_MEDIA_CACHE_ROOT_DISPLAY = '/uploaded-media-cache';
+function resolveWorkspaceDisplayRoot(): string {
+  const dockerCwd = normalizeSlashes(
+    String(process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '').trim(),
+  );
+  if (process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER && dockerCwd) {
+    return path.posix.normalize(dockerCwd);
+  }
+  return WORKSPACE_ROOT;
+}
+export const WORKSPACE_ROOT_DISPLAY = resolveWorkspaceDisplayRoot();
 const MANAGED_TEMP_MEDIA_DIR_PREFIXES = ['hybridclaw-wa-'] as const;
 
-export const WORKSPACE_ROOT = path.resolve(
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT || WORKSPACE_ROOT_DISPLAY,
-);
 const ALLOWED_HOST_ROOTS = (() => {
   const raw = (process.env.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '').trim();
   if (!raw) return [];
@@ -39,12 +45,13 @@ const ALLOWED_HOST_ROOTS = (() => {
     return [];
   }
 })();
+// Media caches are read at their real location: a bind mount inside the agent
+// container, or the gateway data dir in host mode.
 export const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
-  process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  process.env.HYBRIDCLAW_AGENT_MEDIA_ROOT || '/discord-media-cache',
 );
 export const UPLOADED_MEDIA_CACHE_ROOT = path.resolve(
-  process.env.HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT ||
-    UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
+  process.env.HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT || '/uploaded-media-cache',
 );
 export const IPC_DIR = path.resolve(
   process.env.HYBRIDCLAW_AGENT_IPC_DIR || '/ipc',
@@ -91,10 +98,6 @@ function loadExtraMountAliases(): ExtraMountAlias[] {
 }
 
 const EXTRA_MOUNT_ALIASES = loadExtraMountAliases();
-
-function normalizeSlashes(value: string): string {
-  return value.replace(/\\/g, '/');
-}
 
 function expandUserPath(input: string): string {
   const trimmed = input.trim();
@@ -170,7 +173,7 @@ function resolveDisplayAbsoluteToActual(
 function resolveRootBoundPath(
   rawPath: string,
   actualRoot: string,
-  displayRoot: string,
+  displayRoot: string = actualRoot,
 ): string | null {
   const input = expandUserPath(String(rawPath || ''));
   if (!input) return null;
@@ -189,30 +192,21 @@ function resolveRootBoundPath(
       return resolvedActual;
     }
 
-    const fromDisplay = resolveDisplayAbsoluteToActual(
-      path.posix.normalize(normalizedInput),
-      displayRoot,
-      actualRoot,
-    );
-    if (fromDisplay) {
-      return isWithinRoot(fromDisplay, actualRoot) ? fromDisplay : null;
+    if (displayRoot !== actualRoot) {
+      const fromDisplay = resolveDisplayAbsoluteToActual(
+        path.posix.normalize(normalizedInput),
+        displayRoot,
+        actualRoot,
+      );
+      if (fromDisplay) {
+        return isWithinRoot(fromDisplay, actualRoot) ? fromDisplay : null;
+      }
     }
 
     return null;
   }
 
-  let clean = path.posix.normalize(normalizedInput);
-  const displayBaseName = path.posix.basename(displayRoot);
-  if (
-    displayRoot !== DEFAULT_WORKSPACE_ROOT_DISPLAY &&
-    displayBaseName &&
-    displayBaseName !== '.' &&
-    displayBaseName !== '/' &&
-    (clean === displayBaseName || clean.startsWith(`${displayBaseName}/`))
-  ) {
-    clean =
-      clean === displayBaseName ? '.' : clean.slice(displayBaseName.length + 1);
-  }
+  const clean = path.posix.normalize(normalizedInput);
   if (clean === '..' || clean.startsWith('../')) return null;
   const resolved = path.resolve(actualRoot, clean);
   return isWithinRoot(resolved, actualRoot) ? resolved : null;
@@ -246,28 +240,7 @@ function resolveExtraMountPath(
   return null;
 }
 
-function isAbsoluteMediaCachePathOutsideWorkspace(rawPath: string): boolean {
-  const input = expandUserPath(String(rawPath || ''));
-  if (!input) return false;
-  const normalizedInput = normalizeSlashes(input);
-  if (!path.posix.isAbsolute(normalizedInput)) return false;
-  const resolved = path.resolve(input);
-  if (isWithinRoot(resolved, WORKSPACE_ROOT)) return false;
-  if (ALLOWED_HOST_ROOTS.some((root) => isWithinRoot(resolved, root))) {
-    return false;
-  }
-  return (
-    isWithinRoot(resolved, DISCORD_MEDIA_CACHE_ROOT) ||
-    isWithinRoot(resolved, UPLOADED_MEDIA_CACHE_ROOT)
-  );
-}
-
 export function resolveWorkspacePath(rawPath: string): string | null {
-  // In host mode the media caches can live under the workspace *display* root
-  // (for example DATA_DIR=/workspace/.data with display root /workspace).
-  // Such paths belong to resolveMediaPath; remapping them through the display
-  // alias would point at a non-existent file inside the actual workspace.
-  if (isAbsoluteMediaCachePathOutsideWorkspace(rawPath)) return null;
   return resolveRootBoundPath(rawPath, WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY);
 }
 
@@ -297,16 +270,8 @@ export function resolveWorkspaceGlobPattern(rawPattern: string): string | null {
 export function resolveMediaPath(rawPath: string): string | null {
   return (
     resolveManagedTempMediaPath(rawPath) ||
-    resolveRootBoundPath(
-      rawPath,
-      DISCORD_MEDIA_CACHE_ROOT,
-      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-    ) ||
-    resolveRootBoundPath(
-      rawPath,
-      UPLOADED_MEDIA_CACHE_ROOT,
-      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
-    )
+    resolveRootBoundPath(rawPath, DISCORD_MEDIA_CACHE_ROOT) ||
+    resolveRootBoundPath(rawPath, UPLOADED_MEDIA_CACHE_ROOT)
   );
 }
 

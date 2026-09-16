@@ -186,7 +186,6 @@ async function runAgentInner(
     model,
     agentId,
     workspacePathOverride: params.workspacePathOverride,
-    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     skipContainerSystemPrompt: params.skipContainerSystemPrompt,
     maxTokens: params.maxTokens,
     maxWallClockMs: params.maxWallClockMs,

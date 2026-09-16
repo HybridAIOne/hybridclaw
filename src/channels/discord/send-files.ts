@@ -57,8 +57,16 @@ export function resolveDiscordLocalFileForSend(params: {
   const mediaCacheRoot = path.resolve(params.mediaCacheRoot);
 
   if (path.posix.isAbsolute(normalizedInput)) {
-    const normalizedAbsolute = path.posix.normalize(normalizedInput);
+    const resolvedAbsolute = path.resolve(input);
+    if (workspaceRoot && isWithinRoot(resolvedAbsolute, workspaceRoot)) {
+      return resolvedAbsolute;
+    }
+    if (isWithinRoot(resolvedAbsolute, mediaCacheRoot)) {
+      return resolvedAbsolute;
+    }
 
+    // Container mode: the agent sees these roots at their mount paths.
+    const normalizedAbsolute = path.posix.normalize(normalizedInput);
     if (workspaceRoot) {
       const fromWorkspaceDisplay = resolveDisplayAbsoluteToActual(
         normalizedAbsolute,
@@ -80,14 +88,6 @@ export function resolveDiscordLocalFileForSend(params: {
     );
     if (fromMediaDisplay && isWithinRoot(fromMediaDisplay, mediaCacheRoot)) {
       return fromMediaDisplay;
-    }
-
-    const resolvedAbsolute = path.resolve(input);
-    if (workspaceRoot && isWithinRoot(resolvedAbsolute, workspaceRoot)) {
-      return resolvedAbsolute;
-    }
-    if (isWithinRoot(resolvedAbsolute, mediaCacheRoot)) {
-      return resolvedAbsolute;
     }
     return null;
   }

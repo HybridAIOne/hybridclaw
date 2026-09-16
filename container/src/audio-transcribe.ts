@@ -19,9 +19,9 @@ import {
 } from './providers/shared.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
   resolveWorkspacePath,
+  UPLOADED_MEDIA_CACHE_ROOT,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
@@ -360,7 +360,7 @@ async function readLocalAudio(
       : null);
   if (!resolved) {
     throw new Error(
-      `audio path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or /uploaded-media-cache`,
+      `audio path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, or ${UPLOADED_MEDIA_CACHE_ROOT}`,
     );
   }
   const stat = fs.statSync(resolved);
@@ -388,7 +388,7 @@ async function readLocalAudio(
     source: resolved.startsWith(WORKSPACE_ROOT)
       ? `${WORKSPACE_ROOT_DISPLAY}/${path.relative(WORKSPACE_ROOT, resolved).replace(/\\/g, '/')}`
       : resolved.startsWith(DISCORD_MEDIA_CACHE_ROOT)
-        ? `${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}/${path.relative(DISCORD_MEDIA_CACHE_ROOT, resolved).replace(/\\/g, '/')}`
+        ? `${DISCORD_MEDIA_CACHE_ROOT}/${path.relative(DISCORD_MEDIA_CACHE_ROOT, resolved).replace(/\\/g, '/')}`
         : rawPath,
   };
 }

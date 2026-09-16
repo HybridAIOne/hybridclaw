@@ -561,7 +561,6 @@ function claimWarmHostProcess(params: {
   sessionId: string;
   agentId: string;
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): PoolEntry | null {
   return claimWarmEntry({
@@ -585,7 +584,6 @@ function claimWarmHostProcess(params: {
 function maintainWarmHostPool(params: {
   agentId: string;
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): void {
   maintainWarmPool({
@@ -604,11 +602,7 @@ function maintainWarmHostPool(params: {
 function getOrSpawnHostProcess(
   params: Pick<
     ExecutorRequest,
-    | 'sessionId'
-    | 'agentId'
-    | 'workspacePathOverride'
-    | 'workspaceDisplayRootOverride'
-    | 'bashProxy'
+    'sessionId' | 'agentId' | 'workspacePathOverride' | 'bashProxy'
   > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
   const sessionId = params.sessionId;
@@ -681,8 +675,6 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
       ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
-    HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
-      params.workspaceDisplayRootOverride?.trim() || '/workspace',
     HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify(
       buildHostAllowedRoots([workspacePath]),
     ),
@@ -1064,7 +1056,6 @@ async function runHostProcessInner(
     taskModels: input.taskModels,
     providerCredentials: input.providerCredentials,
     workspacePathOverride: params.workspacePathOverride,
-    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
   });
   if (existingEntry && existingEntry.workerSignature !== workerSignature) {
@@ -1089,7 +1080,6 @@ async function runHostProcessInner(
             sessionId,
             agentId,
             workspacePathOverride: params.workspacePathOverride,
-            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
             bashProxy: params.bashProxy,
           })
         : null) ||
@@ -1097,7 +1087,6 @@ async function runHostProcessInner(
         sessionId,
         agentId,
         workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
         bashProxy: params.bashProxy,
       });
   } catch (err) {
@@ -1174,11 +1163,7 @@ async function runHostProcessInner(
       );
       stopSessionHostProcess(sessionId);
     }
-    remapOutputArtifacts(
-      output,
-      workspacePath,
-      params.workspaceDisplayRootOverride,
-    );
+    remapOutputArtifacts(output, workspacePath, { mapContainerPaths: false });
     if (typeof output.result === 'string') {
       output.result = redactCredentialSecrets(output.result);
     }
@@ -1200,7 +1185,6 @@ async function runHostProcessInner(
       maintainWarmHostPool({
         agentId,
         workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
         bashProxy: params.bashProxy,
       });
     }

@@ -185,7 +185,6 @@ function resolveOutputPath(options) {
     process.cwd();
   const displayRoot =
     options.displayRoot ||
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT ||
     workspaceRoot;
   const outputDir = options.outputDir || OUTPUT_DIR;
   if (path.isAbsolute(outputDir) || outputDir.split(/[\\/]/).includes('..')) {

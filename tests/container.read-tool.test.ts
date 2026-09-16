@@ -40,7 +40,6 @@ describe.sequential('container read tool paths', () => {
     fs.mkdirSync(uploadedRoot, { recursive: true });
 
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', cloudRoot);
     vi.stubEnv('HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT', uploadedRoot);
     if (options?.allowUploadedRoot) {
       vi.stubEnv(

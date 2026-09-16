@@ -9,10 +9,8 @@ import path from 'node:path';
 
 import {
   DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
   UPLOADED_MEDIA_CACHE_ROOT,
-  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import type { MediaContextItem } from './types.js';
 
@@ -49,27 +47,6 @@ function resolveCurrentTurnMediaPath(
   return null;
 }
 
-function mapHostRootToDisplay(
-  filePath: string,
-  actualRoot: string,
-  displayRoot: string,
-): string | null {
-  const relative = path.relative(
-    path.resolve(actualRoot),
-    path.resolve(filePath),
-  );
-  if (
-    relative === '..' ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  ) {
-    return null;
-  }
-  return relative
-    ? path.posix.join(displayRoot, relative.replace(/\\/g, '/'))
-    : displayRoot;
-}
-
 export function resolveCurrentTurnMediaReadPath(
   rawPath: string,
   media: readonly MediaContextItem[],
@@ -83,16 +60,15 @@ export function resolveCurrentTurnMediaSandboxPath(
 ): string | null {
   const mediaPath = resolveCurrentTurnMediaPath(rawPath, media);
   if (!mediaPath) return null;
-  return (
-    mapHostRootToDisplay(
-      mediaPath,
-      DISCORD_MEDIA_CACHE_ROOT,
-      DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-    ) ||
-    mapHostRootToDisplay(
-      mediaPath,
-      UPLOADED_MEDIA_CACHE_ROOT,
-      UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
-    )
+  const inCache = [DISCORD_MEDIA_CACHE_ROOT, UPLOADED_MEDIA_CACHE_ROOT].some(
+    (root) => {
+      const relative = path.relative(path.resolve(root), mediaPath);
+      return (
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative)
+      );
+    },
   );
+  return inCache ? mediaPath : null;
 }

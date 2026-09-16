@@ -423,7 +423,6 @@ async function runTask(
       executorModeOverride: 'host',
       autoApproveTools: true,
       workspacePathOverride: env.workspaceDir,
-      workspaceDisplayRootOverride: '/app',
       bashProxy: {
         mode: 'docker-exec',
         containerName: env.containerName,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_WORKSPACES_DIR = process.env.HYBRIDCLAW_WORKSPACES_DIR;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-ipc-'));
@@ -23,6 +24,37 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('HYBRIDCLAW_WORKSPACES_DIR', ORIGINAL_WORKSPACES_DIR);
+});
+
+test('agentWorkspaceDir uses HYBRIDCLAW_WORKSPACES_DIR and moves the legacy workspace once', async () => {
+  const homeDir = makeTempHome();
+  const workspacesDir = path.join(homeDir, 'workspaces');
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_WORKSPACES_DIR = workspacesDir;
+  vi.resetModules();
+
+  const { DATA_DIR } = await import('../src/config/config.ts');
+  const legacyWorkspace = path.join(DATA_DIR, 'agents', 'main', 'workspace');
+  fs.mkdirSync(legacyWorkspace, { recursive: true });
+  fs.writeFileSync(path.join(legacyWorkspace, 'notes.md'), 'kept', 'utf-8');
+
+  const { agentWorkspaceDir, ensureAgentDirs } = await import(
+    '../src/infra/ipc.ts'
+  );
+  const target = path.join(workspacesDir, 'main');
+  expect(agentWorkspaceDir('main')).toBe(target);
+
+  ensureAgentDirs('main');
+
+  expect(fs.readFileSync(path.join(target, 'notes.md'), 'utf-8')).toBe('kept');
+  expect(fs.existsSync(legacyWorkspace)).toBe(false);
+
+  // A second call is a no-op and never touches an existing target.
+  fs.mkdirSync(legacyWorkspace, { recursive: true });
+  fs.writeFileSync(path.join(legacyWorkspace, 'stale.md'), 'stale', 'utf-8');
+  ensureAgentDirs('main');
+  expect(fs.existsSync(path.join(target, 'stale.md'))).toBe(false);
 });
 
 test('writeInput omits auth material from IPC files when requested', async () => {

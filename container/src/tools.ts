@@ -51,11 +51,11 @@ import {
 } from './read-path.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   replaceWorkspaceRootInOutput,
   resolveMediaPath,
   resolveWorkspacePath,
   stripWorkspaceRootPrefix,
+  UPLOADED_MEDIA_CACHE_ROOT,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
@@ -463,7 +463,7 @@ function buildBashToolDescription(): string {
   const sessionBehavior = persistentBashStateEnabled
     ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
     : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
-  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
+  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
 }
 
 export function setPersistentBashStateEnabled(enabled: boolean): void {
@@ -1891,7 +1891,7 @@ async function readVisionImageFromLocalPath(
   const normalizedPath = normalizeVisionLocalPath(localPath);
   if (!normalizedPath) {
     throw new Error(
-      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, /uploaded-media-cache, or a local temp directory`,
+      `local image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, ${UPLOADED_MEDIA_CACHE_ROOT}, or a local temp directory`,
     );
   }
   if (
@@ -3391,7 +3391,7 @@ async function executeToolInternal(
             resolveWorkspacePath(filePath) || resolveMediaPath(filePath);
           if (!resolvedFilePath) {
             return failTool(
-              `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}.`,
+              `Error: filePath must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT}.`,
             );
           }
           if (!fs.existsSync(resolvedFilePath)) {
@@ -4954,13 +4954,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'vision_analyze',
-      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache; use a Discord CDN fallback URL only when no local path is readable.`,
+      description: `Analyze a current-turn image attachment using vision. Prefer local attachment paths from ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, or ${UPLOADED_MEDIA_CACHE_ROOT}; use a Discord CDN fallback URL only when no local path is readable.`,
       parameters: {
         type: 'object',
         properties: {
           image_url: {
             type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, or ${UPLOADED_MEDIA_CACHE_ROOT}, an \`/api/artifact?path=...\` URL copied from chat history, or a Discord CDN HTTPS URL.`,
           },
           question: {
             type: 'string',
@@ -5001,14 +5001,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           image: {
             type: ['string', 'array'],
-            description:
-              'Optional reference image path or list of paths from /workspace, /discord-media-cache, /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+            description: `Optional reference image path or list of paths from ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, ${UPLOADED_MEDIA_CACHE_ROOT}, or a Discord CDN HTTPS URL.`,
             items: { type: 'string' },
           },
           images: {
             type: 'array',
-            description:
-              'Optional reference image paths from /workspace, /discord-media-cache, /uploaded-media-cache, or Discord CDN HTTPS URLs.',
+            description: `Optional reference image paths from ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, ${UPLOADED_MEDIA_CACHE_ROOT}, or Discord CDN HTTPS URLs.`,
             items: { type: 'string' },
           },
           aspectRatio: {

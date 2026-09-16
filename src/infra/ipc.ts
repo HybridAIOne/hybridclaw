@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
+import { WORKSPACES_ROOT_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
@@ -24,10 +25,16 @@ function ipcFilePath(sessionId: string, filename: string): string {
   return path.join(ipcDir(sessionId), filename);
 }
 
+function safeWorkspaceId(agentId: string): string {
+  return resolveAgentWorkspaceId(agentId).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function agentDir(agentId: string): string {
-  const workspaceId = resolveAgentWorkspaceId(agentId);
-  const safe = workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(DATA_DIR, 'agents', safe);
+  return path.join(DATA_DIR, 'agents', safeWorkspaceId(agentId));
+}
+
+function legacyAgentWorkspaceDir(agentId: string): string {
+  return path.join(agentDir(agentId), 'workspace');
 }
 
 function redactTaskModelSecrets(
@@ -70,7 +77,33 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
 }
 
 export function agentWorkspaceDir(agentId: string): string {
-  return path.join(agentDir(agentId), 'workspace');
+  if (WORKSPACES_ROOT_DIR) {
+    return path.join(WORKSPACES_ROOT_DIR, safeWorkspaceId(agentId));
+  }
+  return legacyAgentWorkspaceDir(agentId);
+}
+
+/**
+ * One-shot move of a workspace from the runtime-home layout into
+ * HYBRIDCLAW_WORKSPACES_DIR. Skipped when the target already exists.
+ */
+export function migrateLegacyAgentWorkspace(agentId: string): boolean {
+  if (!WORKSPACES_ROOT_DIR) return false;
+  const target = agentWorkspaceDir(agentId);
+  const legacy = legacyAgentWorkspaceDir(agentId);
+  if (fs.existsSync(target) || !fs.existsSync(legacy)) return false;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.renameSync(legacy, target);
+    logger.info({ agentId, from: legacy, to: target }, 'Moved agent workspace');
+    return true;
+  } catch (error) {
+    logger.warn(
+      { agentId, from: legacy, to: target, error },
+      'Failed to move agent workspace; keeping legacy location',
+    );
+    return false;
+  }
 }
 
 /**
@@ -84,6 +117,7 @@ export function ensureSessionDirs(sessionId: string): void {
  * Ensure agent workspace directory exists.
  */
 export function ensureAgentDirs(agentId: string): void {
+  migrateLegacyAgentWorkspace(agentId);
   fs.mkdirSync(agentWorkspaceDir(agentId), { recursive: true });
 }
 

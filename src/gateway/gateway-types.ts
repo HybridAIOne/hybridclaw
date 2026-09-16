@@ -217,7 +217,6 @@ export interface GatewayChatRequest {
   autoApproveTools?: boolean;
   neverAutoApproveTools?: string[];
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   maxTokens?: number;
   maxWallClockMs?: number | null;
   inactivityTimeoutMs?: number | null;

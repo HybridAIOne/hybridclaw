@@ -7,39 +7,7 @@ import { expect, test } from 'vitest';
 import { remapOutputArtifacts } from '../src/infra/container-runner.js';
 import type { ContainerOutput } from '../src/types/container.js';
 
-test('remaps artifact paths that use a custom workspace display root', () => {
-  const workspacePath = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-artifact-remap-'),
-  );
-  try {
-    const output: ContainerOutput = {
-      status: 'success',
-      result: 'ok',
-      toolsUsed: [],
-      artifacts: [
-        {
-          path: '/app/output.pdf',
-          filename: 'output.pdf',
-          mimeType: 'application/pdf',
-        },
-      ],
-    };
-
-    remapOutputArtifacts(output, workspacePath, '/app');
-
-    expect(output.artifacts).toEqual([
-      {
-        path: path.join(workspacePath, 'output.pdf'),
-        filename: 'output.pdf',
-        mimeType: 'application/pdf',
-      },
-    ]);
-  } finally {
-    fs.rmSync(workspacePath, { recursive: true, force: true });
-  }
-});
-
-test('prefers the longest matching workspace display root when remapping', () => {
+test('maps container-mode /workspace artifact paths to the host workspace', () => {
   const workspacePath = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-artifact-remap-'),
   );
@@ -57,11 +25,11 @@ test('prefers the longest matching workspace display root when remapping', () =>
       ],
     };
 
-    remapOutputArtifacts(output, workspacePath, '/workspace/sub');
+    remapOutputArtifacts(output, workspacePath);
 
     expect(output.artifacts).toEqual([
       {
-        path: path.join(workspacePath, 'output.pdf'),
+        path: path.join(workspacePath, 'sub', 'output.pdf'),
         filename: 'output.pdf',
         mimeType: 'application/pdf',
       },

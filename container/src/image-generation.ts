@@ -8,9 +8,9 @@ import type { RuntimeProvider } from './providers/provider-ids.js';
 import { ProviderRequestError } from './providers/shared.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
   resolveWorkspacePath,
+  UPLOADED_MEDIA_CACHE_ROOT,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
@@ -359,7 +359,7 @@ async function readLocalReferenceImage(
   const normalizedPath = normalizeLocalReferencePath(rawPath);
   if (!normalizedPath) {
     throw new Error(
-      `reference image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or /uploaded-media-cache`,
+      `reference image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT}, or ${UPLOADED_MEDIA_CACHE_ROOT}`,
     );
   }
 

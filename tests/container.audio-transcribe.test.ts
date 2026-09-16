@@ -4,8 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 
 let workspaceRoot = '';
 
@@ -19,7 +17,6 @@ beforeEach(() => {
     path.join(os.tmpdir(), 'hybridclaw-audio-transcribe-'),
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
   vi.unstubAllGlobals();
 });
 
@@ -30,12 +27,6 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT == null) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -88,7 +79,7 @@ describe('audio_transcribe tool', () => {
 
     const result = await executeToolWithMetadata(
       'audio_transcribe',
-      JSON.stringify({ audio: '/workspace/clip.wav' }),
+      JSON.stringify({ audio: `${workspaceRoot}/clip.wav` }),
     );
 
     expect(result.isError).toBe(true);
@@ -128,7 +119,7 @@ describe('audio_transcribe tool', () => {
     const output = await executeTool(
       'audio_transcribe',
       JSON.stringify({
-        audio: '/workspace/clip.wav',
+        audio: `${workspaceRoot}/clip.wav`,
         language: 'en',
         timestamps: 'word',
       }),
@@ -156,7 +147,7 @@ describe('audio_transcribe tool', () => {
     for (const artifact of parsed.artifacts) {
       expect(
         fs.existsSync(
-          path.join(workspaceRoot, artifact.path.replace('/workspace/', '')),
+          path.join(workspaceRoot, artifact.path.replace(`${workspaceRoot}/`, '')),
         ),
       ).toBe(true);
     }
@@ -225,7 +216,7 @@ describe('audio_transcribe tool', () => {
       'audio_transcribe',
       JSON.stringify({
         action: 'detect-language',
-        audio: '/workspace/clip.wav',
+        audio: `${workspaceRoot}/clip.wav`,
       }),
     );
     const parsed = JSON.parse(output) as Record<string, unknown>;
@@ -262,7 +253,7 @@ describe('audio_transcribe tool', () => {
     setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
     setMediaContext([
       {
-        path: '/workspace/clip.webm',
+        path: `${workspaceRoot}/clip.webm`,
         url: '',
         originalUrl: '',
         filename: 'clip.webm',
@@ -275,7 +266,7 @@ describe('audio_transcribe tool', () => {
     const parsed = JSON.parse(output) as { text: string; source: string };
 
     expect(parsed.text).toBe('WebM transcript.');
-    expect(parsed.source).toBe('/workspace/clip.webm');
+    expect(parsed.source).toBe(`${workspaceRoot}/clip.webm`);
   });
 
   test('transcribes through Deepgram with diarization and word timestamps', async () => {
@@ -334,7 +325,7 @@ describe('audio_transcribe tool', () => {
     const output = await executeTool(
       'audio_transcribe',
       JSON.stringify({
-        audio: '/workspace/clip.wav',
+        audio: `${workspaceRoot}/clip.wav`,
         provider: 'deepgram',
         diarization: true,
         timestamps: 'word',
@@ -383,7 +374,7 @@ describe('audio_transcribe tool', () => {
 
     const output = await executeTool(
       'audio_transcribe',
-      JSON.stringify({ audio: '/workspace/clip.wav' }),
+      JSON.stringify({ audio: `${workspaceRoot}/clip.wav` }),
     );
     const parsed = JSON.parse(output) as { provider: string; text: string };
 
@@ -427,7 +418,7 @@ describe('audio_transcribe tool', () => {
 
     const output = await executeTool(
       'audio_transcribe',
-      JSON.stringify({ audio: '/workspace/clip.wav' }),
+      JSON.stringify({ audio: `${workspaceRoot}/clip.wav` }),
     );
     const parsed = JSON.parse(output) as {
       provider: string;
@@ -464,7 +455,7 @@ describe('audio_transcribe tool', () => {
 
     const result = await executeToolWithMetadata(
       'audio_transcribe',
-      JSON.stringify({ audio: '/workspace/clip.wav' }),
+      JSON.stringify({ audio: `${workspaceRoot}/clip.wav` }),
     );
 
     expect(result.isError).toBe(true);
@@ -523,7 +514,7 @@ describe('audio_transcribe tool', () => {
     const pending = executeTool(
       'audio_transcribe',
       JSON.stringify({
-        audio: '/workspace/clip.wav',
+        audio: `${workspaceRoot}/clip.wav`,
         provider: 'assemblyai',
         diarization: true,
         min_speakers: 2,

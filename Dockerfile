@@ -120,6 +120,9 @@ COPY --link SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
+# Agent workspaces sit directly under /workspace (e.g. /workspace/main) so the
+# agent works with the same paths the gateway and the shell see.
+ENV HYBRIDCLAW_WORKSPACES_DIR=/workspace
 ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules
 # Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).

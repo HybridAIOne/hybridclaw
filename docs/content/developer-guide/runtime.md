@@ -87,6 +87,11 @@ Core details:
 - `HYBRIDCLAW_DATA_DIR` can relocate that full runtime home to an absolute
   path, including `config.json`, `credentials.json`, the SQLite database,
   browser profiles, and agent workspaces.
+- `HYBRIDCLAW_WORKSPACES_DIR` optionally moves agent workspaces to a flat
+  `<dir>/<agentId>` layout (the cloud image uses `/workspace`, so the default
+  agent works in `/workspace/main`). Existing workspaces are moved there on
+  first use. Agents always see their workspace at its real path; there is no
+  separate display path.
 - Startup no longer probes or migrates `./config.json` or `./data` from the
   current working directory, and only reads `./.env` to import supported
   secrets into the encrypted `~/.hybridclaw/credentials.json` store.

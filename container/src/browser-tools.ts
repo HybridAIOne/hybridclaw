@@ -21,7 +21,7 @@ import {
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import {
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
+  DISCORD_MEDIA_CACHE_ROOT,
   resolveMediaPath,
   resolveWorkspacePath,
   toWorkspaceRelativePath,
@@ -879,7 +879,7 @@ function resolveUploadPaths(args: Record<string, unknown>): string[] {
     const normalized = normalizeUploadPath(raw);
     if (!normalized) {
       throw new Error(
-        `invalid upload path "${raw}" (must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY})`,
+        `invalid upload path "${raw}" (must stay within ${WORKSPACE_ROOT_DISPLAY} or ${DISCORD_MEDIA_CACHE_ROOT})`,
       );
     }
     if (!fs.existsSync(normalized)) {
