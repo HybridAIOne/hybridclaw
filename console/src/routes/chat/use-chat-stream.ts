@@ -471,10 +471,14 @@ export function useChatStream(
           finalRole === 'command' &&
           finalText.trim().length === 0 &&
           finalArtifacts.length === 0;
+        const finalFeedbackDrafts = result.feedbackDrafts?.length
+          ? result.feedbackDrafts
+          : null;
         const isHiddenByPresentation =
           result.outputPresentation?.visible === false &&
           finalArtifacts.length === 0 &&
-          !finalApproval;
+          !finalApproval &&
+          !finalFeedbackDrafts;
         const buildFinalizedMessage = (
           id: string,
           sessionId: string,
@@ -492,6 +496,7 @@ export function useChatStream(
           responseRating: null,
           replayRequest: { content, media },
           a2aDelivery: result.a2aDelivery ?? null,
+          feedbackDrafts: finalFeedbackDrafts,
         });
 
         setMessages((prev) => {

@@ -33,6 +33,7 @@ import { ApprovalCard } from './approval-card';
 import type { ApprovalItemState } from './approval-lifecycle';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
+import { FeedbackDraftCard } from './feedback-draft-card';
 import {
   ReadAloudControl,
   textFromRenderedMarkdown,
@@ -610,6 +611,15 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
       {artifactEntries.map(({ artifact, key }) => (
         <ArtifactCard key={key} artifact={artifact} token={token} />
+      ))}
+
+      {(msg.feedbackDrafts ?? []).map((draft) => (
+        <FeedbackDraftCard
+          key={draft.draftId}
+          draft={draft}
+          sessionId={msg.sessionId}
+          token={token}
+        />
       ))}
 
       {!props.isStreaming && !isA2ADeliveryStatus ? (

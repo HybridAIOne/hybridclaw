@@ -55,6 +55,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
           { to: '/admin/gateway', label: 'Gateway' },
           { to: '/admin/config', label: 'Settings' },
           { to: '/admin/logs', label: 'Logs' },
+          { to: '/admin/feedback', label: 'Feedback' },
           { to: '/admin/extensions', label: 'Plugins & Tools' },
           { to: '/admin/terminal', label: 'Terminal' },
         ],
@@ -81,7 +82,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(18);
+    ).toHaveLength(19);
   });
 
   it('uses network-oriented icons for network policy and Agent2Agent', () => {

@@ -1253,6 +1253,97 @@ aside[data-state="collapsed"] .chatSidebarContent {
   margin-top: 8px;
 }
 
+/* Feedback draft review card (agent-queued bug/idea report about HybridClaw) */
+.feedbackCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+.feedbackCardResolved {
+  opacity: 0.82;
+}
+
+.feedbackCardDiscarded {
+  filter: saturate(0.6);
+}
+
+.feedbackHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedbackTitle {
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.feedbackType,
+.feedbackStatus {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.feedbackStatusSent {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.feedbackDraftTitle {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.feedbackNote,
+.feedbackResult {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.feedbackView {
+  padding: 8px 10px;
+  border-left: 3px solid var(--line-strong);
+  font-size: 0.86rem;
+}
+
+.feedbackActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feedbackError {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 .artifactCard {
   display: flex;
   flex-direction: column;

@@ -19,7 +19,10 @@ const fetchA2ADeliveryStatusMock = vi.fn();
 const renderMarkdownMock =
   vi.fn<(content: string, options?: { highlight?: boolean }) => string>();
 
+const executeCommandMock = vi.fn();
+
 vi.mock('../../api/chat', () => ({
+  executeCommand: (...args: unknown[]) => executeCommandMock(...args),
   fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
     fetchAgentAvatarBlobMock(token, imageUrl),
   fetchArtifactBlob: (token: string, artifactPath: string) =>
@@ -1299,5 +1302,112 @@ describe('MessageBlock text-announced approvals', () => {
 
     expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+});
+
+describe('MessageBlock feedback drafts', () => {
+  beforeEach(() => {
+    executeCommandMock.mockReset();
+    renderMarkdownMock.mockReset();
+    renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
+  });
+
+  it('renders one review card per queued feedback draft under the reply', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          content: 'I hit a bug and filed a report.',
+          feedbackDrafts: [
+            {
+              draftId: 'fbd_0123456789',
+              type: 'bug',
+              title: 'PDF skill fails on rotated pages',
+              trigger: 'tool_error',
+            },
+            {
+              draftId: 'fbd_abcdefabcd',
+              type: 'idea',
+              title: 'Let /export pick a page range',
+              trigger: 'model_judgment',
+            },
+          ],
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByTestId('feedback-draft-card')).toHaveLength(2);
+    expect(screen.getByText('PDF skill fails on rotated pages')).not.toBeNull();
+    expect(screen.getByText('Let /export pick a page range')).not.toBeNull();
+    expect(screen.getByText('Bug report')).not.toBeNull();
+    expect(screen.getByText('Idea')).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Send' })).toHaveLength(2);
+  });
+
+  it('passes the message session to the card so actions target the right session', async () => {
+    executeCommandMock.mockResolvedValue({ kind: 'plain', text: 'Discarded.' });
+    localStorage.setItem('hybridclaw_user_id', 'web-user-1');
+    render(
+      <MessageBlock
+        message={makeMessage([], {
+          sessionId: 'session-z',
+          feedbackDrafts: [
+            {
+              draftId: 'fbd_0123456789',
+              type: 'bug',
+              title: 'PDF skill fails on rotated pages',
+              trigger: 'tool_error',
+            },
+          ],
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    await waitFor(() =>
+      expect(executeCommandMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-z',
+        'web-user-1',
+        ['feedback', 'discard', 'fbd_0123456789'],
+      ),
+    );
+  });
+
+  it('renders no card when the reply carries no feedback drafts', () => {
+    render(
+      <MessageBlock
+        message={makeMessage([], { feedbackDrafts: null })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('feedback-draft-card')).toBeNull();
   });
 });

@@ -235,6 +235,14 @@ export interface A2ADeliveryDescriptor {
   status: A2ADeliveryState;
 }
 
+/** A feedback draft the agent queued during this turn (review card payload). */
+export interface ChatFeedbackDraft {
+  draftId: string;
+  type: 'bug' | 'idea' | 'missing_capability';
+  title: string;
+  trigger: string;
+}
+
 export interface ChatStreamResult {
   status?: string;
   error?: string;
@@ -258,6 +266,8 @@ export interface ChatStreamResult {
   apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];
   a2aDelivery?: A2ADeliveryDescriptor | null;
+  /** Present when the turn queued one or more feedback drafts. */
+  feedbackDrafts?: ChatFeedbackDraft[];
 }
 
 export interface MediaItem {
@@ -314,6 +324,7 @@ export interface ChatMessage {
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;
   a2aDelivery?: A2ADeliveryDescriptor | null;
+  feedbackDrafts?: ChatFeedbackDraft[] | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
 }

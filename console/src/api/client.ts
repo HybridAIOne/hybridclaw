@@ -48,6 +48,8 @@ import type {
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminFeedbackDraftStatus,
+  AdminFeedbackDraftsResponse,
   AdminFleetTopologyResponse,
   AdminFleetTopologyUpsertRequest,
   AdminHarnessEvolutionManifestResponse,
@@ -1889,6 +1891,25 @@ export function fetchAdaptiveSkillAmendmentHistory(
 ): Promise<AdminAdaptiveSkillAmendmentsResponse> {
   return requestJson<AdminAdaptiveSkillAmendmentsResponse>(
     `/api/skills/amendments/${encodeURIComponent(skillName)}`,
+    { token },
+  );
+}
+
+export function fetchAdminFeedbackDrafts(
+  token: string,
+  params?: {
+    status?: AdminFeedbackDraftStatus | 'all';
+    limit?: number;
+  },
+): Promise<AdminFeedbackDraftsResponse> {
+  const queryParams = new URLSearchParams();
+  if (params?.status) queryParams.set('status', params.status);
+  if (params?.limit) queryParams.set('limit', String(params.limit));
+  const suffix = queryParams.toString();
+  return requestJson<AdminFeedbackDraftsResponse>(
+    suffix
+      ? `/api/admin/feedback-drafts?${suffix}`
+      : '/api/admin/feedback-drafts',
     { token },
   );
 }

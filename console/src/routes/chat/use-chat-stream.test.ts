@@ -450,6 +450,92 @@ describe('useChatStream', () => {
     );
   });
 
+  it('carries feedbackDrafts from the result onto the finalized assistant message', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'I filed a bug report about the PDF skill.',
+      messageRole: 'assistant',
+      feedbackDrafts: [
+        {
+          draftId: 'fbd_0123456789',
+          type: 'bug',
+          title: 'PDF skill fails on rotated pages',
+          trigger: 'tool_error',
+        },
+      ],
+    } satisfies ChatStreamResult);
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('rotate this pdf', []);
+    });
+
+    expect(harness.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'I filed a bug report about the PDF skill.',
+          feedbackDrafts: [
+            expect.objectContaining({ draftId: 'fbd_0123456789', type: 'bug' }),
+          ],
+        }),
+      ]),
+    );
+  });
+
+  it('leaves feedbackDrafts null when the result queued none', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      assistantMessageId: 'assistant-1',
+      result: 'Done.',
+      messageRole: 'assistant',
+      feedbackDrafts: [],
+    } satisfies ChatStreamResult);
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    const assistant = harness.messages.find((m) => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(
+      assistant && 'feedbackDrafts' in assistant
+        ? assistant.feedbackDrafts
+        : null,
+    ).toBeNull();
+  });
+
   it('does not duplicate an existing addressed mention on finalize', async () => {
     const harness = makeHarness();
 

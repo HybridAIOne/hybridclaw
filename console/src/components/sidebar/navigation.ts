@@ -6,6 +6,7 @@ import {
 import {
   AgentGroup,
   Channels,
+  Chat,
   Cog,
   Config,
   Dashboard,
@@ -97,6 +98,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/gateway', label: 'Gateway', icon: Gateway },
       { to: '/admin/config', label: 'Settings', icon: Config },
       { to: '/admin/logs', label: 'Logs', icon: Logs },
+      { to: '/admin/feedback', label: 'Feedback', icon: Chat },
       {
         to: '/admin/extensions',
         label: 'Plugins & Tools',

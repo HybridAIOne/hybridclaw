@@ -1,0 +1,13 @@
+.details {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.result {
+  margin: 0;
+}
+
+.resultError {
+  color: var(--danger);
+}

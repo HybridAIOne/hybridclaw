@@ -2587,6 +2587,41 @@ export interface AdminAdaptiveSkillAmendmentsResponse {
   amendments: AdminAdaptiveSkillAmendment[];
 }
 
+export type AdminFeedbackDraftStatus =
+  | 'queued'
+  | 'submitted'
+  | 'discarded'
+  | 'expired';
+
+/** Mirrors the gateway's feedback_drafts row (snake_case, as stored). */
+export interface AdminFeedbackDraft {
+  id: string;
+  session_id: string;
+  agent_id: string | null;
+  channel_id: string | null;
+  run_id: string | null;
+  model: string | null;
+  provider: string | null;
+  gateway_version: string | null;
+  trigger: string;
+  type: 'bug' | 'idea' | 'missing_capability';
+  title: string;
+  details: string;
+  area: string | null;
+  failure_mode: string | null;
+  task_category: string | null;
+  status: AdminFeedbackDraftStatus;
+  viewed_at: string | null;
+  submitted_by: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+}
+
+export interface AdminFeedbackDraftsResponse {
+  drafts: AdminFeedbackDraft[];
+}
+
 export interface AdminToolCatalogEntry {
   name: string;
   group: string;

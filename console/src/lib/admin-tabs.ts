@@ -29,6 +29,13 @@ export const EXTENSION_TABS = [
   { id: 'tools', label: 'Tool catalog' },
 ] as const;
 
+export const FEEDBACK_TABS = [
+  { id: 'queued', label: 'Queued' },
+  { id: 'sent', label: 'Sent' },
+  { id: 'discarded', label: 'Discarded' },
+  { id: 'expired', label: 'Expired' },
+] as const;
+
 export const FEDERATION_TABS = [
   { id: 'peers', label: 'Peers & trust' },
   { id: 'topology', label: 'Fleet topology' },
@@ -54,4 +61,5 @@ export const ADMIN_TAB_GROUPS = [
     to: '/admin/extensions',
     tabs: EXTENSION_TABS,
   },
+  { label: 'Feedback', to: '/admin/feedback', tabs: FEEDBACK_TABS },
 ] as const;
