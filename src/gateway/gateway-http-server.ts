@@ -13,6 +13,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { v5 as uuidv5 } from 'uuid';
 import * as yazl from 'yazl';
+import { isFeedbackDraftStatus } from '../../container/shared/feedback-drafts.js';
 import {
   EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
   EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
@@ -230,6 +231,7 @@ import {
   createFeedbackDraft,
   FeedbackDraftInvalidError,
   FeedbackDraftsDisabledError,
+  listAllFeedbackDrafts,
 } from './feedback-drafts.js';
 import {
   completeGatewayAdminConnectorOAuthCallback,
@@ -6548,6 +6550,30 @@ function handleApiAdminAudit(res: ServerResponse, url: URL): void {
   );
 }
 
+function handleApiAdminFeedbackDrafts(res: ServerResponse, url: URL): void {
+  const rawStatus = (url.searchParams.get('status') || 'queued').trim();
+  const status =
+    rawStatus === 'all'
+      ? null
+      : isFeedbackDraftStatus(rawStatus)
+        ? rawStatus
+        : undefined;
+  if (status === undefined) {
+    sendJson(res, 400, {
+      error:
+        '`status` must be one of queued, submitted, discarded, expired, or all.',
+    });
+    return;
+  }
+  const parsedLimit = Number.parseInt(url.searchParams.get('limit') || '', 10);
+  sendJson(res, 200, {
+    drafts: listAllFeedbackDrafts({
+      status,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    }),
+  });
+}
+
 function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
   sendJson(
     res,
@@ -11138,6 +11164,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/approvals' && method === 'GET') {
             handleApiAdminApprovals(res, url);
+            return;
+          }
+          if (pathname === '/api/admin/feedback-drafts' && method === 'GET') {
+            handleApiAdminFeedbackDrafts(res, url);
             return;
           }
           if (pathname === '/api/interactive-escalations' && method === 'GET') {

@@ -57,6 +57,8 @@ interface DynamicContextMessageOptions {
   now?: Date;
   retrievedContext?: string | null;
   sessionSummary?: string | null;
+  /** Per-turn host hints (e.g. feedback triggers); never part of the cached system prompt. */
+  turnNotes?: string[];
 }
 
 export function buildDynamicContextMessage(
@@ -73,6 +75,14 @@ export function buildDynamicContextMessage(
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
+    const turnNotes = (options.turnNotes ?? [])
+      .map((note) => note.trim())
+      .filter(Boolean);
+    if (turnNotes.length > 0) {
+      dynamicSections.push(
+        ['## Turn Notes', ...turnNotes.map((note) => `- ${note}`)].join('\n'),
+      );
+    }
   }
 
   if (agentId) {
@@ -147,6 +157,7 @@ export function buildConversationContext(params: {
   allowedTools?: string[];
   blockedTools?: string[];
   currentUserContent?: ChatMessage['content'];
+  turnNotes?: string[];
 }): ConversationContext {
   const {
     agentId,
@@ -162,6 +173,7 @@ export function buildConversationContext(params: {
     allowedTools,
     blockedTools,
     currentUserContent,
+    turnNotes,
   } = params;
   if (promptMode !== 'none') {
     scheduleCloudMemorySync(agentId);
@@ -219,6 +231,7 @@ export function buildConversationContext(params: {
         agentId,
         retrievedContext,
         sessionSummary,
+        turnNotes,
       }),
     );
   }

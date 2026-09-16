@@ -132,7 +132,7 @@ test('feedback view marks the draft reviewed and send forwards it with provenanc
   expect(body.draft_id).toBe(draft.id);
   expect(body.type).toBe('bug');
   expect(body.review.viewed_before_send).toBe(true);
-  expect(body.review.submitted_via).toBe('msteams-conversation');
+  expect(body.review.submitted_via).toBe('msteams');
   expect(body.context.session_id).toBe(session.id);
   expect(body.context.gateway_version).not.toBe('');
   expect(body.transcript.messages.map((m) => m.role)).toEqual([
@@ -187,6 +187,16 @@ test('feedback discard drops the draft without a network call', async () => {
   const usage = await command(['feedback', 'send']);
   expect(usage.kind).toBe('error');
   expect(usage.title).toBe('Usage');
+});
+
+test('reset confirmation lists unsent feedback drafts', async () => {
+  const { feedback, session, command } = await setup();
+  const draft = queueDraft(feedback, session.id);
+  const result = await command(['reset']);
+  expect(result.kind).toBe('info');
+  expect(result.text).toContain('Unsent feedback drafts: 1');
+  expect(result.text).toContain(draft.id);
+  await command(['reset', 'no']);
 });
 
 test('feedback command reports when drafts are disabled', async () => {

@@ -14,15 +14,22 @@ import { fileURLToPath } from 'node:url';
 
 import {
   FEEDBACK_DRAFT_MAX_QUEUED_PER_SESSION,
+  type FeedbackDraftStatus,
   REPORT_FEEDBACK_TOOL_NAME,
   validateFeedbackDraftInput,
 } from '../../container/shared/feedback-drafts.js';
+import { findAgentConfig } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getHybridAIApiKey,
   getHybridAIAuthStatus,
 } from '../auth/hybridai-auth.js';
-import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
+import {
+  getConfigSnapshot,
+  HYBRIDAI_BASE_URL,
+  HYBRIDAI_CHATBOT_ID,
+  OBSERVABILITY_BOT_ID,
+} from '../config/config.js';
 import { logger } from '../logger.js';
 import {
   countQueuedFeedbackDrafts,
@@ -226,6 +233,30 @@ export function listSessionFeedbackDrafts(
   return listFeedbackDrafts({ sessionId, status: 'queued' });
 }
 
+/** Admin listing across sessions; `status: null` returns every status. */
+export function listAllFeedbackDrafts(input: {
+  status: FeedbackDraftStatus | null;
+  limit?: number;
+}): FeedbackDraftRecord[] {
+  expireFeedbackDrafts();
+  return listFeedbackDrafts({ status: input.status, limit: input.limit });
+}
+
+function resolveFeedbackChatbotId(draft: FeedbackDraftRecord): string | null {
+  const session = getSessionById(draft.session_id);
+  const sessionChatbotId = session?.chatbot_id?.trim();
+  if (sessionChatbotId) return sessionChatbotId;
+  if (draft.agent_id) {
+    try {
+      const proxyChatbotId = findAgentConfig(draft.agent_id)?.proxy?.chatbotId;
+      if (proxyChatbotId?.trim()) return proxyChatbotId.trim();
+    } catch {
+      // Agent registry unavailable; fall through to gateway defaults.
+    }
+  }
+  return OBSERVABILITY_BOT_ID.trim() || HYBRIDAI_CHATBOT_ID.trim() || null;
+}
+
 export function viewFeedbackDraft(id: string): FeedbackDraftRecord {
   requireDraft(id);
   const viewed = markFeedbackDraftViewed(id);
@@ -349,6 +380,7 @@ export async function submitFeedbackDraft(
 
   const payload = {
     draft_id: draft.id,
+    chatbot_id: resolveFeedbackChatbotId(draft),
     type: draft.type,
     title: draft.title,
     details: draft.details,

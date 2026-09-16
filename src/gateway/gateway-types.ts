@@ -139,11 +139,20 @@ export interface GatewayChatResult {
   apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
+  /** Feedback drafts the agent queued during this turn (review with /feedback). */
+  feedbackDrafts?: GatewayChatFeedbackDraft[];
   tokenUsage?: TokenUsageStats;
   error?: string;
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
+}
+
+export interface GatewayChatFeedbackDraft {
+  draftId: string;
+  type: 'bug' | 'idea' | 'missing_capability';
+  title: string;
+  trigger: string;
 }
 
 export interface GatewayChatToolProgressEvent {

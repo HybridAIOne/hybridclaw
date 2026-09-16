@@ -95,6 +95,7 @@ import {
 import { isSignalChannelId } from '../channels/signal/target.js';
 import {
   initSlack,
+  postSlackFeedbackDraftCard,
   sendSlackFileToTarget,
   sendToSlackTarget,
   shutdownSlack,
@@ -230,6 +231,10 @@ import {
   normalizePendingApprovalReply,
   normalizePlaceholderToolReply,
 } from './chat-result.js';
+import {
+  buildFeedbackDraftComponents,
+  formatFeedbackDraftCardText,
+} from './feedback-draft-card.js';
 import {
   handleGatewayMessage,
   validateGatewayPromptEnvDefaults,
@@ -1677,9 +1682,16 @@ async function startDiscordIntegration(): Promise<boolean> {
             if (result.components && !sawTextDelta) {
               await _reply(responseText, attachments, result.components);
               await context.stream.discard();
-              return;
+            } else {
+              await context.stream.finalize(responseText, attachments);
             }
-            await context.stream.finalize(responseText, attachments);
+            for (const draft of result.feedbackDrafts ?? []) {
+              await _reply(
+                formatFeedbackDraftCardText(draft),
+                undefined,
+                buildFeedbackDraftComponents(draft.draftId),
+              );
+            }
           } catch (error) {
             logger.error(
               { error, sessionId, channelId },
@@ -3151,6 +3163,13 @@ async function startSlackIntegration(): Promise<boolean> {
                 target: context.inbound.target,
                 filePath: artifact.path,
                 filename: artifact.filename,
+              });
+            }
+            for (const draft of result.feedbackDrafts ?? []) {
+              await postSlackFeedbackDraftCard({
+                target: context.inbound.target,
+                text: formatFeedbackDraftCardText(draft),
+                draftId: draft.draftId,
               });
             }
           } catch (error) {

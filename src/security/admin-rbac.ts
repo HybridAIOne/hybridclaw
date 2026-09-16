@@ -79,6 +79,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.email_config.fetch',
   'admin.audit.read',
   'admin.approvals.read',
+  'admin.feedback.read',
   'admin.policy.write',
   'admin.policy.delete',
   'admin.tools.read',
@@ -130,6 +131,7 @@ const ADMIN_READ_ACTIONS = [
   'admin.email_config.fetch',
   'admin.audit.read',
   'admin.approvals.read',
+  'admin.feedback.read',
   'admin.tools.read',
   'admin.plugins.read',
   'admin.output_guard.read',
@@ -614,6 +616,9 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/approvals' && method === 'GET') {
     return 'admin.approvals.read';
+  }
+  if (pathname === '/api/admin/feedback-drafts' && method === 'GET') {
+    return 'admin.feedback.read';
   }
   if (pathname === '/api/admin/policy') {
     if (method === 'PUT') return 'admin.policy.write';

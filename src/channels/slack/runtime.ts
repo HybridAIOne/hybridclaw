@@ -13,12 +13,14 @@ import {
   getApprovalPromptText,
   getApprovalVisibleText,
 } from '../../gateway/approval-presentation.js';
+import { feedbackDraftActionToCommandArgs } from '../../gateway/feedback-draft-card.js';
 import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
 import {
   claimPendingApprovalByApprovalId,
   rollbackPendingApprovalClaim,
 } from '../../gateway/pending-approvals.js';
 import { logger } from '../../logger.js';
+import { getFeedbackDraft } from '../../memory/db.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { normalizeTrimmedString as trimValue } from '../../utils/normalized-strings.js';
@@ -30,6 +32,10 @@ import {
   parseSlackApprovalAction,
 } from './approval-buttons.js';
 import { formatSlackMrkdwn, prepareSlackTextChunks } from './delivery.js';
+import {
+  buildSlackFeedbackDraftBlocks,
+  parseSlackFeedbackDraftAction,
+} from './feedback-draft-buttons.js';
 import {
   cleanupSlackInboundMedia,
   evaluateSlackAccessPolicy,
@@ -947,6 +953,82 @@ async function startSlackRuntime(handler: {
         }
       });
     }
+    nextApp.action(
+      /^feedback:(view|send|send-transcript|discard)$/,
+      async (payload) => {
+        await payload.ack();
+        const action =
+          payload.action && typeof payload.action === 'object'
+            ? payload.action
+            : {};
+        const parsed = parseSlackFeedbackDraftAction(
+          trimValue(
+            'action_id' in action && typeof action.action_id === 'string'
+              ? action.action_id
+              : '',
+          ),
+          trimValue(
+            'value' in action && typeof action.value === 'string'
+              ? action.value
+              : '',
+          ),
+        );
+        if (!parsed) return;
+        const body =
+          payload.body && typeof payload.body === 'object' ? payload.body : {};
+        const user =
+          'user' in body && body.user && typeof body.user === 'object'
+            ? body.user
+            : {};
+        const channel =
+          'channel' in body && body.channel && typeof body.channel === 'object'
+            ? body.channel
+            : {};
+        const userId = trimValue('id' in user ? String(user.id || '') : '');
+        const channelId = trimValue(
+          'id' in channel ? String(channel.id || '') : '',
+        );
+        const draft = getFeedbackDraft(parsed.draftId);
+        if (!draft) {
+          if (channelId && userId) {
+            await app?.client.chat.postEphemeral({
+              channel: channelId,
+              user: userId,
+              text: 'This feedback draft no longer exists.',
+            });
+          }
+          return;
+        }
+        const replyTarget =
+          extractSlackActionTarget(
+            body as {
+              channel?: { id?: string };
+              container?: { thread_ts?: string };
+              message?: { thread_ts?: string };
+            },
+          ) || buildSlackChannelTarget(channelId);
+        try {
+          const username = await resolveSlackDisplayName(userId);
+          await handler.commandHandler(
+            draft.session_id,
+            null,
+            replyTarget,
+            userId,
+            username,
+            feedbackDraftActionToCommandArgs(parsed.action, parsed.draftId),
+            async (content) => {
+              await postSlackText(replyTarget, content);
+            },
+          );
+        } catch (error) {
+          logger.error(
+            { error, channelId, userId, draftId: parsed.draftId },
+            'Slack feedback draft action failed',
+          );
+        }
+      },
+    );
+
     nextApp.action(/^approve:(yes|session|agent|all|no)$/, async (payload) => {
       await payload.ack();
       const action =
@@ -1134,6 +1216,26 @@ export async function sendToSlackTarget(
 ): Promise<void> {
   ensureSlackRuntimeInitialized();
   await postSlackText(target, text);
+}
+
+/** Post the feedback-draft review card (text + action buttons) under a reply. */
+export async function postSlackFeedbackDraftCard(params: {
+  target: string;
+  text: string;
+  draftId: string;
+}): Promise<void> {
+  const parsedTarget = parseSlackChannelTarget(params.target);
+  if (!parsedTarget) {
+    throw new Error(`Invalid Slack target: ${params.target}`);
+  }
+  const activeApp = ensureSlackRuntimeInitialized();
+  await activeApp.client.chat.postMessage({
+    channel: parsedTarget.channelId,
+    text: params.text,
+    blocks: buildSlackFeedbackDraftBlocks(params.text, params.draftId),
+    mrkdwn: true,
+    ...(parsedTarget.threadTs ? { thread_ts: parsedTarget.threadTs } : {}),
+  });
 }
 
 export async function sendSlackFileToTarget(params: {

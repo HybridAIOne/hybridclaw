@@ -11680,9 +11680,11 @@ export async function handleGatewayCommand(
         }
         const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
         const operatorUserId = String(req.userId || '').trim() || 'web';
+        // Channel kind only (msteams, slack, web, ...): the backend stores
+        // this as a short surface tag, never a raw conversation id.
         const sourceSurface =
+          parseSessionKey(session.session_key)?.channelKind ||
           parseSessionKey(session.id)?.channelKind ||
-          String(req.channelId || '').trim() ||
           'web';
         try {
           if (sub === 'list') {
@@ -13978,12 +13980,20 @@ export async function handleGatewayCommand(
           model: runtime.model,
           chatbotId: runtime.chatbotId,
         });
+        const queuedFeedbackDrafts = isFeedbackDraftsEnabled()
+          ? listSessionFeedbackDrafts(session.id)
+          : [];
         return infoCommand(
           'Confirm Reset',
           [
             `This will delete this session's history, reset per-session model/bot/show settings, and remove the current agent workspace.`,
             `Model: ${formatModelForDisplay(runtime.model)}`,
             `Agent workspace: ${runtime.workspacePath}`,
+            ...(queuedFeedbackDrafts.length > 0
+              ? [
+                  `Unsent feedback drafts: ${queuedFeedbackDrafts.length} (${queuedFeedbackDrafts.map((draft) => `\`${draft.id}\``).join(', ')}). Review them with \`/feedback\` first if you want; they stay reviewable by id after the reset.`,
+                ]
+              : []),
             resetComponents
               ? 'Use the buttons below to continue or cancel.'
               : 'Reply with `reset yes` to continue or `reset no` to cancel.',

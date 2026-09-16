@@ -41,6 +41,10 @@ import {
   type ApprovalPresentation,
   getApprovalVisibleText,
 } from '../../gateway/approval-presentation.js';
+import {
+  feedbackDraftActionToCommandArgs,
+  parseFeedbackDraftCustomId,
+} from '../../gateway/feedback-draft-card.js';
 import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
@@ -50,7 +54,11 @@ import {
 } from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
-import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
+import {
+  getFeedbackDraft,
+  getSessionById,
+  resolveSessionIdCompat,
+} from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types/container.js';
@@ -1766,6 +1774,60 @@ export async function initDiscord(
           { error, guildId, channelId, userId: interaction.user.id },
           'Discord reset button failed',
         );
+        await interaction.followUp({
+          content: formatError('Gateway Error', detail),
+          ...interactionVisibility,
+        });
+      }
+      return;
+    }
+
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith('feedback:')
+    ) {
+      const interactionVisibility = interaction.guildId
+        ? { flags: 'Ephemeral' as const }
+        : {};
+      const parsed = parseFeedbackDraftCustomId(interaction.customId);
+      const draft = parsed ? getFeedbackDraft(parsed.draftId) : null;
+      if (!parsed || !draft) {
+        await interaction.reply({
+          content: 'This feedback draft no longer exists.',
+          ...interactionVisibility,
+        });
+        return;
+      }
+      const guildId = interaction.guildId ?? null;
+      const channelId = interaction.channelId;
+      await interaction.deferReply(interactionVisibility);
+      try {
+        await commandHandler(
+          draft.session_id,
+          guildId,
+          channelId,
+          interaction.user.id,
+          interaction.user.username,
+          feedbackDraftActionToCommandArgs(parsed.action, parsed.draftId),
+          async (text, files, components) => {
+            await interaction.followUp({
+              content: text,
+              ...(files?.length ? { files } : {}),
+              ...(components?.length ? { components } : {}),
+              ...interactionVisibility,
+            });
+          },
+        );
+        if (parsed.action !== 'view') {
+          const updated = getFeedbackDraft(parsed.draftId);
+          if (updated && updated.status !== 'queued') {
+            await disableApprovalButtons(
+              interaction.message as DiscordMessage,
+            ).catch(() => {});
+          }
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
         await interaction.followUp({
           content: formatError('Gateway Error', detail),
           ...interactionVisibility,

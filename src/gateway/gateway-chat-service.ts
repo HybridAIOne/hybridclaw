@@ -129,6 +129,12 @@ import {
 } from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
+import { extractFeedbackDraftsFromToolExecutions } from './feedback-draft-card.js';
+import { isFeedbackDraftsEnabled } from './feedback-drafts.js';
+import {
+  buildFeedbackTriggerHints,
+  rememberTurnToolErrors,
+} from './feedback-triggers.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -1863,6 +1869,15 @@ async function handleGatewayMessageInner(
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
+  const feedbackTriggerHints = isFeedbackDraftsEnabled()
+    ? buildFeedbackTriggerHints({
+        sessionId: req.sessionId,
+        userText:
+          typeof effectiveUserTurnContent === 'string'
+            ? effectiveUserTurnContent
+            : null,
+      })
+    : [];
   const { messages, skills, historyStats, explicitSkillInvocation } =
     buildConversationContext({
       agentId,
@@ -1872,6 +1887,7 @@ async function handleGatewayMessageInner(
         : pluginPromptSummary,
       history,
       currentUserContent: effectiveUserTurnContent,
+      turnNotes: feedbackTriggerHints,
       promptMode: promptPartDefaults.promptMode,
       includePromptParts: promptPartDefaults.includePromptParts,
       omitPromptParts: promptPartDefaults.omitPromptParts,
@@ -2315,6 +2331,7 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    rememberTurnToolErrors(req.sessionId, toolExecutions);
     hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
       bootstrapFile: startupBootstrapFile,
@@ -2880,6 +2897,8 @@ async function handleGatewayMessageInner(
         });
     }
 
+    const queuedFeedbackDrafts =
+      extractFeedbackDraftsFromToolExecutions(toolExecutions);
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
@@ -2905,6 +2924,9 @@ async function handleGatewayMessageInner(
       artifacts: output.artifacts,
       toolExecutions,
       pendingApproval: output.pendingApproval,
+      ...(queuedFeedbackDrafts.length > 0
+        ? { feedbackDrafts: queuedFeedbackDrafts }
+        : {}),
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
       assistantPresentation:

@@ -43,6 +43,37 @@ drafts. Every draft writes a `feedback.draft.created` audit event.
 After a successful call the model adds one closing line to its reply so the
 user knows a draft exists and how to review it.
 
+## Review Surfaces
+
+When a turn queues a draft, the channel shows a review card under the reply:
+
+- **Discord and Slack** post a card with **View**, **Send**, **Send +
+  transcript**, and **Discard** buttons. Each button runs the matching
+  `/feedback` command; the buttons are disabled once the draft is sent or
+  discarded.
+- **Web console** renders the same card inline in the chat, and the
+  **Feedback drafts** admin page lists drafts across sessions with the same
+  actions. The page reads `GET /api/admin/feedback-drafts?status=queued|submitted|discarded|expired|all`
+  (RBAC action `admin.feedback.read`).
+- **Other channels** (Teams, Telegram, Signal, email, ...) rely on the agent's
+  closing line and the `/feedback` commands below.
+
+## Host-Side Triggers
+
+Besides the model's own judgment, the gateway adds a one-turn note to the
+dynamic context when it has evidence the model may lack:
+
+- `tool_error`: the previous turn had failed tool calls. The note names the
+  tools and asks the model to consider a draft if HybridClaw was at fault and
+  the failure is resolved or abandoned.
+- `user_frustration`: the latest user message matches frustration patterns
+  (English and German). The note asks the model to address the user first and
+  to quote them verbatim if it drafts.
+
+Notes live in the per-turn context, never in the cached system prompt, and
+fire once per trigger. The `reset` confirmation also lists unsent drafts so
+they are not forgotten; drafts stay reviewable by id after a reset.
+
 ## Review Commands
 
 | Command | Effect |

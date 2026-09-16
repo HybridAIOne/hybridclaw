@@ -148,6 +148,34 @@ test('queued drafts past their retention window expire on listing', async () => 
   expect(db.getFeedbackDraft(old.id)?.status).toBe('expired');
 });
 
+test('listAllFeedbackDrafts filters by status across sessions', async () => {
+  const { db, feedback, session } = await setup();
+  const other = db.getOrCreateSession(
+    'agent:main:channel:web:chat:dm:peer:other',
+    null,
+    'web',
+    'main',
+  );
+  const a = feedback.createFeedbackDraft({ sessionId: session.id, draft: VALID_DRAFT }).draft;
+  const b = feedback.createFeedbackDraft({
+    sessionId: other.id,
+    draft: { ...VALID_DRAFT, title: 'other session issue' },
+  }).draft;
+  feedback.discardFeedbackDraft({ id: b.id, operatorUserId: 'user_a' });
+
+  expect(feedback.listAllFeedbackDrafts({ status: 'queued' }).map((d) => d.id)).toEqual([a.id]);
+  expect(feedback.listAllFeedbackDrafts({ status: 'discarded' }).map((d) => d.id)).toEqual([
+    b.id,
+  ]);
+  expect(feedback.listAllFeedbackDrafts({ status: null }).map((d) => d.id).sort()).toEqual(
+    [a.id, b.id].sort(),
+  );
+  const { resolveAdminRbacAction } = await import('../src/security/admin-rbac.ts');
+  expect(resolveAdminRbacAction('/api/admin/feedback-drafts', 'GET')).toBe(
+    'admin.feedback.read',
+  );
+});
+
 test('submitFeedbackDraft requires a signed-in HybridAI account', async () => {
   const { feedback, session } = await setup();
   const { draft } = feedback.createFeedbackDraft({ sessionId: session.id, draft: VALID_DRAFT });
