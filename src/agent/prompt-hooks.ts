@@ -33,10 +33,7 @@ import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { isLocalBackendType } from '../providers/provider-ids.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
-import {
-  buildSessionContextPrompt,
-  type SessionContext,
-} from '../session/session-context.js';
+import type { SessionContext } from '../session/session-context.js';
 import {
   buildSkillsPrompt,
   type Skill,
@@ -379,12 +376,6 @@ export function buildRetrievedContextPrompt(
 
 function buildRetrievalHook(context: PromptHookContext): string {
   return buildRetrievedContextPrompt(context.retrievedContext);
-}
-
-function buildSessionContextHook(context: PromptHookContext): string {
-  const sessionContext = context.runtimeInfo?.sessionContext;
-  if (!sessionContext) return '';
-  return buildSessionContextPrompt(sessionContext);
 }
 
 function buildMessageToolPromptLines(
@@ -883,12 +874,6 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildRetrievalHook,
   },
   {
-    name: 'session-context',
-    isEnabled: (_config, context) =>
-      Boolean(context.runtimeInfo?.sessionContext),
-    run: buildSessionContextHook,
-  },
-  {
     name: 'safety',
     isEnabled: (config) => config.promptHooks.safetyEnabled,
     run: buildSafetyHook,
@@ -925,6 +910,24 @@ function isHookAllowedForMode(
     hookName === 'runtime' ||
     hookName === 'session-context'
   );
+}
+
+/**
+ * Whether the per-session context block (platform, session id, session key,
+ * user) should be rendered for this turn. It honours the same prompt-mode and
+ * include/omit selection as the other prompt parts, but it is rendered into the
+ * trailing dynamic context message instead of the system prompt: the ids change
+ * on every session, and any change inside the system prompt invalidates the
+ * provider's prompt cache for the whole static prefix (bootstrap files, safety
+ * text, skills and tool definitions) on every new session.
+ */
+export function shouldRenderSessionContext(
+  context: PromptHookContext,
+): boolean {
+  if (!context.runtimeInfo?.sessionContext) return false;
+  const mode = resolvePromptMode(context);
+  if (!isHookAllowedForMode('session-context', mode)) return false;
+  return isHookSelected('session-context', context);
 }
 
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {
