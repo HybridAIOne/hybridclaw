@@ -35,7 +35,6 @@ export interface A2AOutboundJsonRpcRequest {
           envelope: A2AEnvelope;
         };
       };
-      taskId?: string;
     };
     metadata: {
       hybridclaw: {
@@ -44,7 +43,7 @@ export interface A2AOutboundJsonRpcRequest {
       };
     };
   };
-  id?: JsonRpcId;
+  id: string;
 }
 
 function hasTaskCapability(card: A2AAgentCard): boolean {
@@ -116,13 +115,10 @@ export function encodeA2AJsonRpcRequest(
         messageId: canonical.id,
         contextId: canonical.thread_id,
         metadata,
-        ...(canonical.parent_message_id
-          ? { taskId: canonical.parent_message_id }
-          : {}),
       },
       metadata,
     },
-    ...(method === 'tasks/send' ? { id: canonical.id } : {}),
+    id: canonical.id,
   };
 }
 

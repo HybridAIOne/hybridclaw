@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A2A JSON-RPC follows standard request and error conventions**: Outbound
+  `message/send` requests carry a JSON-RPC `id`, so peers return a response
+  instead of treating the request as a notification. Reply threading stays in
+  the HybridClaw envelope and is no longer sent as an A2A `taskId`. Inbound
+  authentication failures use error code `-32000` instead of the code A2A
+  reserves for task-not-found. A replayed message returns the original
+  delivery receipt with HTTP 200 instead of a 409 error.
+
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 
 ### Added
