@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Tailscale discovery on macOS**: The tunnel provider uses the installed
+  Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
+  including installations exposed through an interactive shell alias.
+
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 
 ### Added

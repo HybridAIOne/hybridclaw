@@ -1,7 +1,11 @@
-import { execFile } from 'node:child_process';
 import { recordAuditEvent as defaultRecordAuditEvent } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  createTailscaleCommandRunner,
+  type TailscaleCommandResult,
+  type TailscaleCommandRunner,
+} from './tailscale-command.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_COMMAND_TIMEOUT_MS,
   DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
@@ -29,19 +33,6 @@ export const DEFAULT_TAILSCALE_TUNNEL_ADDR = 'localhost:9090';
 const TAILSCALE_CLI_NOT_FOUND_MESSAGE =
   'Tailscale CLI was not found in the gateway runtime. Install Tailscale on the host or container running HybridClaw and ensure the `tailscale` executable is on the gateway PATH. Verify with `tailscale version` in that same runtime, then restart the gateway and retry. On a managed cloud service where system binaries cannot be installed, use a custom image or build step that includes Tailscale, or select another tunnel provider.';
 
-type TailscaleCommandResult = {
-  stdout: string;
-  stderr: string;
-};
-type TailscaleCommandOptions = {
-  env?: NodeJS.ProcessEnv;
-  timeoutMs?: number;
-};
-type TailscaleCommandRunner = (
-  args: string[],
-  options?: TailscaleCommandOptions,
-) => Promise<TailscaleCommandResult>;
-
 export interface TailscaleTunnelProviderOptions {
   addr?: string;
   commandTimeoutMs?: number;
@@ -54,47 +45,6 @@ export interface TailscaleTunnelProviderOptions {
   runCommand?: TailscaleCommandRunner;
   tailscaleCommand?: string;
   tokenSecretName?: string;
-}
-
-function runTailscaleCommand(
-  command: string,
-  args: string[],
-  options: TailscaleCommandOptions = {},
-): Promise<TailscaleCommandResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      {
-        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
-        timeout: options.timeoutMs,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const detail = stderr.trim() || error.message;
-          reject(
-            Object.assign(new Error(detail), {
-              code: (error as NodeJS.ErrnoException).code,
-            }),
-          );
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
-}
-
-function defaultCommandRunner(
-  command: string,
-  timeoutMs: number,
-): TailscaleCommandRunner {
-  return (args, options) =>
-    runTailscaleCommand(command, args, {
-      ...options,
-      timeoutMs: options?.timeoutMs ?? timeoutMs,
-    });
 }
 
 function normalizeAddr(value: string | undefined): string {
@@ -209,8 +159,8 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     this.recordAuditEvent = options.recordAuditEvent ?? defaultRecordAuditEvent;
     this.runCommand =
       options.runCommand ??
-      defaultCommandRunner(
-        options.tailscaleCommand ?? 'tailscale',
+      createTailscaleCommandRunner(
+        options.tailscaleCommand,
         this.commandTimeoutMs,
       );
     this.tokenSecretName = options.tokenSecretName?.trim() || TS_AUTHKEY_SECRET;
