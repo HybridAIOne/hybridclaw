@@ -212,7 +212,7 @@ describe('TailscaleTunnelProvider', () => {
     );
     expect(runCommand).toHaveBeenCalledTimes(1);
     expect(provider.status().last_error).toBe(
-      'Tailscale CLI was not found in the gateway runtime. Install Tailscale on the host or container running HybridClaw and ensure the `tailscale` executable is on the gateway PATH. Verify with `tailscale version` in that same runtime, then restart the gateway and retry. On a managed cloud service where system binaries cannot be installed, use a custom image or build step that includes Tailscale, or select another tunnel provider.',
+      'Tailscale CLI was not found in the gateway runtime. Install Tailscale on the host or container running HybridClaw and ensure the `tailscale` executable is on the gateway PATH. With the default command on macOS, HybridClaw also checks `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. Verify with `tailscale version` or the full app executable path in that same runtime, then restart the gateway and retry. On a managed cloud service where system binaries cannot be installed, use a custom image or build step that includes Tailscale, or select another tunnel provider.',
     );
   });
 
