@@ -51,7 +51,6 @@ export interface WarmRunnerHealthEntry extends WarmRunnerEntry {
 
 export interface WarmPoolEligibilityParams {
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   bashProxy?: unknown;
 }
 
@@ -256,7 +255,6 @@ export function canUseWarmPool(
   return (
     warmPool.enabled &&
     !params.workspacePathOverride?.trim() &&
-    !params.workspaceDisplayRootOverride?.trim() &&
     !params.bashProxy
   );
 }

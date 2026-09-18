@@ -2440,12 +2440,13 @@ browser:
     expect(second.decision).toBe('approved_all');
   });
 
-  test('bash workspace fence accepts the configured display root for task-container evals', async () => {
+  test('bash workspace fence accepts the task-sandbox bash cwd for task-container evals', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-approval-display-root-'),
     );
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'task-sandbox');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/app');
     vi.resetModules();
 
     const { TrustedAgentApprovalRuntime: DisplayRootApprovalRuntime } =

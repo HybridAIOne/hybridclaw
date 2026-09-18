@@ -4,8 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 const ORIGINAL_PLANTUML_SERVER_URL = process.env.HYBRIDCLAW_PLANTUML_SERVER_URL;
 const ORIGINAL_LEGACY_PLANTUML_SERVER_URL = process.env.PLANTUML_SERVER_URL;
 const ORIGINAL_PATH = process.env.PATH;
@@ -22,8 +20,8 @@ async function loadDiagramModule() {
   return import('../container/src/diagram-create.js');
 }
 
-function hostPath(displayPath: string): string {
-  return path.join(workspaceRoot, displayPath.replace(/^\/workspace\/?/, ''));
+function hostPath(artifactPath: string): string {
+  return path.resolve(artifactPath);
 }
 
 beforeEach(() => {
@@ -31,7 +29,6 @@ beforeEach(() => {
     path.join(os.tmpdir(), 'hybridclaw-diagram-create-'),
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
 });
 
 afterEach(() => {
@@ -40,12 +37,6 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT == null) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
   if (ORIGINAL_PLANTUML_SERVER_URL == null) {
     delete process.env.HYBRIDCLAW_PLANTUML_SERVER_URL;
@@ -112,7 +103,7 @@ describe('diagram tools', () => {
       expect(parsed.type).toBe(type);
       expect(parsed.format).toBe('mermaid');
       expect(parsed.source_artifact_ref).toContain(
-        '/workspace/.generated-diagrams/skills/diagram/',
+        `${workspaceRoot}/.generated-diagrams/skills/diagram/`,
       );
       expect(path.dirname(parsed.rendered_artifact_ref)).toBe(
         path.dirname(parsed.source_artifact_ref),
@@ -603,7 +594,7 @@ describe('diagram tools', () => {
     const update = await executeToolWithMetadata(
       'diagram_update',
       JSON.stringify({
-        artifact_ref: '/workspace/bad.excalidraw.json',
+        artifact_ref: `${workspaceRoot}/bad.excalidraw.json`,
         instructions: 'add label',
         format: 'excalidraw',
         render_to: 'none',
@@ -627,7 +618,7 @@ describe('diagram tools', () => {
     const result = await executeToolWithMetadata(
       'diagram_update',
       JSON.stringify({
-        artifact_ref: '/workspace/missing.mmd',
+        artifact_ref: `${workspaceRoot}/missing.mmd`,
         instructions: 'add retry path',
         format: 'mermaid',
       }),
@@ -635,7 +626,7 @@ describe('diagram tools', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain(
-      'artifact_ref not found or unreadable: /workspace/missing.mmd',
+      `artifact_ref not found or unreadable: ${workspaceRoot}/missing.mmd`,
     );
   });
 

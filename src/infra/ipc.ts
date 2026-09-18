@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
+import { WORKSPACES_ROOT_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { TASK_MODEL_KEYS } from '../types/models.js';
@@ -24,10 +25,16 @@ function ipcFilePath(sessionId: string, filename: string): string {
   return path.join(ipcDir(sessionId), filename);
 }
 
+function safeWorkspaceId(agentId: string): string {
+  return resolveAgentWorkspaceId(agentId).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function agentDir(agentId: string): string {
-  const workspaceId = resolveAgentWorkspaceId(agentId);
-  const safe = workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(DATA_DIR, 'agents', safe);
+  return path.join(DATA_DIR, 'agents', safeWorkspaceId(agentId));
+}
+
+function legacyAgentWorkspaceDir(agentId: string): string {
+  return path.join(agentDir(agentId), 'workspace');
 }
 
 function redactTaskModelSecrets(
@@ -70,7 +77,63 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
 }
 
 export function agentWorkspaceDir(agentId: string): string {
-  return path.join(agentDir(agentId), 'workspace');
+  if (WORKSPACES_ROOT_DIR) {
+    return path.join(WORKSPACES_ROOT_DIR, safeWorkspaceId(agentId));
+  }
+  return legacyAgentWorkspaceDir(agentId);
+}
+
+/**
+ * One-shot move of a workspace from the runtime-home layout into
+ * HYBRIDCLAW_WORKSPACES_DIR. Skipped when the target already exists.
+ *
+ * A failed move throws instead of degrading: callers must not create an
+ * empty target afterwards, or the legacy workspace (identity, memory, files)
+ * would be orphaned forever and the agent silently start over.
+ */
+export function migrateLegacyAgentWorkspace(agentId: string): boolean {
+  if (!WORKSPACES_ROOT_DIR) return false;
+  const target = agentWorkspaceDir(agentId);
+  const legacy = legacyAgentWorkspaceDir(agentId);
+  if (fs.existsSync(target) || !fs.existsSync(legacy)) return false;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      fs.renameSync(legacy, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+      moveAcrossFilesystems(legacy, target);
+    }
+  } catch (error) {
+    logger.error(
+      { agentId, from: legacy, to: target, error },
+      'Failed to move agent workspace into HYBRIDCLAW_WORKSPACES_DIR',
+    );
+    throw new Error(
+      `Failed to move agent workspace ${legacy} to ${target}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  logger.info({ agentId, from: legacy, to: target }, 'Moved agent workspace');
+  return true;
+}
+
+/**
+ * Copy into a staging sibling, then rename into place, so a crash mid-copy
+ * never leaves a partial target that the existence guard would accept.
+ */
+function moveAcrossFilesystems(legacy: string, target: string): void {
+  const staging = `${target}.migrating`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  try {
+    fs.cpSync(legacy, staging, { recursive: true, preserveTimestamps: true });
+    fs.renameSync(staging, target);
+  } catch (error) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  fs.rmSync(legacy, { recursive: true, force: true });
 }
 
 /**
@@ -84,6 +147,7 @@ export function ensureSessionDirs(sessionId: string): void {
  * Ensure agent workspace directory exists.
  */
 export function ensureAgentDirs(agentId: string): void {
+  migrateLegacyAgentWorkspace(agentId);
   fs.mkdirSync(agentWorkspaceDir(agentId), { recursive: true });
 }
 

@@ -24,7 +24,6 @@ export interface ExecutorRequest {
   agentId?: string;
   addressEnvelope?: AddressEnvelope;
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   skipContainerSystemPrompt?: boolean;
   maxTokens?: number;
   maxWallClockMs?: number | null;

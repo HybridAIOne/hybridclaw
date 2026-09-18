@@ -14,7 +14,7 @@ import {
   extractUserTimezone,
 } from '../container/shared/workspace-time.js';
 import { resolveInstallPath } from './infra/install-root.js';
-import { agentWorkspaceDir } from './infra/ipc.js';
+import { agentWorkspaceDir, migrateLegacyAgentWorkspace } from './infra/ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
 
@@ -719,6 +719,7 @@ export function ensureBootstrapFiles(
   agentId: string,
   options: EnsureBootstrapFilesOptions = {},
 ): EnsureBootstrapFilesResult {
+  migrateLegacyAgentWorkspace(agentId);
   const wsDir = agentWorkspaceDir(agentId);
   const workspaceInitialized =
     !fs.existsSync(wsDir) || isWorkspaceEffectivelyEmpty(wsDir);

@@ -161,6 +161,7 @@ import {
   startRuntimeConfigWatcher,
 } from '../config/runtime-config.js';
 import { resolveLocalInstanceId } from '../identity/agent-id.js';
+import { migrateLegacyAgentWorkspace } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
   startPeriodicCloudMemorySync,
@@ -4352,7 +4353,9 @@ async function main(): Promise<void> {
     );
   }
   migrateConfigSchedulerJobsToDatabase();
-  listAgents();
+  for (const agent of listAgents()) {
+    migrateLegacyAgentWorkspace(agent.id);
+  }
   await initGatewayService();
   try {
     persistThirdPartySkillDiscoveryDefaults();

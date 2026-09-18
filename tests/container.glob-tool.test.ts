@@ -147,7 +147,6 @@ describe.sequential('container glob tool', () => {
       path.join(os.tmpdir(), 'hybridclaw-glob-workspace-'),
     );
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'task-sandbox');
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/app');
     const spawnSync = vi.fn((_command: string, args: string[]) => {

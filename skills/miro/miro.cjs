@@ -1294,7 +1294,6 @@ function resolveArtifactOutput(opts, mimeType, exportUrl) {
     process.cwd();
   const displayRoot =
     opts.displayRoot ||
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT ||
     workspaceRoot;
   const outputDir = opts.outputDir || DEFAULT_OUTPUT_DIR;
   if (path.isAbsolute(outputDir) || outputDir.split(/[\\/]/).includes('..')) {

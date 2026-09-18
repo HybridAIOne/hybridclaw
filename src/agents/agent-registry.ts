@@ -7,6 +7,7 @@ import {
   HYBRIDAI_MODEL,
 } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { WORKSPACES_ROOT_DIR } from '../config/runtime-paths.js';
 import { deriveLocalAgentIdentity } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
@@ -606,6 +607,9 @@ function agentRootDirByWorkspaceName(workspaceName: string): string {
 }
 
 function agentWorkspaceDirByWorkspaceName(workspaceName: string): string {
+  if (WORKSPACES_ROOT_DIR) {
+    return path.join(WORKSPACES_ROOT_DIR, safeWorkspaceName(workspaceName));
+  }
   return path.join(agentRootDirByWorkspaceName(workspaceName), 'workspace');
 }
 

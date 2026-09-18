@@ -114,12 +114,13 @@ describe.sequential('container runtime path aliases', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test('maps overridden /app display root into the actual workspace root', async () => {
+  test('maps the task-sandbox bash cwd into the actual workspace root', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-app-root-'),
     );
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'task-sandbox');
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/app');
     vi.resetModules();
 
     const { resolveWorkspacePath, WORKSPACE_ROOT_DISPLAY } = await import(
@@ -128,9 +129,6 @@ describe.sequential('container runtime path aliases', () => {
 
     expect(WORKSPACE_ROOT_DISPLAY).toBe('/app');
     expect(resolveWorkspacePath('/app/ars.R')).toBe(
-      path.join(workspaceRoot, 'ars.R'),
-    );
-    expect(resolveWorkspacePath('app/ars.R')).toBe(
       path.join(workspaceRoot, 'ars.R'),
     );
     expect(resolveWorkspacePath('ars.R')).toBe(
@@ -143,7 +141,6 @@ describe.sequential('container runtime path aliases', () => {
   test('prefers real absolute workspace paths over the /workspace display alias', async () => {
     const workspaceRoot = '/workspace/.data/data/agents/main/workspace';
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
     vi.resetModules();
 
     const { resolveWorkspacePath } = await import(
@@ -162,7 +159,6 @@ describe.sequential('container runtime path aliases', () => {
     const uploadedRoot = '/workspace/.data/data/uploaded-media-cache';
     const uploadedFile = `${uploadedRoot}/2026-08-21/note.txt`;
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
     vi.stubEnv(
       'HYBRIDCLAW_AGENT_ALLOWED_ROOTS',
       JSON.stringify([uploadedRoot]),
@@ -176,7 +172,7 @@ describe.sequential('container runtime path aliases', () => {
     expect(resolveWorkspacePath(uploadedFile)).toBe(uploadedFile);
   });
 
-  test('does not remap uploaded-media cache host paths through the workspace display alias', async () => {
+  test('keeps uploaded-media cache paths out of the workspace resolver', async () => {
     // Cloud sandboxes: DATA_DIR sits under the /workspace display root, so a
     // host media path must not be rewritten into <workspace>/.data/... by
     // resolveWorkspacePath; resolveMediaPath owns it.
@@ -186,7 +182,6 @@ describe.sequential('container runtime path aliases', () => {
     const uploadedFile = `${uploadedRoot}/2026-09-04/original.png`;
     const discordFile = `${discordRoot}/2026-09-04/photo.jpg`;
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
-    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
     vi.stubEnv('HYBRIDCLAW_AGENT_UPLOADED_MEDIA_ROOT', uploadedRoot);
     vi.stubEnv('HYBRIDCLAW_AGENT_MEDIA_ROOT', discordRoot);
     vi.stubEnv(
@@ -206,7 +201,7 @@ describe.sequential('container runtime path aliases', () => {
     expect(
       resolveWorkspacePath(uploadedFile) || resolveMediaPath(uploadedFile),
     ).toBe(uploadedFile);
-    expect(resolveWorkspacePath('/workspace/notes/todo.md')).toBe(
+    expect(resolveWorkspacePath(`${workspaceRoot}/notes/todo.md`)).toBe(
       `${workspaceRoot}/notes/todo.md`,
     );
   });

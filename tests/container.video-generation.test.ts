@@ -4,8 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 
 let workspaceRoot = '';
 
@@ -19,7 +17,6 @@ beforeEach(() => {
     path.join(os.tmpdir(), 'hybridclaw-video-generate-'),
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
   vi.unstubAllGlobals();
 });
 
@@ -29,12 +26,6 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT == null) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -113,7 +104,7 @@ describe('video_generate tool', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.videos[0]?.path).toMatch(
-      /^\/workspace\/\.generated-videos\/video-/,
+      new RegExp(`^${workspaceRoot}/\\.generated-videos/video-`),
     );
     expect(parsed.artifacts).toEqual([
       expect.objectContaining({

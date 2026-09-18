@@ -22,8 +22,6 @@ const require = createRequire(import.meta.url);
 const videoFromScript = require('../skills/video.from-script/video-from-script.cjs');
 
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 const ORIGINAL_HEYGEN_ASSET_CACHE_DIR = process.env.HEYGEN_ASSET_CACHE_DIR;
 
 let workspaceRoot = '';
@@ -39,7 +37,6 @@ beforeEach(() => {
     path.join(os.tmpdir(), 'hybridclaw-video-from-script-'),
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
   process.env.HEYGEN_ASSET_CACHE_DIR = path.join(
     workspaceRoot,
     '.heygen-cache',
@@ -51,12 +48,6 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT == null) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
   if (ORIGINAL_HEYGEN_ASSET_CACHE_DIR == null) {
     delete process.env.HEYGEN_ASSET_CACHE_DIR;
@@ -288,14 +279,14 @@ test('video.from-script status downloads completed MP4 artifacts', async () => {
     ready: true,
     videoUrl: 'https://cdn.heygen.example/video.mp4',
     artifact: {
-      path: '/workspace/.generated-videos/avatar-video.mp4',
+      path: `${workspaceRoot}/.generated-videos/avatar-video.mp4`,
       filename: 'avatar-video.mp4',
       mimeType: 'video/mp4',
       bytes: videoBytes.length,
     },
     artifacts: [
       {
-        path: '/workspace/.generated-videos/avatar-video.mp4',
+        path: `${workspaceRoot}/.generated-videos/avatar-video.mp4`,
         filename: 'avatar-video.mp4',
         mimeType: 'video/mp4',
         bytes: videoBytes.length,
@@ -466,11 +457,11 @@ test('video.from-script render waits with bounded polling and downloads on compl
     state: 'completed',
     attempts: 2,
     artifact: {
-      path: '/workspace/.generated-videos/rendered.mp4',
+      path: `${workspaceRoot}/.generated-videos/rendered.mp4`,
     },
     artifacts: [
       {
-        path: '/workspace/.generated-videos/rendered.mp4',
+        path: `${workspaceRoot}/.generated-videos/rendered.mp4`,
       },
     ],
   });

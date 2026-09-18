@@ -4,8 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 
 let workspaceRoot = '';
 
@@ -19,7 +17,6 @@ beforeEach(() => {
     path.join(os.tmpdir(), 'hybridclaw-image-generate-'),
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
   vi.unstubAllGlobals();
 });
 
@@ -29,12 +26,6 @@ afterEach(() => {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT == null) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -151,7 +142,7 @@ describe('image_generate tool', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.images[0]?.path).toMatch(
-      /^\/workspace\/\.generated-images\/image-/,
+      new RegExp(`^${workspaceRoot}/\\.generated-images/image-`),
     );
     expect(parsed.artifacts).toEqual([
       {

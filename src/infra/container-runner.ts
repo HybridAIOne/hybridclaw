@@ -541,7 +541,6 @@ function claimWarmContainer(params: {
   sessionId: string;
   agentId: string;
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): PoolEntry | null {
   return claimWarmEntry({
@@ -566,7 +565,6 @@ function claimWarmContainer(params: {
 function maintainWarmContainerPool(params: {
   agentId: string;
   workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): void {
   maintainWarmPool({
@@ -589,37 +587,31 @@ function isWithinResolvedRoot(candidate: string, root: string): boolean {
 function resolveArtifactHostPath(
   rawPath: string,
   workspacePath: string,
-  workspaceDisplayRoot = CONTAINER_WORKSPACE_ROOT,
+  mapContainerPaths: boolean,
 ): string | null {
   const input = String(rawPath || '').trim();
   if (!input) return null;
   const normalized = input.replace(/\\/g, '/');
   const workspaceRoot = path.resolve(workspacePath);
-  const displayRoot = path.posix.normalize(
-    String(workspaceDisplayRoot || '').trim() || CONTAINER_WORKSPACE_ROOT,
-  );
 
   if (path.posix.isAbsolute(normalized)) {
     const resolvedActual = path.resolve(normalized);
     if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
       return resolvedActual;
     }
+    if (!mapContainerPaths) return null;
 
+    // Container mode: the agent sees the workspace bind-mounted at /workspace.
     const cleanAbs = path.posix.normalize(normalized);
-    const allowedRoots =
-      displayRoot === CONTAINER_WORKSPACE_ROOT
-        ? [CONTAINER_WORKSPACE_ROOT]
-        : [CONTAINER_WORKSPACE_ROOT, displayRoot].sort(
-            (left, right) => right.length - left.length,
-          );
-    const matchedRoot =
-      allowedRoots.find(
-        (root) => cleanAbs === root || cleanAbs.startsWith(`${root}/`),
-      ) ?? null;
-    if (!matchedRoot) {
+    if (
+      cleanAbs !== CONTAINER_WORKSPACE_ROOT &&
+      !cleanAbs.startsWith(`${CONTAINER_WORKSPACE_ROOT}/`)
+    ) {
       return null;
     }
-    const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
+    const rel = cleanAbs
+      .slice(CONTAINER_WORKSPACE_ROOT.length)
+      .replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
     if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
@@ -636,11 +628,16 @@ function resolveArtifactHostPath(
   return null;
 }
 
+/**
+ * Rewrites artifact paths reported by the agent to host paths. Container
+ * mode maps the /workspace bind mount; host mode already reports real paths.
+ */
 export function remapOutputArtifacts(
   output: ContainerOutput,
   workspacePath: string,
-  workspaceDisplayRoot?: string,
+  options: { mapContainerPaths?: boolean } = {},
 ): void {
+  const mapContainerPaths = options.mapContainerPaths ?? true;
   if (!Array.isArray(output.artifacts) || output.artifacts.length === 0) return;
   const mapped: ArtifactMetadata[] = [];
   for (const artifact of output.artifacts) {
@@ -648,7 +645,7 @@ export function remapOutputArtifacts(
     const hostPath = resolveArtifactHostPath(
       String(raw.path || ''),
       workspacePath,
-      workspaceDisplayRoot,
+      mapContainerPaths,
     );
     if (!hostPath) continue;
     const filename =
@@ -688,11 +685,7 @@ function getContainerWorkspacePath(params: {
 function getOrSpawnContainer(
   params: Pick<
     ExecutorRequest,
-    | 'sessionId'
-    | 'agentId'
-    | 'workspacePathOverride'
-    | 'workspaceDisplayRootOverride'
-    | 'bashProxy'
+    'sessionId' | 'agentId' | 'workspacePathOverride' | 'bashProxy'
   > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
   const sessionId = params.sessionId;
@@ -788,8 +781,6 @@ function getOrSpawnContainer(
     `TZ=${resolveEffectiveTimezone()}`,
     '-e',
     `HYBRIDCLAW_AGENT_WORKSPACE_ROOT=${CONTAINER_WORKSPACE_ROOT}`,
-    '-e',
-    `HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT=${params.workspaceDisplayRootOverride?.trim() || CONTAINER_WORKSPACE_ROOT}`,
     '-e',
     `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
@@ -1251,7 +1242,6 @@ async function runContainerInner(
     providerCredentials: input.providerCredentials,
     runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
-    workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
   });
 
@@ -1282,7 +1272,6 @@ async function runContainerInner(
             sessionId,
             agentId,
             workspacePathOverride: params.workspacePathOverride,
-            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
             bashProxy: params.bashProxy,
           })
         : null) ||
@@ -1290,7 +1279,6 @@ async function runContainerInner(
         sessionId,
         agentId,
         workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
         bashProxy: params.bashProxy,
       });
   } catch (err) {
@@ -1370,11 +1358,7 @@ async function runContainerInner(
       );
       stopSessionContainer(sessionId);
     }
-    remapOutputArtifacts(
-      output,
-      workspacePath,
-      params.workspaceDisplayRootOverride,
-    );
+    remapOutputArtifacts(output, workspacePath);
     if (typeof output.result === 'string') {
       output.result = redactCredentialSecrets(output.result);
     }
@@ -1396,7 +1380,6 @@ async function runContainerInner(
       maintainWarmContainerPool({
         agentId,
         workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
         bashProxy: params.bashProxy,
       });
     }

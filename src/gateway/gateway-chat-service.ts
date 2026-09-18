@@ -1257,8 +1257,6 @@ async function handleGatewayMessageInner(
           ...loadPolicyFullAutoNeverApprove(workspacePath),
         ]
       : FULLAUTO_NEVER_APPROVE_TOOLS;
-  const workspaceDisplayPath =
-    req.workspaceDisplayRootOverride?.trim() || workspacePath;
   const workspaceBootstrap = req.workspacePathOverride
     ? {
         workspacePath,
@@ -1910,7 +1908,7 @@ async function handleGatewayMessageInner(
         channelId: req.channelId,
         guildId: req.guildId,
         sessionContext,
-        workspacePath: workspaceDisplayPath,
+        workspacePath,
       },
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
@@ -2203,7 +2201,6 @@ async function handleGatewayMessageInner(
         agentId,
         addressEnvelope: req.addressEnvelope,
         workspacePathOverride: req.workspacePathOverride,
-        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,
@@ -2308,7 +2305,6 @@ async function handleGatewayMessageInner(
         agentId,
         addressEnvelope: req.addressEnvelope,
         workspacePathOverride: req.workspacePathOverride,
-        workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,

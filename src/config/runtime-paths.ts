@@ -12,3 +12,20 @@ function resolveDefaultRuntimeHomeDir(): string {
 }
 
 export const DEFAULT_RUNTIME_HOME_DIR = resolveDefaultRuntimeHomeDir();
+
+/**
+ * Optional flat root for agent workspaces (`<root>/<workspaceId>`). Without it
+ * workspaces live under the runtime home at `agents/<workspaceId>/workspace`.
+ */
+function resolveWorkspacesRootDir(): string | null {
+  const envDir = (process.env.HYBRIDCLAW_WORKSPACES_DIR || '').trim();
+  if (!envDir) return null;
+  if (!path.isAbsolute(envDir)) {
+    throw new Error(
+      `HYBRIDCLAW_WORKSPACES_DIR must be an absolute path, got: ${envDir}`,
+    );
+  }
+  return path.resolve(envDir);
+}
+
+export const WORKSPACES_ROOT_DIR = resolveWorkspacesRootDir();
