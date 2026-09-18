@@ -350,15 +350,15 @@ function jsonRpcErrorBody(params: {
 }
 
 function jsonRpcErrorCode(error: unknown): number {
-  if (error instanceof A2ADelegationTokenError) return -32001;
-  if (error instanceof A2AEnvelopeDuplicateError) return -32009;
+  // A2A reserves -32001..-32099 for its own errors and defines no auth code,
+  // so auth failures use the generic JSON-RPC server error.
+  if (error instanceof A2ADelegationTokenError) return -32000;
   if (error instanceof A2AEnvelopeValidationError) return -32602;
   return -32603;
 }
 
 function jsonRpcErrorMessage(error: unknown): string {
   if (error instanceof A2ADelegationTokenError) return 'Unauthorized';
-  if (error instanceof A2AEnvelopeDuplicateError) return 'Duplicate envelope';
   if (error instanceof A2AEnvelopeValidationError) return 'Invalid params';
   return 'Internal error';
 }
@@ -762,6 +762,7 @@ export async function acceptA2AJsonRpcInboundRequest(params: {
     };
   } catch (error) {
     const isDuplicate = error instanceof A2AEnvelopeDuplicateError;
+    const statusCode = isDuplicate ? 200 : 500;
     const reason = extractErrorReason(error);
     recordInboundAudit({
       runId,
@@ -774,11 +775,26 @@ export async function acceptA2AJsonRpcInboundRequest(params: {
       intent: envelope.intent,
       downstreamDisposition: isDuplicate ? 'duplicate' : 'error',
       envelope,
-      statusCode: isDuplicate ? 409 : 500,
+      statusCode,
       reason,
     });
+    if (isDuplicate) {
+      const existing = getA2AEnvelope(
+        envelope.thread_id,
+        envelope.id,
+        peerInstanceId(peer),
+      );
+      return {
+        statusCode,
+        body: {
+          jsonrpc: '2.0',
+          result: alreadyDeliveredBody(existing ?? envelope),
+          id: requestId,
+        },
+      };
+    }
     return {
-      statusCode: isDuplicate ? 409 : 500,
+      statusCode,
       body: jsonRpcErrorBody({
         id: requestId,
         code: jsonRpcErrorCode(error),
