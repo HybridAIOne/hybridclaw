@@ -5,7 +5,12 @@
  * When inactive, all tracing calls are no-ops via the default @opentelemetry/api.
  */
 
-import { context, SpanStatusCode, trace } from '@opentelemetry/api';
+import {
+  type Context,
+  context,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api';
 
 import { captureSentryException } from './sentry.js';
 
@@ -190,6 +195,36 @@ export function withSpanSync<T>(
       }
     },
   );
+}
+
+/**
+ * Capture the active trace context so work reported back asynchronously
+ * (e.g. tool progress relayed over IPC from the agent process, which does not
+ * inherit the turn's async context) can still be parented to the turn span.
+ */
+export function captureActiveContext(): Context {
+  return context.active();
+}
+
+/**
+ * Record a span for work that already finished elsewhere and reported its
+ * duration — a tool call executed inside the agent process, for example. The
+ * span is parented to `parent` (default: the active context) so it nests under
+ * the gateway turn span. A no-op when OTel is inactive.
+ */
+export function recordCompletedSpan(
+  name: string,
+  attributes: Record<string, string | number | boolean | undefined>,
+  timing: { startTime: number; endTime: number },
+  parent: Context = context.active(),
+): void {
+  const span = getTracer().startSpan(
+    name,
+    { attributes: cleanAttributes(attributes), startTime: timing.startTime },
+    parent,
+  );
+  span.setStatus({ code: SpanStatusCode.OK });
+  span.end(timing.endTime);
 }
 
 /**
