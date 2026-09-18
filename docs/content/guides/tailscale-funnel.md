@@ -34,6 +34,10 @@ are not available to the gateway; an alias in `.zshrc` is not required for this
 app discovery. For manual commands below, you can use the app's full executable
 path in place of `tailscale`.
 
+After a successful app CLI command, the provider reuses that executable for
+subsequent commands. If it disappears, the provider repeats discovery. Other
+command failures propagate without switching installations.
+
 ## Tailnet Policy Grant
 
 Funnel must be allowed by tailnet policy. Add a grant similar to this in the

@@ -130,8 +130,151 @@ describe('Tailscale CLI discovery', () => {
       ['funnel', 'status', '--json'],
       ['funnel', '--bg', 'off'],
     ]);
+    expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+      'tailscale',
+      MACOS_TAILSCALE,
+      'tailscale',
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+    ]);
     expect(process.env.TAILSCALE_BE_CLI).toBe('0');
   });
+
+  it('uses current credentials and timeout when reusing the app CLI', async () => {
+    execFile.mockImplementation(
+      (command, _args, _options, callback: ExecFileCallback) => {
+        const error =
+          command === 'tailscale'
+            ? Object.assign(new Error('missing CLI'), { code: 'ENOENT' })
+            : null;
+        callback(error, 'ok', '');
+      },
+    );
+    const run = createTailscaleCommandRunner(undefined, 5_000);
+    await run(['version']);
+    await run(['up'], {
+      env: { TS_AUTHKEY: 'test-auth-key' },
+      timeoutMs: 1_234,
+    });
+    await run(['status', '--json']);
+
+    expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+      'tailscale',
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+    ]);
+    expect(execFile.mock.calls[2]).toEqual([
+      MACOS_TAILSCALE,
+      ['up'],
+      expect.objectContaining({
+        timeout: 1_234,
+        env: expect.objectContaining({
+          TS_AUTHKEY: 'test-auth-key',
+          TAILSCALE_BE_CLI: '1',
+        }),
+      }),
+      expect.any(Function),
+    ]);
+    expect(execFile.mock.calls[3][2].timeout).toBe(5_000);
+    expect(execFile.mock.calls[3][2].env.TS_AUTHKEY).toBe(
+      process.env.TS_AUTHKEY,
+    );
+  });
+
+  it('discovers a new PATH installation if the cached app executable disappears', async () => {
+    let availableCommand = MACOS_TAILSCALE;
+    execFile.mockImplementation(
+      (command, _args, _options, callback: ExecFileCallback) => {
+        const error =
+          command === availableCommand
+            ? null
+            : Object.assign(new Error('missing CLI'), { code: 'ENOENT' });
+        callback(error, 'ok', '');
+      },
+    );
+    const run = createTailscaleCommandRunner(undefined, 5_000);
+    await run(['version']);
+    availableCommand = 'tailscale';
+    await expect(run(['version'])).resolves.toEqual({
+      stdout: 'ok',
+      stderr: '',
+    });
+    await run(['version']);
+
+    expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+      'tailscale',
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+      'tailscale',
+      'tailscale',
+    ]);
+    expect(execFile.mock.calls[3][2].env).toBeUndefined();
+  });
+
+  it('clears the app cache when both installations disappear and rediscovers after reinstall', async () => {
+    let appAvailable = true;
+    execFile.mockImplementation(
+      (command, _args, _options, callback: ExecFileCallback) => {
+        const error =
+          command === MACOS_TAILSCALE && appAvailable
+            ? null
+            : Object.assign(new Error('missing CLI'), { code: 'ENOENT' });
+        callback(error, 'ok', '');
+      },
+    );
+    const run = createTailscaleCommandRunner(undefined, 5_000);
+    await run(['version']);
+    appAvailable = false;
+    await expect(run(['version'])).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+      'tailscale',
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+      'tailscale',
+      MACOS_TAILSCALE,
+    ]);
+    appAvailable = true;
+    execFile.mockClear();
+    await run(['version']);
+    await run(['version']);
+    expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+      'tailscale',
+      MACOS_TAILSCALE,
+      MACOS_TAILSCALE,
+    ]);
+  });
+
+  it.each(['EACCES', 'ETIMEDOUT', 1])(
+    'propagates cached app failures with code %s without rediscovery',
+    async (code) => {
+      let appFailure: string | number | undefined;
+      execFile.mockImplementation(
+        (command, _args, _options, callback: ExecFileCallback) => {
+          const errorCode = command === 'tailscale' ? 'ENOENT' : appFailure;
+          const error =
+            errorCode === undefined
+              ? null
+              : Object.assign(new Error('command failed'), { code: errorCode });
+          callback(error, 'ok', '');
+        },
+      );
+      const run = createTailscaleCommandRunner(undefined, 5_000);
+      await run(['version']);
+      appFailure = code;
+      await expect(run(['status', '--json'])).rejects.toMatchObject({ code });
+      appFailure = undefined;
+      await run(['status', '--json']);
+      expect(execFile.mock.calls.map(([command]) => command)).toEqual([
+        'tailscale',
+        MACOS_TAILSCALE,
+        MACOS_TAILSCALE,
+        MACOS_TAILSCALE,
+      ]);
+    },
+  );
 
   it.each(['linux', 'win32'] as const)(
     'does not try the macOS app on %s',
@@ -301,6 +444,7 @@ describe('TailscaleTunnelProvider default command runner', () => {
       'host or container running HybridClaw',
     );
     expect(provider.status().last_error).toContain('managed cloud service');
+    expect(provider.status().last_error).toContain(MACOS_TAILSCALE);
     expect(provider.status().last_error).not.toContain('ENOENT');
   });
 });

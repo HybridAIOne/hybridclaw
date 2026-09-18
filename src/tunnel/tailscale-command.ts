@@ -1,10 +1,13 @@
 /**
- * Tailscale CLI execution preserves explicit commands and prefers PATH discovery.
- * Only a missing default command on macOS selects the installed app's CLI.
+ * Tailscale CLI execution preserves explicit commands and PATH-first discovery.
+ * A working macOS app CLI is reused until its executable disappears.
  * Unlike the tunnel provider, this module does not manage Funnel or login state;
  * it never invokes a shell or expands shell aliases.
  */
 import { execFile } from 'node:child_process';
+
+const MACOS_TAILSCALE_COMMAND =
+  '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
 
 export type TailscaleCommandResult = {
   stdout: string;
@@ -53,11 +56,28 @@ export function createTailscaleCommandRunner(
   command: string | undefined,
   timeoutMs: number,
 ): TailscaleCommandRunner {
+  let useMacOsApp = false;
   return async (args, options) => {
     const commandOptions = {
       ...options,
       timeoutMs: options?.timeoutMs ?? timeoutMs,
     };
+    const appCommandOptions = {
+      ...commandOptions,
+      env: { ...options?.env, TAILSCALE_BE_CLI: '1' },
+    };
+    if (useMacOsApp) {
+      try {
+        return await runTailscaleCommand(
+          MACOS_TAILSCALE_COMMAND,
+          args,
+          appCommandOptions,
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        useMacOsApp = false;
+      }
+    }
     try {
       return await runTailscaleCommand(
         command ?? 'tailscale',
@@ -72,14 +92,13 @@ export function createTailscaleCommandRunner(
       ) {
         throw error;
       }
-      return runTailscaleCommand(
-        '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+      const result = await runTailscaleCommand(
+        MACOS_TAILSCALE_COMMAND,
         args,
-        {
-          ...commandOptions,
-          env: { ...options?.env, TAILSCALE_BE_CLI: '1' },
-        },
+        appCommandOptions,
       );
+      useMacOsApp = true;
+      return result;
     }
   };
 }
