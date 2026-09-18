@@ -1,3 +1,8 @@
+/**
+ * Resolved runtime exports are refreshed before secret-refresh subscribers run.
+ * Unlike runtime-config's change events, explicit secret refreshes also notify
+ * when config is unchanged; channel lifecycle decisions remain in the gateway.
+ */
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,12 +21,15 @@ import {
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
+  getRuntimeConfigSourceSnapshot,
   isContainerSandboxModeExplicit,
   onRuntimeConfigChange,
   type RuntimeConfig,
+  resolveConfiguredSecretInput,
 } from './runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -100,6 +108,8 @@ function readRuntimeSecretValue(
 
 function syncRuntimeSecretExports(): void {
   const storedSecrets = readStoredRuntimeSecrets();
+  const voiceSource = getRuntimeConfigSourceSnapshot().voice;
+  const twilioSource = isRecord(voiceSource) ? voiceSource.twilio : undefined;
   DISCORD_TOKEN = readRuntimeSecretValue(
     ['DISCORD_TOKEN'],
     'DISCORD_TOKEN',
@@ -125,11 +135,17 @@ function syncRuntimeSecretExports(): void {
     'IMESSAGE_PASSWORD',
     storedSecrets,
   );
-  TWILIO_AUTH_TOKEN = readRuntimeSecretValue(
-    ['TWILIO_AUTH_TOKEN'],
-    'TWILIO_AUTH_TOKEN',
-    storedSecrets,
-  );
+  TWILIO_AUTH_TOKEN =
+    readRuntimeSecretValue(
+      ['TWILIO_AUTH_TOKEN'],
+      'TWILIO_AUTH_TOKEN',
+      storedSecrets,
+    ) ||
+    (isRecord(twilioSource)
+      ? resolveConfiguredSecretInput(twilioSource.authToken, {
+          path: 'voice.twilio.authToken',
+        }) || ''
+      : '');
   MSTEAMS_APP_PASSWORD = readRuntimeSecretValue(
     ['MSTEAMS_APP_PASSWORD'],
     'MSTEAMS_APP_PASSWORD',
@@ -272,9 +288,23 @@ export let PERPLEXITY_API_KEY = '';
 export let TAVILY_API_KEY = '';
 syncRuntimeSecretExports();
 
+const runtimeSecretsRefreshListeners = new Set<() => void>();
+
+export function onRuntimeSecretsRefresh(listener: () => void): () => void {
+  runtimeSecretsRefreshListeners.add(listener);
+  return () => runtimeSecretsRefreshListeners.delete(listener);
+}
+
 export function refreshRuntimeSecretsFromEnv(): void {
   loadRuntimeSecrets();
   syncRuntimeSecretExports();
+  for (const listener of runtimeSecretsRefreshListeners) {
+    try {
+      listener();
+    } catch (error) {
+      logger.warn({ error }, 'Runtime secret refresh listener failed');
+    }
+  }
 }
 
 export let DISCORD_PREFIX = '!claw';

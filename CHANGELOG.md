@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Twilio voice recovers after credential setup**: Saving the auth token starts
+  an enabled voice channel, and Reload Gateway retries a stopped channel without
+  requiring an off/on toggle. Routine secret refreshes and token rotations keep
+  healthy calls running.
+
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 
 ### Added
