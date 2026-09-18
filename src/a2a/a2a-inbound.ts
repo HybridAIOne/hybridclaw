@@ -498,6 +498,28 @@ function alreadyDeliveredBody(envelope: A2AEnvelope): Record<string, unknown> {
   };
 }
 
+function duplicateDeliveryBody(
+  envelope: A2AEnvelope,
+  senderInstanceId: string,
+): Record<string, unknown> {
+  const stored = getA2AEnvelope(
+    envelope.thread_id,
+    envelope.id,
+    senderInstanceId,
+  );
+  if (!stored) {
+    logger.warn(
+      {
+        messageId: envelope.id,
+        threadId: envelope.thread_id,
+        senderInstanceId,
+      },
+      'A2A duplicate envelope is missing from the store; answering from the request envelope',
+    );
+  }
+  return alreadyDeliveredBody(stored ?? envelope);
+}
+
 export async function acceptA2AHttpEnvelopeInboundRequest(params: {
   rawBody: string;
   authorization: string | null | undefined;
@@ -645,7 +667,7 @@ export async function acceptA2AHttpEnvelopeInboundRequest(params: {
     if (isDuplicate) {
       return {
         statusCode,
-        body: alreadyDeliveredBody(envelope),
+        body: duplicateDeliveryBody(envelope, authenticatedPeerInstanceId),
       };
     }
     return {
@@ -779,16 +801,11 @@ export async function acceptA2AJsonRpcInboundRequest(params: {
       reason,
     });
     if (isDuplicate) {
-      const existing = getA2AEnvelope(
-        envelope.thread_id,
-        envelope.id,
-        peerInstanceId(peer),
-      );
       return {
         statusCode,
         body: {
           jsonrpc: '2.0',
-          result: alreadyDeliveredBody(existing ?? envelope),
+          result: duplicateDeliveryBody(envelope, peerInstanceId(peer)),
           id: requestId,
         },
       };
