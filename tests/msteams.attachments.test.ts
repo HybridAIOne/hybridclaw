@@ -1337,3 +1337,155 @@ test('buildTeamsAttachmentContext preserves Unicode filenames when staging media
     /-Überblick_日本語\.png$/,
   );
 });
+
+test('buildTeamsAttachmentContext retries a transient download failure and stages the file on success', async () => {
+  vi.useFakeTimers();
+  try {
+    const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+    const { logger } = await import('../src/logger.js');
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('upstream error', {
+          status: 502,
+          statusText: 'Bad Gateway',
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(Buffer.from([1, 2, 3]), {
+          status: 200,
+          headers: {
+            'content-length': '3',
+            'content-type': 'image/png',
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = buildTeamsAttachmentContext({
+      activity: {
+        attachments: [
+          {
+            contentType: 'image/*',
+            contentUrl:
+              'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/att-1/views/original',
+            name: 'original',
+          },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const media = await pending;
+    trackTempDirFromMediaPath(media[0]?.path);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(media).toHaveLength(1);
+    expect(media[0]?.path || '').toContain('uploaded-media-cache');
+    expect(media[0]?.mimeType).toBe('image/png');
+    expect(media[0]?.unavailableReason).toBeUndefined();
+    expect(fs.readFileSync(media[0]?.path || '')).toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('buildTeamsAttachmentContext marks the attachment unavailable and warns once retries are exhausted', async () => {
+  vi.useFakeTimers();
+  try {
+    const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+    const { logger } = await import('../src/logger.js');
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('upstream error', {
+          status: 502,
+          statusText: 'Bad Gateway',
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const attachmentUrl =
+      'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/att-1/views/original';
+    const pending = buildTeamsAttachmentContext({
+      activity: {
+        attachments: [
+          {
+            contentType: 'image/*',
+            contentUrl: attachmentUrl,
+            name: 'original',
+          },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const media = await pending;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(media).toHaveLength(1);
+    expect(media[0]).toMatchObject({
+      path: null,
+      url: attachmentUrl,
+      sizeBytes: 0,
+      filename: 'original',
+      unavailableReason: 'Teams attachment fetch failed (502 Bad Gateway)',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attempts: 3,
+        name: 'original',
+        error: 'Teams attachment fetch failed (502 Bad Gateway)',
+      }),
+      'Teams attachment download failed after retries; the agent will not see this attachment',
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('buildTeamsAttachmentContext does not retry an attachment that exceeds the media limit', async () => {
+  vi.useFakeTimers();
+  try {
+    const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+    const { logger } = await import('../src/logger.js');
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.alloc(16), {
+          status: 200,
+          headers: {
+            'content-length': String(21 * 1024 * 1024),
+            'content-type': 'image/png',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = buildTeamsAttachmentContext({
+      activity: {
+        attachments: [
+          {
+            contentType: 'image/*',
+            contentUrl:
+              'https://smba.trafficmanager.net/de/tenant-id/v3/attachments/att-1/views/original',
+            name: 'original',
+          },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const media = await pending;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(media).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: 'original' }),
+      'Skipping Teams attachment that exceeds configured media limit',
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -2494,6 +2494,12 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     .map((item) => item.path as string);
   const mediaUrls = media.map((item) => item.url);
   const mediaTypes = media.map((item) => item.mimeType || 'unknown');
+  const unavailableMedia = media
+    .filter((item) => !item.path && item.unavailableReason)
+    .map((item) => ({
+      filename: item.filename,
+      reason: item.unavailableReason,
+    }));
   const payload = media.map((item, index) => ({
     order: index + 1,
     path: item.path,
@@ -2512,6 +2518,12 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     `MediaUrls: ${JSON.stringify(mediaUrls)}`,
     `MediaTypes: ${JSON.stringify(mediaTypes)}`,
     `MediaItems: ${JSON.stringify(payload)}`,
+    ...(unavailableMedia.length > 0
+      ? [
+          `UnavailableMedia: ${JSON.stringify(unavailableMedia)}`,
+          'The attachments listed in UnavailableMedia could NOT be downloaded from the channel, so their content is unknown to you. Tell the user that attachment did not arrive and ask them to send it again; do not guess what it contained or answer as if you had seen it.',
+        ]
+      : []),
     'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
     'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
