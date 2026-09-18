@@ -63,7 +63,10 @@ import {
   disableApprovalButtons,
   parseApprovalCustomId,
 } from './approval-buttons.js';
-import { buildAttachmentContext } from './attachments.js';
+import {
+  buildAttachmentContext,
+  collectMessageAttachments,
+} from './attachments.js';
 import {
   DEFAULT_DEBOUNCE_MAX_BUFFER,
   resolveInboundDebounceMs,
@@ -80,6 +83,7 @@ import {
 import type { HumanDelayConfig } from './human-delay.js';
 import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
+  type DiscordForwardedMessageLike,
   type DiscordGuildMessageMode,
   hasDiscordMessageContentChanged,
   hasLooseBotMention as hasLooseBotMentionInbound,
@@ -814,10 +818,27 @@ function renderDiscordMessageText(msg: DiscordMessage): string {
     attachmentNames: Array.from(msg.attachments.values()).map(
       (attachment) => attachment.name,
     ),
+    forwarded: collectForwardedMessages(msg),
     systemContent: msg.system ? msg.cleanContent : null,
     botMentionRegex,
     prefix: DISCORD_PREFIX,
   });
+}
+
+/** The readable parts of the messages a Discord forward carries. */
+function collectForwardedMessages(
+  msg: DiscordMessage,
+): DiscordForwardedMessageLike[] {
+  if (!msg.messageSnapshots || msg.messageSnapshots.size === 0) return [];
+  return Array.from(msg.messageSnapshots.values()).map((snapshot) => ({
+    content: snapshot.content,
+    embeds: snapshot.embeds ?? [],
+    attachmentNames: snapshot.attachments
+      ? Array.from(snapshot.attachments.values()).map(
+          (attachment) => attachment.name,
+        )
+      : [],
+  }));
 }
 
 function describeInboundMessage(msg: DiscordMessage): InboundDiscordMessage {
@@ -831,7 +852,7 @@ function describeInboundMessage(msg: DiscordMessage): InboundDiscordMessage {
     rawContent,
     text: renderDiscordMessageText(msg),
     isBotAuthored,
-    hasAttachments: msg.attachments.size > 0,
+    hasAttachments: collectMessageAttachments(msg).length > 0,
     hasPrefixInvocation: hasPrefixed,
     hasCommandInvocation: hasPrefixed || hasSlash,
     hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),

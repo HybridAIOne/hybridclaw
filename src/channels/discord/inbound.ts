@@ -354,16 +354,30 @@ export function summarizeEmbeds(embeds: readonly DiscordEmbedLike[]): string {
 }
 
 const MESSAGE_TEXT_MAX_ATTACHMENT_NAMES = 5;
+const MESSAGE_TEXT_MAX_FORWARDED = 3;
+
+/**
+ * The readable parts of a forwarded message (a Discord "message snapshot").
+ * A forward carries the original's content, embeds and attachments while the
+ * outer message stays empty, so the snapshot is the only place its text lives.
+ */
+export interface DiscordForwardedMessageLike {
+  content?: string | null;
+  embeds: readonly DiscordEmbedLike[];
+  attachmentNames: readonly (string | null | undefined)[];
+}
 
 /**
  * Single text projection of an inbound message, used for triggering, history
- * snapshots and reply context alike: cleaned content, else embeds, else
- * attachment names, else system text. '' when nothing is readable.
+ * snapshots and reply context alike: cleaned content, else forwarded message
+ * text, else embeds, else attachment names, else system text. '' when nothing
+ * is readable.
  */
 export function renderMessageText(params: {
   content: string | null | undefined;
   embeds: readonly DiscordEmbedLike[];
   attachmentNames: readonly (string | null | undefined)[];
+  forwarded?: readonly DiscordForwardedMessageLike[];
   systemContent?: string | null;
   botMentionRegex: RegExp | null;
   prefix: string;
@@ -375,18 +389,62 @@ export function renderMessageText(params: {
   ).trim();
   if (plainText) return plainText;
 
+  const forwardedText = renderForwardedMessages(
+    params.forwarded ?? [],
+    params.botMentionRegex,
+    params.prefix,
+  );
+  if (forwardedText) return forwardedText;
+
   const embedSummary = summarizeEmbeds(params.embeds);
   if (embedSummary) return `[embed] ${embedSummary}`;
 
-  const attachmentNames = params.attachmentNames
-    .map((name) => (name || '').trim())
-    .filter(Boolean)
-    .slice(0, MESSAGE_TEXT_MAX_ATTACHMENT_NAMES);
-  if (attachmentNames.length > 0) {
-    return `[attachments] ${attachmentNames.join(', ')}`;
-  }
+  const attachmentNames = summarizeAttachmentNames(params.attachmentNames);
+  if (attachmentNames) return `[attachments] ${attachmentNames}`;
 
   const systemContent = (params.systemContent || '').trim();
   if (systemContent) return `[system] ${systemContent}`;
   return '';
+}
+
+function summarizeAttachmentNames(
+  attachmentNames: readonly (string | null | undefined)[],
+): string {
+  return attachmentNames
+    .map((name) => (name || '').trim())
+    .filter(Boolean)
+    .slice(0, MESSAGE_TEXT_MAX_ATTACHMENT_NAMES)
+    .join(', ');
+}
+
+/**
+ * Plain-text rendering of forwarded messages, each with the same
+ * content → embeds → attachments fallback as a normal message; '' when none
+ * of them carry anything readable.
+ */
+function renderForwardedMessages(
+  forwarded: readonly DiscordForwardedMessageLike[],
+  botMentionRegex: RegExp | null,
+  prefix: string,
+): string {
+  const rendered = forwarded
+    .slice(0, MESSAGE_TEXT_MAX_FORWARDED)
+    .map((snapshot) => {
+      const content = cleanIncomingContent(
+        snapshot.content || '',
+        botMentionRegex,
+        prefix,
+      ).trim();
+      if (content) return content;
+      const embedSummary = summarizeEmbeds(snapshot.embeds);
+      if (embedSummary) return `[embed] ${embedSummary}`;
+      const attachmentNames = summarizeAttachmentNames(
+        snapshot.attachmentNames,
+      );
+      if (attachmentNames) return `[attachments] ${attachmentNames}`;
+      return '';
+    })
+    .filter(Boolean);
+  if (rendered.length === 0) return '';
+  return `[forwarded] ${rendered.join('\n[forwarded] ')}`;
 }
