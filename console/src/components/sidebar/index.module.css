@@ -53,6 +53,7 @@
   min-height: 0;
   padding: 6px 12px 12px;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .footer {

@@ -91,10 +91,19 @@ describe('workspace bootstrap lifecycle', () => {
     const initial = workspace.ensureBootstrapFiles('agent-test');
     expect(initial.workspaceInitialized).toBe(true);
     expect(initial.workspacePath).toBe(ipc.agentWorkspaceDir('agent-test'));
+    const agentsPath = path.join(initial.workspacePath, 'AGENTS.md');
+    const agents = fs.readFileSync(agentsPath, 'utf8');
+    expect(agents).toContain('Skills are instruction packages.');
+    expect(agents).toContain('Tools execute actions.');
+    expect(agents).toContain('A catalog tool does not need its own directly exposed schema.');
+    expect(agents).not.toContain('Skills provide your tools.');
+    fs.writeFileSync(agentsPath, `${agents}\nCustom workspace instruction.\n`);
+
 
     const second = workspace.ensureBootstrapFiles('agent-test');
     expect(second.workspaceInitialized).toBe(false);
     expect(second.workspacePath).toBe(initial.workspacePath);
+    expect(fs.readFileSync(agentsPath, 'utf8')).toBe(`${agents}\nCustom workspace instruction.\n`);
   });
 
   test('does not recreate BOOTSTRAP.md after onboarding deletes it', async () => {

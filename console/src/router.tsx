@@ -24,6 +24,7 @@ import { ExtensionsPage } from './routes/extensions';
 import { FederationPage } from './routes/federation';
 import { GatewayPage } from './routes/gateway';
 import { HarnessEvolutionPage } from './routes/harness-evolution';
+import { LocalModelsPage } from './routes/local-models';
 import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
@@ -374,6 +375,12 @@ const harnessEvolutionRoute = createRoute({
   component: HarnessEvolutionPage,
 });
 
+const localModelsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/local-models',
+  component: LocalModelsPage,
+});
+
 const distillRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/distill',
@@ -579,6 +586,7 @@ const routeTree = rootRoute.addChildren([
     jobsRoute,
     harnessEvolutionRoute,
     distillRoute,
+    localModelsRoute,
     connectorsRoute,
     mcpRoute,
     auditRoute,

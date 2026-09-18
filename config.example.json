@@ -72,6 +72,8 @@
     }
   },
   "skills": {
+    "localSkillMode": "full",
+    "localStarterSkills": [],
     "extraDirs": [],
     "disabled": [],
     "channelDisabled": {
@@ -93,6 +95,18 @@
     "installed": []
   },
   "tools": {
+    "localToolMode": "starred",
+    "localStarterTools": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "glob",
+      "grep",
+      "skills_list",
+      "web_search",
+      "web_fetch"
+    ],
     "disabled": []
   },
   "channelInstructions": {
@@ -456,6 +470,10 @@
       "llamacpp": {
         "enabled": false,
         "baseUrl": "http://127.0.0.1:8081/v1"
+      },
+      "mlx": {
+        "enabled": false,
+        "baseUrl": "http://127.0.0.1:8321/v1"
       },
       "vllm": {
         "enabled": false,

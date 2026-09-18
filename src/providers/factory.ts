@@ -14,6 +14,7 @@ import { ollamaProvider } from './local-ollama.js';
 import {
   llamacppProvider,
   lmstudioProvider,
+  mlxProvider,
   vllmProvider,
 } from './local-openai-compat.js';
 import { mistralProvider } from './mistral.js';
@@ -57,6 +58,7 @@ const KNOWN_PROVIDERS: AIProvider[] = [
   lmstudioProvider,
   llamacppProvider,
   vllmProvider,
+  mlxProvider,
   hybridAIProvider,
 ];
 
@@ -107,6 +109,7 @@ export class UnknownModelProviderError extends Error {
 }
 
 function resolvePrefixedProvider(model: string, prefix: string): AIProvider {
+  if (prefix === 'mlx') return mlxProvider;
   const provider = PROVIDER_BY_MODEL_PREFIX.get(prefix);
   if (provider) return provider;
 

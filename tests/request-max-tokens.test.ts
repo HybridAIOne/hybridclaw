@@ -60,6 +60,10 @@ function runSharedContract(
       ).toBeUndefined();
     });
 
+    test('leaves MLX generation admission to the exact native tokenizer', () => {
+      expect(resolve({ provider: 'mlx', model: 'mlx/spark-x2.5-4b', discoveredMaxTokens: 40960, isLocal: true })).toBeUndefined();
+    });
+
     test('always sends discovered max tokens for Anthropic models when available', () => {
       expect(
         resolve({

@@ -6,6 +6,9 @@ sidebar_position: 2
 
 # Local Providers
 
+For managed Apple-silicon inference, use [Mac Local Model Setup](./mac-local-models.md).
+The authenticated MLX service supports Docker through a local IPC relay.
+
 If LM Studio is serving `qwen/qwen3.5-9b` on `http://127.0.0.1:1234`, the
 quickstart looks like this:
 
@@ -60,7 +63,7 @@ as unknown rather than zero. Use
 keys provided through the CLI are stored in the encrypted runtime secret store
 and referenced from config.
 
-For host-served local backends, restart the gateway with `--sandbox=host` so
+For the other host-served local backends, restart the gateway with `--sandbox=host` so
 the runtime can reach those local endpoints directly.
 
 ## Notes

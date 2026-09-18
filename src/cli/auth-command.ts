@@ -45,6 +45,7 @@ import {
   setRuntimeConfigSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
 import {
   ANTHROPIC_DEFAULT_MODEL,
   normalizeAnthropicBaseUrl,
@@ -1126,7 +1127,7 @@ function parseUnifiedProviderArgs(args: string[]): {
 }
 
 function isLocalProviderModel(modelName: string): boolean {
-  return /^(ollama|lmstudio|llamacpp|vllm)\//i.test(modelName.trim());
+  return /^(ollama|lmstudio|llamacpp|vllm|mlx)\//i.test(modelName.trim());
 }
 
 type ApiKeyProviderConfigKey =
@@ -2186,12 +2187,15 @@ function clearLocalBackends(): void {
     draft.local.backends.ollama.enabled = false;
     draft.local.backends.lmstudio.enabled = false;
     draft.local.backends.llamacpp.enabled = false;
+    draft.local.backends.mlx.enabled = false;
     draft.local.backends.vllm.enabled = false;
     draft.local.backends.vllm.apiKey = '';
   });
 
   console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log('Disabled local backends: ollama, lmstudio, llamacpp, vllm.');
+  console.log(
+    'Disabled local backends: ollama, lmstudio, llamacpp, mlx, vllm.',
+  );
   if (isLocalProviderModel(nextConfig.hybridai.defaultModel)) {
     console.log(
       `Default model unchanged: ${formatModelForDisplay(nextConfig.hybridai.defaultModel)}`,
@@ -2276,7 +2280,7 @@ function normalizeLocalModelId(
   if (trimmed.toLowerCase().startsWith(ownPrefix)) {
     return trimmed.slice(ownPrefix.length).trim();
   }
-  if (/^(ollama|lmstudio|llamacpp|vllm)\//i.test(trimmed)) {
+  if (/^(ollama|lmstudio|llamacpp|vllm|mlx)\//i.test(trimmed)) {
     throw new Error(
       `Model "${trimmed}" already includes a different local provider prefix.`,
     );
@@ -2293,6 +2297,7 @@ function normalizeLocalBaseUrl(
     if (backend === 'ollama') return 'http://127.0.0.1:11434';
     if (backend === 'lmstudio') return 'http://127.0.0.1:1234/v1';
     if (backend === 'llamacpp') return 'http://127.0.0.1:8081/v1';
+    if (backend === 'mlx') return 'http://127.0.0.1:8321/v1';
     return 'http://127.0.0.1:8000/v1';
   }
   if (backend === 'ollama') {
@@ -2390,7 +2395,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
+      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
@@ -2401,8 +2406,10 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
     );
   }
 
-  if (backendRaw !== 'vllm' && apiKey !== undefined) {
-    throw new Error('`--api-key` is only supported for the `vllm` backend.');
+  if (backendRaw !== 'vllm' && backendRaw !== 'mlx' && apiKey !== undefined) {
+    throw new Error(
+      '`--api-key` is only supported for the `vllm` and `mlx` backends.',
+    );
   }
 
   const endpointName = parsedName?.trim();
@@ -2467,6 +2474,14 @@ function configureLocalBackend(args: string[]): void {
     parsed.backend,
     parsed.baseUrl || currentEndpoint?.baseUrl || currentBackend.baseUrl,
   );
+  if (parsed.backend === 'mlx') {
+    if (!parsed.name || !(parsed.apiKey || currentEndpoint?.apiKey)) {
+      throw new Error(
+        'MLX requires --name and authentication; use hybridclaw local setup.',
+      );
+    }
+    assertMlxEndpoint(normalizedBaseUrl);
+  }
   const modelPrefix = parsed.name || parsed.backend;
   const fullModelName = parsed.modelId
     ? `${modelPrefix}/${parsed.modelId}`
@@ -2602,6 +2617,11 @@ export async function handleLocalCommand(args: string[]): Promise<void> {
   }
 
   const sub = normalized[0].toLowerCase();
+  if (['setup', 'serve', 'benchmark', 'stop'].includes(sub)) {
+    const { handleMlxCommand } = await import('../inference/mlx-command.js');
+    await handleMlxCommand(normalized);
+    return;
+  }
   if (sub === 'status') {
     printLocalStatus();
     return;

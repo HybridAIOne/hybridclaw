@@ -73,7 +73,11 @@ import {
   formatMemoryAccessActivityPreview,
   MEMORY_RECALL_ACTIVITY_TOOL_NAME,
 } from '../memory/recall-presentation.js';
-import { withSpan } from '../observability/otel.js';
+import {
+  captureActiveContext,
+  recordCompletedSpan,
+  withSpan,
+} from '../observability/otel.js';
 import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
@@ -195,6 +199,7 @@ import {
   recordBootstrapOnboardingStart,
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
+import { isGatewayShuttingDown, trackInFlightTurn } from './in-flight-turns.js';
 import {
   executeModelRouting,
   type ModelRoutingAttempt,
@@ -780,23 +785,36 @@ function buildA2AChatThreadId(session: {
 
 const gatewaySessionQueue = new KeyedSerialQueue();
 
+export const GATEWAY_RESTARTING_ERROR =
+  'The gateway is restarting. Please resend your message in a moment.';
+
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
+  if (isGatewayShuttingDown()) {
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: GATEWAY_RESTARTING_ERROR,
+    };
+  }
   const source = req.source?.trim() || 'gateway.chat';
   if (source !== 'fullauto') {
     preemptRunningFullAutoTurn(req.sessionId, source);
   }
-  return gatewaySessionQueue.run(req.sessionId, () =>
-    withSpan(
-      'hybridclaw.gateway.handle_message',
-      {
-        'hybridclaw.session_id': req.sessionId,
-        'hybridclaw.agent_id': req.agentId || '',
-        'hybridclaw.channel_id': req.channelId || '',
-        'hybridclaw.model': req.model || '',
-      },
-      async () => handleGatewayMessageInner(req),
+  return trackInFlightTurn(() =>
+    gatewaySessionQueue.run(req.sessionId, () =>
+      withSpan(
+        'hybridclaw.gateway.handle_message',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.model': req.model || '',
+        },
+        async () => handleGatewayMessageInner(req),
+      ),
     ),
   );
 }
@@ -805,6 +823,9 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  // Tool progress arrives over IPC from the agent process, outside this
+  // turn's async context; keep the turn span so tool spans nest under it.
+  const turnTraceContext = captureActiveContext();
   const source = req.source?.trim() || 'gateway.chat';
   if (
     isA2ALocalModeEnabled(getRuntimeConfig()) &&
@@ -1575,6 +1596,24 @@ async function handleGatewayMessageInner(
       },
       'Gateway tool progress',
     );
+    if (event.phase === 'finish' && typeof event.durationMs === 'number') {
+      const endTime = Date.now();
+      recordCompletedSpan(
+        'hybridclaw.tool.execute',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.tool_name': event.toolName,
+          // OTel GenAI semantic convention + Langfuse's OTLP type hint so the
+          // span lands as a TOOL observation in Langfuse-style backends.
+          'gen_ai.tool.name': event.toolName,
+          'langfuse.observation.type': 'tool',
+        },
+        { startTime: endTime - Math.max(0, event.durationMs), endTime },
+        turnTraceContext,
+      );
+    }
     // Always-visible memory access (user call, 2026-09-01): recall transparency
     // deliberately survives `/show none`; other tool activity still obeys it.
     if (!options?.alwaysVisible && !shouldEmitTools) return;

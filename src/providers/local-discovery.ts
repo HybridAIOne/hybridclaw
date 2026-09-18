@@ -1,3 +1,9 @@
+/**
+ * Discovery caches endpoint-scoped model metadata without starting inference.
+ * Callers can bound cache age for availability displays; failed refreshes
+ * remove stale entries. Lifecycle invalidation supersedes in-flight probes;
+ * provider-wide health is a separate, aggregated probe.
+ */
 import {
   LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_DEFAULT_MAX_TOKENS,
@@ -240,7 +246,7 @@ function resolveOpenAICompatBaseUrl(configuredBaseUrl: string): string {
 }
 
 async function fetchOpenAICompatModels(
-  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm'>,
+  backend: Extract<LocalBackendType, 'llamacpp' | 'lmstudio' | 'vllm' | 'mlx'>,
   baseUrl: string,
   apiKey?: string,
   endpointName?: string,
@@ -256,7 +262,14 @@ async function fetchOpenAICompatModels(
     isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
 
   return data
-    .filter((entry) => isRecord(entry) && typeof entry.id === 'string')
+    .filter(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.id === 'string' &&
+        (backend !== 'mlx' ||
+          (readContextWindowFromModelEntry(entry) !== undefined &&
+            readPositiveInteger(entry.max_tokens) !== undefined)),
+    )
     .slice(0, LOCAL_DISCOVERY_MAX_MODELS)
     .map((entry) =>
       createLocalModelInfo(
@@ -267,6 +280,13 @@ async function fetchOpenAICompatModels(
             entry as Record<string, unknown>,
           ),
           endpointName,
+          ...(backend === 'mlx'
+            ? {
+                maxTokens: readPositiveInteger(
+                  (entry as Record<string, unknown>).max_tokens,
+                ),
+              }
+            : {}),
         },
       ),
     )
@@ -460,6 +480,19 @@ async function discoverEndpointModels(
       endpoint.modelBehavior,
     );
   }
+  if (endpoint.type === 'mlx') {
+    return applyModelBehavior(
+      applyEndpointMetadata(
+        await fetchOpenAICompatModels(
+          'mlx',
+          endpoint.baseUrl,
+          endpoint.apiKey,
+          endpoint.name,
+        ),
+      ),
+      endpoint.modelBehavior,
+    );
+  }
   if (endpoint.type === 'llamacpp') {
     return applyModelBehavior(
       applyEndpointMetadata(
@@ -485,7 +518,11 @@ async function discoverEndpointModels(
 }
 
 export interface LocalDiscoveryStore {
-  discoverAllModels: (opts?: { force?: boolean }) => Promise<LocalModelInfo[]>;
+  invalidate: () => void;
+  discoverAllModels: (opts?: {
+    force?: boolean;
+    maxAgeMs?: number;
+  }) => Promise<LocalModelInfo[]>;
   getDiscoveredModels: () => LocalModelInfo[];
   getDiscoveredModelNames: () => string[];
   getModelInfo: (model: string) => LocalModelInfo | null;
@@ -497,6 +534,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
   let discoveryTimer: ReturnType<typeof setInterval> | null = null;
   let discoveryInFlight: Promise<LocalModelInfo[]> | null = null;
   let lastDiscoveryAtMs = 0;
+  let cacheRevision = 0;
   const discoveredByBackend = new Map<
     LocalBackendType,
     Map<string, LocalModelInfo>
@@ -572,8 +610,15 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     return discoveredById.get(normalized) || null;
   }
 
+  function invalidate(): void {
+    lastDiscoveryAtMs = 0;
+    cacheRevision += 1;
+    discoveryInFlight = null;
+  }
+
   async function discoverAllModels(opts?: {
     force?: boolean;
+    maxAgeMs?: number;
   }): Promise<LocalModelInfo[]> {
     if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
       lastDiscoveryAtMs = 0;
@@ -581,7 +626,10 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
       return [];
     }
 
-    const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
+    const cacheTtlMs = Math.min(
+      Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS),
+      opts?.maxAgeMs ?? Infinity,
+    );
     if (
       !opts?.force &&
       lastDiscoveryAtMs > 0 &&
@@ -592,6 +640,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 
     if (discoveryInFlight) return discoveryInFlight;
 
+    const revision = cacheRevision;
     discoveryInFlight = (async () => {
       try {
         const tasks: Array<Promise<LocalModelInfo[]>> = [];
@@ -640,6 +689,8 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
         }
 
         const discovered = (await Promise.all(tasks)).flat();
+        // A pre-start/pre-stop probe must not restore the previous lifecycle state.
+        if (revision !== cacheRevision) return discoverAllModels();
         const deduped: LocalModelInfo[] = [];
         const seen = new Set<string>();
         const orderedPrefixes = [
@@ -663,7 +714,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
         lastDiscoveryAtMs = Date.now();
         return deduped;
       } finally {
-        discoveryInFlight = null;
+        if (revision === cacheRevision) discoveryInFlight = null;
       }
     })();
 
@@ -693,6 +744,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
   }
 
   return {
+    invalidate,
     discoverAllModels,
     getDiscoveredModels,
     getDiscoveredModelNames,
@@ -704,8 +756,13 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 
 const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
 
+export function invalidateLocalModelDiscovery(): void {
+  defaultLocalDiscoveryStore.invalidate();
+}
+
 export async function discoverAllLocalModels(opts?: {
   force?: boolean;
+  maxAgeMs?: number;
 }): Promise<LocalModelInfo[]> {
   return defaultLocalDiscoveryStore.discoverAllModels(opts);
 }

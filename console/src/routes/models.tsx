@@ -66,6 +66,7 @@ const PROVIDER_DISPLAY_ORDER = [
   'lmstudio',
   'llamacpp',
   'vllm',
+  'mlx',
 ] as const;
 
 function inferProviderName(

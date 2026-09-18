@@ -75,6 +75,19 @@ describe('gateway docs HTTP integration', () => {
     expect(html.toLowerCase()).toContain('authentication');
   });
 
+  it('renders Twilio webhook placeholders without double-escaping code', async () => {
+    const res = await fetch(`${baseUrl}/docs/guides/twilio-voice`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      '<code>https://&lt;public-host&gt;&lt;voice.webhookPath&gt;/webhook</code>',
+    );
+    expect(html).toContain(
+      '<code>wss://&lt;public-host&gt;&lt;voice.webhookPath&gt;/relay</code>',
+    );
+    expect(html).not.toContain('&amp;lt;public-host');
+  });
+
   it('GET /docs/getting-started/README.md serves raw markdown with correct content-type', async () => {
     const res = await fetch(`${baseUrl}/docs/getting-started/README.md`);
     expect(res.status).toBe(200);

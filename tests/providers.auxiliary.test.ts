@@ -2325,6 +2325,10 @@ test('host auxiliary caller ignores the main default model when ordering local a
   );
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
     2,
+    'mlx',
+  );
+  expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
+    3,
     'lmstudio',
   );
   expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);

@@ -59,6 +59,11 @@ import type {
   AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminLanHttpAccessMode,
+  AdminLocalContextSettings,
+  AdminLocalContextSettingsUpdate,
+  AdminLocalModelActivity,
+  AdminLocalModelCommand,
+  AdminLocalModelsResponse,
   AdminLogsResponse,
   AdminMcpConfig,
   AdminMcpOAuthStartResponse,
@@ -1931,4 +1936,45 @@ export function saveSkillEnabled(
     method: 'PUT',
     body: payload,
   });
+}
+
+export function fetchLocalModels(token: string) {
+  return requestJson<AdminLocalModelsResponse>('/api/admin/local-models', {
+    token,
+  });
+}
+
+export function fetchLocalModelActivity(token: string) {
+  return requestJson<AdminLocalModelActivity>(
+    '/api/admin/local-models?view=activity',
+    { token },
+  );
+}
+
+export function controlLocalModel(token: string, body: AdminLocalModelCommand) {
+  return requestJson<{ accepted: true }>('/api/admin/local-models', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function fetchLocalContextSettings(
+  token: string,
+  kind: 'tools' | 'skills',
+): Promise<AdminLocalContextSettings> {
+  return requestJson<AdminLocalContextSettings>(
+    `/api/admin/${kind}/local-settings`,
+    { token },
+  );
+}
+export function saveLocalContextSettings(
+  token: string,
+  kind: 'tools' | 'skills',
+  payload: AdminLocalContextSettingsUpdate,
+): Promise<AdminLocalContextSettings> {
+  return requestJson<AdminLocalContextSettings>(
+    `/api/admin/${kind}/local-settings`,
+    { token, method: 'PUT', body: payload },
+  );
 }

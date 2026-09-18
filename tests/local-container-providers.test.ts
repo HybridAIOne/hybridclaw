@@ -1376,3 +1376,53 @@ describe('local container providers', () => {
     ).rejects.toThrow('No user query found in messages.');
   });
 });
+
+
+test.each([false, true])('MLX reasoning-only output preserves an empty answer and length finish reason (stream=%s)', async (stream) => {
+  const choices = [{ message: { role: 'assistant', content: '<think>Still deciding what to do', reasoning_content: null }, finish_reason: 'length' }];
+  const payload = { id: 'synthetic', model: 'spark-x2.5-4b', choices, usage: { prompt_tokens: 18_148, completion_tokens: 2048, total_tokens: 20_196 } };
+  vi.stubGlobal('fetch', vi.fn(async () => stream
+    ? makeEventStreamResponse([`data: ${JSON.stringify(payload)}\n\n`, 'data: [DONE]\n\n'])
+    : new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })));
+  const text: string[] = [];
+  const args = { provider: 'mlx' as const, baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', model: 'mlx/spark-x2.5-4b', chatbotId: '', enableRag: false, requestHeaders: undefined, messages: baseMessages, tools: [], isLocal: true, contextWindow: 40960, maxTokens: 2048 };
+  const result = stream ? await callLocalOpenAICompatProviderStream({ ...args, onTextDelta: (delta) => text.push(delta), onThinkingDelta: () => undefined }) : await callLocalOpenAICompatProvider(args);
+  expect(result.choices[0].message.content).toBeNull();
+  expect(result.choices[0].finish_reason).toBe('length');
+  expect(result.usage?.completion_tokens).toBe(2048);
+  expect(text.join('')).not.toContain('Done.');
+});
+
+test.each([false, true])('Ollama structured reasoning never fabricates Done (stream=%s)', async (stream) => {
+  const payload = { model: 'qwen3', message: { role: 'assistant', content: '', thinking: 'Still reasoning.' }, done: true, done_reason: 'length', eval_count: 2048 };
+  vi.stubGlobal('fetch', vi.fn(async () => stream
+    ? makeNdjsonResponse([JSON.stringify(payload) + '\n'])
+    : new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })));
+  const text: string[] = []; const thinking: string[] = [];
+  const args = { provider: 'ollama' as const, baseUrl: 'http://127.0.0.1:11434', apiKey: '', model: 'ollama/qwen3', chatbotId: '', enableRag: false, requestHeaders: undefined, messages: baseMessages, tools: [], maxTokens: 2048 };
+  const result = stream ? await callOllamaProviderStream({ ...args, onTextDelta: (delta) => text.push(delta), onThinkingDelta: (delta) => thinking.push(delta) }) : await callOllamaProvider(args);
+  expect(result.choices[0].message.content).toBeNull();
+  expect(result.choices[0].finish_reason).toBe('length');
+  expect(text.join('')).not.toContain('Done.');
+  if (stream) expect(thinking.join('')).toBe('Still reasoning.');
+});
+
+test('MLX collects a long streamed response without imposing an output cap', async () => {
+  const reasoning = Array.from({ length: 4096 }, (_, i) => `Distinct step ${i}. `).join('');
+  const request = vi.fn(async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    expect(body.stream).toBe(true);
+    expect(body.stream_options.include_usage).toBe(true);
+    expect(body).not.toHaveProperty('max_tokens');
+    return makeEventStreamResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'Completed answer.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1000, completion_tokens: 4096 } })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+  });
+  vi.stubGlobal('fetch', request);
+  const result = await callLocalOpenAICompatProvider({ provider: 'mlx', baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', model: 'mlx/spark-x2.5-4b', chatbotId: '', enableRag: false, requestHeaders: undefined, messages: baseMessages, tools: [], isLocal: true, contextWindow: 40960, maxTokens: undefined, thinkingFormat: undefined });
+  expect(request).toHaveBeenCalledOnce();
+  expect(result.choices[0].message.content).toBe('Completed answer.');
+  expect(result.usage?.completion_tokens).toBe(4096);
+});

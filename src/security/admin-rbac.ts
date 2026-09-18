@@ -1,3 +1,8 @@
+/**
+ * Admin routes require named capabilities from this catalog; role expansion
+ * never authenticates a request. HTTP authentication and local-host restrictions
+ * remain the gateway's responsibility, outside these authorization mappings.
+ */
 export const ADMIN_SECRET_RBAC_ACTIONS = [
   'secret.list_metadata',
   'secret.overwrite',
@@ -40,6 +45,9 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.harness_evolution.read',
   'admin.models.read',
   'admin.models.write',
+  // 2026-09-10, console setup security choice: native installation requires
+  // its own capability; provider editors are not granted host execution.
+  'admin.local_models.manage',
   'admin.sessions.read',
   'admin.sessions.delete',
   'admin.email.read',
@@ -466,6 +474,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
     return 'admin.harness_evolution.read';
   }
+  if (pathname === '/api/admin/local-models') {
+    if (method === 'GET') return 'admin.models.read';
+    if (method === 'POST') return 'admin.local_models.manage';
+    return null;
+  }
   if (pathname === '/api/admin/models') {
     if (method === 'GET') return 'admin.models.read';
     if (method === 'PUT') return 'admin.models.write';
@@ -605,6 +618,17 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/policy') {
     if (method === 'PUT') return 'admin.policy.write';
     if (method === 'DELETE') return 'admin.policy.delete';
+    return null;
+  }
+  if (
+    pathname === '/api/admin/tools/local-settings' ||
+    pathname === '/api/admin/skills/local-settings'
+  ) {
+    if (method === 'GET')
+      return pathname.includes('/tools/')
+        ? 'admin.tools.read'
+        : 'admin.skills.read';
+    if (method === 'PUT') return 'admin.config.write';
     return null;
   }
   if (pathname === '/api/admin/tools' && method === 'GET') {

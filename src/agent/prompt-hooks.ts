@@ -1,7 +1,8 @@
 /**
- * Prompt hooks compose stable guidance; tool results, including prior turns,
- * supply action evidence. Unlike approval policy, prose here cannot authorize
- * execution or establish that an action succeeded.
+ * Prompt hooks compose the initial instruction blocks for a request.
+ * Local stars trim skill presentation and replace the broad tool inventory
+ * with schema/directory guidance. Eligibility and execution policy stay outside
+ * this module; prompt text never grants a capability.
  */
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
@@ -30,17 +31,17 @@ import {
 import { loadCloudMemoryContextFiles } from '../memory/cloud-memory.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import { isLocalBackendType } from '../providers/provider-ids.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
-import {
-  buildSessionContextPrompt,
-  type SessionContext,
-} from '../session/session-context.js';
+import type { SessionContext } from '../session/session-context.js';
 import {
   buildSkillsPrompt,
   type Skill,
   type SkillInvocation,
 } from '../skills/skills.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
+import { selectLocalPromptSkills } from './local-skill-config.js';
+import { resolveLocalToolMode } from './local-tool-config.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -272,9 +273,23 @@ function buildBootstrapHook(context: PromptHookContext): string {
 
 function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   if (!isBootstrapPartSelected('skills', context)) return '';
-  return context.skillPromptMode === 'compact'
-    ? buildCompactSkillsPrompt(context.skills)
-    : buildSkillsSection(buildSkillsPrompt(context.skills));
+  const selection = selectLocalPromptSkills(
+    context.skills,
+    context.agentId,
+    context.runtimeInfo?.model,
+  );
+  const prompt =
+    context.skillPromptMode === 'compact'
+      ? buildCompactSkillsPrompt(selection.skills)
+      : buildSkillsSection(buildSkillsPrompt(selection.skills));
+  const directoryAvailable =
+    !context.blockedTools?.includes('skills_list') &&
+    (!context.allowedTools || context.allowedTools.includes('skills_list'));
+  const directory =
+    selection.discovery && directoryAvailable
+      ? 'Additional skills: skills are instruction packages, not executable tools. Use skills_list to search the full eligible skill directory when a relevant skill is absent above. Call skills_list directly when exposed, or through tool_catalog when that catalog is exposed. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
+      : '';
+  return [prompt, directory].filter(Boolean).join('\n\n');
 }
 
 function buildBootstrapSystemBlocks(context: PromptHookContext): {
@@ -361,12 +376,6 @@ export function buildRetrievedContextPrompt(
 
 function buildRetrievalHook(context: PromptHookContext): string {
   return buildRetrievedContextPrompt(context.retrievedContext);
-}
-
-function buildSessionContextHook(context: PromptHookContext): string {
-  const sessionContext = context.runtimeInfo?.sessionContext;
-  if (!sessionContext) return '';
-  return buildSessionContextPrompt(sessionContext);
 }
 
 function buildMessageToolPromptLines(
@@ -465,10 +474,24 @@ function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
   const securityDoc = readSecurityPromptGuardrails();
-  const toolsSummary = buildToolsSummary({
-    allowedTools: context.allowedTools,
-    blockedTools: context.blockedTools,
-  });
+  const model = context.runtimeInfo?.model;
+  const compactLocalTools =
+    model &&
+    isLocalBackendType(resolveModelProvider(model)) &&
+    resolveLocalToolMode(context.agentId) === 'starred';
+  const toolsSummary = compactLocalTools
+    ? [
+        '## Your Tools',
+        'Tools execute actions; skills contain instructions for using tools. Skills do not register functions or grant tool permissions. Tool access has two paths: direct function calls and, when tool_catalog is exposed, catalog calls.',
+        'Direct calls use a function name from the schemas supplied with this request. Catalog calls use tool_catalog with action=call, the target tool name in name, and its parameters in arguments. A permitted catalog tool can run this way without its own directly exposed schema.',
+        'When tool_catalog is exposed, use action=list to discover permitted tools and action=describe to inspect unknown parameters. If read is available through the catalog, a known read call can use tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}; describe only if its arguments are unknown. Reuse schemas and skill instructions already loaded in this request.',
+        'When asked which tools are available, report the directly exposed names accurately. If tool_catalog is exposed, call it with action=list before describing additional tools and follow pagination before claiming a complete inventory. Do not reconstruct the inventory from memory or examples in these instructions.',
+        'When tool_catalog is absent, available tools are limited to the exposed functions. Tool names in workflow instructions or skill files do not establish availability. Discovery never bypasses tool permissions or action approvals.',
+      ].join('\n')
+    : buildToolsSummary({
+        allowedTools: context.allowedTools,
+        blockedTools: context.blockedTools,
+      });
   const channelMessageToolHints = resolveChannelMessageToolHints({
     runtimeInfo: {
       channel: context.runtimeInfo?.channel,
@@ -488,7 +511,14 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Follow TRUST_MODEL.md and SECURITY.md boundaries, and use the least-privilege tools possible.',
     '',
     '## Action Honesty',
-    'Base action claims on available tool results, including earlier turns. Distinguish pending, failed, queued, sent, and confirmed delivery. If evidence is missing, say what is unknown. Do not repeat completed actions merely to confirm them.',
+    'Only claim an action happened (saved, written, scheduled, sent, delivered, configured) when a tool call in this turn performed it and its result reports success. If you did not call the tool, say the action has not been done yet.',
+    'If a tool result starts with "Error:", contains "ok":false, or otherwise reports a failure, tell the user what failed. Do not paraphrase a failure into success, and do not invent delivery confirmations, receipts, or sender details that the tool result does not contain.',
+    "When the user states standing rules, preferences, or instructions to remember: first write them with the `memory` tool (append to today's daily note), then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
+    'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
+    '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
+    'Scheduled task output cannot be delivered into the web chat. When the current session is web chat, always pass an explicit "channel" (a configured messaging channel or an email address) to `cron` "add"; if none is available, say so instead of scheduling.',
+    'Outbound messages are always sent from the account HybridClaw is connected with. You cannot choose a different sender number or address, so never claim a message was sent from a specific number.',
+    'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
     '## Tool Call Style',
@@ -845,12 +875,6 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildRetrievalHook,
   },
   {
-    name: 'session-context',
-    isEnabled: (_config, context) =>
-      Boolean(context.runtimeInfo?.sessionContext),
-    run: buildSessionContextHook,
-  },
-  {
     name: 'safety',
     isEnabled: (config) => config.promptHooks.safetyEnabled,
     run: buildSafetyHook,
@@ -887,6 +911,24 @@ function isHookAllowedForMode(
     hookName === 'runtime' ||
     hookName === 'session-context'
   );
+}
+
+/**
+ * Whether the per-session context block (platform, session id, session key,
+ * user) should be rendered for this turn. It honours the same prompt-mode and
+ * include/omit selection as the other prompt parts, but it is rendered into the
+ * trailing dynamic context message instead of the system prompt: the ids change
+ * on every session, and any change inside the system prompt invalidates the
+ * provider's prompt cache for the whole static prefix (bootstrap files, safety
+ * text, skills and tool definitions) on every new session.
+ */
+export function shouldRenderSessionContext(
+  context: PromptHookContext,
+): boolean {
+  if (!context.runtimeInfo?.sessionContext) return false;
+  const mode = resolvePromptMode(context);
+  if (!isHookAllowedForMode('session-context', mode)) return false;
+  return isHookSelected('session-context', context);
 }
 
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {

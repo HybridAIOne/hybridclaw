@@ -2,8 +2,71 @@
 
 ## Unreleased
 
+## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
+
+### Added
+
+- **Managed local models on Apple silicon Macs**: **Labs → Local Models**
+  recommends MLX models using available unified memory, installs a pinned
+  runtime and model revision, and verifies streaming and tool calls before
+  activation. Console, desktop, and `hybridclaw local` controls support setup,
+  start, stop, and connection to the chat model picker. Live CPU, memory, GPU,
+  and token activity remains available across console navigation. Requires
+  Apple silicon, macOS 15 or later, and `uv` on PATH.
+- **Configurable starter tools and skills for local models**: Star tools and
+  skills in the admin console to choose the initial local context. Staged
+  catalog discovery loads additional capabilities during a turn while
+  preserving tool and skill allowlists. Active and starred filters make the
+  catalogs easier to browse.
+- **Tool exchanges survive between turns**: Tool calls and results are stored
+  with assistant messages and restored as structured conversation history.
+  Forks, exports, transcripts, and compaction retain the associated exchanges,
+  so follow-up turns can use earlier tool evidence.
+- **Teams memory footers are configurable**: `msteams.showMemoryFooter`
+  controls the memory-recall footer on Teams replies.
+
+### Changed
+
+- **Realtime phone turn detection is configurable**: Voice settings expose
+  turn-detection tuning, and speech-segment logs help diagnose interrupted or
+  overlapping responses. Consult turns coordinate playback to avoid competing
+  audio.
+- **Empty memory recall avoids unnecessary model work**: Workspaces without
+  eligible memories skip semantic recall, while activity reflects the actual
+  lookup path. Action-confirmation guidance accepts successful tool evidence
+  without prompting redundant verification.
+- **Dependency pins and release documentation are refreshed**: Compatible
+  runtime, console, desktop, and build-tool updates retain exact pins and the
+  seven-day release-age policy. Lockfiles, shrinkwraps, license notices, and
+  dependency-policy hashes are synchronized. README links cover managed Mac
+  models and the OpenAI-compatible API.
+
 ### Fixed
 
+- **CSV imports use the patched parser**: Host and container tooling pin
+  `csv-parse` 7.0.2 to address the prototype-replacement advisory in earlier
+  versions.
+- **Cron creation returns a persisted task ID**: The gateway saves and
+  validates each agent-created task before the tool confirms success. Invalid
+  schedules and delivery routes return errors to the model immediately.
+- **Graceful shutdown drains active replies**: SIGTERM refuses new turns and
+  waits for in-flight work and channel delivery before stopping executors,
+  within the shutdown timeout.
+- **Error turns retain conversation evidence**: User messages, failure
+  placeholders, and streamed tool activity remain in session history when an
+  agent turn throws or finishes with an error. Long silent tools and Codex
+  app-server turns maintain watchdog activity.
+- **Memory updates preserve workspace content**: Daily notes and durable
+  memory updates are serialized, retain file permissions and custom sections,
+  and share consistent timezone and digest-budget rules during consolidation.
+- **Approvals resolve the active session correctly**: Pending-approval
+  responses look up canonical session keys before applying a decision.
+- **OpenAI-compatible requests honor the configured default agent**:
+  `/v1/chat/completions` uses `agents.defaultAgentId` when the caller does not
+  select an agent explicitly.
+- **Media and PDF handling preserve the intended content**: Host-mode media
+  cache paths retain allowed-root access, and rotated PDF text is grouped by
+  viewport position for readable extraction.
 - **Discord slash commands tolerate individual registration failures**:
   Command and option descriptions fit Discord's 100-character limit, including
   `/sessions`. Registration continues after a failed command, reports its name
@@ -25,6 +88,15 @@
   recurring task, and the scheduler evaluates the expression in that timezone
   instead of UTC. The task list, the console scheduler, and the admin API show
   the stored timezone.
+
+### Known Issues
+
+- **Camoufox's ZIP dependency has an unpatched advisory**:
+  `adm-zip` 0.6.0 remains affected by
+  [GHSA-vwc7-r8mq-g2x9](https://github.com/advisories/GHSA-vwc7-r8mq-g2x9).
+  Extraction can overwrite files outside the destination if an attacker can
+  place symlinks inside that directory. The existing dependency remains
+  unchanged; the production dependency audit reports this moderate advisory.
 
 ## [0.30.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.30.1) - 2026-09-03
 

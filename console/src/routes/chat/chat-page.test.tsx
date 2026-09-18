@@ -1180,6 +1180,54 @@ describe('ChatPage', () => {
     expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
   });
 
+  it('refreshes local model availability while chat remains open', async () => {
+    const queryClient = renderChatPage();
+    await waitFor(() => expect(fetchModelsMock).toHaveBeenCalledTimes(1));
+    const localCatalog = {
+      defaultModel: 'gpt-5',
+      providerStatus: {},
+      models: [
+        {
+          id: 'mac-mlx/spark-x2.5-4b',
+          provider: 'mlx',
+          backend: 'mlx',
+          zone: 'local',
+          discovered: true,
+          contextWindow: 40960,
+          isReasoning: false,
+          family: null,
+          parameterSize: null,
+        },
+      ],
+    } as AdminModelsResponse;
+    fetchModelsMock.mockResolvedValue({
+      ...localCatalog,
+      models: localCatalog.models.map((model) => ({
+        ...model,
+        discovered: false,
+      })),
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      queryClient.setQueryData(['models', 'test-token'], localCatalog);
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Switch model' }));
+    expect(
+      screen.getByRole('option', { name: /Spark/ }).textContent,
+    ).not.toContain('Offline');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_001);
+    });
+    expect(fetchModelsMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('option', { name: /Spark/ }).textContent).toContain(
+      'Local · Offline',
+    );
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    queryClient.clear();
+    vi.useRealTimers();
+  });
+
   it('reuses cached history when switching back to a recent session inside the stale window', async () => {
     fetchChatHistoryMock.mockImplementation(
       async (_token, sessionId): Promise<ChatHistoryResponse> => ({

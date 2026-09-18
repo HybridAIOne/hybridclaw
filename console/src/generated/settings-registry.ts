@@ -1475,6 +1475,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: false,
     },
     {
+      path: 'local.backends.mlx.baseUrl',
+      section: 'local',
+      kind: 'string',
+      defaultValue: 'http://127.0.0.1:8321/v1',
+    },
+    {
+      path: 'local.backends.mlx.enabled',
+      section: 'local',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'local.backends.ollama.baseUrl',
       section: 'local',
       kind: 'string',
@@ -2476,6 +2488,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: [],
     },
     {
+      path: 'skills.localSkillMode',
+      section: 'skills',
+      kind: 'string',
+      defaultValue: 'full',
+    },
+    {
+      path: 'skills.localStarterSkills',
+      section: 'skills',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
       path: 'skills.speechToText.defaultProvider',
       section: 'skills',
       kind: 'string',
@@ -2726,6 +2750,28 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'tools',
       kind: 'list',
       defaultValue: [],
+    },
+    {
+      path: 'tools.localStarterTools',
+      section: 'tools',
+      kind: 'list',
+      defaultValue: [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'glob',
+        'grep',
+        'skills_list',
+        'web_search',
+        'web_fetch',
+      ],
+    },
+    {
+      path: 'tools.localToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'starred',
     },
     {
       path: 'ui.navigation',

@@ -421,6 +421,7 @@ export interface GatewayChannelPluginStatus {
 
 export interface GatewayStatus {
   status: 'ok';
+  localModelsSupported?: boolean;
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {
@@ -594,7 +595,7 @@ export interface GatewayStatus {
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
+      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx',
       {
         reachable: boolean;
         latencyMs: number;
@@ -1399,7 +1400,7 @@ export interface GatewayAdminModelCatalogEntry {
   provider: GatewayModelProviderKey;
   zone: 'local' | 'hai' | 'region' | 'cloud';
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {
@@ -1447,7 +1448,8 @@ export interface GatewayAdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'mlx';
       model: string | null;
     };
   };

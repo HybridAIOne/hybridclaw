@@ -61,6 +61,7 @@ HybridClaw on HybridAI Cloud in a few minutes at
 | --- | --- |
 | A first run that becomes useful quickly | Guided hatching with setup links, tailored first-job suggestions, optional onboarding-specific model routing, welcome-email handoff, and structured audit events |
 | Business workflows that survive real use | Production skill helpers with fixtures, eval scenarios, targeted tests, approval tiers, and a `Qwen/Qwen3.6-27B-FP8` validation baseline |
+| Local inference on your Mac | Memory-aware MLX model setup, start/stop controls, live activity, and local model selection on supported Apple silicon Macs |
 | Generated work artifacts you can reuse | An Apps gallery for self-contained HTML apps, dashboards, documents, games, tools, live connector-backed views, sharing links, and Teams tabs |
 | Multi-agent workflows across installations | Local agents, hosted proxy agents, encrypted A2A trust, explicit addressing, inbound envelopes, reply-back delivery, admin-visible peer pairing, and an A2A-only deployment mode |
 | Credentials the model cannot read | Encrypted runtime secrets, SecretRef-backed execution paths, and scoped gateway API tokens that keep raw keys and passwords out of prompts and tool results |
@@ -130,8 +131,9 @@ npm run desktop
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
 | Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
 | Runtime | Gateway service, TUI client, web chat, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
+| Local models | Managed MLX setup on Apple silicon with macOS 15+, memory-aware model recommendations, live activity, and configurable starter tools and skills |
 | Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |
-| Memory | Local memory files, SQLite persistence, semantic recall, session compaction, optional HybridAI cloud memory sync |
+| Memory | Local memory files, SQLite persistence, semantic recall, persistent tool exchanges, session compaction, optional HybridAI cloud memory sync |
 | Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, deterministic tier routing, explicit addressing, proxy agents, encrypted A2A trust, peer-instance communication, and reply delivery status |
 | Extensibility | Packaged business skills, install-on-demand channel plugins, MCP servers, admin connector flows, and SecretRef-backed HTTP tools |
 
@@ -167,6 +169,11 @@ npm run desktop
   from the same model picker and config surface. Ordered routing tiers can start
   routine work cheaply and escalate retry-safe failures while explicit model
   pins remain authoritative.
+- **Local Mac models**: **Labs → Local Models** installs and checks a pinned
+  MLX model against the Mac's available memory. Start or stop it from the
+  console, inspect live activity, and select it in chat. Starred tools and
+  skills keep the initial local context compact while catalog discovery makes
+  additional capabilities available during a turn.
 - **Operator visibility**: `/admin` groups Activity, Agents, Automation,
   Connectivity, Models, Security, System, and Labs workflows. Page and setting
   search opens with `Cmd/Ctrl+K`, settings link to one canonical owner, and
@@ -237,6 +244,8 @@ Core pieces:
 | --- | --- |
 | Install and launch | [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart), [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) |
 | Configure providers and models | [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication), [Model Selection](https://hybridaione.github.io/hybridclaw/docs/reference/model-selection) |
+| Run models on your Mac | [Mac Local Model Setup](https://hybridaione.github.io/hybridclaw/docs/guides/mac-local-models), [Local Providers](https://hybridaione.github.io/hybridclaw/docs/guides/local-providers) |
+| Connect an API client | [OpenAI-compatible API](https://hybridaione.github.io/hybridclaw/docs/guides/openai-compatible-api) |
 | Build generated apps | [Apps Gallery](https://hybridaione.github.io/hybridclaw/docs/guides/apps) |
 | Connect channels | [Connect Your First Channel](https://hybridaione.github.io/hybridclaw/docs/getting-started/first-channel), [Channels](https://hybridaione.github.io/hybridclaw/docs/channels/overview) |
 | Use bundled skills | [Bundled Skills](https://hybridaione.github.io/hybridclaw/docs/guides/bundled-skills), [Skills Catalog](https://hybridaione.github.io/hybridclaw/docs/guides/skills/) |
@@ -247,7 +256,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.30.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.30.1).
+Latest release: [v0.31.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.31.0).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

@@ -11,6 +11,7 @@ import { makeResult, severityFrom } from '../utils.js';
 function labelForBackend(backend: LocalBackendType): string {
   if (backend === 'lmstudio') return 'LM Studio';
   if (backend === 'llamacpp') return 'llama.cpp';
+  if (backend === 'mlx') return 'MLX';
   if (backend === 'vllm') return 'vLLM';
   return 'Ollama';
 }

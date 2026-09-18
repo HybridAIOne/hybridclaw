@@ -242,6 +242,7 @@ import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { parseAgentIdentity } from '../identity/agent-id.js';
+import { supportsMacLocalModels } from '../inference/local-model-catalog.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -2493,6 +2494,12 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     .map((item) => item.path as string);
   const mediaUrls = media.map((item) => item.url);
   const mediaTypes = media.map((item) => item.mimeType || 'unknown');
+  const unavailableMedia = media
+    .filter((item) => !item.path && item.unavailableReason)
+    .map((item) => ({
+      filename: item.filename,
+      reason: item.unavailableReason,
+    }));
   const payload = media.map((item, index) => ({
     order: index + 1,
     path: item.path,
@@ -2511,6 +2518,12 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     `MediaUrls: ${JSON.stringify(mediaUrls)}`,
     `MediaTypes: ${JSON.stringify(mediaTypes)}`,
     `MediaItems: ${JSON.stringify(payload)}`,
+    ...(unavailableMedia.length > 0
+      ? [
+          `UnavailableMedia: ${JSON.stringify(unavailableMedia)}`,
+          'The attachments listed in UnavailableMedia could NOT be downloaded from the channel, so their content is unknown to you. Tell the user that attachment did not arrive and ask them to send it again; do not guess what it contained or answer as if you had seen it.',
+        ]
+      : []),
     'Prefer current-turn attachments and file inputs over `message` reads, `glob`, `find`, or workspace-wide discovery.',
     'When the user asks about current-turn image attachments, use `vision_analyze` with local image paths from `ImageMediaPaths` first.',
     'When the user asks about current-turn PDF/document attachments, prefer the injected `<file>` content or the supplied local path before reading chat history.',
@@ -3032,7 +3045,8 @@ function isLocalModelProvider(model: string | null | undefined): boolean {
     provider === 'ollama' ||
     provider === 'lmstudio' ||
     provider === 'llamacpp' ||
-    provider === 'vllm'
+    provider === 'vllm' ||
+    provider === 'mlx'
   );
 }
 
@@ -5210,6 +5224,11 @@ export async function getGatewayStatus(
   return {
     status: 'ok',
     webAuthConfigured: Boolean(WEB_API_TOKEN),
+    localModelsSupported: supportsMacLocalModels({
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+    }),
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
@@ -7269,7 +7288,12 @@ function resolveSkillsHubAuxiliaryModel(
 }
 
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
-  await refreshAvailableModelCatalogs({ includeHybridAI: true });
+  await refreshAvailableModelCatalogs({
+    includeHybridAI: true,
+    // 30s (owner offline-badge request, 2026-09-10): match picker polling;
+    // discovery remains read-only and does not load or start a model.
+    localMaxAgeMs: 30_000,
+  });
 
   const runtimeConfig = getRuntimeConfig();
   const dailyUsage = new Map(
@@ -7295,7 +7319,13 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
   const localProviderHints = new Map<string, GatewayModelProviderKey>();
-  for (const provider of ['ollama', 'lmstudio', 'llamacpp', 'vllm'] as const) {
+  for (const provider of [
+    'ollama',
+    'lmstudio',
+    'llamacpp',
+    'vllm',
+    'mlx',
+  ] as const) {
     for (const modelId of getAvailableModelList(provider)) {
       if (!localProviderHints.has(modelId)) {
         localProviderHints.set(modelId, provider);
@@ -12328,13 +12358,13 @@ export async function handleGatewayCommand(
           if (providerFilterArg && !providerFilter) {
             return badCommand(
               'Unknown Provider',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (listModifierArg && !expandedModelList) {
             return badCommand(
               'Usage',
-              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm]`',
+              'Usage: `model list [hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|local|ollama|lmstudio|llamacpp|vllm|mlx]`',
             );
           }
           if (providerFilter && gatewayStatus) {
@@ -12469,7 +12499,9 @@ export async function handleGatewayCommand(
           const pricing = metadata.pricingUsdPerToken;
           const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
             ? 'Pricing: subscription included (0 EUR)'
-            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+            : /^(ollama|lmstudio|llamacpp|vllm|mlx)\//.test(
+                  normalizedRuntimeModel,
+                )
               ? 'Pricing: local model (0 EUR)'
               : pricing.input != null || pricing.output != null
                 ? `Pricing: ${
