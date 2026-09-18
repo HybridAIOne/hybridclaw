@@ -3720,6 +3720,7 @@ function refreshVoiceIntegration(restart = false): Promise<void> {
       )
         return;
       const voiceConfig = getConfigSnapshot().voice;
+      // Credential refreshes preserve healthy calls; config changes restart voice.
       if (!restart) {
         if (!voiceConfig.enabled) return;
         if (isVoiceRuntimeAvailable()) {
