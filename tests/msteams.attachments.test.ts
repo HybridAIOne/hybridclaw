@@ -837,7 +837,12 @@ test('buildTeamsAttachmentContext streams remote files and removes oversized par
     },
   });
 
-  expect(media).toEqual([]);
+  expect(media).toHaveLength(1);
+  expect(media[0]).toMatchObject({
+    path: null,
+    filename: 'too-large.pdf',
+    unavailableReason: 'larger than the 1 MB media limit',
+  });
   expect(arrayBufferSpy).not.toHaveBeenCalled();
 });
 
@@ -1480,11 +1485,110 @@ test('buildTeamsAttachmentContext does not retry an attachment that exceeds the 
     const media = await pending;
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(media).toEqual([]);
+    expect(media).toHaveLength(1);
+    expect(media[0]).toMatchObject({
+      path: null,
+      filename: 'original',
+      unavailableReason: 'larger than the 20 MB media limit',
+    });
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ filename: 'original' }),
       'Skipping Teams attachment that exceeds configured media limit',
     );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('buildTeamsAttachmentContext skips the download when Teams reports a size over the limit', async () => {
+  const { buildTeamsAttachmentContext } = await importAttachmentsModule({
+    MSTEAMS_MEDIA_MAX_MB: 1,
+  });
+  const { logger } = await import('../src/logger.js');
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  const media = await buildTeamsAttachmentContext({
+    activity: {
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.teams.file.download.info',
+          content: {
+            downloadUrl:
+              'https://contoso.blob.core.windows.net/teams/huge.pdf?sig=test',
+            fileName: 'huge.pdf',
+            fileType: 'pdf',
+            size: 5 * 1024 * 1024,
+          },
+          contentUrl: 'https://contoso.sharepoint.com/sites/x/huge.pdf',
+          name: 'huge.pdf',
+        },
+      ],
+    },
+  });
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(media).toHaveLength(1);
+  expect(media[0]).toMatchObject({
+    path: null,
+    url: 'https://contoso.blob.core.windows.net/teams/huge.pdf?sig=test',
+    filename: 'huge.pdf',
+    sizeBytes: 5 * 1024 * 1024,
+    unavailableReason: 'larger than the 1 MB media limit',
+  });
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({ filename: 'huge.pdf', sizeBytes: 5 * 1024 * 1024 }),
+    'Skipping Teams attachment that exceeds configured media limit',
+  );
+});
+
+test('buildTeamsAttachmentContext does not fetch contentUrl after the download info fetch already failed', async () => {
+  vi.useFakeTimers();
+  try {
+    const { buildTeamsAttachmentContext } = await importAttachmentsModule();
+    const { logger } = await import('../src/logger.js');
+    vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('upstream error', {
+          status: 502,
+          statusText: 'Bad Gateway',
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = buildTeamsAttachmentContext({
+      activity: {
+        attachments: [
+          {
+            contentType: 'application/vnd.microsoft.teams.file.download.info',
+            content: {
+              downloadUrl:
+                'https://contoso.blob.core.windows.net/teams/report.pdf?sig=test',
+              fileName: 'report.pdf',
+              fileType: 'pdf',
+            },
+            contentUrl: 'https://contoso.sharepoint.com/sites/x/report.pdf',
+            name: 'report.pdf',
+          },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    const media = await pending;
+
+    // Three attempts for the download URL, none for the contentUrl.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).toContain('blob.core.windows.net');
+    }
+    expect(media).toHaveLength(1);
+    expect(media[0]).toMatchObject({
+      path: null,
+      filename: 'report.pdf',
+      unavailableReason: 'Teams attachment fetch failed (502 Bad Gateway)',
+    });
   } finally {
     vi.useRealTimers();
   }

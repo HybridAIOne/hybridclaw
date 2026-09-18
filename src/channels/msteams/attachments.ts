@@ -2,6 +2,12 @@
  * Teams attachment boundary — stages trusted-host inbound uploads and builds
  * outbound Bot Framework attachments. Cached local paths are the agent-facing
  * source of record; delivery and streaming stay in their neighboring modules.
+ *
+ * Inbound downloads are retried with a short backoff. When an attachment still
+ * cannot be staged (or is over the media limit) the returned item keeps
+ * `path: null` and carries `unavailableReason`, which the gateway's media
+ * prompt context turns into an explicit "this attachment did not arrive"
+ * notice for the model instead of a dead channel URL.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -816,12 +822,14 @@ async function buildMediaItem(params: {
           },
           'Skipping Teams attachment that exceeds configured media limit',
         );
-        return null;
+        return { ...fallback, unavailableReason: describeMediaLimit() };
       }
       lastError = error;
       if (isAuthFailureError(error)) {
-        // A cached client-credentials token may have gone stale; drop it so
-        // the retry mints a fresh one instead of replaying the same 401.
+        // A cached client-credentials token may have gone stale; drop the
+        // cache so the retry mints a fresh one instead of replaying the same
+        // 401. The failing scope is not known here and there are only two
+        // scopes, so clearing both is cheaper than tracking which one failed.
         clientCredentialsTokenCache.clear();
       }
       if (attempt < REMOTE_MEDIA_STAGE_ATTEMPTS) {
@@ -930,6 +938,10 @@ function isAuthFailureError(error: unknown): boolean {
     error instanceof TeamsMediaFetchError &&
     (error.status === 401 || error.status === 403)
   );
+}
+
+function describeMediaLimit(): string {
+  return `larger than the ${Math.max(1, MSTEAMS_MEDIA_MAX_MB)} MB media limit`;
 }
 
 function describeMediaError(error: unknown): string {
@@ -1345,6 +1357,30 @@ export async function buildTeamsAttachmentContext(params: {
       fallbackMimeType: contentType,
       sizeBytes: normalizedSizeBytes,
     });
+    const attachmentUrl = normalizeValue(attachment.contentUrl);
+
+    // Teams reports the size up front; do not download (and retry) a file
+    // that is going to be rejected anyway. Still tell the model it existed.
+    if (normalizedSizeBytes > maxBytes) {
+      const oversized = buildRemoteFallbackMediaItem({
+        url: downloadInfo?.url || attachmentUrl,
+        filename: downloadInfo?.filename || fallbackName,
+        mimeType: downloadInfo?.mimeType || contentType || null,
+        sizeBytes: normalizedSizeBytes,
+      });
+      logger.warn(
+        { filename: fallbackName, sizeBytes: normalizedSizeBytes, maxBytes },
+        'Skipping Teams attachment that exceeds configured media limit',
+      );
+      if (oversized) {
+        media.push({ ...oversized, unavailableReason: describeMediaLimit() });
+      }
+      continue;
+    }
+
+    // Each branch already retries and enforces the media limit; whatever it
+    // returns (staged or marked unavailable) is the final word for this
+    // attachment, so never fall through and fetch the same file again.
     if (downloadInfo) {
       const mediaItem = await buildMediaItem({
         url: downloadInfo.url,
@@ -1353,14 +1389,13 @@ export async function buildTeamsAttachmentContext(params: {
         sizeBytes: downloadInfo.sizeBytes,
         authToken: downloadInfo.authToken,
       });
-      if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
+      if (mediaItem) {
         media.push(mediaItem);
         continue;
       }
     }
 
-    if (normalizeValue(attachment.contentUrl)) {
-      const attachmentUrl = normalizeValue(attachment.contentUrl);
+    if (attachmentUrl) {
       const mediaItem = await buildMediaItem({
         url: attachmentUrl,
         filename: extractAttachmentFilename(attachmentUrl, fallbackName),
@@ -1368,7 +1403,7 @@ export async function buildTeamsAttachmentContext(params: {
         sizeBytes: normalizedSizeBytes,
         authToken: extractAttachmentAuthToken(attachment),
       });
-      if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
+      if (mediaItem) {
         media.push(mediaItem);
       }
     }
@@ -1393,7 +1428,7 @@ export async function buildTeamsAttachmentContext(params: {
           mimeType: inferMimeTypeFromFilename(filename, 'image/png'),
           sizeBytes: 0,
         });
-        if (mediaItem && mediaItem.sizeBytes <= maxBytes) {
+        if (mediaItem) {
           media.push(mediaItem);
         }
       }
