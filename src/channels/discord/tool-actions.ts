@@ -1,4 +1,10 @@
-import type { AttachmentBuilder, Client, Embed, GuildMember } from 'discord.js';
+import type {
+  AttachmentBuilder,
+  Client,
+  Attachment as DiscordAttachment,
+  Embed,
+  GuildMember,
+} from 'discord.js';
 import type {
   ResolveSendAllowedParams,
   ResolveSendAllowedResult,
@@ -489,6 +495,19 @@ async function resolveGuildMemberIdFromLookup(params: {
   return { ok: true, userId: matched[0].member.id };
 }
 
+function normalizeReadAttachments(
+  attachments: ReadonlyMap<string, DiscordAttachment> | null | undefined,
+): Array<Record<string, unknown>> {
+  if (!attachments) return [];
+  return Array.from(attachments.values()).map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name || null,
+    url: attachment.url,
+    contentType: attachment.contentType || null,
+    size: attachment.size,
+  }));
+}
+
 const DISCORD_READ_EMBEDS_PER_MESSAGE_LIMIT = 5;
 const DISCORD_READ_FIELDS_PER_EMBED_LIMIT = 10;
 
@@ -968,16 +987,19 @@ async function runDiscordReadAction(
             displayName: message.member.displayName || null,
           }
         : null,
-      attachments: Array.from(message.attachments.values()).map(
-        (attachment) => ({
-          id: attachment.id,
-          name: attachment.name || null,
-          url: attachment.url,
-          contentType: attachment.contentType || null,
-          size: attachment.size,
-        }),
-      ),
+      attachments: normalizeReadAttachments(message.attachments),
       embeds: normalizeReadEmbeds(message.embeds),
+      ...(message.messageSnapshots && message.messageSnapshots.size > 0
+        ? {
+            forwarded: Array.from(message.messageSnapshots.values()).map(
+              (snapshot) => ({
+                content: snapshot.content || '',
+                attachments: normalizeReadAttachments(snapshot.attachments),
+                embeds: normalizeReadEmbeds(snapshot.embeds),
+              }),
+            ),
+          }
+        : {}),
       mentions: {
         users: Array.from(message.mentions.users.values()).map((user) => ({
           id: user.id,
