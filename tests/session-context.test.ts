@@ -362,7 +362,7 @@ test('buildSessionContextPrompt falls back to unknown channel labels', async () 
   expect(prompt).toContain('**Connected channels:** none');
 });
 
-test('prompt hooks include session context when runtime info provides it', async () => {
+test('prompt hooks keep session context out of the system prompt', async () => {
   vi.resetModules();
   const { DISCORD_CAPABILITIES } = await import('../src/channels/channel.js');
   const { registerChannel } = await import(
@@ -405,10 +405,10 @@ test('prompt hooks include session context when runtime info provides it', async
     },
   });
 
+  // The session block is per-session data: it must stay out of the system
+  // prompt so the static prefix remains prompt-cacheable across sessions. It is
+  // rendered into the trailing dynamic context message instead.
   expect(prompt).toContain('## Session Summary');
-  expect(prompt).toContain('## Session Context');
-  expect(prompt).toContain('**Connected channels:** discord');
-  expect(prompt.indexOf('## Session Summary')).toBeLessThan(
-    prompt.indexOf('## Session Context'),
-  );
+  expect(prompt).not.toContain('## Session Context');
+  expect(prompt).not.toContain('sess_20260316_185427_1a2b3c4d');
 });

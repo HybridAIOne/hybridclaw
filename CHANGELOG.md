@@ -14,6 +14,9 @@
   consulted agent's actual tool activity and forbids speculation, questions,
   and claims of needing access or credentials — a live call had heard a made-up
   credentials request while the consult was succeeding.
+- **Tailscale discovery on macOS**: The tunnel provider uses the installed
+  Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
+  including installations exposed through an interactive shell alias.
 
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 
