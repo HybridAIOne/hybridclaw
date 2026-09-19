@@ -362,6 +362,26 @@ async function appendCachedAttachmentContext(params: {
   );
 }
 
+/**
+ * A message's own attachments plus those of any message it forwards. Discord
+ * delivers a forward with an empty outer message and the original's
+ * attachments inside `messageSnapshots`, so reading only `msg.attachments`
+ * would drop a forwarded image entirely.
+ */
+export function collectMessageAttachments(
+  msg: Pick<DiscordMessage, 'attachments'> & {
+    messageSnapshots?: DiscordMessage['messageSnapshots'] | null;
+  },
+): DiscordAttachment[] {
+  const own = msg.attachments ? Array.from(msg.attachments.values()) : [];
+  const forwarded = msg.messageSnapshots
+    ? Array.from(msg.messageSnapshots.values()).flatMap((snapshot) =>
+        snapshot.attachments ? Array.from(snapshot.attachments.values()) : [],
+      )
+    : [];
+  return [...own, ...forwarded];
+}
+
 export async function buildAttachmentContext(
   messages: DiscordMessage[],
 ): Promise<AttachmentContextResult> {
@@ -372,12 +392,13 @@ export async function buildAttachmentContext(
   let cleanupScheduled = false;
 
   for (const msg of messages) {
-    if (!msg.attachments || msg.attachments.size === 0) continue;
+    const attachments = collectMessageAttachments(msg);
+    if (attachments.length === 0) continue;
     if (!cleanupScheduled) {
       void triggerDiscordMediaCacheCleanup();
       cleanupScheduled = true;
     }
-    for (const attachment of msg.attachments.values()) {
+    for (const attachment of attachments) {
       const name = attachment.name || 'unnamed';
       const size = attachment.size || 0;
       const contentType = (attachment.contentType || '').toLowerCase();

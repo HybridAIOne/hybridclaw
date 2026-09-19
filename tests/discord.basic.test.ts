@@ -617,3 +617,57 @@ test('renderMessageText falls back from content to embeds to attachments to syst
     renderMessageText({ ...base, content: '', embeds: [], attachmentNames: [] }),
   ).toBe('');
 });
+
+test('renderMessageText reads a forwarded message when the outer message is empty', () => {
+  const base = { botMentionRegex: null, prefix: '!claw' };
+  // A Discord forward: empty outer content, the original lives in a snapshot.
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      attachmentNames: [],
+      forwarded: [
+        { content: 'Original text', embeds: [], attachmentNames: [] },
+      ],
+    }),
+  ).toBe('[forwarded] Original text');
+  // Forwarded embed-only bot cards (alerts, feedback reports) stay readable.
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      attachmentNames: [],
+      forwarded: [{ content: '', embeds: [ALERT_EMBED], attachmentNames: [] }],
+    }),
+  ).toBe(`[forwarded] [embed] ${summarizeEmbeds([ALERT_EMBED])}`);
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      attachmentNames: [],
+      forwarded: [{ content: '', embeds: [], attachmentNames: ['shot.png'] }],
+    }),
+  ).toBe('[forwarded] [attachments] shot.png');
+  // Own text still wins; an unreadable forward falls through to embeds.
+  expect(
+    renderMessageText({
+      ...base,
+      content: 'own text',
+      embeds: [],
+      attachmentNames: [],
+      forwarded: [{ content: 'Original text', embeds: [], attachmentNames: [] }],
+    }),
+  ).toBe('own text');
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [ALERT_EMBED],
+      attachmentNames: [],
+      forwarded: [{ content: '', embeds: [], attachmentNames: [] }],
+    }),
+  ).toBe(`[embed] ${summarizeEmbeds([ALERT_EMBED])}`);
+});

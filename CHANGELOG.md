@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **Tailscale discovery on macOS**: The tunnel provider uses the installed
+  Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
+  including installations exposed through an interactive shell alias.
 - **A2A JSON-RPC follows standard request and error conventions**: Outbound
   `message/send` requests carry a JSON-RPC `id`, so peers return a response
   instead of treating the request as a notification. Reply threading stays in

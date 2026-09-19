@@ -29,4 +29,40 @@ describe("buildMediaPromptContext URL fallback hint", () => {
     expect(teams).not.toContain("as fallback");
     expect(teams).toContain("cannot be fetched by tools");
   });
+
+  test("tells the model when an attachment could not be downloaded", () => {
+    const context = buildMediaPromptContext([
+      {
+        path: null,
+        url: "https://smba.trafficmanager.net/de/tenant/v3/attachments/abc/views/original",
+        originalUrl:
+          "https://smba.trafficmanager.net/de/tenant/v3/attachments/abc/views/original",
+        mimeType: null,
+        sizeBytes: 0,
+        filename: "original",
+        unavailableReason: "Teams attachment fetch failed (502 Bad Gateway)",
+      },
+    ]);
+    expect(context).toContain(
+      'UnavailableMedia: [{"filename":"original","reason":"Teams attachment fetch failed (502 Bad Gateway)"}]',
+    );
+    expect(context).toContain("could NOT be downloaded");
+    expect(context).toContain("ask them to send it again");
+    expect(context).toContain("ImageMediaPaths: []");
+  });
+
+  test("omits the unavailable block when every attachment was staged", () => {
+    const context = buildMediaPromptContext([
+      {
+        path: "/uploaded-media-cache/2026-09-04/original.png",
+        url: "https://smba.trafficmanager.net/de/tenant/v3/attachments/abc/views/original",
+        originalUrl:
+          "https://smba.trafficmanager.net/de/tenant/v3/attachments/abc/views/original",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        filename: "original",
+      },
+    ]);
+    expect(context).not.toContain("UnavailableMedia");
+  });
 });

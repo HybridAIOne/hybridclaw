@@ -8,6 +8,10 @@ import { currentDateStampInTimezone } from '../../container/shared/workspace-tim
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import {
+  buildSessionContextPrompt,
+  type SessionContext,
+} from '../session/session-context.js';
+import {
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
@@ -29,10 +33,12 @@ import {
   buildRetrievedContextPrompt,
   buildSessionSummaryPrompt,
   buildSystemPromptBlocksFromHooks,
+  type PromptHookContext,
   type PromptMode,
   type PromptPartName,
   type PromptRuntimeInfo,
   type SkillPromptMode,
+  shouldRenderSessionContext,
 } from './prompt-hooks.js';
 import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 
@@ -57,6 +63,12 @@ interface DynamicContextMessageOptions {
   now?: Date;
   retrievedContext?: string | null;
   sessionSummary?: string | null;
+  /**
+   * Per-session identity block (platform, session id, session key, user).
+   * Rendered here rather than in the system prompt so a new session does not
+   * invalidate the provider's prompt cache for the static prefix.
+   */
+  sessionContext?: SessionContext | null;
 }
 
 export function buildDynamicContextMessage(
@@ -69,6 +81,9 @@ export function buildDynamicContextMessage(
   ];
   const dynamicSections: string[] = [];
   if (!(options instanceof Date)) {
+    if (options.sessionContext) {
+      dynamicSections.push(buildSessionContextPrompt(options.sessionContext));
+    }
     dynamicSections.push(
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
@@ -184,7 +199,7 @@ export function buildConversationContext(params: {
           previousUserContent,
         })
       : null;
-  const systemPromptBlocks = buildSystemPromptBlocksFromHooks({
+  const hookContext: PromptHookContext = {
     agentId,
     skills,
     explicitSkillInvocation,
@@ -197,7 +212,8 @@ export function buildConversationContext(params: {
     runtimeInfo,
     allowedTools: mergedAllowedTools,
     blockedTools: mergedBlockedTools,
-  });
+  };
+  const systemPromptBlocks = buildSystemPromptBlocksFromHooks(hookContext);
 
   const messages: ChatMessage[] = [];
   if (systemPromptBlocks.length > 0) {
@@ -219,6 +235,9 @@ export function buildConversationContext(params: {
         agentId,
         retrievedContext,
         sessionSummary,
+        sessionContext: shouldRenderSessionContext(hookContext)
+          ? runtimeInfo?.sessionContext
+          : null,
       }),
     );
   }
