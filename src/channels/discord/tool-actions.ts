@@ -647,6 +647,15 @@ async function ensureDiscordSendAllowed(params: {
     ? sanitizeDiscordId(requestingUserIdRaw, 'userId')
     : undefined;
   const guildId = resolveChannelGuildId(params.channel);
+  const parentChannelId =
+    params.channel &&
+    typeof params.channel === 'object' &&
+    'isThread' in params.channel &&
+    typeof (params.channel as { isThread?: unknown }).isThread === 'function' &&
+    (params.channel as { isThread: () => boolean }).isThread() &&
+    'parentId' in params.channel
+      ? String((params.channel as { parentId?: string }).parentId || '').trim()
+      : undefined;
   const requestingRoleIds = await resolveRequestingRoleIdsForSend({
     channel: params.channel,
     requestingUserId,
@@ -654,6 +663,7 @@ async function ensureDiscordSendAllowed(params: {
 
   const sendCheck = params.deps.resolveSendAllowed({
     channelId: params.channelId,
+    parentChannelId,
     guildId,
     requestingUserId,
     requestingRoleIds,

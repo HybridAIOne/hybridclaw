@@ -263,6 +263,7 @@ export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordSendPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordCommandMode = 'public' | 'restricted';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
+export type DiscordReplyStyle = 'thread' | 'top-level';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
 export type MSTeamsGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -568,6 +569,7 @@ export interface RuntimeDiscordLifecycleReactionsConfig {
 
 export interface RuntimeDiscordChannelConfig {
   mode: DiscordChannelMode;
+  replyStyle?: DiscordReplyStyle;
   typingMode?: DiscordTypingMode;
   debounceMs?: number;
   ackReaction?: string;
@@ -1165,6 +1167,7 @@ export interface RuntimeConfig {
     botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
+    replyStyle: DiscordReplyStyle;
     humanDelay: RuntimeDiscordHumanDelayConfig;
     typingMode: DiscordTypingMode;
     presence: RuntimeDiscordPresenceConfig;
@@ -1688,6 +1691,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     botMessageChannels: [],
     textChunkLimit: 1_900,
     maxLinesPerMessage: 17,
+    replyStyle: 'top-level',
     humanDelay: {
       mode: 'natural',
       minMs: 800,
@@ -3438,6 +3442,19 @@ function normalizeDiscordSendPolicy(
   return fallback;
 }
 
+export function normalizeDiscordReplyStyle(
+  value: unknown,
+  fallback: DiscordReplyStyle,
+): DiscordReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
+  return fallback;
+}
+
 function normalizeMSTeamsGroupPolicy(
   value: unknown,
   fallback: MSTeamsGroupPolicy,
@@ -4816,6 +4833,16 @@ function normalizeDiscordChannelConfig(
   const channelConfig: RuntimeDiscordChannelConfig = {
     mode: normalizeDiscordChannelMode(value.mode, channelFallback.mode),
   };
+
+  if (
+    value.replyStyle !== undefined ||
+    channelFallback.replyStyle !== undefined
+  ) {
+    channelConfig.replyStyle = normalizeDiscordReplyStyle(
+      value.replyStyle,
+      channelFallback.replyStyle ?? DEFAULT_RUNTIME_CONFIG.discord.replyStyle,
+    );
+  }
 
   if (
     value.typingMode !== undefined ||
@@ -8046,6 +8073,10 @@ function normalizeRuntimeConfig(
         rawDiscord.maxLinesPerMessage,
         DEFAULT_RUNTIME_CONFIG.discord.maxLinesPerMessage,
         { min: 4, max: 200 },
+      ),
+      replyStyle: normalizeDiscordReplyStyle(
+        rawDiscord.replyStyle,
+        DEFAULT_RUNTIME_CONFIG.discord.replyStyle,
       ),
       humanDelay: normalizeDiscordHumanDelayConfig(
         rawDiscord.humanDelay,
