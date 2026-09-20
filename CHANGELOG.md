@@ -7,6 +7,9 @@
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed
   Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
   including installations exposed through an interactive shell alias.
+- **OpenAI-compatible cache writes are recorded correctly**: Usage payloads
+  that report `prompt_tokens_details.cache_write_tokens` now populate audit,
+  scheduler, cost, and session-status cache metrics.
 
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 
