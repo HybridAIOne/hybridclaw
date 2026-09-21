@@ -1690,6 +1690,8 @@ export async function exportSessionTraceAtifJsonl(params: {
         total_duration_s: totalDurationSeconds,
         ...(traceData.cacheReadTokens + traceData.cacheWriteTokens > 0
           ? {
+              total_cache_read_tokens: traceData.cacheReadTokens,
+              total_cache_write_tokens: traceData.cacheWriteTokens,
               cache_hit_rate:
                 traceData.cacheReadTokens /
                 (traceData.cacheReadTokens + traceData.cacheWriteTokens),

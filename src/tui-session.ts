@@ -14,6 +14,8 @@ export interface TuiExitSummary {
   durationMs: number;
   inputTokenCount: number;
   outputTokenCount: number;
+  cacheReadTokenCount: number;
+  cacheWriteTokenCount: number;
   costUsd: number;
   toolCallCount: number;
   toolBreakdown: Array<{ toolName: string; count: number }>;
@@ -131,6 +133,11 @@ export function buildTuiExitSummaryLines(summary: TuiExitSummary): string[] {
     `Session ${summary.sessionId} completed in ${formatTuiSessionDuration(summary.durationMs)}`,
     '',
     `Tokens:     ${formatInteger(summary.inputTokenCount)} in / ${formatInteger(summary.outputTokenCount)} out  (~${formatApproxUsd(summary.costUsd)})`,
+    ...(summary.cacheReadTokenCount > 0 || summary.cacheWriteTokenCount > 0
+      ? [
+          `Cache:      ${formatInteger(summary.cacheReadTokenCount)} read / ${formatInteger(summary.cacheWriteTokenCount)} written`,
+        ]
+      : []),
     toolCallsLine,
     `Files:      ${formatInteger(summary.readFileCount)} read, ${formatInteger(summary.modifiedFileCount)} modified, ${formatInteger(summary.createdFileCount)} created, ${formatInteger(summary.deletedFileCount)} deleted`,
     '',

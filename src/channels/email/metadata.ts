@@ -9,6 +9,8 @@ export interface EmailDeliveryMetadata {
   provider: string | null;
   totalTokens: number | null;
   tokenSource: EmailDeliveryTokenSource | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
 }
 
 interface HeaderLookup {
@@ -21,6 +23,8 @@ const EMAIL_METADATA_HEADERS = {
   provider: 'X-HybridClaw-Provider',
   totalTokens: 'X-HybridClaw-Total-Tokens',
   tokenSource: 'X-HybridClaw-Token-Source',
+  cacheReadTokens: 'X-HybridClaw-Cache-Read-Tokens',
+  cacheWriteTokens: 'X-HybridClaw-Cache-Write-Tokens',
 } as const;
 
 function normalizeTokenCount(value: unknown): number | null {
@@ -92,6 +96,14 @@ export function buildEmailDeliveryMetadata(params: {
     }
   }
 
+  const cacheAvailable = params.tokenUsage?.apiCacheUsageAvailable === true;
+  const cacheReadTokens = cacheAvailable
+    ? Math.round(params.tokenUsage?.apiCacheReadTokens ?? 0)
+    : null;
+  const cacheWriteTokens = cacheAvailable
+    ? Math.round(params.tokenUsage?.apiCacheWriteTokens ?? 0)
+    : null;
+
   if (!agentId && !model && !provider && totalTokens === null) {
     return null;
   }
@@ -102,6 +114,8 @@ export function buildEmailDeliveryMetadata(params: {
     provider,
     totalTokens,
     tokenSource: totalTokens === null ? null : tokenSource,
+    cacheReadTokens,
+    cacheWriteTokens,
   };
 }
 
@@ -125,6 +139,16 @@ export function buildEmailMetadataHeaders(
   }
   if (metadata.totalTokens !== null && metadata.tokenSource) {
     headers[EMAIL_METADATA_HEADERS.tokenSource] = metadata.tokenSource;
+  }
+  if (metadata.cacheReadTokens != null) {
+    headers[EMAIL_METADATA_HEADERS.cacheReadTokens] = String(
+      metadata.cacheReadTokens,
+    );
+  }
+  if (metadata.cacheWriteTokens != null) {
+    headers[EMAIL_METADATA_HEADERS.cacheWriteTokens] = String(
+      metadata.cacheWriteTokens,
+    );
   }
 
   return Object.keys(headers).length > 0 ? headers : undefined;
@@ -165,5 +189,11 @@ export function parseEmailDeliveryMetadata(
     provider,
     totalTokens,
     tokenSource,
+    cacheReadTokens: normalizeTokenCount(
+      readHeaderValue(lookup, EMAIL_METADATA_HEADERS.cacheReadTokens),
+    ),
+    cacheWriteTokens: normalizeTokenCount(
+      readHeaderValue(lookup, EMAIL_METADATA_HEADERS.cacheWriteTokens),
+    ),
   };
 }
