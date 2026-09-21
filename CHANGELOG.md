@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Cron tasks can be updated in place**: the `cron` tool gains an `update`
+  action that patches an existing task's schedule, channel, or prompt by
+  taskId, so schedule changes no longer leave duplicate tasks behind.
+
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 
 ### Added
