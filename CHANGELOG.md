@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- **Recall snippets are labeled as chat recall**: The prompt block is titled
+  `### Chat Recall` and states that entries are recalled chat excerpts, not
+  saved memory files. Per-turn memories whose turn is still in the verbatim
+  prompt history are skipped, so recall no longer duplicates visible context.
+
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 
 ### Added

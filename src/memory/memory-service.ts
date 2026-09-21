@@ -200,6 +200,7 @@ export interface MemoryBackend {
   hasRecallableSemanticMemories: (
     sessionId: string,
     minConfidence: number,
+    filter?: SemanticRecallFilter,
   ) => boolean;
   recallSemanticMemories: (params: {
     sessionId: string;
@@ -383,6 +384,9 @@ function truncateInline(content: string, maxChars: number): string {
 }
 
 const CITATION_CONTENT_MAX_CHARS = 220;
+const PROMPT_RECALL_FILTER: SemanticRecallFilter = {
+  excludeVerbatimHistory: true,
+};
 
 class HashedTokenEmbeddingProvider implements EmbeddingProvider {
   private readonly dimensions: number;
@@ -868,6 +872,7 @@ export class MemoryService {
       this.backend.hasRecallableSemanticMemories(
         params.session.id,
         minConfidence,
+        PROMPT_RECALL_FILTER,
       );
     if (semanticRecallAttempted || includeSummary) {
       params.onMemoryAccess?.(semanticRecallAttempted ? 'semantic' : 'summary');
@@ -886,6 +891,7 @@ export class MemoryService {
             ),
           ),
           minConfidence,
+          filter: PROMPT_RECALL_FILTER,
           touch: params.touchSemanticRecall,
         })
       : [];
@@ -915,9 +921,10 @@ export class MemoryService {
       });
       sections.push(
         [
-          '### Relevant Memory Recall',
-          'Topic-matched context from older turns.',
-          'If you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).',
+          '### Chat Recall',
+          'Topic-matched excerpts from earlier turns of this conversation that are no longer in the verbatim history above, plus compaction summaries.',
+          'These are recalled chat excerpts, not saved memory files. Do not present them as stored memory.',
+          'If you use any of them in your response, cite them inline using their tag (e.g. [mem:1]).',
           ...lines,
         ].join('\n'),
       );
