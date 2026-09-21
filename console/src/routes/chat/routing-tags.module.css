@@ -30,6 +30,9 @@
   background: var(--muted);
 }
 .model {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--foreground);
   overflow-wrap: anywhere;
 }
@@ -89,4 +92,51 @@
   margin: 3px 0 0;
   font-variant-numeric: tabular-nums;
   color: var(--foreground);
+}
+
+/* Reuse semantic theme tokens so routing stays legible in both color schemes. */
+.model[data-zone="cloud"],
+.model[data-zone="hai"],
+.model[data-zone="region"] {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+.model[data-zone="local"] {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+.routeDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.running,
+.tag[data-tone="retry"] {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--tone-review) 15%, var(--card));
+  border-color: color-mix(in srgb, var(--tone-review) 45%, var(--border));
+}
+.tag[data-tone="error"],
+.status[data-status="error"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+.status {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.status[data-status="success"] {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+.status[data-status="running"] {
+  color: var(--accent-foreground);
+  background: var(--accent);
 }

@@ -30,6 +30,14 @@ const MODE_LABELS = {
   concierge: 'Concierge',
   tiered: 'Tiered',
 };
+const MODE_DESCRIPTIONS = {
+  direct:
+    'Used the selected model directly, without concierge or tier-based selection.',
+  concierge:
+    'The concierge selected the model based on your execution preference.',
+  tiered:
+    'Selected through the configured routing tiers; expand to inspect each attempt.',
+};
 const ZONE_LABELS: Record<string, string> = {
   local: 'Local',
   hai: 'HybridAI',
@@ -60,11 +68,12 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
   return (
     <details className={css.root}>
       <summary className={css.tags} aria-label="Routing and usage details">
-        <span className={css.tag}>
+        <span className={css.tag} title={MODE_DESCRIPTIONS[trace.mode]}>
           {running && !execution.length ? 'Routing' : MODE_LABELS[trace.mode]}
         </span>
         {selected ? (
-          <span className={css.model}>
+          <span className={css.model} data-zone={selected.zone}>
+            <span className={css.routeDot} aria-hidden="true" />
             {ZONE_LABELS[selected.zone] ?? selected.zone} · {selected.model}
           </span>
         ) : null}
@@ -81,10 +90,14 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
             </span>
             <span className={css.tag}>{costLabel(trace.attempts)}</span>
             {execution.length > 1 ? (
-              <span className={css.tag}>{execution.length} attempts</span>
+              <span className={css.tag} data-tone="retry">
+                {execution.length} attempts
+              </span>
             ) : null}
             {trace.status === 'error' ? (
-              <span className={css.tag}>Failed</span>
+              <span className={css.tag} data-tone="error">
+                Failed
+              </span>
             ) : null}
           </>
         )}
@@ -103,7 +116,7 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
             <li key={attempt.id} className={css.attempt}>
               <div className={css.heading}>
                 <strong>{attempt.model}</strong>
-                <span>
+                <span className={css.status} data-status={attempt.status}>
                   {attempt.kind === 'auxiliary'
                     ? 'Auxiliary overhead'
                     : 'Execution'}{' '}
