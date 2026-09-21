@@ -622,6 +622,7 @@
     }
   },
   "routing": {
+    "showRoutingInfo": false,
     "enabled": false,
     "tiers": [],
     "defaultStart": "",

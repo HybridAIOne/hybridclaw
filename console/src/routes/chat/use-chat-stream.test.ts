@@ -103,6 +103,48 @@ describe('useChatStream', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
+  it.each(['success', 'error'])(
+    'retains routing evidence after a %s result',
+    async (status) => {
+      const harness = makeHarness();
+      const routingTrace = {
+        version: 1 as const,
+        mode: 'direct' as const,
+        status: status === 'error' ? ('error' as const) : ('complete' as const),
+        durationMs: 10,
+        attempts: [],
+      };
+      requestChatStreamMock.mockResolvedValue({
+        status,
+        error: status === 'error' ? 'Test failure' : undefined,
+        result: 'Answer',
+        messageRole: 'assistant',
+        routingTrace,
+      });
+      const { result } = renderHook(
+        () =>
+          useChatStream({
+            token: TOKEN,
+            userId: 'user_a',
+            getSessionId: () => SESSION_ID,
+            setError: harness.setError,
+            refreshRecent: vi.fn(),
+            onSessionIdCorrection: harness.correctionMock,
+          }),
+        { wrapper: harness.wrapper },
+      );
+      await act(async () => {
+        await result.current.sendMessage('Test request', []);
+      });
+      expect(
+        harness.messages.find(
+          (message) =>
+            message.role === (status === 'error' ? 'system' : 'assistant'),
+        )?.routingTrace,
+      ).toEqual(routingTrace);
+    },
+  );
+
   it('keeps replayRequest on hidden-user approval responses', async () => {
     const approval: ChatStreamApproval = {
       type: 'approval',

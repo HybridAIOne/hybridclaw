@@ -1,3 +1,6 @@
+import type { RoutingTrace } from '../../../src/types/routing-trace';
+
+export type { RoutingTrace } from '../../../src/types/routing-trace';
 export interface ChatRecentSession {
   sessionId: string;
   title: string | null;
@@ -67,6 +70,7 @@ export interface ChatHistoryMessage {
   response_rating?: ResponseRatingValue | null;
   artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
+  routingTrace?: RoutingTrace | null;
   activityTrace?: ChatActivityTrace | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
@@ -96,6 +100,7 @@ export interface ChatHistoryResponse {
   agentId?: string | null;
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
+  routingTrace?: RoutingTrace | null;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';
@@ -120,6 +125,7 @@ export interface ChatContextSnapshot {
 }
 
 export interface ChatModelRoutingContext {
+  showRoutingInfo?: boolean;
   active: boolean;
   startTier: string | null;
   startModel: string | null;
@@ -201,7 +207,13 @@ export interface ChatStreamApproval {
   expiresAt?: number | null;
 }
 
+export interface ChatStreamRoutingEvent {
+  type: 'routing';
+  trace: RoutingTrace;
+}
+
 export type ChatStreamEvent =
+  | ChatStreamRoutingEvent
   | ChatStreamTextDelta
   | ChatStreamThinkingDelta
   | ChatStreamToolEvent
@@ -251,6 +263,7 @@ export interface ChatStreamResult {
     fanoutAlias?: 'team' | 'all';
   };
   assistantPresentation?: AssistantPresentation | null;
+  routingTrace?: RoutingTrace | null;
   model?: string;
   provider?: string;
   memoryAccess?: ChatMemoryAccess;
@@ -310,6 +323,7 @@ export interface ChatMessage {
   replayRequest?: { content: string; media: MediaItem[] } | null;
   pendingApproval?: ChatStreamApproval | null;
   assistantPresentation?: AssistantPresentation | null;
+  routingTrace?: RoutingTrace | null;
   addressedAgentPresentation?: AssistantPresentation | null;
   responseRating?: ResponseRatingValue | null;
   branchKey?: string | null;

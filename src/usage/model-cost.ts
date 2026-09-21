@@ -51,6 +51,20 @@ export function extractExplicitUsageCostUsd(
   ]);
 }
 
+export function explicitUsageCostSource(
+  tokenUsage?: TokenUsageStats,
+): 'reported' | 'estimated' {
+  const carrier = tokenUsage as unknown as Record<string, unknown> | undefined;
+  return carrier &&
+    firstFiniteNonNegativeNumber([
+      carrier.costUsd,
+      carrier.costUSD,
+      carrier.cost_usd,
+    ]) !== null
+    ? 'reported'
+    : 'estimated';
+}
+
 export function estimateModelUsageCostUsd(params: {
   model: string;
   promptTokens: number;

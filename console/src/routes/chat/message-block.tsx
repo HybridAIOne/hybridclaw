@@ -1,3 +1,4 @@
+import { RoutingTags } from './routing-tags';
 /**
  * Chat message presentation — renders persisted/streaming turns and explicit
  * per-message actions without changing conversation state on its own.
@@ -395,6 +396,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   message: ChatUiMessage;
   token: string;
   isStreaming: boolean;
+  showRoutingInfo?: boolean;
   onCopy: (text: string) => void;
   onEdit: (message: ChatMessage) => void;
   onRegenerate: (message: ChatMessage) => void;
@@ -472,21 +474,29 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   if (msg.role === 'thinking') {
     return (
-      <div
-        className={css.thinking}
-        role="status"
-        aria-label="Assistant is thinking"
-      >
-        <span className={css.thinkingDot} />
-        <span className={css.thinkingDot} />
-        <span className={css.thinkingDot} />
-      </div>
+      <>
+        {props.showRoutingInfo !== false && msg.routingTrace ? (
+          <RoutingTags trace={msg.routingTrace} />
+        ) : null}
+        <div
+          className={css.thinking}
+          role="status"
+          aria-label="Assistant is thinking"
+        >
+          <span className={css.thinkingDot} />
+          <span className={css.thinkingDot} />
+          <span className={css.thinkingDot} />
+        </div>
+      </>
     );
   }
 
   if (isDraft) {
     return (
       <div className={css.traceDraftInterim}>
+        {props.showRoutingInfo !== false && msg.routingTrace ? (
+          <RoutingTags trace={msg.routingTrace} />
+        ) : null}
         <div
           ref={markdownRef}
           className={css.markdownContent}
@@ -606,6 +616,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
             msg.content
           )}
         </div>
+      ) : null}
+
+      {(isAssistant || isApproval || msg.role === 'system') &&
+      props.showRoutingInfo !== false &&
+      msg.routingTrace ? (
+        <RoutingTags trace={msg.routingTrace} />
       ) : null}
 
       {artifactEntries.map(({ artifact, key }) => (

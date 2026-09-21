@@ -1,5 +1,5 @@
 /**
- * Gateway turns persist tool exchanges with assistant results, including failures.
+ * Gateway turns persist tool exchanges and routing evidence with assistant results.
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
  * Transports own authorization; transcript evidence never authorizes execution.
@@ -118,7 +118,16 @@ import {
 import type { MemoryAccess } from '../types/memory.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
-import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import {
+  explicitUsageCostSource,
+  extractExplicitUsageCostUsd,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
+import {
+  finishRoutingTraceAttempt,
+  setRoutingTraceMode,
+  startRoutingTraceAttempt,
+} from '../usage/routing-trace.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
@@ -132,6 +141,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
+import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -813,7 +823,8 @@ export async function handleGatewayMessage(
           'hybridclaw.channel_id': req.channelId || '',
           'hybridclaw.model': req.model || '',
         },
-        async () => handleGatewayMessageInner(req),
+        async () =>
+          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
       ),
     ),
   );
@@ -1396,6 +1407,7 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
+  if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -1426,6 +1438,8 @@ async function handleGatewayMessageInner(
       Boolean(event.metadata?.conciergeRouter),
     );
     const routingMetadata = getConciergeRouterMetadata(routingEvent);
+    if (routingMetadata)
+      setRoutingTraceMode('concierge', `concierge-${routingMetadata.profile}`);
     const tierRoutingEvent = routingOutcome.events.find((event) =>
       Boolean(event.metadata?.tierRouter),
     );
@@ -2229,6 +2243,7 @@ async function handleGatewayMessageInner(
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
       });
     let routingAttempts: ModelRoutingAttempt[] | null = null;
+    const executionStartedAt = Date.now();
     let output: ContainerOutput;
     if (tierRoutingLadder?.enabled && !tierRoutingLadder.exhausted) {
       const bufferedEvents = new WeakMap<
@@ -2241,6 +2256,7 @@ async function handleGatewayMessageInner(
           chatbotId: string;
         }
       >();
+      setRoutingTraceMode('tiered');
       const routed = await executeModelRouting({
         ladder: tierRoutingLadder,
         agentId,
@@ -2253,6 +2269,7 @@ async function handleGatewayMessageInner(
           });
         },
         invoke: async (runtime, routedModel) => {
+          startRoutingTraceAttempt(routedModel);
           const buffered = {
             text: [] as string[],
             thinking: [] as string[],
@@ -2297,6 +2314,7 @@ async function handleGatewayMessageInner(
         );
       }
     } else {
+      startRoutingTraceAttempt(model);
       output = await runAgent({
         sessionId: req.executionSessionId || req.sessionId,
         runId,
@@ -2334,6 +2352,7 @@ async function handleGatewayMessageInner(
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
       });
     }
+    const executionDurationMs = Date.now() - executionStartedAt;
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
@@ -2413,6 +2432,23 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
+      finishRoutingTraceAttempt({
+        model,
+        status: output.status === 'success' ? 'success' : 'error',
+        durationMs: executionDurationMs,
+        inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
+        outputTokens: firstNumber([usagePayload.completionTokens]) ?? undefined,
+        totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
+        cacheReadTokens: output.tokenUsage?.apiCacheUsageAvailable
+          ? output.tokenUsage.apiCacheReadTokens
+          : undefined,
+        cacheWriteTokens: output.tokenUsage?.apiCacheUsageAvailable
+          ? output.tokenUsage.apiCacheWriteTokens
+          : undefined,
+        tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
+        costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
+        costSource: explicitUsageCostSource(output.tokenUsage),
+      });
       enqueueTokenUsage({
         sessionId: req.sessionId,
         agentId,
@@ -2461,6 +2497,27 @@ async function handleGatewayMessageInner(
           usage: usagePayload,
         });
         if (index === routingAttempts.length - 1) costUsd = attemptCostUsd;
+        finishRoutingTraceAttempt({
+          model: attempt.model,
+          status: attempt.output.status === 'success' ? 'success' : 'error',
+          durationMs: attempt.durationMs,
+          reason: attempt.routeReason,
+          tier: attempt.tier,
+          inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
+          outputTokens:
+            firstNumber([usagePayload.completionTokens]) ?? undefined,
+          totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
+          cacheReadTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
+            ? attempt.output.tokenUsage.apiCacheReadTokens
+            : undefined,
+          cacheWriteTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
+            ? attempt.output.tokenUsage.apiCacheWriteTokens
+            : undefined,
+          tokensEstimated: !attempt.output.tokenUsage?.apiUsageAvailable,
+          costUsd:
+            extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
+          costSource: explicitUsageCostSource(attempt.output.tokenUsage),
+        });
         enqueueTokenUsage({
           sessionId: req.sessionId,
           agentId,

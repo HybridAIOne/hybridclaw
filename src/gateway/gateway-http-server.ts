@@ -3774,6 +3774,7 @@ async function handleApiChatStream(
       normalizeSilentMessageSendReply(
         await handleGatewayMessage({
           ...chatRequest,
+          onRoutingTrace: (trace) => sendEvent({ type: 'routing', trace }),
           onTextDelta,
           onThinkingDelta,
           onToolProgress,

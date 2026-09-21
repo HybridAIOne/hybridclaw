@@ -128,3 +128,10 @@ describe('model routing runtime config', () => {
     );
   });
 });
+
+ test('routing visibility is opt-in and survives normalization', async () => {
+   const config = await loadConfigModule();
+   expect(config.getRuntimeConfig().routing.showRoutingInfo).toBe(false);
+   const saved = config.updateRuntimeConfig((draft) => { draft.routing.showRoutingInfo = true; });
+   expect(saved.routing.showRoutingInfo).toBe(true);
+ });

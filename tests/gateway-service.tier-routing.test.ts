@@ -72,6 +72,7 @@ test('session context reports automatic routing until a model is pinned', async 
 
   expect(fixture.getGatewaySessionContextUsage(sessionId).routing).toEqual({
     active: true,
+    showRoutingInfo: false,
     startTier: 'economy',
     startModel: 'lmstudio/test-cheap',
   });
@@ -80,12 +81,20 @@ test('session context reports automatic routing until a model is pinned', async 
 
   expect(fixture.getGatewaySessionContextUsage(sessionId).routing).toEqual({
     active: false,
+    showRoutingInfo: false,
     startTier: null,
     startModel: null,
   });
 });
 
 test('gateway escalates once, emits route telemetry, and hides failed deltas', async () => {
+  const tokenUsage = {
+    modelCalls: 1, apiUsageAvailable: true, apiPromptTokens: 10,
+    apiCompletionTokens: 5, apiTotalTokens: 15,
+    apiCacheUsageAvailable: true, apiCacheReadTokens: 2, apiCacheWriteTokens: 0,
+    estimatedPromptTokens: 10, estimatedCompletionTokens: 5, estimatedTotalTokens: 15,
+    costUsd: 0.01,
+  };
   runAgentMock.mockImplementation(async (params) => {
     if (params.model === 'lmstudio/test-cheap') {
       params.onTextDelta?.('discarded failed output');
@@ -93,6 +102,7 @@ test('gateway escalates once, emits route telemetry, and hides failed deltas', a
         status: 'error',
         result: '',
         error: 'Provider returned HTTP 503',
+        tokenUsage,
         toolsUsed: [],
         toolExecutions: [],
       };
@@ -101,11 +111,13 @@ test('gateway escalates once, emits route telemetry, and hides failed deltas', a
     return {
       status: 'success',
       result: 'successful output',
+      tokenUsage,
       toolsUsed: [],
       toolExecutions: [],
     };
   });
   const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => { draft.routing.showRoutingInfo = true; });
   const deltas: string[] = [];
   const sessionId = 'session-tier-routing';
   const result = await fixture.handleGatewayMessage({
@@ -130,6 +142,23 @@ test('gateway escalates once, emits route telemetry, and hides failed deltas', a
     'lmstudio/test-strong',
   ]);
   expect(deltas).toEqual(['successful output']);
+  expect(result.routingTrace?.attempts.map((attempt) => attempt.model)).toEqual(['lmstudio/test-cheap', 'lmstudio/test-strong']);
+  expect(result.routingTrace?.mode).toBe('tiered');
+  const { flushTokenUsageBuffer } = await import('../src/usage/token-usage-buffer.ts');
+  await flushTokenUsageBuffer();
+  const { getSessionUsageTotals } = await import('../src/memory/db.ts');
+  const usage = getSessionUsageTotals(sessionId);
+  expect(result.routingTrace?.attempts.reduce((total, attempt) => total + (attempt.totalTokens ?? 0), 0)).toBe(usage.total_tokens);
+  expect(result.routingTrace?.attempts.reduce((total, attempt) => total + (attempt.costUsd ?? 0), 0)).toBeCloseTo(usage.total_cost_usd);
+  expect(usage.total_cost_usd).toBeCloseTo(0.02);
+
+  const { getGatewayHistory } = await import('../src/gateway/gateway-service.ts');
+  expect(getGatewayHistory(sessionId).history.find((message) => message.id === result.assistantMessageId)?.routingTrace).toEqual(result.routingTrace);
+  fixture.updateRuntimeConfig((draft) => { draft.routing.showRoutingInfo = false; });
+  expect(getGatewayHistory(sessionId).history.find((message) => message.id === result.assistantMessageId)?.routingTrace).toBeUndefined();
+  fixture.updateRuntimeConfig((draft) => { draft.routing.showRoutingInfo = true; });
+  expect(getGatewayHistory(sessionId).history.find((message) => message.id === result.assistantMessageId)?.routingTrace).toEqual(result.routingTrace);
+
 
   runAgentMock.mockClear();
   await fixture.handleGatewayMessage({

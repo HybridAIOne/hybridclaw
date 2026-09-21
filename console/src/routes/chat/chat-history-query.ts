@@ -196,6 +196,7 @@ export function buildChatHistoryUiData(
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
       assistantPresentation: msg.assistantPresentation ?? null,
+      routingTrace: msg.routingTrace ?? null,
       addressedAgentPresentation,
       responseRating: msg.response_rating ?? null,
       branchKey:
