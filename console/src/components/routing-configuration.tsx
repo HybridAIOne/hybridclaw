@@ -176,14 +176,11 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               {value.enabled
                 ? 'Models are tried in order, starting at the selected tier.'
                 : 'Routing is off. Configure your tiers below, then enable it when ready.'}{' '}
-              Moving to another model requires a failure that is safe to retry.
             </p>
             <ol className={styles.tiers}>
               {value.tiers.map((tier, index) => (
                 <li key={tier.id} className={styles.tier}>
                   <div className={styles.heading}>
-                    <span className={styles.number}>{index + 1}</span>
-                    <strong>{tier.name || 'New tier'}</strong>
                     <div className={styles.actions}>
                       <Button
                         variant="ghost"
@@ -225,9 +222,10 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                       </Button>
                     </div>
                   </div>
-                  <label className={styles.field}>
-                    Tier name
+                  <label className={`${styles.field} ${styles.name}`}>
+                    Tier {index + 1}
                     <Input
+                      size="sm"
                       aria-label={`Tier ${index + 1} name`}
                       value={tier.name}
                       placeholder="e.g. Local, Balanced, Powerful"
@@ -239,13 +237,16 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   {tier.models.map((model, modelIndex) => (
                     <div
                       key={tier.modelIds[modelIndex]}
-                      className={styles.model}
+                      className={
+                        modelIndex === 0 ? styles.model : styles.backup
+                      }
                     >
                       <label className={styles.field}>
                         {modelIndex === 0
                           ? 'Try first'
                           : `Backup ${modelIndex}`}
                         <NativeSelect
+                          size="sm"
                           aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
                           value={model}
                           onChange={(event) =>
@@ -302,6 +303,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     </div>
                   ))}
                   <Button
+                    className={styles.addBackup}
                     variant="ghost"
                     size="sm"
                     onClick={() =>
@@ -324,6 +326,8 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               </p>
             ) : null}
             <Button
+              className={styles.addTier}
+              size="sm"
               variant="outline"
               onClick={() => {
                 let number = value.tiers.length + 1;
@@ -366,13 +370,17 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 </NativeSelect>
               </label>
             ) : null}
-            <p className={styles.help}>
-              An agent’s default model starts at its matching tier. A model
-              selected explicitly in chat overrides automatic routing. To test,
-              save and open a chat; use <code>/model clear</code> to clear a
-              manual selection and <code>/escalate</code> to move the next
-              request up one tier.
-            </p>
+            <details className={styles.help}>
+              <summary>How routing works & how to test</summary>
+              <p className={styles.help}>
+                Models fall back only when a failed call is safe to retry. An
+                agent’s default model starts at its matching tier. A model
+                selected explicitly in chat overrides automatic routing. To
+                test, save and open a chat; use <code>/model clear</code> to
+                clear a manual selection and <code>/escalate</code> to move the
+                next request up one tier.
+              </p>
+            </details>
             {error ? <p role="alert">{error}</p> : null}
             {mutation.isError ? (
               <p role="alert">
