@@ -12,8 +12,22 @@ function normalizeCount(value: number | null | undefined): number {
 export function formatTokenBreakdown(params: {
   inputTokens: number | null | undefined;
   outputTokens: number | null | undefined;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
 }): string {
-  return `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
+  const parts = [
+    `${formatCompactNumber(normalizeCount(params.inputTokens))} in`,
+    `${formatCompactNumber(normalizeCount(params.outputTokens))} out`,
+  ];
+  const cacheRead = normalizeCount(params.cacheReadTokens);
+  const cacheWrite = normalizeCount(params.cacheWriteTokens);
+  if (cacheRead > 0 || cacheWrite > 0) {
+    parts.push(
+      `${formatCompactNumber(cacheRead)} cached`,
+      `${formatCompactNumber(cacheWrite)} cache-write`,
+    );
+  }
+  return parts.join(' / ');
 }
 
 export function formatPercent(value: number): string {

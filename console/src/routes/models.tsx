@@ -383,6 +383,10 @@ export function ModelsPage() {
                                   model.usageMonthly.totalInputTokens ?? 0,
                                 outputTokens:
                                   model.usageMonthly.totalOutputTokens ?? 0,
+                                cacheReadTokens:
+                                  model.usageMonthly.totalCacheReadTokens,
+                                cacheWriteTokens:
+                                  model.usageMonthly.totalCacheWriteTokens,
                               })}
                             </small>
                             <small>
@@ -436,6 +440,10 @@ export function ModelsPage() {
                         {formatTokenBreakdown({
                           inputTokens: model.usageDaily.totalInputTokens ?? 0,
                           outputTokens: model.usageDaily.totalOutputTokens ?? 0,
+                          cacheReadTokens:
+                            model.usageDaily.totalCacheReadTokens,
+                          cacheWriteTokens:
+                            model.usageDaily.totalCacheWriteTokens,
                         })}{' '}
                         · {pluralize(model.usageDaily.callCount, 'call')} today
                       </small>

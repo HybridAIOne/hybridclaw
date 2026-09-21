@@ -120,6 +120,8 @@ export function StatisticsPage(
           detail={formatTokenBreakdown({
             inputTokens: totals.totalInputTokens,
             outputTokens: totals.totalOutputTokens,
+            cacheReadTokens: totals.totalCacheReadTokens,
+            cacheWriteTokens: totals.totalCacheWriteTokens,
           })}
         />
         <MetricCard

@@ -128,7 +128,10 @@ import {
   setRoutingTraceMode,
   startRoutingTraceAttempt,
 } from '../usage/routing-trace.js';
-import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import {
+  enqueueTokenUsage,
+  readCacheTokenUsage,
+} from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import {
@@ -2460,6 +2463,7 @@ async function handleGatewayMessageInner(
         inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
         outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
         totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+        ...readCacheTokenUsage(output.tokenUsage),
         toolCalls: toolExecutions.length,
         costUsd,
         auditRunId: runId,
@@ -2529,6 +2533,7 @@ async function handleGatewayMessageInner(
           inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
           outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
           totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+          ...readCacheTokenUsage(attempt.output.tokenUsage),
           toolCalls: attemptToolExecutions.length,
           costUsd: attemptCostUsd,
           auditRunId: runId,

@@ -65,6 +65,19 @@ export function UsageRollup(props: UsageRollupProps) {
           label="Output"
           value={formatCompactNumber(summary.totalOutputTokens ?? 0)}
         />
+        {(summary.totalCacheReadTokens ?? 0) > 0 ||
+        (summary.totalCacheWriteTokens ?? 0) > 0 ? (
+          <>
+            <Metric
+              label="Cached"
+              value={formatCompactNumber(summary.totalCacheReadTokens ?? 0)}
+            />
+            <Metric
+              label="Cache write"
+              value={formatCompactNumber(summary.totalCacheWriteTokens ?? 0)}
+            />
+          </>
+        ) : null}
         <Metric label="Calls" value={formatCompactNumber(summary.callCount)} />
         <Metric label="Spent" value={formatUsdCompact(summary.totalCostUsd)} />
       </div>
@@ -80,6 +93,8 @@ export function UsageRollup(props: UsageRollupProps) {
                 {formatTokenBreakdown({
                   inputTokens: row.totalInputTokens ?? 0,
                   outputTokens: row.totalOutputTokens ?? 0,
+                  cacheReadTokens: row.totalCacheReadTokens,
+                  cacheWriteTokens: row.totalCacheWriteTokens,
                 })}{' '}
                 · {pluralize(row.callCount, 'call')}
               </span>

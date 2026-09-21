@@ -369,6 +369,8 @@ function mapAuditRowToEvent(
     api_prompt_tokens: readNullableInteger(payload, 'apiPromptTokens'),
     api_completion_tokens: readNullableInteger(payload, 'apiCompletionTokens'),
     api_total_tokens: readNullableInteger(payload, 'apiTotalTokens'),
+    api_cache_read_tokens: readNullableInteger(payload, 'apiCacheReadTokens'),
+    api_cache_write_tokens: readNullableInteger(payload, 'apiCacheWriteTokens'),
     event_uid: buildEventUid(config, row),
   });
 }

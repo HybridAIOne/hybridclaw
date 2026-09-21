@@ -344,6 +344,8 @@ export interface AdminTerminalStopResponse {
 export interface AdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
   totalTokens: number;
   totalCostUsd: number;
   callCount: number;
@@ -412,6 +414,8 @@ export interface AdminStatisticsTrendDay {
   totalMessages: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens: number;
   callCount: number;
   toolCalls: number;
@@ -438,6 +442,8 @@ export interface AdminStatisticsResponse {
     assistantMessages: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheReadTokens?: number;
+    totalCacheWriteTokens?: number;
     totalTokens: number;
     totalCostUsd: number;
     callCount: number;
@@ -1069,6 +1075,8 @@ export interface AdminModelCatalogEntry extends ChatModel {
   pricingUsdPerToken: {
     input: number | null;
     output: number | null;
+    cacheRead?: number | null;
+    cacheWrite?: number | null;
   };
   capabilities: {
     vision: boolean;

@@ -33,6 +33,8 @@ export interface SessionStatusSnapshot {
 export interface DelegateSessionStatusSnapshot {
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   sessionCount: number;
 }
 
@@ -306,18 +308,28 @@ export function readDelegateSessionStatusSnapshot(
   );
   let promptTokens = 0;
   let completionTokens = 0;
+  let cacheReadTokens: number | null = null;
+  let cacheWriteTokens: number | null = null;
   let sessionCount = 0;
 
   for (const childSessionId of childSessionIds) {
     const snapshot = readSessionStatusSnapshot(childSessionId);
     promptTokens += Math.max(0, snapshot.promptTokens || 0);
     completionTokens += Math.max(0, snapshot.completionTokens || 0);
+    if (snapshot.cacheReadTokens != null) {
+      cacheReadTokens = (cacheReadTokens ?? 0) + snapshot.cacheReadTokens;
+    }
+    if (snapshot.cacheWriteTokens != null) {
+      cacheWriteTokens = (cacheWriteTokens ?? 0) + snapshot.cacheWriteTokens;
+    }
     sessionCount += 1;
   }
 
   return {
     promptTokens,
     completionTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     sessionCount,
   };
 }

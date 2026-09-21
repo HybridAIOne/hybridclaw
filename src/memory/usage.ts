@@ -85,6 +85,8 @@ export interface RecordUsageEventEntry {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens?: number;
   toolCalls?: number;
   costUsd?: number;
@@ -126,6 +128,8 @@ type NormalizedUsageEventRow = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
   costUsd: number;
   toolCalls: number;
@@ -168,6 +172,8 @@ function normalizeUsageEntry(
     model: entry.model.trim() || 'unknown',
     inputTokens,
     outputTokens,
+    cacheReadTokens: normalizeUsageNumber(entry.cacheReadTokens),
+    cacheWriteTokens: normalizeUsageNumber(entry.cacheWriteTokens),
     totalTokens,
     costUsd: normalizeUsageCost(entry.costUsd),
     toolCalls: normalizeUsageNumber(entry.toolCalls),
@@ -287,8 +293,8 @@ function getUsageEventBatchInsertStatement(): Database.Statement {
   if (!usageEventBatchInsertStatement) {
     usageEventBatchInsertStatement = getUsageDatabase().prepare(
       `INSERT INTO usage_events
-        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
   }
   return usageEventBatchInsertStatement;
@@ -301,8 +307,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
   getUsageDatabase()
     .prepare(
       `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -312,6 +318,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
       row.model,
       row.inputTokens,
       row.outputTokens,
+      row.cacheReadTokens,
+      row.cacheWriteTokens,
       row.totalTokens,
       row.costUsd,
       row.toolCalls,
@@ -368,6 +376,8 @@ export function recordUsageEventBatch(
           row.model,
           row.inputTokens,
           row.outputTokens,
+          row.cacheReadTokens,
+          row.cacheWriteTokens,
           row.totalTokens,
           row.costUsd,
           row.toolCalls,
@@ -495,6 +505,8 @@ export function getUsageTotals(params?: {
     `SELECT
          COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
          COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
@@ -506,6 +518,8 @@ export function getUsageTotals(params?: {
   ) || {
     total_input_tokens: 0,
     total_output_tokens: 0,
+    total_cache_read_tokens: 0,
+    total_cache_write_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
     cost_per_call_usd: 0,
@@ -522,6 +536,10 @@ export function getUsageTotals(params?: {
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: totalCostUsd,
     cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
@@ -686,6 +704,8 @@ export function getSessionUsageTotalsSince(
     `SELECT
          COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
          COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
@@ -700,6 +720,8 @@ export function getSessionUsageTotalsSince(
   ) || {
     total_input_tokens: 0,
     total_output_tokens: 0,
+    total_cache_read_tokens: 0,
+    total_cache_write_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
     cost_per_call_usd: 0,
@@ -712,6 +734,10 @@ export function getSessionUsageTotalsSince(
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: totalCostUsd,
     cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
@@ -930,6 +956,8 @@ export function listUsageByModel(params?: {
        model,
        COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
        COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
        COALESCE(SUM(total_tokens), 0) AS total_tokens,
        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
        COUNT(*) AS call_count,
@@ -945,6 +973,10 @@ export function listUsageByModel(params?: {
     model: row.model,
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
@@ -970,6 +1002,8 @@ export function listUsageByAgent(params?: {
        agent_id,
        COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
        COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
        COALESCE(SUM(total_tokens), 0) AS total_tokens,
        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
        COUNT(*) AS call_count,
@@ -985,6 +1019,10 @@ export function listUsageByAgent(params?: {
     agent_id: row.agent_id,
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
@@ -999,6 +1037,8 @@ export function listUsageByAgentRollups(): UsageAgentRollup[] {
        agent_id,
        COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
        COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
        COALESCE(SUM(total_tokens), 0) AS total_tokens,
        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
        COALESCE(SUM(
@@ -1018,6 +1058,10 @@ export function listUsageByAgentRollups(): UsageAgentRollup[] {
     agent_id: row.agent_id,
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
     monthly_cost_usd: normalizeUsageCost(row.monthly_cost_usd),
@@ -1044,6 +1088,8 @@ export function listUsageBySession(params?: {
        session_id,
        COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
        COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
        COALESCE(SUM(total_tokens), 0) AS total_tokens,
        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
        COUNT(*) AS call_count,
@@ -1059,6 +1105,10 @@ export function listUsageBySession(params?: {
     session_id: row.session_id,
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
@@ -1086,6 +1136,8 @@ export function listUsageDailyBreakdown(params?: {
        date(timestamp) AS day,
        COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
        COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+         COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+         COALESCE(SUM(cache_write_tokens), 0) AS total_cache_write_tokens,
        COALESCE(SUM(total_tokens), 0) AS total_tokens,
        COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
        COUNT(*) AS call_count,
@@ -1101,6 +1153,10 @@ export function listUsageDailyBreakdown(params?: {
     day: row.day,
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_cache_read_tokens: normalizeUsageNumber(row.total_cache_read_tokens),
+    total_cache_write_tokens: normalizeUsageNumber(
+      row.total_cache_write_tokens,
+    ),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
