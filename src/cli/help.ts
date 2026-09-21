@@ -169,7 +169,7 @@ Interactive slash commands inside TUI:
   /channel-policy <open|allowlist|disabled>
   /clear
   /compact
-  /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
+  /concierge [info]
   /eval [list|env|<suite>|<command...>]
   /env list   /env set <name> <value>   /env show <name>   /env unset <name>
   /config   /config check   /config reload   /config get <key>   /config set <key> <value>

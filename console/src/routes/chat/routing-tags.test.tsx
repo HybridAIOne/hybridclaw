@@ -115,7 +115,9 @@ it.each([true, false])(
       />,
     );
     expect(
-      screen.getByText(`JEV · ${applied ? 'Selected' : 'Suggested'} advanced`),
+      screen.getByText(
+        `jev-test · ${applied ? 'Selected' : 'Suggested'} advanced · Cost unavailable`,
+      ),
     ).not.toBeNull();
     expect(screen.getByText('Concierge')).not.toBeNull();
   },
@@ -138,4 +140,45 @@ it('shows small classifier costs and known partial totals', () => {
   );
   expect(screen.getByText('Known $0.00003692 · partial')).not.toBeNull();
   expect(screen.getAllByText(/Est. \$0.00003692/).length).toBeGreaterThan(0);
+});
+
+it('shows the live and shadow decisions with separate classifier costs', () => {
+  const evaluation = {
+    version: 1 as const,
+    provider: 'rules',
+    mode: 'active' as const,
+    status: 'evaluated' as const,
+    reason: 'configured-tier',
+    model: 'rule-based',
+    durationMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    distributions: null,
+    recommendedTier: 'economy',
+    applied: true,
+  };
+  render(
+    <RoutingTags
+      trace={{
+        ...trace(),
+        evaluation,
+        shadowEvaluation: {
+          ...evaluation,
+          provider: 'jev',
+          model: 'jev-test',
+          mode: 'shadow',
+          recommendedTier: 'advanced',
+          applied: false,
+          costUsd: 0.0000042,
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText('Rules · Selected economy · $0.00000000'),
+  ).not.toBeNull();
+  expect(
+    screen.getByText('JEV shadow · advanced · $0.00000420'),
+  ).not.toBeNull();
 });

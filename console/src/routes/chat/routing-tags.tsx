@@ -84,13 +84,33 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
             className={css.tag}
             title={`${trace.evaluation.model}: ${trace.evaluation.reason.replaceAll('-', ' ')}`}
           >
-            {trace.evaluation.provider.toUpperCase()} ·{' '}
+            {trace.evaluation.provider === 'rules'
+              ? 'Rules'
+              : trace.evaluation.model}{' '}
+            ·{' '}
             {trace.evaluation.applied
               ? `Selected ${trace.evaluation.recommendedTier}`
               : trace.evaluation.recommendedTier
                 ? `Suggested ${trace.evaluation.recommendedTier}`
                 : trace.evaluation.reason.replaceAll('-', ' ')}
+            {trace.evaluation.costUsd !== null
+              ? ` · $${trace.evaluation.costUsd.toFixed(8)}`
+              : ' · Cost unavailable'}
           </span>
+        ) : null}
+        {trace.shadowEvaluation ? (
+          <span className={css.tag} title={trace.shadowEvaluation.reason}>
+            JEV shadow ·{' '}
+            {trace.shadowEvaluation.recommendedTier ??
+              trace.shadowEvaluation.reason.replaceAll('-', ' ')}{' '}
+            ·{' '}
+            {trace.shadowEvaluation.costUsd === null
+              ? 'Cost unavailable'
+              : `$${trace.shadowEvaluation.costUsd.toFixed(8)}`}
+          </span>
+        ) : null}
+        {trace.evaluation?.applied ? (
+          <span className={css.tag}>{trace.evaluation.reason}</span>
         ) : null}
         {selected ? (
           <span className={css.model} data-zone={selected.zone}>
@@ -129,6 +149,12 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
       <div className={css.panel}>
         {trace.evaluation ? (
           <RoutingEvaluation value={trace.evaluation} />
+        ) : null}
+        {trace.shadowEvaluation ? (
+          <>
+            <p className={css.caption}>JEV shadow · comparison only</p>
+            <RoutingEvaluation value={trace.shadowEvaluation} />
+          </>
         ) : null}
         <p className={css.caption}>
           {running

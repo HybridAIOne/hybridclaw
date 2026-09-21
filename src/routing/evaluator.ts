@@ -98,7 +98,10 @@ export async function evaluateRouting(input: {
       ? 'timeout-or-cancelled'
       : error instanceof Error && error.message === 'invalid-response'
         ? 'invalid-response'
-        : 'provider-error';
+        : error instanceof Error &&
+            /^provider-http-[1-5][0-9]{2}$/.test(error.message)
+          ? error.message
+          : 'provider-error';
   }
   result.durationMs = Date.now() - started;
   return result;

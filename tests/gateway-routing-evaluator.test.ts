@@ -39,7 +39,8 @@ test('approved input records classifier tokens as auxiliary overhead', async () 
 test('JEV concierge authorizes current prompts independently of playground approval and mode', async () => {
   const config = mocks.config();
   config.routing.evaluator.mode = 'off';
-  config.routing.concierge = { enabled: true, model: 'jev/jev-latest' };
+  config.routing.enabled = true;
+  config.routing.concierge = { model: 'jev/jev-latest' };
   mocks.secret.mockReturnValue(undefined);
   vi.stubEnv('JEV_API_KEY', '');
   try {

@@ -23,6 +23,12 @@ export function RoutingEvaluation({
           ? ` · Recommended tier: ${value.recommendedTier}`
           : ''}
       </p>
+      {value.capability || value.urgency ? (
+        <p>
+          {value.capability ?? 'uncertain'} · {value.urgency ?? 'unspecified'}
+          {value.selectedModel ? ` → ${value.selectedModel}` : ''}
+        </p>
+      ) : null}
       {value.distributions ? (
         <div style={{ display: 'grid', gap: 10 }}>
           {Object.entries(value.distributions).map(([name, answer]) => (

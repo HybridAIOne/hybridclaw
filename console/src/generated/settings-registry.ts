@@ -2188,34 +2188,10 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
-      path: 'routing.concierge.enabled',
-      section: 'routing',
-      kind: 'boolean',
-      defaultValue: false,
-    },
-    {
       path: 'routing.concierge.model',
       section: 'routing',
       kind: 'string',
-      defaultValue: 'gemini-3-flash',
-    },
-    {
-      path: 'routing.concierge.profiles.asap',
-      section: 'routing',
-      kind: 'string',
-      defaultValue: 'gpt-5',
-    },
-    {
-      path: 'routing.concierge.profiles.balanced',
-      section: 'routing',
-      kind: 'string',
-      defaultValue: 'gpt-5-mini',
-    },
-    {
-      path: 'routing.concierge.profiles.noHurry',
-      section: 'routing',
-      kind: 'string',
-      defaultValue: 'gpt-5-nano',
+      defaultValue: '',
     },
     {
       path: 'routing.defaultStart',
@@ -2264,6 +2240,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'routing',
       kind: 'number',
       defaultValue: 1500,
+    },
+    {
+      path: 'routing.mode',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
+      path: 'routing.preference',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'balanced',
     },
     {
       path: 'routing.showRoutingInfo',

@@ -67,15 +67,15 @@ it('requires separate public approval and resets it when the sample changes', as
 });
 it('saves evaluator settings without changing routing enablement', async () => {
   renderWithProviders(<RoutingEvaluatorSettings />);
-  const mode = screen.getByLabelText('Evaluation mode');
+  const mode = screen.getByLabelText('JEV model');
   await waitFor(() => expect(mode.closest('fieldset')?.disabled).toBe(false));
-  fireEvent.change(mode, { target: { value: 'shadow' } });
+  fireEvent.change(mode, { target: { value: 'jev-test' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save evaluator' }));
   await waitFor(() =>
     expect(mocks.save).toHaveBeenCalledWith('test-token', {
       routing: {
         enabled: true,
-        evaluator: { ...DEFAULT_ROUTING_EVALUATOR, mode: 'shadow' },
+        evaluator: { ...DEFAULT_ROUTING_EVALUATOR, model: 'jev-test' },
       },
     }),
   );

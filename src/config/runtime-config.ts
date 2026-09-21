@@ -530,18 +530,14 @@ export interface RuntimeMediaAudioConfig {
 }
 
 export interface RuntimeRoutingConciergeConfig {
-  enabled: boolean;
   model: string;
-  profiles: {
-    asap: string;
-    balanced: string;
-    noHurry: string;
-  };
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
   evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
+  mode: 'privacy' | 'speed' | 'cost' | 'auto';
+  preference: 'asap' | 'balanced' | 'no_hurry';
   concierge: RuntimeRoutingConciergeConfig;
 }
 
@@ -2175,15 +2171,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     tiers: [],
     defaultStart: '',
     escalationStickyTurns: 3,
-    concierge: {
-      enabled: false,
-      model: 'gemini-3-flash',
-      profiles: {
-        asap: 'gpt-5',
-        balanced: 'gpt-5-mini',
-        noHurry: 'gpt-5-nano',
-      },
-    },
+    mode: 'auto',
+    preference: 'balanced',
+    concierge: { model: '' },
   },
   heartbeat: {
     enabled: true,
@@ -7066,36 +7056,24 @@ function normalizeMediaConfig(
   };
 }
 
+function normalizeRoutingChoice<T extends string>(
+  value: unknown,
+  choices: readonly T[],
+  fallback: T,
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !choices.includes(value as T))
+    throw new Error(`Invalid routing option: expected ${choices.join(', ')}.`);
+  return value as T;
+}
+
 function normalizeRoutingConciergeConfig(
   value: unknown,
   fallback: RuntimeRoutingConciergeConfig,
 ): RuntimeRoutingConciergeConfig {
   const raw = isRecord(value) ? value : {};
-  const rawProfiles = isRecord(raw.profiles) ? raw.profiles : {};
   return {
-    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
-    model: normalizeString(raw.model, fallback.model, {
-      allowEmpty: false,
-    }),
-    profiles: {
-      asap: normalizeString(rawProfiles.asap, fallback.profiles.asap, {
-        allowEmpty: false,
-      }),
-      balanced: normalizeString(
-        rawProfiles.balanced,
-        fallback.profiles.balanced,
-        {
-          allowEmpty: false,
-        },
-      ),
-      noHurry: normalizeString(
-        rawProfiles.noHurry ?? rawProfiles.no_hurry,
-        fallback.profiles.noHurry,
-        {
-          allowEmpty: false,
-        },
-      ),
-    },
+    model: normalizeString(raw.model, fallback.model, { allowEmpty: true }),
   };
 }
 
@@ -8784,6 +8762,16 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      mode: normalizeRoutingChoice(
+        rawRouting.mode,
+        ['privacy', 'speed', 'cost', 'auto'] as const,
+        'auto',
+      ),
+      preference: normalizeRoutingChoice(
+        rawRouting.preference,
+        ['asap', 'balanced', 'no_hurry'] as const,
+        'balanced',
+      ),
       evaluator: normalizeRoutingEvaluator(rawRouting.evaluator),
       showRoutingInfo: normalizeBoolean(
         rawRouting.showRoutingInfo,

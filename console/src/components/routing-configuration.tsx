@@ -1,11 +1,10 @@
 /**
- * Edits the ordered model fallback ladder without changing execution policy.
- * Conversation grouping and routing visibility are independent settings;
- * saves merge the ladder and selected catalog models into the latest configuration.
+ * One editor owns tiers, classifier, policy mode, urgency preference and visibility.
+ * Saves preserve untouched settings from the latest config; models belong only to tiers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { fetchConfig, saveConfig } from '../api/client';
+import { fetchConfig, requestJson, saveConfig } from '../api/client';
 import type { AdminConfig, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
@@ -24,6 +23,11 @@ interface Tier {
   models: string[];
 }
 interface Ladder {
+  mode: 'privacy' | 'speed' | 'cost' | 'auto';
+  preference: 'asap' | 'balanced' | 'no_hurry';
+  concierge: { model: string };
+  showRoutingInfo: boolean;
+  evaluator: { mode: 'off' | 'shadow' | 'active'; [key: string]: unknown };
   enabled: boolean;
   tiers: Tier[];
   defaultStart: string;
@@ -31,6 +35,18 @@ interface Ladder {
 function readLadder(config: AdminConfig): Ladder {
   return {
     enabled: Boolean(settingValue(config, 'routing.enabled')),
+    mode: (settingValue(config, 'routing.mode') as Ladder['mode']) ?? 'auto',
+    preference:
+      (settingValue(config, 'routing.preference') as Ladder['preference']) ??
+      'balanced',
+    concierge: {
+      model: (settingValue(config, 'routing.concierge.model') as string) ?? '',
+    },
+    showRoutingInfo: Boolean(settingValue(config, 'routing.showRoutingInfo')),
+    evaluator: (settingValue(
+      config,
+      'routing.evaluator',
+    ) as Ladder['evaluator']) ?? { mode: 'off' },
     tiers: (
       (settingValue(config, 'routing.tiers') as
         | Pick<Tier, 'name' | 'models'>[]
@@ -54,6 +70,13 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     queryKey: ['config', token],
     queryFn: () => fetchConfig(token),
   });
+  const availability = useQuery({
+    queryKey: ['routing-status', token],
+    queryFn: () =>
+      requestJson<{ jevAvailable: boolean }>('/api/admin/routing/status', {
+        token,
+      }),
+  });
   const [draft, setDraft] = useState<Ladder | null>(null);
   const saved = useMemo(
     () => (query.data ? readLadder(query.data.config) : null),
@@ -64,7 +87,22 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     mutationFn: async (ladder: Ladder) => {
       const latest = await fetchConfig(token);
       let config = latest.config;
-      for (const key of ['enabled', 'tiers', 'defaultStart'] as const) {
+      for (const key of [
+        'enabled',
+        'tiers',
+        'defaultStart',
+        'mode',
+        'preference',
+        'concierge',
+        'showRoutingInfo',
+        'evaluator',
+      ] as const) {
+        if (
+          saved &&
+          key !== 'tiers' &&
+          JSON.stringify(ladder[key]) === JSON.stringify(saved[key])
+        )
+          continue;
         config = withSettingValue(
           config,
           `routing.${key}`,
@@ -73,9 +111,10 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
             : ladder[key],
         );
       }
-      for (const modelId of new Set(
-        ladder.tiers.flatMap((tier) => tier.models),
-      )) {
+      for (const modelId of new Set([
+        ...ladder.tiers.flatMap((tier) => tier.models),
+        ladder.concierge.model,
+      ])) {
         const model = models.find((entry) => entry.id === modelId);
         if (!model || model.backend) continue;
         const section =
@@ -142,9 +181,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 ? 'Choose a starting tier.'
                 : null);
   return (
-    <Card id="model-routing">
+    <Card id="routing-concierge">
       <CardHeader>
-        <CardTitle>Model routing</CardTitle>
+        <CardTitle>Routing</CardTitle>
       </CardHeader>
       <CardContent>
         {!value ? (
@@ -162,6 +201,109 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               />
               Automatic model routing
             </label>
+            <div className="two-column-grid">
+              <label className={styles.field}>
+                Mode
+                <NativeSelect
+                  value={value.mode}
+                  onChange={(event) =>
+                    edit({
+                      ...value,
+                      mode: event.target.value as Ladder['mode'],
+                    })
+                  }
+                >
+                  <option value="auto">Auto</option>
+                  <option value="privacy">Privacy · local only</option>
+                  <option value="speed">Speed</option>
+                  <option value="cost">Cost</option>
+                </NativeSelect>
+              </label>
+              <label className={styles.field}>
+                Preference
+                <NativeSelect
+                  value={value.preference}
+                  onChange={(event) =>
+                    edit({
+                      ...value,
+                      preference: event.target.value as Ladder['preference'],
+                    })
+                  }
+                >
+                  <option value="asap">ASAP</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="no_hurry">No hurry</option>
+                </NativeSelect>
+              </label>
+              <label className={styles.field}>
+                Concierge model
+                <NativeSelect
+                  value={value.concierge.model}
+                  onChange={(event) =>
+                    edit({ ...value, concierge: { model: event.target.value } })
+                  }
+                >
+                  <option value="">Rule-based · no classifier cost</option>
+                  <option
+                    value="jev/jev-latest"
+                    disabled={!availability.data?.jevAvailable}
+                  >
+                    JEV
+                    {availability.data?.jevAvailable
+                      ? ''
+                      : ' · API key required'}
+                  </option>
+                  {value.concierge.model &&
+                  value.concierge.model !== 'jev/jev-latest' &&
+                  !models.some(
+                    (model) => model.id === value.concierge.model,
+                  ) ? (
+                    <option value={value.concierge.model}>
+                      {value.concierge.model}
+                    </option>
+                  ) : null}
+                  {models
+                    .filter((model) => !model.id.startsWith('jev/'))
+                    .map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.id}
+                      </option>
+                    ))}
+                </NativeSelect>
+              </label>
+              <label className={styles.toggle}>
+                <Switch
+                  checked={value.showRoutingInfo}
+                  onCheckedChange={(showRoutingInfo) =>
+                    edit({ ...value, showRoutingInfo })
+                  }
+                />
+                Show routing in chat
+              </label>
+            </div>
+            <label className={styles.toggle}>
+              <Switch
+                checked={value.evaluator.mode === 'shadow'}
+                disabled={
+                  value.concierge.model.startsWith('jev/') ||
+                  !availability.data?.jevAvailable
+                }
+                onCheckedChange={(enabled) =>
+                  edit({
+                    ...value,
+                    evaluator: {
+                      ...value.evaluator,
+                      mode: enabled ? 'shadow' : 'off',
+                    },
+                  })
+                }
+              />
+              Compare JEV in shadow · show both decisions and costs in chat
+            </label>
+            <p className={styles.help}>
+              Order tiers from lighter / faster to more capable. Speed uses this
+              order.
+            </p>
             <ol className={styles.tiers}>
               {value.tiers.map((tier, index) => (
                 <li key={tier.id} className={styles.tier}>
@@ -334,7 +476,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
             </Button>
             {value.tiers.length ? (
               <label className={styles.field}>
-                Start new requests at
+                Default tier · classifier unavailable
                 <NativeSelect
                   value={value.defaultStart}
                   onChange={(event) =>
@@ -360,7 +502,12 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
             ) : null}
             <div className={styles.actions}>
               <Button
-                disabled={!draft || Boolean(error)}
+                disabled={
+                  !draft ||
+                  Boolean(error) ||
+                  (value.concierge.model.startsWith('jev/') &&
+                    !availability.data?.jevAvailable)
+                }
                 loading={mutation.isPending}
                 onClick={() =>
                   mutation.mutate({

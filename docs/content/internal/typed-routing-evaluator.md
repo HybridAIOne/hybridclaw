@@ -1,117 +1,63 @@
-# Typed routing evaluator — phase 2
+# Unified routing and JEV evaluation
 
-The evaluator produces version-1 metadata independently of execution. It classifies
-PII, confidentiality, task category, capability, and urgency (including unspecified)
-in one JEV Choice request. Each dimension has a closed vocabulary, probabilities,
-and confidence. Results include provider, returned model version, duration,
-reported token usage, and a recommendation. JEV cost uses the published $0.042 per million input tokens and free output,
-verified on 2026-09-21. Costs are estimates; unpriced models remain unknown. The provider-independent `TypedClassifier` interface accepts the same
-input and returns the same distributions for a future self-hosted adapter.
+**Providers → Routing** (`/admin/models#routing-concierge`) owns one enable switch,
+one tier ladder, classifier selection, routing mode, urgency preference, shadow
+comparison and chat visibility. Save routing applies them together. Model assignments
+exist only in tiers; ASAP, Balanced and No hurry are preferences.
 
-## Operator workflow
+Tiers run from lighter/faster to more capable. Difficulty supplies a minimum tier:
+basic uses the first, standard the middle, advanced the last. Uncertain difficulty
+uses the configured default. Manual escalation and sticky tiers remain minimums;
+explicit model pins skip classification but cannot bypass local-only restrictions.
 
-1. Open **Labs → Routing Evaluator** (`/admin/routing-evaluator`).
-2. Create `JEV_API_KEY` in **Secrets**. The key stays in the existing encrypted
-   runtime store; the evaluator also accepts the gateway environment variable.
-3. Use the playground examples. Without explicit public-sample confirmation, a
-   sample is checked locally and never sent externally. Confidential and injection
-   examples remain blocked even with that confirmation. No real secrets are needed.
-4. Select **Shadow**, save, and evaluate a public sample. Expand dimensions to
-   inspect probabilities, confidence, token usage, latency, and the recommended tier.
-5. Approve that exact public prompt for live evaluation and save. Enable chat routing
-   visibility and send the same prompt in chat. Expanded routing details compare
-   the recommendation with the model actually executed. Reload preserves evidence.
-6. Select **Active** and save to let eligible recommendations raise the starting tier.
-   The tier ladder must be enabled. Manual pins, higher existing starts, and concierge
-   routing retain precedence. The evaluator cannot lower the starting tier.
+- Privacy admits only models marked local, including retry and fallback candidates.
+- Speed takes the first eligible model in configured order.
+- Cost minimizes known input-plus-output token rates across eligible models.
+  Unknown prices are never treated as zero; this is a rate comparison, not a
+  prediction of task token counts.
+- Auto uses a Pareto frontier of configured speed order and known token rate.
+  ASAP prioritizes order, No hurry prioritizes price, and Balanced minimizes equal
+  normalized rank/cost scores. Tier order is a speed proxy, not measured latency.
 
-The playground uses saved settings and evaluates in shadow mode even when live
-mode is off. It never sends a chat request or changes a route. Editing a sample
-clears its public confirmation. Approved live samples match the entire trimmed
-prompt, not substrings or regular expressions. Removing approval takes effect on
-the next turn. No evaluator behavior is enabled on upgrade.
+The concierge can be rule-based (no classifier cost), JEV, or a catalog model.
+Both AI classifier types assess difficulty, explicit urgency and sensitivity;
+only the shared policy can choose a model. Unspecified urgency uses the preference.
+Text classifiers return validated labels, not calibrated probabilities. JEV
+returns distributions and confidence; low-confidence dimensions stay uncertain.
 
-## Disclosure and execution boundaries
+## Shadow comparison in chat
 
-Only a trusted admin action grants public-input eligibility. Prompt or document
-instructions cannot approve themselves. Local checks run before key lookup and
-transport. Media, expanded references, and transcribed audio exclude a turn. Only
-the approved current prompt is sent; conversation history, recalled memory, system
-prompts, tool output, and attachments are not part of the classifier request.
-Local sensitive/instruction-pattern checks are defense in depth, not a complete
-PII detector. An admin must only approve content that is actually public.
+Select a rule-based or text-model concierge and enable **Compare JEV in shadow**.
+The live router determines execution; JEV evaluates the same eligible prompt in
+parallel. Chat tags show both decisions and separate classification costs. Expanded
+details show difficulty, urgency, tier, proposed model, latency, usage and cost.
+A failed shadow call cannot change the live route. No model is substituted for a
+failed classifier. Missing usage/prices remain unavailable rather than zero.
+Historical messages retain their recorded decisions and prices.
 
-Blocked classification leaves the existing route unchanged. This phase does not
-claim to enforce end-to-end data privacy for the underlying chat execution. The
-Privacy/Speed/Cost/Auto policies and tool/delegation disclosure limits are later
-phases. PII/confidentiality classifier findings cannot relax any routing limit.
+## JEV questions and disclosure
 
-## Decisions and failures
+JEV uses `https://api.typesafe.ai/v1/systemone`. `JEV_API_KEY` comes from the
+runtime secret store or gateway environment and never enters the console.
+Profile and difficulty descriptions belong in Choice `criteria`; the selection
+rule belongs in `instructions`; `state` is the current prompt. See the
+[TypeSafe Choice documentation](https://docs.typesafe.ai/primitives/choice).
 
-The starting defaults are off, `jev-latest`, 1500ms timeout, and 0.8 minimum
-confidence. The threshold applies to PII, confidentiality, and capability; task
-and urgency remain visible evidence. Timeout and confidence are operator-configurable. Basic capability
-recommends the first tier, standard the middle tier rounded upward, and advanced
-the final tier of the current ordered list; no names or tier count are hardcoded.
-This is a transparent policy baseline, not a calibrated performance prediction.
-Urgency and task category are visible evidence; existing concierge policy is not
-replaced by an uncalibrated classifier.
+Classification excludes history, memory, system prompts, attachments and expanded
+context. Local sensitive-content/instruction checks precede all classifier calls;
+these checks are defense in depth, not comprehensive PII detection. Detected
+sensitivity requires local execution in every mode. Privacy mode never calls a
+cloud classifier. An empty eligible local ladder fails closed. Provider errors
+are sanitized; HTTP failures expose only the status code, never bodies or keys.
+These controls govern model routing, not independently authorized tool calls.
 
-Missing credentials, invalid JSON/distributions, errors, cancellations, and timeouts
-leave execution on the existing route and produce explicit fallback reasons.
-Uncertain/sensitive answers and low confidence produce no recommendation. Raw
-provider errors are never displayed or logged. Requests use a fixed HTTPS endpoint,
-do not follow redirects, and have bounded time and response-size checks.
+JEV cost uses $0.042 per million input tokens and free output, verified 2026-09-21
+against [TypeSafe pricing](https://typesafe.ai/blog/introducing-system-one-models-and-jev).
+Classifier overhead is included once in the chat total. Tiny costs retain eight
+decimal places; incomplete pricing shows the known subtotal explicitly.
 
-Live classifier usage is recorded as auxiliary overhead in the existing per-turn
-trace and usage ledger. Playground responses show their own reported usage and
-latency; they are not attributed to a chat session. Per-response evaluation records
-contain only closed labels and metadata, never prompts. The visibility switch hides
-those records without disabling accounting. The admin playground is behind the
-existing admin authentication boundary.
-
-## Validation
-
-Targeted tests cover external-call suppression for unapproved/restricted/contextual
-inputs, explicit public approval, timeout and malformed-response fallback, closed
-probabilities, arbitrary tier counts, shadow versus active behavior, pinned models,
-usage overhead, persistence validation, configuration round trips, and admin input
-validation. No live JEV request is needed to run these tests.
-
-References: [Choice](https://docs.typesafe.ai/primitives/choice),
-[HTTP API](https://docs.typesafe.ai/api).
-
-## JEV as the concierge
-
-In **Providers → Routing concierge**, select `JEV · Typed routing` and enable the
-concierge. The option is disabled until `JEV_API_KEY` is available in the secret
-store or gateway environment. Ordinary catalog models remain selectable as urgency
-classifiers with configurable execution models for their three profiles.
-
-Selecting and enabling JEV authorizes current prompt text for cloud classification,
-independently of the evaluator playground's exact public-prompt list and mode.
-The same local sensitive-content and attachment/context exclusions still apply;
-these are not a comprehensive privacy filter. History, memory, and system prompts
-are excluded. The evaluator's confidence and timeout settings still apply.
-
-JEV chooses a starting tier from the admin ladder by capability. Tier routing must
-be enabled. Explicit model pins skip the concierge; manual escalation and sticky
-higher tiers cannot be lowered. Missing credentials, local denial, uncertainty,
-and API failures retain the existing starting route. Chat tags show the actual
-execution model alongside the applied or suggested tier, or the fallback reason;
-expanded details retain the distributions and classifier usage.
-
-## Compare routers
-
-In Labs → Routing Evaluator, choose a chat model under **Compare routers**, enter
-a public sample, confirm disclosure to both providers, and click **Compare**.
-The table shows the JEV capability-tier recommendation beside the LLM concierge
-urgency-profile decision, with classifier latency, tokens, and cost for each.
-This runs only classification, never execution or settings changes. The contracts
-are different: agreement is not an accuracy score. An unspecified deadline can
-correctly produce “ask user” from the urgency concierge. Local disclosure denials
-apply to both; selecting a model does not authorize a different fallback provider.
-
-Classifier and execution costs remain separate in chat. Tiny costs retain eight
-decimal places; when an attempt is unpriced, the total explicitly shows only the
-known subtotal. Historical persisted traces retain their original recorded prices.
+**Labs → Routing Evaluator** (`/admin/routing-evaluator`) compares JEV against a
+chosen classifier with the same tier policy on a public sample. It never executes
+either route or changes live selection. Sample consent is explicit and resets on
+edits. Agreement is not accuracy; calibration and observed latency models remain
+future evaluation work.

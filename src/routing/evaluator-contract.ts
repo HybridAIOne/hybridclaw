@@ -29,6 +29,9 @@ export interface TypedRoutingEvaluation {
   costUsd: number | null;
   distributions: Record<EvaluationDimension, ChoiceDistribution> | null;
   recommendedTier: string | null;
+  capability?: 'basic' | 'standard' | 'advanced' | 'uncertain';
+  urgency?: 'urgent' | 'normal' | 'relaxed' | 'unspecified';
+  selectedModel?: string | null;
   applied: boolean;
 }
 export interface RoutingEvaluatorConfig {
@@ -102,6 +105,18 @@ export function isTypedRoutingEvaluation(
     !Number.isFinite(v.durationMs) ||
     v.durationMs < 0 ||
     (v.recommendedTier !== null && typeof v.recommendedTier !== 'string')
+  )
+    return false;
+  if (
+    v.capability !== undefined &&
+    !EVALUATION_LABELS.capability.includes(v.capability)
+  )
+    return false;
+  if (v.urgency !== undefined && !EVALUATION_LABELS.urgency.includes(v.urgency))
+    return false;
+  if (
+    v.selectedModel != null &&
+    (typeof v.selectedModel !== 'string' || v.selectedModel.length > 300)
   )
     return false;
   for (const n of [v.inputTokens, v.outputTokens, v.costUsd])

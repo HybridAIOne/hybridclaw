@@ -162,3 +162,11 @@ test('evaluator defaults off and preserves explicit shadow settings', async () =
   config.reloadRuntimeConfig();
   expect(config.getRuntimeConfig().routing.evaluator.mode).toBe('shadow');
 });
+
+test('unified mode and preferences validate and discard profile model assignments', async () => {
+ const { getRuntimeConfig, updateRuntimeConfig } = await loadConfigModule();
+ updateRuntimeConfig(draft => { draft.routing.mode='cost';draft.routing.preference='no_hurry';draft.routing.concierge={model:'jev/jev-latest'};});
+ expect(getRuntimeConfig().routing).toMatchObject({mode:'cost',preference:'no_hurry',concierge:{model:'jev/jev-latest'}});
+ expect(getRuntimeConfig().routing.concierge).not.toHaveProperty('profiles');
+ expect(() => updateRuntimeConfig(draft => { Object.assign(draft.routing,{mode:'arbitrary'}); })).toThrow('Invalid routing option');
+});

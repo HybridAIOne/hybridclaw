@@ -1,3 +1,4 @@
+import { EVALUATION_LABELS } from '../src/routing/evaluator-contract.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
@@ -310,32 +311,32 @@ test('does not remember an unsuccessful manual escalation', async () => {
   expect(peekStickyModelRoutingTier(request.sessionId)).toBeUndefined();
 });
 
-test.each(['shadow', 'active'] as const)('typed evaluator %s preserves or raises the configured start', async mode => {
-  const fixture = await createFixture();
-  fixture.updateRuntimeConfig(draft => { draft.routing.evaluator.mode = mode; draft.routing.showRoutingInfo = true; });
-  evaluatorMock.mockResolvedValue({ version: 1, provider: 'jev', mode, status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: null, recommendedTier: 'general', applied: false });
-  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
-  const request = { sessionId: `session-eval-${mode}`, guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
-  const result = await fixture.handleGatewayMessage(request);
-  expect(runAgentMock.mock.calls[0][0].model).toBe(mode === 'active' ? 'lmstudio/test-strong' : 'lmstudio/test-cheap');
-  expect(result.routingTrace?.evaluation?.applied).toBe(mode === 'active');
-  runAgentMock.mockClear();
-  fixture.updateSessionModel(request.sessionId, 'lmstudio/test-cheap');
-  const pinned = await fixture.handleGatewayMessage(request);
-  expect(runAgentMock.mock.calls[0][0].model).toBe('lmstudio/test-cheap');
-  expect(pinned.routingTrace?.evaluation?.applied).toBe(false);
+test('shadow JEV is recorded beside the live rules without changing execution', async () => {
+ const fixture = await createFixture();
+ fixture.updateRuntimeConfig(draft => {draft.routing.evaluator.mode='shadow';draft.routing.showRoutingInfo=true;});
+ evaluatorMock.mockResolvedValue({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'capability-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0.00001,distributions: signals('advanced'),recommendedTier:'general',applied:false});
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
+ const result = await fixture.handleGatewayMessage({sessionId:'shadow-test',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ const {parseRoutingTrace} = await import('../src/types/routing-trace.js');
+ expect(parseRoutingTrace(JSON.stringify(result.routingTrace))).not.toBeNull();
+ expect(result.model).toBe('lmstudio/test-cheap');
+ expect(result.routingTrace?.evaluation).toMatchObject({provider:'rules',recommendedTier:'economy',costUsd:0,applied:true});
+ expect(result.routingTrace?.shadowEvaluation).toMatchObject({provider:'jev',recommendedTier:'general',costUsd:0.00001,applied:false});
 });
+function signals(capability: string) {
+ return Object.fromEntries(Object.entries({pii:'absent',confidentiality:'public',task:'conversation',capability,urgency:'unspecified'}).map(([key,choice])=>[key,{choice,confidence:1,probabilities:Object.fromEntries(EVALUATION_LABELS[key as keyof typeof EVALUATION_LABELS].map(label=>[label,label===choice?1:0]))}]));
+}
 
 test('JEV concierge chooses tiers with evaluator off and preserves successive escalation and pins', async () => {
   const fixture = await createFixture();
   fixture.updateRuntimeConfig(draft => {
-    draft.routing.concierge.enabled = true;
+
     draft.routing.concierge.model = 'jev/jev-latest';
     draft.routing.defaultStart = 'general';
     draft.routing.showRoutingInfo = true;
     draft.routing.tiers.push({ name: 'advanced', models: ['lmstudio/test-advanced'] });
   });
-  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: null, recommendedTier: 'economy', applied: false }));
+  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: signals('basic'), recommendedTier: 'economy', applied: false }));
   runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
   const request = { sessionId: 'jev-concierge', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
   const result = await fixture.handleGatewayMessage(request);
@@ -356,7 +357,7 @@ test('JEV concierge chooses tiers with evaluator off and preserves successive es
 
 test('JEV concierge failure retains the configured route with fallback evidence', async () => {
   const fixture = await createFixture();
-  fixture.updateRuntimeConfig(draft => { draft.routing.concierge.enabled = true; draft.routing.concierge.model = 'jev/jev-latest'; draft.routing.showRoutingInfo = true; });
+  fixture.updateRuntimeConfig(draft => {  draft.routing.concierge.model = 'jev/jev-latest'; draft.routing.showRoutingInfo = true; });
   evaluatorMock.mockResolvedValue({ version: 1, provider: 'jev', mode: 'active', status: 'fallback', reason: 'credential-missing', model: 'jev-latest', durationMs: 0, inputTokens: null, outputTokens: null, costUsd: null, distributions: null, recommendedTier: null, applied: false });
   runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
   const result = await fixture.handleGatewayMessage({ sessionId: 'jev-fallback', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath });

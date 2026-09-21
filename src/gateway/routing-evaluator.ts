@@ -23,6 +23,7 @@ export async function evaluateConfiguredRouting(input: {
   signal?: AbortSignal;
   playground?: boolean;
   concierge?: boolean;
+  evaluatorModel?: string;
   publicSample?: boolean;
 }) {
   const routing = getRuntimeConfig().routing;
@@ -30,13 +31,17 @@ export async function evaluateConfiguredRouting(input: {
     ? {
         ...routing.evaluator,
         mode: 'active' as const,
-        model: routing.concierge.model.slice(4),
+        model: input.evaluatorModel ?? routing.concierge.model.slice(4),
       }
     : input.playground
-      ? { ...routing.evaluator, mode: 'shadow' as const }
+      ? {
+          ...routing.evaluator,
+          model: input.evaluatorModel ?? routing.evaluator.model,
+          mode: 'shadow' as const,
+        }
       : routing.evaluator;
   const approved = input.concierge
-    ? routing.concierge.enabled && routing.concierge.model.startsWith('jev/')
+    ? routing.enabled && routing.concierge.model.startsWith('jev/')
     : input.playground
       ? input.publicSample === true
       : config.publicPrompts.includes(input.text.trim());

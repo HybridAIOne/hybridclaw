@@ -1,7 +1,7 @@
 /**
  * Admin-only evaluator settings and explicit public-sample playground.
- * Draft approval is never inferred from sample text; only a saved exact prompt
- * permits live evaluation, independently of the chat visibility switch.
+ * Sample approval is explicit; live classifier selection and shadow mode belong
+ * to the unified routing editor, not this experiment surface.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -16,7 +16,6 @@ import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Input } from './input';
-import { NativeSelect } from './native-select';
 import { RoutingEvaluation } from './routing-evaluation';
 import { CanonicalSecretStatus } from './secret-ref-picker';
 import { Switch } from './switch';
@@ -81,22 +80,6 @@ export function RoutingEvaluatorSettings() {
             minWidth: 0,
           }}
         >
-          <label>
-            Evaluation mode
-            <NativeSelect
-              value={value.mode}
-              onChange={(e) =>
-                setDraft({
-                  ...value,
-                  mode: e.target.value as RoutingEvaluatorConfig['mode'],
-                })
-              }
-            >
-              <option value="off">Off</option>
-              <option value="shadow">Shadow — observe only</option>
-              <option value="active">Active — apply recommendations</option>
-            </NativeSelect>
-          </label>
           <CanonicalSecretStatus name="JEV_API_KEY" />
           <a href="/admin/secrets" style={{ color: 'var(--primary)' }}>
             Manage API key in Secrets
@@ -142,40 +125,6 @@ export function RoutingEvaluatorSettings() {
                 />
               </label>
             </div>
-          </details>
-          <p style={{ color: 'var(--muted-foreground)', margin: 0 }}>
-            Evaluator uses approved prompts. Concierge settings take priority.
-          </p>
-          <details>
-            <summary>
-              Approved public prompts ({value.publicPrompts.length})
-            </summary>
-            {value.publicPrompts.map((prompt) => (
-              <div
-                key={prompt}
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span>{prompt}</span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setDraft({
-                      ...value,
-                      publicPrompts: value.publicPrompts.filter(
-                        (p) => p !== prompt,
-                      ),
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
-            ))}
           </details>
           <div style={{ display: 'flex', gap: 8 }}>
             <Button disabled={!draft} onClick={() => save.mutate(value)}>
@@ -267,23 +216,6 @@ export function RoutingEvaluatorSettings() {
             onClick={() => evaluate.mutate()}
           >
             Evaluate sample
-          </Button>
-          <Button
-            variant="outline"
-            disabled={
-              !publicSample ||
-              !text.trim() ||
-              value.publicPrompts.includes(text.trim()) ||
-              save.isPending
-            }
-            onClick={() =>
-              setDraft({
-                ...value,
-                publicPrompts: [...value.publicPrompts, text.trim()],
-              })
-            }
-          >
-            Approve for live evaluation
           </Button>
         </div>
         {draft ? <p>Save changes before evaluating.</p> : null}

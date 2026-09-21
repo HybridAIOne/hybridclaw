@@ -83,3 +83,10 @@ test.each(['pii', 'confidentiality', 'capability', 'task', 'urgency'])('confiden
   const result = await evaluateRouting({ text: 'Explain photosynthesis', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(raw) } });
   expect(result.recommendedTier).toBe(['task', 'urgency'].includes(dimension) ? 'one' : null);
 });
+
+test('provider HTTP failures expose a status code without provider bodies', async () => {
+ const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response('private response payload', {status:429}));
+ const result = await evaluateRouting({text:'Public sample',approved:true,config,tiers,classifier:createJevClassifier('test-key',transport)});
+ expect(result.reason).toBe('provider-http-429');
+ expect(JSON.stringify(result)).not.toContain('private response');
+});

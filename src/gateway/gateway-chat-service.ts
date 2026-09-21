@@ -2,6 +2,7 @@
  * Gateway turns persist tool exchanges and routing evidence with assistant results.
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
+ * The unified policy owns tier selection and privacy eligibility for model calls.
  * Transports own authorization; transcript evidence never authorizes execution.
  */
 
@@ -95,6 +96,7 @@ import {
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
+import { selectRoutingPolicy } from '../routing/policy.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
@@ -223,7 +225,6 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
-import { evaluateConfiguredRouting } from './routing-evaluator.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -233,6 +234,7 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import { classifyRouting } from './unified-routing.js';
 
 const MAX_HISTORY_MESSAGES = 40;
 
@@ -1411,15 +1413,7 @@ async function handleGatewayMessageInner(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
   if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
-  const conciergeConfig = getRuntimeConfig().routing.concierge;
-  const jevConcierge =
-    conciergeConfig.enabled &&
-    conciergeConfig.model.startsWith('jev/') &&
-    isInteractiveSource &&
-    !explicitModelPinned;
-  const stickyConciergeTier = jevConcierge
-    ? peekStickyModelRoutingTier(req.sessionId)
-    : undefined;
+  const policyStickyTier = peekStickyModelRoutingTier(req.sessionId);
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
   let manuallyEscalatedRouting = false;
@@ -1570,52 +1564,128 @@ async function handleGatewayMessageInner(
       }
     }
   }
-  if (jevConcierge || getRuntimeConfig().routing.evaluator.mode !== 'off') {
-    const evaluation = await evaluateConfiguredRouting({
+  const routingConfig = getRuntimeConfig().routing;
+  let unifiedRoutingReason: string | undefined;
+  if (routingConfig.enabled) {
+    const policyConfig = {
+      ...routingConfig,
+      defaultStart:
+        ((!routingConfig.concierge.model || !isInteractiveSource) &&
+          tierRoutingLadder?.startTier) ||
+        routingConfig.defaultStart,
+    };
+    const classifierInput = {
       text: req.content,
-      concierge: jevConcierge,
       hasPrivateContext: Boolean(
         media.length ||
           contextRefResult.message !== userTurnContent ||
           audioPrelude.content !== req.content,
       ),
       signal: activeGatewayRequest.signal,
-    });
-    evaluation.applied = false;
-    if (
-      evaluation.mode === 'active' &&
-      (jevConcierge ||
-        getRuntimeConfig().routing.evaluator.mode === 'active') &&
-      evaluation.recommendedTier &&
-      getRuntimeConfig().routing.tiers.some(
-        (tier) => tier.name === evaluation.recommendedTier,
-      ) &&
+    };
+    const [classification, shadow] = await Promise.all([
+      classifyRouting({
+        ...classifierInput,
+        ...(explicitModelPinned || !isInteractiveSource ? { model: '' } : {}),
+      }),
       !explicitModelPinned &&
-      (jevConcierge || !getRuntimeConfig().routing.concierge.enabled) &&
-      tierRoutingLadder &&
-      !tierRoutingLadder.exhausted
-    ) {
-      const candidate = resolveLadder(getRuntimeConfig().routing, {
-        startTier: evaluation.recommendedTier,
+      isInteractiveSource &&
+      !routingConfig.concierge.model.startsWith('jev/') &&
+      routingConfig.evaluator.mode === 'shadow'
+        ? classifyRouting({
+            ...classifierInput,
+            model: `jev/${routingConfig.evaluator.model}`,
+            comparison: true,
+            publicSample: true,
+          })
+        : Promise.resolve(null),
+    ]);
+    if (shadow) {
+      const shadowDecision = selectRoutingPolicy({
+        config: policyConfig,
+        ...shadow,
+        metadata: getModelCatalogMetadata,
+        minimumTier: manuallyEscalatedRouting
+          ? (tierRoutingLadder?.startTier ?? undefined)
+          : policyStickyTier,
       });
-      if (
-        !candidate.exhausted &&
-        (candidate.startIndex >= tierRoutingLadder.startIndex ||
-          (jevConcierge && !manuallyEscalatedRouting && !stickyConciergeTier))
-      ) {
-        tierRoutingLadder = candidate;
-        model = candidate.tiers[candidate.startIndex]?.models[0] || model;
-        provider = resolveModelProvider(model);
-        evaluation.applied = true;
-      }
+      recordRoutingEvaluation(
+        {
+          ...shadow.evaluation,
+          capability: shadow.signals.capability,
+          urgency: shadow.signals.urgency,
+          recommendedTier:
+            shadow.evaluation.status === 'evaluated'
+              ? shadowDecision.ladder.startTier
+              : null,
+          selectedModel:
+            shadow.evaluation.status === 'evaluated'
+              ? (shadowDecision.ladder.tiers[shadowDecision.ladder.startIndex]
+                  ?.models[0] ?? null)
+              : null,
+          reason:
+            shadow.evaluation.status === 'evaluated'
+              ? shadowDecision.reason
+              : shadow.evaluation.reason,
+          applied: false,
+        },
+        true,
+      );
     }
-    recordRoutingEvaluation(evaluation);
+    const decision = selectRoutingPolicy({
+      config: policyConfig,
+      ...classification,
+      minimumTier: manuallyEscalatedRouting
+        ? (tierRoutingLadder?.startTier ?? undefined)
+        : policyStickyTier,
+      metadata: getModelCatalogMetadata,
+    });
+    if (
+      (explicitModelPinned &&
+        decision.privateRoute &&
+        getModelCatalogMetadata(model).zone !== 'local') ||
+      (!explicitModelPinned && decision.ladder.exhausted)
+    ) {
+      recordRoutingEvaluation({
+        ...classification.evaluation,
+        recommendedTier: null,
+        reason: 'no-eligible-models',
+        applied: false,
+      });
+      return attachSessionIdentity({
+        status: 'error',
+        result: decision.privateRoute
+          ? 'No eligible local model. Add a local model to the required routing tier.'
+          : 'No eligible model in the routing tiers.',
+        toolsUsed: [],
+      });
+    }
+    if (!explicitModelPinned) {
+      tierRoutingLadder = decision.ladder;
+      model =
+        tierRoutingLadder.tiers[tierRoutingLadder.startIndex]?.models[0] ||
+        model;
+      provider = resolveModelProvider(model);
+      unifiedRoutingReason = decision.reason;
+      recordRoutingEvaluation({
+        ...classification.evaluation,
+        capability: classification.signals.capability,
+        urgency: classification.signals.urgency,
+        selectedModel: model,
+        recommendedTier: tierRoutingLadder.startTier,
+        reason:
+          classification.evaluation.status === 'evaluated'
+            ? decision.reason
+            : classification.evaluation.reason,
+        applied: classification.evaluation.status === 'evaluated',
+      });
+    }
   }
   const postRoutingModel = resolveOnboardingTurnModel({
     bootstrapFile: startupBootstrapFile,
     model,
   });
-  if (postRoutingModel !== model) {
+  if (!routingConfig.enabled && postRoutingModel !== model) {
     model = postRoutingModel;
     provider = resolveModelProvider(model);
   }
@@ -2312,7 +2382,10 @@ async function handleGatewayMessageInner(
           chatbotId: string;
         }
       >();
-      setRoutingTraceMode(jevConcierge ? 'concierge' : 'tiered');
+      setRoutingTraceMode(
+        routingConfig.concierge.model ? 'concierge' : 'tiered',
+        unifiedRoutingReason,
+      );
       const routed = await executeModelRouting({
         ladder: tierRoutingLadder,
         agentId,

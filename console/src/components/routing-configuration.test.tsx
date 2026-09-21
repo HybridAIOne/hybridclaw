@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({ fetch: vi.fn(), save: vi.fn() }));
 vi.mock('../api/client', () => ({
   fetchConfig: mocks.fetch,
   saveConfig: mocks.save,
+  requestJson: () => Promise.resolve({ jevAvailable: true }),
 }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 const models = [
@@ -19,7 +20,9 @@ const routing = {
   showRoutingInfo: true,
   defaultStart: 'Local',
   escalationStickyTurns: 3,
-  concierge: { enabled: false },
+  concierge: { model: '' },
+  mode: 'auto',
+  preference: 'balanced',
   tiers: [
     { name: 'Local', models: ['local-model'] },
     { name: 'Cloud', models: ['cloud-model'] },

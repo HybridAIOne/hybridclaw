@@ -27,6 +27,7 @@ export interface RoutingTraceAttempt {
 
 export interface RoutingTrace {
   evaluation?: TypedRoutingEvaluation;
+  shadowEvaluation?: TypedRoutingEvaluation;
   version: 1;
   status: 'running' | 'complete' | 'error';
   mode: 'direct' | 'concierge' | 'tiered';
@@ -50,6 +51,11 @@ export function parseRoutingTrace(raw: string | null): RoutingTrace | null {
     if (
       value.evaluation !== undefined &&
       !isTypedRoutingEvaluation(value.evaluation)
+    )
+      return null;
+    if (
+      value.shadowEvaluation !== undefined &&
+      !isTypedRoutingEvaluation(value.shadowEvaluation)
     )
       return null;
     for (const attempt of value.attempts) {

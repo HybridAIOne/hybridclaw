@@ -97,7 +97,7 @@ export function RoutingComparison() {
             </Button>
           </div>
           <p style={{ color: 'var(--muted-foreground)', margin: 0 }}>
-            JEV: capability tiers. Concierge: urgency profiles. No execution.
+            Same tiers and policy · classification only.
           </p>
           {compare.isError ? <p role="alert">Comparison failed.</p> : null}
           {result ? (
@@ -106,6 +106,7 @@ export function RoutingComparison() {
                 <thead>
                   <tr>
                     <th>Router</th>
+                    <th>Difficulty / urgency</th>
                     <th>Decision</th>
                     <th>Time</th>
                     <th>Tokens in / out</th>
@@ -116,8 +117,16 @@ export function RoutingComparison() {
                   <tr>
                     <td>JEV · {result.jev.model}</td>
                     <td>
-                      {result.jev.recommendedTier ??
-                        result.jev.reason.replaceAll('-', ' ')}
+                      {result.jev.signals?.capability ?? '—'} /{' '}
+                      {result.jev.signals?.urgency ?? '—'}
+                    </td>
+                    <td>
+                      {result.jev.recommendedTier ?? result.jev.decision}
+                      {result.jev.selectedModel
+                        ? ` → ${result.jev.selectedModel}`
+                        : ''}
+                      <br />
+                      {result.jev.recommendedTier ? result.jev.decision : ''}
                     </td>
                     <td>{result.jev.durationMs}ms</td>
                     <td>
@@ -129,12 +138,16 @@ export function RoutingComparison() {
                   <tr>
                     <td>{result.concierge.model}</td>
                     <td>
+                      {result.concierge.signals?.capability ?? '—'} /{' '}
+                      {result.concierge.signals?.urgency ?? '—'}
+                    </td>
+                    <td>
                       {result.concierge.decision.replaceAll('-', ' ')}
                       {result.concierge.selectedModel
                         ? ` → ${result.concierge.selectedModel}`
                         : ''}
-                      {result.concierge.tier
-                        ? ` (${result.concierge.tier})`
+                      {result.concierge.recommendedTier
+                        ? ` (${result.concierge.recommendedTier})`
                         : ''}
                     </td>
                     <td>{result.concierge.durationMs}ms</td>
