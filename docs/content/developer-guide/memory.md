@@ -147,12 +147,16 @@ forks, deletion, and compaction. Existing rows without tool history remain
 ordinary chat messages; audit events are not used to reconstruct them.
 
 Individual results are capped at 16,000 characters before entering model
-context. Larger results include a reference to the full result in the agent's
-`.session-transcripts/<session>.jsonl` file, which is written when the turn
-finishes. Replay retains any additional context-guard pruning, while the
-transcript retains full results. `session_search` searches tool names,
-arguments, results, and call IDs and returns a transcript path for further
-reading. Use `include_current: true` to search the current session.
+context. A larger result is written in full to
+`.tool-results/<session>/<tool_call_id>.txt` in the workspace at the moment it
+is truncated, and the visible head/tail carries that path, so the model can
+`read` (with `offset`/`limit`) or `grep` the rest in the same turn. Session
+directories older than seven days are pruned. The full result is also retained
+in the agent's `.session-transcripts/<session>.jsonl` file, which is written
+when the turn finishes. Replay retains any additional context-guard pruning,
+while the transcript retains full results. `session_search` searches tool
+names, arguments, results, and call IDs and returns a transcript path for
+further reading. Use `include_current: true` to search the current session.
 
 Approval pauses and errors retain explicit outcomes. A requested call that
 did not execute is recorded as unexecuted, not successful. Tool outputs remain

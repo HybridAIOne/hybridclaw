@@ -201,6 +201,7 @@ const ARCHIVE_EXCLUDED_DIRECTORY_NAMES = new Set([
   '.git',
   '.hybridclaw-runtime',
   '.session-transcripts',
+  '.tool-results',
   'node_modules',
 ]);
 const ARCHIVE_EXCLUDED_BASENAMES = new Set([

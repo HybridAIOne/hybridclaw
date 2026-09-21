@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
   TOOL_HISTORY_RESULT_MAX_CHARS,
@@ -22,7 +25,8 @@ function call(id: string) {
 
 describe('persistent tool history', () => {
   test('retains full results while replaying the same bounded content shown initially', () => {
-    const recorder = new TurnToolHistory('session-a');
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
+    const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
       role: 'assistant',
       content: null,
@@ -37,8 +41,12 @@ describe('persistent tool history', () => {
     expect(String(visible.content).length).toBeLessThanOrEqual(
       TOOL_HISTORY_RESULT_MAX_CHARS,
     );
+    expect(visible.content).toContain('.tool-results/session-a/a.txt');
     expect(visible.content).toContain('.session-transcripts/session-a.jsonl');
     expect(visible.content).toContain('tool_call_id="a"');
+    expect(
+      fs.readFileSync(path.join(workspace, '.tool-results/session-a/a.txt'), 'utf8'),
+    ).toBe(full.content);
     expect(String(visible.content)).toMatch(/^head\n/);
     expect(String(visible.content)).toMatch(/\ntail$/);
     const saved = recorder.finish('Turn ended');
@@ -47,11 +55,31 @@ describe('persistent tool history', () => {
       role: 'assistant',
       content: 'Done',
       session_id: 'session-a',
-      tool_history_json: JSON.stringify(saved),
+      tool_history_json: JSON.stringify(recorder.finish('Turn ended', true)),
     });
     expect(replay[1]).toEqual(visible);
     expect(replay[2].content).toBe('Done');
+    const replayOfFull = expandStoredMessage({
+      role: 'assistant',
+      content: 'Done',
+      session_id: 'session-a',
+      tool_history_json: JSON.stringify(saved),
+    });
+    expect(replayOfFull[1].content).not.toContain('.tool-results/');
+    expect(replayOfFull[1].content).toContain('.session-transcripts/');
     expect(toolResultForHistory(visible, 'session-a')).toEqual(visible);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test('falls back to the transcript reference without a writable workspace', () => {
+    const recorder = new TurnToolHistory('session-a');
+    const visible = recorder.recordResult({
+      role: 'tool',
+      content: 'x'.repeat(50_000),
+      tool_call_id: 'a',
+    });
+    expect(visible.content).not.toContain('.tool-results/');
+    expect(visible.content).toContain('.session-transcripts/session-a.jsonl');
   });
 
   test('completes interrupted batches without claiming unexecuted calls succeeded', () => {
