@@ -384,9 +384,16 @@ function truncateInline(content: string, maxChars: number): string {
 }
 
 const CITATION_CONTENT_MAX_CHARS = 220;
-const PROMPT_RECALL_FILTER: SemanticRecallFilter = {
-  excludeVerbatimHistory: true,
-};
+function buildPromptRecallFilter(
+  includeSummary: boolean,
+): SemanticRecallFilter {
+  // The current session summary already merges every earlier compaction
+  // summary, so recalling those rows would only repeat it.
+  return {
+    excludeVerbatimHistory: true,
+    excludeSources: includeSummary ? ['compaction'] : undefined,
+  };
+}
 
 class HashedTokenEmbeddingProvider implements EmbeddingProvider {
   private readonly dimensions: number;
@@ -867,12 +874,13 @@ export class MemoryService {
       0,
       Math.min(1, this.config.semanticMinConfidence),
     );
+    const recallFilter = buildPromptRecallFilter(Boolean(includeSummary));
     const semanticRecallAttempted =
       params.includeSemanticRecall !== false &&
       this.backend.hasRecallableSemanticMemories(
         params.session.id,
         minConfidence,
-        PROMPT_RECALL_FILTER,
+        recallFilter,
       );
     if (semanticRecallAttempted || includeSummary) {
       params.onMemoryAccess?.(semanticRecallAttempted ? 'semantic' : 'summary');
@@ -891,7 +899,7 @@ export class MemoryService {
             ),
           ),
           minConfidence,
-          filter: PROMPT_RECALL_FILTER,
+          filter: recallFilter,
           touch: params.touchSemanticRecall,
         })
       : [];

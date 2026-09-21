@@ -225,6 +225,8 @@ export interface SemanticRecallFilter {
    * history. Compaction summaries and other sources are unaffected.
    */
   excludeVerbatimHistory?: boolean;
+  /** Skip rows whose source is one of these values. */
+  excludeSources?: string[];
 }
 
 const EXCLUDE_VERBATIM_HISTORY_CLAUSE = `NOT (
@@ -270,6 +272,15 @@ function applySemanticRecallFilterClauses(params: {
   }
   if (params.filter.excludeVerbatimHistory) {
     params.whereClauses.push(EXCLUDE_VERBATIM_HISTORY_CLAUSE);
+  }
+  const excludeSources = (params.filter.excludeSources || [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (excludeSources.length > 0) {
+    params.whereClauses.push(
+      `source NOT IN (${excludeSources.map(() => '?').join(', ')})`,
+    );
+    params.args.push(...excludeSources);
   }
 }
 

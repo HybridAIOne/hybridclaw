@@ -3579,6 +3579,41 @@ describe('MemoryService', () => {
     ).toBe(true);
   });
 
+  test('prompt recall skips compaction memories while the session summary is injected', () => {
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const created = getOrCreateSession('s-summary-dedupe', null, 'web');
+    const service = new MemoryService();
+    const compactionId = storeSemanticMemory({
+      sessionId: created.id,
+      role: 'assistant',
+      source: 'compaction',
+      scope: 'session',
+      content: 'Earlier the user asked about the AtlasFox release codename.',
+      confidence: 0.95,
+    });
+
+    const withoutSummary = service.buildPromptMemoryContext({
+      session: created,
+      query: 'release codename atlasfox',
+    });
+    expect(withoutSummary.semanticMemories.map((memory) => memory.id)).toEqual(
+      [compactionId],
+    );
+
+    service.updateSessionSummary(
+      created.id,
+      'The user asked about the AtlasFox release codename.',
+    );
+    const session = getSessionById(created.id) as Session;
+    const withSummary = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+    });
+    expect(withSummary.semanticRecallAttempted).toBe(false);
+    expect(withSummary.semanticMemories).toEqual([]);
+    expect(withSummary.promptSummary).toContain('AtlasFox release codename');
+  });
+
   test('prompt recall is not attempted when only verbatim-history memories exist', () => {
     initDatabase({ quiet: true, dbPath: createTempDbPath() });
     const session = getOrCreateSession('s-verbatim-only', null, 'web');
