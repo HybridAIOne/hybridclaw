@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.31.0',
+  version: '0.31.1',
   highlights: [
-    'Run local models on your Mac',
-    'Choose starter tools and skills',
-    'Keep tool history across turns',
-    'Schedule tasks in your timezone',
+    'Reply in Discord threads',
+    'Read forwarded Discord messages',
+    'More reliable Teams attachments',
+    'Improved A2A interoperability',
   ],
 } as const;
 

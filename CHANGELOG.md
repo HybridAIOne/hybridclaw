@@ -2,13 +2,30 @@
 
 ## Unreleased
 
+## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
+
 ### Added
 
 - **Discord replies can start threads**: Global and per-channel reply-style
   settings route guild responses into public threads while preserving parent
   channel allowlists and falling back safely when thread permissions are absent.
 
+### Changed
+
+- **Tool executions appear in distributed traces**: Each tool execution emits
+  an OpenTelemetry span beneath its turn span when tracing is enabled.
+- **Session context stays in the dynamic prompt**: Per-session context is
+  rendered in the dynamic context message to preserve the stable system prompt.
+
 ### Fixed
+
+- **Forwarded Discord messages retain their content**: Forwarded message
+  snapshots are read instead of treating forwarded messages as empty.
+- **Teams attachment downloads recover from transient failures**: Inbound
+  downloads retry, skip attachments Teams already reports as oversized, and
+  avoid duplicate fetches. Failed downloads are reported to the model.
+- **Documentation code examples render correctly**: Code examples avoid
+  double-escaping HTML entities.
 
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed
   Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
