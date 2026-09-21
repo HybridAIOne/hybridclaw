@@ -87,3 +87,8 @@ The tier-router reads the current saved routing policy for each turn and escalat
 command through `api.getRoutingConfig()`. Other plugin registration configuration
 remains an immutable startup snapshot. This keeps saved enablement and tier edits
 consistent with execution without exposing mutable runtime configuration.
+
+In web chat, `/escalate <prompt>` runs the supplied prompt immediately using the
+normal streamed response and progress events. Bare `/escalate` queues escalation
+for the next unpinned turn. A refused command does not dispatch the inline prompt;
+secret-command guards apply before escalation is queued.

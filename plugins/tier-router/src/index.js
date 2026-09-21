@@ -32,7 +32,7 @@ export default {
     api.registerCommand({
       name: 'escalate',
       description: 'Start the next unpinned agent turn one routing tier higher',
-      handler(_args, context) {
+      handler(args, context) {
         if (!api.getRoutingConfig()?.enabled) {
           return 'Model routing is disabled.';
         }
@@ -44,6 +44,13 @@ export default {
           if (oldestSessionId) manualEscalations.delete(oldestSessionId);
         }
         manualEscalations.add(context.sessionId);
+        if (args.length > 0) {
+          return {
+            kind: 'plain',
+            text: 'Starting one routing tier higher.',
+            continueWithMessage: true,
+          };
+        }
         return 'The next agent turn will start one routing tier higher.';
       },
     });

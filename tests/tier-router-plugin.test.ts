@@ -144,3 +144,10 @@ test('reads saved enablement, tier edits, and disablement without re-registering
   expect(middleware.routing(context)).toEqual({ action: 'allow' });
   expect(command.handler([], context)).toBe('Model routing is disabled.');
 });
+
+test('inline escalation acknowledges the prompt for streaming dispatch', () => {
+  const api = { getRoutingConfig: () => routing, registerMiddleware: vi.fn(), registerCommand: vi.fn() };
+  tierRouterPlugin.register(api);
+  expect(api.registerCommand.mock.calls[0][0].handler(['Explain photosynthesis'], { sessionId: 'inline' })).toMatchObject({ continueWithMessage: true });
+  expect(api.registerMiddleware.mock.calls[0][0].routing({ sessionId: 'inline', source: 'console' })).toMatchObject({ metadata: { tierRouter: { startTier: 'advanced' } } });
+});

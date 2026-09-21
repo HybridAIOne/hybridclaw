@@ -76,6 +76,8 @@ export interface GatewaySessionSwitcherEntry {
 }
 
 export interface GatewayCommandResult {
+  /** Command accepted an inline prompt for the normal chat execution path. */
+  continueWithMessage?: boolean;
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
