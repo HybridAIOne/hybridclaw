@@ -17,7 +17,7 @@ export default {
           classifyRoutingTurn(context) === 'agent' &&
           manualEscalations.delete(context.sessionId);
         const decision = resolveTierRoutingDecision(
-          api.config.routing,
+          api.getRoutingConfig(),
           context,
           manualEscalate,
         );
@@ -33,7 +33,7 @@ export default {
       name: 'escalate',
       description: 'Start the next unpinned agent turn one routing tier higher',
       handler(_args, context) {
-        if (!api.config.routing?.enabled) {
+        if (!api.getRoutingConfig()?.enabled) {
           return 'Model routing is disabled.';
         }
         if (

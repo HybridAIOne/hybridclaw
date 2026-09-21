@@ -82,3 +82,8 @@ requires a failure safe to retry; reordering tiers does not force an escalation.
 **Session Routing** in general configuration controls conversation grouping and
 identity, not model selection. The tier editor preserves concierge settings,
 visibility, and escalation stickiness when saving.
+
+The tier-router reads the current saved routing policy for each turn and escalation
+command through `api.getRoutingConfig()`. Other plugin registration configuration
+remains an immutable startup snapshot. This keeps saved enablement and tier edits
+consistent with execution without exposing mutable runtime configuration.

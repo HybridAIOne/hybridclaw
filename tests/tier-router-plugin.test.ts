@@ -77,6 +77,7 @@ describe('tier-router decision table', () => {
 test('/escalate raises exactly the next unpinned agent turn', async () => {
   const api = {
     config: { routing },
+    getRoutingConfig: () => routing,
     registerMiddleware: vi.fn(),
     registerCommand: vi.fn(),
   };
@@ -117,4 +118,29 @@ test('/escalate raises exactly the next unpinned agent turn', async () => {
       tierRouter: { startTier: 'general', reason: 'default-start' },
     },
   });
+});
+
+test('reads saved enablement, tier edits, and disablement without re-registering', () => {
+  let current = { ...routing, enabled: false };
+  const api = {
+    config: { routing: current },
+    getRoutingConfig: () => current,
+    registerMiddleware: vi.fn(),
+    registerCommand: vi.fn(),
+  };
+  tierRouterPlugin.register(api);
+  const middleware = api.registerMiddleware.mock.calls[0][0];
+  const command = api.registerCommand.mock.calls[0][0];
+  const context = { sessionId: 'test-session', source: 'console', explicitModelPinned: false };
+  expect(command.handler([], context)).toBe('Model routing is disabled.');
+  expect(middleware.routing(context)).toEqual({ action: 'allow' });
+  current = { ...routing, enabled: true, defaultStart: 'economy' };
+  expect(middleware.routing(context)).toMatchObject({ metadata: { tierRouter: { startTier: 'economy' } } });
+  expect(command.handler([], context)).toContain('one routing tier higher');
+  expect(middleware.routing(context)).toMatchObject({ metadata: { tierRouter: { startTier: 'general' } } });
+  current = { ...current, tiers: [{ name: 'economy', models: ['local/replacement'] }] };
+  expect(middleware.routing(context)).toMatchObject({ metadata: { tierRouter: { model: 'local/replacement' } } });
+  current = { ...current, enabled: false };
+  expect(middleware.routing(context)).toEqual({ action: 'allow' });
+  expect(command.handler([], context)).toBe('Model routing is disabled.');
 });

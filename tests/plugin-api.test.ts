@@ -314,3 +314,22 @@ test('createPluginApi exposes immutable stored session messages', () => {
     )[0].content = 'Mutated';
   }).toThrow(TypeError);
 });
+
+test('live routing reads are immutable and independent of registration snapshots', () => {
+  const config = loadRuntimeConfig();
+  let routing = { ...config.routing, enabled: false };
+  const api = createPluginApi({
+    manager: makePluginManagerStub({ getRoutingConfig: () => routing }),
+    pluginId: 'tier-router', pluginDir: '/tmp/tier-router', registrationMode: 'full',
+    config, pluginConfig: {}, declaredEnv: [], homeDir: '/tmp/home', cwd: '/tmp/project',
+  });
+  const before = api.getRoutingConfig();
+  routing = { ...routing, enabled: true, tiers: [{ name: 'test', models: ['local/test'] }] };
+  const after = api.getRoutingConfig();
+  expect(before.enabled).toBe(false);
+  expect(after.enabled).toBe(true);
+  expect(Object.isFrozen(after.tiers[0].models)).toBe(true);
+  expect(() => after.tiers[0].models.push('local/other')).toThrow();
+  expect(routing.tiers[0].models).toEqual(['local/test']);
+  expect(Object.isFrozen(routing)).toBe(false);
+});
