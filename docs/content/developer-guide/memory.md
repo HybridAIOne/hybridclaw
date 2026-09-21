@@ -276,8 +276,10 @@ The built-in path for a successful turn is roughly:
 5. Build the memory hook from canonical context, `session_summary`, and
    semantic recall.
 6. Include recent raw session history as chat messages.
-7. When thresholds are exceeded, run pre-compaction memory flush, write a new
-   `session_summary`, and delete older raw messages.
+7. When the history budget is exceeded, or on `/compact`, run the
+   pre-compaction memory flush, then the shared compaction engine: archive the
+   transcript, write a structured `session_summary`, and delete older raw
+   messages. Automatic and manual compaction use the same retention rule.
 8. On `/dream` or the scheduled consolidation run, fold older daily notes into
    `MEMORY.md` and decay stale semantic memories.
 
@@ -393,7 +395,8 @@ message includes a `## History Window` note with the omitted turn count.
 | message-count safety cap | `200` messages | compaction also runs on message volume alone |
 | keep recent after compaction | `40` messages, at most half the history budget | newest whole turns retained verbatim after older rows are summarized |
 | summary max size | `8,000` chars | `session_summary` is truncated to this size |
-| compaction source transcript | `240` messages / `80,000` chars | max older-history excerpt sent into the compaction summary prompt |
+| summary stages | up to `50,000` tokens per stage | larger regions are summarized in parts and merged |
+| transcript archive | `<data dir>/compaction-archives/<session>/` | every compaction writes the full pre-compaction transcript before deleting rows |
 
 ### Pre-Compaction Memory Flush
 
