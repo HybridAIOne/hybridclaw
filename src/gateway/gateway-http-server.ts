@@ -443,7 +443,10 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
-import { evaluateConfiguredRouting } from './routing-evaluator.js';
+import {
+  evaluateConfiguredRouting,
+  isJevAvailable,
+} from './routing-evaluator.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -10924,6 +10927,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminModels(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/routing/status' && method === 'GET') {
+            sendJson(res, 200, { jevAvailable: isJevAvailable() });
             return;
           }
           if (pathname === '/api/admin/routing/evaluate' && method === 'POST') {

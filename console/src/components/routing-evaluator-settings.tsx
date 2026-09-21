@@ -138,7 +138,7 @@ export function RoutingEvaluatorSettings() {
                 />
               </label>
               <label>
-                Minimum confidence
+                Minimum routing confidence
                 <Input
                   type="number"
                   min={0}

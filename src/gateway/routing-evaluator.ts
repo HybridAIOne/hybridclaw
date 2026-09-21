@@ -1,6 +1,7 @@
 /**
  * Bridges opt-in evaluation to runtime settings and per-turn accounting.
- * Eligibility is checked before credentials or transport are accessed. It returns
+ * Public samples or an enabled cloud concierge grant disclosure; local denials
+ * apply before credentials or transport are accessed. It returns
  * evidence only; the chat runtime decides whether an existing route may change.
  */
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -19,15 +20,24 @@ export async function evaluateConfiguredRouting(input: {
   hasPrivateContext?: boolean;
   signal?: AbortSignal;
   playground?: boolean;
+  concierge?: boolean;
   publicSample?: boolean;
 }) {
   const routing = getRuntimeConfig().routing;
-  const config = input.playground
-    ? { ...routing.evaluator, mode: 'shadow' as const }
-    : routing.evaluator;
-  const approved = input.playground
-    ? input.publicSample === true
-    : config.publicPrompts.includes(input.text.trim());
+  const config = input.concierge
+    ? {
+        ...routing.evaluator,
+        mode: 'active' as const,
+        model: routing.concierge.model.slice(4),
+      }
+    : input.playground
+      ? { ...routing.evaluator, mode: 'shadow' as const }
+      : routing.evaluator;
+  const approved = input.concierge
+    ? routing.concierge.enabled && routing.concierge.model.startsWith('jev/')
+    : input.playground
+      ? input.publicSample === true
+      : config.publicPrompts.includes(input.text.trim());
   const eligible =
     config.mode !== 'off' && !evaluatorDisclosureReason({ ...input, approved });
   const key = eligible
@@ -59,4 +69,10 @@ export async function evaluateConfiguredRouting(input: {
           : undefined,
     });
   return result;
+}
+
+export function isJevAvailable(): boolean {
+  return Boolean(
+    readStoredRuntimeSecret('JEV_API_KEY') || process.env.JEV_API_KEY?.trim(),
+  );
 }

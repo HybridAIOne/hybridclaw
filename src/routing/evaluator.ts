@@ -1,7 +1,7 @@
 /**
  * Local disclosure policy gates every external classification before transport.
- * Exact admin-approved public prompts are the only live eligibility grant; text
- * within a document or prompt cannot grant itself permission. This is not a PII guarantee.
+ * Callers must grant disclosure through admin-approved samples or an enabled
+ * cloud concierge. Prompt content cannot grant permission. This is not a PII guarantee.
  */
 import type {
   RoutingEvaluatorConfig,
@@ -68,7 +68,9 @@ export async function evaluateRouting(input: {
     Object.assign(result, response, { status: 'evaluated' });
     const d = response.distributions;
     if (
-      Object.values(d).some(
+      // Capability routing depends on these dimensions; unspecified urgency
+      // must not veto a clear task (routing policy, 2026-09-21).
+      [d.pii, d.confidentiality, d.capability].some(
         (value) => value.confidence < input.config.minConfidence,
       ) ||
       d.capability.choice === 'uncertain'

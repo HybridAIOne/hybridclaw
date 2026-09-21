@@ -21,6 +21,7 @@ const modelMetadataDefaults = {
 };
 
 vi.mock('../api/client', () => ({
+  requestJson: () => Promise.resolve({ jevAvailable: false }),
   fetchAdminSecrets: () =>
     Promise.resolve({ secrets: [], total: 0, actions: [] }),
   fetchConfig: () =>

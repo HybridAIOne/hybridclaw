@@ -35,3 +35,28 @@ test('approved input records classifier tokens as auxiliary overhead', async () 
   expect(trace.attempts[0]).toMatchObject({ kind: 'auxiliary', inputTokens: 100, outputTokens: 20, totalTokens: 120, costUsd: null });
   expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).state).toBe('Explain photosynthesis.');
 });
+
+test('JEV concierge authorizes current prompts independently of playground approval and mode', async () => {
+  const config = mocks.config();
+  config.routing.evaluator.mode = 'off';
+  config.routing.concierge = { enabled: true, model: 'jev/jev-latest' };
+  mocks.secret.mockReturnValue(undefined);
+  vi.stubEnv('JEV_API_KEY', '');
+  try {
+    const result = await evaluateConfiguredRouting({ text: 'Explain gravity.', concierge: true });
+    expect(result).toMatchObject({ mode: 'active', reason: 'credential-missing', applied: false });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    mocks.secret.mockClear();
+    const blocked = await evaluateConfiguredRouting({ text: 'Confidential salary information', concierge: true });
+    expect(blocked.status).toBe('blocked');
+    expect(mocks.secret).not.toHaveBeenCalled();
+  } finally { vi.unstubAllEnvs(); }
+});
+
+test('availability accepts a gateway environment key without exposing its value', async () => {
+  const { isJevAvailable } = await import('../src/gateway/routing-evaluator.js');
+  mocks.secret.mockReturnValue(undefined);
+  vi.stubEnv('JEV_API_KEY', 'test-key');
+  try { expect(isJevAvailable()).toBe(true); }
+  finally { vi.unstubAllEnvs(); }
+});

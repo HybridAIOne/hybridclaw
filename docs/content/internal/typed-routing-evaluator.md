@@ -49,7 +49,8 @@ phases. PII/confidentiality classifier findings cannot relax any routing limit.
 ## Decisions and failures
 
 The starting defaults are off, `jev-latest`, 1500ms timeout, and 0.8 minimum
-confidence. Timeout and confidence are operator-configurable. Basic capability
+confidence. The threshold applies to PII, confidentiality, and capability; task
+and urgency remain visible evidence. Timeout and confidence are operator-configurable. Basic capability
 recommends the first tier, standard the middle tier rounded upward, and advanced
 the final tier of the current ordered list; no names or tier count are hardcoded.
 This is a transparent policy baseline, not a calibrated performance prediction.
@@ -79,3 +80,23 @@ validation. No live JEV request is needed to run these tests.
 
 References: [Choice](https://docs.typesafe.ai/primitives/choice),
 [HTTP API](https://docs.typesafe.ai/api).
+
+## JEV as the concierge
+
+In **Providers → Routing concierge**, select `JEV · Typed routing` and enable the
+concierge. The option is disabled until `JEV_API_KEY` is available in the secret
+store or gateway environment. Ordinary catalog models remain selectable as urgency
+classifiers with configurable execution models for their three profiles.
+
+Selecting and enabling JEV authorizes current prompt text for cloud classification,
+independently of the evaluator playground's exact public-prompt list and mode.
+The same local sensitive-content and attachment/context exclusions still apply;
+these are not a comprehensive privacy filter. History, memory, and system prompts
+are excluded. The evaluator's confidence and timeout settings still apply.
+
+JEV chooses a starting tier from the admin ladder by capability. Tier routing must
+be enabled. Explicit model pins skip the concierge; manual escalation and sticky
+higher tiers cannot be lowered. Missing credentials, local denial, uncertainty,
+and API failures retain the existing starting route. Chat tags show the actual
+execution model alongside the applied or suggested tier, or the fallback reason;
+expanded details retain the distributions and classifier usage.

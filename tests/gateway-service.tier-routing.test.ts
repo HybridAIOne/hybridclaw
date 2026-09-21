@@ -325,3 +325,41 @@ test.each(['shadow', 'active'] as const)('typed evaluator %s preserves or raises
   expect(runAgentMock.mock.calls[0][0].model).toBe('lmstudio/test-cheap');
   expect(pinned.routingTrace?.evaluation?.applied).toBe(false);
 });
+
+test('JEV concierge chooses tiers with evaluator off and preserves successive escalation and pins', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig(draft => {
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.model = 'jev/jev-latest';
+    draft.routing.defaultStart = 'general';
+    draft.routing.showRoutingInfo = true;
+    draft.routing.tiers.push({ name: 'advanced', models: ['lmstudio/test-advanced'] });
+  });
+  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: null, recommendedTier: 'economy', applied: false }));
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const request = { sessionId: 'jev-concierge', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
+  const result = await fixture.handleGatewayMessage(request);
+  expect(result.model).toBe('lmstudio/test-cheap');
+  expect(result.routingTrace).toMatchObject({ mode: 'concierge', evaluation: { applied: true, recommendedTier: 'economy' } });
+  expect(evaluatorMock).toHaveBeenCalledWith(expect.objectContaining({ concierge: true }));
+  fixture.updateRuntimeConfig(draft => { draft.routing.defaultStart = 'economy'; });
+  const { handleGatewayCommand } = await import('../src/gateway/gateway-service.ts');
+  await handleGatewayCommand({ ...request, args: ['escalate'] });
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-strong');
+  await handleGatewayCommand({ ...request, args: ['escalate'] });
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-advanced');
+  evaluatorMock.mockClear();
+  fixture.updateSessionModel(request.sessionId, 'lmstudio/test-cheap');
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-cheap');
+  expect(evaluatorMock).not.toHaveBeenCalled();
+});
+
+test('JEV concierge failure retains the configured route with fallback evidence', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig(draft => { draft.routing.concierge.enabled = true; draft.routing.concierge.model = 'jev/jev-latest'; draft.routing.showRoutingInfo = true; });
+  evaluatorMock.mockResolvedValue({ version: 1, provider: 'jev', mode: 'active', status: 'fallback', reason: 'credential-missing', model: 'jev-latest', durationMs: 0, inputTokens: null, outputTokens: null, costUsd: null, distributions: null, recommendedTier: null, applied: false });
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const result = await fixture.handleGatewayMessage({ sessionId: 'jev-fallback', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath });
+  expect(result.model).toBe('lmstudio/test-cheap');
+  expect(result.routingTrace?.evaluation).toMatchObject({ applied: false, reason: 'credential-missing' });
+});

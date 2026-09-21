@@ -9,7 +9,7 @@ import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const routingEvaluatorMock = vi.hoisted(() => vi.fn());
-vi.mock('../src/gateway/routing-evaluator.js', () => ({ evaluateConfiguredRouting: routingEvaluatorMock }));
+vi.mock('../src/gateway/routing-evaluator.js', () => ({ evaluateConfiguredRouting: routingEvaluatorMock, isJevAvailable: () => false }));
 
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
@@ -11831,6 +11831,15 @@ describe('gateway HTTP server', () => {
     );
     expect(res.body).toContain('event: overview');
     expect(res.body).toContain('event: status');
+  });
+
+  test('admin routing status exposes only credential availability', async () => {
+    const state = await importFreshHealth();
+    const res = makeResponse();
+    state.handler(makeRequest({ method: 'GET', url: '/api/admin/routing/status' }) as never, res as never);
+    await settle();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ jevAvailable: false });
   });
 
   test('admin routing playground validates disclosure before evaluation', async () => {

@@ -78,6 +78,11 @@ export default {
       id: 'urgency-router',
       priority: 0,
       async routing(context) {
+        const live = api.getRoutingConfig?.()?.concierge;
+        if (live) config = { ...config, ...live };
+        // Typed JEV decisions run in the gateway so they share disclosure checks,
+        // tier escalation, cancellation, and persisted per-turn accounting.
+        if (config.model.startsWith('jev/')) return { action: 'allow' };
         const content = getRoutingText(context);
         const pendingState = await pending.get(context.sessionId);
 

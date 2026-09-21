@@ -87,3 +87,36 @@ describe('routing tags', () => {
     expect(screen.queryByText('30 tokens')).toBeNull();
   });
 });
+
+it.each([true, false])(
+  'shows whether a JEV recommendation was applied (%s)',
+  (applied) => {
+    render(
+      <RoutingTags
+        trace={{
+          ...trace(),
+          mode: 'concierge',
+          evaluation: {
+            version: 1,
+            provider: 'jev',
+            mode: 'active',
+            status: 'evaluated',
+            reason: 'capability-recommendation',
+            model: 'jev-test',
+            durationMs: 20,
+            inputTokens: 10,
+            outputTokens: 5,
+            costUsd: null,
+            distributions: null,
+            recommendedTier: 'advanced',
+            applied,
+          },
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(`JEV · ${applied ? 'Selected' : 'Suggested'} advanced`),
+    ).not.toBeNull();
+    expect(screen.getByText('Concierge')).not.toBeNull();
+  },
+);

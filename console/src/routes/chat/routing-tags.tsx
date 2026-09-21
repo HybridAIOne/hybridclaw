@@ -35,7 +35,7 @@ const MODE_DESCRIPTIONS = {
   direct:
     'Used the selected model directly, without concierge or tier-based selection.',
   concierge:
-    'The concierge selected the model based on your execution preference.',
+    'The concierge evaluated this request; expand to inspect its decision and execution.',
   tiered:
     'Selected through the configured routing tiers; expand to inspect each attempt.',
 };
@@ -72,6 +72,19 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
         <span className={css.tag} title={MODE_DESCRIPTIONS[trace.mode]}>
           {running && !execution.length ? 'Routing' : MODE_LABELS[trace.mode]}
         </span>
+        {trace.evaluation ? (
+          <span
+            className={css.tag}
+            title={`${trace.evaluation.model}: ${trace.evaluation.reason.replaceAll('-', ' ')}`}
+          >
+            {trace.evaluation.provider.toUpperCase()} ·{' '}
+            {trace.evaluation.applied
+              ? `Selected ${trace.evaluation.recommendedTier}`
+              : trace.evaluation.recommendedTier
+                ? `Suggested ${trace.evaluation.recommendedTier}`
+                : trace.evaluation.reason.replaceAll('-', ' ')}
+          </span>
+        ) : null}
         {selected ? (
           <span className={css.model} data-zone={selected.zone}>
             <span className={css.routeDot} aria-hidden="true" />

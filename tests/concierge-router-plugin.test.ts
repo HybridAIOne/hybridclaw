@@ -168,3 +168,13 @@ test('concierge webhook requires authorization and matching pending user', async
     }),
   );
 });
+
+test('JEV selection bypasses urgency prompts and observes live admin selection', async () => {
+  const homeDir = await makeTempDir('hybridclaw-concierge-jev-');
+  try {
+    const api = { ...makeApi(homeDir), getRoutingConfig: () => ({ concierge: { enabled: true, model: 'jev/jev-latest' } }) };
+    conciergeRouterPlugin.register(api);
+    const middleware = api.registerMiddleware.mock.calls[0][0];
+    expect(await middleware.routing({ sessionId: 'jev-session', isInteractiveSource: true, requestContent: 'Prepare a detailed strategy for our product launch.' })).toEqual({ action: 'allow' });
+  } finally { await fs.rm(homeDir, { recursive: true, force: true }); }
+});

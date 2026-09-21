@@ -1411,6 +1411,15 @@ async function handleGatewayMessageInner(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
   if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
+  const conciergeConfig = getRuntimeConfig().routing.concierge;
+  const jevConcierge =
+    conciergeConfig.enabled &&
+    conciergeConfig.model.startsWith('jev/') &&
+    isInteractiveSource &&
+    !explicitModelPinned;
+  const stickyConciergeTier = jevConcierge
+    ? peekStickyModelRoutingTier(req.sessionId)
+    : undefined;
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
   let manuallyEscalatedRouting = false;
@@ -1544,7 +1553,7 @@ async function handleGatewayMessageInner(
     } else {
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
-    if (tierRoutingMetadata?.startTier) {
+    if (tierRoutingMetadata?.startTier && !routingMetadata) {
       manuallyEscalatedRouting =
         tierRoutingMetadata.reason === 'manual-escalate';
       tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
@@ -1561,9 +1570,10 @@ async function handleGatewayMessageInner(
       }
     }
   }
-  if (getRuntimeConfig().routing.evaluator.mode !== 'off') {
+  if (jevConcierge || getRuntimeConfig().routing.evaluator.mode !== 'off') {
     const evaluation = await evaluateConfiguredRouting({
       text: req.content,
+      concierge: jevConcierge,
       hasPrivateContext: Boolean(
         media.length ||
           contextRefResult.message !== userTurnContent ||
@@ -1574,13 +1584,14 @@ async function handleGatewayMessageInner(
     evaluation.applied = false;
     if (
       evaluation.mode === 'active' &&
-      getRuntimeConfig().routing.evaluator.mode === 'active' &&
+      (jevConcierge ||
+        getRuntimeConfig().routing.evaluator.mode === 'active') &&
       evaluation.recommendedTier &&
       getRuntimeConfig().routing.tiers.some(
         (tier) => tier.name === evaluation.recommendedTier,
       ) &&
       !explicitModelPinned &&
-      !getRuntimeConfig().routing.concierge.enabled &&
+      (jevConcierge || !getRuntimeConfig().routing.concierge.enabled) &&
       tierRoutingLadder &&
       !tierRoutingLadder.exhausted
     ) {
@@ -1589,7 +1600,8 @@ async function handleGatewayMessageInner(
       });
       if (
         !candidate.exhausted &&
-        candidate.startIndex >= tierRoutingLadder.startIndex
+        (candidate.startIndex >= tierRoutingLadder.startIndex ||
+          (jevConcierge && !manuallyEscalatedRouting && !stickyConciergeTier))
       ) {
         tierRoutingLadder = candidate;
         model = candidate.tiers[candidate.startIndex]?.models[0] || model;
@@ -2300,7 +2312,7 @@ async function handleGatewayMessageInner(
           chatbotId: string;
         }
       >();
-      setRoutingTraceMode('tiered');
+      setRoutingTraceMode(jevConcierge ? 'concierge' : 'tiered');
       const routed = await executeModelRouting({
         ladder: tierRoutingLadder,
         agentId,

@@ -76,3 +76,10 @@ describe('typed evaluator', () => {
     for (const change of [{ mode: 'bogus' }, { timeoutMs: 0 }, { minConfidence: 2 }, { publicPrompts: [''] }]) expect(() => normalizeRoutingEvaluator(change)).toThrow();
   });
 });
+
+test.each(['pii', 'confidentiality', 'capability', 'task', 'urgency'])('confidence gating uses routing-relevant dimensions: %s', async dimension => {
+  const raw = response();
+  raw.answers[dimension].confidence = 0.2;
+  const result = await evaluateRouting({ text: 'Explain photosynthesis', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(raw) } });
+  expect(result.recommendedTier).toBe(['task', 'urgency'].includes(dimension) ? 'one' : null);
+});
