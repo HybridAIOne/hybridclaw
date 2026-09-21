@@ -34,10 +34,9 @@ export function toolResultForHistory(message, sessionId, resultPath) {
   )
     return message;
   const transcript = `.session-transcripts/${sessionTranscriptFilename(sessionId)}`;
-  const callId = JSON.stringify(message.tool_call_id);
   let marker = resultPath
-    ? `\n\n[Tool result truncated. Full result saved to ${resultPath}; read it with offset/limit or grep it. After this turn it is also retained in ${transcript}, tool_call_id=${callId}, searchable with session_search.]\n\n`
-    : `\n\n[Tool result truncated. Full result is retained after this turn in ${transcript}, tool_call_id=${callId}. Use read or session_search to retrieve it.]\n\n`;
+    ? `\n\n[Tool result truncated. Full result saved to ${resultPath}; read it with offset/limit or grep it.]\n\n`
+    : `\n\n[Tool result truncated. Full result is retained after this turn in ${transcript}, tool_call_id=${JSON.stringify(message.tool_call_id)}. Use read or session_search to retrieve it.]\n\n`;
   if (marker.length >= TOOL_HISTORY_RESULT_MAX_CHARS) {
     marker =
       '\n\n[Tool result truncated. Use session_search with include_current=true to retrieve the full result after this turn.]\n\n';

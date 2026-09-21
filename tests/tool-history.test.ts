@@ -42,8 +42,7 @@ describe('persistent tool history', () => {
       TOOL_HISTORY_RESULT_MAX_CHARS,
     );
     expect(visible.content).toContain('.tool-results/session-a/a.txt');
-    expect(visible.content).toContain('.session-transcripts/session-a.jsonl');
-    expect(visible.content).toContain('tool_call_id="a"');
+    expect(visible.content).not.toContain('.session-transcripts/');
     expect(
       fs.readFileSync(path.join(workspace, '.tool-results/session-a/a.txt'), 'utf8'),
     ).toBe(full.content);
