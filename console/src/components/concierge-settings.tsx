@@ -11,13 +11,7 @@ import type { ChatModel } from '../api/types';
 import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from './card';
+import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { NativeSelect } from './native-select';
 import styles from './routing-configuration.module.css';
 import { Switch } from './switch';
@@ -101,9 +95,6 @@ export function ConciergeSettings({ models }: { models: ChatModel[] }) {
     <Card id="routing-concierge">
       <CardHeader>
         <CardTitle>Routing concierge</CardTitle>
-        <CardDescription>
-          Choose the model that decides where each request goes.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {!value ? (
@@ -147,39 +138,24 @@ export function ConciergeSettings({ models }: { models: ChatModel[] }) {
             </label>
             {!jevAvailable ? (
               <p className={styles.help}>
-                To use JEV, add JEV_API_KEY in{' '}
-                <a href="/admin/secrets">Secrets</a>.
+                Add JEV_API_KEY in <a href="/admin/secrets">Secrets</a>.
               </p>
             ) : null}
             {isJev ? (
               <>
                 <p className={styles.help}>
-                  JEV selects a tier from your model routing ladder using task
-                  capability. Enabling it sends current prompt text to JEV;
-                  history and attachments are excluded. Local sensitive-content
-                  checks may skip evaluation. These checks are not a complete
-                  privacy guarantee.
-                </p>
-                <p className={styles.help}>
-                  Manual model selections and escalation take priority.
-                  Confidence and timeout use the evaluator settings below. If
-                  evaluation fails, the configured starting tier is used.
+                  Sends current prompt text to JEV. Excludes history and
+                  attachments.
                 </p>
                 {!(
                   query.data &&
                   settingValue(query.data.config, 'routing.enabled')
                 ) ? (
-                  <p role="status">
-                    Enable automatic model routing above to apply JEV decisions.
-                  </p>
+                  <p role="status">Enable model routing to use JEV.</p>
                 ) : null}
               </>
             ) : (
               <>
-                <p className={styles.help}>
-                  This concierge classifies urgency and chooses one of these
-                  execution models.
-                </p>
                 {(['asap', 'balanced', 'noHurry'] as const).map(
                   (profile, index) => (
                     <label key={profile} className={styles.field}>

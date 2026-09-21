@@ -10,13 +10,7 @@ import type { AdminConfig, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from './card';
+import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Input } from './input';
 import { NativeSelect } from './native-select';
 import styles from './routing-configuration.module.css';
@@ -151,10 +145,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     <Card id="model-routing">
       <CardHeader>
         <CardTitle>Model routing</CardTitle>
-        <CardDescription>
-          Choose where requests start and which models can take over when a call
-          fails safely.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {!value ? (
@@ -172,11 +162,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               />
               Automatic model routing
             </label>
-            <p className={styles.help}>
-              {value.enabled
-                ? 'Models are tried in order, starting at the selected tier.'
-                : 'Routing is off. Configure your tiers below, then enable it when ready.'}{' '}
-            </p>
             <ol className={styles.tiers}>
               {value.tiers.map((tier, index) => (
                 <li key={tier.id} className={styles.tier}>
@@ -320,10 +305,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               ))}
             </ol>
             {!value.tiers.length ? (
-              <p className={styles.help}>
-                Start with a local model, a cloud model, or both. Each tier is
-                one step in your fallback order.
-              </p>
+              <p className={styles.help}>Add a tier to get started.</p>
             ) : null}
             <Button
               className={styles.addTier}

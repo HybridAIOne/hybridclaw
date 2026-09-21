@@ -14,13 +14,7 @@ import { fetchConfig, requestJson, saveConfig } from '../api/client';
 import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from './card';
+import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Input } from './input';
 import { NativeSelect } from './native-select';
 import { RoutingEvaluation } from './routing-evaluation';
@@ -74,10 +68,6 @@ export function RoutingEvaluatorSettings() {
     <Card id="routing-evaluator">
       <CardHeader>
         <CardTitle>Routing evaluator</CardTitle>
-        <CardDescription>
-          Compare JEV recommendations with your tier routing before letting them
-          influence requests.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <fieldset
@@ -104,9 +94,7 @@ export function RoutingEvaluatorSettings() {
             >
               <option value="off">Off</option>
               <option value="shadow">Shadow — observe only</option>
-              <option value="active">
-                Active — recommend a higher starting tier
-              </option>
+              <option value="active">Active — apply recommendations</option>
             </NativeSelect>
           </label>
           <CanonicalSecretStatus name="JEV_API_KEY" />
@@ -156,10 +144,7 @@ export function RoutingEvaluatorSettings() {
             </div>
           </details>
           <p style={{ color: 'var(--muted-foreground)', margin: 0 }}>
-            Only exact prompts you approve as public can be sent to JEV.
-            Attachments and document context are excluded. Active mode respects
-            manual model choices and existing higher tiers; concierge routing
-            takes precedence.
+            Evaluator uses approved prompts. Concierge settings take priority.
           </p>
           <details>
             <summary>
@@ -301,12 +286,7 @@ export function RoutingEvaluatorSettings() {
             Approve for live evaluation
           </Button>
         </div>
-        {draft ? (
-          <p>
-            Save your settings before evaluating. Approved prompts also take
-            effect only after saving.
-          </p>
-        ) : null}
+        {draft ? <p>Save changes before evaluating.</p> : null}
         {evaluate.isError ? (
           <p role="alert">Could not evaluate the sample.</p>
         ) : null}

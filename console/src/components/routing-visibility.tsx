@@ -6,14 +6,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchConfig, saveConfig } from '../api/client';
 import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from './card';
-import { Field, FieldContent, FieldDescription, FieldLabel } from './field';
+import { Card, CardContent, CardHeader, CardTitle } from './card';
+import { Field, FieldContent, FieldLabel } from './field';
 import { Switch } from './switch';
 import { useToast } from './toast';
 
@@ -46,9 +40,6 @@ export function RoutingVisibility() {
     <Card>
       <CardHeader>
         <CardTitle>Routing transparency</CardTitle>
-        <CardDescription>
-          Show how each response was routed and what it used.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <Field orientation="horizontal">
@@ -63,12 +54,8 @@ export function RoutingVisibility() {
           />
           <FieldContent>
             <FieldLabel htmlFor="show-routing-info">
-              Show routing information in chat
+              Show routing tags in chat
             </FieldLabel>
-            <FieldDescription>
-              Model, location, attempts, tokens, and costs. Usage collection
-              continues when hidden.
-            </FieldDescription>
           </FieldContent>
         </Field>
         {query.isError ? (

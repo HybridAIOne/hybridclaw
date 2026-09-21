@@ -24,7 +24,7 @@ beforeEach(() => {
 it('saves the visibility switch while preserving routing policy', async () => {
   renderWithProviders(<RoutingVisibility />);
   const toggle = await screen.findByRole('switch', {
-    name: 'Show routing information in chat',
+    name: 'Show routing tags in chat',
   });
   await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
   fireEvent.click(toggle);
@@ -39,7 +39,7 @@ it('retains the previous setting if saving fails', async () => {
   mocks.save.mockRejectedValueOnce(new Error('Save rejected'));
   renderWithProviders(<RoutingVisibility />);
   const toggle = await screen.findByRole('switch', {
-    name: 'Show routing information in chat',
+    name: 'Show routing tags in chat',
   });
   await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
   fireEvent.click(toggle);
