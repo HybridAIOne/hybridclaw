@@ -209,6 +209,9 @@ export function settingsOwnerForPath(
   path: string,
 ): AdminConfigSectionOwner | undefined {
   const [section, subpage] = path.split('.');
+  if (section === 'routing' && subpage === 'evaluator') {
+    return { label: 'Routing Evaluator', to: '/admin/routing-evaluator' };
+  }
   if (section === 'channelInstructions' && subpage) {
     return adminChannelOwner(subpage === 'msteams' ? 'teams' : subpage);
   }

@@ -10,7 +10,7 @@ input and returns the same distributions for a future self-hosted adapter.
 
 ## Operator workflow
 
-1. Open **Providers → Routing evaluator** (`/admin/models#routing-evaluator`).
+1. Open **Labs → Routing Evaluator** (`/admin/routing-evaluator`).
 2. Create `JEV_API_KEY` in **Secrets**. The key stays in the existing encrypted
    runtime store; the evaluator also accepts the gateway environment variable.
 3. Use the playground examples. Without explicit public-sample confirmation, a

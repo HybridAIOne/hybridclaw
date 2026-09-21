@@ -20,7 +20,6 @@ import {
   ProviderHealth,
 } from '../components/provider-health';
 import { RoutingConfiguration } from '../components/routing-configuration';
-import { RoutingEvaluatorSettings } from '../components/routing-evaluator-settings';
 import { RoutingVisibility } from '../components/routing-visibility';
 import { useToast } from '../components/toast';
 import { PageHeader, SortableHeader, useSortableRows } from '../components/ui';
@@ -289,7 +288,6 @@ export function ModelsPage() {
       <RoutingConfiguration models={modelsQuery.data?.models ?? []} />
       <RoutingVisibility />
       <ConciergeSettings models={modelsQuery.data?.models ?? []} />
-      <RoutingEvaluatorSettings />
 
       <div className="two-column-grid">
         <ProviderHealth

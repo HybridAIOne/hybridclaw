@@ -116,6 +116,11 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       },
       { to: '/admin/distill', label: 'Distill', icon: Flask },
       {
+        to: '/admin/routing-evaluator',
+        label: 'Routing Evaluator',
+        icon: Flask,
+      },
+      {
         to: '/admin/local-models',
         label: 'Local Models',
         icon: Models,

@@ -29,6 +29,7 @@ import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
+import { RoutingEvaluatorPage } from './routes/routing-evaluator';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
 import { TeamsPage } from './routes/teams';
@@ -381,6 +382,12 @@ const localModelsRoute = createRoute({
   component: LocalModelsPage,
 });
 
+const routingEvaluatorRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/routing-evaluator',
+  component: RoutingEvaluatorPage,
+});
+
 const distillRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/distill',
@@ -586,6 +593,7 @@ const routeTree = rootRoute.addChildren([
     jobsRoute,
     harnessEvolutionRoute,
     distillRoute,
+    routingEvaluatorRoute,
     localModelsRoute,
     connectorsRoute,
     mcpRoute,
