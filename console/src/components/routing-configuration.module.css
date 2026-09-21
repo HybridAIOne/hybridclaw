@@ -18,13 +18,6 @@
   font-size: 0.8125rem;
   line-height: 1.6;
 }
-.help summary {
-  cursor: pointer;
-  width: fit-content;
-}
-.help[open] summary {
-  margin-bottom: 8px;
-}
 .tiers {
   display: grid;
   list-style: none;

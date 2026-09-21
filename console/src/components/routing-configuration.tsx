@@ -370,17 +370,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 </NativeSelect>
               </label>
             ) : null}
-            <details className={styles.help}>
-              <summary>How routing works & how to test</summary>
-              <p className={styles.help}>
-                Models fall back only when a failed call is safe to retry. An
-                agent’s default model starts at its matching tier. A model
-                selected explicitly in chat overrides automatic routing. To
-                test, save and open a chat; use <code>/model clear</code> to
-                clear a manual selection and <code>/escalate</code> to move the
-                next request up one tier.
-              </p>
-            </details>
             {error ? <p role="alert">{error}</p> : null}
             {mutation.isError ? (
               <p role="alert">
