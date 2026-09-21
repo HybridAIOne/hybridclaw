@@ -39,7 +39,7 @@ test('usage aggregates carry prompt cache read and write tokens', async () => {
   recordUsageEvent({
     sessionId: 'session-a',
     agentId: 'alpha',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'openrouter/openai/gpt-5',
     inputTokens: 1_000,
     outputTokens: 200,
     cacheReadTokens: 800,
@@ -48,7 +48,7 @@ test('usage aggregates carry prompt cache read and write tokens', async () => {
   recordUsageEvent({
     sessionId: 'session-a',
     agentId: 'alpha',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'openrouter/openai/gpt-5',
     inputTokens: 500,
     outputTokens: 100,
     cacheReadTokens: 400,
@@ -76,7 +76,7 @@ test('usage aggregates carry prompt cache read and write tokens', async () => {
   const byModel = new Map(
     listUsageByModel({ window: 'all' }).map((row) => [row.model, row]),
   );
-  expect(byModel.get('anthropic/claude-sonnet-5')).toMatchObject({
+  expect(byModel.get('openrouter/openai/gpt-5')).toMatchObject({
     total_cache_read_tokens: 1_200,
     total_cache_write_tokens: 150,
   });
@@ -141,7 +141,7 @@ test('buffered usage flush persists cache tokens and reports them in the batch a
   enqueueTokenUsage({
     sessionId: 'sess-cache',
     agentId: 'agent-x',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'openrouter/openai/gpt-5',
     inputTokens: 1_000,
     outputTokens: 120,
     totalTokens: 1_120,
@@ -150,7 +150,7 @@ test('buffered usage flush persists cache tokens and reports them in the batch a
   enqueueTokenUsage({
     sessionId: 'sess-cache',
     agentId: 'agent-x',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'openrouter/openai/gpt-5',
     inputTokens: 400,
     outputTokens: 80,
     totalTokens: 480,
@@ -245,5 +245,53 @@ test('migrating an existing usage_events table adds cache token columns', async 
     total_input_tokens: 110,
     total_cache_read_tokens: 60,
     total_cache_write_tokens: 5,
+  });
+});
+
+test('native Anthropic rows are stored with cache tokens folded into input', async () => {
+  const dbPath = createTempDbPath();
+  const { getUsageTotals, initDatabase, recordUsageEvent } = await import(
+    '../src/memory/db.js'
+  );
+  initDatabase({ quiet: true, dbPath });
+  const {
+    _resetTokenUsageBufferForTests,
+    enqueueTokenUsage,
+    flushTokenUsageBuffer,
+  } = await import('../src/usage/token-usage-buffer.js');
+  _resetTokenUsageBufferForTests();
+
+  recordUsageEvent({
+    sessionId: 'session-anthropic',
+    agentId: 'alpha',
+    model: 'anthropic/claude-sonnet-5',
+    inputTokens: 1_000,
+    outputTokens: 100,
+    cacheReadTokens: 8_000,
+    cacheWriteTokens: 500,
+  });
+  enqueueTokenUsage({
+    sessionId: 'session-openai',
+    agentId: 'alpha',
+    model: 'openrouter/openai/gpt-5',
+    inputTokens: 9_500,
+    outputTokens: 100,
+    cacheReadTokens: 8_000,
+  });
+  enqueueTokenUsage({
+    sessionId: 'session-anthropic',
+    agentId: 'alpha',
+    model: 'anthropic/claude-sonnet-5',
+    inputTokens: 2_000,
+    outputTokens: 100,
+    cacheReadTokens: 6_000,
+    cacheWriteTokens: 1_000,
+  });
+  await flushTokenUsageBuffer();
+
+  expect(getUsageTotals({ agentId: 'alpha', window: 'all' })).toMatchObject({
+    total_input_tokens: 9_500 + 9_500 + 9_000,
+    total_cache_read_tokens: 22_000,
+    total_cache_write_tokens: 1_500,
   });
 });

@@ -473,6 +473,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { cacheHitRatio } from '../usage/cache-accounting.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
   estimateModelUsageCostUsd,
@@ -1551,17 +1552,14 @@ function formatUsageTokenBreakdown(row: {
   total_cache_read_tokens: number;
   total_cache_write_tokens: number;
 }): string {
-  const parts = [
-    `${formatCompactNumber(row.total_input_tokens)} in`,
-    `${formatCompactNumber(row.total_output_tokens)} out`,
-  ];
-  if (row.total_cache_read_tokens > 0 || row.total_cache_write_tokens > 0) {
-    parts.push(
-      `${formatCompactNumber(row.total_cache_read_tokens)} cached`,
-      `${formatCompactNumber(row.total_cache_write_tokens)} cache-write`,
-    );
-  }
-  return parts.join(' / ');
+  const breakdown = `${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out`;
+  const hitRatio = cacheHitRatio(
+    row.total_input_tokens,
+    row.total_cache_read_tokens,
+  );
+  return hitRatio == null
+    ? breakdown
+    : `${breakdown} · ${Math.round(hitRatio * 100)}% cached`;
 }
 
 function mapUsageSummary(value: {

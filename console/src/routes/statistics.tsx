@@ -121,7 +121,6 @@ export function StatisticsPage(
             inputTokens: totals.totalInputTokens,
             outputTokens: totals.totalOutputTokens,
             cacheReadTokens: totals.totalCacheReadTokens,
-            cacheWriteTokens: totals.totalCacheWriteTokens,
           })}
         />
         <MetricCard

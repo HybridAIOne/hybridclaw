@@ -3,6 +3,9 @@ import {
   refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { promptTokensIncludeCacheTokens } from './cache-accounting.js';
+
+export { promptTokensIncludeCacheTokens };
 
 interface UsageTokenCounts {
   promptTokens?: unknown;
@@ -70,16 +73,6 @@ export function explicitUsageCostSource(
     ]) !== null
     ? 'reported'
     : 'estimated';
-}
-
-/**
- * Native Anthropic usage reports `input_tokens` as the uncached remainder,
- * with cache reads and writes counted separately. OpenAI-style providers
- * (including OpenRouter and HybridAI relays) fold cached tokens into
- * `prompt_tokens`, so the cached share has to be carved out before pricing.
- */
-export function promptTokensIncludeCacheTokens(model: string): boolean {
-  return !model.trim().toLowerCase().startsWith('anthropic/');
 }
 
 export function estimateModelUsageCostUsd(

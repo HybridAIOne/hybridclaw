@@ -385,8 +385,6 @@ export function ModelsPage() {
                                   model.usageMonthly.totalOutputTokens ?? 0,
                                 cacheReadTokens:
                                   model.usageMonthly.totalCacheReadTokens,
-                                cacheWriteTokens:
-                                  model.usageMonthly.totalCacheWriteTokens,
                               })}
                             </small>
                             <small>
@@ -442,8 +440,6 @@ export function ModelsPage() {
                           outputTokens: model.usageDaily.totalOutputTokens ?? 0,
                           cacheReadTokens:
                             model.usageDaily.totalCacheReadTokens,
-                          cacheWriteTokens:
-                            model.usageDaily.totalCacheWriteTokens,
                         })}{' '}
                         · {pluralize(model.usageDaily.callCount, 'call')} today
                       </small>

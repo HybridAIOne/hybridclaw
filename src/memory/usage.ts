@@ -13,6 +13,7 @@ import type {
   UsageTotals,
   UsageWindow,
 } from '../types/usage.js';
+import { toInclusiveInputTokens } from '../usage/cache-accounting.js';
 import {
   normalizeNonNegativeInteger,
   normalizeNonNegativeNumber,
@@ -301,7 +302,7 @@ function getUsageEventBatchInsertStatement(): Database.Statement {
 }
 
 export function recordUsageEvent(params: RecordUsageEventEntry): void {
-  const row = normalizeUsageEntry(params);
+  const row = normalizeUsageEntry(toInclusiveInputTokens(params));
   if (!row) return;
 
   getUsageDatabase()

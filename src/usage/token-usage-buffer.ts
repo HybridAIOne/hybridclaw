@@ -31,6 +31,7 @@ import {
 } from '../memory/db.js';
 import type { ModelRoutingZone } from '../providers/model-routing.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { toInclusiveInputTokens } from './cache-accounting.js';
 
 export interface TokenUsageEvent {
   sessionId: string;
@@ -421,7 +422,8 @@ function prepareUsageBatchGroups(
   batch: TokenUsageEvent[],
 ): PreparedUsageBatchGroup[] {
   const grouped = new Map<string, PreparedUsageEvent[]>();
-  for (const event of batch) {
+  for (const queued of batch) {
+    const event = toInclusiveInputTokens(queued);
     const sessionId = resolveSessionIdCompat(event.sessionId.trim());
     const agentId = event.agentId.trim();
     if (!sessionId || !agentId) continue;

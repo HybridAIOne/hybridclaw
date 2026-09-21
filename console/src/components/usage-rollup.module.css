@@ -15,7 +15,6 @@
   font-size: 0.9rem;
   line-height: 1.5;
   color: color-mix(in srgb, var(--text) 70%, transparent);
-  font-variant-numeric: tabular-nums;
 }
 
 .summary strong {
@@ -35,7 +34,7 @@
 .metric {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -46,83 +45,157 @@
 }
 
 .metricValue {
-  font-size: 0.95rem;
+  font-size: 1.15rem;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.metricDetail {
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.segUncached {
+  background: var(--chart-input);
+}
+
+.segCached {
+  background: var(--chart-input-cached);
+}
+
+.segCacheWrite {
+  background: var(--chart-cache-write);
+}
+
+.segOutput {
+  background: var(--chart-output);
+}
+
 .chart {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 0.74rem;
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
 }
 
 .chartCanvas {
   position: relative;
-  width: 100%;
+  height: 128px;
+  margin-top: 4px;
+  padding-left: 3.4em;
 }
 
-.chartSvg {
-  display: block;
-  width: 100%;
-  height: 72px;
-  overflow: visible;
-}
-
-.area {
-  fill: var(--primary);
-  fill-opacity: 0.1;
-}
-
-.line {
-  fill: none;
-  stroke: var(--primary);
-  stroke-opacity: 0.72;
-  stroke-width: 2.25;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.pointTarget {
-  outline: none;
-}
-
-.point {
-  fill: transparent;
-  stroke: transparent;
-}
-
-.pointTarget:focus-visible .point {
-  fill: var(--panel);
-  stroke: var(--primary);
-  stroke-width: 2;
-}
-
-.crosshair {
-  stroke: color-mix(in srgb, var(--primary) 48%, transparent);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
+.gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   pointer-events: none;
+}
+
+.gridline span {
+  position: absolute;
+  left: 0;
+  top: -0.55em;
+  width: 3em;
+  text-align: right;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.columns {
+  position: absolute;
+  inset: 0 0 0 3.4em;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+}
+
+.column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  outline: none;
+  cursor: default;
+}
+
+.stack {
+  width: min(24px, 62%);
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  height: 100%;
+  gap: 2px;
+}
+
+.segment {
+  flex: 0 0 auto;
+  min-height: 1px;
+  transition: opacity 120ms ease;
+}
+
+.stack .segment:last-child {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+.column[data-active] .segment,
+.column:focus-visible .segment {
+  filter: brightness(1.15);
 }
 
 .tooltip {
   position: absolute;
-  top: -32px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--panel-muted);
+  top: 6px;
+  display: grid;
+  gap: 2px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--popover);
   border: 1px solid var(--line);
+  box-shadow: var(--shadow-popover);
   white-space: nowrap;
   pointer-events: none;
-  font-size: 0.75rem;
-  line-height: 1.2;
+  font-size: 0.74rem;
+  line-height: 1.3;
   transform: translateX(-50%);
   z-index: 1;
 }
@@ -135,14 +208,50 @@
   transform: translateX(-100%);
 }
 
-.tooltipLabel {
-  color: color-mix(in srgb, var(--text) 60%, transparent);
+.tooltipTitle {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+.tooltipTotal {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltipRow {
+  display: grid;
+  grid-template-columns: 10px 4.2em 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.lineKey {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
 }
 
 .tooltipValue {
   color: var(--text);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.tooltipLabel {
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.tooltipHit {
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--text) 75%, transparent);
 }
 
 .axis {
@@ -153,41 +262,60 @@
   color: color-mix(in srgb, var(--text) 50%, transparent);
 }
 
-.topModels {
+.models {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content 5.25rem;
-  column-gap: 12px;
-  row-gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 1.2fr) 4.5em 6.5em 5em;
+  column-gap: 14px;
+  row-gap: 8px;
 }
 
-.topModelRow {
+.modelRow {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-  align-items: baseline;
+  align-items: center;
   font-size: 0.85rem;
 }
 
-.topModelName {
+.modelName {
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.topModelDetail {
-  color: color-mix(in srgb, var(--text) 55%, transparent);
+.modelBar {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.modelBarFill {
+  display: flex;
+  height: 100%;
+  gap: 2px;
+}
+
+.modelSegment {
+  flex: 0 0 auto;
+  min-width: 2px;
+}
+
+.modelTokens,
+.modelCost {
+  color: var(--text);
   font-variant-numeric: tabular-nums;
-  min-width: 0;
   text-align: right;
   white-space: nowrap;
 }
 
-.topModelCost {
-  color: var(--text);
+.modelHit {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -197,5 +325,14 @@
   .ribbon {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px 20px;
+  }
+
+  .models {
+    grid-template-columns: minmax(0, 1fr) 4.5em 5em;
+  }
+
+  .modelBar,
+  .modelHit {
+    display: none;
   }
 }
