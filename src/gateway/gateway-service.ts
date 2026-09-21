@@ -743,6 +743,8 @@ const ADMIN_AGENT_MARKDOWN_FILES = [
   ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
   ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
 ] as const;
+// Mirrors DAILY_MEMORY_FILE_RE in container/src/tools.ts, the only path the memory tool can write.
+const ADMIN_AGENT_MEMORY_NOTE_FILE_PATTERN = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
   ADMIN_AGENT_MARKDOWN_FILES,
 );
@@ -1574,7 +1576,10 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   value: string,
 ): AdminAgentMarkdownFileName {
   const normalized = value.trim();
-  if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
+  if (
+    !ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized) &&
+    !ADMIN_AGENT_MEMORY_NOTE_FILE_PATTERN.test(normalized)
+  ) {
     throw new Error(
       `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
@@ -1717,10 +1722,35 @@ function mapGatewayAdminAgentMarkdownFile(params: {
   return {
     name: params.fileName,
     path: filePath,
+    ...(ADMIN_AGENT_MEMORY_NOTE_FILE_PATTERN.test(params.fileName)
+      ? { readOnly: true }
+      : {}),
     exists: stats.exists,
     updatedAt: stats.updatedAt,
     sizeBytes: stats.sizeBytes,
   };
+}
+
+function listGatewayAdminAgentMemoryNoteFileNames(
+  workspacePath: string,
+): string[] {
+  const memoryDir = path.join(workspacePath, 'memory');
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(memoryDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') return [];
+    throw error;
+  }
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        ADMIN_AGENT_MEMORY_NOTE_FILE_PATTERN.test(`memory/${entry.name}`),
+    )
+    .map((entry) => `memory/${entry.name}`)
+    .sort((a, b) => b.localeCompare(a));
 }
 
 function getGatewayAdminAgentMarkdownFilePresenceStats(
@@ -1798,18 +1828,28 @@ function mapGatewayAdminAgent(
     peers: Array.isArray(resolved.peers) ? [...resolved.peers] : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
-      (fileName) =>
-        options?.markdownFileOverrides?.[fileName] ||
-        mapGatewayAdminAgentMarkdownFile({
-          agentId: resolved.id,
-          workspacePath,
-          fileName,
-          stats: isGatewayAdminLocalMarkdownFileName(fileName)
-            ? options?.markdownFileStats?.[fileName]
-            : undefined,
-        }),
-    ),
+    markdownFiles: [
+      ...ADMIN_AGENT_MARKDOWN_FILES.map(
+        (fileName) =>
+          options?.markdownFileOverrides?.[fileName] ||
+          mapGatewayAdminAgentMarkdownFile({
+            agentId: resolved.id,
+            workspacePath,
+            fileName,
+            stats: isGatewayAdminLocalMarkdownFileName(fileName)
+              ? options?.markdownFileStats?.[fileName]
+              : undefined,
+          }),
+      ),
+      ...listGatewayAdminAgentMemoryNoteFileNames(workspacePath).map(
+        (fileName) =>
+          mapGatewayAdminAgentMarkdownFile({
+            agentId: resolved.id,
+            workspacePath,
+            fileName: fileName as AdminAgentMarkdownFileName,
+          }),
+      ),
+    ],
   };
 }
 

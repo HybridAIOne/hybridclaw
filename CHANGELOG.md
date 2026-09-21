@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Admin console lists daily memory notes**: The agent files view now
+  includes `memory/YYYY-MM-DD.md`, read-only and newest first, so the one
+  place the memory tool can persist standing rules is finally visible.
+
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 
 ### Added

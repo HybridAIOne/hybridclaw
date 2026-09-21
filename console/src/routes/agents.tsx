@@ -204,7 +204,11 @@ export function AgentFilesPage(
     (file) => !file.readOnly,
   );
   const sharedMemoryFiles = selectedAgent?.markdownFiles.filter(
-    (file) => file.readOnly,
+    (file) => file.readOnly && file.cloudPath,
+  );
+  // Daily notes: the one path the memory tool can write, surfaced read-only (#1465).
+  const memoryNoteFiles = selectedAgent?.markdownFiles.filter(
+    (file) => file.readOnly && !file.cloudPath,
   );
   const selectedFileReadOnly = Boolean(selectedFileMetadata?.readOnly);
   const selectedFileDisplayName = selectedFileMetadata
@@ -444,6 +448,15 @@ export function AgentFilesPage(
                       ))}
                     </NativeSelectOptGroup>
                   ) : null}
+                  {memoryNoteFiles?.length ? (
+                    <NativeSelectOptGroup label="Memory notes">
+                      {memoryNoteFiles.map((file) => (
+                        <NativeSelectOption key={file.name} value={file.name}>
+                          {getMarkdownFileDisplayName(file)}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelectOptGroup>
+                  ) : null}
                 </NativeSelect>
               </Field>
             </div>
@@ -453,7 +466,9 @@ export function AgentFilesPage(
                 <p className="supporting-text agent-file-meta-line">
                   {selectedFileMetadata?.exists
                     ? selectedFileMetadata.readOnly
-                      ? `${selectedFileMetadata.cloudPath || selectedFileMetadata.path} · read-only cloud memory cache`
+                      ? selectedFileMetadata.cloudPath
+                        ? `${selectedFileMetadata.cloudPath} · read-only cloud memory cache`
+                        : `${selectedFileMetadata.path} · read-only memory note`
                       : selectedFileMetadata.updatedAt
                         ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}`
                         : selectedFileMetadata.path

@@ -765,3 +765,72 @@ test('reuses the target markdown file state within a restore request', async () 
     readdirSpy.mockRestore();
   }
 });
+
+test('lists agent daily memory notes newest-first and serves them read-only', async () => {
+  setupHome();
+
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const {
+    getGatewayAdminAgentMarkdownFile,
+    getGatewayAdminAgents,
+    saveGatewayAdminAgentMarkdownFile,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  const memoryDir = path.join(agentWorkspaceDir('main'), 'memory');
+  fs.mkdirSync(memoryDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(memoryDir, '2026-09-01.md'),
+    '# 2026-09-01\n\n- Oldest note.',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(memoryDir, '2026-09-03.md'),
+    '# 2026-09-03\n\n- Newest note.',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(memoryDir, '2026-09-02.md'),
+    '# 2026-09-02\n\n- Middle note.',
+    'utf-8',
+  );
+
+  const response = getGatewayAdminAgents();
+  const mainAgent = response.agents.find((agent) => agent.id === 'main');
+  const memoryNotes = mainAgent?.markdownFiles.filter((file) =>
+    file.name.startsWith('memory/'),
+  );
+
+  expect(memoryNotes?.map((file) => file.name)).toEqual([
+    'memory/2026-09-03.md',
+    'memory/2026-09-02.md',
+    'memory/2026-09-01.md',
+  ]);
+  expect(memoryNotes?.every((file) => file.readOnly && file.exists)).toBe(
+    true,
+  );
+
+  const loaded = getGatewayAdminAgentMarkdownFile(
+    'main',
+    'memory/2026-09-02.md',
+  );
+  expect(loaded.file.content).toBe('# 2026-09-02\n\n- Middle note.');
+  expect(() =>
+    saveGatewayAdminAgentMarkdownFile({
+      agentId: 'main',
+      fileName: 'memory/2026-09-02.md',
+      content: '# Changed\n',
+    }),
+  ).toThrow('is read-only');
+});
+
+test('rejects a memory note path that attempts traversal', async () => {
+  setupHome();
+
+  const { getGatewayAdminAgentMarkdownFile } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  expect(() =>
+    getGatewayAdminAgentMarkdownFile('main', 'memory/../SOUL.md'),
+  ).toThrow('Unsupported markdown file "memory/../SOUL.md"');
+});
