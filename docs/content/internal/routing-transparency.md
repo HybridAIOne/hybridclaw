@@ -92,3 +92,9 @@ In web chat, `/escalate <prompt>` runs the supplied prompt immediately using the
 normal streamed response and progress events. Bare `/escalate` queues escalation
 for the next unpinned turn. A refused command does not dispatch the inline prompt;
 secret-command guards apply before escalation is queued.
+
+Successful manual escalations retain the resulting tier for the configured
+`routing.escalationStickyTurns`, just like automatic fallbacks. Repeating
+`/escalate` during that window advances from the retained tier and stops at the
+highest tier. Failed manual attempts do not establish a new retained tier.
+This temporary session state is cleared on gateway restart.

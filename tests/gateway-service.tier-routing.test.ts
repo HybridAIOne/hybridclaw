@@ -266,3 +266,44 @@ test('a heartbeat turn starts on the bottom rung', async () => {
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   expect(runAgentMock.mock.calls[0]?.[0].model).toBe('lmstudio/test-cheap');
 });
+
+test('successive manual escalations advance from the last successful tier and stop at the top', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.tiers.push({ name: 'advanced', models: ['lmstudio/test-frontier'] });
+  });
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const { handleGatewayCommand } = await import('../src/gateway/gateway-service.ts');
+  const { peekStickyModelRoutingTier } = await import('../src/gateway/model-routing-state.ts');
+  const request = {
+    sessionId: 'session-manual-escalation', guildId: null, channelId: 'tui',
+    userId: 'user-1', username: 'user', content: 'Explain photosynthesis.',
+    chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath,
+  };
+  await fixture.handleGatewayMessage(request);
+  for (const tier of ['general', 'advanced', 'advanced']) {
+    await handleGatewayCommand({ ...request, args: ['escalate'] });
+    await fixture.handleGatewayMessage(request);
+    expect(peekStickyModelRoutingTier(request.sessionId)).toBe(tier);
+  }
+  expect(runAgentMock.mock.calls.map(([params]) => params.model)).toEqual([
+    'lmstudio/test-cheap', 'lmstudio/test-strong', 'lmstudio/test-frontier', 'lmstudio/test-frontier',
+  ]);
+});
+
+test('does not remember an unsuccessful manual escalation', async () => {
+  const fixture = await createFixture();
+  runAgentMock.mockResolvedValue({ status: 'error', result: '', error: 'Provider returned HTTP 503', toolsUsed: [], toolExecutions: [] });
+  const { handleGatewayCommand } = await import('../src/gateway/gateway-service.ts');
+  const { peekStickyModelRoutingTier } = await import('../src/gateway/model-routing-state.ts');
+  const request = {
+    sessionId: 'session-manual-escalation-failed', guildId: null, channelId: 'tui',
+    userId: 'user-1', username: 'user', content: 'Explain photosynthesis.',
+    chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath,
+  };
+  await handleGatewayCommand({ ...request, args: ['escalate'] });
+  const result = await fixture.handleGatewayMessage(request);
+  expect(result.status).toBe('error');
+  expect(runAgentMock.mock.calls.map(([params]) => params.model)).toEqual(['lmstudio/test-strong']);
+  expect(peekStickyModelRoutingTier(request.sessionId)).toBeUndefined();
+});

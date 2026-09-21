@@ -1410,6 +1410,7 @@ async function handleGatewayMessageInner(
   if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
+  let manuallyEscalatedRouting = false;
   if (pluginManager?.hasMiddleware('routing')) {
     const stickyTier = isInteractiveSource
       ? peekStickyModelRoutingTier(req.sessionId)
@@ -1541,6 +1542,8 @@ async function handleGatewayMessageInner(
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
     if (tierRoutingMetadata?.startTier) {
+      manuallyEscalatedRouting =
+        tierRoutingMetadata.reason === 'manual-escalate';
       tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
         startTier: tierRoutingMetadata.startTier,
       });
@@ -2304,7 +2307,8 @@ async function handleGatewayMessageInner(
         onApprovalProgress(approval);
       }
       if (
-        routed.escalated &&
+        (routed.escalated ||
+          (manuallyEscalatedRouting && output.status === 'success')) &&
         getRuntimeConfig().routing.escalationStickyTurns
       ) {
         setStickyModelRoutingTier(
