@@ -739,6 +739,9 @@ const ADMIN_AGENT_SHARED_MEMORY_FILES = [
     cloudPath: '/MEMORY.md',
   },
 ] as const;
+const ADMIN_AGENT_DAILY_MEMORY_DIRNAME = 'memory';
+const ADMIN_AGENT_DAILY_MEMORY_ENTRY_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
+const ADMIN_AGENT_DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ADMIN_AGENT_MARKDOWN_FILES = [
   ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
   ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
@@ -753,7 +756,10 @@ const ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME = new Map<
   string,
   (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number]
 >(ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => [file.name, file]));
-type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
+type AdminAgentDailyMemoryFileName = `memory/${string}.md`;
+type AdminAgentMarkdownFileName =
+  | (typeof ADMIN_AGENT_MARKDOWN_FILES)[number]
+  | AdminAgentDailyMemoryFileName;
 type AdminAgentLocalMarkdownFileName =
   (typeof ADMIN_AGENT_LOCAL_MARKDOWN_FILES)[number];
 type AdminAgentSharedMemoryFile =
@@ -1574,12 +1580,21 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   value: string,
 ): AdminAgentMarkdownFileName {
   const normalized = value.trim();
-  if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
+  if (
+    !ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized) &&
+    !ADMIN_AGENT_DAILY_MEMORY_FILE_RE.test(normalized)
+  ) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}, memory/YYYY-MM-DD.md`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
+}
+
+function isGatewayAdminDailyMemoryFileName(
+  fileName: AdminAgentMarkdownFileName,
+): fileName is AdminAgentDailyMemoryFileName {
+  return ADMIN_AGENT_DAILY_MEMORY_FILE_RE.test(fileName);
 }
 
 function isGatewayAdminLocalMarkdownFileName(
@@ -1592,6 +1607,9 @@ function normalizeGatewayAdminAgentLocalMarkdownFileName(
   value: string,
 ): AdminAgentLocalMarkdownFileName {
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(value);
+  if (isGatewayAdminDailyMemoryFileName(fileName)) {
+    throw new Error(`Daily memory file "${fileName}" is read-only.`);
+  }
   if (!isGatewayAdminLocalMarkdownFileName(fileName)) {
     throw new Error(`Shared markdown file "${fileName}" is read-only.`);
   }
@@ -1612,12 +1630,14 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
   sharedMemoryFile: AdminAgentSharedMemoryFile | null;
+  dailyMemoryFile: boolean;
   workspacePath: string;
   filePath: string;
 } {
   const agent = getGatewayAdminAgentConfig(params.agentId);
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
   const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(fileName);
+  const dailyMemoryFile = isGatewayAdminDailyMemoryFileName(fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
   const filePath = sharedMemoryFile
@@ -1628,6 +1648,7 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
     resolvedAgent,
     fileName,
     sharedMemoryFile,
+    dailyMemoryFile,
     workspacePath,
     filePath,
   };
@@ -1706,6 +1727,7 @@ function mapGatewayAdminAgentMarkdownFile(params: {
       path: `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`,
       scope: sharedMemoryFile.scope,
       cloudPath: sharedMemoryFile.cloudPath,
+      kind: 'shared-memory',
       readOnly: true,
       exists: stats.exists,
       updatedAt: stats.updatedAt,
@@ -1714,6 +1736,19 @@ function mapGatewayAdminAgentMarkdownFile(params: {
   }
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
+  if (isGatewayAdminDailyMemoryFileName(params.fileName)) {
+    return {
+      name: params.fileName,
+      displayName: path.basename(params.fileName, '.md'),
+      path: filePath,
+      scope: 'agent',
+      kind: 'daily-memory',
+      readOnly: true,
+      exists: stats.exists,
+      updatedAt: stats.updatedAt,
+      sizeBytes: stats.sizeBytes,
+    };
+  }
   return {
     name: params.fileName,
     path: filePath,
@@ -1757,6 +1792,32 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
   );
 }
 
+function listGatewayAdminAgentDailyMemoryFileNames(
+  workspacePath: string,
+): AdminAgentDailyMemoryFileName[] {
+  const memoryDir = path.join(workspacePath, ADMIN_AGENT_DAILY_MEMORY_DIRNAME);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(memoryDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+      return [];
+    }
+    throw error;
+  }
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile() && ADMIN_AGENT_DAILY_MEMORY_ENTRY_RE.test(entry.name),
+    )
+    .map(
+      (entry): AdminAgentDailyMemoryFileName =>
+        `${ADMIN_AGENT_DAILY_MEMORY_DIRNAME}/${entry.name}` as AdminAgentDailyMemoryFileName,
+    )
+    .sort((left, right) => right.localeCompare(left));
+}
+
 function mapGatewayAdminAgent(
   agent: AgentConfig,
   options?: {
@@ -1798,7 +1859,11 @@ function mapGatewayAdminAgent(
     peers: Array.isArray(resolved.peers) ? [...resolved.peers] : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
+    markdownFiles: [
+      ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+      ...listGatewayAdminAgentDailyMemoryFileNames(workspacePath),
+      ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
+    ].map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -1807,7 +1872,9 @@ function mapGatewayAdminAgent(
           fileName,
           stats: isGatewayAdminLocalMarkdownFileName(fileName)
             ? options?.markdownFileStats?.[fileName]
-            : undefined,
+            : isGatewayAdminDailyMemoryFileName(fileName)
+              ? { exists: true, updatedAt: null, sizeBytes: null }
+              : undefined,
         }),
     ),
   };
@@ -1950,7 +2017,7 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
       content: fileState.content,
       revisions:
         params.revisions ??
-        (params.resolved.sharedMemoryFile
+        (params.resolved.sharedMemoryFile || params.resolved.dailyMemoryFile
           ? []
           : listGatewayAdminAgentMarkdownRevisions({
               workspacePath: params.resolved.workspacePath,
@@ -5580,9 +5647,9 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownRevisionResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
-  if (resolved.sharedMemoryFile) {
+  if (resolved.sharedMemoryFile || resolved.dailyMemoryFile) {
     throw new Error(
-      `Shared markdown file "${resolved.fileName}" does not have local revisions.`,
+      `Markdown file "${resolved.fileName}" does not have local revisions.`,
     );
   }
   const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(

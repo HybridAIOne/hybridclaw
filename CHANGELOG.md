@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- **Admin console shows daily memory notes**: The Agent Files page lists
+  `memory/YYYY-MM-DD.md` notes written by the container `memory` tool as
+  read-only files, so operators can review persisted memory instead of only
+  the workspace bootstrap files.
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed
   Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
   including installations exposed through an interactive shell alias.

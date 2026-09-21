@@ -203,10 +203,15 @@ export function AgentFilesPage(
   const localMarkdownFiles = selectedAgent?.markdownFiles.filter(
     (file) => !file.readOnly,
   );
+  const dailyMemoryFiles = selectedAgent?.markdownFiles.filter(
+    (file) => file.kind === 'daily-memory',
+  );
   const sharedMemoryFiles = selectedAgent?.markdownFiles.filter(
-    (file) => file.readOnly,
+    (file) => file.kind === 'shared-memory',
   );
   const selectedFileReadOnly = Boolean(selectedFileMetadata?.readOnly);
+  const selectedFileIsDailyMemory =
+    selectedFileMetadata?.kind === 'daily-memory';
   const selectedFileDisplayName = selectedFileMetadata
     ? getMarkdownFileDisplayName(selectedFileMetadata)
     : selectedFileName;
@@ -435,6 +440,15 @@ export function AgentFilesPage(
                       {getMarkdownFileDisplayName(file)}
                     </NativeSelectOption>
                   ))}
+                  {dailyMemoryFiles?.length ? (
+                    <NativeSelectOptGroup label="Daily memory">
+                      {dailyMemoryFiles.map((file) => (
+                        <NativeSelectOption key={file.name} value={file.name}>
+                          {getMarkdownFileDisplayName(file)}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelectOptGroup>
+                  ) : null}
                   {sharedMemoryFiles?.length ? (
                     <NativeSelectOptGroup label="Shared memory">
                       {sharedMemoryFiles.map((file) => (
@@ -452,12 +466,12 @@ export function AgentFilesPage(
               <div className="agent-file-meta">
                 <p className="supporting-text agent-file-meta-line">
                   {selectedFileMetadata?.exists
-                    ? selectedFileMetadata.readOnly
+                    ? selectedFileMetadata.kind === 'shared-memory'
                       ? `${selectedFileMetadata.cloudPath || selectedFileMetadata.path} · read-only cloud memory cache`
                       : selectedFileMetadata.updatedAt
-                        ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}`
-                        : selectedFileMetadata.path
-                    : selectedFileMetadata?.readOnly
+                        ? `Last updated ${formatRelativeTime(selectedFileMetadata.updatedAt)} · ${formatDateTime(selectedFileMetadata.updatedAt)} · ${selectedFileMetadata.path}${selectedFileIsDailyMemory ? ' · read-only daily memory note' : ''}`
+                        : `${selectedFileMetadata.path}${selectedFileIsDailyMemory ? ' · read-only daily memory note' : ''}`
+                    : selectedFileMetadata?.kind === 'shared-memory'
                       ? 'Shared memory has not synced to this agent yet'
                       : 'File not created yet'}
                 </p>
@@ -516,15 +530,17 @@ export function AgentFilesPage(
                     Reset to Disk
                   </Button>
                   <p className="supporting-text">
-                    {selectedFileReadOnly
-                      ? selectedFileMetadata?.exists
-                        ? 'Read-only cloud memory cache.'
-                        : 'Waiting for cloud memory sync.'
-                      : isDirty
-                        ? 'Unsaved changes.'
-                        : selectedFileSummary?.exists
-                          ? 'Disk copy loaded.'
-                          : 'Saving will create this file in the agent workspace.'}
+                    {selectedFileIsDailyMemory
+                      ? 'Read-only daily memory note written by the agent memory tool.'
+                      : selectedFileReadOnly
+                        ? selectedFileMetadata?.exists
+                          ? 'Read-only cloud memory cache.'
+                          : 'Waiting for cloud memory sync.'
+                        : isDirty
+                          ? 'Unsaved changes.'
+                          : selectedFileSummary?.exists
+                            ? 'Disk copy loaded.'
+                            : 'Saving will create this file in the agent workspace.'}
                   </p>
                 </div>
 
@@ -539,9 +555,11 @@ export function AgentFilesPage(
                     <CardContent>
                       {!fileQuery.data?.file.revisions.length ? (
                         <div className="empty-state">
-                          {selectedFileReadOnly
-                            ? 'Shared memory files are read-only and do not have local revisions.'
-                            : 'Revisions appear here after the file changes.'}
+                          {selectedFileIsDailyMemory
+                            ? 'Daily memory notes are read-only and do not have local revisions.'
+                            : selectedFileReadOnly
+                              ? 'Shared memory files are read-only and do not have local revisions.'
+                              : 'Revisions appear here after the file changes.'}
                         </div>
                       ) : (
                         <div className="detail-stack">
