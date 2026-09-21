@@ -359,6 +359,20 @@ describe('Anthropic container provider', () => {
         { role: 'tool', content: 'ok', tool_call_id: 'tool_1' },
       ],
     });
+    await callAnthropicProvider({
+      ...baseArgs,
+      model: 'anthropic/claude-sonnet-5',
+      messages: [
+        { role: 'user', content: 'check status' },
+        assistantMessage,
+        {
+          role: 'tool',
+          content: 'Error: lookup failed',
+          tool_call_id: 'tool_1',
+          is_error: true,
+        },
+      ],
+    });
 
     expect(requestBodies[0]?.thinking).toEqual({
       type: 'adaptive',
@@ -378,6 +392,21 @@ describe('Anthropic container provider', () => {
             tool_use_id: 'tool_1',
             content: 'ok',
             cache_control: { type: 'ephemeral' },
+          },
+        ],
+      },
+    ]);
+    expect(requestBodies[2]?.messages).toMatchObject([
+      {},
+      {},
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tool_1',
+            content: 'Error: lookup failed',
+            is_error: true,
           },
         ],
       },
