@@ -443,6 +443,7 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
+import { compareRouting } from './routing-comparison.js';
 import {
   evaluateConfiguredRouting,
   isJevAvailable,
@@ -10927,6 +10928,39 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminModels(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/routing/compare' && method === 'POST') {
+            const body = (await readJsonBody(req)) as {
+              text?: unknown;
+              publicSample?: unknown;
+              model?: unknown;
+            };
+            if (
+              !body ||
+              typeof body.text !== 'string' ||
+              !body.text.trim() ||
+              body.text.length > 4000 ||
+              typeof body.publicSample !== 'boolean' ||
+              typeof body.model !== 'string' ||
+              !/^[a-zA-Z0-9_./:~-]{1,200}$/.test(body.model) ||
+              body.model.startsWith('jev/')
+            ) {
+              sendJson(res, 400, {
+                error:
+                  'Provide a sample, public confirmation, and a chat model.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await compareRouting({
+                text: body.text,
+                publicSample: body.publicSample,
+                model: body.model,
+              }),
+            );
             return;
           }
           if (pathname === '/api/admin/routing/status' && method === 'GET') {

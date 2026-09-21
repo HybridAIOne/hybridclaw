@@ -120,3 +120,22 @@ it.each([true, false])(
     expect(screen.getByText('Concierge')).not.toBeNull();
   },
 );
+
+it('shows small classifier costs and known partial totals', () => {
+  render(
+    <RoutingTags
+      trace={trace([
+        {
+          ...attempt,
+          id: 1,
+          kind: 'auxiliary',
+          model: 'jev/jev-latest',
+          costUsd: 0.000036918,
+        },
+        { ...attempt, id: 2, costUsd: null },
+      ])}
+    />,
+  );
+  expect(screen.getByText('Known $0.00003692 · partial')).not.toBeNull();
+  expect(screen.getAllByText(/Est. \$0.00003692/).length).toBeGreaterThan(0);
+});

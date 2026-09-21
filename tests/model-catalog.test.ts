@@ -1417,3 +1417,14 @@ test('vision fallback ignores OpenRouter models with image output only', async (
     'openrouter/zeus/vision-chat',
   );
 });
+
+test('prices direct JEV input and free output without guessing future model rates', async () => {
+  const homeDir = makeTempHome();
+  try {
+    writeRuntimeConfig(homeDir);
+    const { catalog } = await importFreshCatalog(homeDir);
+    expect(catalog.getModelCatalogMetadata('jev/jev-latest').pricingUsdPerToken).toEqual({ input: 0.042 / 1_000_000, output: 0 });
+    expect(catalog.getModelCatalogMetadata('jev/jev-1.13.0').pricingUsdPerToken).toEqual({ input: 0.042 / 1_000_000, output: 0 });
+    expect(catalog.getModelCatalogMetadata('jev/jev-future').pricingUsdPerToken).toEqual({ input: null, output: null });
+  } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
+});

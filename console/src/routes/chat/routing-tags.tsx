@@ -10,8 +10,15 @@ import { RoutingEvaluation } from '../../components/routing-evaluation';
 import css from './routing-tags.module.css';
 
 function costLabel(attempts: RoutingTraceAttempt[]): string {
-  if (attempts.some((attempt) => attempt.costUsd === null))
-    return 'Cost unavailable';
+  if (attempts.some((attempt) => attempt.costUsd === null)) {
+    const known = attempts.reduce(
+      (sum, attempt) => sum + (attempt.costUsd ?? 0),
+      0,
+    );
+    return known > 0
+      ? `Known $${known.toFixed(8)} · partial`
+      : 'Cost unavailable';
+  }
   const total = attempts.reduce(
     (sum, attempt) => sum + (attempt.costUsd ?? 0),
     0,
@@ -19,7 +26,7 @@ function costLabel(attempts: RoutingTraceAttempt[]): string {
   const estimated = attempts.some(
     (attempt) => attempt.costSource === 'estimated',
   );
-  return `${estimated ? 'Est. ' : ''}${total > 0 && total < 0.0001 ? '<$0.0001' : `$${total.toFixed(4)}`}`;
+  return `${estimated ? 'Est. ' : ''}${`$${total.toFixed(total > 0 && total < 0.0001 ? 8 : 4)}`}`;
 }
 
 function count(value: number | null): string {

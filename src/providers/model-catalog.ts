@@ -555,6 +555,11 @@ function resolveKnownModelMaxTokens(
 function resolveKnownModelPricingUsdPerToken(
   model: string,
 ): ModelCatalogMetadata['pricingUsdPerToken'] {
+  // TypeSafe published pricing, verified 2026-09-21: $0.042/M input, free output.
+  // https://typesafe.ai/blog/introducing-system-one-models-and-jev
+  if (/^jev\/jev-(latest|1\.13(?:\.\d+)?)$/.test(model)) {
+    return { input: 0.042 / 1_000_000, output: 0 };
+  }
   if (isLocalPrefixedModel(model)) {
     const info = getLocalModelInfo(model);
     if (info) {

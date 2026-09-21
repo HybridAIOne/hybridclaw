@@ -11833,6 +11833,14 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('event: status');
   });
 
+  test('admin routing comparison rejects a missing public confirmation', async () => {
+    const state = await importFreshHealth();
+    const res = makeResponse();
+    state.handler(makeRequest({ method: 'POST', url: '/api/admin/routing/compare', body: { text: 'Sample', model: 'test-router' } }) as never, res as never);
+    await settle();
+    expect(res.statusCode).toBe(400);
+  });
+
   test('admin routing status exposes only credential availability', async () => {
     const state = await importFreshHealth();
     const res = makeResponse();

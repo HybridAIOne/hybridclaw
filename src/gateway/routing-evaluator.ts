@@ -4,6 +4,7 @@
  * apply before credentials or transport are accessed. It returns
  * evidence only; the chat runtime decides whether an existing route may change.
  */
+
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   evaluateRouting,
@@ -11,6 +12,7 @@ import {
 } from '../routing/evaluator.js';
 import { createJevClassifier } from '../routing/jev-adapter.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { estimateModelUsageCostUsd } from '../usage/model-cost.js';
 import {
   finishRoutingTraceAttempt,
   startRoutingTraceAttempt,
@@ -55,12 +57,21 @@ export async function evaluateConfiguredRouting(input: {
     tiers: routing.tiers,
     classifier: key ? createJevClassifier(key) : undefined,
   });
+  if (result.inputTokens !== null && result.outputTokens !== null) {
+    result.costUsd = estimateModelUsageCostUsd({
+      model: `jev/${result.model}`,
+      promptTokens: result.inputTokens,
+      completionTokens: result.outputTokens,
+    });
+  }
   if (attempt)
     finishRoutingTraceAttempt({
       attempt,
       model,
       status: result.status === 'evaluated' ? 'success' : 'error',
       durationMs: result.durationMs,
+      costUsd: result.costUsd ?? undefined,
+      costSource: 'estimated',
       inputTokens: result.inputTokens ?? undefined,
       outputTokens: result.outputTokens ?? undefined,
       totalTokens:

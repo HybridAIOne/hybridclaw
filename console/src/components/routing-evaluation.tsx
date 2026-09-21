@@ -64,7 +64,10 @@ export function RoutingEvaluation({
       ) : null}
       <p style={{ color: 'var(--muted-foreground)', fontSize: '0.8125rem' }}>
         {value.model} · {value.inputTokens ?? 'Unknown'} input /{' '}
-        {value.outputTokens ?? 'Unknown'} output tokens · Cost unavailable
+        {value.outputTokens ?? 'Unknown'} output tokens ·{' '}
+        {value.costUsd === null
+          ? 'Cost unavailable'
+          : `Est. $${value.costUsd.toFixed(8)}`}
       </p>
     </section>
   );

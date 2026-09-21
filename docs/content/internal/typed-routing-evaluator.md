@@ -4,8 +4,8 @@ The evaluator produces version-1 metadata independently of execution. It classif
 PII, confidentiality, task category, capability, and urgency (including unspecified)
 in one JEV Choice request. Each dimension has a closed vocabulary, probabilities,
 and confidence. Results include provider, returned model version, duration,
-reported token usage, and a recommendation. Costs remain unknown; no price is
-invented. The provider-independent `TypedClassifier` interface accepts the same
+reported token usage, and a recommendation. JEV cost uses the published $0.042 per million input tokens and free output,
+verified on 2026-09-21. Costs are estimates; unpriced models remain unknown. The provider-independent `TypedClassifier` interface accepts the same
 input and returns the same distributions for a future self-hosted adapter.
 
 ## Operator workflow
@@ -100,3 +100,18 @@ higher tiers cannot be lowered. Missing credentials, local denial, uncertainty,
 and API failures retain the existing starting route. Chat tags show the actual
 execution model alongside the applied or suggested tier, or the fallback reason;
 expanded details retain the distributions and classifier usage.
+
+## Compare routers
+
+In Labs → Routing Evaluator, choose a chat model under **Compare routers**, enter
+a public sample, confirm disclosure to both providers, and click **Compare**.
+The table shows the JEV capability-tier recommendation beside the LLM concierge
+urgency-profile decision, with classifier latency, tokens, and cost for each.
+This runs only classification, never execution or settings changes. The contracts
+are different: agreement is not an accuracy score. An unspecified deadline can
+correctly produce “ask user” from the urgency concierge. Local disclosure denials
+apply to both; selecting a model does not authorize a different fallback provider.
+
+Classifier and execution costs remain separate in chat. Tiny costs retain eight
+decimal places; when an attempt is unpriced, the total explicitly shows only the
+known subtotal. Historical persisted traces retain their original recorded prices.
