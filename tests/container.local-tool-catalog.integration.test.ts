@@ -79,14 +79,14 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(output.status).toBe('success');
     expect(requests).toHaveLength(4);
     const system = requests[0].messages.filter((message) => message.role === 'system');
-    expect(system.map((message) => message.content).join('\n')).toContain('## Local tool call boundary');
+    expect(system.map((message) => message.content).join('\n')).toContain('## Tool call boundary');
     for (const request of requests) {
       expect(request.messages.filter((message) => message.role === 'system')).toEqual(system);
     }
     for (const request of requests) { expect(request.tools).toHaveLength(10); expect(request.tools).toEqual(requests[0].tools); }
     expect(JSON.parse(String(requests[1].messages.at(-1)?.content)).total).toBe(105);
     expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', arguments: '{"path":"notes.txt"}', isError: false, approvalTier: 'green' });
-    expect(requests[3].messages.filter((message) => String(message.content).includes('## Local tool call boundary'))).toHaveLength(1);
+    expect(requests[3].messages.filter((message) => String(message.content).includes('## Tool call boundary'))).toHaveLength(1);
     expect(requests[3].messages.some((message) => String(message.content).includes('Runtime tool reminder:'))).toBe(false);
     expect(requests[3].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_call', content: expect.stringContaining('synthetic tool result') });
     expect(requests[3].messages.at(-2)?.tool_calls?.[0].function.name).toBe('tool_catalog');
@@ -103,7 +103,7 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     await followup({ localToolMode: 'full' });
     expect(requests.at(-1)?.tools).toHaveLength(114);
     expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);
-    expect(requests.at(-1)?.messages[0].content).not.toContain('## Local tool call boundary');
+    expect(requests.at(-1)?.messages[0].content).not.toContain('## Tool call boundary');
     expect(requests.at(-1)?.messages.some((m) => String(m.content).includes('Runtime tool reminder:'))).toBe(false);
     await followup({ localToolMode: 'starred', localStarterTools: [] });
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['tool_catalog']);

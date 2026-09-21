@@ -20,6 +20,7 @@ import type {
 import {
   resolveLocalStarterTools,
   resolveLocalToolMode,
+  resolveMcpToolMode,
 } from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -1215,6 +1216,7 @@ async function runContainerInner(
     localStarterTools: modelRuntime.isLocal
       ? resolveLocalStarterTools(agentId)
       : undefined,
+    mcpToolMode: modelRuntime.isLocal ? undefined : resolveMcpToolMode(agentId),
     allowedTools: effectiveAllowedTools,
     blockedTools,
     media,
