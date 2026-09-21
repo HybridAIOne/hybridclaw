@@ -152,6 +152,7 @@ export function validateToolHistory(value) {
         role: 'tool',
         content: message.content,
         tool_call_id: message.tool_call_id,
+        ...(message.is_error === true ? { is_error: true } : {}),
       });
     } else {
       throw new Error('Tool history contains an unexpected role or result.');

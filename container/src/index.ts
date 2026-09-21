@@ -781,7 +781,12 @@ async function executePreparedToolCall(
       approvalRequestId: approval.requestId,
       approvalExpiresAt: approval.expiresAtMs,
     },
-    historyMessage: { role: 'tool', content: result, tool_call_id: call.id },
+    historyMessage: {
+      role: 'tool',
+      content: result,
+      tool_call_id: call.id,
+      ...(isError ? { is_error: true } : {}),
+    },
     artifacts: extractToolArtifacts(toolName, result),
   };
 }
@@ -1291,7 +1296,7 @@ async function processRequestInner(
       return {
         status: 'success',
         result: prompt,
-        toolsUsed: [approvedToolCall.toolName],
+        toolsUsed: [],
         outputPresentation: approvalOutputPresentation(),
         toolExecutions: [
           buildApprovalRequiredToolExecution({
@@ -1310,7 +1315,7 @@ async function processRequestInner(
       return {
         status: 'error',
         result: null,
-        toolsUsed: [approvedToolCall.toolName],
+        toolsUsed: [],
         toolExecutions: [],
         tokenUsage: finalizeTokenUsage(tokenUsage),
         error: `Approved action was denied by policy: ${approval.reason}`,
@@ -1982,7 +1987,6 @@ async function processRequestInner(
       logToolCallStart(toolName, call.function.arguments, approval);
 
       if (approval.decision === 'required') {
-        toolsUsed.push(toolName);
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         const pendingApproval = buildPendingApproval(
           approval,
@@ -2018,7 +2022,6 @@ async function processRequestInner(
       }
 
       if (approval.decision === 'denied') {
-        toolsUsed.push(toolName);
         const denialText = `Approval denied: ${approval.reason}`;
         toolExecutions.push(
           buildApprovalDeniedToolExecution({

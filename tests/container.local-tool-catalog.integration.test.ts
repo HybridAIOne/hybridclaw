@@ -124,6 +124,7 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     const { output, followup, requests } = await harness([catalog('call', 'bash', { command: 'rm -rf scratch' })]);
     expect(output.pendingApproval).toMatchObject({ toolName: 'bash', approvalTier: 'red' });
     expect(output.toolExecutions?.[0]).toMatchObject({ name: 'bash', blocked: true, approvalDecision: 'required' });
+    expect(output.toolsUsed).toEqual([]);
     const replay = await followup({ messages: [{ role: 'user', content: 'yes' }], blockedTools: ['bash'] });
     expect(replay.error).toContain('no longer available');
     expect(requests).toHaveLength(1);
