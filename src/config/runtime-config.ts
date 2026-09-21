@@ -19,6 +19,7 @@ import {
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
+  normalizeMcpToolMode,
 } from '../../container/shared/local-tool-config.js';
 import {
   type AgentConfig,
@@ -1147,6 +1148,7 @@ export interface RuntimeConfig {
   tools: {
     localToolMode?: 'full' | 'starred';
     localStarterTools?: string[];
+    mcpToolMode?: 'full' | 'deferred';
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
@@ -1632,6 +1634,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   tools: {
     localToolMode: 'starred',
     localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
+    mcpToolMode: 'full',
     disabled: [],
     httpRequest: {
       authRules: [],
@@ -3110,6 +3113,10 @@ function normalizeAgentConfig(
     value.localStarterTools,
     'agents.list[].localStarterTools',
   );
+  const mcpToolMode = normalizeMcpToolMode(
+    value.mcpToolMode,
+    'agents.list[].mcpToolMode',
+  );
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3171,6 +3178,7 @@ function normalizeAgentConfig(
     ...(localStarterSkills !== undefined ? { localStarterSkills } : {}),
     ...(localToolMode !== undefined ? { localToolMode } : {}),
     ...(localStarterTools !== undefined ? { localStarterTools } : {}),
+    ...(mcpToolMode !== undefined ? { mcpToolMode } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -7867,6 +7875,11 @@ function normalizeRuntimeConfig(
         isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
         'tools.localStarterTools',
       ) ?? [...DEFAULT_LOCAL_STARTER_TOOLS],
+      mcpToolMode:
+        normalizeMcpToolMode(
+          isRecord(raw.tools) ? raw.tools.mcpToolMode : undefined,
+          'tools.mcpToolMode',
+        ) ?? 'full',
       disabled: normalizeStringArray(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,

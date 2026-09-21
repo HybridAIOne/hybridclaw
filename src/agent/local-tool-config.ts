@@ -1,7 +1,8 @@
 /**
  * Resolve schema visibility from instance defaults and an agent's config override.
  * Unlike tool-policy.ts this grants no permission; runners pass the selected
- * names alongside the separately restricted tool catalog.
+ * names alongside the separately restricted tool catalog. Local requests pick
+ * starters; remote requests choose whether MCP server tools are deferred.
  */
 import { DEFAULT_LOCAL_STARTER_TOOLS } from '../../container/shared/local-tool-config.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -25,5 +26,15 @@ export function resolveLocalToolMode(agentId?: string): 'full' | 'starred' {
     config.agents.list?.find((entry) => entry.id === id)?.localToolMode ??
     config.tools.localToolMode ??
     'starred'
+  );
+}
+
+export function resolveMcpToolMode(agentId?: string): 'full' | 'deferred' {
+  const config = getRuntimeConfig();
+  const id = agentId?.trim() || DEFAULT_AGENT_ID;
+  return (
+    config.agents.list?.find((entry) => entry.id === id)?.mcpToolMode ??
+    config.tools.mcpToolMode ??
+    'full'
   );
 }
