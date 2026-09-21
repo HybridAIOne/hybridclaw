@@ -151,3 +151,14 @@ test('saves a newly discovered model when registered with its tier in the same u
   config.reloadRuntimeConfig();
   expect(config.getRuntimeConfig().routing.tiers[0].models).toEqual([model]);
 });
+
+test('evaluator defaults off and preserves explicit shadow settings', async () => {
+  const config = await loadConfigModule();
+  expect(config.getRuntimeConfig().routing.evaluator.mode).toBe('off');
+  const saved = config.updateRuntimeConfig(draft => {
+    draft.routing.evaluator = { mode: 'shadow', model: 'jev-latest', timeoutMs: 1200, minConfidence: 0.9, publicPrompts: ['Explain photosynthesis.'] };
+  });
+  expect(saved.routing.evaluator.publicPrompts).toEqual(['Explain photosynthesis.']);
+  config.reloadRuntimeConfig();
+  expect(config.getRuntimeConfig().routing.evaluator.mode).toBe('shadow');
+});

@@ -103,6 +103,11 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import {
+  DEFAULT_ROUTING_EVALUATOR,
+  normalizeRoutingEvaluator,
+  type RoutingEvaluatorConfig,
+} from '../routing/evaluator-contract.js';
 import { parseLegacyAdditionalMountBinds } from '../security/mount-config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
@@ -535,6 +540,7 @@ export interface RuntimeRoutingConciergeConfig {
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
   concierge: RuntimeRoutingConciergeConfig;
 }
@@ -2162,6 +2168,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    evaluator: DEFAULT_ROUTING_EVALUATOR,
     // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
     showRoutingInfo: false,
     enabled: false,
@@ -8777,6 +8784,7 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      evaluator: normalizeRoutingEvaluator(rawRouting.evaluator),
       showRoutingInfo: normalizeBoolean(
         rawRouting.showRoutingInfo,
         DEFAULT_RUNTIME_CONFIG.routing.showRoutingInfo,

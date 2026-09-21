@@ -622,6 +622,13 @@
     }
   },
   "routing": {
+    "evaluator": {
+      "mode": "off",
+      "model": "jev-latest",
+      "timeoutMs": 1500,
+      "minConfidence": 0.8,
+      "publicPrompts": []
+    },
     "showRoutingInfo": false,
     "enabled": false,
     "tiers": [],

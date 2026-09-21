@@ -6,6 +6,7 @@ import type {
   RoutingTrace,
   RoutingTraceAttempt,
 } from '../../../../src/types/routing-trace';
+import { RoutingEvaluation } from '../../components/routing-evaluation';
 import css from './routing-tags.module.css';
 
 function costLabel(attempts: RoutingTraceAttempt[]): string {
@@ -106,6 +107,9 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
         </span>
       </summary>
       <div className={css.panel}>
+        {trace.evaluation ? (
+          <RoutingEvaluation value={trace.evaluation} />
+        ) : null}
         <p className={css.caption}>
           {running
             ? 'Usage settles when the response finishes.'

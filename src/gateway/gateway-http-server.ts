@@ -443,6 +443,7 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
+import { evaluateConfiguredRouting } from './routing-evaluator.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -10923,6 +10924,33 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminModels(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/routing/evaluate' && method === 'POST') {
+            const body = (await readJsonBody(req)) as {
+              text?: unknown;
+              publicSample?: unknown;
+            };
+            if (
+              !body ||
+              typeof body.text !== 'string' ||
+              body.text.length > 4000 ||
+              typeof body.publicSample !== 'boolean'
+            ) {
+              sendJson(res, 400, {
+                error: 'Provide text (up to 4000 characters) and publicSample.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await evaluateConfiguredRouting({
+                text: body.text,
+                playground: true,
+                publicSample: body.publicSample,
+              }),
+            );
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {

@@ -3,7 +3,8 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));
+const { runAgentMock, evaluatorMock } = vi.hoisted(() => ({ runAgentMock: vi.fn(), evaluatorMock: vi.fn() }));
+vi.mock('../src/gateway/routing-evaluator.ts', () => ({ evaluateConfiguredRouting: evaluatorMock }));
 
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 
@@ -58,6 +59,7 @@ useCleanMocks({
   restoreAllMocks: true,
   cleanup: () => {
     runAgentMock.mockReset();
+    evaluatorMock.mockReset();
     if (ORIGINAL_HOME === undefined) delete process.env.HOME;
     else process.env.HOME = ORIGINAL_HOME;
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
@@ -306,4 +308,20 @@ test('does not remember an unsuccessful manual escalation', async () => {
   expect(result.status).toBe('error');
   expect(runAgentMock.mock.calls.map(([params]) => params.model)).toEqual(['lmstudio/test-strong']);
   expect(peekStickyModelRoutingTier(request.sessionId)).toBeUndefined();
+});
+
+test.each(['shadow', 'active'] as const)('typed evaluator %s preserves or raises the configured start', async mode => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig(draft => { draft.routing.evaluator.mode = mode; draft.routing.showRoutingInfo = true; });
+  evaluatorMock.mockResolvedValue({ version: 1, provider: 'jev', mode, status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: null, recommendedTier: 'general', applied: false });
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const request = { sessionId: `session-eval-${mode}`, guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
+  const result = await fixture.handleGatewayMessage(request);
+  expect(runAgentMock.mock.calls[0][0].model).toBe(mode === 'active' ? 'lmstudio/test-strong' : 'lmstudio/test-cheap');
+  expect(result.routingTrace?.evaluation?.applied).toBe(mode === 'active');
+  runAgentMock.mockClear();
+  fixture.updateSessionModel(request.sessionId, 'lmstudio/test-cheap');
+  const pinned = await fixture.handleGatewayMessage(request);
+  expect(runAgentMock.mock.calls[0][0].model).toBe('lmstudio/test-cheap');
+  expect(pinned.routingTrace?.evaluation?.applied).toBe(false);
 });

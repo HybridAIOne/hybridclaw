@@ -2236,6 +2236,36 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 3,
     },
     {
+      path: 'routing.evaluator.minConfidence',
+      section: 'routing',
+      kind: 'number',
+      defaultValue: 0.8,
+    },
+    {
+      path: 'routing.evaluator.mode',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'off',
+    },
+    {
+      path: 'routing.evaluator.model',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'jev-latest',
+    },
+    {
+      path: 'routing.evaluator.publicPrompts',
+      section: 'routing',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
+      path: 'routing.evaluator.timeoutMs',
+      section: 'routing',
+      kind: 'number',
+      defaultValue: 1500,
+    },
+    {
       path: 'routing.showRoutingInfo',
       section: 'routing',
       kind: 'boolean',

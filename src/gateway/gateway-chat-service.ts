@@ -4,6 +4,7 @@
  * session scope, and confidence policy belong to the memory service.
  * Transports own authorization; transcript evidence never authorizes execution.
  */
+
 import path from 'node:path';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
@@ -125,6 +126,7 @@ import {
 } from '../usage/model-cost.js';
 import {
   finishRoutingTraceAttempt,
+  recordRoutingEvaluation,
   setRoutingTraceMode,
   startRoutingTraceAttempt,
 } from '../usage/routing-trace.js';
@@ -221,6 +223,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { evaluateConfiguredRouting } from './routing-evaluator.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -1557,6 +1560,44 @@ async function handleGatewayMessageInner(
         provider = resolveModelProvider(model);
       }
     }
+  }
+  if (getRuntimeConfig().routing.evaluator.mode !== 'off') {
+    const evaluation = await evaluateConfiguredRouting({
+      text: req.content,
+      hasPrivateContext: Boolean(
+        media.length ||
+          contextRefResult.message !== userTurnContent ||
+          audioPrelude.content !== req.content,
+      ),
+      signal: activeGatewayRequest.signal,
+    });
+    evaluation.applied = false;
+    if (
+      evaluation.mode === 'active' &&
+      getRuntimeConfig().routing.evaluator.mode === 'active' &&
+      evaluation.recommendedTier &&
+      getRuntimeConfig().routing.tiers.some(
+        (tier) => tier.name === evaluation.recommendedTier,
+      ) &&
+      !explicitModelPinned &&
+      !getRuntimeConfig().routing.concierge.enabled &&
+      tierRoutingLadder &&
+      !tierRoutingLadder.exhausted
+    ) {
+      const candidate = resolveLadder(getRuntimeConfig().routing, {
+        startTier: evaluation.recommendedTier,
+      });
+      if (
+        !candidate.exhausted &&
+        candidate.startIndex >= tierRoutingLadder.startIndex
+      ) {
+        tierRoutingLadder = candidate;
+        model = candidate.tiers[candidate.startIndex]?.models[0] || model;
+        provider = resolveModelProvider(model);
+        evaluation.applied = true;
+      }
+    }
+    recordRoutingEvaluation(evaluation);
   }
   const postRoutingModel = resolveOnboardingTurnModel({
     bootstrapFile: startupBootstrapFile,

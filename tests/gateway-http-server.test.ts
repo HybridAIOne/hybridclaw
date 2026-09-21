@@ -8,6 +8,9 @@ import * as yauzl from 'yauzl';
 import type { RuntimeConfig } from '../src/config/runtime-config.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
+const routingEvaluatorMock = vi.hoisted(() => vi.fn());
+vi.mock('../src/gateway/routing-evaluator.js', () => ({ evaluateConfiguredRouting: routingEvaluatorMock }));
+
 const DEFAULT_WEB_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:default';
 const WEB_SESSION_ID_RE = /^agent:[^:]+:channel:web:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_SESSION_ID_RE =
@@ -11828,6 +11831,21 @@ describe('gateway HTTP server', () => {
     );
     expect(res.body).toContain('event: overview');
     expect(res.body).toContain('event: status');
+  });
+
+  test('admin routing playground validates disclosure before evaluation', async () => {
+    const state = await importFreshHealth();
+    routingEvaluatorMock.mockResolvedValueOnce({ status: 'blocked', reason: 'public-approval-required' });
+    const req = makeRequest({ method: 'POST', url: '/api/admin/routing/evaluate', body: { text: 'A sample', publicSample: false } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(res.statusCode).toBe(200);
+    expect(routingEvaluatorMock).toHaveBeenCalledWith({ text: 'A sample', playground: true, publicSample: false });
+    const invalid = makeResponse();
+    state.handler(makeRequest({ method: 'POST', url: '/api/admin/routing/evaluate', body: { text: 'A sample' } }) as never, invalid as never);
+    await settle();
+    expect(invalid.statusCode).toBe(400);
   });
 
   test('routes web slash commands from /api/chat through handleGatewayCommand', async () => {
