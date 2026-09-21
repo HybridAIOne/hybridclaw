@@ -231,7 +231,9 @@ import {
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
-const MAX_HISTORY_MESSAGES = 40;
+// 500 rows (owner call, 2026-09-21): a safety cap for sessions whose memory
+// plugin replaces built-in compaction; the token budget bounds the prompt.
+const HISTORY_FETCH_LIMIT = 500;
 
 function resolveTurnRuntimeAuditLabel(
   model: string,
@@ -1775,10 +1777,14 @@ async function handleGatewayMessageInner(
     return attachSessionIdentity(result);
   }
 
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
+  const fetchedHistory = memoryService.getConversationHistory(
+    req.sessionId,
+    HISTORY_FETCH_LIMIT,
+  );
+  const historyTruncated = fetchedHistory.length >= HISTORY_FETCH_LIMIT;
+  const history = fetchedHistory.filter(
+    (message) => !isSilentReply(message.content),
+  );
   let pluginsUsed: string[] = [];
   let canonicalContext: CanonicalSessionContext = {
     summary: null,
@@ -1905,33 +1911,39 @@ async function handleGatewayMessageInner(
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
-  const { messages, skills, historyStats, explicitSkillInvocation } =
-    buildConversationContext({
-      agentId,
-      sessionSummary: mergedSessionSummary,
-      retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
-        ? null
-        : pluginPromptSummary,
-      history,
-      currentUserContent: effectiveUserTurnContent,
-      promptMode: promptPartDefaults.promptMode,
-      includePromptParts: promptPartDefaults.includePromptParts,
-      omitPromptParts: promptPartDefaults.omitPromptParts,
-      extraSafetyText: fullAutoOperatingContract,
-      runtimeInfo: {
-        chatbotId,
-        model,
-        defaultModel: HYBRIDAI_MODEL,
-        channel,
-        channelType,
-        channelId: req.channelId,
-        guildId: req.guildId,
-        sessionContext,
-        workspacePath: workspaceDisplayPath,
-      },
-      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
-      blockedTools: mediaPolicy.blockedTools,
-    });
+  const {
+    messages,
+    skills,
+    historyStats,
+    promptOverheadTokens,
+    explicitSkillInvocation,
+  } = buildConversationContext({
+    agentId,
+    sessionSummary: mergedSessionSummary,
+    retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
+      ? null
+      : pluginPromptSummary,
+    history,
+    historyTruncated,
+    currentUserContent: effectiveUserTurnContent,
+    promptMode: promptPartDefaults.promptMode,
+    includePromptParts: promptPartDefaults.includePromptParts,
+    omitPromptParts: promptPartDefaults.omitPromptParts,
+    extraSafetyText: fullAutoOperatingContract,
+    runtimeInfo: {
+      chatbotId,
+      model,
+      defaultModel: HYBRIDAI_MODEL,
+      channel,
+      channelType,
+      channelId: req.channelId,
+      guildId: req.guildId,
+      sessionContext,
+      workspacePath: workspaceDisplayPath,
+    },
+    allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+    blockedTools: mediaPolicy.blockedTools,
+  });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
   recordAuditEvent({
@@ -1942,12 +1954,13 @@ async function handleGatewayMessageInner(
       historyMessagesOriginal: historyStats.originalCount,
       historyMessagesIncluded: historyStats.includedCount,
       historyMessagesDropped: historyStats.droppedCount,
-      historyCharsOriginal: historyStats.originalChars,
-      historyCharsPreBudget: historyStats.preBudgetChars,
-      historyCharsIncluded: historyStats.includedChars,
-      historyCharsDropped: historyStats.droppedChars,
-      historyMaxChars: historyStats.maxTotalChars,
-      middleCompressionApplied: historyStats.middleCompressionApplied,
+      historyTurnsDropped: historyStats.droppedTurns,
+      historyTokensOriginal: historyStats.originalTokens,
+      historyTokensIncluded: historyStats.includedTokens,
+      historyTokensDropped: historyStats.droppedTokens,
+      historyBudgetTokens: historyStats.budgetTokens,
+      historyTruncated,
+      promptOverheadTokens,
       historyEstimatedTokens: estimateTokenCountFromMessages(
         messages.slice(historyStart),
       ),
@@ -2892,6 +2905,7 @@ async function handleGatewayMessageInner(
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      promptOverheadTokens,
     });
     turnPersisted = true;
     if (onboardingAuditContext) {

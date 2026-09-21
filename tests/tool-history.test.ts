@@ -179,11 +179,11 @@ describe('persistent tool history', () => {
       ...recent,
     ];
     expect(
-      optimizeHistoryMessagesForPrompt(messages, { maxTotalChars: 150 })
-        .messages,
+      optimizeHistoryMessagesForPrompt(messages, { maxTokens: 60 }).messages,
     ).toEqual(recent);
     expect(
-      optimizeHistoryMessagesForPrompt(recent).stats.includedChars,
-    ).toBeGreaterThan(80);
+      optimizeHistoryMessagesForPrompt(recent, { maxTokens: 60 }).stats
+        .includedTokens,
+    ).toBeGreaterThan(40);
   });
 });

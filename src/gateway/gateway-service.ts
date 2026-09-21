@@ -408,6 +408,7 @@ import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
 import {
+  compactSessionNow,
   maybeCompactSession,
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
@@ -3898,6 +3899,7 @@ export function recordSuccessfulTurn(opts: {
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  promptOverheadTokens?: number;
 }): {
   userMessageId: number;
   assistantMessageId: number;
@@ -3999,6 +4001,7 @@ export function recordSuccessfulTurn(opts: {
       model: opts.model,
       channelId: opts.channelId,
       promptMode: opts.promptMode,
+      promptOverheadTokens: opts.promptOverheadTokens,
     }).catch((err) => {
       logger.warn(
         { sessionId: opts.sessionId, err },
@@ -13955,7 +13958,20 @@ export async function handleGatewayCommand(
 
       case 'compact': {
         try {
-          const result = await memoryService.compactSession(session.id);
+          const runtime = resolveSessionRuntimeTarget(session);
+          const result = await compactSessionNow({
+            sessionId: session.id,
+            agentId: runtime.agentId,
+            chatbotId: runtime.chatbotId,
+            enableRag: session.enable_rag !== 0,
+            model: runtime.model,
+            channelId: req.channelId,
+          });
+          if (!result) {
+            return plainCommand(
+              'Nothing to compact. The session is already within the preserved recent window.',
+            );
+          }
           const compressionRatio =
             result.tokensBefore > 0
               ? 1 - result.tokensAfter / result.tokensBefore
