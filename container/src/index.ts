@@ -31,7 +31,6 @@ import {
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
 import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
-import { LocalToolCatalog } from './local-tool-catalog.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -102,6 +101,7 @@ import {
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
+import { ToolCatalog } from './tool-catalog.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -692,7 +692,7 @@ function buildContextOverflowOutput(params: {
 async function executePreparedToolCall(
   prepared: PreparedToolCallExecution,
   toolCallHistory: ToolCallHistoryEntry[],
-  localToolCatalog?: LocalToolCatalog,
+  toolCatalog?: ToolCatalog,
 ): Promise<CompletedToolCallExecution> {
   const { call, approval } = prepared;
   const toolName = call.function.name;
@@ -721,7 +721,7 @@ async function executePreparedToolCall(
           output: loopGuard.message,
           isError: true,
         }
-      : (localToolCatalog?.discoveryResult(call) ??
+      : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
           () => executeToolWithMetadata(toolName, argsJson),
           emitStreamActivity,
@@ -1003,6 +1003,7 @@ interface ProcessRequestParams {
   localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
   localDiscoveryDisabled?: boolean;
+  deferredTools?: Set<string>;
   taskModels?: ContainerInput['taskModels'];
   contextGuard?: ContainerInput['contextGuard'];
   channelId: string;
@@ -1088,6 +1089,7 @@ async function processRequestInner(
     localStarterTools,
     localToolMode,
     localDiscoveryDisabled,
+    deferredTools,
     taskModels,
     contextGuard,
     channelId,
@@ -1100,18 +1102,16 @@ async function processRequestInner(
     escalationTarget,
     approvedToolCall,
   } = params;
-  const localToolCatalog = isLocal
-    ? new LocalToolCatalog(
-        availableTools,
-        localStarterTools,
-        localDiscoveryDisabled,
-      )
-    : undefined;
+  const toolCatalog = isLocal
+    ? new ToolCatalog(availableTools, localStarterTools, localDiscoveryDisabled)
+    : deferredTools && !localDiscoveryDisabled
+      ? (ToolCatalog.deferring(availableTools, deferredTools) ?? undefined)
+      : undefined;
   const tools =
     isLocal &&
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
-      : (localToolCatalog?.tools ?? availableTools);
+      : (toolCatalog?.tools ?? availableTools);
   setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -1129,11 +1129,11 @@ async function processRequestInner(
     if (provider !== 'openai-codex') delete next.openai_response_items;
     return next;
   });
-  if (localToolCatalog && tools === localToolCatalog.tools) {
+  if (toolCatalog && tools === toolCatalog.tools) {
     // Added once before the loop; actual schemas remain the source of truth.
     preparedHistory.push({
       role: 'system',
-      content: localToolCatalog.promptGuidance(),
+      content: toolCatalog.promptGuidance(),
     });
   }
   let history: ChatMessage[] =
@@ -1258,9 +1258,9 @@ async function processRequestInner(
 
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
-    if (localToolCatalog) {
+    if (toolCatalog) {
       try {
-        localToolCatalog.resolveCall({
+        toolCatalog.resolveCall({
           id: 'approval_replay',
           type: 'function',
           function: {
@@ -1341,7 +1341,7 @@ async function processRequestInner(
     const completed = await executePreparedToolCall(
       { call: approvedCall, approval },
       toolCallHistory,
-      localToolCatalog,
+      toolCatalog,
     );
     appendCompletedToolCall({
       turnToolHistory,
@@ -1559,20 +1559,20 @@ async function processRequestInner(
     let toolCalls = choice.message.tool_calls || [];
     let invalidToolCallError = validateStructuredToolCalls(toolCalls);
     let catalogCorrection: string | null = null;
-    if (!invalidToolCallError && localToolCatalog) {
+    if (!invalidToolCallError && toolCatalog) {
       try {
-        toolCalls = toolCalls.map((call) => localToolCatalog.resolveCall(call));
+        toolCalls = toolCalls.map((call) => toolCatalog.resolveCall(call));
       } catch (error) {
         invalidToolCallError =
           error instanceof Error ? error.message : 'Invalid local tool call.';
         if (
-          tools === localToolCatalog.tools &&
+          tools === toolCatalog.tools &&
           toolCalls.every((call) =>
             tools.some((tool) => tool.function.name === call.function.name),
           )
         ) {
           catalogCorrection =
-            localToolCatalog.recoverArgumentError(error)?.output ?? null;
+            toolCatalog.recoverArgumentError(error)?.output ?? null;
         }
       }
     }
@@ -1923,7 +1923,7 @@ async function processRequestInner(
                 return executePreparedToolCall(
                   prepared,
                   toolCallHistory,
-                  localToolCatalog,
+                  toolCatalog,
                 );
               }
 
@@ -1938,7 +1938,7 @@ async function processRequestInner(
                 const completed = await executePreparedToolCall(
                   prepared,
                   draftToolCallHistory,
-                  localToolCatalog,
+                  toolCatalog,
                 );
                 recordToolCallOutcome(
                   draftToolCallHistory,
@@ -2052,7 +2052,7 @@ async function processRequestInner(
           approval,
         },
         toolCallHistory,
-        localToolCatalog,
+        toolCatalog,
       );
       if (completed.succeeded) {
         successfulToolCallsThisTurn += 1;
@@ -2139,6 +2139,17 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
   // Sort alphabetically for deterministic tool ordering (request/cache stability)
   tools.sort((a, b) => a.function.name.localeCompare(b.function.name));
   return tools;
+}
+
+/**
+ * MCP tool names a remote request keeps behind tool_catalog. Undefined keeps
+ * the plain tool array; local requests use their own starter selection.
+ */
+function resolveDeferredTools(input: ContainerInput): Set<string> | undefined {
+  if (input.mcpToolMode !== 'deferred' || !mcpClientManager) return undefined;
+  return new Set(
+    mcpClientManager.getAllToolDefinitions().map((tool) => tool.function.name),
+  );
 }
 
 async function main(): Promise<void> {
@@ -2269,6 +2280,7 @@ async function main(): Promise<void> {
       localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
       localDiscoveryDisabled: firstInput.blockedTools?.includes('tool_catalog'),
+      deferredTools: resolveDeferredTools(firstInput),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
       channelId: firstInput.channelId,
@@ -2316,6 +2328,7 @@ async function main(): Promise<void> {
         localStarterTools: firstInput.localStarterTools,
         localDiscoveryDisabled:
           firstInput.blockedTools?.includes('tool_catalog'),
+        deferredTools: resolveDeferredTools(firstInput),
         taskModels: firstTaskModels,
         contextGuard: firstInput.contextGuard,
         channelId: firstInput.channelId,
@@ -2482,6 +2495,7 @@ async function main(): Promise<void> {
       localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
       localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
+      deferredTools: resolveDeferredTools(input),
       taskModels,
       contextGuard: input.contextGuard,
       channelId: input.channelId,
@@ -2527,6 +2541,7 @@ async function main(): Promise<void> {
         localToolMode: input.localToolMode,
         localStarterTools: input.localStarterTools,
         localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
+        deferredTools: resolveDeferredTools(input),
         taskModels,
         contextGuard: input.contextGuard,
         channelId: input.channelId,

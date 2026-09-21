@@ -51,3 +51,13 @@ export function normalizeLocalStarterTools(value, field) {
     throw new Error(`${field} must not include tool_catalog.`);
   return names;
 }
+
+// Remote requests default to full MCP exposure; deferring the tools of
+// connected MCP servers behind tool_catalog is an explicit choice.
+export function normalizeMcpToolMode(value, field) {
+  if (value === undefined || value === null) return undefined;
+  if (value !== 'full' && value !== 'deferred') {
+    throw new Error(`${field} must be full or deferred.`);
+  }
+  return value;
+}

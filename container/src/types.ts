@@ -282,6 +282,7 @@ export interface ContainerInput {
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
+  mcpToolMode?: 'full' | 'deferred';
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
