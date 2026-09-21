@@ -1,3 +1,7 @@
+/**
+ * Chat markdown stays sanitized; provider citation IDs never become invented URLs.
+ * Unlike provider adapters, this renderer has no source registry and marks unresolved citations.
+ */
 import { Marked, type Tokens } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { highlightCodeBlock } from './highlight';
@@ -38,7 +42,7 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     // syntax-highlight token spans emitted by highlight.js, e.g.
     // <span class="hljs-keyword">. Class values can't execute, so allowing
     // the attribute on span is safe.
-    span: ['class'],
+    span: ['class', 'title'],
     td: ['style'],
     th: ['style'],
   },
@@ -135,6 +139,38 @@ function linkifyBareLocalAppRoutes(markdown: string): string {
 function createMarked(highlight: boolean): Marked {
   const instance = new Marked({ async: false, breaks: true, gfm: true });
   instance.use({
+    extensions: [
+      {
+        name: 'providerCitation',
+        level: 'inline',
+        start: (source: string) => source.indexOf('\uE200'),
+        tokenizer(source: string) {
+          const complete = /^\uE200cite\uE202[^\uE201\r\n]*\uE201/.exec(source);
+          if (complete)
+            return {
+              type: 'providerCitation',
+              raw: complete[0],
+              complete: true,
+            };
+          // Recognize only a trailing citation prefix, not arbitrary private-use text.
+          const partial =
+            /^\uE200(?:c(?:i(?:t(?:e(?:\uE202[^\uE201\r\n]*)?)?)?)?)?$/.exec(
+              source,
+            );
+          if (partial)
+            return {
+              type: 'providerCitation',
+              raw: partial[0],
+              complete: false,
+            };
+          return undefined;
+        },
+        renderer(token) {
+          if (!token.complete && !highlight) return '';
+          return '<span class="citation-unavailable" title="The model supplied a citation reference without a source URL.">Source unavailable</span>';
+        },
+      },
+    ],
     renderer: {
       // marked v16+ passes a token object; older signatures pass (code, lang).
       // Handle both so this keeps working across marked upgrades.
