@@ -140,3 +140,66 @@
   color: var(--accent-foreground);
   background: var(--accent);
 }
+
+.tableWrap {
+  overflow-x: auto;
+}
+.decisions {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.decisions th {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 12px 8px 0;
+}
+.decisions td {
+  padding: 9px 12px 9px 0;
+  vertical-align: top;
+  color: var(--foreground);
+}
+.decisions tbody tr + tr {
+  border-top: 1px solid var(--border);
+}
+.decisions strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.decisions small {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.numeric {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.role {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.callDetails {
+  margin-top: 10px;
+}
+.callDetails > summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.scores {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.scores summary {
+  cursor: pointer;
+}
+.scores > div {
+  margin-top: 8px;
+  min-width: 200px;
+}

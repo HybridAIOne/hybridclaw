@@ -2,11 +2,12 @@
  * Routing tags render execution evidence without inferring decisions or prices.
  * Unlike activity traces, they contain no reasoning text or tool payloads.
  */
+
+import type { TypedRoutingEvaluation } from '../../../../src/routing/evaluator-contract';
 import type {
   RoutingTrace,
   RoutingTraceAttempt,
 } from '../../../../src/types/routing-trace';
-import { RoutingEvaluation } from '../../components/routing-evaluation';
 import css from './routing-tags.module.css';
 
 function costLabel(attempts: RoutingTraceAttempt[]): string {
@@ -52,6 +53,93 @@ const ZONE_LABELS: Record<string, string> = {
   region: 'Regional',
   cloud: 'Cloud',
 };
+
+function RoutingDecisionRow({
+  value,
+  shadow = false,
+  attempts,
+}: {
+  value: TypedRoutingEvaluation;
+  shadow?: boolean;
+  attempts: RoutingTraceAttempt[];
+}) {
+  const failed = value.status !== 'evaluated';
+  const call = attempts.find(
+    (attempt) =>
+      attempt.kind === 'auxiliary' &&
+      (attempt.model === value.model ||
+        attempt.model === `jev/${value.model}` ||
+        (value.provider === 'jev' &&
+          attempt.reason === 'typed-routing-evaluator')),
+  );
+  const cache =
+    call?.cacheReadTokens != null || call?.cacheWriteTokens != null
+      ? `${call?.cacheReadTokens?.toLocaleString() ?? '—'} read / ${call?.cacheWriteTokens?.toLocaleString() ?? '—'} write`
+      : '—';
+  return (
+    <tr>
+      <td>
+        <strong>
+          {value.provider === 'rules' ? 'Rules (no model)' : value.model}
+        </strong>
+        <span className={css.role}>{shadow ? 'Shadow' : 'Live'}</span>
+      </td>
+      <td title={value.reason}>
+        {failed ? (
+          value.reason.replaceAll('-', ' ')
+        ) : (
+          <>
+            {value.recommendedTier ?? 'No selection'}
+            {value.selectedModel ? <small>{value.selectedModel}</small> : null}
+          </>
+        )}
+        {value.distributions ? (
+          <details className={css.scores}>
+            <summary>Scores</summary>
+            {Object.entries(value.distributions).map(([dimension, score]) => (
+              <div key={dimension}>
+                <strong>
+                  {dimension === 'pii' ? 'Personal data' : dimension}
+                </strong>{' '}
+                · {score.choice} · {(score.confidence * 100).toFixed(0)}%
+                confidence
+                <small>
+                  {Object.entries(score.probabilities)
+                    .map(
+                      ([label, probability]) =>
+                        `${label} ${(probability * 100).toFixed(1)}%`,
+                    )
+                    .join(' · ')}
+                </small>
+              </div>
+            ))}
+          </details>
+        ) : null}
+      </td>
+      <td className={css.numeric}>
+        {value.durationMs < 1000
+          ? `${value.durationMs}ms`
+          : `${(value.durationMs / 1000).toFixed(2)}s`}
+      </td>
+      <td className={css.numeric}>
+        {count(value.inputTokens)} in / {count(value.outputTokens)} out
+      </td>
+      <td
+        className={css.numeric}
+        title="Cache tokens: read / write. A dash means not reported or not applicable."
+      >
+        {cache}
+      </td>
+      <td className={css.numeric}>
+        {value.costUsd === null
+          ? 'Unavailable'
+          : value.costUsd === 0
+            ? '$0'
+            : `Est. $${value.costUsd.toFixed(8)}`}
+      </td>
+    </tr>
+  );
+}
 
 export function RoutingTags({ trace }: { trace: RoutingTrace }) {
   if (!trace.attempts.length) return null;
@@ -109,9 +197,6 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
               : `$${trace.shadowEvaluation.costUsd.toFixed(8)}`}
           </span>
         ) : null}
-        {trace.evaluation?.applied ? (
-          <span className={css.tag}>{trace.evaluation.reason}</span>
-        ) : null}
         {selected ? (
           <span className={css.model} data-zone={selected.zone}>
             <span className={css.routeDot} aria-hidden="true" />
@@ -147,78 +232,93 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
         </span>
       </summary>
       <div className={css.panel}>
-        {trace.evaluation ? (
-          <RoutingEvaluation value={trace.evaluation} />
+        {trace.evaluation || trace.shadowEvaluation ? (
+          <div className={css.tableWrap}>
+            <table className={css.decisions} aria-label="Routing decisions">
+              <thead>
+                <tr>
+                  <th>Router</th>
+                  <th>Result</th>
+                  <th>Time</th>
+                  <th>Tokens</th>
+                  <th>Cache</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trace.evaluation ? (
+                  <RoutingDecisionRow
+                    value={trace.evaluation}
+                    attempts={trace.attempts}
+                  />
+                ) : null}
+                {trace.shadowEvaluation ? (
+                  <RoutingDecisionRow
+                    value={trace.shadowEvaluation}
+                    shadow
+                    attempts={trace.attempts}
+                  />
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         ) : null}
-        {trace.shadowEvaluation ? (
-          <>
-            <p className={css.caption}>JEV shadow · comparison only</p>
-            <RoutingEvaluation value={trace.shadowEvaluation} />
-          </>
-        ) : null}
-        <p className={css.caption}>
-          {running
-            ? 'Usage settles when the response finishes.'
-            : `Model usage across all recorded attempts · ${(trace.durationMs / 1000).toFixed(1)}s elapsed`}
-        </p>
-        <ol className={css.attempts}>
-          {trace.attempts.map((attempt) => (
-            <li key={attempt.id} className={css.attempt}>
-              <div className={css.heading}>
-                <strong>{attempt.model}</strong>
-                <span className={css.status} data-status={attempt.status}>
-                  {attempt.kind === 'auxiliary'
-                    ? 'Auxiliary overhead'
-                    : 'Execution'}{' '}
-                  · {attempt.status}
-                </span>
-              </div>
-              <p className={css.reason}>
-                {ZONE_LABELS[attempt.zone] ?? attempt.zone}
-                {attempt.tier ? ` · ${attempt.tier}` : ''} ·{' '}
-                {attempt.reason.replaceAll('_', ' ').replaceAll('-', ' ')} ·{' '}
-                {(attempt.durationMs / 1000).toFixed(2)}s
-              </p>
-              <dl className={css.metrics}>
-                <div>
-                  <dt>Input</dt>
-                  <dd>{count(attempt.inputTokens)}</dd>
+        <details className={css.callDetails}>
+          <summary>Model calls · {trace.attempts.length}</summary>
+          <ol className={css.attempts}>
+            {trace.attempts.map((attempt) => (
+              <li key={attempt.id} className={css.attempt}>
+                <div className={css.heading}>
+                  <strong>{attempt.model}</strong>
+                  <span className={css.status} data-status={attempt.status}>
+                    {attempt.kind === 'auxiliary'
+                      ? 'Auxiliary overhead'
+                      : 'Execution'}{' '}
+                    · {attempt.status}
+                  </span>
                 </div>
-                <div>
-                  <dt>Output</dt>
-                  <dd>{count(attempt.outputTokens)}</dd>
-                </div>
-                <div>
-                  <dt>Cache read</dt>
-                  <dd>{count(attempt.cacheReadTokens)}</dd>
-                </div>
-                <div>
-                  <dt>Cache write</dt>
-                  <dd>{count(attempt.cacheWriteTokens)}</dd>
-                </div>
-                <div>
-                  <dt>Cost</dt>
-                  <dd>{costLabel([attempt])}</dd>
-                </div>
-              </dl>
-              {attempt.tokensEstimated ? (
-                <p className={css.caption}>Token counts estimated.</p>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-        {overhead.length ? (
-          <p className={css.caption}>
-            Auxiliary overhead included: {costLabel(overhead)} ·{' '}
-            {overhead.reduce((sum, attempt) => sum + attempt.durationMs, 0)}ms
-            of model calls.
-          </p>
-        ) : null}
-        <p className={css.caption}>
-          Estimates use catalog token rates; cache discounts may differ.
-          Unavailable means unreported usage or missing pricing. Local compute
-          and non-model tool charges are excluded.
-        </p>
+                <p className={css.reason}>
+                  {ZONE_LABELS[attempt.zone] ?? attempt.zone}
+                  {attempt.tier ? ` · ${attempt.tier}` : ''} ·{' '}
+                  {attempt.reason.replaceAll('_', ' ').replaceAll('-', ' ')} ·{' '}
+                  {(attempt.durationMs / 1000).toFixed(2)}s
+                </p>
+                <dl className={css.metrics}>
+                  <div>
+                    <dt>Input</dt>
+                    <dd>{count(attempt.inputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>Output</dt>
+                    <dd>{count(attempt.outputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cache read</dt>
+                    <dd>{count(attempt.cacheReadTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cache write</dt>
+                    <dd>{count(attempt.cacheWriteTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cost</dt>
+                    <dd>{costLabel([attempt])}</dd>
+                  </div>
+                </dl>
+                {attempt.tokensEstimated ? (
+                  <p className={css.caption}>Token counts estimated.</p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+          {overhead.length ? (
+            <p className={css.caption}>
+              Auxiliary overhead included: {costLabel(overhead)} ·{' '}
+              {overhead.reduce((sum, attempt) => sum + attempt.durationMs, 0)}ms
+              of model calls.
+            </p>
+          ) : null}
+        </details>
       </div>
     </details>
   );

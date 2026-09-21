@@ -128,19 +128,21 @@ export async function classifyRouting(input: {
         { role: 'user', content: input.text },
       ],
     });
-    evaluation.model = result.model;
+    evaluation.model = model;
     evaluation.inputTokens = result.usage?.inputTokens ?? null;
     evaluation.outputTokens = result.usage?.outputTokens ?? null;
     evaluation.costUsd =
       result.usage?.costUsd ??
       (evaluation.inputTokens !== null && evaluation.outputTokens !== null
         ? estimateModelUsageCostUsd({
-            model: result.model,
+            model,
             promptTokens: evaluation.inputTokens,
             completionTokens: evaluation.outputTokens,
           })
         : null);
-    const parsed = JSON.parse(result.content) as RoutingSignals;
+    const content = result.content.trim();
+    const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(content);
+    const parsed = JSON.parse(fenced ? fenced[1] : content) as RoutingSignals;
     if (
       !parsed ||
       !EVALUATION_LABELS.capability.includes(parsed.capability) ||

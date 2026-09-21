@@ -374,6 +374,7 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
             prompt_tokens: 42,
             completion_tokens: 8,
             total_tokens: 50,
+            prompt_tokens_details: { cached_tokens: 20 },
           },
         }),
         {
@@ -386,25 +387,29 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
   vi.stubGlobal('fetch', fetchMock);
 
   const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
-  const result = await callAuxiliaryModel({
+  const { captureRoutingTrace } = await import('../src/usage/routing-trace.js');
+  const {result, trace} = await captureRoutingTrace(() => callAuxiliaryModel({
     task: 'flush_memories',
     agentId: 'main',
     provider: 'hybridai',
-    model: 'gpt-5-nano',
+    model: 'hybridai/gpt-5-nano',
+    allowFallback: false,
     fallbackChatbotId: 'bot_123',
     maxTokens: 2048,
     temperature: 0.1,
     messages: [{ role: 'user', content: 'Rewrite this memory.' }],
-  });
+  }));
+  expect(trace.attempts[0]).toMatchObject({ model: 'hybridai/gpt-5-nano', cacheReadTokens: 20 });
 
   expect(result).toEqual({
     provider: 'hybridai',
-    model: 'gpt-5-nano',
+    model: 'hybridai/gpt-5-nano',
     content: 'HybridAI cleanup response.',
     usage: {
       inputTokens: 42,
       outputTokens: 8,
       totalTokens: 50,
+      cacheReadTokens: 20,
     },
   });
 });

@@ -144,6 +144,8 @@ export interface AuxiliaryModelCallParams {
 }
 
 export interface AuxiliaryModelUsage {
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -253,6 +255,20 @@ function readAuxiliaryModelUsage(
       ? inputTokens + outputTokens
       : undefined);
   const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
+  const details = isRecord(value.prompt_tokens_details)
+    ? value.prompt_tokens_details
+    : isRecord(value.input_tokens_details)
+      ? value.input_tokens_details
+      : {};
+  const cacheReadTokens = readFiniteNumber([
+    value.cacheReadTokens,
+    value.cache_read_input_tokens,
+    details.cached_tokens,
+  ]);
+  const cacheWriteTokens = readFiniteNumber([
+    value.cacheWriteTokens,
+    value.cache_creation_input_tokens,
+  ]);
 
   if (
     inputTokens === undefined &&
@@ -268,6 +284,8 @@ function readAuxiliaryModelUsage(
     ...(outputTokens !== undefined ? { outputTokens } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
   };
 }
 
@@ -1539,8 +1557,13 @@ async function callAuxiliaryTextProviderWithLogging(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const startedAt = Date.now();
+  // Explicit no-fallback calls keep endpoint identity for pricing and telemetry.
+  const traceModel =
+    params.allowFallback === false && params.model
+      ? params.model
+      : context.model;
   const routingAttempt = startRoutingTraceAttempt(
-    context.model,
+    traceModel,
     'auxiliary',
     params.task,
   );
@@ -1565,7 +1588,7 @@ async function callAuxiliaryTextProviderWithLogging(
       options,
     );
     finishRoutingTraceAttempt({
-      model: context.model,
+      model: traceModel,
       attempt: routingAttempt,
       status: 'success',
       durationMs: Date.now() - startedAt,
@@ -1586,7 +1609,7 @@ async function callAuxiliaryTextProviderWithLogging(
     return response;
   } catch (error) {
     finishRoutingTraceAttempt({
-      model: context.model,
+      model: traceModel,
       attempt: routingAttempt,
       status: 'error',
       durationMs: Date.now() - startedAt,

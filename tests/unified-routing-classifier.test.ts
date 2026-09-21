@@ -33,3 +33,10 @@ test('classifier failure preserves uncertainty and hides provider payloads', asy
  expect(result.signals.capability).toBe('uncertain');
  expect(JSON.stringify(result)).not.toContain('private error');
 });
+
+test('accepts a single fenced JSON response and keeps the configured endpoint identity', async () => {
+ mocks.auxiliary.mockResolvedValue({ model:'vllm/test-model', content:'```json\n{"capability":"basic","urgency":"unspecified","sensitive":false}\n```' });
+ const result = await classifyRouting({text:'A public task'});
+ expect(result.evaluation).toMatchObject({model:'test-model',status:'evaluated'});
+ expect(result.signals.capability).toBe('basic');
+});
