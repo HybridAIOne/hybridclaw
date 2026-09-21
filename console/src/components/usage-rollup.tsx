@@ -166,13 +166,10 @@ function Metric(props: { label: string; value: string; detail?: string }) {
   );
 }
 
-function Legend(props: { showCache: boolean }) {
-  const segments = props.showCache
-    ? SEGMENTS
-    : SEGMENTS.filter((s) => s.key === 'uncached' || s.key === 'output');
+function Legend(props: { items: Segment[] }) {
   return (
     <ul className={css.legend} aria-label="Token categories">
-      {segments.map((segment) => (
+      {props.items.map((segment) => (
         <li key={segment.key} className={css.legendItem}>
           <span
             aria-hidden="true"
@@ -190,6 +187,60 @@ interface DayColumn {
   date: string;
   label: string;
   parts: TokenParts;
+}
+
+const CHART_W = 600;
+const CHART_H = 120;
+
+/**
+ * Monotone cubic (Fritsch-Carlson) interpolation: smooth like Catmull-Rom
+ * but never overshoots, so a flat run followed by a jump stays on the
+ * baseline instead of dipping below it.
+ */
+function monotonePath(points: { x: number; y: number }[]): string {
+  const n = points.length;
+  if (n === 0) return '';
+  const fmt = (v: number) => v.toFixed(2);
+  if (n === 1) return `M${fmt(points[0].x)},${fmt(points[0].y)}`;
+  const dx: number[] = [];
+  const dy: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    dx.push(points[i + 1].x - points[i].x);
+    dy.push(points[i + 1].y - points[i].y);
+    slope.push(dx[i] === 0 ? 0 : dy[i] / dx[i]);
+  }
+  const tangent: number[] = [slope[0]];
+  for (let i = 1; i < n - 1; i += 1) {
+    tangent.push(
+      slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2,
+    );
+  }
+  tangent.push(slope[n - 2]);
+  for (let i = 0; i < n - 1; i += 1) {
+    if (slope[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const a = tangent[i] / slope[i];
+    const b = tangent[i + 1] / slope[i];
+    const h = Math.hypot(a, b);
+    if (h > 3) {
+      tangent[i] = ((3 * a) / h) * slope[i];
+      tangent[i + 1] = ((3 * b) / h) * slope[i];
+    }
+  }
+  const out = [`M${fmt(points[0].x)},${fmt(points[0].y)}`];
+  for (let i = 0; i < n - 1; i += 1) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const third = dx[i] / 3;
+    out.push(
+      `C${fmt(p1.x + third)},${fmt(p1.y + tangent[i] * third)} ${fmt(p2.x - third)},${fmt(p2.y - tangent[i + 1] * third)} ${fmt(p2.x)},${fmt(p2.y)}`,
+    );
+  }
+  return out.join(' ');
 }
 
 function UsageChart(props: {
@@ -218,17 +269,69 @@ function UsageChart(props: {
       (best, c) => (c.parts.total > (best?.parts.total ?? 0) ? c : best),
       null,
     );
-    return { columns, max, peak };
+    const stepX = CHART_W / (columns.length - 1);
+    const yFor = (value: number) =>
+      CHART_H - (max > 0 ? (value / max) * CHART_H : 0);
+    const xFor = (index: number) => index * stepX;
+    const totalLine = monotonePath(
+      columns.map((c) => ({ x: xFor(c.index), y: yFor(c.parts.total) })),
+    );
+    const cachedLine = monotonePath(
+      columns.map((c) => ({ x: xFor(c.index), y: yFor(c.parts.cached) })),
+    );
+    const close = ` L${CHART_W},${CHART_H} L0,${CHART_H} Z`;
+    return {
+      columns,
+      max,
+      peak,
+      xFor,
+      yFor,
+      totalLine,
+      totalArea: totalLine + close,
+      cachedLine,
+      cachedArea: cachedLine + close,
+    };
   }, [trend, props.formatTrendDate]);
 
   if (!layout) return null;
-  const { columns, max, peak } = layout;
+  const { columns, max, peak, xFor, yFor } = layout;
   const active = hover == null ? null : columns[hover];
   const segments = props.showCache
     ? SEGMENTS
     : SEGMENTS.filter((s) => s.key === 'uncached' || s.key === 'output');
+  const legendItems: Segment[] = [
+    { key: 'uncached', label: 'Total tokens', className: css.segUncached },
+    ...(props.showCache
+      ? [
+          {
+            key: 'cached' as const,
+            label: 'Served from cache',
+            className: css.segCached,
+          },
+        ]
+      : []),
+  ];
+
+  function handleMove(event: React.PointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const index = Math.min(
+      Math.max(Math.round(ratio * (columns.length - 1)), 0),
+      columns.length - 1,
+    );
+    setHover(index);
+  }
+
+  function handleFocus(event: React.FocusEvent<SVGSVGElement>) {
+    const target = event.target as Element | null;
+    const raw = target?.closest('[data-index]')?.getAttribute('data-index');
+    const index = raw == null ? Number.NaN : Number(raw);
+    if (Number.isInteger(index) && columns[index]) setHover(index);
+  }
+
   const tooltipLeftPct = active
-    ? ((active.index + 0.5) / columns.length) * 100
+    ? (active.index / (columns.length - 1)) * 100
     : 0;
   const tooltipStyle = active
     ? { left: `calc(3.4em + (100% - 3.4em) * ${tooltipLeftPct / 100})` }
@@ -238,7 +341,7 @@ function UsageChart(props: {
 
   return (
     <div className={css.chart}>
-      <Legend showCache={props.showCache} />
+      <Legend items={legendItems} />
       <div className={css.chartCanvas}>
         <div className={css.gridline} style={{ bottom: '100%' }}>
           <span>{formatCompactNumber(max)}</span>
@@ -246,43 +349,62 @@ function UsageChart(props: {
         <div className={css.gridline} style={{ bottom: '50%' }}>
           <span>{formatCompactNumber(max / 2)}</span>
         </div>
-        <div
-          className={css.columns}
+        <div className={css.gridline} style={{ bottom: 0 }} />
+        <svg
+          viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+          preserveAspectRatio="none"
+          className={css.chartSvg}
           role="img"
           aria-label="Tokens per day, last 30 days"
+          onPointerMove={handleMove}
           onPointerLeave={() => setHover(null)}
+          onFocus={handleFocus}
+          onBlur={() => setHover(null)}
         >
-          {columns.map((column) => {
-            const label = `${column.label}: ${formatCompactNumber(column.parts.total)} tokens`;
-            return (
-              <button
-                type="button"
-                key={column.date}
-                className={css.column}
-                data-active={hover === column.index || undefined}
-                onPointerEnter={() => setHover(column.index)}
-                onFocus={() => setHover(column.index)}
-                onBlur={() => setHover(null)}
-                aria-label={label}
-                title={label}
-              >
-                <div className={css.stack}>
-                  {segments.map((segment) => {
-                    const value = column.parts[segment.key];
-                    if (value <= 0 || max <= 0) return null;
-                    return (
-                      <div
-                        key={segment.key}
-                        className={`${css.segment} ${segment.className}`}
-                        style={{ height: `${(value / max) * 100}%` }}
-                      />
-                    );
-                  })}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+          <path d={layout.totalArea} className={css.washTotal} />
+          {props.showCache ? (
+            <path d={layout.cachedArea} className={css.washCached} />
+          ) : null}
+          <path
+            d={layout.totalLine}
+            className={`${css.line} ${css.lineTotal}`}
+            vectorEffect="non-scaling-stroke"
+          />
+          {props.showCache ? (
+            <path
+              d={layout.cachedLine}
+              className={`${css.line} ${css.lineCached}`}
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : null}
+          {columns.map((column) => (
+            <g
+              key={column.date}
+              tabIndex={0}
+              data-index={column.index}
+              className={css.pointTarget}
+              aria-label={`${column.label}: ${formatCompactNumber(column.parts.total)} tokens`}
+            >
+              <title>{`${column.label}: ${formatCompactNumber(column.parts.total)} tokens`}</title>
+              <circle
+                cx={xFor(column.index)}
+                cy={yFor(column.parts.total)}
+                r={4}
+                className={css.point}
+              />
+            </g>
+          ))}
+          {active ? (
+            <line
+              x1={xFor(active.index)}
+              x2={xFor(active.index)}
+              y1={0}
+              y2={CHART_H}
+              className={css.crosshair}
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : null}
+        </svg>
         {active ? (
           <div
             className={css.tooltip}

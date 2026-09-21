@@ -134,52 +134,59 @@
   color: color-mix(in srgb, var(--text) 45%, transparent);
 }
 
-.columns {
+.chartSvg {
   position: absolute;
   inset: 0 0 0 3.4em;
-  display: flex;
-  align-items: stretch;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-}
-
-.column {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  justify-content: center;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  outline: none;
-  cursor: default;
-}
-
-.stack {
-  width: min(24px, 62%);
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-start;
+  width: calc(100% - 3.4em);
   height: 100%;
-  gap: 2px;
+  overflow: visible;
+  display: block;
 }
 
-.segment {
-  flex: 0 0 auto;
-  min-height: 1px;
-  transition: opacity 120ms ease;
+.washTotal {
+  fill: var(--chart-input);
+  fill-opacity: 0.1;
 }
 
-.stack .segment:last-child {
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
+.washCached {
+  fill: var(--chart-input-cached);
+  fill-opacity: 0.16;
 }
 
-.column[data-active] .segment,
-.column:focus-visible .segment {
-  filter: brightness(1.15);
+.line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.lineTotal {
+  stroke: var(--chart-input);
+}
+
+.lineCached {
+  stroke: var(--chart-input-cached);
+}
+
+.pointTarget {
+  outline: none;
+}
+
+.point {
+  fill: transparent;
+  stroke: transparent;
+}
+
+.pointTarget:focus-visible .point {
+  fill: var(--panel-muted);
+  stroke: var(--chart-input);
+  stroke-width: 2;
+}
+
+.crosshair {
+  stroke: color-mix(in srgb, var(--text) 35%, transparent);
+  stroke-width: 1;
+  pointer-events: none;
 }
 
 .tooltip {
