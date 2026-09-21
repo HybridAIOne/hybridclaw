@@ -676,6 +676,35 @@ test('maps OpenAI-style cached prompt tokens into token stats', () => {
   });
 });
 
+test('maps OpenAI-style cache writes into token stats', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    prompt_tokens: 2995,
+    completion_tokens: 10,
+    total_tokens: 3005,
+    prompt_tokens_details: {
+      cached_tokens: 0,
+      cache_write_tokens: 2995,
+    },
+  });
+
+  expect(stats).toMatchObject({
+    apiCacheUsageAvailable: true,
+    apiCacheReadTokens: 0,
+    apiCacheWriteTokens: 2995,
+  });
+});
+
+test('prefers nested OpenAI-style cache writes over the Anthropic spelling', () => {
+  const stats = mapOpenAICompatibleUsageToTokenStats({
+    prompt_tokens: 100,
+    completion_tokens: 10,
+    cache_creation_input_tokens: 20,
+    prompt_tokens_details: { cache_write_tokens: 0 },
+  });
+
+  expect(stats?.apiCacheWriteTokens).toBe(0);
+});
+
 test('maps Anthropic-style cache usage into token stats', () => {
   const stats = mapOpenAICompatibleUsageToTokenStats({
     input_tokens: 5000,
