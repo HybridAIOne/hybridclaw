@@ -449,6 +449,7 @@ export interface AdminStatisticsResponse {
 
 export interface AdminDiscordChannelConfig {
   mode: 'off' | 'mention' | 'free';
+  replyStyle?: 'thread' | 'top-level';
   typingMode?: 'instant' | 'thinking' | 'streaming' | 'never';
   debounceMs?: number;
   ackReaction?: string;
@@ -603,6 +604,7 @@ export interface AdminConfig {
     botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
+    replyStyle: 'thread' | 'top-level';
     humanDelay: {
       mode: 'off' | 'natural' | 'custom';
       minMs: number;

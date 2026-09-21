@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Discord replies can start threads**: Global and per-channel reply-style
+  settings route guild responses into public threads while preserving parent
+  channel allowlists and falling back safely when thread permissions are absent.
+
 ### Fixed
 
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed

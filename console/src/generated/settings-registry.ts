@@ -1079,6 +1079,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'discord.replyStyle',
+      section: 'discord',
+      kind: 'string',
+      defaultValue: 'top-level',
+    },
+    {
       path: 'discord.sendAllowedChannelIds',
       section: 'discord',
       kind: 'list',
