@@ -197,6 +197,13 @@ test('memory query previews the attached prompt block without mutating recall ac
     session.id,
     'Earlier turns covered the deploy animation plan and pending asset work.',
   );
+  // Per-turn memories are only recalled once their turn has left the
+  // verbatim history, so compact the stored turn out of the session log.
+  const stored = memoryService.getRecentMessages(session.id);
+  memoryService.deleteMessagesBeforeId(
+    session.id,
+    (stored.at(-1)?.id ?? 0) + 1,
+  );
 
   const result = await handleGatewayCommand({
     sessionId: session.id,
@@ -217,7 +224,7 @@ test('memory query previews the attached prompt block without mutating recall ac
   expect(result.text).toContain('Summary included: yes');
   expect(result.text).toContain('Matched semantic memories:');
   expect(result.text).toContain('Exact attached block:');
-  expect(result.text).toContain('Relevant Memory Recall');
+  expect(result.text).toContain('Chat Recall');
   expect(result.text).toContain(
     'Earlier turns covered the deploy animation plan and pending asset work.',
   );
