@@ -138,7 +138,7 @@ describe('A2A outbound adapter', () => {
         },
       },
     });
-    expect(rpc.id).toBeUndefined();
+    expect(rpc.id).toBe('msg-a2a-1');
     expect(decodeA2AJsonRpcRequest(rpc)).toEqual(
       expect.objectContaining({
         ...sampleA2AEnvelope('msg-a2a-1'),
@@ -429,6 +429,21 @@ describe('A2A outbound adapter', () => {
     expect(request.method).toBe('tasks/send');
     expect(request.id).toBe('msg-task');
     expect(request.params.metadata.hybridclaw.intent).toBe('handoff');
+  });
+
+  test('keeps reply threading in the envelope instead of the A2A taskId', () => {
+    const envelope = {
+      ...sampleA2AEnvelope('msg-reply'),
+      parent_message_id: 'msg-parent',
+    };
+    const request = encodeA2AJsonRpcRequest(envelope, {
+      url: 'https://peer.example.com/a2a',
+    });
+
+    expect(request.params.message).not.toHaveProperty('taskId');
+    expect(decodeA2AJsonRpcRequest(request).parent_message_id).toBe(
+      'msg-parent',
+    );
   });
 
   test('requires a JSON-RPC response body for tasks/send', async () => {
