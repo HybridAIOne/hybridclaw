@@ -533,3 +533,18 @@ describe('buildChatHistoryUiData', () => {
     });
   });
 });
+
+it('hydrates persisted routing evidence without adding it to message text', () => {
+  const routingTrace = {
+    version: 1 as const,
+    mode: 'direct' as const,
+    status: 'complete' as const,
+    durationMs: 10,
+    attempts: [],
+  };
+  const result = buildChatHistoryUiData(
+    { history: [{ role: 'assistant', content: 'Answer', routingTrace }] },
+    'test-session',
+  );
+  expect(result.messages[0]).toMatchObject({ content: 'Answer', routingTrace });
+});

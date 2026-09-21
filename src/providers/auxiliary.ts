@@ -10,6 +10,10 @@ import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  finishRoutingTraceAttempt,
+  startRoutingTraceAttempt,
+} from '../usage/routing-trace.js';
+import {
   buildAnthropicSupportingHeaders,
   isAnthropicOAuthToken,
   normalizeAnthropicBaseUrl,
@@ -1535,6 +1539,11 @@ async function callAuxiliaryTextProviderWithLogging(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const startedAt = Date.now();
+  const routingAttempt = startRoutingTraceAttempt(
+    context.model,
+    'auxiliary',
+    params.task,
+  );
   if (typeof logger.info === 'function') {
     logger.info(
       {
@@ -1555,6 +1564,13 @@ async function callAuxiliaryTextProviderWithLogging(
       messages,
       options,
     );
+    finishRoutingTraceAttempt({
+      model: context.model,
+      attempt: routingAttempt,
+      status: 'success',
+      durationMs: Date.now() - startedAt,
+      ...response.usage,
+    });
     if (typeof logger.info === 'function') {
       logger.info(
         {
@@ -1569,6 +1585,12 @@ async function callAuxiliaryTextProviderWithLogging(
     }
     return response;
   } catch (error) {
+    finishRoutingTraceAttempt({
+      model: context.model,
+      attempt: routingAttempt,
+      status: 'error',
+      durationMs: Date.now() - startedAt,
+    });
     if (typeof logger.warn === 'function') {
       logger.warn(
         {

@@ -1,12 +1,15 @@
+import { parseRoutingTrace } from '../../../src/types/routing-trace';
 import type {
   ChatStreamApproval,
   ChatStreamResult,
   ChatStreamTextDelta,
   ChatStreamToolEvent,
+  RoutingTrace,
 } from '../api/chat-types';
 import { requestHeaders, throwResponseError } from '../api/client';
 
 export interface ChatStreamCallbacks {
+  onRoutingTrace?: (trace: RoutingTrace) => void;
   onTextDelta: (delta: string, event?: ChatStreamTextDelta) => void;
   onApproval: (event: ChatStreamApproval) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -56,6 +59,12 @@ export async function requestChatStream(
         payload.delta as string,
         payload as unknown as ChatStreamTextDelta,
       );
+      return null;
+    }
+
+    if (payload.type === 'routing') {
+      const trace = parseRoutingTrace(JSON.stringify(payload.trace) ?? null);
+      if (trace) callbacks.onRoutingTrace?.(trace);
       return null;
     }
 

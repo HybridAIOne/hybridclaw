@@ -1146,6 +1146,9 @@ function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
       return {
         kind: candidate.kind,
         text: candidate.text,
+        ...(candidate.kind !== 'error' && candidate.continueWithMessage === true
+          ? { continueWithMessage: true }
+          : {}),
         ...(typeof candidate.title === 'string'
           ? { title: candidate.title }
           : {}),

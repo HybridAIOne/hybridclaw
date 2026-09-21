@@ -1932,6 +1932,36 @@ function generateDefaultWebSessionId(agentId?: string | null): string {
 async function resolveApiChatSlashCommandResult(
   chatRequest: GatewayChatRequest,
 ): Promise<GatewayChatResult | null> {
+  const inlineEscalation = /^\/escalate\s+([\s\S]*\S)\s*$/i.exec(
+    chatRequest.content.trim(),
+  );
+  if (inlineEscalation) {
+    const guarded = resolveApiChatSecretCommandGuardResult({
+      ...chatRequest,
+      content: inlineEscalation[1],
+    });
+    if (guarded) return guarded;
+    const result = await handleGatewayCommand({
+      sessionId: chatRequest.sessionId,
+      sessionMode: chatRequest.sessionMode,
+      guildId: chatRequest.guildId,
+      channelId: chatRequest.channelId,
+      userId: chatRequest.userId,
+      username: chatRequest.username,
+      args: ['escalate', inlineEscalation[1]],
+    });
+    if (result.kind !== 'error' && result.continueWithMessage === true) {
+      chatRequest.content = inlineEscalation[1];
+      return null;
+    }
+    return {
+      status: result.kind === 'error' ? 'error' : 'success',
+      result: renderTextChannelCommandResult(result),
+      toolsUsed: [],
+      messageRole: 'command',
+      sessionId: result.sessionId || chatRequest.sessionId,
+    };
+  }
   const slashCommands = resolveTextChannelSlashCommands(chatRequest.content);
   if (!slashCommands) return null;
 
@@ -3774,6 +3804,7 @@ async function handleApiChatStream(
       normalizeSilentMessageSendReply(
         await handleGatewayMessage({
           ...chatRequest,
+          onRoutingTrace: (trace) => sendEvent({ type: 'routing', trace }),
           onTextDelta,
           onThinkingDelta,
           onToolProgress,

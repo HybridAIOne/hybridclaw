@@ -536,6 +536,7 @@ export interface RuntimeRoutingConciergeConfig {
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  showRoutingInfo: boolean;
   concierge: RuntimeRoutingConciergeConfig;
 }
 
@@ -2165,6 +2166,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
+    showRoutingInfo: false,
     enabled: false,
     tiers: [],
     defaultStart: '',
@@ -8805,6 +8808,10 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      showRoutingInfo: normalizeBoolean(
+        rawRouting.showRoutingInfo,
+        DEFAULT_RUNTIME_CONFIG.routing.showRoutingInfo,
+      ),
       concierge: normalizeRoutingConciergeConfig(
         rawRouting.concierge,
         DEFAULT_RUNTIME_CONFIG.routing.concierge,

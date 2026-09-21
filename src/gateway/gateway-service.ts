@@ -9760,6 +9760,10 @@ export function getGatewayHistory(
       );
     })
     .map((message) => {
+      if (!getRuntimeConfig().routing.showRoutingInfo) {
+        const { routingTrace: _routingTrace, ...visibleMessage } = message;
+        message = visibleMessage;
+      }
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
       const assistantPresentation =
@@ -11531,6 +11535,7 @@ export interface GatewaySessionModelRouting {
   active: boolean;
   startTier: string | null;
   startModel: string | null;
+  showRoutingInfo: boolean;
 }
 
 function buildGatewaySessionModelRouting(
@@ -11538,7 +11543,12 @@ function buildGatewaySessionModelRouting(
 ): GatewaySessionModelRouting {
   const routing = getRuntimeConfig().routing;
   if (!routing.enabled || session.model?.trim()) {
-    return { active: false, startTier: null, startModel: null };
+    return {
+      active: false,
+      startTier: null,
+      startModel: null,
+      showRoutingInfo: routing.showRoutingInfo,
+    };
   }
 
   const agentModel = resolveAgentModel(resolveAgentConfig(session.agent_id));
@@ -11552,6 +11562,7 @@ function buildGatewaySessionModelRouting(
     active: true,
     startTier: startTier?.name ?? null,
     startModel: startTier?.models[0]?.trim() || null,
+    showRoutingInfo: routing.showRoutingInfo,
   };
 }
 

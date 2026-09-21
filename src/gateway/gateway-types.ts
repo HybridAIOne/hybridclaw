@@ -54,6 +54,7 @@ import type {
 } from '../types/execution.js';
 import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
+import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
@@ -75,6 +76,8 @@ export interface GatewaySessionSwitcherEntry {
 }
 
 export interface GatewayCommandResult {
+  /** Command accepted an inline prompt for the normal chat execution path. */
+  continueWithMessage?: boolean;
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
@@ -122,6 +125,7 @@ export interface GatewayChatResult {
     status: 'queued';
   };
   assistantPresentation?: GatewayAssistantPresentation;
+  routingTrace?: RoutingTrace;
   model?: string;
   provider?: string;
   memoryAccess?: MemoryAccess;
@@ -243,6 +247,7 @@ export interface GatewayChatRequest {
   promptMode?: PromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
+  onRoutingTrace?: (trace: RoutingTrace) => void;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
@@ -300,6 +305,7 @@ export interface GatewayHistoryMessage {
   }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
+  routingTrace?: RoutingTrace;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
