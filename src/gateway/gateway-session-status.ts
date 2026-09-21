@@ -1,3 +1,8 @@
+/**
+ * Session-status projection — reconstructs current metrics from persisted audit events.
+ * Unlike audit storage, this module tolerates supported historical provider spellings.
+ * It does not record events or infer provider pricing.
+ */
 import {
   getRecentStructuredAuditForSession,
   listStructuredAuditSessionIdsByPrefix,
@@ -227,6 +232,8 @@ export function readSessionStatusSnapshot(
     usagePayload?.cache_write_tokens,
     usagePayload?.cache_write_input_tokens,
     usagePayload?.cache_creation_input_tokens,
+    (usagePayload?.prompt_tokens_details as Record<string, unknown> | undefined)
+      ?.cache_write_tokens,
   ]);
   const cacheRead = Math.max(0, cacheReadTokens || 0);
   const cacheWrite = Math.max(0, cacheWriteTokens || 0);
