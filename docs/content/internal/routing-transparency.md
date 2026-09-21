@@ -62,3 +62,21 @@ Telemetry persistence failures are logged and must not discard a completed answe
 
 No gateway restart, provider credential change, or routing policy change is needed
 for the visibility setting itself.
+
+## Configure tiers in the console
+
+Open **Providers → Model routing** (`/admin/models#model-routing`). Add a tier,
+name it, and select its first model. Optional backup models are tried in their
+listed order. Add further tiers and use the arrow buttons to order them. Choose
+**Start new requests at**, enable **Automatic model routing**, then **Save routing**.
+Changes remain a draft until saved; **Discard changes** restores the saved ladder.
+
+An agent's default model can determine its starting tier. A model explicitly
+selected in chat bypasses the ladder. For a manual test, enable routing visibility,
+open a chat, run `/model clear`, and send a request. Inspect the routing tags.
+Use `/escalate` before another request to test the next tier. Automatic fallback
+requires a failure safe to retry; reordering tiers does not force an escalation.
+
+**Session Routing** in general configuration controls conversation grouping and
+identity, not model selection. The tier editor preserves concierge settings,
+visibility, and escalation stickiness when saving.

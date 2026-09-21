@@ -1,0 +1,79 @@
+.editor {
+  display: grid;
+  gap: 16px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+.help {
+  color: var(--muted-foreground);
+  margin: 0;
+  line-height: 1.6;
+}
+.tiers {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.tier {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 12px;
+  min-width: 0;
+}
+.heading,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.heading > .actions {
+  margin-left: auto;
+}
+.number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.model {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+.model > .field {
+  flex: 1;
+}
+@media (max-width: 600px) {
+  .tier {
+    padding: 12px;
+  }
+  .heading > .actions {
+    margin-left: 0;
+  }
+}
