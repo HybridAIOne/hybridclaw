@@ -135,3 +135,19 @@ describe('model routing runtime config', () => {
    const saved = config.updateRuntimeConfig((draft) => { draft.routing.showRoutingInfo = true; });
    expect(saved.routing.showRoutingInfo).toBe(true);
  });
+
+test('saves a newly discovered model when registered with its tier in the same update', async () => {
+  const config = await loadConfigModule();
+  const draft = config.getRuntimeConfig();
+  const model = 'anthropic/new-catalog-model';
+  draft.routing.enabled = true;
+  draft.routing.tiers = [{ name: 'cloud', models: [model] }];
+  draft.routing.defaultStart = 'cloud';
+  expect(() => config.saveRuntimeConfig(draft)).toThrow('references unknown model');
+  draft.anthropic.models.push(model);
+  const saved = config.saveRuntimeConfig(draft);
+  expect(saved.routing.tiers[0].models).toEqual([model]);
+  expect(saved.anthropic.models).toContain(model);
+  config.reloadRuntimeConfig();
+  expect(config.getRuntimeConfig().routing.tiers[0].models).toEqual([model]);
+});

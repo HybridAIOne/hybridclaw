@@ -1,7 +1,7 @@
 /**
  * Edits the ordered model fallback ladder without changing execution policy.
  * Conversation grouping and routing visibility are independent settings;
- * saves merge only the editable ladder fields into the latest configuration.
+ * saves merge the ladder and selected catalog models into the latest configuration.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -78,6 +78,19 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
             ? ladder.tiers.map(({ name, models }) => ({ name, models }))
             : ladder[key],
         );
+      }
+      for (const modelId of new Set(
+        ladder.tiers.flatMap((tier) => tier.models),
+      )) {
+        const model = models.find((entry) => entry.id === modelId);
+        if (!model || model.backend) continue;
+        const section =
+          model.provider === 'openai-codex' ? 'codex' : model.provider;
+        const path = `${section}.models`;
+        const configured = settingValue(config, path);
+        if (Array.isArray(configured) && !configured.includes(modelId)) {
+          config = withSettingValue(config, path, [...configured, modelId]);
+        }
       }
       return saveConfig(token, config);
     },

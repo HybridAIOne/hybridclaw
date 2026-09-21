@@ -69,7 +69,9 @@ Open **Providers → Model routing** (`/admin/models#model-routing`). Add a tier
 name it, and select its first model. Optional backup models are tried in their
 listed order. Add further tiers and use the arrow buttons to order them. Choose
 **Start new requests at**, enable **Automatic model routing**, then **Save routing**.
-Changes remain a draft until saved; **Discard changes** restores the saved ladder.
+Saving also registers selected discovered remote models in their provider model
+lists, so routing validation and the picker agree after a reload. Existing models
+and provider settings are preserved. Changes remain a draft until saved; **Discard changes** restores the saved ladder.
 
 An agent's default model can determine its starting tier. A model explicitly
 selected in chat bypasses the ladder. For a manual test, enable routing visibility,

@@ -134,3 +134,83 @@ it('preserves existing backups and permits replacing a missing catalog model', a
     }),
   );
 });
+
+it('registers selected discovered remote models while preserving provider settings', async () => {
+  const catalog = [
+    { id: 'anthropic/new-model', provider: 'anthropic', backend: null },
+    { id: 'openai-codex/new-model', provider: 'openai-codex', backend: null },
+    { id: 'hybridai/new-model', provider: 'hybridai', backend: null },
+    { id: 'edge/local-model', provider: 'vllm', backend: 'vllm' },
+    { id: 'anthropic/unselected-model', provider: 'anthropic', backend: null },
+  ] as ChatModel[];
+  const config = {
+    routing: {
+      ...routing,
+      tiers: [
+        { name: 'Local', models: catalog.slice(0, 4).map((model) => model.id) },
+      ],
+    },
+    anthropic: {
+      enabled: true,
+      models: ['anthropic/existing-model'],
+      baseUrl: 'https://example.com',
+    },
+    codex: { models: ['openai-codex/existing-model'] },
+    hybridai: { models: ['hybridai/new-model'] },
+    vllm: { models: [] },
+  };
+  mocks.fetch.mockResolvedValue({ config });
+  renderWithProviders(<RoutingConfiguration models={catalog} />);
+  fireEvent.change(await screen.findByLabelText('Tier 1 name'), {
+    target: { value: 'Cloud' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+  await waitFor(() =>
+    expect(mocks.save).toHaveBeenCalledWith('test-token', {
+      ...config,
+      routing: {
+        ...config.routing,
+        defaultStart: 'Cloud',
+        tiers: [
+          {
+            name: 'Cloud',
+            models: catalog.slice(0, 4).map((model) => model.id),
+          },
+        ],
+      },
+      anthropic: {
+        ...config.anthropic,
+        models: ['anthropic/existing-model', 'anthropic/new-model'],
+      },
+      codex: {
+        models: ['openai-codex/existing-model', 'openai-codex/new-model'],
+      },
+    }),
+  );
+});
+
+it('does not register a configured model missing from the discovered catalog', async () => {
+  const config = {
+    routing: {
+      ...routing,
+      tiers: [{ name: 'Local', models: ['anthropic/missing-model'] }],
+    },
+    anthropic: { models: ['anthropic/existing-model'] },
+  };
+  mocks.fetch.mockResolvedValue({ config });
+  await renderEditor();
+  fireEvent.change(screen.getByLabelText('Tier 1 name'), {
+    target: { value: 'Cloud' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+  await waitFor(() =>
+    expect(mocks.save).toHaveBeenCalledWith('test-token', {
+      ...config,
+      routing: {
+        ...config.routing,
+        defaultStart: 'Cloud',
+        tiers: [{ name: 'Cloud', models: ['anthropic/missing-model'] }],
+      },
+    }),
+  );
+});
