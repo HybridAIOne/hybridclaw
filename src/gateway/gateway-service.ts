@@ -3898,6 +3898,7 @@ export function recordSuccessfulTurn(opts: {
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  promptOverheadTokens?: number;
 }): {
   userMessageId: number;
   assistantMessageId: number;
@@ -3999,6 +4000,7 @@ export function recordSuccessfulTurn(opts: {
       model: opts.model,
       channelId: opts.channelId,
       promptMode: opts.promptMode,
+      promptOverheadTokens: opts.promptOverheadTokens,
     }).catch((err) => {
       logger.warn(
         { sessionId: opts.sessionId, err },

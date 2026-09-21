@@ -76,6 +76,10 @@ vi.mock('../src/providers/auxiliary.js', () => ({
   callAuxiliaryModel: callAuxiliaryModelMock,
 }));
 
+vi.mock('../src/providers/model-catalog.js', () => ({
+  getModelCatalogMetadata: vi.fn(() => ({ contextWindow: 128_000 })),
+}));
+
 vi.mock('../src/providers/task-routing.js', () => ({
   resolveTaskModelPolicy: vi.fn(async () => null),
 }));
@@ -89,7 +93,13 @@ vi.mock('../src/session/session-export.js', () => ({
 }));
 
 vi.mock('../src/session/token-efficiency.js', () => ({
-  estimateTokenCountFromMessages: vi.fn(() => 500),
+  estimateTokenCountFromMessages: vi.fn(
+    (messages: Array<{ content: string | null }>) =>
+      messages.reduce(
+        (total, message) => total + (message.content?.length ?? 0),
+        0,
+      ),
+  ),
   estimateTokenCountFromText: vi.fn(() => 0),
 }));
 
@@ -253,4 +263,118 @@ test('maybeCompactSession skips built-in compaction when a plugin replaces memor
     }),
     'Session compaction skipped because a plugin memory layer replaces built-in memory',
   );
+});
+
+test('maybeCompactSession stays idle while stored history fits the budget', async () => {
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: 'session-1',
+    session_summary: null,
+    message_count: 4,
+  });
+  memoryServiceMock.getRecentMessages.mockReturnValue([
+    makeStoredMessage(1, 'user', 'a'.repeat(100)),
+    makeStoredMessage(2, 'assistant', 'b'.repeat(100)),
+    makeStoredMessage(3, 'user', 'c'.repeat(100)),
+    makeStoredMessage(4, 'assistant', 'd'.repeat(100)),
+  ]);
+
+  const { maybeCompactSession } = await import(
+    '../src/session/session-maintenance.js'
+  );
+
+  await maybeCompactSession({
+    sessionId: 'session-1',
+    agentId: 'main',
+    chatbotId: 'bot-1',
+    enableRag: true,
+    model: 'test-model',
+    channelId: 'web',
+    promptOverheadTokens: 100,
+  });
+
+  expect(memoryServiceMock.getCompactionCandidateMessages).not.toHaveBeenCalled();
+  expect(loggerMock.debug).toHaveBeenCalledWith(
+    expect.objectContaining({
+      msgTokens: 400,
+      promptOverheadTokens: 100,
+      historyBudget: 2_000,
+      shouldCompactForTokens: false,
+      shouldCompactForMessageCount: false,
+    }),
+    'Session compaction budget check',
+  );
+});
+
+test('maybeCompactSession compacts once stored history exceeds the history budget', async () => {
+  const allMessages = [
+    makeStoredMessage(1, 'user', 'a'.repeat(900)),
+    makeStoredMessage(2, 'assistant', 'b'.repeat(900)),
+    makeStoredMessage(3, 'user', 'c'.repeat(600)),
+    makeStoredMessage(4, 'assistant', 'd'.repeat(100)),
+    makeStoredMessage(5, 'user', 'e'.repeat(100)),
+    makeStoredMessage(6, 'assistant', 'f'.repeat(100)),
+  ];
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: 'session-1',
+    session_summary: null,
+    message_count: 6,
+  });
+  memoryServiceMock.getRecentMessages.mockImplementation(
+    (_sessionId: string, keepRecent?: number) =>
+      keepRecent ? allMessages.slice(-keepRecent) : allMessages,
+  );
+  memoryServiceMock.getCompactionCandidateMessages.mockReturnValue({
+    olderMessages: allMessages.slice(0, 4),
+    cutoffId: 5,
+  });
+  memoryServiceMock.deleteMessagesBeforeId.mockReturnValue(4);
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+  callAuxiliaryModelMock.mockResolvedValue({ content: 'Compacted summary' });
+
+  const { maybeCompactSession } = await import(
+    '../src/session/session-maintenance.js'
+  );
+
+  await maybeCompactSession({
+    sessionId: 'session-1',
+    agentId: 'main',
+    chatbotId: 'bot-1',
+    enableRag: true,
+    model: 'test-model',
+    channelId: 'web',
+    promptOverheadTokens: 100,
+  });
+
+  // 2,700 stored tokens exceed the 2,000 floor. Half of that budget (1,000)
+  // retains the two newest turns (900 tokens); the 1,800-token oldest turn
+  // would push the retained slice past the share.
+  expect(memoryServiceMock.getCompactionCandidateMessages).toHaveBeenCalledWith(
+    'session-1',
+    4,
+  );
+  expect(memoryServiceMock.deleteMessagesBeforeId).toHaveBeenCalledWith(
+    'session-1',
+    5,
+  );
+  expect(memoryServiceMock.updateSessionSummary).toHaveBeenCalledWith(
+    'session-1',
+    'Compacted summary',
+  );
+});
+
+test('resolveRetainedMessageCount always keeps the newest turn whole', async () => {
+  const { resolveRetainedMessageCount } = await import(
+    '../src/session/session-maintenance.js'
+  );
+  const messages = [
+    makeStoredMessage(1, 'user', 'a'.repeat(50)),
+    makeStoredMessage(2, 'assistant', 'b'.repeat(50)),
+    makeStoredMessage(3, 'user', 'c'.repeat(50)),
+    makeStoredMessage(4, 'assistant', 'd'.repeat(500)),
+  ];
+
+  expect(resolveRetainedMessageCount(messages, 40, 10)).toBe(2);
+  expect(resolveRetainedMessageCount(messages, 40, 10_000)).toBe(4);
+  expect(resolveRetainedMessageCount(messages, 3, 10_000)).toBe(2);
+  expect(resolveRetainedMessageCount([], 40, 10_000)).toBe(0);
 });

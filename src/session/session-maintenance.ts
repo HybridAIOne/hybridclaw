@@ -5,12 +5,10 @@ import {
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES,
-  SESSION_COMPACTION_BUDGET_RATIO,
   SESSION_COMPACTION_ENABLED,
   SESSION_COMPACTION_KEEP_RECENT,
   SESSION_COMPACTION_SUMMARY_MAX_CHARS,
   SESSION_COMPACTION_THRESHOLD,
-  SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -25,25 +23,45 @@ import { resolveTaskModelPolicy } from '../providers/task-routing.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StoredMessage } from '../types/session.js';
+import { resolveHistoryBudgetTokens } from './context-budget.js';
 import { exportCompactedSessionJsonl } from './session-export.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from './token-efficiency.js';
+import { expandStoredMessage } from './tool-history.js';
 
 const COMPACTION_SOURCE_MAX_MESSAGES = 240;
 const COMPACTION_SOURCE_MAX_CHARS = 80_000;
+// Half the history budget stays verbatim after compaction (owner call,
+// 2026-09-21): compaction then runs about once per half budget of new turns
+// instead of on every turn.
+const RETAINED_HISTORY_SHARE = 0.5;
 
-function normalizeStoredMessageRole(role: string): ChatMessage['role'] {
-  if (
-    role === 'system' ||
-    role === 'user' ||
-    role === 'assistant' ||
-    role === 'tool'
-  ) {
-    return role;
+function estimateStoredMessageTokens(message: StoredMessage): number {
+  return estimateTokenCountFromMessages(expandStoredMessage(message));
+}
+
+/**
+ * Newest messages to keep verbatim: bounded by `keepRecent`, by the retained
+ * token share, and aligned so the kept slice starts at a user turn. The newest
+ * turn is always kept whole.
+ */
+export function resolveRetainedMessageCount(
+  messages: StoredMessage[],
+  maxMessages: number,
+  maxTokens: number,
+): number {
+  if (messages.length === 0) return 0;
+  let retained = 0;
+  let tokens = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const count = messages.length - index;
+    tokens += estimateStoredMessageTokens(messages[index]);
+    if (retained > 0 && (count > maxMessages || tokens > maxTokens)) break;
+    if (messages[index].role === 'user') retained = count;
   }
-  return 'user';
+  return Math.max(1, retained);
 }
 
 function formatDateStampInLocalTimezone(now: Date): string {
@@ -328,6 +346,11 @@ export async function maybeCompactSession(params: {
   model: string;
   channelId: string;
   promptMode?: PromptMode;
+  /**
+   * Estimated tokens of the system blocks plus dynamic context from the turn
+   * that just completed. When omitted, a minimal system prompt is estimated.
+   */
+  promptOverheadTokens?: number;
 }): Promise<void> {
   if (!SESSION_COMPACTION_ENABLED) return;
 
@@ -335,37 +358,36 @@ export async function maybeCompactSession(params: {
   if (!session) return;
 
   const threshold = Math.max(SESSION_COMPACTION_THRESHOLD, 20);
-  const tokenBudget = Math.max(1_000, SESSION_COMPACTION_TOKEN_BUDGET);
-  const budgetRatio = Math.max(
-    0.05,
-    Math.min(1, SESSION_COMPACTION_BUDGET_RATIO),
-  );
-  const budget = Math.max(1, Math.floor(tokenBudget * budgetRatio));
   const allMessages = memoryService.getRecentMessages(params.sessionId);
-  const keepRecent = Math.max(
-    1,
-    Math.min(
+  const msgTokens = allMessages.reduce(
+    (total, message) => total + estimateStoredMessageTokens(message),
+    0,
+  );
+  const promptOverheadTokens =
+    params.promptOverheadTokens ??
+    estimateTokenCountFromText(session.session_summary) +
+      estimateTokenCountFromText(
+        buildSystemPrompt(
+          params.agentId,
+          session.session_summary,
+          undefined,
+          params.promptMode ?? 'minimal',
+        ),
+      );
+  const historyBudget = resolveHistoryBudgetTokens({
+    model: params.model,
+    promptOverheadTokens,
+  });
+  const keepRecent = Math.min(
+    resolveRetainedMessageCount(
+      allMessages,
       SESSION_COMPACTION_KEEP_RECENT,
-      Math.max(1, threshold - 1),
-      Math.max(1, allMessages.length - 1),
+      Math.floor(historyBudget * RETAINED_HISTORY_SHARE),
     ),
+    Math.max(1, threshold - 1),
+    Math.max(1, allMessages.length - 1),
   );
-  const msgTokens = estimateTokenCountFromMessages(
-    allMessages.map((message) => ({
-      role: normalizeStoredMessageRole(message.role),
-      content: message.content,
-    })),
-  );
-  const summaryTokens = estimateTokenCountFromText(session.session_summary);
-  const systemPrompt = buildSystemPrompt(
-    params.agentId,
-    session.session_summary,
-    undefined,
-    params.promptMode ?? 'minimal',
-  );
-  const systemPromptTokens = estimateTokenCountFromText(systemPrompt);
-  const totalTokens = msgTokens + summaryTokens + systemPromptTokens;
-  const shouldCompactForTokens = totalTokens >= budget;
+  const shouldCompactForTokens = msgTokens > historyBudget;
   const shouldCompactForMessageCount = session.message_count >= threshold;
 
   logger.debug(
@@ -374,12 +396,9 @@ export async function maybeCompactSession(params: {
       messageCount: session.message_count,
       loadedMessages: allMessages.length,
       msgTokens,
-      summaryTokens,
-      systemPromptTokens,
-      totalTokens,
-      tokenBudget,
-      budgetRatio,
-      triggerBudget: budget,
+      promptOverheadTokens,
+      historyBudget,
+      keepRecent,
       triggerThreshold: threshold,
       shouldCompactForTokens,
       shouldCompactForMessageCount,
@@ -468,12 +487,8 @@ export async function maybeCompactSession(params: {
       threshold,
       keepRecent,
       msgTokens,
-      summaryTokens,
-      systemPromptTokens,
-      totalTokens,
-      tokenBudget,
-      budgetRatio,
-      triggerBudget: budget,
+      promptOverheadTokens,
+      historyBudget,
       shouldCompactForTokens,
       shouldCompactForMessageCount,
       exportPath: exported?.path || null,
