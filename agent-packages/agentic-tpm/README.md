@@ -1,8 +1,8 @@
 # Agentic TPM
 
-An installable project coordinator inspired by Steve Yegge's Agentic TPM
-proposal. The agent maintains evidence-backed commitments, dependencies, risks,
-decisions, and follow-up drafts. Humans retain delivery decisions and authority.
+An installable agent for evidence-based project coordination and follow-ups.
+See [research and attribution](../../skills/agentic-tpm/references/research.md)
+for Steve Yegge's motivating proposal, supporting practices, and limits.
 
 The canonical skill lives in `skills/agentic-tpm/` at the repository root. The
 package bundles that skill without maintaining a second copy. It includes no
@@ -47,32 +47,17 @@ hybridclaw skill import ./skills/agentic-tpm
 Chat alternative: `/skill import <path-to-skill-directory>` where that directory
 is available to the gateway. Then invoke `/skill agentic-tpm`.
 
-Email, Slack, and tracker integrations are optional and configured separately.
-Pasted notes and local files are enough for the first project. To enable outreach,
-provide an explicit mandate covering recipients, purposes, channels, information,
-frequency, time zone/quiet hours, escalation, and expiry. Recurring reviews need
-an explicit request and a configured scheduler; installing the archive does not
-start monitoring or send messages.
+Pasted notes and local files are enough to start. Optional integrations,
+communication mandates, and recurring reviews follow the
+[skill's operating rules](../../skills/agentic-tpm/SKILL.md).
 
-## Research and validation
-
-Read [research and attribution](../../skills/agentic-tpm/references/research.md)
-for sources and limits. The primary-source research informed decision ownership
-and dependency mapping; the user-supplied proposal is credited to Steve Yegge.
+## Validation
 
 Use [behavioral scenarios](../../skills/agentic-tpm/references/evaluation.md) to
 exercise kickoff, conflicts, follow-up limits, uncertain sends, restricted
 knowledge, revoked authorization, and closure with synthetic data before a pilot.
 These scenarios are a manual evaluation guide, not automated behavioral tests.
 
-Validation (2026-09-22): the checkout archive validator accepted the built
-archive; the community skill guard returned safe with no findings; the checkout
-CLI discovered the skill as enabled. Build reproducibility, source/archive
-parity, frontmatter parsing, and local Markdown references passed. Repository
-formatting and lint passed, as did 50 tests across the skill-manifest,
-skill-invocation, and claw-archive suites.
-
-The generic Codex Python skill validator requires unavailable PyYAML and omits
-HybridClaw's supported `user-invocable` field; HybridClaw's own parser and guard
-were used instead. No live messaging, scheduled runs, or model behavioral
-evaluations were performed. No runtime implementation was changed.
+After changes, rebuild and inspect the archive, check skill discovery with
+`hybridclaw skill list`, and run the repository's skill-manifest,
+skill-invocation, and claw-archive tests. Keep run-specific results in the PR.
