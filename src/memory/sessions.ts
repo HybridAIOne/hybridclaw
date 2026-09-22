@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   getRuntimeConfig,
@@ -359,6 +360,20 @@ export function resolveSessionIdCompat(sessionId: string): string {
   );
 }
 
+/**
+ * RAG flag a brand-new session starts with: the agent's configured `enableRag`
+ * (admin API / `agents.list[].enableRag`) when it is set, otherwise `null` so
+ * the column keeps its schema default. `/rag on|off` still overrides per session.
+ */
+function resolveInitialSessionRag(agentId: string): 0 | 1 | null {
+  try {
+    const enableRag = resolveAgentConfig(agentId).enableRag;
+    return typeof enableRag === 'boolean' ? (enableRag ? 1 : 0) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getOrCreateSession(
   sessionId: string,
   guildId: string | null,
@@ -456,6 +471,7 @@ export function getOrCreateSession(
   }
 
   const nextSessionId = resolveNewSessionInstanceId({ requestedSessionId });
+  const sessionAgentId = requestedAgentId || defaultAgentId;
   getSessionDatabase()
     .prepare(
       `INSERT INTO sessions (
@@ -466,8 +482,9 @@ export function getOrCreateSession(
        guild_id,
        channel_id,
        agent_id,
-       legacy_session_id
-     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+       legacy_session_id,
+       enable_rag
+     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, COALESCE(?, 1))`,
     )
     .run(
       nextSessionId,
@@ -475,11 +492,12 @@ export function getOrCreateSession(
       mainSessionKey || canonicalSessionKey || nextSessionId,
       guildId,
       channelId,
-      requestedAgentId || defaultAgentId,
+      sessionAgentId,
       requestedSessionId !== canonicalSessionKey &&
         isLegacySessionKey(requestedSessionId)
         ? requestedSessionId
         : null,
+      resolveInitialSessionRag(sessionAgentId),
     );
 
   return requireSessionById(nextSessionId);
