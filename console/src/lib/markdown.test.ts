@@ -290,3 +290,50 @@ describe('renderMarkdown', () => {
     );
   });
 });
+
+describe('provider citation markers', () => {
+  const marker = '\uE200cite\uE202turn0search1\uE202turn0search4\uE201';
+  it('renders unsupported references honestly without exposing control characters or inventing links', () => {
+    const html = renderMarkdown(
+      `Turnout was **74.2%**. ${marker} Next sentence.`,
+    );
+    expect(html).toContain('Source unavailable</span>');
+    expect(html).toContain('Next sentence.');
+    expect(html).toContain('<strong>74.2%</strong>');
+    expect(html).not.toContain('turn0search');
+    expect(html).not.toContain('\uE200');
+    expect(html).not.toContain('<a');
+  });
+  it.each([
+    '\uE200',
+    '\uE200c',
+    '\uE200ci',
+    '\uE200cit',
+    '\uE200cite',
+    '\uE200cite\uE202turn0search1',
+  ])('hides partial streaming markers: %s', (partial) => {
+    const html = renderMarkdown(`Answer ${partial}`, { highlight: false });
+    expect(html).toContain('Answer');
+    expect(html).not.toContain('\uE200');
+    expect(html).not.toContain('Source unavailable');
+  });
+  it('keeps citation syntax literal in inline and fenced code', () => {
+    expect(renderMarkdown('`' + marker + '`')).toContain(
+      `<code>${marker}</code>`,
+    );
+    expect(renderMarkdown('```\n' + marker + '\n```')).toContain(marker);
+  });
+  it('preserves real source links and sanitizes malicious citation contents', () => {
+    const html = renderMarkdown(
+      '[Source](https://example.com) \uE200cite\uE202<img src=x onerror=alert(1)>\uE201',
+    );
+    expect(html).toContain('href="https://example.com"');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('onerror');
+  });
+  it('does not eat text after an incomplete marker on an earlier line', () => {
+    expect(
+      renderMarkdown('\uE200cite\uE202turn0search1\nKeep this sentence.'),
+    ).toContain('Keep this sentence.');
+  });
+});

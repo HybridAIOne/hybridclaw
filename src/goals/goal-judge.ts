@@ -32,6 +32,8 @@ interface GoalJudgeModelCallResponse {
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
     totalTokens?: number;
     costUsd?: number;
   } | null;
@@ -206,6 +208,10 @@ async function recordGoalJudgeUsage(params: {
     model: params.model,
     inputTokens,
     outputTokens,
+    cacheReadTokens:
+      usageTokenCount(params.response.usage?.cacheReadTokens) ?? undefined,
+    cacheWriteTokens:
+      usageTokenCount(params.response.usage?.cacheWriteTokens) ?? undefined,
     totalTokens,
     costUsd: usageCostUsd(params.response.usage?.costUsd) ?? 0,
   });

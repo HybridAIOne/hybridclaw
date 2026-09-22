@@ -72,8 +72,34 @@ describe('persistent tool history', () => {
       role: 'tool',
       tool_call_id: 'b',
       content: 'Tool not executed: Awaiting human approval',
+      is_error: true,
     });
     expect(validateToolHistory(history)).toEqual(history);
+  });
+
+  test('preserves the tool error flag through validation, sanitizing, and replay', () => {
+    const history: ChatMessage[] = [
+      { role: 'assistant', content: null, tool_calls: [call('a'), call('b')] },
+      { role: 'tool', tool_call_id: 'a', content: 'ok' },
+      { role: 'tool', tool_call_id: 'b', content: 'Error: boom', is_error: true },
+    ];
+    expect(validateToolHistory(history)).toEqual(history);
+    expect(sanitizeToolHistory(history)).toEqual(history);
+    expect(
+      validateToolHistory([
+        history[0],
+        history[1],
+        { ...history[2], is_error: 'yes' },
+      ])[2],
+    ).not.toHaveProperty('is_error');
+    expect(
+      expandStoredMessage({
+        role: 'assistant',
+        content: 'done',
+        session_id: 'session-a',
+        tool_history_json: JSON.stringify(history),
+      }).slice(0, 3),
+    ).toEqual(history);
   });
 
   test('replay retains context-guard edits and omits groups removed by compaction', () => {
@@ -179,11 +205,11 @@ describe('persistent tool history', () => {
       ...recent,
     ];
     expect(
-      optimizeHistoryMessagesForPrompt(messages, { maxTotalChars: 150 })
-        .messages,
+      optimizeHistoryMessagesForPrompt(messages, { maxTokens: 60 }).messages,
     ).toEqual(recent);
     expect(
-      optimizeHistoryMessagesForPrompt(recent).stats.includedChars,
-    ).toBeGreaterThan(80);
+      optimizeHistoryMessagesForPrompt(recent, { maxTokens: 60 }).stats
+        .includedTokens,
+    ).toBeGreaterThan(40);
   });
 });

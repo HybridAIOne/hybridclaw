@@ -7,6 +7,7 @@ interface HistoryMessage {
     function: { name: string; arguments: string };
   }>;
   tool_call_id?: string;
+  is_error?: boolean;
   anthropic_content?: Array<{ type: string; [key: string]: unknown }>;
   openai_response_items?: Array<Record<string, unknown>>;
 }

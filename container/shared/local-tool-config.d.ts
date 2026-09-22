@@ -14,3 +14,9 @@ export declare function normalizeLocalStarredNames(
   value: unknown,
   field: string,
 ): string[] | undefined;
+
+export type McpToolMode = 'full' | 'deferred';
+export declare function normalizeMcpToolMode(
+  value: unknown,
+  field: string,
+): McpToolMode | undefined;

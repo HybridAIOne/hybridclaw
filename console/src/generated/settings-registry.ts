@@ -2242,6 +2242,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 3,
     },
     {
+      path: 'routing.showRoutingInfo',
+      section: 'routing',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'routing.tiers',
       section: 'routing',
       kind: 'list',
@@ -2778,6 +2784,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'tools',
       kind: 'string',
       defaultValue: 'starred',
+    },
+    {
+      path: 'tools.mcpToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'full',
     },
     {
       path: 'ui.navigation',

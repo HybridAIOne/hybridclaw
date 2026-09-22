@@ -592,6 +592,8 @@ export interface HybridClawPluginApi {
   readonly pluginDir: string;
   readonly registrationMode: PluginRegistrationMode;
   readonly config: Readonly<RuntimeConfig>;
+  /** Current routing policy; unlike config, refreshed on every call. */
+  getRoutingConfig(): Readonly<RuntimeConfig['routing']>;
   readonly pluginConfig: Readonly<Record<string, unknown>>;
   readonly logger: PluginLogger;
   readonly runtime: PluginRuntime;

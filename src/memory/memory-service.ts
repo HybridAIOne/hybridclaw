@@ -616,7 +616,10 @@ export class MemoryService {
     this.consolidationEngine.setLanguage(language);
   }
 
-  async compactSession(sessionId: string): Promise<CompactionResult> {
+  async compactSession(
+    sessionId: string,
+    options?: { retainRecentCount?: number },
+  ): Promise<CompactionResult> {
     const existing = this.compactionLocks.get(sessionId);
     if (existing) return existing;
 
@@ -657,6 +660,7 @@ export class MemoryService {
         config: {
           maxSummaryChars: SESSION_COMPACTION_SUMMARY_MAX_CHARS,
         },
+        retainRecentCount: options?.retainRecentCount,
       });
     })().finally(() => {
       this.compactionLocks.delete(sessionId);

@@ -209,7 +209,7 @@ describe('DashboardPage', () => {
         content.includes('tokens this month · 0 today'),
       ),
     ).toBeTruthy();
-    expect(await screen.findByText('Apr 29: 0 tokens')).toBeTruthy();
-    expect(await screen.findByText('Apr 30: 1.2K tokens')).toBeTruthy();
+    expect(await screen.findByLabelText('Apr 29: 0 tokens')).toBeTruthy();
+    expect(await screen.findByLabelText('Apr 30: 1.2K tokens')).toBeTruthy();
   });
 });

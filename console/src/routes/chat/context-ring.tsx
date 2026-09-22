@@ -152,6 +152,19 @@ export function ContextRing(props: ContextRingProps) {
             </span>
           </div>
         )}
+        {snapshot?.cacheReadTokens != null ||
+        snapshot?.cacheWriteTokens != null ? (
+          <div className={css.popoverRow}>
+            <span>Cache</span>
+            <span className={css.popoverRowValue}>
+              {snapshot.cacheHitPercent != null
+                ? `${Math.round(snapshot.cacheHitPercent)}% hit · `
+                : ''}
+              {formatCompact(snapshot.cacheReadTokens ?? 0)} read /{' '}
+              {formatCompact(snapshot.cacheWriteTokens ?? 0)} written
+            </span>
+          </div>
+        ) : null}
         <div className={css.popoverRow}>
           <span>Compactions</span>
           <span className={css.popoverRowValue}>

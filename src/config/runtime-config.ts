@@ -19,6 +19,7 @@ import {
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
+  normalizeMcpToolMode,
 } from '../../container/shared/local-tool-config.js';
 import {
   type AgentConfig,
@@ -536,6 +537,7 @@ export interface RuntimeRoutingConciergeConfig {
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  showRoutingInfo: boolean;
   concierge: RuntimeRoutingConciergeConfig;
 }
 
@@ -1146,6 +1148,7 @@ export interface RuntimeConfig {
   tools: {
     localToolMode?: 'full' | 'starred';
     localStarterTools?: string[];
+    mcpToolMode?: 'full' | 'deferred';
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
@@ -1631,6 +1634,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   tools: {
     localToolMode: 'starred',
     localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
+    mcpToolMode: 'full',
     disabled: [],
     httpRequest: {
       authRules: [],
@@ -2165,6 +2169,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
+    showRoutingInfo: false,
     enabled: false,
     tiers: [],
     defaultStart: '',
@@ -3107,6 +3113,10 @@ function normalizeAgentConfig(
     value.localStarterTools,
     'agents.list[].localStarterTools',
   );
+  const mcpToolMode = normalizeMcpToolMode(
+    value.mcpToolMode,
+    'agents.list[].mcpToolMode',
+  );
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3168,6 +3178,7 @@ function normalizeAgentConfig(
     ...(localStarterSkills !== undefined ? { localStarterSkills } : {}),
     ...(localToolMode !== undefined ? { localToolMode } : {}),
     ...(localStarterTools !== undefined ? { localStarterTools } : {}),
+    ...(mcpToolMode !== undefined ? { mcpToolMode } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -7864,6 +7875,11 @@ function normalizeRuntimeConfig(
         isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
         'tools.localStarterTools',
       ) ?? [...DEFAULT_LOCAL_STARTER_TOOLS],
+      mcpToolMode:
+        normalizeMcpToolMode(
+          isRecord(raw.tools) ? raw.tools.mcpToolMode : undefined,
+          'tools.mcpToolMode',
+        ) ?? 'full',
       disabled: normalizeStringArray(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,
@@ -8805,6 +8821,10 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      showRoutingInfo: normalizeBoolean(
+        rawRouting.showRoutingInfo,
+        DEFAULT_RUNTIME_CONFIG.routing.showRoutingInfo,
+      ),
       concierge: normalizeRoutingConciergeConfig(
         rawRouting.concierge,
         DEFAULT_RUNTIME_CONFIG.routing.concierge,
