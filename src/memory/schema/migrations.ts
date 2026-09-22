@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 59;
+export const DATABASE_SCHEMA_VERSION = 61;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -1301,6 +1301,8 @@ function migrateV4(database: Database.Database): void {
       model TEXT NOT NULL,
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
       tool_calls INTEGER NOT NULL DEFAULT 0,
@@ -3732,6 +3734,38 @@ export function runMigrations(
 
   if (currentVersion < 59) migrateV59(database, opts);
 
+  if (
+    currentVersion < 60 ||
+    !columnExists(database, 'messages', 'routing_trace_json')
+  ) {
+    addColumnIfMissing({
+      database,
+      table: 'messages',
+      column: 'routing_trace_json',
+      ddl: 'routing_trace_json TEXT',
+      quiet,
+    });
+    recordMigration(database, 60, 'Persist per-response routing evidence');
+  }
+  if (
+    currentVersion < 61 ||
+    !columnExists(database, 'usage_events', 'cache_write_tokens')
+  ) {
+    for (const column of ['cache_read_tokens', 'cache_write_tokens']) {
+      addColumnIfMissing({
+        database,
+        table: 'usage_events',
+        column,
+        ddl: `${column} INTEGER NOT NULL DEFAULT 0`,
+        quiet,
+      });
+    }
+    recordMigration(
+      database,
+      61,
+      'Persist prompt cache tokens in usage events',
+    );
+  }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

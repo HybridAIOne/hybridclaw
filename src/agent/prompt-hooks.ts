@@ -33,10 +33,7 @@ import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { isLocalBackendType } from '../providers/provider-ids.js';
 import { readRuntimeInstructionFile } from '../security/instruction-integrity.js';
-import {
-  buildSessionContextPrompt,
-  type SessionContext,
-} from '../session/session-context.js';
+import type { SessionContext } from '../session/session-context.js';
 import {
   buildSkillsPrompt,
   type Skill,
@@ -381,12 +378,6 @@ function buildRetrievalHook(context: PromptHookContext): string {
   return buildRetrievedContextPrompt(context.retrievedContext);
 }
 
-function buildSessionContextHook(context: PromptHookContext): string {
-  const sessionContext = context.runtimeInfo?.sessionContext;
-  if (!sessionContext) return '';
-  return buildSessionContextPrompt(sessionContext);
-}
-
 function buildMessageToolPromptLines(
   activeChannels: readonly MessageToolChannelKind[],
   channelMessageToolHints: readonly string[],
@@ -522,10 +513,11 @@ function buildSafetyHook(context: PromptHookContext): string {
     '## Action Honesty',
     'Only claim an action happened (saved, written, scheduled, sent, delivered, configured) when a tool call in this turn performed it and its result reports success. If you did not call the tool, say the action has not been done yet.',
     'If a tool result starts with "Error:", contains "ok":false, or otherwise reports a failure, tell the user what failed. Do not paraphrase a failure into success, and do not invent delivery confirmations, receipts, or sender details that the tool result does not contain.',
-    "When the user states standing rules, preferences, or instructions to remember: first write them with the `memory` tool (append to today's daily note), then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
+    "When the user states standing rules, preferences, or instructions to remember — including a change to one, such as a new briefing time or delivery channel — first write them with the `memory` tool (append to today's daily note) in the same turn, then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
     'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
     '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
     'Scheduled task output cannot be delivered into the web chat. When the current session is web chat, always pass an explicit "channel" (a configured messaging channel or an email address) to `cron` "add"; if none is available, say so instead of scheduling.',
+    'To change an existing schedule (time, channel, or prompt), call `cron` "update" with the taskId from `cron` "list"; never "add" a second task for the same purpose.',
     'Outbound messages are always sent from the account HybridClaw is connected with. You cannot choose a different sender number or address, so never claim a message was sent from a specific number.',
     'Reply in the language the user writes in.',
     '',
@@ -883,12 +875,6 @@ const PROMPT_HOOKS: PromptHook[] = [
     run: buildRetrievalHook,
   },
   {
-    name: 'session-context',
-    isEnabled: (_config, context) =>
-      Boolean(context.runtimeInfo?.sessionContext),
-    run: buildSessionContextHook,
-  },
-  {
     name: 'safety',
     isEnabled: (config) => config.promptHooks.safetyEnabled,
     run: buildSafetyHook,
@@ -925,6 +911,24 @@ function isHookAllowedForMode(
     hookName === 'runtime' ||
     hookName === 'session-context'
   );
+}
+
+/**
+ * Whether the per-session context block (platform, session id, session key,
+ * user) should be rendered for this turn. It honours the same prompt-mode and
+ * include/omit selection as the other prompt parts, but it is rendered into the
+ * trailing dynamic context message instead of the system prompt: the ids change
+ * on every session, and any change inside the system prompt invalidates the
+ * provider's prompt cache for the whole static prefix (bootstrap files, safety
+ * text, skills and tool definitions) on every new session.
+ */
+export function shouldRenderSessionContext(
+  context: PromptHookContext,
+): boolean {
+  if (!context.runtimeInfo?.sessionContext) return false;
+  const mode = resolvePromptMode(context);
+  if (!isHookAllowedForMode('session-context', mode)) return false;
+  return isHookSelected('session-context', context);
 }
 
 export function runPromptHooks(context: PromptHookContext): PromptHookOutput[] {

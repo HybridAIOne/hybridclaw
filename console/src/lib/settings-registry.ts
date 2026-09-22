@@ -60,7 +60,7 @@ const SECTION_OWNERS: Readonly<
   kilo: PROVIDERS_OWNER,
   local: PROVIDERS_OWNER,
   auxiliaryModels: PROVIDERS_OWNER,
-  routing: PROVIDERS_OWNER,
+  routing: { label: 'Model routing', to: '/admin/models#model-routing' },
 };
 
 const FIELD_OWNERS: Readonly<Record<string, AdminConfigSectionOwner>> = {
@@ -138,7 +138,8 @@ const SECTION_DESCRIPTIONS: Readonly<Record<string, string>> = {
   memory: 'Recall, embeddings, consolidation, and ranking.',
   sessionCompaction: 'Conversation compaction thresholds and safeguards.',
   sessionReset: 'Automatic conversation reset policies.',
-  sessionRouting: 'Conversation identity and direct-message scoping.',
+  sessionRouting:
+    'Conversation grouping and identity across channels. To choose AI models and fallback tiers, open Providers → Model routing.',
   promptHooks: 'Prompt layers applied to agent turns.',
   proactive: 'Active hours, delegation, retries, and long-running work.',
   heartbeat: 'Periodic heartbeat delivery.',

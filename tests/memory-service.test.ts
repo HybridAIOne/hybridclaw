@@ -3003,9 +3003,9 @@ describe('MemoryService', () => {
     });
 
     expect(first.summaryConfidence).toBeLessThan(0.3);
-    expect(first.promptSummary).toContain('Relevant Memory Recall');
+    expect(first.promptSummary).toContain('Chat Recall');
     expect(first.promptSummary).toContain(
-      'If you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).',
+      'If you use any of them in your response, cite them inline using their tag (e.g. [mem:1]).',
     );
     expect(first.promptSummary).toContain(
       '- [mem:1] (90%) User likes concise changelog entries.',
@@ -3021,7 +3021,7 @@ describe('MemoryService', () => {
         confidence: 0.9,
       },
     ]);
-    expect(second.promptSummary).toContain('Relevant Memory Recall');
+    expect(second.promptSummary).toContain('Chat Recall');
     expect(recallCalls).toBe(2);
     expect(withoutSemanticRecall.semanticMemories).toEqual([]);
     expect(withoutSemanticRecall.citationIndex).toEqual([]);
@@ -3528,6 +3528,117 @@ describe('MemoryService', () => {
 
     expect(first[0]?.access_count).toBe(0);
     expect(second[0]?.access_count).toBe(1);
+  });
+
+  test('prompt recall skips per-turn memories whose turn is still in verbatim history', () => {
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const session = getOrCreateSession('s-verbatim-recall', null, 'web');
+    const service = new MemoryService();
+
+    const firstTurn = service.storeTurn({
+      sessionId: session.id,
+      user: { userId: 'u1', username: 'user', content: 'Release codename?' },
+      assistant: {
+        userId: 'assistant',
+        username: null,
+        content: 'The release codename is AtlasFox.',
+      },
+    });
+    const summaryId = storeSemanticMemory({
+      sessionId: session.id,
+      role: 'assistant',
+      source: 'compaction',
+      scope: 'session',
+      content: 'Earlier the user asked about the AtlasFox release codename.',
+      confidence: 0.95,
+    });
+
+    const whileVerbatim = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+    });
+    expect(whileVerbatim.semanticMemories.map((memory) => memory.id)).toEqual([
+      summaryId,
+    ]);
+    expect(whileVerbatim.promptSummary).toContain('### Chat Recall');
+    expect(whileVerbatim.promptSummary).toContain('not saved memory files');
+
+    service.deleteMessagesBeforeId(
+      session.id,
+      firstTurn.assistantMessageId + 1,
+    );
+    const afterCompaction = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+    });
+    expect(afterCompaction.semanticMemories.map((memory) => memory.id)).toHaveLength(2);
+    expect(
+      afterCompaction.semanticMemories.some(
+        (memory) => memory.source === 'conversation',
+      ),
+    ).toBe(true);
+  });
+
+  test('prompt recall skips compaction memories while the session summary is injected', () => {
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const created = getOrCreateSession('s-summary-dedupe', null, 'web');
+    const service = new MemoryService();
+    const compactionId = storeSemanticMemory({
+      sessionId: created.id,
+      role: 'assistant',
+      source: 'compaction',
+      scope: 'session',
+      content: 'Earlier the user asked about the AtlasFox release codename.',
+      confidence: 0.95,
+    });
+
+    const withoutSummary = service.buildPromptMemoryContext({
+      session: created,
+      query: 'release codename atlasfox',
+    });
+    expect(withoutSummary.semanticMemories.map((memory) => memory.id)).toEqual(
+      [compactionId],
+    );
+
+    service.updateSessionSummary(
+      created.id,
+      'The user asked about the AtlasFox release codename.',
+    );
+    const session = getSessionById(created.id) as Session;
+    const withSummary = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+    });
+    expect(withSummary.semanticRecallAttempted).toBe(false);
+    expect(withSummary.semanticMemories).toEqual([]);
+    expect(withSummary.promptSummary).toContain('AtlasFox release codename');
+  });
+
+  test('prompt recall is not attempted when only verbatim-history memories exist', () => {
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const session = getOrCreateSession('s-verbatim-only', null, 'web');
+    const service = new MemoryService();
+    const onMemoryAccess = vi.fn();
+    const recall = vi.spyOn(service, 'recallSemanticMemories');
+
+    service.storeTurn({
+      sessionId: session.id,
+      user: { userId: 'u1', username: 'user', content: 'Release codename?' },
+      assistant: {
+        userId: 'assistant',
+        username: null,
+        content: 'The release codename is AtlasFox.',
+      },
+    });
+
+    const result = service.buildPromptMemoryContext({
+      session,
+      query: 'release codename atlasfox',
+      onMemoryAccess,
+    });
+    expect(result.semanticRecallAttempted).toBe(false);
+    expect(recall).not.toHaveBeenCalled();
+    expect(onMemoryAccess).not.toHaveBeenCalled();
   });
 
   test('buildPromptMemoryContext can skip semantic access tracking in read-only mode', () => {

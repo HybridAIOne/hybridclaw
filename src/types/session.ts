@@ -1,5 +1,6 @@
 import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
+import type { RoutingTrace } from './routing-trace.js';
 
 export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
 
@@ -46,6 +47,7 @@ export interface StoredMessage {
   artifacts?: ArtifactMetadata[];
   /** Web-chat activity trace (thinking + tool calls) for assistant turns. */
   activityTrace?: ActivityTrace;
+  routingTrace?: RoutingTrace;
   tool_history_json?: string | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;

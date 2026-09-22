@@ -1,3 +1,8 @@
+/**
+ * Gateway docs serving keeps Markdown examples literal and rendered HTML sanitized.
+ * Unlike the static docs viewer, this renders pages on the server; raw HTML in
+ * stored Markdown is displayed as text and never treated as executable markup.
+ */
 import fs from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -1398,6 +1403,9 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
   let headingIndex = 0;
   const renderer = new marked.Renderer();
 
+  // Escape raw HTML tokens only; marked already escapes code spans and blocks.
+  renderer.html = ({ text }) => escapeHtml(text);
+
   renderer.heading = function ({ depth, tokens }) {
     const fallbackText = stripMarkdownFormatting(
       this.parser.parseInline(tokens),
@@ -1454,7 +1462,7 @@ function renderMarkdownBody(page: DevelopmentDocPage): string {
     return `<img src="${escapeHtml(resolvedHref)}" alt="${alt}"${titleAttr}>`;
   };
 
-  const rendered = marked.parse(escapeHtml(page.body), {
+  const rendered = marked.parse(page.body, {
     async: false,
     gfm: true,
     renderer,

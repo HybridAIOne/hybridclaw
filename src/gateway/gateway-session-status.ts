@@ -1,3 +1,8 @@
+/**
+ * Session-status projection — reconstructs current metrics from persisted audit events.
+ * Unlike audit storage, this module tolerates supported historical provider spellings.
+ * It does not record events or infer provider pricing.
+ */
 import {
   getRecentStructuredAuditForSession,
   listStructuredAuditSessionIdsByPrefix,
@@ -28,6 +33,8 @@ export interface SessionStatusSnapshot {
 export interface DelegateSessionStatusSnapshot {
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   sessionCount: number;
 }
 
@@ -227,6 +234,8 @@ export function readSessionStatusSnapshot(
     usagePayload?.cache_write_tokens,
     usagePayload?.cache_write_input_tokens,
     usagePayload?.cache_creation_input_tokens,
+    (usagePayload?.prompt_tokens_details as Record<string, unknown> | undefined)
+      ?.cache_write_tokens,
   ]);
   const cacheRead = Math.max(0, cacheReadTokens || 0);
   const cacheWrite = Math.max(0, cacheWriteTokens || 0);
@@ -299,18 +308,28 @@ export function readDelegateSessionStatusSnapshot(
   );
   let promptTokens = 0;
   let completionTokens = 0;
+  let cacheReadTokens: number | null = null;
+  let cacheWriteTokens: number | null = null;
   let sessionCount = 0;
 
   for (const childSessionId of childSessionIds) {
     const snapshot = readSessionStatusSnapshot(childSessionId);
     promptTokens += Math.max(0, snapshot.promptTokens || 0);
     completionTokens += Math.max(0, snapshot.completionTokens || 0);
+    if (snapshot.cacheReadTokens != null) {
+      cacheReadTokens = (cacheReadTokens ?? 0) + snapshot.cacheReadTokens;
+    }
+    if (snapshot.cacheWriteTokens != null) {
+      cacheWriteTokens = (cacheWriteTokens ?? 0) + snapshot.cacheWriteTokens;
+    }
     sessionCount += 1;
   }
 
   return {
     promptTokens,
     completionTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     sessionCount,
   };
 }

@@ -344,6 +344,8 @@ export interface AdminTerminalStopResponse {
 export interface AdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens?: number;
+  totalCacheWriteTokens?: number;
   totalTokens: number;
   totalCostUsd: number;
   callCount: number;
@@ -412,6 +414,8 @@ export interface AdminStatisticsTrendDay {
   totalMessages: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens: number;
   callCount: number;
   toolCalls: number;
@@ -438,6 +442,8 @@ export interface AdminStatisticsResponse {
     assistantMessages: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheReadTokens?: number;
+    totalCacheWriteTokens?: number;
     totalTokens: number;
     totalCostUsd: number;
     callCount: number;
@@ -449,6 +455,7 @@ export interface AdminStatisticsResponse {
 
 export interface AdminDiscordChannelConfig {
   mode: 'off' | 'mention' | 'free';
+  replyStyle?: 'thread' | 'top-level';
   typingMode?: 'instant' | 'thinking' | 'streaming' | 'never';
   debounceMs?: number;
   ackReaction?: string;
@@ -603,6 +610,7 @@ export interface AdminConfig {
     botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
+    replyStyle: 'thread' | 'top-level';
     humanDelay: {
       mode: 'off' | 'natural' | 'custom';
       minMs: number;
@@ -1067,6 +1075,8 @@ export interface AdminModelCatalogEntry extends ChatModel {
   pricingUsdPerToken: {
     input: number | null;
     output: number | null;
+    cacheRead?: number | null;
+    cacheWrite?: number | null;
   };
   capabilities: {
     vision: boolean;

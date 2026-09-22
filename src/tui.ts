@@ -2338,6 +2338,8 @@ async function fetchTuiExitSummary(): Promise<{
   summary: {
     inputTokenCount: number;
     outputTokenCount: number;
+    cacheReadTokenCount?: number;
+    cacheWriteTokenCount?: number;
     costUsd: number;
     toolCallCount: number;
     toolBreakdown: Array<{ toolName: string; count: number }>;
@@ -2378,6 +2380,8 @@ async function finalizeTuiExit(): Promise<void> {
           durationMs,
           inputTokenCount: summary?.inputTokenCount ?? 0,
           outputTokenCount: summary?.outputTokenCount ?? 0,
+          cacheReadTokenCount: summary?.cacheReadTokenCount ?? 0,
+          cacheWriteTokenCount: summary?.cacheWriteTokenCount ?? 0,
           costUsd: summary?.costUsd ?? 0,
           toolCallCount: summary?.toolCallCount ?? 0,
           toolBreakdown: summary?.toolBreakdown ?? [],

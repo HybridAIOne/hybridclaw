@@ -178,6 +178,60 @@ describe.sequential('container cron tool', () => {
     });
   });
 
+  test('updates a task through the gateway', async () => {
+    const calls = installGatewayFetch(() => ({
+      body: {
+        ok: true,
+        action: 'update',
+        taskId: 3,
+        cronExpr: '30 8 * * 1-5',
+        tz: 'Europe/Berlin',
+        channelId: 'david@example.com',
+        prompt: 'Write the morning briefing.',
+      },
+    }));
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'update',
+        taskId: 3,
+        cron: '30 8 * * 1-5',
+        tz: 'Europe/Berlin',
+        channel: 'david@example.com',
+      }),
+    );
+
+    expect(result).toBe(
+      'Updated task #3: cron "30 8 * * 1-5" (Europe/Berlin) -> david@example.com: Write the morning briefing.',
+    );
+    expect(readRequestBody(calls[0])).toEqual({
+      action: 'update',
+      taskId: 3,
+      cronExpr: '30 8 * * 1-5',
+      tz: 'Europe/Berlin',
+      channelId: 'david@example.com',
+      sessionId: 'session-cron',
+    });
+  });
+
+  test('rejects an update with more than one schedule field before calling the gateway', async () => {
+    const calls = installGatewayFetch();
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'update',
+        taskId: 3,
+        cron: '0 9 * * *',
+        every: 60,
+      }),
+    );
+
+    expect(result).toContain('Error: provide at most one of');
+    expect(calls).toHaveLength(0);
+  });
+
   test('lists the delivery channel for injected scheduled tasks', async () => {
     setScheduledTasks([
       {

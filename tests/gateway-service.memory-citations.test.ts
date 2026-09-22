@@ -73,6 +73,18 @@ test.each([
   expect(onToolProgress).not.toHaveBeenCalled();
 
   if (state === 'empty') {
+    // The first turn's per-turn memory is still verbatim history, so recall
+    // stays skipped until that turn is compacted out of the session log.
+    const verbatim = await handleGatewayMessage(request);
+    expect(verbatim.status).toBe('success');
+    expect(recall).not.toHaveBeenCalled();
+    expect(verbatim.memoryAccess).toBeUndefined();
+
+    const stored = memoryService.getRecentMessages(session.id);
+    memoryService.deleteMessagesBeforeId(
+      session.id,
+      (stored.at(-1)?.id ?? 0) + 1,
+    );
     const next = await handleGatewayMessage(request);
     expect(next.status).toBe('success');
     expect(recall).toHaveBeenCalledOnce();
@@ -183,7 +195,7 @@ test('handleGatewayMessage extracts cited memory references from the model respo
       return {
         semanticRecallAttempted: true,
         promptSummary:
-          '### Relevant Memory Recall\nIf you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).\n- [mem:1] (90%) User prefers concise changelog entries.',
+          '### Chat Recall\nIf you use any of these memories in your response, cite them inline using their tag (e.g. [mem:1]).\n- [mem:1] (90%) User prefers concise changelog entries.',
         summaryConfidence: null,
         semanticMemories: [],
         citationIndex: [

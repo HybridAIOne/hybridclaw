@@ -5,45 +5,60 @@ import {
   PRE_COMPACTION_MEMORY_FLUSH_ENABLED,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES,
-  SESSION_COMPACTION_BUDGET_RATIO,
   SESSION_COMPACTION_ENABLED,
   SESSION_COMPACTION_KEEP_RECENT,
-  SESSION_COMPACTION_SUMMARY_MAX_CHARS,
   SESSION_COMPACTION_THRESHOLD,
-  SESSION_COMPACTION_TOKEN_BUDGET,
 } from '../config/config.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { NoCompactableMessagesError } from '../memory/compaction.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
   type PluginManager,
 } from '../plugins/plugin-manager.js';
-import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { resolveTaskModelPolicy } from '../providers/task-routing.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
-import type { StoredMessage } from '../types/session.js';
-import { exportCompactedSessionJsonl } from './session-export.js';
+import type { CompactionResult } from '../types/memory.js';
+import type { Session, StoredMessage } from '../types/session.js';
+import { resolveHistoryBudgetTokens } from './context-budget.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from './token-efficiency.js';
+import { expandStoredMessage } from './tool-history.js';
 
-const COMPACTION_SOURCE_MAX_MESSAGES = 240;
-const COMPACTION_SOURCE_MAX_CHARS = 80_000;
+// Half the history budget stays verbatim after compaction (owner call,
+// 2026-09-21): compaction then runs about once per half budget of new turns
+// instead of on every turn.
+const RETAINED_HISTORY_SHARE = 0.5;
 
-function normalizeStoredMessageRole(role: string): ChatMessage['role'] {
-  if (
-    role === 'system' ||
-    role === 'user' ||
-    role === 'assistant' ||
-    role === 'tool'
-  ) {
-    return role;
+function estimateStoredMessageTokens(message: StoredMessage): number {
+  return estimateTokenCountFromMessages(expandStoredMessage(message));
+}
+
+/**
+ * Newest messages to keep verbatim: bounded by `keepRecent`, by the retained
+ * token share, and aligned so the kept slice starts at a user turn. The newest
+ * turn is always kept whole.
+ */
+export function resolveRetainedMessageCount(
+  messages: StoredMessage[],
+  maxMessages: number,
+  maxTokens: number,
+): number {
+  if (messages.length === 0) return 0;
+  let retained = 0;
+  let tokens = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const count = messages.length - index;
+    tokens += estimateStoredMessageTokens(messages[index]);
+    if (retained > 0 && (count > maxMessages || tokens > maxTokens)) break;
+    if (messages[index].role === 'user') retained = count;
   }
-  return 'user';
+  return Math.max(1, retained);
 }
 
 function formatDateStampInLocalTimezone(now: Date): string {
@@ -59,20 +74,6 @@ function formatDateStampInLocalTimezone(now: Date): string {
     return `${year}-${month}-${day}`;
   }
   return now.toISOString().slice(0, 10);
-}
-
-function normalizeSummary(summary: string): string {
-  let text = summary.trim();
-  if (text.startsWith('```')) {
-    text = text
-      .replace(/^```[a-z0-9_-]*\s*/i, '')
-      .replace(/```$/i, '')
-      .trim();
-  }
-  if (text.length > SESSION_COMPACTION_SUMMARY_MAX_CHARS) {
-    text = `${text.slice(0, SESSION_COMPACTION_SUMMARY_MAX_CHARS)}\n\n...[truncated]`;
-  }
-  return text;
 }
 
 function formatMessagesForPrompt(
@@ -258,69 +259,7 @@ export async function runPreCompactionMemoryFlush(params: {
   }
 }
 
-async function generateCompactionSummary(params: {
-  sessionId: string;
-  agentId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  model: string;
-  channelId: string;
-  previousSummary: string | null;
-  olderMessages: StoredMessage[];
-}): Promise<string | null> {
-  const transcript = formatMessagesForPrompt(
-    params.olderMessages,
-    COMPACTION_SOURCE_MAX_MESSAGES,
-    COMPACTION_SOURCE_MAX_CHARS,
-  );
-  if (!transcript) return null;
-
-  const previous = params.previousSummary?.trim() || '(none)';
-  const systemPrompt = [
-    'You are compressing conversation history for a long-running AI session.',
-    'Return an updated markdown summary that preserves durable context only.',
-    'Focus on goals, decisions, constraints, preferences, and open follow-ups.',
-    'Do not include low-value chatter, greetings, or transient details.',
-    'Return summary text only.',
-  ].join(' ');
-
-  const userPrompt = [
-    'Existing summary:',
-    previous,
-    '',
-    'Messages to compact:',
-    transcript,
-    '',
-    'Return a single merged summary that should replace the existing summary.',
-  ].join('\n');
-
-  try {
-    const result = await callAuxiliaryModel({
-      task: 'compression',
-      agentId: params.agentId,
-      fallbackModel: params.model,
-      fallbackChatbotId: params.chatbotId,
-      fallbackEnableRag: params.enableRag,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    });
-    const normalized = normalizeSummary(result.content);
-    return normalized || null;
-  } catch (err) {
-    logger.warn(
-      {
-        sessionId: params.sessionId,
-        err,
-      },
-      'Session compaction summary failed',
-    );
-    return null;
-  }
-}
-
-export async function maybeCompactSession(params: {
+export interface SessionCompactionTarget {
   sessionId: string;
   agentId: string;
   chatbotId: string;
@@ -328,72 +267,93 @@ export async function maybeCompactSession(params: {
   model: string;
   channelId: string;
   promptMode?: PromptMode;
-}): Promise<void> {
-  if (!SESSION_COMPACTION_ENABLED) return;
+  /**
+   * Estimated tokens of the system blocks plus dynamic context from the turn
+   * that just completed. When omitted, a minimal system prompt is estimated.
+   */
+  promptOverheadTokens?: number;
+}
 
+interface CompactionPlan {
+  session: Session;
+  allMessages: StoredMessage[];
+  msgTokens: number;
+  promptOverheadTokens: number;
+  historyBudget: number;
+  keepRecent: number;
+  threshold: number;
+}
+
+function planCompaction(
+  params: SessionCompactionTarget,
+): CompactionPlan | null {
   const session = memoryService.getSessionById(params.sessionId);
-  if (!session) return;
+  if (!session) return null;
 
   const threshold = Math.max(SESSION_COMPACTION_THRESHOLD, 20);
-  const tokenBudget = Math.max(1_000, SESSION_COMPACTION_TOKEN_BUDGET);
-  const budgetRatio = Math.max(
-    0.05,
-    Math.min(1, SESSION_COMPACTION_BUDGET_RATIO),
-  );
-  const budget = Math.max(1, Math.floor(tokenBudget * budgetRatio));
   const allMessages = memoryService.getRecentMessages(params.sessionId);
-  const keepRecent = Math.max(
-    1,
-    Math.min(
+  const msgTokens = allMessages.reduce(
+    (total, message) => total + estimateStoredMessageTokens(message),
+    0,
+  );
+  const promptOverheadTokens =
+    params.promptOverheadTokens ??
+    estimateTokenCountFromText(session.session_summary) +
+      estimateTokenCountFromText(
+        buildSystemPrompt(
+          params.agentId,
+          session.session_summary,
+          undefined,
+          params.promptMode ?? 'minimal',
+        ),
+      );
+  const historyBudget = resolveHistoryBudgetTokens({
+    model: params.model,
+    promptOverheadTokens,
+  });
+  const keepRecent = Math.min(
+    resolveRetainedMessageCount(
+      allMessages,
       SESSION_COMPACTION_KEEP_RECENT,
-      Math.max(1, threshold - 1),
-      Math.max(1, allMessages.length - 1),
+      Math.floor(historyBudget * RETAINED_HISTORY_SHARE),
     ),
+    Math.max(1, threshold - 1),
+    Math.max(1, allMessages.length - 1),
   );
-  const msgTokens = estimateTokenCountFromMessages(
-    allMessages.map((message) => ({
-      role: normalizeStoredMessageRole(message.role),
-      content: message.content,
-    })),
-  );
-  const summaryTokens = estimateTokenCountFromText(session.session_summary);
-  const systemPrompt = buildSystemPrompt(
-    params.agentId,
-    session.session_summary,
-    undefined,
-    params.promptMode ?? 'minimal',
-  );
-  const systemPromptTokens = estimateTokenCountFromText(systemPrompt);
-  const totalTokens = msgTokens + summaryTokens + systemPromptTokens;
-  const shouldCompactForTokens = totalTokens >= budget;
-  const shouldCompactForMessageCount = session.message_count >= threshold;
+  return {
+    session,
+    allMessages,
+    msgTokens,
+    promptOverheadTokens,
+    historyBudget,
+    keepRecent,
+    threshold,
+  };
+}
 
-  logger.debug(
-    {
-      sessionId: params.sessionId,
-      messageCount: session.message_count,
-      loadedMessages: allMessages.length,
-      msgTokens,
-      summaryTokens,
-      systemPromptTokens,
-      totalTokens,
-      tokenBudget,
-      budgetRatio,
-      triggerBudget: budget,
-      triggerThreshold: threshold,
-      shouldCompactForTokens,
-      shouldCompactForMessageCount,
-    },
-    'Session compaction budget check',
-  );
+/**
+ * Runs the shared compaction engine for a session: plugin hooks, the
+ * pre-compaction memory flush, then summary, archive, and row deletion via
+ * `memoryService.compactSession`. Returns null when nothing was compacted.
+ */
+export async function compactSessionNow(
+  params: SessionCompactionTarget,
+): Promise<CompactionResult | null> {
+  const plan = planCompaction(params);
+  if (!plan) return null;
+  return runCompaction(params, plan);
+}
 
-  if (!shouldCompactForTokens && !shouldCompactForMessageCount) return;
-
+async function runCompaction(
+  params: SessionCompactionTarget,
+  plan: CompactionPlan,
+): Promise<CompactionResult | null> {
+  const { session, keepRecent } = plan;
   const candidate = memoryService.getCompactionCandidateMessages(
     params.sessionId,
     keepRecent,
   );
-  if (!candidate || candidate.olderMessages.length === 0) return;
+  if (!candidate || candidate.olderMessages.length === 0) return null;
 
   const pluginManager =
     await tryEnsurePluginManagerInitializedForSessionMaintenance({
@@ -422,7 +382,7 @@ export async function maybeCompactSession(params: {
         },
         'Session compaction skipped because a plugin memory layer replaces built-in memory',
       );
-      return;
+      return null;
     }
   }
 
@@ -432,51 +392,31 @@ export async function maybeCompactSession(params: {
     olderMessages: candidate.olderMessages,
   });
 
-  const summary = await generateCompactionSummary({
-    ...params,
-    previousSummary: session.session_summary,
-    olderMessages: candidate.olderMessages,
-  });
-  if (!summary) return;
+  let result: CompactionResult;
+  try {
+    result = await memoryService.compactSession(params.sessionId, {
+      retainRecentCount: keepRecent,
+    });
+  } catch (err) {
+    if (err instanceof NoCompactableMessagesError) return null;
+    throw err;
+  }
 
-  const deleted = memoryService.deleteMessagesBeforeId(
-    params.sessionId,
-    candidate.cutoffId,
-  );
-  if (deleted <= 0) return;
-
-  memoryService.updateSessionSummary(params.sessionId, summary);
-  const retainedMessages = memoryService.getRecentMessages(
-    params.sessionId,
-    keepRecent,
-  );
-  const exported = exportCompactedSessionJsonl({
-    agentId: params.agentId,
-    sessionId: params.sessionId,
-    channelId: params.channelId,
-    summary,
-    compactedMessages: candidate.olderMessages,
-    retainedMessages,
-    deletedCount: deleted,
-    cutoffId: candidate.cutoffId,
-  });
   logger.info(
     {
       sessionId: params.sessionId,
-      deleted,
+      compacted: result.messagesCompacted,
+      preserved: result.messagesPreserved,
       cutoffId: candidate.cutoffId,
-      threshold,
+      threshold: plan.threshold,
       keepRecent,
-      msgTokens,
-      summaryTokens,
-      systemPromptTokens,
-      totalTokens,
-      tokenBudget,
-      budgetRatio,
-      triggerBudget: budget,
-      shouldCompactForTokens,
-      shouldCompactForMessageCount,
-      exportPath: exported?.path || null,
+      msgTokens: plan.msgTokens,
+      promptOverheadTokens: plan.promptOverheadTokens,
+      historyBudget: plan.historyBudget,
+      tokensBefore: result.tokensBefore,
+      tokensAfter: result.tokensAfter,
+      stages: result.stages.length,
+      archivePath: result.archivePath,
     },
     'Session compacted',
   );
@@ -485,8 +425,42 @@ export async function maybeCompactSession(params: {
       sessionId: params.sessionId,
       agentId: params.agentId,
       channelId: params.channelId,
-      summary,
+      summary:
+        memoryService.getSessionById(params.sessionId)?.session_summary ?? null,
       olderMessages: candidate.olderMessages,
     });
   }
+  return result;
+}
+
+export async function maybeCompactSession(
+  params: SessionCompactionTarget,
+): Promise<void> {
+  if (!SESSION_COMPACTION_ENABLED) return;
+
+  const plan = planCompaction(params);
+  if (!plan) return;
+
+  const shouldCompactForTokens = plan.msgTokens > plan.historyBudget;
+  const shouldCompactForMessageCount =
+    plan.session.message_count >= plan.threshold;
+
+  logger.debug(
+    {
+      sessionId: params.sessionId,
+      messageCount: plan.session.message_count,
+      loadedMessages: plan.allMessages.length,
+      msgTokens: plan.msgTokens,
+      promptOverheadTokens: plan.promptOverheadTokens,
+      historyBudget: plan.historyBudget,
+      keepRecent: plan.keepRecent,
+      triggerThreshold: plan.threshold,
+      shouldCompactForTokens,
+      shouldCompactForMessageCount,
+    },
+    'Session compaction budget check',
+  );
+
+  if (!shouldCompactForTokens && !shouldCompactForMessageCount) return;
+  await runCompaction(params, plan);
 }

@@ -1433,6 +1433,9 @@ export function ChatPage() {
                     </div>
                   ) : (
                     <MessageBlock
+                      showRoutingInfo={
+                        contextQuery.data?.routing?.showRoutingInfo
+                      }
                       key={msg.id}
                       message={msg}
                       token={auth.token}

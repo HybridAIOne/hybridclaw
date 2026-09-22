@@ -1,5 +1,5 @@
 /**
- * Gateway turns persist tool exchanges with assistant results, including failures.
+ * Gateway turns persist tool exchanges and routing evidence with assistant results.
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
  * Transports own authorization; transcript evidence never authorizes execution.
@@ -73,7 +73,11 @@ import {
   formatMemoryAccessActivityPreview,
   MEMORY_RECALL_ACTIVITY_TOOL_NAME,
 } from '../memory/recall-presentation.js';
-import { withSpan } from '../observability/otel.js';
+import {
+  captureActiveContext,
+  recordCompletedSpan,
+  withSpan,
+} from '../observability/otel.js';
 import { captureSentryException } from '../observability/sentry.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
@@ -114,8 +118,20 @@ import {
 import type { MemoryAccess } from '../types/memory.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
-import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
-import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import {
+  explicitUsageCostSource,
+  extractExplicitUsageCostUsd,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
+import {
+  finishRoutingTraceAttempt,
+  setRoutingTraceMode,
+  startRoutingTraceAttempt,
+} from '../usage/routing-trace.js';
+import {
+  enqueueTokenUsage,
+  readCacheTokenUsage,
+} from '../usage/token-usage-buffer.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import {
@@ -128,6 +144,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
+import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -217,7 +234,9 @@ import {
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
-const MAX_HISTORY_MESSAGES = 40;
+// 500 rows (owner call, 2026-09-21): a safety cap for sessions whose memory
+// plugin replaces built-in compaction; the token budget bounds the prompt.
+const HISTORY_FETCH_LIMIT = 500;
 
 function resolveTurnRuntimeAuditLabel(
   model: string,
@@ -809,7 +828,8 @@ export async function handleGatewayMessage(
           'hybridclaw.channel_id': req.channelId || '',
           'hybridclaw.model': req.model || '',
         },
-        async () => handleGatewayMessageInner(req),
+        async () =>
+          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
       ),
     ),
   );
@@ -819,6 +839,9 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  // Tool progress arrives over IPC from the agent process, outside this
+  // turn's async context; keep the turn span so tool spans nest under it.
+  const turnTraceContext = captureActiveContext();
   const source = req.source?.trim() || 'gateway.chat';
   if (
     isA2ALocalModeEnabled(getRuntimeConfig()) &&
@@ -1389,8 +1412,10 @@ async function handleGatewayMessageInner(
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
+  if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
   let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
+  let manuallyEscalatedRouting = false;
   if (pluginManager?.hasMiddleware('routing')) {
     const stickyTier = isInteractiveSource
       ? peekStickyModelRoutingTier(req.sessionId)
@@ -1419,6 +1444,8 @@ async function handleGatewayMessageInner(
       Boolean(event.metadata?.conciergeRouter),
     );
     const routingMetadata = getConciergeRouterMetadata(routingEvent);
+    if (routingMetadata)
+      setRoutingTraceMode('concierge', `concierge-${routingMetadata.profile}`);
     const tierRoutingEvent = routingOutcome.events.find((event) =>
       Boolean(event.metadata?.tierRouter),
     );
@@ -1520,6 +1547,8 @@ async function handleGatewayMessageInner(
       effectiveUserTurnContentExpanded = routingOutcome.userContent;
     }
     if (tierRoutingMetadata?.startTier) {
+      manuallyEscalatedRouting =
+        tierRoutingMetadata.reason === 'manual-escalate';
       tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
         startTier: tierRoutingMetadata.startTier,
       });
@@ -1589,6 +1618,24 @@ async function handleGatewayMessageInner(
       },
       'Gateway tool progress',
     );
+    if (event.phase === 'finish' && typeof event.durationMs === 'number') {
+      const endTime = Date.now();
+      recordCompletedSpan(
+        'hybridclaw.tool.execute',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.tool_name': event.toolName,
+          // OTel GenAI semantic convention + Langfuse's OTLP type hint so the
+          // span lands as a TOOL observation in Langfuse-style backends.
+          'gen_ai.tool.name': event.toolName,
+          'langfuse.observation.type': 'tool',
+        },
+        { startTime: endTime - Math.max(0, event.durationMs), endTime },
+        turnTraceContext,
+      );
+    }
     // Always-visible memory access (user call, 2026-09-01): recall transparency
     // deliberately survives `/show none`; other tool activity still obeys it.
     if (!options?.alwaysVisible && !shouldEmitTools) return;
@@ -1733,10 +1780,14 @@ async function handleGatewayMessageInner(
     return attachSessionIdentity(result);
   }
 
-  const history = memoryService
-    .getConversationHistory(req.sessionId, MAX_HISTORY_MESSAGES * 2)
-    .filter((message) => !isSilentReply(message.content))
-    .slice(0, MAX_HISTORY_MESSAGES);
+  const fetchedHistory = memoryService.getConversationHistory(
+    req.sessionId,
+    HISTORY_FETCH_LIMIT,
+  );
+  const historyTruncated = fetchedHistory.length >= HISTORY_FETCH_LIMIT;
+  const history = fetchedHistory.filter(
+    (message) => !isSilentReply(message.content),
+  );
   let pluginsUsed: string[] = [];
   let canonicalContext: CanonicalSessionContext = {
     summary: null,
@@ -1863,33 +1914,39 @@ async function handleGatewayMessageInner(
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
-  const { messages, skills, historyStats, explicitSkillInvocation } =
-    buildConversationContext({
-      agentId,
-      sessionSummary: mergedSessionSummary,
-      retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
-        ? null
-        : pluginPromptSummary,
-      history,
-      currentUserContent: effectiveUserTurnContent,
-      promptMode: promptPartDefaults.promptMode,
-      includePromptParts: promptPartDefaults.includePromptParts,
-      omitPromptParts: promptPartDefaults.omitPromptParts,
-      extraSafetyText: fullAutoOperatingContract,
-      runtimeInfo: {
-        chatbotId,
-        model,
-        defaultModel: HYBRIDAI_MODEL,
-        channel,
-        channelType,
-        channelId: req.channelId,
-        guildId: req.guildId,
-        sessionContext,
-        workspacePath: workspaceDisplayPath,
-      },
-      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
-      blockedTools: mediaPolicy.blockedTools,
-    });
+  const {
+    messages,
+    skills,
+    historyStats,
+    promptOverheadTokens,
+    explicitSkillInvocation,
+  } = buildConversationContext({
+    agentId,
+    sessionSummary: mergedSessionSummary,
+    retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
+      ? null
+      : pluginPromptSummary,
+    history,
+    historyTruncated,
+    currentUserContent: effectiveUserTurnContent,
+    promptMode: promptPartDefaults.promptMode,
+    includePromptParts: promptPartDefaults.includePromptParts,
+    omitPromptParts: promptPartDefaults.omitPromptParts,
+    extraSafetyText: fullAutoOperatingContract,
+    runtimeInfo: {
+      chatbotId,
+      model,
+      defaultModel: HYBRIDAI_MODEL,
+      channel,
+      channelType,
+      channelId: req.channelId,
+      guildId: req.guildId,
+      sessionContext,
+      workspacePath: workspaceDisplayPath,
+    },
+    allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+    blockedTools: mediaPolicy.blockedTools,
+  });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
   recordAuditEvent({
@@ -1900,12 +1957,13 @@ async function handleGatewayMessageInner(
       historyMessagesOriginal: historyStats.originalCount,
       historyMessagesIncluded: historyStats.includedCount,
       historyMessagesDropped: historyStats.droppedCount,
-      historyCharsOriginal: historyStats.originalChars,
-      historyCharsPreBudget: historyStats.preBudgetChars,
-      historyCharsIncluded: historyStats.includedChars,
-      historyCharsDropped: historyStats.droppedChars,
-      historyMaxChars: historyStats.maxTotalChars,
-      middleCompressionApplied: historyStats.middleCompressionApplied,
+      historyTurnsDropped: historyStats.droppedTurns,
+      historyTokensOriginal: historyStats.originalTokens,
+      historyTokensIncluded: historyStats.includedTokens,
+      historyTokensDropped: historyStats.droppedTokens,
+      historyBudgetTokens: historyStats.budgetTokens,
+      historyTruncated,
+      promptOverheadTokens,
       historyEstimatedTokens: estimateTokenCountFromMessages(
         messages.slice(historyStart),
       ),
@@ -2204,6 +2262,7 @@ async function handleGatewayMessageInner(
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
       });
     let routingAttempts: ModelRoutingAttempt[] | null = null;
+    const executionStartedAt = Date.now();
     let output: ContainerOutput;
     if (tierRoutingLadder?.enabled && !tierRoutingLadder.exhausted) {
       const bufferedEvents = new WeakMap<
@@ -2216,6 +2275,7 @@ async function handleGatewayMessageInner(
           chatbotId: string;
         }
       >();
+      setRoutingTraceMode('tiered');
       const routed = await executeModelRouting({
         ladder: tierRoutingLadder,
         agentId,
@@ -2228,6 +2288,7 @@ async function handleGatewayMessageInner(
           });
         },
         invoke: async (runtime, routedModel) => {
+          startRoutingTraceAttempt(routedModel);
           const buffered = {
             text: [] as string[],
             thinking: [] as string[],
@@ -2262,7 +2323,8 @@ async function handleGatewayMessageInner(
         onApprovalProgress(approval);
       }
       if (
-        routed.escalated &&
+        (routed.escalated ||
+          (manuallyEscalatedRouting && output.status === 'success')) &&
         getRuntimeConfig().routing.escalationStickyTurns
       ) {
         setStickyModelRoutingTier(
@@ -2272,6 +2334,7 @@ async function handleGatewayMessageInner(
         );
       }
     } else {
+      startRoutingTraceAttempt(model);
       output = await runAgent({
         sessionId: req.executionSessionId || req.sessionId,
         runId,
@@ -2309,6 +2372,7 @@ async function handleGatewayMessageInner(
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
       });
     }
+    const executionDurationMs = Date.now() - executionStartedAt;
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
@@ -2388,6 +2452,23 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
+      finishRoutingTraceAttempt({
+        model,
+        status: output.status === 'success' ? 'success' : 'error',
+        durationMs: executionDurationMs,
+        inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
+        outputTokens: firstNumber([usagePayload.completionTokens]) ?? undefined,
+        totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
+        cacheReadTokens: output.tokenUsage?.apiCacheUsageAvailable
+          ? output.tokenUsage.apiCacheReadTokens
+          : undefined,
+        cacheWriteTokens: output.tokenUsage?.apiCacheUsageAvailable
+          ? output.tokenUsage.apiCacheWriteTokens
+          : undefined,
+        tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
+        costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
+        costSource: explicitUsageCostSource(output.tokenUsage),
+      });
       enqueueTokenUsage({
         sessionId: req.sessionId,
         agentId,
@@ -2395,6 +2476,7 @@ async function handleGatewayMessageInner(
         inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
         outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
         totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+        ...readCacheTokenUsage(output.tokenUsage),
         toolCalls: toolExecutions.length,
         costUsd,
         auditRunId: runId,
@@ -2436,6 +2518,27 @@ async function handleGatewayMessageInner(
           usage: usagePayload,
         });
         if (index === routingAttempts.length - 1) costUsd = attemptCostUsd;
+        finishRoutingTraceAttempt({
+          model: attempt.model,
+          status: attempt.output.status === 'success' ? 'success' : 'error',
+          durationMs: attempt.durationMs,
+          reason: attempt.routeReason,
+          tier: attempt.tier,
+          inputTokens: firstNumber([usagePayload.promptTokens]) ?? undefined,
+          outputTokens:
+            firstNumber([usagePayload.completionTokens]) ?? undefined,
+          totalTokens: firstNumber([usagePayload.totalTokens]) ?? undefined,
+          cacheReadTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
+            ? attempt.output.tokenUsage.apiCacheReadTokens
+            : undefined,
+          cacheWriteTokens: attempt.output.tokenUsage?.apiCacheUsageAvailable
+            ? attempt.output.tokenUsage.apiCacheWriteTokens
+            : undefined,
+          tokensEstimated: !attempt.output.tokenUsage?.apiUsageAvailable,
+          costUsd:
+            extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
+          costSource: explicitUsageCostSource(attempt.output.tokenUsage),
+        });
         enqueueTokenUsage({
           sessionId: req.sessionId,
           agentId,
@@ -2443,6 +2546,7 @@ async function handleGatewayMessageInner(
           inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
           outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
           totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+          ...readCacheTokenUsage(attempt.output.tokenUsage),
           toolCalls: attemptToolExecutions.length,
           costUsd: attemptCostUsd,
           auditRunId: runId,
@@ -2806,6 +2910,7 @@ async function handleGatewayMessageInner(
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      promptOverheadTokens,
     });
     turnPersisted = true;
     if (onboardingAuditContext) {

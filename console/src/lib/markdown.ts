@@ -1,6 +1,12 @@
+/**
+ * Chat markdown stays sanitized; provider citation IDs never become invented URLs.
+ * Math is rendered separately with KaTeX in untrusted mode; raw HTML stays restricted.
+ * Unlike provider adapters, this renderer has no source registry and marks unresolved citations.
+ */
 import { Marked, type Tokens } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { highlightCodeBlock } from './highlight';
+import { createMathRenderer } from './markdown-math';
 
 const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -38,7 +44,7 @@ const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     // syntax-highlight token spans emitted by highlight.js, e.g.
     // <span class="hljs-keyword">. Class values can't execute, so allowing
     // the attribute on span is safe.
-    span: ['class'],
+    span: ['class', 'title'],
     td: ['style'],
     th: ['style'],
   },
@@ -135,6 +141,38 @@ function linkifyBareLocalAppRoutes(markdown: string): string {
 function createMarked(highlight: boolean): Marked {
   const instance = new Marked({ async: false, breaks: true, gfm: true });
   instance.use({
+    extensions: [
+      {
+        name: 'providerCitation',
+        level: 'inline',
+        start: (source: string) => source.indexOf('\uE200'),
+        tokenizer(source: string) {
+          const complete = /^\uE200cite\uE202[^\uE201\r\n]*\uE201/.exec(source);
+          if (complete)
+            return {
+              type: 'providerCitation',
+              raw: complete[0],
+              complete: true,
+            };
+          // Recognize only a trailing citation prefix, not arbitrary private-use text.
+          const partial =
+            /^\uE200(?:c(?:i(?:t(?:e(?:\uE202[^\uE201\r\n]*)?)?)?)?)?$/.exec(
+              source,
+            );
+          if (partial)
+            return {
+              type: 'providerCitation',
+              raw: partial[0],
+              complete: false,
+            };
+          return undefined;
+        },
+        renderer(token) {
+          if (!token.complete && !highlight) return '';
+          return '<span class="citation-unavailable" title="The model supplied a citation reference without a source URL.">Source unavailable</span>';
+        },
+      },
+    ],
     renderer: {
       // marked v16+ passes a token object; older signatures pass (code, lang).
       // Handle both so this keeps working across marked upgrades.
@@ -150,12 +188,6 @@ function createMarked(highlight: boolean): Marked {
   return instance;
 }
 
-// Two preconfigured instances rather than re-registering the renderer per call.
-// The plain one skips syntax highlighting for streaming renders (see
-// renderMarkdown's `highlight` option).
-const markdownHighlighted = createMarked(true);
-const markdownPlain = createMarked(false);
-
 export function renderMarkdown(
   raw: string,
   options?: { highlight?: boolean },
@@ -169,12 +201,15 @@ export function renderMarkdown(
     .replace(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/gm, '$1$2. **$3**');
   if (!normalized.trim()) return '';
 
-  const instance =
-    options?.highlight === false ? markdownPlain : markdownHighlighted;
+  const math = createMathRenderer();
+  const instance = createMarked(options?.highlight !== false);
+  instance.use(math.extension);
   const rendered = instance.parse(linkifyBareLocalAppRoutes(normalized));
 
-  return sanitizeHtml(
-    typeof rendered === 'string' ? rendered : String(rendered || ''),
-    CHAT_MARKDOWN_SANITIZE_OPTIONS,
-  ).trim();
+  return math.restore(
+    sanitizeHtml(
+      typeof rendered === 'string' ? rendered : String(rendered || ''),
+      CHAT_MARKDOWN_SANITIZE_OPTIONS,
+    ).trim(),
+  );
 }

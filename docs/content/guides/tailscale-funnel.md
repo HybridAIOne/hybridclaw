@@ -27,6 +27,17 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo systemctl enable --now tailscaled
 ```
 
+HybridClaw looks for `tailscale` on the gateway's `PATH`. On macOS, if that
+command is missing, it uses
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale` in CLI mode. Shell aliases
+are not available to the gateway; an alias in `.zshrc` is not required for this
+app discovery. For manual commands below, you can use the app's full executable
+path in place of `tailscale`.
+
+After a successful app CLI command, the provider reuses that executable for
+subsequent commands. If it disappears, the provider repeats discovery. Other
+command failures propagate without switching installations.
+
 ## Tailnet Policy Grant
 
 Funnel must be allowed by tailnet policy. Add a grant similar to this in the

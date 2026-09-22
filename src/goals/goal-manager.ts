@@ -29,6 +29,8 @@ export interface ThreadGoal {
 export interface ThreadGoalUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
   costUsd: number;
 }
@@ -175,7 +177,14 @@ export function getThreadGoalUsage(params: {
 }): ThreadGoalUsage {
   const sessionId = params.sessionId.trim();
   if (!sessionId) {
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+    };
   }
   const createdAt = params.goal.createdAt.trim();
   const endAt =
@@ -190,6 +199,8 @@ export function getThreadGoalUsage(params: {
               `SELECT
                  COALESCE(SUM(input_tokens), 0) AS input_tokens,
                  COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                 COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
                  COALESCE(SUM(total_tokens), 0) AS total_tokens,
                  COALESCE(SUM(cost_usd), 0) AS cost_usd
                FROM usage_events
@@ -203,6 +214,8 @@ export function getThreadGoalUsage(params: {
               `SELECT
                  COALESCE(SUM(input_tokens), 0) AS input_tokens,
                  COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                 COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
                  COALESCE(SUM(total_tokens), 0) AS total_tokens,
                  COALESCE(SUM(cost_usd), 0) AS cost_usd
                FROM usage_events
@@ -214,6 +227,8 @@ export function getThreadGoalUsage(params: {
       | {
           input_tokens: number | null;
           output_tokens: number | null;
+          cache_read_tokens: number | null;
+          cache_write_tokens: number | null;
           total_tokens: number | null;
           cost_usd: number | null;
         }
@@ -221,6 +236,8 @@ export function getThreadGoalUsage(params: {
     return {
       inputTokens: Math.max(0, Math.floor(row?.input_tokens || 0)),
       outputTokens: Math.max(0, Math.floor(row?.output_tokens || 0)),
+      cacheReadTokens: Math.max(0, Math.floor(row?.cache_read_tokens || 0)),
+      cacheWriteTokens: Math.max(0, Math.floor(row?.cache_write_tokens || 0)),
       totalTokens: Math.max(0, Math.floor(row?.total_tokens || 0)),
       costUsd:
         typeof row?.cost_usd === 'number' && Number.isFinite(row.cost_usd)

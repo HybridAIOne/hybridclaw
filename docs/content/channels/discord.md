@@ -50,6 +50,26 @@ Local config equivalent:
 /config set discord.prefix "!claw"
 ```
 
+## Optional: Reply In Threads
+
+Set `discord.replyStyle` to `"thread"` to start a public thread from each
+triggering guild message and stream the agent response there. Direct messages
+and messages already inside a thread keep their existing delivery path. The
+default is `"top-level"`.
+
+```text
+/config set discord.replyStyle "thread"
+```
+
+Set `replyStyle` on an entry under `discord.guilds.<guild>.channels.<channel>`
+to override the global setting for that channel. `DISCORD_REPLY_STYLE` accepts
+the same `thread` and `top-level` values as an environment override.
+
+The bot needs `Create Public Threads` and `Send Messages in Threads`. If it
+cannot create a thread, HybridClaw logs a warning and replies in the channel.
+Messages sent in a thread inherit the parent channel's mode and outbound send
+policy configuration.
+
 ## Optional: Let Bots Wake The Agent In Alert Channels
 
 Messages written by other bots and webhooks are ignored everywhere by default.

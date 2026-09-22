@@ -171,6 +171,13 @@ saved revision history directly.
 - `mcpServers.*` for Model Context Protocol servers; HybridClaw connects to
   them per session and exposes their tools as namespaced functions such as
   `server__tool`
+- `tools.mcpToolMode` (`full` or `deferred`, default `full`) for how remote
+  model requests see MCP server tools. `deferred` keeps them out of the
+  model-facing tool array and reaches them through `tool_catalog` (list,
+  describe, call) with unchanged permissions and approvals, which keeps
+  requests under provider tool caps such as OpenAI's 128 definitions.
+  `agents.list[].mcpToolMode` overrides it per agent. Local model requests use
+  `tools.localToolMode` instead.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets
   both daily and after 24 hours idle at `04:00` in the gateway host's local
   timezone, and `sessionReset.defaultPolicy.mode = "none"` disables automatic

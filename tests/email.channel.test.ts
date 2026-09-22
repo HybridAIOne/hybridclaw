@@ -493,6 +493,60 @@ describe('email delivery helpers', () => {
       provider: 'hybridai',
       totalTokens: 1234,
       tokenSource: 'estimated',
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+    });
+  });
+
+  test('includes prompt cache tokens in delivery metadata when reported', async () => {
+    const { buildEmailDeliveryMetadata, buildEmailMetadataHeaders } =
+      await import('../src/channels/email/metadata.js');
+    expect(
+      buildEmailDeliveryMetadata({
+        agentId: 'main',
+        model: 'anthropic/claude-sonnet-5',
+        provider: 'anthropic',
+        tokenUsage: {
+          modelCalls: 1,
+          apiUsageAvailable: true,
+          apiPromptTokens: 400,
+          apiCompletionTokens: 100,
+          apiTotalTokens: 500,
+          apiCacheUsageAvailable: true,
+          apiCacheReadTokens: 350,
+          apiCacheWriteTokens: 50,
+          estimatedPromptTokens: 0,
+          estimatedCompletionTokens: 0,
+          estimatedTotalTokens: 0,
+        },
+      }),
+    ).toEqual({
+      agentId: 'main',
+      model: 'anthropic/claude-sonnet-5',
+      provider: 'anthropic',
+      totalTokens: 500,
+      tokenSource: 'api',
+      cacheReadTokens: 350,
+      cacheWriteTokens: 50,
+    });
+    expect(
+      buildEmailMetadataHeaders({
+        agentId: 'main',
+        model: 'anthropic/claude-sonnet-5',
+        provider: 'anthropic',
+        totalTokens: 500,
+        tokenSource: 'api',
+        cacheReadTokens: 350,
+        cacheWriteTokens: 50,
+      }),
+    ).toEqual({
+      'X-HybridClaw-Agent-Id': 'main',
+      'X-HybridClaw-LLM': 'anthropic/claude-sonnet-5',
+      'X-HybridClaw-Provider': 'anthropic',
+      'X-HybridClaw-Total-Tokens': '500',
+      'X-HybridClaw-Token-Source': 'api',
+      'X-HybridClaw-Cache-Read-Tokens': '350',
+      'X-HybridClaw-Cache-Write-Tokens': '50',
     });
   });
 
@@ -521,6 +575,8 @@ describe('email delivery helpers', () => {
         provider: 'hybridai',
         totalTokens: 1234,
         tokenSource: 'api',
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
       },
     });
 

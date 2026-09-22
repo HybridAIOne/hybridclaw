@@ -10,6 +10,10 @@ import { getGatewayAdminProviderStatus } from '../gateway/provider-status.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  finishRoutingTraceAttempt,
+  startRoutingTraceAttempt,
+} from '../usage/routing-trace.js';
+import {
   buildAnthropicSupportingHeaders,
   isAnthropicOAuthToken,
   normalizeAnthropicBaseUrl,
@@ -142,6 +146,8 @@ export interface AuxiliaryModelCallParams {
 export interface AuxiliaryModelUsage {
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens?: number;
   costUsd?: number;
 }
@@ -248,12 +254,30 @@ function readAuxiliaryModelUsage(
     (inputTokens !== undefined && outputTokens !== undefined
       ? inputTokens + outputTokens
       : undefined);
+  const promptTokenDetails = isRecord(value.prompt_tokens_details)
+    ? value.prompt_tokens_details
+    : undefined;
+  const cacheReadTokens = readFiniteNumber([
+    value.cacheReadTokens,
+    value.cache_read_tokens,
+    value.cache_read_input_tokens,
+    value.cached_tokens,
+    promptTokenDetails?.cached_tokens,
+  ]);
+  const cacheWriteTokens = readFiniteNumber([
+    value.cacheWriteTokens,
+    value.cache_write_tokens,
+    value.cache_creation_input_tokens,
+    promptTokenDetails?.cache_write_tokens,
+  ]);
   const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
 
   if (
     inputTokens === undefined &&
     outputTokens === undefined &&
     totalTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheWriteTokens === undefined &&
     costUsd === undefined
   ) {
     return undefined;
@@ -262,6 +286,8 @@ function readAuxiliaryModelUsage(
   return {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
   };
@@ -1535,6 +1561,11 @@ async function callAuxiliaryTextProviderWithLogging(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const startedAt = Date.now();
+  const routingAttempt = startRoutingTraceAttempt(
+    context.model,
+    'auxiliary',
+    params.task,
+  );
   if (typeof logger.info === 'function') {
     logger.info(
       {
@@ -1555,6 +1586,13 @@ async function callAuxiliaryTextProviderWithLogging(
       messages,
       options,
     );
+    finishRoutingTraceAttempt({
+      model: context.model,
+      attempt: routingAttempt,
+      status: 'success',
+      durationMs: Date.now() - startedAt,
+      ...response.usage,
+    });
     if (typeof logger.info === 'function') {
       logger.info(
         {
@@ -1569,6 +1607,12 @@ async function callAuxiliaryTextProviderWithLogging(
     }
     return response;
   } catch (error) {
+    finishRoutingTraceAttempt({
+      model: context.model,
+      attempt: routingAttempt,
+      status: 'error',
+      durationMs: Date.now() - startedAt,
+    });
     if (typeof logger.warn === 'function') {
       logger.warn(
         {

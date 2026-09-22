@@ -10,7 +10,7 @@ import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { withDiscordRetry } from './retry.js';
 import { logDiscordApiError } from './transport-errors.js';
 
-interface DiscordSendChannel {
+export interface DiscordSendChannel {
   send: (payload: {
     content: string;
     files?: AttachmentBuilder[];
@@ -31,6 +31,7 @@ export interface DiscordStreamOptions {
   editIntervalMs?: number;
   onFirstMessage?: () => void;
   humanDelay?: HumanDelayConfig;
+  resolveResponseChannel?: () => Promise<DiscordSendChannel | null>;
 }
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
@@ -43,12 +44,13 @@ function isRenderableChunk(chunk: string): boolean {
 
 export class DiscordStreamManager {
   private readonly sourceMessage: DiscordMessage;
-  private readonly channel: DiscordSendChannel;
+  private channel: DiscordSendChannel;
   private readonly maxChars: number;
   private readonly maxLines: number;
   private readonly editIntervalMs: number;
   private readonly onFirstMessage?: () => void;
   private readonly humanDelay?: HumanDelayConfig;
+  private readonly resolveResponseChannel?: () => Promise<DiscordSendChannel | null>;
 
   private readonly messages: Array<DiscordEditMessage | undefined> = [];
   private sentChunks: Array<string | undefined> = [];
@@ -57,6 +59,8 @@ export class DiscordStreamManager {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private opQueue = Promise.resolve();
   private closed = false;
+  private responseChannelResolved = false;
+  private sendFirstChunkToChannel = false;
 
   constructor(sourceMessage: DiscordMessage, options?: DiscordStreamOptions) {
     this.sourceMessage = sourceMessage;
@@ -78,6 +82,7 @@ export class DiscordStreamManager {
     );
     this.onFirstMessage = options?.onFirstMessage;
     this.humanDelay = options?.humanDelay;
+    this.resolveResponseChannel = options?.resolveResponseChannel;
   }
 
   hasSentMessages(): boolean {
@@ -183,6 +188,8 @@ export class DiscordStreamManager {
       return;
     }
 
+    await this.prepareResponseChannel();
+
     for (let i = 0; i < chunks.length; i += 1) {
       const chunk = chunks[i];
       const isLast = i === chunks.length - 1;
@@ -197,7 +204,7 @@ export class DiscordStreamManager {
         }
         try {
           const sent =
-            i === 0
+            i === 0 && !this.sendFirstChunkToChannel
               ? await withDiscordRetry(
                   'reply',
                   () => this.sourceMessage.reply({ content: chunk }),
@@ -290,19 +297,21 @@ export class DiscordStreamManager {
   private async sendAttachmentFallback(
     files: AttachmentBuilder[],
   ): Promise<void> {
+    await this.prepareResponseChannel();
     const fallback = 'Attached files:';
     try {
-      const sent = this.hasSentMessages()
-        ? await withDiscordRetry(
-            'send',
-            () => this.channel.send({ content: fallback, files }),
-            { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-          )
-        : await withDiscordRetry(
-            'reply',
-            () => this.sourceMessage.reply({ content: fallback, files }),
-            { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
-          );
+      const sent =
+        this.hasSentMessages() || this.sendFirstChunkToChannel
+          ? await withDiscordRetry(
+              'send',
+              () => this.channel.send({ content: fallback, files }),
+              { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+            )
+          : await withDiscordRetry(
+              'reply',
+              () => this.sourceMessage.reply({ content: fallback, files }),
+              { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
+            );
       this.messages.push(sent as unknown as DiscordEditMessage);
       this.sentChunks.push(fallback);
       this.onFirstMessage?.();
@@ -313,5 +322,14 @@ export class DiscordStreamManager {
         unexpectedMessage: 'Failed to send Discord stream attachments',
       });
     }
+  }
+
+  private async prepareResponseChannel(): Promise<void> {
+    if (this.responseChannelResolved) return;
+    this.responseChannelResolved = true;
+    const responseChannel = await this.resolveResponseChannel?.();
+    if (!responseChannel) return;
+    this.channel = responseChannel;
+    this.sendFirstChunkToChannel = true;
   }
 }

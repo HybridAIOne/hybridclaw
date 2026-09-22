@@ -6407,7 +6407,59 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
-  test('renders raw HTML from stored docs as text instead of executable markup', async () => {
+  test.each([
+    {
+      name: 'inline code',
+      markdown: '`https://<public-host><voice.webhookPath>/webhook`',
+      expected:
+        '<code>https://&lt;public-host&gt;&lt;voice.webhookPath&gt;/webhook</code>',
+    },
+    {
+      name: 'fenced code with quotes and ampersands',
+      markdown: '```json\n{"host":"<public-host>","query":"a&b"}\n```',
+      expected:
+        '<pre><code class="language-json">{"host":"&lt;public-host&gt;","query":"a&amp;b"}\n</code></pre>',
+    },
+    {
+      name: 'indented code',
+      markdown: '    echo "<tag>" && echo \'&\'\n',
+      expected:
+        '<pre><code>echo "&lt;tag&gt;" &amp;&amp; echo \'&amp;\'\n</code></pre>',
+    },
+    {
+      name: 'literal entities in code',
+      markdown: '`&lt;literal&gt; &amp; &#60;`',
+      expected: '<code>&amp;lt;literal&amp;gt; &amp;amp; &amp;#60;</code>',
+    },
+    {
+      name: 'HTML in code',
+      markdown: '`<img src=x onerror=alert(1)>`',
+      expected: '<code>&lt;img src=x onerror=alert(1)&gt;</code>',
+    },
+  ])('preserves docs $name', async ({ markdown, expected }) => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'docs', 'content', 'guides', 'code.md'),
+      `# Code\n\n${markdown}\n`,
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/code' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(expected);
+    expect(res.body).not.toContain('<img src=x');
+  });
+
+  test.each([
+    '<script id="stored-injection">alert(1)</script>',
+    'Inline <img src=x onerror=alert(1)> markup.',
+    '<div onclick="alert(1)">Raw HTML</div>',
+  ])('renders raw HTML from stored docs as text: %s', async (markup) => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
       path.join(installRoot, 'docs', 'content', 'guides', 'stored-markup.md'),
@@ -6420,7 +6472,7 @@ describe('gateway HTTP server', () => {
         '',
         '# Stored Markup',
         '',
-        '<script id="stored-injection">alert(1)</script>',
+        markup,
         '',
       ].join('\n'),
       'utf8',
@@ -6434,7 +6486,11 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain('<script id="stored-injection">');
-    expect(res.body).toContain('&lt;script');
+    expect(res.body).not.toContain('<img src=x');
+    expect(res.body).not.toContain('<div onclick=');
+    expect(res.body).toContain(
+      markup.replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    );
   });
 
   test('returns a visible error for malformed docs frontmatter', async () => {
@@ -12023,6 +12079,52 @@ describe('gateway HTTP server', () => {
     expect(
       commands.find((c: { id: string }) => c.id === 'demo_status'),
     ).toBeUndefined();
+  });
+
+  test.each([false, true])('dispatches inline escalation through normal chat (stream=%s)', async (stream) => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Escalating', continueWithMessage: true });
+    state.handleGatewayMessage.mockImplementationOnce(async (request: { onTextDelta?: (text: string) => void; onToolProgress?: (event: { toolName: string; phase: 'start' }) => void }) => {
+      request.onToolProgress?.({ toolName: 'test-tool', phase: 'start' });
+      request.onTextDelta?.('Photosynthesis answer');
+      return { status: 'success', result: 'Photosynthesis answer', toolsUsed: [] };
+    });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', channelId: 'web', userId: 'user-web',
+      content: '/escalate Explain photosynthesis\nKeep it brief.', stream,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    if (stream) { expect(res.body).toContain('test-tool'); expect(res.body).toContain('Photosynthesis answer'); }
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(expect.objectContaining({ args: ['escalate', 'Explain photosynthesis\nKeep it brief.'] }));
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Explain photosynthesis\nKeep it brief.' }));
+  });
+
+  test('guards secret commands inside inline escalation before queueing a turn', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate hybridclaw secret set API_TOKEN test-key', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).not.toContain('test-key');
+  });
+
+  test('does not dispatch inline escalation when routing refuses it', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Model routing is disabled.' });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate Explain photosynthesis', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).toContain('Model routing is disabled.');
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {

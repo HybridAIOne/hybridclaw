@@ -125,7 +125,7 @@ test('buildConversationContext appends dynamic context after unchanged history',
     vi.setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     const context = buildConversationContext({
       agentId,
-      sessionSummary: '### Relevant Memory Recall\n- [mem:1] Prior fact.',
+      sessionSummary: '### Chat Recall\n- [mem:1] Prior fact.',
       retrievedContext: 'External retrieval result.',
       history: [{ role: 'user', content: 'Hello' }],
       runtimeInfo: {
@@ -145,7 +145,7 @@ test('buildConversationContext appends dynamic context after unchanged history',
     expect(systemPrompt).not.toContain('Current Date & Time:');
     expect(systemPrompt).not.toContain('Stable per-turn note.');
     expect(systemPrompt).not.toContain(
-      'Relevant Memory Recall',
+      'Chat Recall',
     );
     expect(systemPrompt).not.toContain(
       'External retrieval result.',
@@ -154,7 +154,7 @@ test('buildConversationContext appends dynamic context after unchanged history',
       buildDynamicContextMessage({
         agentId,
         now: new Date('2026-05-13T12:00:00.000Z'),
-        sessionSummary: '### Relevant Memory Recall\n- [mem:1] Prior fact.',
+        sessionSummary: '### Chat Recall\n- [mem:1] Prior fact.',
         retrievedContext: 'External retrieval result.',
       }),
     );
@@ -173,7 +173,7 @@ test('buildConversationContext appends dynamic context after unchanged history',
     expect(dynamicContextMessage?.content).toContain(
       '## Session Summary\nCompressed and recalled context',
     );
-    expect(dynamicContextMessage?.content).toContain('Relevant Memory Recall');
+    expect(dynamicContextMessage?.content).toContain('Chat Recall');
     expect(dynamicContextMessage?.content).toContain('## Retrieved Context');
     expect(dynamicContextMessage?.content).toContain(
       'External retrieval result.',

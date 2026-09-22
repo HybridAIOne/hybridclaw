@@ -624,6 +624,23 @@ function DiscordChannelEditor(props: {
 
       <div className="field-grid">
         <FormField
+          name="discord.replyStyle"
+          render={({ field }) => (
+            <Field>
+              <FieldLabel>Reply style</FieldLabel>
+              <NativeSelect
+                value={field.value as string}
+                onChange={field.onChange}
+              >
+                <NativeSelectOption value="top-level">
+                  top-level
+                </NativeSelectOption>
+                <NativeSelectOption value="thread">thread</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        />
+        <FormField
           name="discord.typingMode"
           render={({ field }) => (
             <Field>

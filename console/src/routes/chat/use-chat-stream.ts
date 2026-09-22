@@ -42,6 +42,7 @@ interface ActiveRequest {
   lastRenderedTraceVersion: number;
   renderFrame: number;
   stopping: boolean;
+  routingTrace?: ChatMessage['routingTrace'];
 }
 
 interface UseChatStreamOptions {
@@ -281,6 +282,9 @@ export function useChatStream(
           if (!text && !approval) {
             return withTrace.filter((m) => m.id !== streamId);
           }
+          const liveRoutingTrace = withTrace.find(
+            (m) => m.id === thinkingId || m.id === streamId,
+          )?.routingTrace;
           const withoutThinking = withTrace.filter((m) => m.id !== thinkingId);
           const existing = withoutThinking.find((m) => m.id === streamId);
           if (existing) {
@@ -288,6 +292,7 @@ export function useChatStream(
               m === existing
                 ? {
                     ...m,
+                    routingTrace: liveRoutingTrace,
                     role: liveRole,
                     content: text,
                     pendingApproval: approval,
@@ -299,6 +304,7 @@ export function useChatStream(
             ...withoutThinking,
             {
               id: streamId,
+              routingTrace: liveRoutingTrace,
               role: liveRole,
               content: text,
               sessionId: req.sessionId,
@@ -415,6 +421,16 @@ export function useChatStream(
           },
           signal: req.controller.signal,
           callbacks: {
+            onRoutingTrace: (trace) => {
+              req.routingTrace = trace;
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === thinkingId || message.id === streamId
+                    ? { ...message, routingTrace: trace }
+                    : message,
+                ),
+              );
+            },
             onTextDelta: (delta, event) => {
               if (event?.outputPresentation?.visible === false) return;
               req.assistantText += delta;
@@ -433,6 +449,7 @@ export function useChatStream(
           },
         });
 
+        req.routingTrace = result.routingTrace ?? null;
         if (result.status === 'error') {
           throw new Error(result.error ?? 'Unknown error');
         }
@@ -488,6 +505,7 @@ export function useChatStream(
           messageId: result.assistantMessageId ?? null,
           artifacts: finalArtifacts,
           assistantPresentation: result.assistantPresentation ?? null,
+          routingTrace: result.routingTrace ?? null,
           pendingApproval: finalApproval,
           responseRating: null,
           replayRequest: { content, media },
@@ -592,9 +610,19 @@ export function useChatStream(
         if (req.renderFrame) cancelAnimationFrame(req.renderFrame);
         const errorText = getErrorMessage(err);
         setMessages((prev) => {
-          const withoutThinking = finalizeTrace(prev).filter(
-            (m) => m.id !== thinkingId,
-          );
+          const withoutThinking = finalizeTrace(prev)
+            .filter((m) => m.id !== thinkingId)
+            .map((message) =>
+              message.routingTrace?.status === 'running'
+                ? {
+                    ...message,
+                    routingTrace: {
+                      ...message.routingTrace,
+                      status: 'error' as const,
+                    },
+                  }
+                : message,
+            );
           if (req.stopping) return withoutThinking;
           return [
             ...withoutThinking,
@@ -602,6 +630,9 @@ export function useChatStream(
               id: nextMsgId(),
               role: 'system',
               content: `Error: ${errorText}`,
+              routingTrace: req.routingTrace
+                ? { ...req.routingTrace, status: 'error' }
+                : null,
               sessionId: targetSessionId,
             },
           ];

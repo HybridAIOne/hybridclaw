@@ -63,3 +63,30 @@ test('resolves full/starred mode independently per agent and rejects invalid mod
   expect(() => updateRuntimeConfig((draft) => { Object.assign(draft.tools, { localToolMode: 'invalid' }); })).toThrow('full or starred');
   expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
 });
+
+describe('MCP tool mode configuration', () => {
+  test('defaults to full, inherits the instance value and honours an agent override', async () => {
+    const { updateRuntimeConfig } = await import('../src/config/runtime-config.js');
+    const { resolveMcpToolMode } = await import('../src/agent/local-tool-config.js');
+    expect(resolveMcpToolMode()).toBe('full');
+    updateRuntimeConfig((draft) => {
+      draft.tools.mcpToolMode = 'deferred';
+      draft.agents.list = [{ id: 'main' }, { id: 'worker', mcpToolMode: 'full' }];
+    });
+    expect(resolveMcpToolMode('main')).toBe('deferred');
+    expect(resolveMcpToolMode('worker')).toBe('full');
+    const stored = JSON.parse(fs.readFileSync(path.join(runtimeHome, 'config.json'), 'utf8'));
+    expect(stored.tools.mcpToolMode).toBe('deferred');
+    expect(stored.agents.list.find((a: { id: string }) => a.id === 'worker').mcpToolMode).toBe('full');
+  });
+  test.each(['instance', 'agent'])('rejects an unknown %s mode without replacing config', async (scope) => {
+    const { getRuntimeConfig, updateRuntimeConfig } = await import('../src/config/runtime-config.js');
+    expect(() =>
+      updateRuntimeConfig((draft) => {
+        if (scope === 'instance') (draft.tools as { mcpToolMode?: string }).mcpToolMode = 'starred';
+        else draft.agents.list = [{ id: 'main', mcpToolMode: 'starred' as 'full' }];
+      }),
+    ).toThrow('mcpToolMode must be full or deferred');
+    expect(getRuntimeConfig().tools.mcpToolMode).toBe('full');
+  });
+});
