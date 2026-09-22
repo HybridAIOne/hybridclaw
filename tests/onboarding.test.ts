@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_SSH_CONNECTION = process.env.SSH_CONNECTION;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 // Cleared by the tests (so onboarding prompts) and restored in afterEach so the
@@ -169,6 +170,7 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/security/runtime-secrets-bootstrap.ts');
+  vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/utils/secret-prompt.js');
   vi.doUnmock('../src/utils/secret-prompt.ts');
   vi.doUnmock('../src/migration/agent-home-migration.js');
@@ -177,6 +179,11 @@ afterEach(() => {
     delete process.env.HOME;
   } else {
     process.env.HOME = ORIGINAL_HOME;
+  }
+  if (ORIGINAL_SSH_CONNECTION === undefined) {
+    delete process.env.SSH_CONNECTION;
+  } else {
+    process.env.SSH_CONNECTION = ORIGINAL_SSH_CONNECTION;
   }
   if (ORIGINAL_DISABLE_CONFIG_WATCHER === undefined) {
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
@@ -947,6 +954,283 @@ test('interactive onboarding prompts for configured speech-to-text provider cred
   expect(lines.join('\n')).toContain(
     'Deepgram speech-to-text credentials saved.',
   );
+});
+
+test('interactive HybridAI onboarding signs in with OAuth and stores the access token', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  // CI sets `CI`, which would pick the headless device-code method.
+  vi.doMock('../src/auth/hybridai-auth.ts', async () => ({
+    ...(await vi.importActual<typeof import('../src/auth/hybridai-auth.ts')>(
+      '../src/auth/hybridai-auth.ts',
+    )),
+    selectDefaultHybridAILoginMethod: () => 'browser',
+  }));
+  // open browser? → no; paste redirect → bare code; default bot → first.
+  const answers = ['n', 'code-1', ''];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+    };
+  });
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  const bearerTokens: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get('authorization');
+      if (authorization) bearerTokens.push(authorization);
+      if (url.endsWith('/.well-known/oauth-authorization-server')) {
+        return json({
+          issuer: 'https://hybridai.one',
+          authorization_endpoint: 'https://hybridai.one/oauth/authorize',
+          token_endpoint: 'https://hybridai.one/oauth/token',
+          registration_endpoint: 'https://hybridai.one/oauth/register',
+          userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
+        });
+      }
+      if (url.endsWith('/oauth/register')) {
+        return json({ client_id: 'hac_onboarding' }, 201);
+      }
+      if (url.endsWith('/oauth/token')) {
+        return json({
+          access_token: 'hao_onboarding-token',
+          refresh_token: 'hor_onboarding-refresh',
+          expires_in: 3600,
+          scope: 'profile api mcp',
+        });
+      }
+      if (url.endsWith('/oauth/userinfo')) {
+        return json({ sub: 'user-42', email: 'max@example.com' });
+      }
+      if (url.includes('/api/v1/bot-management/me')) {
+        return json({ user_id: 'user-42' });
+      }
+      if (url.includes('/api/v1/bot-management/bots')) {
+        return json({
+          data: [
+            { id: 'b2878bba-24c1-46ce-89b6-49e860c6502f', name: 'My Assistant' },
+          ],
+        });
+      }
+      return json({ error: `unexpected ${url}` }, 404);
+    }),
+  );
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+    preferredAuth: 'hybridai',
+  });
+
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+    'hao_onboarding-token',
+  );
+  expect(
+    JSON.parse(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_OAUTH') || '{}'),
+  ).toMatchObject({
+    clientId: 'hac_onboarding',
+    refreshToken: 'hor_onboarding-refresh',
+    account: { email: 'max@example.com' },
+  });
+  expect(bearerTokens).toContain('Bearer hao_onboarding-token');
+  // Enter on the bot picker keeps the account chatbot id as the default.
+  expect(runtimeConfig.getRuntimeConfig().hybridai.defaultChatbotId).toBe(
+    'user-42',
+  );
+  expect(lines.join('\n')).toContain('Signed in as max@example.com.');
+});
+
+test('headless HybridAI onboarding signs in with a device code', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  process.env.SSH_CONNECTION = 'host 1 2';
+  delete process.env.HYBRIDAI_API_KEY;
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  // No browser prompt on a headless shell; the only prompt is the bot picker.
+  const answers = [''];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+    };
+  });
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/.well-known/oauth-authorization-server')) {
+        return json({
+          issuer: 'https://hybridai.one',
+          authorization_endpoint: 'https://hybridai.one/oauth/authorize',
+          token_endpoint: 'https://hybridai.one/oauth/token',
+          registration_endpoint: 'https://hybridai.one/oauth/register',
+          userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
+          device_authorization_endpoint:
+            'https://hybridai.one/oauth/device_authorization',
+        });
+      }
+      if (url.endsWith('/oauth/register')) {
+        return json({ client_id: 'hac_device' }, 201);
+      }
+      if (url.endsWith('/oauth/device_authorization')) {
+        return json({
+          device_code: 'dev-1',
+          user_code: 'WXKT-QMBD',
+          verification_uri: 'https://hybridai.one/device',
+          expires_in: 900,
+          interval: 0,
+        });
+      }
+      if (url.endsWith('/oauth/token')) {
+        return json({
+          access_token: 'hao_device-token',
+          refresh_token: 'hor_device-refresh',
+          expires_in: 3600,
+          scope: 'profile api mcp',
+        });
+      }
+      if (url.endsWith('/oauth/userinfo')) {
+        return json({ sub: 'user-42', email: 'max@example.com' });
+      }
+      if (url.includes('/api/v1/bot-management/me')) {
+        return json({ user_id: 'user-42' });
+      }
+      if (url.includes('/api/v1/bot-management/bots')) {
+        return json({ data: [] });
+      }
+      return json({ error: `unexpected ${url}` }, 404);
+    }),
+  );
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+    preferredAuth: 'hybridai',
+  });
+
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  expect(runtimeSecrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+    'hao_device-token',
+  );
+  const output = lines.join('\n');
+  expect(output).toContain('https://hybridai.one/device');
+  expect(output).toContain('WXKT-QMBD');
+  expect(output).toContain('Signed in as max@example.com.');
 });
 
 test('interactive HybridAI onboarding defaults the saved bot to the account chatbot id', async () => {

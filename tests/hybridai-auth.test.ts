@@ -113,6 +113,7 @@ describe('HybridAI auth status', () => {
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       maskedApiKey: null,
       source: null,
+      method: null,
     });
     expect(() => hybridAIAuth.getHybridAIApiKey()).toThrowError(
       expect.objectContaining({
@@ -141,6 +142,7 @@ describe('HybridAI auth status', () => {
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       maskedApiKey: 'hai-…cdef',
       source: 'runtime-secrets',
+      method: 'api-key',
     });
   });
 
@@ -155,6 +157,7 @@ describe('HybridAI auth status', () => {
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       maskedApiKey: 'hai-…4321',
       source: 'env',
+      method: 'api-key',
     });
   });
 
@@ -193,6 +196,7 @@ describe('HybridAI auth status', () => {
       authenticated: false,
       maskedApiKey: null,
       source: null,
+      method: null,
     });
     expect(() => hybridAIAuth.getHybridAIApiKey()).toThrowError(
       expect.objectContaining({
@@ -266,6 +270,7 @@ describe('HybridAI auth credential management', () => {
       path: filePath,
       maskedApiKey: null,
       source: null,
+      method: null,
     });
   });
 });
@@ -299,7 +304,7 @@ describe('HybridAI login helpers', () => {
     expect(hybridAIAuth.selectDefaultHybridAILoginMethod()).toBe('browser');
   });
 
-  it('stores a validated API key through the headless login flow', async () => {
+  it('stores a validated API key through the api-key login flow', async () => {
     const homeDir = makeTempHome();
     process.env.HOME = homeDir;
     delete process.env.HYBRIDAI_API_KEY;
@@ -324,15 +329,15 @@ describe('HybridAI login helpers', () => {
     );
 
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
-      readlineAnswers: ['hai-login1234567890'],
+      readlineAnswers: ['n', 'hai-login1234567890'],
     });
     const result = await hybridAIAuth.loginHybridAIInteractive({
-      method: 'device-code',
+      method: 'api-key',
       homeDir,
     });
 
     expect(result).toMatchObject({
-      method: 'device-code',
+      method: 'api-key',
       maskedApiKey: 'hai-…7890',
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       validated: true,
@@ -342,6 +347,96 @@ describe('HybridAI login helpers', () => {
       path: result.path,
       maskedApiKey: 'hai-…7890',
       source: 'runtime-secrets',
+      method: 'api-key',
+    });
+  });
+
+  it('signs in through the device flow on headless shells', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    const json = (payload: unknown, status = 200) =>
+      new Response(JSON.stringify(payload), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    let polls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/.well-known/oauth-authorization-server')) {
+          return json({
+            issuer: 'https://hybridai.one',
+            authorization_endpoint: 'https://hybridai.one/oauth/authorize',
+            token_endpoint: 'https://hybridai.one/oauth/token',
+            registration_endpoint: 'https://hybridai.one/oauth/register',
+            userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
+            device_authorization_endpoint:
+              'https://hybridai.one/oauth/device_authorization',
+          });
+        }
+        if (url.endsWith('/oauth/register')) {
+          return json({ client_id: 'hac_device' }, 201);
+        }
+        if (url.endsWith('/oauth/device_authorization')) {
+          return json({
+            device_code: 'dev-1',
+            user_code: 'WXKT-QMBD',
+            verification_uri: 'https://hybridai.one/device',
+            expires_in: 900,
+            interval: 0,
+          });
+        }
+        if (url.endsWith('/oauth/token')) {
+          polls += 1;
+          if (polls === 1) return json({ error: 'authorization_pending' }, 400);
+          return json({
+            access_token: 'hao_device-token',
+            refresh_token: 'hor_device-refresh',
+            expires_in: 3600,
+            scope: 'profile api mcp',
+          });
+        }
+        if (url.endsWith('/oauth/userinfo')) {
+          return json({ sub: 'user-1', email: 'max@example.com' });
+        }
+        if (url.includes('/api/v1/bot-management/bots')) {
+          return json({ data: [] });
+        }
+        return json({ error: `unexpected ${url} ${init?.method ?? 'GET'}` }, 404);
+      }),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
+      readlineAnswers: [],
+    });
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'device-code',
+      homeDir,
+    });
+
+    expect(result).toMatchObject({
+      method: 'device-code',
+      maskedApiKey: 'hao_…oken',
+      validated: true,
+      account: { email: 'max@example.com' },
+    });
+    expect(logSpy).toHaveBeenCalledWith('  https://hybridai.one/device');
+    expect(logSpy).toHaveBeenCalledWith('and enter the code:  WXKT-QMBD');
+    expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toMatchObject({
+      authenticated: true,
+      method: 'oauth',
+      account: { email: 'max@example.com' },
     });
   });
 
@@ -366,7 +461,7 @@ describe('HybridAI login helpers', () => {
     ).rejects.toThrow('HybridAI login requires an interactive terminal.');
   });
 
-  it('uses browser login, retries blank input, and extracts an API key from a URL', async () => {
+  it('opens the API keys page, retries blank input, and extracts an API key from a URL', async () => {
     const homeDir = makeTempHome();
     process.env.HOME = homeDir;
     delete process.env.HYBRIDAI_API_KEY;
@@ -407,13 +502,13 @@ describe('HybridAI login helpers', () => {
       spawnMock,
     });
     const result = await hybridAIAuth.loginHybridAIInteractive({
-      method: 'browser',
+      method: 'api-key',
       homeDir,
     });
 
     expect(spawnMock).toHaveBeenCalled();
     expect(result).toMatchObject({
-      method: 'browser',
+      method: 'api-key',
       maskedApiKey: 'hai-…7890',
       path: path.join(homeDir, '.hybridclaw', 'credentials.json'),
       validated: true,
@@ -452,15 +547,15 @@ describe('HybridAI login helpers', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
-      readlineAnswers: ['hai-first1234567890', 'y', 'hai-second1234567890'],
+      readlineAnswers: ['n', 'hai-first1234567890', 'y', 'hai-second1234567890'],
     });
     const result = await hybridAIAuth.loginHybridAIInteractive({
-      method: 'device-code',
+      method: 'api-key',
       homeDir,
     });
 
     expect(result).toMatchObject({
-      method: 'device-code',
+      method: 'api-key',
       maskedApiKey: 'hai-…7890',
       validated: true,
     });
@@ -500,12 +595,12 @@ describe('HybridAI login helpers', () => {
       readlineAnswers: ['n', 'hai-saveanyway1234567890', 'n', 'y'],
     });
     const result = await hybridAIAuth.loginHybridAIInteractive({
-      method: 'browser',
+      method: 'api-key',
       homeDir,
     });
 
     expect(result).toMatchObject({
-      method: 'browser',
+      method: 'api-key',
       maskedApiKey: 'hai-…7890',
       validated: false,
     });

@@ -138,7 +138,7 @@ function parseExclusiveLoginMethodFlag<T extends string>(
   args: string[],
   params: {
     methods: Array<{
-      flag: '--device-code' | '--browser' | '--import';
+      flag: '--device-code' | '--browser' | '--api-key' | '--import';
       value: T;
     }>;
     rejectUnknownFlags?: boolean;
@@ -187,7 +187,7 @@ function parseCodexLoginMethod(
 }
 
 interface ParsedHybridAILoginArgs {
-  method: 'auto' | 'device-code' | 'browser' | 'import';
+  method: 'auto' | 'device-code' | 'browser' | 'api-key' | 'import';
   baseUrl?: string;
 }
 
@@ -226,6 +226,7 @@ function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
       methods: [
         { flag: '--device-code', value: 'device-code' },
         { flag: '--browser', value: 'browser' },
+        { flag: '--api-key', value: 'api-key' },
         { flag: '--import', value: 'import' },
       ],
       rejectUnknownFlags: true,
@@ -2034,7 +2035,16 @@ function printHybridAIStatus(): void {
   console.log(`Authenticated: ${status.authenticated ? 'yes' : 'no'}`);
   if (status.authenticated) {
     console.log(`Source: ${status.source}`);
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
+    console.log(`Method: ${status.method}`);
+    if (status.account?.email) console.log(`Account: ${status.account.email}`);
+    console.log(
+      `${status.method === 'oauth' ? 'Access token' : 'API key'}: ${CONFIGURED_SECRET_STATUS}`,
+    );
+    if (typeof status.accessExpiresAt === 'number') {
+      console.log(
+        `Access token expires: ${new Date(status.accessExpiresAt).toISOString()} (refreshed automatically)`,
+      );
+    }
   }
   console.log(`Config: ${runtimeConfigPath()}`);
   console.log(`Base URL: ${config.hybridai.baseUrl}`);
@@ -3355,7 +3365,12 @@ export async function handleHybridAICommand(args: string[]): Promise<void> {
     });
     console.log(`Saved HybridAI credentials to ${result.path}.`);
     console.log(`Login method: ${result.method}`);
-    console.log(`API key: ${result.maskedApiKey}`);
+    if (result.account?.email) {
+      console.log(`Account: ${result.account.email}`);
+    }
+    console.log(
+      `${result.account ? 'Access token' : 'API key'}: ${result.maskedApiKey}`,
+    );
     console.log(`Validated: ${result.validated ? 'yes' : 'no'}`);
     if (normalizedBaseUrl) {
       console.log(`Base URL: ${normalizedBaseUrl}`);
@@ -3365,7 +3380,9 @@ export async function handleHybridAICommand(args: string[]): Promise<void> {
 
   if (sub === 'logout') {
     await ensureHybridAIAuthApi();
-    const filePath = getHybridAIAuthApi().clearHybridAICredentials();
+    const { path: filePath, revoked } =
+      await getHybridAIAuthApi().logoutHybridAI();
+    if (revoked) console.log('Revoked the HybridAI OAuth session.');
     console.log(`Cleared HybridAI credentials in ${filePath}.`);
     console.log(
       'If HYBRIDAI_API_KEY is still exported in your shell, unset it separately.',

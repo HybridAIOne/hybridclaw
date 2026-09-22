@@ -1,3 +1,8 @@
+/**
+ * Owns live Twilio sessions and reports whether they can accept calls.
+ * Configured credentials do not imply readiness: the gateway owns startup,
+ * while this runtime authenticates requests and rejects calls during shutdown.
+ */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
@@ -123,7 +128,7 @@ const WebSocketServerCtor = (
 let websocketServer = new WebSocketServerCtor({ noServer: true });
 let runtimeInitialized = false;
 
-function isVoiceRuntimeAvailable(): boolean {
+export function isVoiceRuntimeAvailable(): boolean {
   return runtimeInitialized && !draining && voiceMessageHandler !== null;
 }
 

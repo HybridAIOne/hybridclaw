@@ -6046,13 +6046,13 @@ function mergeSubmittedSecretInputs(
   return merged;
 }
 
-function resolveConfiguredSecretInput(
+export function resolveConfiguredSecretInput(
   value: unknown,
   opts: {
     path: string;
     required?: boolean;
   },
-): unknown {
+): string | undefined {
   return resolveSecretInputUnsafe(value, {
     path: opts.path,
     required: opts.required,
