@@ -20,7 +20,6 @@ import {
   getHybridAIApiKey,
   getHybridAIAuthStatus,
 } from '../auth/hybridai-auth.js';
-import { clearHybridAIOAuthRecord } from '../auth/hybridai-oauth.js';
 import {
   HYBRIDAI_BASE_URL,
   MissingRequiredEnvVarError,
@@ -778,7 +777,6 @@ export function saveGatewayAdminHybridAIConnectorApiKey(
   if (!apiKey) {
     throw new GatewayRequestError(400, 'HybridAI API key is required.');
   }
-  clearHybridAIOAuthRecord();
   saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
   refreshRuntimeSecretsFromEnv();
   return getGatewayAdminConnectors(requestBaseUrl);

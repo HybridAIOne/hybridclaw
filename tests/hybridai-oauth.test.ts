@@ -104,6 +104,7 @@ function stubPlatform(options?: {
           authorization_endpoint: `${ISSUER}/oauth/authorize`,
           token_endpoint: `${ISSUER}/oauth/token`,
           revocation_endpoint: `${ISSUER}/oauth/revoke`,
+          userinfo_endpoint: `${ISSUER}/oauth/userinfo`,
           ...(options?.withRegistration === false
             ? {}
             : { registration_endpoint: `${ISSUER}/oauth/register` }),
@@ -283,6 +284,48 @@ test('a pasted redirect URL completes the flow and a wrong state is rejected', a
   await expect(third.waitForCode).resolves.toBe('bare-code-42');
 });
 
+test('the loopback listener ignores foreign errors and escapes what it echoes', async () => {
+  const homeDir = makeTempHome();
+  stubPlatform();
+  const { oauth } = await importFresh(homeDir);
+  const http = await import('node:http');
+  const get = (url: URL) =>
+    new Promise<{ status: number; body: string }>((resolve, reject) => {
+      http
+        .get(url, (res) => {
+          let body = '';
+          res.on('data', (chunk) => {
+            body += chunk;
+          });
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+        })
+        .on('error', reject);
+    });
+
+  const authorization = await oauth.startHybridAIAuthorization({
+    baseUrl: ISSUER,
+  });
+  const state = new URL(authorization.authorizationUrl).searchParams.get(
+    'state',
+  );
+  const foreign = new URL(authorization.redirectUri);
+  foreign.searchParams.set('error', 'access_denied');
+  foreign.searchParams.set('state', 'not-the-state');
+  expect((await get(foreign)).status).toBe(400);
+
+  const denied = new URL(authorization.redirectUri);
+  denied.searchParams.set('error', 'access_denied');
+  denied.searchParams.set('error_description', '<script>x</script>');
+  denied.searchParams.set('state', state || '');
+  const rejected = expect(authorization.waitForCode).rejects.toThrow(
+    /<script>x/,
+  );
+  const response = await get(denied);
+  expect(response.body).not.toContain('<script>');
+  expect(response.body).toContain('&lt;script&gt;');
+  await rejected;
+});
+
 test('sign-in fails fast when the platform publishes no OAuth metadata or registration', async () => {
   const homeDir = makeTempHome();
   stubPlatform({ withMetadata: false });
@@ -305,6 +348,12 @@ async function signIn(oauth: Awaited<ReturnType<typeof importFresh>>['oauth']) {
   await authorization.complete(await authorization.waitForCode);
 }
 
+/** Move the clock to 10 minutes before the stored access token expires. */
+function expireSoon(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.now() + 50 * 60_000);
+}
+
 test('ensureFreshHybridAIAccessToken leaves a fresh token alone and rotates one that is about to expire', async () => {
   const homeDir = makeTempHome();
   const requests = stubPlatform({ expiresIn: 3600 });
@@ -317,9 +366,10 @@ test('ensureFreshHybridAIAccessToken leaves a fresh token alone and rotates one 
   );
 
   // Under the 15 minute threshold: refresh with rotation.
-  await expect(
-    oauth.ensureFreshHybridAIAccessToken({ minTtlMs: 2 * 3600 * 1000 }),
-  ).resolves.toBe('refreshed');
+  expireSoon();
+  await expect(oauth.ensureFreshHybridAIAccessToken()).resolves.toBe(
+    'refreshed',
+  );
   expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
     'hao_access-2',
   );
@@ -338,21 +388,71 @@ test('ensureFreshHybridAIAccessToken signs out on invalid_grant and keeps everyt
   stubPlatform({ refreshError: { status: 503, error: 'temporarily_unavailable' } });
   const { oauth, secrets } = await importFresh(homeDir);
   await signIn(oauth);
+  expireSoon();
 
-  await expect(
-    oauth.ensureFreshHybridAIAccessToken({ minTtlMs: 2 * 3600 * 1000 }),
-  ).resolves.toBe('unavailable');
+  await expect(oauth.ensureFreshHybridAIAccessToken()).resolves.toBe(
+    'unavailable',
+  );
   expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
     'hao_access-1',
   );
   expect(oauth.readHybridAIOAuthRecord()?.refreshToken).toBe('hor_refresh-1');
 
   stubPlatform({ refreshError: { status: 400, error: 'invalid_grant' } });
-  await expect(
-    oauth.ensureFreshHybridAIAccessToken({ minTtlMs: 2 * 3600 * 1000 }),
-  ).resolves.toBe('signed-out');
+  await expect(oauth.ensureFreshHybridAIAccessToken()).resolves.toBe(
+    'signed-out',
+  );
   expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBeNull();
   expect(oauth.readHybridAIOAuthRecord()?.refreshToken).toBeUndefined();
+});
+
+test('invalid_grant after another process rotated the session keeps the rotated session', async () => {
+  const homeDir = makeTempHome();
+  stubPlatform();
+  const { oauth, secrets } = await importFresh(homeDir);
+  await signIn(oauth);
+  expireSoon();
+  const before = oauth.readHybridAIOAuthRecord();
+
+  // Another process wins the race: it rotates the refresh token while this
+  // process is still presenting the old one.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      secrets.saveNamedRuntimeSecrets({
+        HYBRIDAI_API_KEY: 'hao_other-process',
+        HYBRIDAI_OAUTH: JSON.stringify({
+          ...before,
+          refreshToken: 'hor_other-process',
+          accessExpiresAt: Date.now() + 3600 * 1000,
+        }),
+      });
+      return jsonResponse({ error: 'invalid_grant' }, 400);
+    }),
+  );
+
+  await expect(oauth.ensureFreshHybridAIAccessToken()).resolves.toBe(
+    'refreshed',
+  );
+  expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+    'hao_other-process',
+  );
+  expect(oauth.readHybridAIOAuthRecord()?.refreshToken).toBe(
+    'hor_other-process',
+  );
+});
+
+test('a fresh token rotated by another process is loaded into this process', async () => {
+  const homeDir = makeTempHome();
+  stubPlatform();
+  const { oauth, secrets } = await importFresh(homeDir);
+  await signIn(oauth);
+  const config = await import('../src/config/config.ts');
+  expect(config.HYBRIDAI_API_KEY).toBe('hao_access-1');
+
+  secrets.saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: 'hao_other-process' });
+  await expect(oauth.ensureFreshHybridAIAccessToken()).resolves.toBe('fresh');
+  expect(config.HYBRIDAI_API_KEY).toBe('hao_other-process');
 });
 
 test('ensureFreshHybridAIAccessToken is a no-op without a session and drops a session replaced by a platform key', async () => {

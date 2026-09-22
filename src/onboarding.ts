@@ -18,10 +18,9 @@ import {
 import { selectDefaultHybridAILoginMethod } from './auth/hybridai-auth.js';
 import {
   ensureFreshHybridAIAccessToken,
+  HybridAIOAuthUnavailableError,
   type HybridAISignInResult,
-  startHybridAIAuthorization,
-  startHybridAIDeviceAuthorization,
-  waitForHybridAIAuthorizationCode,
+  signInToHybridAI,
 } from './auth/hybridai-oauth.js';
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
@@ -1032,82 +1031,6 @@ async function ensureValidRuntimeConfig(
   }
 }
 
-/** The platform offers no OAuth sign-in at all (discovery/registration failed). */
-class HybridAIOAuthUnavailableError extends Error {}
-
-/**
- * Headless shells get the device flow (type a short code on any browser);
- * desktops get the loopback flow with the consent page auto-opened.
- */
-async function signInToHybridAI(
-  rl: readline.Interface,
-  baseUrl: string,
-): Promise<HybridAISignInResult> {
-  if (selectDefaultHybridAILoginMethod() === 'device-code') {
-    let device: Awaited<ReturnType<typeof startHybridAIDeviceAuthorization>>;
-    try {
-      device = await startHybridAIDeviceAuthorization({ baseUrl });
-    } catch (err) {
-      throw new HybridAIOAuthUnavailableError(
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-    if (device) {
-      printInfo('On any device with a browser, open:');
-      printLink(device.verificationUri);
-      printInfo(`and enter the code:  ${device.userCode}`);
-      if (device.verificationUriComplete) {
-        printInfo(`(or open ${device.verificationUriComplete} directly)`);
-      }
-      printInfo(
-        `Waiting for approval (code valid for ${Math.max(1, Math.round((device.expiresAt - Date.now()) / 60_000))} min) ...`,
-      );
-      return await device.waitForSignIn();
-    }
-  }
-
-  let authorization: Awaited<ReturnType<typeof startHybridAIAuthorization>>;
-  try {
-    authorization = await startHybridAIAuthorization({ baseUrl });
-  } catch (err) {
-    throw new HybridAIOAuthUnavailableError(
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-  try {
-    printInfo(
-      'Sign in (or create an account) in your browser and approve HybridClaw.',
-    );
-    const openBrowser = await promptYesNo(
-      rl,
-      'Open the HybridAI sign-in page in your browser now?',
-      true,
-      ICON_AUTH,
-    );
-    if (openBrowser) {
-      const opened = await tryOpenUrlInBrowser(authorization.authorizationUrl);
-      if (!opened) {
-        printWarn('Could not auto-open browser. Open the link manually.');
-      }
-    }
-    printLink(authorization.authorizationUrl);
-    printInfo(
-      `Waiting for the browser to return to ${authorization.redirectUri} ...`,
-    );
-    const code = await waitForHybridAIAuthorizationCode(authorization, {
-      rl,
-      text: styledPromptWithIcon(
-        'If the browser cannot reach this machine, paste the URL it was redirected to here: ',
-        ICON_KEYBOARD,
-      ),
-    });
-    return await authorization.complete(code);
-  } catch (err) {
-    authorization.close();
-    throw err;
-  }
-}
-
 async function runHybridAIOnboarding(params: {
   rl: readline.Interface;
   baseUrl: string;
@@ -1130,7 +1053,18 @@ async function runHybridAIOnboarding(params: {
 
   let signIn: HybridAISignInResult;
   try {
-    signIn = await signInToHybridAI(rl, baseUrl);
+    signIn = await signInToHybridAI({
+      baseUrl,
+      method: selectDefaultHybridAILoginMethod(),
+      ui: {
+        rl,
+        info: printInfo,
+        warn: printWarn,
+        link: printLink,
+        confirm: (question) => promptYesNo(rl, question, true, ICON_AUTH),
+        pastePrompt: (text) => styledPromptWithIcon(text, ICON_KEYBOARD),
+      },
+    });
   } catch (err) {
     if (err instanceof HybridAIOAuthUnavailableError) {
       printWarn(`Browser sign-in is not available: ${err.message}`);
@@ -2042,8 +1976,8 @@ export async function ensureRuntimeCredentials(
     await runHybridAIOnboarding({
       rl,
       baseUrl: normalizeBaseUrl(
-        process.env.HYBRIDAI_BASE_URL ||
-          refreshedRuntimeConfig.hybridai.baseUrl ||
+        refreshedRuntimeConfig.hybridai.baseUrl ||
+          process.env.HYBRIDAI_BASE_URL ||
           DEFAULT_BASE_URL,
       ),
       commandLabel,

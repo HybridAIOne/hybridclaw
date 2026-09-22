@@ -1025,6 +1025,7 @@ test('interactive HybridAI onboarding signs in with OAuth and stores the access 
           authorization_endpoint: 'https://hybridai.one/oauth/authorize',
           token_endpoint: 'https://hybridai.one/oauth/token',
           registration_endpoint: 'https://hybridai.one/oauth/register',
+          userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
         });
       }
       if (url.endsWith('/oauth/register')) {
@@ -1159,6 +1160,7 @@ test('headless HybridAI onboarding signs in with a device code', async () => {
           authorization_endpoint: 'https://hybridai.one/oauth/authorize',
           token_endpoint: 'https://hybridai.one/oauth/token',
           registration_endpoint: 'https://hybridai.one/oauth/register',
+          userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
           device_authorization_endpoint:
             'https://hybridai.one/oauth/device_authorization',
         });

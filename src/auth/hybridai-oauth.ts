@@ -18,12 +18,16 @@
 import http from 'node:http';
 import type readline from 'node:readline/promises';
 
-import { refreshRuntimeSecretsFromEnv } from '../config/config.js';
+import {
+  HYBRIDAI_API_KEY,
+  refreshRuntimeSecretsFromEnv,
+} from '../config/config.js';
 import { logger } from '../logger.js';
 import {
   readStoredRuntimeSecret,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   type AuthorizationServerMetadata,
@@ -51,7 +55,7 @@ const DEVICE_FLOW_PLACEHOLDER_REDIRECT_URI = `http://${LOOPBACK_HOST}${CALLBACK_
 const DEFAULT_CALLBACK_TIMEOUT_MS = 10 * 60_000;
 const USERINFO_TIMEOUT_MS = 10_000;
 /** Refresh once less than this much of the access token lifetime is left. */
-const DEFAULT_MIN_TTL_MS = 15 * 60_000;
+const REFRESH_MIN_TTL_MS = 15 * 60_000;
 
 export interface HybridAIOAuthAccount {
   sub: string;
@@ -114,18 +118,66 @@ export function readHybridAIOAuthRecord(): HybridAIOAuthRecord | null {
   }
 }
 
-function writeHybridAIOAuthRecord(record: HybridAIOAuthRecord): void {
-  saveNamedRuntimeSecrets({ [HYBRIDAI_OAUTH_SECRET]: JSON.stringify(record) });
+/**
+ * Store the access token and the OAuth session in one write, so no reader
+ * ever sees a token without its session or the other way around.
+ */
+function saveHybridAISession(
+  accessToken: string | null,
+  record: HybridAIOAuthRecord | null,
+): void {
+  saveNamedRuntimeSecrets({
+    HYBRIDAI_API_KEY: accessToken,
+    [HYBRIDAI_OAUTH_SECRET]: record ? JSON.stringify(record) : null,
+  });
+  refreshRuntimeSecretsFromEnv();
 }
 
 export function clearHybridAIOAuthRecord(): void {
   saveNamedRuntimeSecrets({ [HYBRIDAI_OAUTH_SECRET]: null });
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function callbackPage(title: string, body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>body{font-family:system-ui,sans-serif;margin:3rem auto;max-width:32rem;line-height:1.5}</style></head>
-<body><h1>${title}</h1><p>${body}</p></body></html>`;
+<body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`;
+}
+
+/** The platform offers no OAuth sign-in (no metadata or no registration). */
+export class HybridAIOAuthUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HybridAIOAuthUnavailableError';
+  }
+}
+
+async function discoverHybridAIOAuth(baseUrl: string): Promise<{
+  issuer: string;
+  metadata: AuthorizationServerMetadata & { registrationEndpoint: string };
+}> {
+  const issuer = baseUrl.trim().replace(/\/+$/, '');
+  const metadata = await discoverAuthorizationServerMetadata(issuer);
+  if (!metadata) {
+    throw new HybridAIOAuthUnavailableError(
+      `${issuer} does not publish OAuth authorization server metadata. Sign in with an API key instead (\`hybridclaw auth login hybridai --api-key\`).`,
+    );
+  }
+  const registrationEndpoint = metadata.registrationEndpoint;
+  if (!registrationEndpoint) {
+    throw new HybridAIOAuthUnavailableError(
+      `${issuer} does not support dynamic client registration. Sign in with an API key instead (\`hybridclaw auth login hybridai --api-key\`).`,
+    );
+  }
+  return { issuer, metadata: { ...metadata, registrationEndpoint } };
 }
 
 /**
@@ -134,30 +186,10 @@ function callbackPage(title: string, body: string): string {
  * URL must be opened in a browser; `waitForCode` settles when the browser
  * hits the loopback listener or when a pasted redirect is submitted.
  */
-async function discoverHybridAIOAuth(baseUrl: string): Promise<{
-  issuer: string;
-  metadata: AuthorizationServerMetadata & { registrationEndpoint: string };
-}> {
-  const issuer = baseUrl.trim().replace(/\/+$/, '');
-  const metadata = await discoverAuthorizationServerMetadata(issuer);
-  if (!metadata) {
-    throw new Error(
-      `${issuer} does not publish OAuth authorization server metadata. Sign in with an API key instead (\`hybridclaw auth login hybridai --api-key\`).`,
-    );
-  }
-  const registrationEndpoint = metadata.registrationEndpoint;
-  if (!registrationEndpoint) {
-    throw new Error(
-      `${issuer} does not support dynamic client registration. Sign in with an API key instead (\`hybridclaw auth login hybridai --api-key\`).`,
-    );
-  }
-  return { issuer, metadata: { ...metadata, registrationEndpoint } };
-}
-
 export async function startHybridAIAuthorization(input: {
   baseUrl: string;
   timeoutMs?: number;
-}): Promise<HybridAIAuthorization & { issuer: string }> {
+}): Promise<HybridAIAuthorization> {
   const { issuer, metadata } = await discoverHybridAIOAuth(input.baseUrl);
 
   const listener = await startLoopbackListener(
@@ -182,7 +214,6 @@ export async function startHybridAIAuthorization(input: {
     const separator = metadata.authorizationEndpoint.includes('?') ? '&' : '?';
     let completed = false;
     return {
-      issuer,
       authorizationUrl: `${metadata.authorizationEndpoint}${separator}${query.toString()}`,
       redirectUri: listener.redirectUri,
       waitForCode: listener.waitForCode,
@@ -193,14 +224,21 @@ export async function startHybridAIAuthorization(input: {
           throw new Error('This HybridAI sign-in was already completed.');
         }
         completed = true;
-        return await exchangeAuthorizationCode({
-          code,
+        const tokens = await requestToken(
+          metadata.tokenEndpoint,
+          new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: listener.redirectUri,
+            client_id: client.clientId,
+            code_verifier: pkce.verifier,
+          }),
+        );
+        return await storeSignIn({
           issuer,
-          tokenEndpoint: metadata.tokenEndpoint,
-          revocationEndpoint: metadata.revocationEndpoint,
+          metadata,
           clientId: client.clientId,
-          redirectUri: listener.redirectUri,
-          verifier: pkce.verifier,
+          tokens,
         });
       },
     };
@@ -211,7 +249,6 @@ export async function startHybridAIAuthorization(input: {
 }
 
 export interface HybridAIDeviceAuthorization {
-  issuer: string;
   userCode: string;
   verificationUri: string;
   verificationUriComplete?: string;
@@ -248,7 +285,6 @@ export async function startHybridAIDeviceAuthorization(input: {
   const abort = new AbortController();
   let started = false;
   return {
-    issuer,
     userCode: device.userCode,
     verificationUri: device.verificationUri,
     verificationUriComplete: device.verificationUriComplete,
@@ -266,8 +302,7 @@ export async function startHybridAIDeviceAuthorization(input: {
       });
       return await storeSignIn({
         issuer,
-        tokenEndpoint: metadata.tokenEndpoint,
-        revocationEndpoint: metadata.revocationEndpoint,
+        metadata,
         clientId: client.clientId,
         tokens,
       });
@@ -299,14 +334,11 @@ function parseRedirectInput(
       ? { code: trimmed }
       : { error: 'not a redirect URL or authorization code' };
   }
-  const error = params.get('error');
-  if (error) {
-    return {
-      error: params.get('error_description') || error,
-    };
+  if ((params.get('state') || '') !== expectedState) {
+    return { error: 'state mismatch' };
   }
-  const state = params.get('state') || '';
-  if (state !== expectedState) return { error: 'state mismatch' };
+  const error = params.get('error');
+  if (error) return { error: params.get('error_description') || error };
   const code = params.get('code') || '';
   return code ? { code } : { error: 'missing authorization code' };
 }
@@ -405,7 +437,7 @@ function startLoopbackListener(timeoutMs: number): Promise<LoopbackListener> {
  * on the terminal, for machines the browser cannot reach (SSH, containers).
  * Whichever arrives first wins; the other side is canceled.
  */
-export async function waitForHybridAIAuthorizationCode(
+async function waitForHybridAIAuthorizationCode(
   authorization: HybridAIAuthorization,
   prompt: { rl: readline.Interface; text: string },
 ): Promise<string> {
@@ -427,12 +459,86 @@ export async function waitForHybridAIAuthorizationCode(
   }
 }
 
+/** Terminal output for {@link signInToHybridAI}; the CLI and onboarding style it differently. */
+export interface HybridAISignInUI {
+  rl: readline.Interface;
+  info(message: string): void;
+  warn(message: string): void;
+  link(url: string): void;
+  confirm(question: string): Promise<boolean>;
+  /** Styles the prompt that accepts a pasted redirect URL. */
+  pastePrompt(text: string): string;
+}
+
+/**
+ * Interactive platform sign-in. `browser` runs the authorization code + PKCE
+ * flow with a loopback redirect and offers to open the consent page.
+ * `device-code` (headless shells) prefers the RFC 8628 device flow; platforms
+ * without it get the loopback flow with a pasted redirect instead.
+ *
+ * Throws {@link HybridAIOAuthUnavailableError} when the platform offers no
+ * OAuth sign-in at all.
+ */
+export async function signInToHybridAI(input: {
+  baseUrl: string;
+  method: 'browser' | 'device-code';
+  ui: HybridAISignInUI;
+}): Promise<HybridAISignInResult> {
+  const { baseUrl, method, ui } = input;
+  if (method === 'device-code') {
+    const device = await startHybridAIDeviceAuthorization({ baseUrl });
+    if (device) {
+      ui.info('On any device with a browser, open:');
+      ui.link(device.verificationUri);
+      ui.info(`and enter the code:  ${device.userCode}`);
+      if (device.verificationUriComplete) {
+        ui.info(`(or open ${device.verificationUriComplete} directly)`);
+      }
+      const minutes = Math.max(
+        1,
+        Math.round((device.expiresAt - Date.now()) / 60_000),
+      );
+      ui.info(`Waiting for approval (code valid for ${minutes} min) ...`);
+      return await device.waitForSignIn();
+    }
+  }
+
+  const authorization = await startHybridAIAuthorization({ baseUrl });
+  try {
+    ui.info(
+      'Sign in (or create an account) in your browser and approve HybridClaw.',
+    );
+    if (
+      method === 'browser' &&
+      (await ui.confirm('Open the HybridAI sign-in page in your browser now?'))
+    ) {
+      if (!(await tryOpenUrlInBrowser(authorization.authorizationUrl))) {
+        ui.warn('Could not auto-open browser. Open the link manually.');
+      }
+    }
+    ui.link(authorization.authorizationUrl);
+    ui.info(
+      `Waiting for the browser to return to ${authorization.redirectUri} ...`,
+    );
+    const code = await waitForHybridAIAuthorizationCode(authorization, {
+      rl: ui.rl,
+      text: ui.pastePrompt(
+        'If the browser cannot reach this machine, paste the URL it was redirected to here: ',
+      ),
+    });
+    return await authorization.complete(code);
+  } finally {
+    authorization.close();
+  }
+}
+
 async function fetchUserInfo(
-  issuer: string,
+  userinfoEndpoint: string | undefined,
   accessToken: string,
 ): Promise<HybridAIOAuthAccount | undefined> {
+  if (!userinfoEndpoint) return undefined;
   try {
-    const response = await fetch(`${issuer}/oauth/userinfo`, {
+    const response = await fetch(userinfoEndpoint, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(USERINFO_TIMEOUT_MS),
     });
@@ -449,43 +555,22 @@ async function fetchUserInfo(
   }
 }
 
-async function exchangeAuthorizationCode(exchange: {
-  code: string;
-  issuer: string;
-  tokenEndpoint: string;
-  revocationEndpoint?: string;
-  clientId: string;
-  redirectUri: string;
-  verifier: string;
-}): Promise<HybridAISignInResult> {
-  const tokens = await requestToken(
-    exchange.tokenEndpoint,
-    new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: exchange.code,
-      redirect_uri: exchange.redirectUri,
-      client_id: exchange.clientId,
-      code_verifier: exchange.verifier,
-    }),
-  );
-  return await storeSignIn({ ...exchange, tokens });
-}
-
 /** Persist a fresh token set as the HybridAI credential + OAuth session. */
 async function storeSignIn(session: {
   issuer: string;
-  tokenEndpoint: string;
-  revocationEndpoint?: string;
+  metadata: AuthorizationServerMetadata;
   clientId: string;
   tokens: OAuthTokenSet;
 }): Promise<HybridAISignInResult> {
-  const { tokens } = session;
-  const account = await fetchUserInfo(session.issuer, tokens.accessToken);
-  saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: tokens.accessToken });
-  writeHybridAIOAuthRecord({
+  const { metadata, tokens } = session;
+  const account = await fetchUserInfo(
+    metadata.userinfoEndpoint,
+    tokens.accessToken,
+  );
+  saveHybridAISession(tokens.accessToken, {
     issuer: session.issuer,
-    tokenEndpoint: session.tokenEndpoint,
-    revocationEndpoint: session.revocationEndpoint,
+    tokenEndpoint: metadata.tokenEndpoint,
+    revocationEndpoint: metadata.revocationEndpoint,
     clientId: session.clientId,
     scope: tokens.scope || HYBRIDAI_OAUTH_SCOPE,
     refreshToken: tokens.refreshToken,
@@ -493,7 +578,6 @@ async function storeSignIn(session: {
     account,
     updatedAt: new Date().toISOString(),
   });
-  refreshRuntimeSecretsFromEnv();
   return { accessToken: tokens.accessToken, account };
 }
 
@@ -510,28 +594,26 @@ let refreshInFlight: Promise<HybridAITokenRefreshOutcome> | null = null;
  * Rotate the stored access token when it is about to expire.
  *
  * - `not-oauth`: no OAuth session (env key, pasted `hai-` key, or nothing).
- * - `fresh`: the stored token still has more than `minTtlMs` left.
- * - `refreshed`: a new access token was stored.
+ * - `fresh`: the stored token still has more than 15 minutes left.
+ * - `refreshed`: a new access token was stored (by this or another process).
  * - `signed-out`: the platform rejected the refresh token (revoked, expired,
  *   reused); the stale access token was removed so callers fail with a clear
  *   "not configured" error instead of opaque 401s. Sign in again.
  * - `unavailable`: transient failure (network, 5xx); nothing changed.
+ *
+ * The CLI and the gateway share one secret store, so another process may
+ * rotate the session at any time; the store, not this process, is the source
+ * of truth.
  */
-export function ensureFreshHybridAIAccessToken(options?: {
-  minTtlMs?: number;
-}): Promise<HybridAITokenRefreshOutcome> {
+export function ensureFreshHybridAIAccessToken(): Promise<HybridAITokenRefreshOutcome> {
   if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = refreshHybridAIAccessToken(
-    options?.minTtlMs ?? DEFAULT_MIN_TTL_MS,
-  ).finally(() => {
+  refreshInFlight = refreshHybridAIAccessToken().finally(() => {
     refreshInFlight = null;
   });
   return refreshInFlight;
 }
 
-async function refreshHybridAIAccessToken(
-  minTtlMs: number,
-): Promise<HybridAITokenRefreshOutcome> {
+async function refreshHybridAIAccessToken(): Promise<HybridAITokenRefreshOutcome> {
   const record = readHybridAIOAuthRecord();
   if (!record) return 'not-oauth';
 
@@ -548,13 +630,13 @@ async function refreshHybridAIAccessToken(
   if (
     stored &&
     typeof record.accessExpiresAt === 'number' &&
-    record.accessExpiresAt - Date.now() > minTtlMs
+    record.accessExpiresAt - Date.now() > REFRESH_MIN_TTL_MS
   ) {
+    if (stored !== HYBRIDAI_API_KEY) refreshRuntimeSecretsFromEnv();
     return 'fresh';
   }
   if (!record.refreshToken) {
-    saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: null });
-    refreshRuntimeSecretsFromEnv();
+    saveHybridAISession(null, record);
     return 'signed-out';
   }
 
@@ -567,15 +649,13 @@ async function refreshHybridAIAccessToken(
         client_id: record.clientId,
       }),
     );
-    saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: tokens.accessToken });
-    writeHybridAIOAuthRecord({
+    saveHybridAISession(tokens.accessToken, {
       ...record,
       refreshToken: tokens.refreshToken || record.refreshToken,
       accessExpiresAt: tokens.expiresAt,
       scope: tokens.scope || record.scope,
       updatedAt: new Date().toISOString(),
     });
-    refreshRuntimeSecretsFromEnv();
     logger.info(
       { expiresAt: tokens.expiresAt ?? null },
       'HybridAI access token refreshed',
@@ -583,14 +663,21 @@ async function refreshHybridAIAccessToken(
     return 'refreshed';
   } catch (err) {
     if (err instanceof OAuthTokenRequestError && err.code === 'invalid_grant') {
-      saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: null });
-      writeHybridAIOAuthRecord({
+      const current = readHybridAIOAuthRecord();
+      if (
+        current?.refreshToken &&
+        current.refreshToken !== record.refreshToken
+      ) {
+        // Another process rotated the session while this request was in flight.
+        refreshRuntimeSecretsFromEnv();
+        return 'refreshed';
+      }
+      saveHybridAISession(null, {
         ...record,
         refreshToken: undefined,
         accessExpiresAt: undefined,
         updatedAt: new Date().toISOString(),
       });
-      refreshRuntimeSecretsFromEnv();
       logger.warn(
         { error: err.message },
         'HybridAI OAuth session ended; run `hybridclaw auth login hybridai` to sign in again',

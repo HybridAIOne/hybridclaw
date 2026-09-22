@@ -20,9 +20,7 @@ import {
   isHybridAIAccessToken,
   readHybridAIOAuthRecord,
   revokeHybridAIOAuthSession,
-  startHybridAIAuthorization,
-  startHybridAIDeviceAuthorization,
-  waitForHybridAIAuthorizationCode,
+  signInToHybridAI,
 } from './hybridai-oauth.js';
 
 export interface HybridAIAuthStatus {
@@ -240,9 +238,7 @@ function requireInteractiveTerminal(): void {
   }
 }
 
-/** Store a platform API key; any OAuth session it replaces is forgotten. */
 function saveApiKey(apiKey: string): string {
-  clearHybridAIOAuthRecord();
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
   refreshRuntimeSecretsFromEnv();
   return filePath;
@@ -255,13 +251,6 @@ function createPromptInterface(): readline.Interface {
   });
 }
 
-/**
- * OAuth sign-in. `browser` runs the authorization code + PKCE flow with a
- * loopback redirect and auto-opens the consent page. `device-code` (headless
- * shells) prefers the RFC 8628 device flow: a short code to type in at the
- * platform's `/device` page; platforms without it get the loopback flow with
- * a pasted redirect instead.
- */
 async function loginWithOAuth(options: {
   method: 'browser' | 'device-code';
   baseUrl?: string;
@@ -271,10 +260,24 @@ async function loginWithOAuth(options: {
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
   );
   console.log('HybridAI sign-in');
-  const signIn =
-    options.method === 'device-code'
-      ? await signInWithDeviceCode(baseUrl)
-      : await signInWithLoopback(baseUrl, { autoOpen: true });
+  const rl = createPromptInterface();
+  let signIn: HybridAISignInResult;
+  try {
+    signIn = await signInToHybridAI({
+      baseUrl,
+      method: options.method,
+      ui: {
+        rl,
+        info: (message) => console.log(message),
+        warn: (message) => console.log(message),
+        link: (url) => console.log(`  ${url}`),
+        confirm: (question) => promptYesNo(rl, question, true),
+        pastePrompt: (text) => text,
+      },
+    });
+  } finally {
+    rl.close();
+  }
 
   if (signIn.account?.email) {
     console.log(`Signed in as ${signIn.account.email}.`);
@@ -295,58 +298,6 @@ async function loginWithOAuth(options: {
     validated: validation.ok,
     account: signIn.account,
   };
-}
-
-async function signInWithDeviceCode(
-  baseUrl: string,
-): Promise<HybridAISignInResult> {
-  const device = await startHybridAIDeviceAuthorization({ baseUrl });
-  if (!device) return await signInWithLoopback(baseUrl, { autoOpen: false });
-  console.log('On any device with a browser, open:');
-  console.log(`  ${device.verificationUri}`);
-  console.log(`and enter the code:  ${device.userCode}`);
-  if (device.verificationUriComplete) {
-    console.log(`(or open ${device.verificationUriComplete} directly)`);
-  }
-  console.log(
-    `Waiting for approval (code valid for ${Math.max(1, Math.round((device.expiresAt - Date.now()) / 60_000))} min) ...`,
-  );
-  return await device.waitForSignIn();
-}
-
-async function signInWithLoopback(
-  baseUrl: string,
-  options: { autoOpen: boolean },
-): Promise<HybridAISignInResult> {
-  const rl = createPromptInterface();
-  try {
-    const authorization = await startHybridAIAuthorization({ baseUrl });
-    if (
-      options.autoOpen &&
-      (await promptYesNo(
-        rl,
-        'Open the HybridAI sign-in page in your browser now?',
-        true,
-      ))
-    ) {
-      const opened = await tryOpenUrlInBrowser(authorization.authorizationUrl);
-      if (!opened) {
-        console.log('Could not auto-open browser. Open the link manually.');
-      }
-    }
-    console.log('Sign-in page:');
-    console.log(authorization.authorizationUrl);
-    console.log(
-      `Waiting for the browser to return to ${authorization.redirectUri} ...`,
-    );
-    const code = await waitForHybridAIAuthorizationCode(authorization, {
-      rl,
-      text: 'If the browser cannot reach this machine, paste the URL it was redirected to here: ',
-    });
-    return await authorization.complete(code);
-  } finally {
-    rl.close();
-  }
 }
 
 /** Legacy path: paste a long-lived `hai-` platform API key. */

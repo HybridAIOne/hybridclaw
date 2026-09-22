@@ -8,6 +8,8 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
+import { asStringArray, asTrimmedString } from '../utils/type-guards.js';
+
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const TOKEN_TIMEOUT_MS = 20_000;
 const SLOW_DOWN_INCREMENT_MS = 5_000;
@@ -29,6 +31,7 @@ export interface AuthorizationServerMetadata {
   registrationEndpoint?: string;
   revocationEndpoint?: string;
   deviceAuthorizationEndpoint?: string;
+  userinfoEndpoint?: string;
   scopesSupported?: string[];
 }
 
@@ -49,16 +52,6 @@ export function generatePkcePair(): { verifier: string; challenge: string } {
 
 export function generateOAuthState(): string {
   return randomBytes(32).toString('base64url');
-}
-
-export function asTrimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-export function asStringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string')
-    : undefined;
 }
 
 export async function fetchJson(
@@ -125,6 +118,8 @@ export async function discoverAuthorizationServerMetadata(
         asTrimmedString(metadata.revocation_endpoint) || undefined,
       deviceAuthorizationEndpoint:
         asTrimmedString(metadata.device_authorization_endpoint) || undefined,
+      userinfoEndpoint:
+        asTrimmedString(metadata.userinfo_endpoint) || undefined,
       scopesSupported: asStringArray(metadata.scopes_supported),
     };
   }

@@ -379,6 +379,7 @@ describe('HybridAI login helpers', () => {
             authorization_endpoint: 'https://hybridai.one/oauth/authorize',
             token_endpoint: 'https://hybridai.one/oauth/token',
             registration_endpoint: 'https://hybridai.one/oauth/register',
+            userinfo_endpoint: 'https://hybridai.one/oauth/userinfo',
             device_authorization_endpoint:
               'https://hybridai.one/oauth/device_authorization',
           });

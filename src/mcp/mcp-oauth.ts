@@ -16,8 +16,6 @@ import { createHash } from 'node:crypto';
 
 import {
   type AuthorizationServerMetadata,
-  asStringArray,
-  asTrimmedString,
   discoverAuthorizationServerMetadata,
   fetchJson,
   generateOAuthState,
@@ -33,7 +31,11 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { McpServerConfig } from '../types/models.js';
-import { isRecord } from '../utils/type-guards.js';
+import {
+  asStringArray,
+  asTrimmedString,
+  isRecord,
+} from '../utils/type-guards.js';
 import { supportsMcpOAuth } from './server-config.js';
 
 const MCP_OAUTH_SECRET_PREFIX = 'MCP_OAUTH_';
@@ -41,8 +43,6 @@ const MAX_SECRET_NAME_LENGTH = 128;
 const PENDING_FLOW_TTL_MS = 10 * 60_000;
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const CLIENT_NAME = 'HybridClaw';
-
-export type McpOAuthTokenSet = OAuthTokenSet;
 
 export interface McpOAuthRecord {
   serverUrl: string;
@@ -54,7 +54,7 @@ export interface McpOAuthRecord {
   clientSecret?: string;
   redirectUri: string;
   scope?: string;
-  tokens?: McpOAuthTokenSet;
+  tokens?: OAuthTokenSet;
   updatedAt: string;
 }
 
@@ -131,7 +131,7 @@ function pruneExpiredFlows(): void {
   }
 }
 
-function tokenExpiresSoon(tokens: McpOAuthTokenSet): boolean {
+function tokenExpiresSoon(tokens: OAuthTokenSet): boolean {
   return (
     typeof tokens.expiresAt === 'number' &&
     tokens.expiresAt - Date.now() <= TOKEN_REFRESH_SKEW_MS
@@ -233,6 +233,10 @@ export async function startMcpOAuthFlow(input: {
           registrationEndpoint: authServer.registrationEndpoint,
           redirectUri: input.redirectUri,
           clientName: CLIENT_NAME,
+        }).catch((err: unknown) => {
+          throw new Error(
+            `MCP ${err instanceof Error ? err.message : String(err)} The authorization server may require a manually configured client id.`,
+          );
         })
       : null;
   if (!client) {
