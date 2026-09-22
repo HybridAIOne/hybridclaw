@@ -31,7 +31,9 @@ async function setup() {
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { getOrCreateSession } = await import('../src/memory/sessions.ts');
-  const { createJob, getAllJobs } = await import('../src/memory/jobs.ts');
+  const { createJob, getAllJobs, markJobFailure } = await import(
+    '../src/memory/jobs.ts'
+  );
   const { runScheduledTaskToolAction } = await import(
     '../src/gateway/scheduled-task-tool-service.ts'
   );
@@ -46,6 +48,7 @@ async function setup() {
     rearmScheduler,
     createJob,
     getAllJobs,
+    markJobFailure,
     runScheduledTaskToolAction,
     GatewayRequestError,
   };
@@ -253,3 +256,76 @@ test('remove only deletes tasks owned by the calling session', async () => {
   const remaining = getAllJobs({ kind: 'scheduled_task' });
   expect(remaining.map((task) => task.id)).toEqual([otherTaskId]);
 });
+
+test('update changes the schedule and clears prior run history', async () => {
+  const {
+    createJob,
+    getAllJobs,
+    markJobFailure,
+    rearmScheduler,
+    runScheduledTaskToolAction,
+  } = await setup();
+  const taskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'discord-channel-1',
+    cronExpr: '0 9 * * *',
+    tz: 'Europe/Berlin',
+    prompt: 'Write the briefing.',
+  });
+  markJobFailure(taskId, 5, 'boom');
+
+  const result = runScheduledTaskToolAction({
+    action: 'update',
+    sessionId: 'session-1',
+    taskId,
+    cronExpr: '30 8 * * 1-5',
+    tz: 'America/New_York',
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'update',
+    taskId,
+    cronExpr: '30 8 * * 1-5',
+    tz: 'America/New_York',
+    channelId: 'discord-channel-1',
+    prompt: 'Write the briefing.',
+  });
+  const [task] = getAllJobs({ kind: 'scheduled_task', sessionId: 'session-1' });
+  expect(task).toMatchObject({
+    cron_expr: '30 8 * * 1-5',
+    tz: 'America/New_York',
+    last_status: null,
+    last_error: null,
+    consecutive_errors: 0,
+  });
+  expect(task.last_run).not.toBeNull();
+  expect(rearmScheduler).toHaveBeenCalledTimes(1);
+});
+
+test('update rejects a task belonging to a different session', async () => {
+  const { createJob, runScheduledTaskToolAction } = await setup();
+  const otherTaskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-2',
+    channelId: 'discord-channel-2',
+    cronExpr: '0 8 * * *',
+    prompt: 'theirs',
+  });
+
+  expect(
+    statusOf(() =>
+      runScheduledTaskToolAction({
+        action: 'update',
+        sessionId: 'session-1',
+        taskId: otherTaskId,
+        prompt: 'stolen',
+      }),
+    ),
+  ).toBe(404);
+});
+
+// "update" shares validateScheduledTaskFields() with "add", so its
+// multi-schedule-field rejection is already covered by the "add" test
+// above; the container-level equivalent still exercises update directly.
