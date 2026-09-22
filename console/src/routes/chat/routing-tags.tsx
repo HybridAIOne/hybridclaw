@@ -49,7 +49,7 @@ function totalInput(attempt: RoutingTraceAttempt): number | null {
 
 const ZONE_LABELS: Record<string, string> = {
   local: '💻 Local',
-  hai: '🏢 HAI',
+  hai: '🏢 HybridAI',
   'eu-provider': '🇪🇺 DE/EU provider',
   region: '🇪🇺 DE/EU hosting',
   cloud: '🌐 World',

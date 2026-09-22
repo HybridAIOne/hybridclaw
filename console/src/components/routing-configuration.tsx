@@ -10,6 +10,7 @@ import { useAuth } from '../auth';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
+import { PrivacyLevelIcon } from './icons/PrivacyLevel';
 import { Input } from './input';
 import { NativeSelect } from './native-select';
 import styles from './routing-configuration.module.css';
@@ -34,11 +35,11 @@ interface Ladder {
   defaultStart: string;
 }
 const privacyLevels = [
-  ['local', '💻 Local'],
-  ['hai', '🏢 HAI'],
-  ['eu-provider', '🇪🇺 DE/EU provider'],
-  ['region', '🇪🇺 DE/EU hosting'],
-  ['cloud', '🌐 World'],
+  ['local', 'Local'],
+  ['hai', 'HybridAI'],
+  ['eu-provider', 'DE/EU provider'],
+  ['region', 'DE/EU hosting'],
+  ['cloud', 'World'],
 ] as const;
 const modes = ['auto', 'privacy', 'speed', 'cost'] as const;
 function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
@@ -237,6 +238,25 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     );
   };
   const selectableModels = models.filter((model) => isAllowed(model.id));
+  const topPrivacyModels = (zone: Ladder['maximumZone']) => {
+    const available = models.filter(
+      (model) =>
+        (model.zone ?? 'cloud') === zone &&
+        !(model.backend && model.discovered === false),
+    );
+    // Operator capability order is the ranking source; no invented benchmark scores.
+    const preferred = [...(value?.tiers ?? [])]
+      .reverse()
+      .flatMap((tier) => tier.models);
+    const rank = (id: string) => {
+      const index = preferred.indexOf(id);
+      return index < 0 ? Infinity : index;
+    };
+    return [...available]
+      .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id))
+      .slice(0, 3);
+  };
+
   const names =
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
   const error =
@@ -335,6 +355,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 <span className={styles.privacyHeading}>
                   Privacy limit{' '}
                   <strong>
+                    <PrivacyLevelIcon zone={value.maximumZone} />
                     {
                       privacyLevels.find(
                         ([zone]) => zone === value.maximumZone,
@@ -377,10 +398,30 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     });
                   }}
                 />
-                <span className={styles.privacyStops} aria-hidden="true">
+                <span className={styles.privacyStops}>
                   {privacyLevels.map(([zone, label]) => (
-                    <span key={zone} data-selected={zone === value.maximumZone}>
-                      {label}
+                    <span
+                      key={zone}
+                      data-selected={zone === value.maximumZone}
+                      tabIndex={0}
+                      aria-describedby={`privacy-models-${zone}`}
+                    >
+                      <PrivacyLevelIcon zone={zone} />
+                      <span>{label}</span>
+                      <span
+                        className={styles.privacyTooltip}
+                        role="tooltip"
+                        id={`privacy-models-${zone}`}
+                      >
+                        <strong>{label} · Available models</strong>
+                        {topPrivacyModels(zone).length ? (
+                          topPrivacyModels(zone).map((model) => (
+                            <span key={model.id}>{model.id}</span>
+                          ))
+                        ) : (
+                          <span>No models available</span>
+                        )}
+                      </span>
                     </span>
                   ))}
                 </span>
@@ -606,7 +647,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                               {item.id} ·{' '}
                               {privacyLevels.find(
                                 ([zone]) => zone === item.zone,
-                              )?.[1] ?? '🌐 World'}
+                              )?.[1] ?? 'World'}
                             </option>
                           ))}
                         </NativeSelect>

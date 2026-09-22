@@ -434,3 +434,19 @@ it('never copies the next tier into generated mode backups', async () => {
     expect(screen.queryByLabelText('Tier 1 model 2')).toBeNull();
   }
 });
+
+it('privacy previews show three catalog models in capability order and exclude undiscovered local models', async () => {
+  const catalog = [
+    {id:'basic',zone:'hai'}, {id:'general',zone:'hai'}, {id:'advanced',zone:'hai'}, {id:'extra',zone:'hai'},
+    {id:'offline',zone:'local',backend:'ollama',discovered:false},
+  ] as ChatModel[];
+  mocks.fetch.mockResolvedValue({config:{routing:{...routing,defaultStart:'basic',tiers:[
+    {name:'basic',models:['basic']},{name:'general',models:['general']},{name:'advanced',models:['advanced']},
+  ]}}});
+  renderWithProviders(<RoutingConfiguration models={catalog} />);
+  await screen.findByLabelText('Tier 1 name');
+  const preview = document.getElementById('privacy-models-hai');
+  expect(preview?.textContent).toContain('HybridAI');
+  expect([...preview!.querySelectorAll(':scope > span')].map(item => item.textContent)).toEqual(['advanced','general','basic']);
+  expect(document.getElementById('privacy-models-local')?.textContent).toContain('No models available');
+});
