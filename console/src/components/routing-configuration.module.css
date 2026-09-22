@@ -114,7 +114,11 @@
   }
 }
 
+.policyField {
+  align-content: start;
+}
 .privacyHeading {
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -178,7 +182,7 @@
 }
 .privacyStops > span {
   position: relative;
-  cursor: help;
+
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -219,7 +223,7 @@
   margin-bottom: 2px;
 }
 .privacyStops > span:hover .privacyTooltip,
-.privacyStops > span:focus .privacyTooltip {
+.privacyStops > span:focus-within .privacyTooltip {
   display: grid;
 }
 .privacyStops > span:first-child .privacyTooltip {
@@ -230,4 +234,26 @@
   left: auto;
   right: 0;
   transform: none;
+}
+
+.privacyStopButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.privacyStopButton:hover {
+  background: var(--muted);
+}
+.privacyStopButton:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }

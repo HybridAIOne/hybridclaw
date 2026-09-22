@@ -237,6 +237,21 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       privacyLevels.findIndex(([key]) => key === maximumZone)
     );
   };
+  function selectPrivacy(maximumZone: Ladder['maximumZone']) {
+    if (!value) return;
+    edit({
+      ...value,
+      maximumZone,
+      concierge: {
+        model: isAllowed(value.concierge.model, maximumZone)
+          ? value.concierge.model
+          : '',
+        comparisonModel: isAllowed(value.concierge.comparisonModel, maximumZone)
+          ? value.concierge.comparisonModel
+          : '',
+      },
+    });
+  }
   const selectableModels = models.filter((model) => isAllowed(model.id));
   const topPrivacyModels = (zone: Ladder['maximumZone']) => {
     const available = models.filter(
@@ -319,8 +334,8 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               Automatic model routing
             </label>
             <div className="two-column-grid">
-              <label className={styles.field}>
-                Mode
+              <label className={`${styles.field} ${styles.policyField}`}>
+                <span className={styles.privacyHeading}>Mode</span>
                 <NativeSelect
                   value={value.mode}
                   onChange={(event) =>
@@ -351,9 +366,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   <option value="cost">Cost</option>
                 </NativeSelect>
               </label>
-              <label className={styles.field}>
+              <div className={`${styles.field} ${styles.policyField}`}>
                 <span className={styles.privacyHeading}>
-                  Privacy limit{' '}
+                  Privacy{' '}
                   <strong>
                     <PrivacyLevelIcon zone={value.maximumZone} />
                     {
@@ -365,7 +380,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 </span>
                 <input
                   type="range"
-                  aria-label="Privacy limit"
+                  aria-label="Privacy"
                   aria-valuetext={
                     privacyLevels.find(
                       ([zone]) => zone === value.maximumZone,
@@ -378,36 +393,24 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   value={privacyLevels.findIndex(
                     ([zone]) => zone === value.maximumZone,
                   )}
-                  onChange={(event) => {
-                    const maximumZone =
-                      privacyLevels[Number(event.target.value)][0];
-                    edit({
-                      ...value,
-                      maximumZone,
-                      concierge: {
-                        model: isAllowed(value.concierge.model, maximumZone)
-                          ? value.concierge.model
-                          : '',
-                        comparisonModel: isAllowed(
-                          value.concierge.comparisonModel,
-                          maximumZone,
-                        )
-                          ? value.concierge.comparisonModel
-                          : '',
-                      },
-                    });
-                  }}
+                  onChange={(event) =>
+                    selectPrivacy(privacyLevels[Number(event.target.value)][0])
+                  }
                 />
                 <span className={styles.privacyStops}>
                   {privacyLevels.map(([zone, label]) => (
-                    <span
-                      key={zone}
-                      data-selected={zone === value.maximumZone}
-                      tabIndex={0}
-                      aria-describedby={`privacy-models-${zone}`}
-                    >
-                      <PrivacyLevelIcon zone={zone} />
-                      <span>{label}</span>
+                    <span key={zone} data-selected={zone === value.maximumZone}>
+                      <button
+                        type="button"
+                        className={styles.privacyStopButton}
+                        aria-label={label}
+                        aria-pressed={zone === value.maximumZone}
+                        aria-describedby={`privacy-models-${zone}`}
+                        onClick={() => selectPrivacy(zone)}
+                      >
+                        <PrivacyLevelIcon zone={zone} />
+                        <span>{label}</span>
+                      </button>
                       <span
                         className={styles.privacyTooltip}
                         role="tooltip"
@@ -425,7 +428,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     </span>
                   ))}
                 </span>
-              </label>
+              </div>
               {(['model', 'comparisonModel'] as const).map((field) => (
                 <label key={field} className={styles.field}>
                   {field === 'model'

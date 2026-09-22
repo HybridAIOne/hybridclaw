@@ -304,7 +304,7 @@ it('removes preference and blocks Privacy when all tier models are remote', asyn
   });
   await renderEditor();
   expect(screen.queryByLabelText('Preference')).toBeNull();
-  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy' }), {
     target: { value: '0' },
   });
   expect(screen.getByRole('alert').textContent).toContain(
@@ -389,7 +389,7 @@ it('prefills Cost and Speed from capable models and restores Auto assignments', 
 
 it('local-only hides cloud selections and choices in every mode, without losing tier assignments', async () => {
   await renderEditor();
-  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy' }), {
     target: { value: '0' },
   });
   for (const mode of ['auto', 'privacy', 'speed', 'cost']) {
@@ -411,7 +411,7 @@ it('local-only hides cloud selections and choices in every mode, without losing 
         .hasAttribute('disabled'),
     ).toBe(true);
   }
-  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy' }), {
     target: { value: '4' },
   });
   expect(
@@ -437,16 +437,51 @@ it('never copies the next tier into generated mode backups', async () => {
 
 it('privacy previews show three catalog models in capability order and exclude undiscovered local models', async () => {
   const catalog = [
-    {id:'basic',zone:'hai'}, {id:'general',zone:'hai'}, {id:'advanced',zone:'hai'}, {id:'extra',zone:'hai'},
-    {id:'offline',zone:'local',backend:'ollama',discovered:false},
+    { id: 'basic', zone: 'hai' },
+    { id: 'general', zone: 'hai' },
+    { id: 'advanced', zone: 'hai' },
+    { id: 'extra', zone: 'hai' },
+    { id: 'offline', zone: 'local', backend: 'ollama', discovered: false },
   ] as ChatModel[];
-  mocks.fetch.mockResolvedValue({config:{routing:{...routing,defaultStart:'basic',tiers:[
-    {name:'basic',models:['basic']},{name:'general',models:['general']},{name:'advanced',models:['advanced']},
-  ]}}});
+  mocks.fetch.mockResolvedValue({
+    config: {
+      routing: {
+        ...routing,
+        defaultStart: 'basic',
+        tiers: [
+          { name: 'basic', models: ['basic'] },
+          { name: 'general', models: ['general'] },
+          { name: 'advanced', models: ['advanced'] },
+        ],
+      },
+    },
+  });
   renderWithProviders(<RoutingConfiguration models={catalog} />);
   await screen.findByLabelText('Tier 1 name');
   const preview = document.getElementById('privacy-models-hai');
   expect(preview?.textContent).toContain('HybridAI');
-  expect([...preview!.querySelectorAll(':scope > span')].map(item => item.textContent)).toEqual(['advanced','general','basic']);
-  expect(document.getElementById('privacy-models-local')?.textContent).toContain('No models available');
+  expect(
+    [...preview!.querySelectorAll(':scope > span')].map(
+      (item) => item.textContent,
+    ),
+  ).toEqual(['advanced', 'general', 'basic']);
+  expect(
+    document.getElementById('privacy-models-local')?.textContent,
+  ).toContain('No models available');
+});
+
+it('clicking privacy labels and icons selects the matching slider stop', async () => {
+  await renderEditor();
+  const slider = screen.getByRole('slider', { name: 'Privacy' });
+  fireEvent.click(screen.getByRole('button', { name: 'HybridAI' }));
+  expect((slider as HTMLInputElement).value).toBe('1');
+  expect(
+    screen
+      .getByRole('button', { name: 'HybridAI' })
+      .getAttribute('aria-pressed'),
+  ).toBe('true');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'World' }).querySelector('svg')!,
+  );
+  expect((slider as HTMLInputElement).value).toBe('4');
 });
