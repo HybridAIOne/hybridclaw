@@ -53,7 +53,7 @@ is Gemma 4 **26B**, not E4B, so the existing E4B endpoint is retained.
 | Band | Models | Rationale |
 | --- | --- | --- |
 | Basic | Gemma 4 E4B | Simple short writing, extraction and everyday prompts; lowest benchmark capability here. |
-| Economy | Qwen 3.6 27B | A distinct open-weight capability step above E4B. Its two serving endpoints are genuine same-model alternatives. |
+| Economy | Qwen 3.6 27B | A distinct open-weight capability step above E4B. Use the configured haigpu1 endpoint once; the HybridAI endpoint is the same model, not a separate model backup. |
 | General | Luna, Sonnet 5, Terra | General writing, coding, research and analysis; 37–42 at tested max effort. |
 | Advanced | Sol, Opus 5 | Complex analysis and difficult coding; 47–51 at tested max effort. |
 | Advanced, pending availability | Astra, Fable 5.1 | 53 at tested settings; do not add until the exact endpoint IDs are verified. |
