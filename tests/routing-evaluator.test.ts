@@ -58,6 +58,7 @@ describe('typed evaluator', () => {
     expect(transport).toHaveBeenCalledWith('https://api.typesafe.ai/v1/systemone', expect.objectContaining({ redirect: 'error' }));
     const sent = JSON.parse(String(transport.mock.calls[0][1]?.body));
     expect(sent.state).toBe('Example');
+    expect(sent.questions).not.toHaveProperty('task');
     expect(Object.keys(sent.questions)).toEqual(Object.keys(EVALUATION_LABELS));
   });
   test.each(['missing','extra','sum','negative','nan','choice','usage'])('rejects malformed %s response', mode => {
@@ -77,11 +78,11 @@ describe('typed evaluator', () => {
   });
 });
 
-test.each(['pii', 'confidentiality', 'capability', 'task', 'urgency'])('confidence gating uses routing-relevant dimensions: %s', async dimension => {
+test.each(['pii', 'confidentiality', 'capability', 'urgency'])('confidence gating uses routing-relevant dimensions: %s', async dimension => {
   const raw = response();
   raw.answers[dimension].confidence = 0.2;
   const result = await evaluateRouting({ text: 'Explain photosynthesis', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(raw) } });
-  expect(result.recommendedTier).toBe(['task', 'urgency'].includes(dimension) ? 'one' : null);
+  expect(result.recommendedTier).toBe(dimension === 'urgency' ? 'one' : null);
 });
 
 test('provider HTTP failures expose a status code without provider bodies', async () => {

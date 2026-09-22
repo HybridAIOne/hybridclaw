@@ -182,3 +182,44 @@ it('shows the live and shadow decisions with separate classifier costs', () => {
     screen.getByText('JEV shadow · advanced · $0.00000420'),
   ).not.toBeNull();
 });
+
+it('keeps probability distributions out of chat and shows relevant privacy restrictions', () => {
+  const score = (choice: string) => ({
+    choice,
+    confidence: 0.92,
+    probabilities: { [choice]: 1 },
+  });
+  render(
+    <RoutingTags
+      trace={{
+        ...trace(),
+        shadowEvaluation: {
+          version: 1,
+          provider: 'jev',
+          mode: 'shadow',
+          status: 'evaluated',
+          model: 'jev-test',
+          reason: 'auto · basic · balanced · local only',
+          recommendedTier: 'economy',
+          selectedModel: 'local-model',
+          applied: false,
+          durationMs: 500,
+          inputTokens: 100,
+          outputTokens: 40,
+          costUsd: 0.0000042,
+          distributions: {
+            pii: score('present'),
+            confidentiality: score('public'),
+            capability: score('basic'),
+            urgency: score('unspecified'),
+          },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText('92% capability confidence')).not.toBeNull();
+  expect(screen.getByText('Privacy: local models only')).not.toBeNull();
+  expect(screen.queryByText('Scores')).toBeNull();
+  expect(screen.queryByText(/Personal data/)).toBeNull();
+  expect(screen.queryByText(/unspecified/)).toBeNull();
+});

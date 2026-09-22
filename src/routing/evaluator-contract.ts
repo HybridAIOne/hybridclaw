@@ -6,7 +6,6 @@
 export const EVALUATION_LABELS = {
   pii: ['absent', 'present', 'uncertain'],
   confidentiality: ['public', 'confidential', 'uncertain'],
-  task: ['conversation', 'writing', 'research', 'coding', 'analysis', 'other'],
   capability: ['basic', 'standard', 'advanced', 'uncertain'],
   urgency: ['urgent', 'normal', 'relaxed', 'unspecified'],
 } as const;
@@ -152,8 +151,5 @@ export function isTypedRoutingEvaluation(
     )
       return false;
   }
-  return (
-    Object.keys(v.distributions).length ===
-    Object.keys(EVALUATION_LABELS).length
-  );
+  return true;
 }

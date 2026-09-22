@@ -61,3 +61,8 @@ chosen classifier with the same tier policy on a public sample. It never execute
 either route or changes live selection. Sample consent is explicit and resets on
 edits. Agreement is not accuracy; calibration and observed latency models remain
 future evaluation work.
+
+Chat shows the tier recommendation and capability confidence, with local-only
+privacy restrictions when applicable. Full probability distributions remain in
+Labs. JEV evaluates personal data, confidentiality, capability and urgency;
+unused task-type classification is not requested.

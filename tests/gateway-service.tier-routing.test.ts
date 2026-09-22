@@ -324,7 +324,7 @@ test('shadow JEV is recorded beside the live rules without changing execution', 
  expect(result.routingTrace?.shadowEvaluation).toMatchObject({provider:'jev',recommendedTier:'general',costUsd:0.00001,applied:false});
 });
 function signals(capability: string) {
- return Object.fromEntries(Object.entries({pii:'absent',confidentiality:'public',task:'conversation',capability,urgency:'unspecified'}).map(([key,choice])=>[key,{choice,confidence:1,probabilities:Object.fromEntries(EVALUATION_LABELS[key as keyof typeof EVALUATION_LABELS].map(label=>[label,label===choice?1:0]))}]));
+ return Object.fromEntries(Object.entries({pii:'absent',confidentiality:'public',capability,urgency:'unspecified'}).map(([key,choice])=>[key,{choice,confidence:1,probabilities:Object.fromEntries(EVALUATION_LABELS[key as keyof typeof EVALUATION_LABELS].map(label=>[label,label===choice?1:0]))}]));
 }
 
 test('JEV concierge chooses tiers with evaluator off and preserves successive escalation and pins', async () => {

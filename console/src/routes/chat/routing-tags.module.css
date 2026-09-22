@@ -190,16 +190,3 @@
   color: var(--muted-foreground);
   font-size: 11px;
 }
-
-.scores {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-.scores summary {
-  cursor: pointer;
-}
-.scores > div {
-  margin-top: 8px;
-  min-width: 200px;
-}

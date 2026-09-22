@@ -94,26 +94,15 @@ function RoutingDecisionRow({
           </>
         )}
         {value.distributions ? (
-          <details className={css.scores}>
-            <summary>Scores</summary>
-            {Object.entries(value.distributions).map(([dimension, score]) => (
-              <div key={dimension}>
-                <strong>
-                  {dimension === 'pii' ? 'Personal data' : dimension}
-                </strong>{' '}
-                · {score.choice} · {(score.confidence * 100).toFixed(0)}%
-                confidence
-                <small>
-                  {Object.entries(score.probabilities)
-                    .map(
-                      ([label, probability]) =>
-                        `${label} ${(probability * 100).toFixed(1)}%`,
-                    )
-                    .join(' · ')}
-                </small>
-              </div>
-            ))}
-          </details>
+          <small title="Confidence in the capability classification, not a calibrated probability that the selected tier is optimal.">
+            {Math.round(value.distributions.capability.confidence * 100)}%
+            capability confidence
+          </small>
+        ) : null}
+        {value.reason.includes('local only') ||
+        value.reason === 'local-only-classification' ||
+        value.reason === 'sensitive-or-uncertain' ? (
+          <small>Privacy: local models only</small>
         ) : null}
       </td>
       <td className={css.numeric}>
