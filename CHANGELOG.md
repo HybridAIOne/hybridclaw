@@ -8,6 +8,10 @@
   an enabled voice channel, and Reload Gateway retries a stopped channel without
   requiring an off/on toggle. Routine secret refreshes and token rotations keep
   healthy calls running.
+- **Admin console shows daily memory notes**: The Agent Files page lists
+  `memory/YYYY-MM-DD.md` notes written by the container `memory` tool as
+  read-only files, so operators can review persisted memory instead of only
+  the workspace bootstrap files.
 - **Cron tasks can be updated in place**: the `cron` tool gains an `update`
   action that patches an existing task's schedule, channel, or prompt by
   taskId, so schedule changes no longer leave duplicate tasks behind.

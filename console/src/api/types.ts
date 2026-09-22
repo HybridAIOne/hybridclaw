@@ -1193,6 +1193,7 @@ export interface AdminAgentMarkdownFile {
   path: string;
   scope?: 'agent' | 'installation' | 'company';
   cloudPath?: string;
+  kind?: 'daily-memory' | 'shared-memory';
   readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;

@@ -291,6 +291,7 @@ describe('AgentFilesPage', () => {
           path: 'cloud-memory://installation/MEMORY.md',
           scope: 'installation',
           cloudPath: '/MEMORY.md',
+          kind: 'shared-memory',
           readOnly: true,
           exists: true,
           updatedAt: null,
@@ -302,6 +303,7 @@ describe('AgentFilesPage', () => {
           path: 'cloud-memory://company/MEMORY.md',
           scope: 'company',
           cloudPath: '/MEMORY.md',
+          kind: 'shared-memory',
           readOnly: true,
           exists: true,
           updatedAt: null,
@@ -360,6 +362,99 @@ describe('AgentFilesPage', () => {
     expect(fetchAdminAgentMarkdownFileMock).toHaveBeenCalledWith('test-token', {
       agentId: 'main',
       fileName: 'Organization Memory.md',
+    });
+  });
+
+  it('shows daily memory notes as read-only agent files', async () => {
+    const agent = makeAgent({
+      markdownFiles: [
+        {
+          name: 'AGENTS.md',
+          path: '/tmp/main/workspace/AGENTS.md',
+          exists: true,
+          updatedAt: '2026-04-13T10:00:00.000Z',
+          sizeBytes: 120,
+        },
+        {
+          name: 'memory/2026-04-13.md',
+          displayName: '2026-04-13',
+          path: '/tmp/main/workspace/memory/2026-04-13.md',
+          scope: 'agent',
+          kind: 'daily-memory',
+          readOnly: true,
+          exists: true,
+          updatedAt: null,
+          sizeBytes: null,
+        },
+      ],
+    });
+    const dailyMemoryFile = agent.markdownFiles.find(
+      (file) => file.name === 'memory/2026-04-13.md',
+    );
+    if (!dailyMemoryFile) {
+      throw new Error('Expected daily memory test file.');
+    }
+    fetchAdminAgentsMock.mockResolvedValue([agent]);
+    fetchAdminAgentMarkdownFileMock.mockImplementation(
+      async (_token, params) =>
+        params.fileName === 'memory/2026-04-13.md'
+          ? {
+              agent,
+              file: {
+                ...dailyMemoryFile,
+                updatedAt: '2026-04-13T11:00:00.000Z',
+                sizeBytes: 40,
+                content: '# 2026-04-13 daily note',
+                revisions: [],
+              },
+            }
+          : makeDocument(agent, params.fileName, '# Main Rules'),
+    );
+
+    renderPage();
+
+    await screen.findByDisplayValue('# Main Rules');
+    const group = document.querySelector('optgroup[label="Daily memory"]');
+    expect(group).not.toBeNull();
+    expect(group?.textContent).toContain('2026-04-13');
+    expect(
+      document.querySelector('optgroup[label="Shared memory"]'),
+    ).toBeNull();
+    fireEvent.change(screen.getByLabelText('Markdown file'), {
+      target: { value: 'memory/2026-04-13.md' },
+    });
+
+    const editor = (await screen.findByDisplayValue(
+      '# 2026-04-13 daily note',
+    )) as HTMLTextAreaElement;
+    expect(editor.readOnly).toBe(true);
+    expect(
+      screen.getByText(
+        'Read-only daily memory note written by the agent memory tool.',
+      ),
+    ).not.toBeNull();
+    expect(
+      screen.getByText(
+        'Daily memory notes are read-only and do not have local revisions.',
+      ),
+    ).not.toBeNull();
+    expect(
+      screen.getByText((text) =>
+        text.includes(
+          '/tmp/main/workspace/memory/2026-04-13.md · read-only daily memory note',
+        ),
+      ),
+    ).not.toBeNull();
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save Markdown',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(fetchAdminAgentMarkdownFileMock).toHaveBeenCalledWith('test-token', {
+      agentId: 'main',
+      fileName: 'memory/2026-04-13.md',
     });
   });
 
