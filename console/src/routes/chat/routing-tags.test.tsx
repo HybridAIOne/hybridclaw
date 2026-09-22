@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type {
   RoutingTrace,
@@ -114,12 +114,11 @@ it.each([true, false])(
         }}
       />,
     );
-    expect(
-      screen.getByText(
-        `jev-test · ${applied ? 'Selected' : 'Suggested'} advanced · Cost unavailable`,
-      ),
-    ).not.toBeNull();
-    expect(screen.getByText('Concierge')).not.toBeNull();
+    const summary = screen.getByLabelText('Routing and usage details');
+    expect(summary.textContent).toContain(
+      applied ? 'jev-test → advanced' : 'Fallback → economy',
+    );
+    expect(summary.textContent).not.toContain('Cost');
   },
 );
 
@@ -175,11 +174,14 @@ it('shows the live and shadow decisions with separate classifier costs', () => {
       }}
     />,
   );
+  const summary = screen.getByLabelText('Routing and usage details');
+  expect(summary.textContent).toContain('Rules → economy');
+  expect(summary.textContent).not.toContain('JEV');
+  expect(summary.textContent).not.toContain('$');
   expect(
-    screen.getByText('Rules · Selected economy · $0.00000000'),
-  ).not.toBeNull();
-  expect(
-    screen.getByText('JEV shadow · advanced · $0.00000420'),
+    within(
+      screen.getByRole('table', { name: 'Routing decisions', hidden: true }),
+    ).getByText('jev-test'),
   ).not.toBeNull();
 });
 

@@ -34,19 +34,6 @@ function count(value: number | null): string {
   return value === null ? 'Unavailable' : value.toLocaleString();
 }
 
-const MODE_LABELS = {
-  direct: 'Direct',
-  concierge: 'Concierge',
-  tiered: 'Tiered',
-};
-const MODE_DESCRIPTIONS = {
-  direct:
-    'Used the selected model directly, without concierge or tier-based selection.',
-  concierge:
-    'The concierge evaluated this request; expand to inspect its decision and execution.',
-  tiered:
-    'Selected through the configured routing tiers; expand to inspect each attempt.',
-};
 const ZONE_LABELS: Record<string, string> = {
   local: 'Local',
   hai: 'HybridAI',
@@ -156,74 +143,60 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
   return (
     <details className={css.root}>
       <summary className={css.tags} aria-label="Routing and usage details">
-        <span className={css.tag} title={MODE_DESCRIPTIONS[trace.mode]}>
-          {running && !execution.length ? 'Routing' : MODE_LABELS[trace.mode]}
-        </span>
-        {trace.evaluation ? (
-          <span
-            className={css.tag}
-            title={`${trace.evaluation.model}: ${trace.evaluation.reason.replaceAll('-', ' ')}`}
+        <span
+          className={css.model}
+          data-zone={selected?.zone}
+          title={trace.evaluation?.model}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            {trace.evaluation.provider === 'rules'
-              ? 'Rules'
-              : trace.evaluation.model}{' '}
-            ·{' '}
-            {trace.evaluation.applied
-              ? `Selected ${trace.evaluation.recommendedTier}`
-              : trace.evaluation.recommendedTier
-                ? `Suggested ${trace.evaluation.recommendedTier}`
-                : trace.evaluation.reason.replaceAll('-', ' ')}
-            {trace.evaluation.costUsd !== null
-              ? ` · $${trace.evaluation.costUsd.toFixed(8)}`
-              : ' · Cost unavailable'}
-          </span>
-        ) : null}
-        {trace.shadowEvaluation ? (
-          <span className={css.tag} title={trace.shadowEvaluation.reason}>
-            JEV shadow ·{' '}
-            {trace.shadowEvaluation.recommendedTier ??
-              trace.shadowEvaluation.reason.replaceAll('-', ' ')}{' '}
-            ·{' '}
-            {trace.shadowEvaluation.costUsd === null
-              ? 'Cost unavailable'
-              : `$${trace.shadowEvaluation.costUsd.toFixed(8)}`}
-          </span>
-        ) : null}
-        {selected ? (
-          <span className={css.model} data-zone={selected.zone}>
-            <span className={css.routeDot} aria-hidden="true" />
-            {ZONE_LABELS[selected.zone] ?? selected.zone} · {selected.model}
-          </span>
-        ) : null}
-        {running ? (
-          <span className={css.running}>
-            Running · attempt {trace.attempts.length}
-          </span>
-        ) : (
-          <>
-            <span className={css.tag}>
-              {tokensKnown
-                ? `${tokensEstimated ? '≈ ' : ''}${totalTokens.toLocaleString()} tokens`
-                : 'Tokens unavailable'}
-            </span>
-            <span className={css.tag}>{costLabel(trace.attempts)}</span>
-            {execution.length > 1 ? (
-              <span className={css.tag} data-tone="retry">
-                {execution.length} attempts
-              </span>
-            ) : null}
-            {trace.status === 'error' ? (
-              <span className={css.tag} data-tone="error">
-                Failed
-              </span>
-            ) : null}
-          </>
-        )}
+            <path d="M4 12h7m0 0 5-6h4m-9 6 5 6h4M17 3l3 3-3 3m0 6 3 3-3 3" />
+          </svg>
+          {trace.evaluation?.applied
+            ? `${trace.evaluation.provider === 'rules' ? 'Rules' : trace.evaluation.model.split('/').at(-1)} → ${trace.evaluation.recommendedTier ?? selected?.tier ?? 'Selected model'}`
+            : trace.evaluation
+              ? `Fallback → ${selected?.tier ?? selected?.model ?? 'Pending'}`
+              : running && !execution.length
+                ? 'Routing…'
+                : `${trace.mode === 'direct' ? 'Direct' : 'Configured tiers'} → ${selected?.tier ?? selected?.model ?? 'Pending'}`}
+        </span>
         <span className={css.chevron} aria-hidden="true">
           ⌄
         </span>
       </summary>
       <div className={css.panel}>
+        <p className={css.caption}>
+          {running ? (
+            `Running · attempt ${trace.attempts.length}`
+          ) : (
+            <>
+              <span>
+                {tokensKnown
+                  ? `${tokensEstimated ? '≈ ' : ''}${totalTokens.toLocaleString()} tokens`
+                  : 'Tokens unavailable'}
+              </span>
+              {' · '}
+              <span>{costLabel(trace.attempts)}</span>
+              {execution.length > 1 ? (
+                <>
+                  {' '}
+                  · <span>{execution.length} attempts</span>
+                </>
+              ) : null}
+              {trace.status === 'error' ? ' · Failed' : null}
+            </>
+          )}
+        </p>
+
         {trace.evaluation || trace.shadowEvaluation ? (
           <div className={css.tableWrap}>
             <table className={css.decisions} aria-label="Routing decisions">
