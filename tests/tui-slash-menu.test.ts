@@ -113,12 +113,13 @@ test('ranks goal entries for goal slash menu queries', () => {
   );
 });
 
-test('does not duplicate concierge slash menu entries', () => {
+test('only exposes concierge info in the slash menu', () => {
   const labels = buildTuiSlashMenuEntries().map((entry) => entry.label);
 
-  expect(labels.filter((label) => label === '/concierge info')).toHaveLength(1);
-  expect(labels.filter((label) => label === '/concierge on')).toHaveLength(1);
-  expect(labels.filter((label) => label === '/concierge off')).toHaveLength(1);
+  expect(labels.filter((label) => label.startsWith('/concierge'))).toEqual([
+    '/concierge <info>',
+    '/concierge info',
+  ]);
 });
 
 test('does not duplicate slash menu rows that resolve to the same command text', () => {
