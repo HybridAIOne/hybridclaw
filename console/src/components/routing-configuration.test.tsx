@@ -273,3 +273,32 @@ it('shows JEV as disabled and comparison unset without a key', async () => {
       .every((option) => option.hasAttribute('disabled')),
   ).toBe(true);
 });
+
+it('removes preference and blocks Privacy when all tier models are remote', async () => {
+  mocks.fetch.mockResolvedValue({
+    config: {
+      routing: {
+        ...routing,
+        tiers: [{ name: 'Cloud', models: ['cloud-model'] }],
+        defaultStart: 'Cloud',
+      },
+    },
+  });
+  await renderEditor();
+  expect(screen.queryByLabelText('Preference')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'privacy' },
+  });
+  expect(screen.getByRole('alert').textContent).toContain(
+    'Configure a local model first',
+  );
+  expect(
+    screen
+      .getByRole('button', { name: 'Save routing' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText('Tier 1 model 1'), {
+    target: { value: 'local-model' },
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+});

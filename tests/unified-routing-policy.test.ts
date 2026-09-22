@@ -14,10 +14,7 @@ describe('unified routing policy', () => {
     expect(route({ mode: 'cost' }).ladder.startTier).toBe('medium');
     expect(route({ mode: 'cost' }, { ...UNKNOWN_SIGNALS, tier: 'large' }).ladder.startTier).toBe('large');
   });
-  test('auto uses configured preferences', () => {
- expect(route({mode:'auto',preference:'asap'}).ladder.startTier).toBe('small');
- expect(route({mode:'auto',preference:'no_hurry'}).ladder.startTier).toBe('medium');
- });
+  test('auto balances rank and cost', () => {expect(route({mode:'auto'}).ladder.startTier).toBe('medium');});
   test.each(['privacy','speed','cost','auto'])('%s cannot route sensitive input or fallbacks to cloud', mode => {
     const result = route({ mode }, UNKNOWN_SIGNALS, {localOnly: true});
     expect(result.ladder.tiers.flatMap(tier => tier.models).every(model => model.startsWith('local'))).toBe(true);

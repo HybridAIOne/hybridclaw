@@ -47,7 +47,6 @@ export function selectRoutingPolicy(input: {
         reason: 'no-eligible-models' as const,
         exhausted: true,
       },
-      preference: config.preference,
       privateRoute: input.localOnly || config.mode === 'privacy',
       reason: 'no-eligible-models',
     };
@@ -68,7 +67,6 @@ export function selectRoutingPolicy(input: {
     tierIndex < 0 ? defaultIndex : tierIndex,
     config.tiers.findIndex((tier) => tier.name === input.minimumTier),
   );
-  const preference = config.preference;
   const candidates = config.tiers.flatMap((tier, index) =>
     index < floor
       ? []
@@ -94,16 +92,8 @@ export function selectRoutingPolicy(input: {
   const cheapest = [...priced].sort(
     (a, b) => a.cost! - b.cost! || a.index - b.index || a.order - b.order,
   )[0];
-  if (
-    config.mode === 'cost' ||
-    (config.mode === 'auto' && preference === 'no_hurry')
-  )
-    selected = cheapest ?? selected;
-  else if (
-    config.mode === 'auto' &&
-    preference === 'balanced' &&
-    priced.length
-  ) {
+  if (config.mode === 'cost') selected = cheapest ?? selected;
+  else if (config.mode === 'auto' && priced.length) {
     // Pareto filter on configured speed rank and known token price; unknown is not free.
     const frontier = priced.filter(
       (candidate) =>
@@ -140,8 +130,7 @@ export function selectRoutingPolicy(input: {
   }
   return {
     ladder,
-    preference,
     privateRoute,
-    reason: `${config.mode} · ${signals.tier ?? config.defaultStart} · ${preference}${privateRoute ? ' · local only' : ''}${config.mode === 'cost' && !cheapest ? ' · price unavailable' : ''}`,
+    reason: `${config.mode} · ${signals.tier ?? config.defaultStart}${privateRoute ? ' · local only' : ''}${config.mode === 'cost' && !cheapest ? ' · price unavailable' : ''}`,
   };
 }

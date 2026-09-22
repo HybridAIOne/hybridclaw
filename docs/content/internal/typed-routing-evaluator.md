@@ -1,13 +1,13 @@
 # Unified routing and JEV evaluation
 
 **Models → Routing** (`/admin/model-routing`) owns one enable switch,
-one tier ladder, classifier selection, routing mode, urgency preference, shadow
+one tier ladder, classifier selection, routing mode, shadow
 comparison and chat visibility. Save routing applies them together. Model assignments
-exist only in tiers; ASAP, Balanced and No hurry are preferences.
+exist only in tiers. Privacy cannot be saved without a configured local tier model.
 
 Both classifiers choose the lowest configured tier capable of completing the task.
 They receive the same ordered tier names and descriptions. The recommended tier
-is the minimum; configured mode/preferences, privacy eligibility, manual escalation
+is the minimum; configured mode, privacy eligibility, manual escalation
 and sticky tiers determine execution. Invalid or low-confidence decisions use the
 configured default. Explicit model pins skip classification but cannot bypass
 local-only restrictions.
@@ -18,8 +18,7 @@ local-only restrictions.
   Unknown prices are never treated as zero; this is a rate comparison, not a
   prediction of task token counts.
 - Auto uses a Pareto frontier of configured speed order and known token rate.
-  ASAP prioritizes order, No hurry prioritizes price, and Balanced minimizes equal
-  normalized rank/cost scores. Tier order is a speed proxy, not measured latency.
+  It minimizes equal normalized rank/cost scores. Tier order is a speed proxy, not measured latency.
 
 The concierge can be rule-based (no classifier cost), JEV, or a catalog model.
 Both AI classifiers answer only the tier question. Text classifiers return one

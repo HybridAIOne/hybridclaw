@@ -165,8 +165,25 @@ test('evaluator defaults off and preserves explicit shadow settings', async () =
 
 test('unified mode and preferences validate and discard profile model assignments', async () => {
  const { getRuntimeConfig, updateRuntimeConfig } = await loadConfigModule();
- updateRuntimeConfig(draft => { draft.routing.mode='cost';draft.routing.preference='no_hurry';draft.routing.concierge={model:'jev/jev-latest'};});
- expect(getRuntimeConfig().routing).toMatchObject({mode:'cost',preference:'no_hurry',concierge:{model:'jev/jev-latest'}});
+ updateRuntimeConfig(draft => { draft.routing.mode='cost';Object.assign(draft.routing,{preference:'no_hurry'});draft.routing.concierge={model:'jev/jev-latest'};});
+ expect(getRuntimeConfig().routing).toMatchObject({mode:'cost',concierge:{model:'jev/jev-latest'}});
+ expect(getRuntimeConfig().routing).not.toHaveProperty('preference');
  expect(getRuntimeConfig().routing.concierge).not.toHaveProperty('profiles');
  expect(() => updateRuntimeConfig(draft => { Object.assign(draft.routing,{mode:'arbitrary'}); })).toThrow('Invalid routing option');
+});
+
+test('rejects saving Privacy without a local tier model and preserves saved config', async () => {
+ const mod=await loadConfigModule();
+ const before=mod.getRuntimeConfig();
+ const draft=structuredClone(before);
+ draft.routing.mode='privacy';
+ draft.routing.tiers=[];
+ expect(()=>mod.saveRuntimeConfig(draft)).toThrow('Configure a local model first');
+ expect(mod.getRuntimeConfig().routing.mode).toBe(before.routing.mode);
+ draft.local.backends.ollama.enabled=true;
+ draft.routing.tiers=[{name:'local',models:['ollama/test-model']}];
+ draft.routing.defaultStart='local';
+ expect(mod.saveRuntimeConfig(draft).routing.mode).toBe('privacy');
+ draft.local.backends.ollama.enabled=false;
+ expect(()=>mod.saveRuntimeConfig(draft)).toThrow('Configure a local model first');
 });

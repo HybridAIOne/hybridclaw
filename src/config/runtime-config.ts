@@ -538,7 +538,6 @@ export interface RuntimeRoutingConfig extends ModelRoutingConfig {
   evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
-  preference: 'asap' | 'balanced' | 'no_hurry';
   concierge: RuntimeRoutingConciergeConfig;
 }
 
@@ -2173,7 +2172,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultStart: '',
     escalationStickyTurns: 3,
     mode: 'auto',
-    preference: 'balanced',
     concierge: { model: '', comparisonModel: 'jev/jev-latest' },
   },
   heartbeat: {
@@ -8773,11 +8771,6 @@ function normalizeRuntimeConfig(
         ['privacy', 'speed', 'cost', 'auto'] as const,
         'auto',
       ),
-      preference: normalizeRoutingChoice(
-        rawRouting.preference,
-        ['asap', 'balanced', 'no_hurry'] as const,
-        'balanced',
-      ),
       evaluator: normalizeRoutingEvaluator(rawRouting.evaluator),
       showRoutingInfo: normalizeBoolean(
         rawRouting.showRoutingInfo,
@@ -9672,11 +9665,33 @@ export type {
   RuntimeRevisionAssetType,
 };
 
+function validatePrivacyRouting(config: RuntimeConfig): void {
+  if (config.routing.mode !== 'privacy') return;
+  const hasLocal = config.routing.tiers.some((tier) =>
+    tier.models.some((model) => {
+      const prefix = model.split('/')[0];
+      const endpoint = config.local.endpoints.find(
+        (endpoint) => endpoint.name === prefix,
+      );
+      if (endpoint)
+        return endpoint.enabled && (endpoint.zone ?? 'local') === 'local';
+      return (
+        isLocalBackendType(prefix) && config.local.backends[prefix].enabled
+      );
+    }),
+  );
+  if (!hasLocal)
+    throw new Error(
+      'Configure a local model first: Privacy mode requires a local model in the routing tiers.',
+    );
+}
+
 export function saveRuntimeConfig(
   next: RuntimeConfig,
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
+  validatePrivacyRouting(normalized);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
@@ -9715,6 +9730,7 @@ function saveRuntimeConfigSource(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(parseConfigPatch(source));
+  validatePrivacyRouting(normalized);
   const rawContainer = isRecord(source.container) ? source.container : {};
   const sandboxModeExplicit =
     hasOwn(rawContainer, 'sandboxMode') ||

@@ -1,5 +1,5 @@
 /**
- * One editor owns tiers, classifier, policy mode, urgency preference and visibility.
+ * One editor owns tiers, classifier, policy mode, visibility.
  * Saves preserve untouched settings from the latest config; models belong only to tiers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -24,7 +24,6 @@ interface Tier {
 }
 interface Ladder {
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
-  preference: 'asap' | 'balanced' | 'no_hurry';
   concierge: { model: string; comparisonModel: string };
   showRoutingInfo: boolean;
   evaluator: { mode: 'off' | 'shadow' | 'active'; [key: string]: unknown };
@@ -36,9 +35,6 @@ function readLadder(config: AdminConfig): Ladder {
   return {
     enabled: Boolean(settingValue(config, 'routing.enabled')),
     mode: (settingValue(config, 'routing.mode') as Ladder['mode']) ?? 'auto',
-    preference:
-      (settingValue(config, 'routing.preference') as Ladder['preference']) ??
-      'balanced',
     concierge: {
       model: (settingValue(config, 'routing.concierge.model') as string) ?? '',
       comparisonModel:
@@ -95,7 +91,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
         'tiers',
         'defaultStart',
         'mode',
-        'preference',
         'concierge',
         'showRoutingInfo',
         'evaluator',
@@ -165,25 +160,34 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
   const error =
     value &&
-    (value.enabled && !value.tiers.length
-      ? 'Add a tier before enabling automatic routing.'
-      : names.some((name) => !name)
-        ? 'Give every tier a name.'
-        : new Set(names).size !== names.length
-          ? 'Use a different name for each tier.'
-          : value.tiers.some(
-                (tier) =>
-                  tier.models.some((model) => !model) || !tier.models.length,
-              )
-            ? 'Choose a model for every slot.'
+    (value.mode === 'privacy' &&
+    !value.tiers.some((tier) =>
+      tier.models.some((id) =>
+        models.some((model) => model.id === id && model.zone === 'local'),
+      ),
+    )
+      ? 'Configure a local model first.'
+      : value.enabled && !value.tiers.length
+        ? 'Add a tier before enabling automatic routing.'
+        : names.some((name) => !name)
+          ? 'Give every tier a name.'
+          : new Set(names).size !== names.length
+            ? 'Use a different name for each tier.'
             : value.tiers.some(
-                  (tier) => new Set(tier.models).size !== tier.models.length,
+                  (tier) =>
+                    tier.models.some((model) => !model) || !tier.models.length,
                 )
-              ? 'Choose different models within each tier.'
-              : value.tiers.length &&
-                  !value.tiers.some((tier) => tier.name === value.defaultStart)
-                ? 'Choose a starting tier.'
-                : null);
+              ? 'Choose a model for every slot.'
+              : value.tiers.some(
+                    (tier) => new Set(tier.models).size !== tier.models.length,
+                  )
+                ? 'Choose different models within each tier.'
+                : value.tiers.length &&
+                    !value.tiers.some(
+                      (tier) => tier.name === value.defaultStart,
+                    )
+                  ? 'Choose a starting tier.'
+                  : null);
   return (
     <Card id="routing-concierge">
       <CardHeader>
@@ -221,22 +225,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   <option value="privacy">Privacy · local only</option>
                   <option value="speed">Speed</option>
                   <option value="cost">Cost</option>
-                </NativeSelect>
-              </label>
-              <label className={styles.field}>
-                Preference
-                <NativeSelect
-                  value={value.preference}
-                  onChange={(event) =>
-                    edit({
-                      ...value,
-                      preference: event.target.value as Ladder['preference'],
-                    })
-                  }
-                >
-                  <option value="asap">ASAP</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="no_hurry">No hurry</option>
                 </NativeSelect>
               </label>
               {(['model', 'comparisonModel'] as const).map((field) => (

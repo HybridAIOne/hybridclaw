@@ -2254,12 +2254,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'auto',
     },
     {
-      path: 'routing.preference',
-      section: 'routing',
-      kind: 'string',
-      defaultValue: 'balanced',
-    },
-    {
       path: 'routing.showRoutingInfo',
       section: 'routing',
       kind: 'boolean',
