@@ -11,6 +11,37 @@ describe('requestChatStream', () => {
     vi.unstubAllGlobals();
   });
 
+  it('delivers validated routing updates and preserves the final trace', async () => {
+    const trace = {
+      version: 1,
+      mode: 'direct',
+      status: 'running',
+      durationMs: 0,
+      attempts: [],
+    };
+    const finalTrace = { ...trace, status: 'complete', durationMs: 20 };
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        [
+          JSON.stringify({ type: 'routing', trace: { version: 2 } }),
+          JSON.stringify({ type: 'routing', trace }),
+          JSON.stringify({
+            type: 'result',
+            result: { status: 'success', routingTrace: finalTrace },
+          }),
+        ].join('\n'),
+      ),
+    );
+    const onRoutingTrace = vi.fn();
+    const result = await requestChatStream('/api/chat', {
+      token: 'test-token',
+      body: {},
+      callbacks: { onTextDelta: vi.fn(), onApproval: vi.fn(), onRoutingTrace },
+    });
+    expect(onRoutingTrace).toHaveBeenCalledExactlyOnceWith(trace);
+    expect(result.routingTrace).toEqual(finalTrace);
+  });
+
   it('dispatches auth-required and surfaces the parsed error message on 401', async () => {
     const events: CustomEvent[] = [];
     const listener = (event: Event) => {

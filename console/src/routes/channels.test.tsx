@@ -95,6 +95,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       botMessageChannels: [],
       textChunkLimit: 2000,
       maxLinesPerMessage: 17,
+      replyStyle: 'top-level',
       humanDelay: {
         mode: 'natural',
         minMs: 800,

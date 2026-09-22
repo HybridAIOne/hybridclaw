@@ -2104,7 +2104,8 @@ export async function main(
       await handlePluginCommand(subargs);
       break;
     case 'local':
-      printDeprecatedProviderAliasWarning('local', subargs);
+      if (!['setup', 'serve', 'stop', 'benchmark'].includes(subargs[0] || ''))
+        printDeprecatedProviderAliasWarning('local', subargs);
       await handleLocalCommand(subargs);
       break;
     case 'hybridai':

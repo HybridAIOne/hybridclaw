@@ -64,6 +64,7 @@ const LEGACY_WORKSPACE_DIRS = [
   'default',
   'ollama',
   'vllm',
+  'mlx',
   'lmstudio',
   'llamacpp',
   'anthropic',

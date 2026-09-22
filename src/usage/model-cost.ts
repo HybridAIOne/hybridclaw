@@ -3,16 +3,26 @@ import {
   refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { promptTokensIncludeCacheTokens } from './cache-accounting.js';
+
+export { promptTokensIncludeCacheTokens };
 
 interface UsageTokenCounts {
   promptTokens?: unknown;
   completionTokens?: unknown;
+  cacheReadTokens?: unknown;
+  cacheWriteTokens?: unknown;
 }
 
-export interface RoutingCostAttempt {
-  model: string;
+export interface ModelUsageTokenCounts {
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+}
+
+export interface RoutingCostAttempt extends ModelUsageTokenCounts {
+  model: string;
   costUsd?: number;
 }
 
@@ -51,44 +61,70 @@ export function extractExplicitUsageCostUsd(
   ]);
 }
 
-export function estimateModelUsageCostUsd(params: {
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-}): number | null {
+export function explicitUsageCostSource(
+  tokenUsage?: TokenUsageStats,
+): 'reported' | 'estimated' {
+  const carrier = tokenUsage as unknown as Record<string, unknown> | undefined;
+  return carrier &&
+    firstFiniteNonNegativeNumber([
+      carrier.costUsd,
+      carrier.costUSD,
+      carrier.cost_usd,
+    ]) !== null
+    ? 'reported'
+    : 'estimated';
+}
+
+export function estimateModelUsageCostUsd(
+  params: ModelUsageTokenCounts & { model: string },
+): number | null {
   const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
   if (pricing.input == null && pricing.output == null) return null;
+  const inputPrice = pricing.input ?? 0;
+  const cacheReadTokens = Math.max(0, params.cacheReadTokens ?? 0);
+  const cacheWriteTokens = Math.max(0, params.cacheWriteTokens ?? 0);
+  const uncachedPromptTokens = promptTokensIncludeCacheTokens(params.model)
+    ? Math.max(0, params.promptTokens - cacheReadTokens - cacheWriteTokens)
+    : params.promptTokens;
   return (
-    params.promptTokens * (pricing.input ?? 0) +
+    uncachedPromptTokens * inputPrice +
+    cacheReadTokens * (pricing.cacheRead ?? inputPrice) +
+    cacheWriteTokens * (pricing.cacheWrite ?? inputPrice) +
     params.completionTokens * (pricing.output ?? 0)
   );
 }
 
+function readCacheTokenCounts(
+  tokenUsage: TokenUsageStats | undefined,
+  usage: UsageTokenCounts,
+): Pick<ModelUsageTokenCounts, 'cacheReadTokens' | 'cacheWriteTokens'> {
+  if (tokenUsage?.apiCacheUsageAvailable) {
+    return {
+      cacheReadTokens: tokenUsage.apiCacheReadTokens,
+      cacheWriteTokens: tokenUsage.apiCacheWriteTokens,
+    };
+  }
+  return {
+    cacheReadTokens: readFiniteNonNegativeNumber(usage.cacheReadTokens),
+    cacheWriteTokens: readFiniteNonNegativeNumber(usage.cacheWriteTokens),
+  };
+}
+
 export function estimateRoutingSavingsUsd(params: {
   referenceModel: string;
-  referenceUsage: {
-    promptTokens: number;
-    completionTokens: number;
-  };
+  referenceUsage: ModelUsageTokenCounts;
   attempts: RoutingCostAttempt[];
 }): RoutingSavingsEstimate | null {
   const counterfactualCostUsd = estimateModelUsageCostUsd({
+    ...params.referenceUsage,
     model: params.referenceModel,
-    promptTokens: params.referenceUsage.promptTokens,
-    completionTokens: params.referenceUsage.completionTokens,
   });
   if (counterfactualCostUsd == null) return null;
 
   let actualCostUsd = 0;
   for (const attempt of params.attempts) {
     const explicitCost = readFiniteNonNegativeNumber(attempt.costUsd);
-    const attemptCost =
-      explicitCost ??
-      estimateModelUsageCostUsd({
-        model: attempt.model,
-        promptTokens: attempt.promptTokens,
-        completionTokens: attempt.completionTokens,
-      });
+    const attemptCost = explicitCost ?? estimateModelUsageCostUsd(attempt);
     if (attemptCost == null) return null;
     actualCostUsd += attemptCost;
   }
@@ -119,6 +155,7 @@ export function resolveUsageCostUsd(params: {
       model: params.model,
       promptTokens,
       completionTokens,
+      ...readCacheTokenCounts(params.tokenUsage, params.usage),
     }) ?? 0
   );
 }
@@ -143,6 +180,7 @@ export async function resolveUsageCostUsdAfterMetadataRefresh(params: {
       model: params.model,
       promptTokens,
       completionTokens,
+      ...readCacheTokenCounts(params.tokenUsage, params.usage),
     }) ?? 0
   );
 }

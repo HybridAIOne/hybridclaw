@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.30.1',
+  version: '0.31.1',
   highlights: [
-    'See memory recall across channels',
-    'Keep agent actions and confirmations honest',
-    'Schedule recurring tasks reliably',
-    'Control inbound voice callers',
+    'Reply in Discord threads',
+    'Read forwarded Discord messages',
+    'More reliable Teams attachments',
+    'Improved A2A interoperability',
   ],
 } as const;
 

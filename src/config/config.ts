@@ -20,6 +20,7 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   isContainerSandboxModeExplicit,
+  normalizeDiscordReplyStyle,
   onRuntimeConfigChange,
   type RuntimeConfig,
 } from './runtime-config.js';
@@ -293,6 +294,8 @@ export let DISCORD_FREE_RESPONSE_CHANNELS: string[] = [];
 export let DISCORD_BOT_MESSAGE_CHANNELS: string[] = [];
 export let DISCORD_TEXT_CHUNK_LIMIT = 1_900;
 export let DISCORD_MAX_LINES_PER_MESSAGE = 17;
+export let DISCORD_REPLY_STYLE: RuntimeConfig['discord']['replyStyle'] =
+  'top-level';
 export let DISCORD_HUMAN_DELAY: RuntimeConfig['discord']['humanDelay'] = {
   mode: 'natural',
   minMs: 800,
@@ -848,6 +851,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_MAX_LINES_PER_MESSAGE = Math.max(
     4,
     Math.min(200, config.discord.maxLinesPerMessage),
+  );
+  DISCORD_REPLY_STYLE = normalizeDiscordReplyStyle(
+    process.env.DISCORD_REPLY_STYLE,
+    config.discord.replyStyle,
   );
   DISCORD_HUMAN_DELAY = structuredClone(config.discord.humanDelay);
   DISCORD_TYPING_MODE = config.discord.typingMode;

@@ -1,3 +1,8 @@
+/**
+ * Ollama transport preserves visible answers, tool calls, and finish reasons.
+ * Reasoning is streamed separately and never becomes a completion claim;
+ * the agent loop decides how to handle an empty or truncated answer.
+ */
 import { resolveModelBehavior } from '../model-behavior.js';
 import type {
   ChatCompletionResponse,
@@ -163,18 +168,6 @@ function buildUsage(
   };
 }
 
-function finalizeContent(
-  rawContent: string,
-  thinkingText: string,
-): string | null {
-  const extracted = extractThinkingBlocks(rawContent);
-  if (extracted.content && extracted.content !== 'Done.') {
-    return extracted.content;
-  }
-  if (thinkingText.trim()) return 'Done.';
-  return extracted.content;
-}
-
 function finalizeToolCalls(
   rawToolCalls: unknown[] | undefined,
   content: string | null,
@@ -198,11 +191,10 @@ function finalizeToolCalls(
 function adaptOllamaPayload(
   payload: OllamaStreamPayload,
   rawContent: string,
-  thinkingText: string,
   rawToolCalls: unknown[] | undefined,
   modelBehavior: NormalizedCallArgs['modelBehavior'],
 ): ChatCompletionResponse {
-  const content = finalizeContent(rawContent, thinkingText);
+  const content = extractThinkingBlocks(rawContent).content;
   const normalized = finalizeToolCalls(
     rawToolCalls,
     content,
@@ -281,7 +273,6 @@ export async function callOllamaProvider(
   return adaptOllamaPayload(
     payload,
     payload.message?.content || '',
-    payload.message?.thinking || '',
     payload.message?.tool_calls,
     args.modelBehavior,
   );
@@ -336,7 +327,6 @@ export async function callOllamaProviderStream(
   let buffer = '';
   let sawPayload = false;
   let rawContent = '';
-  let thinkingText = '';
   let latestPayload: OllamaStreamPayload = {};
   let rawToolCalls: unknown[] | undefined;
   let streamDone = false;
@@ -378,7 +368,6 @@ export async function callOllamaProviderStream(
           typeof payload.message?.thinking === 'string' &&
           payload.message.thinking
         ) {
-          thinkingText += payload.message.thinking;
           streamEmitter.pushThinking(payload.message.thinking);
         }
         if (
@@ -416,7 +405,6 @@ export async function callOllamaProviderStream(
           typeof payload.message?.thinking === 'string' &&
           payload.message.thinking
         ) {
-          thinkingText += payload.message.thinking;
           streamEmitter.pushThinking(payload.message.thinking);
         }
         if (
@@ -443,7 +431,6 @@ export async function callOllamaProviderStream(
   return adaptOllamaPayload(
     latestPayload,
     rawContent,
-    thinkingText,
     rawToolCalls,
     args.modelBehavior,
   );

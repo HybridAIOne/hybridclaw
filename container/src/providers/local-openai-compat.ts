@@ -1,3 +1,8 @@
+/**
+ * Compatible API transport preserves tool calls, reasoning, and finish reasons.
+ * MLX uses streaming on the wire even for a collected answer so ongoing thought
+ * remains observable to idle timeouts; this adapter never sets its context budget.
+ */
 import { createHash } from 'node:crypto';
 import { replaceUnpairedSurrogates } from '../../shared/unicode-utils.js';
 import { resolveModelBehavior } from '../model-behavior.js';
@@ -11,6 +16,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { fetchMlx } from './mlx-transport.js';
 import {
   emitRawSseLineDebug,
   logLastPrompt,
@@ -660,6 +666,12 @@ function createToolMarkupStreamFilter(onTextDelta: (delta: string) => void): {
 export async function callLocalOpenAICompatProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  if (args.provider === 'mlx') {
+    return callLocalOpenAICompatProviderStream({
+      ...args,
+      onTextDelta: () => undefined,
+    });
+  }
   const requestBody = buildRequestBody(args);
   const url = `${normalizeBaseUrl(args.baseUrl)}/chat/completions`;
   if (args.debugModelResponses) {
@@ -729,7 +741,11 @@ export async function callLocalOpenAICompatProviderStream(
       },
     });
   }
-  const response = await fetch(url, {
+  const requestFetch =
+    args.provider === 'mlx'
+      ? (url: string, init: RequestInit) => fetchMlx(url, init, args.sessionId)
+      : fetch;
+  const response = await requestFetch(url, {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),

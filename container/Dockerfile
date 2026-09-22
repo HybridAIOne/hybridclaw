@@ -58,7 +58,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install -g --ignore-scripts \
     docx@9.5.1 \
     pptxgenjs@4.0.1 \
-    csv-parse@6.1.0 \
+    csv-parse@7.0.2 \
     iconv-lite@0.7.0 \
     @e965/xlsx@0.20.3 \
     xlsx-populate@1.21.0 \

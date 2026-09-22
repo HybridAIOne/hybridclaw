@@ -1079,6 +1079,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'discord.replyStyle',
+      section: 'discord',
+      kind: 'string',
+      defaultValue: 'top-level',
+    },
+    {
       path: 'discord.sendAllowedChannelIds',
       section: 'discord',
       kind: 'list',
@@ -1470,6 +1476,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
     },
     {
       path: 'local.backends.lmstudio.enabled',
+      section: 'local',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
+      path: 'local.backends.mlx.baseUrl',
+      section: 'local',
+      kind: 'string',
+      defaultValue: 'http://127.0.0.1:8321/v1',
+    },
+    {
+      path: 'local.backends.mlx.enabled',
       section: 'local',
       kind: 'boolean',
       defaultValue: false,
@@ -2224,6 +2242,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 3,
     },
     {
+      path: 'routing.showRoutingInfo',
+      section: 'routing',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'routing.tiers',
       section: 'routing',
       kind: 'list',
@@ -2471,6 +2495,18 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
     },
     {
       path: 'skills.installed',
+      section: 'skills',
+      kind: 'list',
+      defaultValue: [],
+    },
+    {
+      path: 'skills.localSkillMode',
+      section: 'skills',
+      kind: 'string',
+      defaultValue: 'full',
+    },
+    {
+      path: 'skills.localStarterSkills',
       section: 'skills',
       kind: 'list',
       defaultValue: [],
@@ -2726,6 +2762,34 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'tools',
       kind: 'list',
       defaultValue: [],
+    },
+    {
+      path: 'tools.localStarterTools',
+      section: 'tools',
+      kind: 'list',
+      defaultValue: [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'glob',
+        'grep',
+        'skills_list',
+        'web_search',
+        'web_fetch',
+      ],
+    },
+    {
+      path: 'tools.localToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'starred',
+    },
+    {
+      path: 'tools.mcpToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'full',
     },
     {
       path: 'ui.navigation',

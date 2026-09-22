@@ -1,7 +1,6 @@
 import type { ChatMessage } from '../types/api.js';
 
 export const DEFAULT_CHARS_PER_TOKEN = 4;
-export const DEFAULT_HISTORY_MAX_TOTAL_CHARS = 24_000;
 export const DEFAULT_BOOTSTRAP_HEAD_RATIO = 0.7;
 export const DEFAULT_BOOTSTRAP_TAIL_RATIO = 0.2;
 
@@ -50,46 +49,23 @@ export function sliceTailAtCodePointBoundary(
 type PromptHistoryMessage = ChatMessage;
 
 export interface HistoryOptimizationOptions {
-  maxTotalChars: number;
+  maxTokens: number;
 }
 
 export interface HistoryOptimizationStats {
   originalCount: number;
   includedCount: number;
   droppedCount: number;
-  originalChars: number;
-  preBudgetChars: number;
-  includedChars: number;
-  droppedChars: number;
-  maxTotalChars: number;
-  middleCompressionApplied: boolean;
+  droppedTurns: number;
+  originalTokens: number;
+  includedTokens: number;
+  droppedTokens: number;
+  budgetTokens: number;
 }
 
 function normalizePositiveInt(value: number, fallback: number): number {
   if (!Number.isFinite(value) || value <= 0) return fallback;
   return Math.floor(value);
-}
-
-function sumChars(messages: PromptHistoryMessage[]): number {
-  return messages.reduce(
-    (total, message) =>
-      total +
-      messageContentChars(message.content) +
-      (message.tool_calls ? JSON.stringify(message.tool_calls).length : 0) +
-      (message.anthropic_content
-        ? JSON.stringify(message.anthropic_content).length
-        : 0) +
-      (message.openai_response_items
-        ? JSON.stringify(message.openai_response_items).length
-        : 0),
-    0,
-  );
-}
-
-function messageContentChars(content: ChatMessage['content']): number {
-  if (typeof content === 'string') return content.length;
-  if (!Array.isArray(content)) return 0;
-  return JSON.stringify(content).length;
 }
 
 function groupHistoryTurns(
@@ -208,55 +184,43 @@ export function truncateHeadTailText(
 
 export function optimizeHistoryMessagesForPrompt(
   messages: PromptHistoryMessage[],
-  options?: Partial<HistoryOptimizationOptions>,
+  options: HistoryOptimizationOptions,
 ): { messages: PromptHistoryMessage[]; stats: HistoryOptimizationStats } {
-  const maxTotalChars = normalizePositiveInt(
-    options?.maxTotalChars ?? DEFAULT_HISTORY_MAX_TOTAL_CHARS,
-    DEFAULT_HISTORY_MAX_TOTAL_CHARS,
+  const budgetTokens = normalizePositiveInt(
+    options.maxTokens,
+    Number.MAX_SAFE_INTEGER,
   );
-  const originalCount = messages.length;
-  const originalChars = sumChars(messages);
-  const preBudgetChars = originalChars;
-  let included = [...messages];
-  let middleCompressionApplied = false;
+  const turns = groupHistoryTurns(messages);
+  const turnTokens = turns.map((turn) => estimateTokenCountFromMessages(turn));
+  const originalTokens = turnTokens.reduce((total, value) => total + value, 0);
 
-  if (preBudgetChars > maxTotalChars) {
-    middleCompressionApplied = true;
-    const turns = groupHistoryTurns(messages);
-    let firstIncludedTurn = turns.length;
-    let includedTurnChars = 0;
-    // Keep the newest turn whole even when it exceeds the soft history budget.
-    // Rewriting it here would change the cached prefix on the next turn.
-    for (let index = turns.length - 1; index >= 0; index -= 1) {
-      const turnChars = sumChars(turns[index]);
-      if (
-        firstIncludedTurn < turns.length &&
-        includedTurnChars + turnChars > maxTotalChars
-      ) {
-        break;
-      }
-      firstIncludedTurn = index;
-      includedTurnChars += turnChars;
+  let firstIncludedTurn = turns.length;
+  let includedTokens = 0;
+  // Keep the newest turn whole even when it exceeds the budget. Rewriting it
+  // here would change the cached prefix on the next turn.
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (
+      firstIncludedTurn < turns.length &&
+      includedTokens + turnTokens[index] > budgetTokens
+    ) {
+      break;
     }
-    included = turns.slice(firstIncludedTurn).flat();
+    firstIncludedTurn = index;
+    includedTokens += turnTokens[index];
   }
-
-  const includedChars = sumChars(included);
-  const droppedCount = Math.max(0, messages.length - included.length);
-  const droppedChars = Math.max(0, preBudgetChars - includedChars);
+  const included = turns.slice(firstIncludedTurn).flat();
 
   return {
     messages: included,
     stats: {
-      originalCount,
+      originalCount: messages.length,
       includedCount: included.length,
-      droppedCount,
-      originalChars,
-      preBudgetChars,
-      includedChars,
-      droppedChars,
-      maxTotalChars,
-      middleCompressionApplied,
+      droppedCount: messages.length - included.length,
+      droppedTurns: firstIncludedTurn,
+      originalTokens,
+      includedTokens,
+      droppedTokens: originalTokens - includedTokens,
+      budgetTokens,
     },
   };
 }

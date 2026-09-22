@@ -20,6 +20,7 @@ export const NON_HYBRID_PROVIDER_PREFIXES = [
   'lmstudio/',
   'llamacpp/',
   'vllm/',
+  'mlx/',
 ];
 
 export function hasKnownNonHybridProviderPrefix(model) {

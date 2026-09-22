@@ -219,7 +219,25 @@ export interface SemanticRecallFilter {
   scope?: string;
   after?: string;
   before?: string;
+  /**
+   * Skip per-turn conversation memories whose source message still exists in
+   * the session log, because that turn is already in the verbatim prompt
+   * history. Compaction summaries and other sources are unaffected.
+   */
+  excludeVerbatimHistory?: boolean;
+  /** Skip rows whose source is one of these values. */
+  excludeSources?: string[];
 }
+
+const EXCLUDE_VERBATIM_HISTORY_CLAUSE = `NOT (
+           source = 'conversation'
+           AND source_message_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM messages
+             WHERE messages.id = semantic_memories.source_message_id
+               AND messages.session_id = semantic_memories.session_id
+           )
+         )`;
 
 function applySemanticRecallFilterClauses(params: {
   whereClauses: string[];
@@ -251,6 +269,18 @@ function applySemanticRecallFilterClauses(params: {
   if (before) {
     params.whereClauses.push('created_at <= ?');
     params.args.push(before);
+  }
+  if (params.filter.excludeVerbatimHistory) {
+    params.whereClauses.push(EXCLUDE_VERBATIM_HISTORY_CLAUSE);
+  }
+  const excludeSources = (params.filter.excludeSources || [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (excludeSources.length > 0) {
+    params.whereClauses.push(
+      `source NOT IN (${excludeSources.map(() => '?').join(', ')})`,
+    );
+    params.args.push(...excludeSources);
   }
 }
 
@@ -658,15 +688,22 @@ function recallSemanticMemoriesByRecent(params: {
 export function hasRecallableSemanticMemories(
   sessionId: string,
   minConfidence: number,
+  filter?: SemanticRecallFilter,
 ): boolean {
+  const whereClauses: string[] = [
+    'session_id = ?',
+    'deleted = 0',
+    'confidence >= ?',
+  ];
+  const args: unknown[] = [resolveSessionIdCompat(sessionId), minConfidence];
+  applySemanticRecallFilterClauses({ whereClauses, args, filter });
   return Boolean(
     queryOne<{ found: number }>(
       getSemanticMemoryDatabase(),
       `SELECT 1 AS found FROM semantic_memories
-       WHERE session_id = ? AND deleted = 0 AND confidence >= ?
+       WHERE ${whereClauses.join('\n         AND ')}
        LIMIT 1`,
-      resolveSessionIdCompat(sessionId),
-      minConfidence,
+      ...args,
     ),
   );
 }

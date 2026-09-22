@@ -54,6 +54,7 @@ import type {
 } from '../types/execution.js';
 import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
+import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
@@ -75,6 +76,8 @@ export interface GatewaySessionSwitcherEntry {
 }
 
 export interface GatewayCommandResult {
+  /** Command accepted an inline prompt for the normal chat execution path. */
+  continueWithMessage?: boolean;
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
@@ -122,6 +125,7 @@ export interface GatewayChatResult {
     status: 'queued';
   };
   assistantPresentation?: GatewayAssistantPresentation;
+  routingTrace?: RoutingTrace;
   model?: string;
   provider?: string;
   memoryAccess?: MemoryAccess;
@@ -245,6 +249,7 @@ export interface GatewayChatRequest {
   promptMode?: PromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
+  onRoutingTrace?: (trace: RoutingTrace) => void;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
@@ -304,6 +309,7 @@ export interface GatewayHistoryMessage {
   }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
+  routingTrace?: RoutingTrace;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
@@ -324,6 +330,8 @@ export interface GatewayHistorySummary {
   toolCallCount: number;
   inputTokenCount: number;
   outputTokenCount: number;
+  cacheReadTokenCount: number;
+  cacheWriteTokenCount: number;
   costUsd: number;
   toolBreakdown: GatewayHistoryToolBreakdownEntry[];
   fileChanges: GatewayHistoryFileChanges;
@@ -425,6 +433,7 @@ export interface GatewayChannelPluginStatus {
 
 export interface GatewayStatus {
   status: 'ok';
+  localModelsSupported?: boolean;
   webAuthConfigured: boolean;
   pid?: number;
   lifecycle?: {
@@ -598,7 +607,7 @@ export interface GatewayStatus {
   >;
   localBackends?: Partial<
     Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
+      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx',
       {
         reachable: boolean;
         latencyMs: number;
@@ -712,6 +721,8 @@ export interface GatewayAdminEmailDeleteResponse {
 export interface GatewayAdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   totalTokens: number;
   totalCostUsd: number;
   callCount: number;
@@ -768,6 +779,8 @@ export interface GatewayAdminStatisticsTrendDay {
   totalMessages: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
   callCount: number;
   toolCalls: number;
@@ -794,6 +807,8 @@ export interface GatewayAdminStatisticsResponse {
     assistantMessages: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalTokens: number;
     totalCostUsd: number;
     callCount: number;
@@ -820,6 +835,8 @@ export interface GatewaySessionCard {
   runtimeMinutes: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   costUsd: number;
   messageCount: number;
   toolCalls: number;
@@ -880,6 +897,8 @@ export interface GatewayLogicalAgentCard {
   lastActive: string | null;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   costUsd: number;
   monthlySpendUsd: number;
   messageCount: number;
@@ -897,6 +916,8 @@ export interface GatewayCollectionTotals {
   running: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   totalTokens: number;
   totalCostUsd: number;
 }
@@ -1298,6 +1319,7 @@ export interface GatewayAdminAgentMarkdownFile {
   path: string;
   scope?: 'agent' | 'installation' | 'company';
   cloudPath?: string;
+  kind?: 'daily-memory' | 'shared-memory';
   readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
@@ -1403,12 +1425,14 @@ export interface GatewayAdminModelCatalogEntry {
   provider: GatewayModelProviderKey;
   zone: 'local' | 'hai' | 'region' | 'cloud';
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
   maxTokens: number | null;
   pricingUsdPerToken: {
     input: number | null;
     output: number | null;
+    cacheRead: number | null;
+    cacheWrite: number | null;
   };
   capabilities: {
     vision: boolean;
@@ -1451,7 +1475,8 @@ export interface GatewayAdminModelsResponse {
         | 'ollama'
         | 'lmstudio'
         | 'llamacpp'
-        | 'vllm';
+        | 'vllm'
+        | 'mlx';
       model: string | null;
     };
   };

@@ -3,6 +3,8 @@ import { isRecord } from './utils.js';
 export interface DiscoveredModelPricingUsdPerToken {
   input: number | null;
   output: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
 }
 
 function readPriceValue(value: unknown): number | null {
@@ -62,5 +64,27 @@ export function readDiscoveredModelPricingUsdPerToken(
     readPricePerMillion(entry.output_usd_per_million) ??
     readPricePerMillion(entry.outputUsdPerMillion);
   if (input == null && output == null) return null;
-  return { input, output };
+  const cacheRead =
+    readPriceValue(pricing.input_cache_read) ??
+    readPriceValue(pricing.cache_read) ??
+    readPriceValue(pricing.cacheRead) ??
+    readPriceValue(pricing.cached_input) ??
+    readPriceValue(pricing.cache_read_usd_per_token) ??
+    readPricePerMillion(pricing.cache_read_per_million) ??
+    readPricePerMillion(pricing.cacheReadPerMillion) ??
+    readPricePerMillion(pricing.cache_read_usd_per_million);
+  const cacheWrite =
+    readPriceValue(pricing.input_cache_write) ??
+    readPriceValue(pricing.cache_write) ??
+    readPriceValue(pricing.cacheWrite) ??
+    readPriceValue(pricing.cache_write_usd_per_token) ??
+    readPricePerMillion(pricing.cache_write_per_million) ??
+    readPricePerMillion(pricing.cacheWritePerMillion) ??
+    readPricePerMillion(pricing.cache_write_usd_per_million);
+  return {
+    input,
+    output,
+    ...(cacheRead != null ? { cacheRead } : {}),
+    ...(cacheWrite != null ? { cacheWrite } : {}),
+  };
 }

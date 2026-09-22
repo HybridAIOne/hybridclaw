@@ -47,10 +47,24 @@ If even the identity-only catalog cannot fit, the prompt includes an explicit
 compaction notice and the runtime emits a structured warning with included and
 omitted counts.
 
-The read-only `skills_list` tool lists or searches the complete catalog of
-skills eligible for the current agent and channel. It is the recovery path when
-prompt metadata was compacted; it does not expose disabled or policy-filtered
-skills.
+The read-only `skills_list` tool discovers skills eligible for the current
+agent and channel in stages:
+
+1. Search with `query` keywords, optionally filtered by `category`, or browse
+   with empty arguments. Results contain short summaries and a `next` call for
+   each match. `offset`/`limit` paginate the results; the default page has ten
+   entries.
+2. Select an exact `name` to retrieve the skill's metadata, location, declared
+   credential ids, and the next call to read its instructions.
+3. Execute that read call and read any remaining pages before following the
+   instructions. Load linked files only when the task needs them.
+
+The directory is a recovery path when prompt metadata was compacted. It never
+opens files, loads credentials, or exposes disabled or policy-filtered skills.
+`instructionsLoaded: false` distinguishes a selected metadata record from the
+actual SKILL.md contents. The `next` call uses `read` directly when exposed, or
+`tool_catalog` when read is deferred; it is null if reading is unavailable.
+File access still passes through the normal read tool's policy and sandbox.
 
 ## Frontmatter Contract
 

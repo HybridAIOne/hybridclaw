@@ -2694,3 +2694,19 @@ test('plugin manager treats unknown output-guard actions as allow', async () => 
     }),
   ]);
 });
+
+test('routing policy follows the current runtime configuration without exposing mutable state', async () => {
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  let config = loadRuntimeConfig();
+  const manager = new PluginManager({
+    homeDir: makeTempDir('hybridclaw-plugin-home-'),
+    cwd: makeTempDir('hybridclaw-plugin-project-'),
+    getRuntimeConfig: () => config,
+  });
+  expect(manager.getRoutingConfig().enabled).toBe(config.routing.enabled);
+  config = { ...config, routing: { ...config.routing, enabled: true, tiers: [{ name: 'test', models: ['local/test'] }] } };
+  const policy = manager.getRoutingConfig();
+  expect(policy.enabled).toBe(true);
+  policy.tiers[0].models.push('local/other');
+  expect(manager.getRoutingConfig().tiers[0].models).toEqual(['local/test']);
+});

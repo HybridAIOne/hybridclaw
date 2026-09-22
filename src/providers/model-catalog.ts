@@ -90,11 +90,24 @@ export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
 
 export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
   zone: ModelRoutingZone;
-  pricingUsdPerToken: {
-    input: number | null;
-    output: number | null;
-  };
+  pricingUsdPerToken: ModelCatalogPricingUsdPerToken;
 }
+
+export interface ModelCatalogPricingUsdPerToken {
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
+const ANTHROPIC_CACHE_READ_INPUT_MULTIPLIER = 0.1;
+const ANTHROPIC_CACHE_WRITE_INPUT_MULTIPLIER = 1.25;
+const UNPRICED_MODEL: ModelCatalogPricingUsdPerToken = {
+  input: null,
+  output: null,
+  cacheRead: null,
+  cacheWrite: null,
+};
 
 export type ModelCapabilityRequirements = Partial<ModelCapabilityFlags>;
 
@@ -160,6 +173,7 @@ const PREFIX_BY_PROVIDER: Record<
   lmstudio: LMSTUDIO_MODEL_PREFIX,
   llamacpp: LLAMACPP_MODEL_PREFIX,
   vllm: VLLM_MODEL_PREFIX,
+  mlx: 'mlx/',
 };
 
 function compareModelNames(
@@ -227,6 +241,7 @@ function isLocalPrefixedModel(model: string): boolean {
     hasModelPrefix(model, PREFIX_BY_PROVIDER.lmstudio) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.llamacpp) ||
     hasModelPrefix(model, PREFIX_BY_PROVIDER.vllm) ||
+    hasModelPrefix(model, PREFIX_BY_PROVIDER.mlx) ||
     Boolean(resolveLocalBackendFromEndpointModel(model))
   );
 }
@@ -345,6 +360,7 @@ function collectModelsForProvider(
     case 'lmstudio':
     case 'llamacpp':
     case 'vllm':
+    case 'mlx':
       return getDiscoveredLocalModelNames();
     case 'openrouter':
     case 'mistral':
@@ -411,6 +427,7 @@ export function getAvailableModelList(provider?: string): string[] {
 
 export async function refreshAvailableModelCatalogs(opts?: {
   includeHybridAI?: boolean;
+  localMaxAgeMs?: number;
 }): Promise<ModelCatalogRefreshResult> {
   const tasks: Array<{
     provider: string;
@@ -418,7 +435,10 @@ export async function refreshAvailableModelCatalogs(opts?: {
   }> = [
     { provider: 'openai-codex', refresh: discoverCodexModels },
     { provider: 'anthropic', refresh: discoverAnthropicModels },
-    { provider: 'local', refresh: discoverAllLocalModels },
+    {
+      provider: 'local',
+      refresh: () => discoverAllLocalModels({ maxAgeMs: opts?.localMaxAgeMs }),
+    },
     { provider: 'huggingface', refresh: discoverHuggingFaceModels },
     { provider: 'mistral', refresh: discoverMistralModels },
     { provider: 'openrouter', refresh: discoverOpenRouterModels },
@@ -545,14 +565,53 @@ function resolveKnownModelMaxTokens(
   );
 }
 
+function usesAnthropicCachePricing(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized.startsWith('anthropic/') || normalized.includes('claude');
+}
+
+function normalizeCatalogPricing(
+  model: string,
+  pricing: {
+    input: number | null;
+    output: number | null;
+    cacheRead?: number | null;
+    cacheWrite?: number | null;
+  },
+): ModelCatalogPricingUsdPerToken {
+  const anthropicDefaults =
+    pricing.input != null && usesAnthropicCachePricing(model);
+  return {
+    input: pricing.input,
+    output: pricing.output,
+    cacheRead:
+      pricing.cacheRead ??
+      (anthropicDefaults
+        ? (pricing.input as number) * ANTHROPIC_CACHE_READ_INPUT_MULTIPLIER
+        : null),
+    cacheWrite:
+      pricing.cacheWrite ??
+      (anthropicDefaults
+        ? (pricing.input as number) * ANTHROPIC_CACHE_WRITE_INPUT_MULTIPLIER
+        : null),
+  };
+}
+
 function resolveKnownModelPricingUsdPerToken(
   model: string,
-): ModelCatalogMetadata['pricingUsdPerToken'] {
+): ModelCatalogPricingUsdPerToken {
+  return normalizeCatalogPricing(model, resolveDiscoveredPricing(model));
+}
+
+function resolveDiscoveredPricing(model: string): {
+  input: number | null;
+  output: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+} {
   if (isLocalPrefixedModel(model)) {
     const info = getLocalModelInfo(model);
-    if (info) {
-      return { input: info.cost.input, output: info.cost.output };
-    }
+    if (info) return info.cost;
     const endpointPricing =
       resolveLocalEndpointForModel(model)?.endpoint.pricing;
     return {
@@ -571,15 +630,10 @@ function resolveKnownModelPricingUsdPerToken(
     };
   }
   if (hasModelPrefix(model, OPENAI_CODEX_MODEL_PREFIX)) {
-    return (
-      getDiscoveredCodexModelPricingUsdPerToken(model) ?? {
-        input: null,
-        output: null,
-      }
-    );
+    return getDiscoveredCodexModelPricingUsdPerToken(model) ?? UNPRICED_MODEL;
   }
   if (hasModelPrefix(model, OPENAI_MODEL_PREFIX)) {
-    return { input: null, output: null };
+    return UNPRICED_MODEL;
   }
   return (
     getDiscoveredHybridAIModelPricingUsdPerToken(model) ??
@@ -587,10 +641,8 @@ function resolveKnownModelPricingUsdPerToken(
     getDiscoveredMistralModelPricingUsdPerToken(model) ??
     getDiscoveredHuggingFaceModelPricingUsdPerToken(model) ??
     getDiscoveredAnthropicModelPricingUsdPerToken(model) ??
-    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ?? {
-      input: null,
-      output: null,
-    }
+    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ??
+    UNPRICED_MODEL
   );
 }
 

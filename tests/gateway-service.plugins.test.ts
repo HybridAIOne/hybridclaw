@@ -2004,6 +2004,7 @@ test('handleGatewayCommand preserves valid plugin command decorations', async ()
     kind: 'info',
     title: 'Plugin Result',
     text: 'structured payload',
+    continueWithMessage: true,
     components,
     modelCatalog,
   }));
@@ -2022,6 +2023,7 @@ test('handleGatewayCommand preserves valid plugin command decorations', async ()
     args: ['qmd', 'status'],
   });
 
+  expect(result.continueWithMessage).toBe(true);
   expect(result.components).toEqual(components);
   expect(result.modelCatalog).toEqual(modelCatalog);
 });

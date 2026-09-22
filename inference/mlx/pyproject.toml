@@ -1,0 +1,12 @@
+[project]
+name = "hybridclaw-mlx"
+version = "0.1.0"
+description = "Pinned native inference worker for HybridClaw on Apple silicon"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "mlx-lm==0.31.3",
+  "spark-mlx-llm @ https://github.com/XHToken/Spark-MLX-LLM/archive/de2b4379fa1e2f2e1f99d84c83f0e008f651d86c.tar.gz",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]

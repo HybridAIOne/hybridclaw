@@ -213,6 +213,8 @@ describe('Teams user routing and attribution', () => {
       model: 'test-model',
       inputTokens: 10,
       outputTokens: 5,
+      cacheReadTokens: 7,
+      cacheWriteTokens: 2,
       costUsd: 0.25,
       channelKind: 'msteams',
       tenantId: 'tenant-a',
@@ -256,10 +258,26 @@ describe('Teams user routing and attribution', () => {
       listMSTeamsUsers('tenant-a').find((user) => user.userId === 'user-a')
         ?.totalTokens,
     ).toBe(30);
+    const ledger = new Database(dbPath, { readonly: true });
+    try {
+      expect(
+        ledger
+          .prepare(`SELECT agent_id, cache_read_tokens, cache_write_tokens
+            FROM usage_events WHERE tenant_id = 'tenant-a'
+              AND user_id = 'user-a' AND channel_kind = 'msteams'
+            ORDER BY agent_id`)
+          .all(),
+      ).toEqual([
+        { agent_id: 'main', cache_read_tokens: 7, cache_write_tokens: 2 },
+        { agent_id: 'sales', cache_read_tokens: 7, cache_write_tokens: 2 },
+      ]);
+    } finally {
+      ledger.close();
+    }
   });
 
   test.each([
-    57, 59,
+    57, 59, 60, 61,
   ])('migrates a v%s database without attributing historical usage', (version) => {
     recordUsageEvent({
       sessionId: 'historical',
@@ -267,6 +285,8 @@ describe('Teams user routing and attribution', () => {
       model: 'test-model',
       inputTokens: 100,
       outputTokens: 50,
+      cacheReadTokens: 10,
+      cacheWriteTokens: 5,
     });
     closeDatabase();
     const db = new Database(dbPath);
@@ -278,6 +298,18 @@ describe('Teams user routing and attribution', () => {
         'ALTER TABLE jobs DROP COLUMN last_error; ALTER TABLE proactive_message_queue DROP COLUMN failed_at; ALTER TABLE proactive_message_queue DROP COLUMN failure_reason; ALTER TABLE messages DROP COLUMN tool_history_json;',
       );
     }
+    if (version < 60) {
+      db.exec('ALTER TABLE messages DROP COLUMN routing_trace_json;');
+    }
+    if (version < 61) {
+      db.exec(
+        'ALTER TABLE usage_events DROP COLUMN cache_read_tokens; ALTER TABLE usage_events DROP COLUMN cache_write_tokens;',
+      );
+    }
+    db.prepare('DELETE FROM migrations WHERE version > ?').run(version);
+    const existingMigrations = db
+      .prepare('SELECT * FROM migrations ORDER BY version')
+      .all();
     db.pragma(`user_version = ${version}`);
     db.close();
     initDatabase({ dbPath, quiet: true });
@@ -288,12 +320,32 @@ describe('Teams user routing and attribution', () => {
     });
     const migrated = new Database(dbPath, { readonly: true });
     try {
-      expect(migrated.pragma('user_version', { simple: true })).toBe(60);
+      expect(migrated.pragma('user_version', { simple: true })).toBe(62);
+      expect(
+        migrated
+          .prepare('SELECT * FROM migrations WHERE version <= ? ORDER BY version')
+          .all(version),
+      ).toEqual(existingMigrations);
+      expect(
+        migrated
+          .prepare('SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, user_id, tenant_id FROM usage_events')
+          .get(),
+      ).toEqual({
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_tokens: version >= 61 ? 10 : 0,
+        cache_write_tokens: version >= 61 ? 5 : 0,
+        user_id: null,
+        tenant_id: null,
+      });
       for (const [table, column] of [
         ['jobs', 'last_error'],
         ['proactive_message_queue', 'failed_at'],
         ['proactive_message_queue', 'failure_reason'],
         ['messages', 'tool_history_json'],
+        ['messages', 'routing_trace_json'],
+        ['usage_events', 'cache_read_tokens'],
+        ['usage_events', 'cache_write_tokens'],
       ]) {
         expect(migrated.pragma(`table_info(${table})`)).toEqual(
           expect.arrayContaining([expect.objectContaining({ name: column })]),

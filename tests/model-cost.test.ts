@@ -11,8 +11,10 @@ vi.mock('../src/providers/model-catalog.js', () => ({
 }));
 
 const {
+  estimateModelUsageCostUsd,
   estimateRoutingSavingsUsd,
   extractExplicitUsageCostUsd,
+  promptTokensIncludeCacheTokens,
   resolveUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
 } = await import('../src/usage/model-cost.js');
@@ -34,9 +36,18 @@ function makeTokenUsage(extras: Record<string, unknown> = {}): TokenUsageStats {
   } as TokenUsageStats;
 }
 
-function mockPricing(input: number | null, output: number | null): void {
+function mockPricing(
+  input: number | null,
+  output: number | null,
+  cache: { cacheRead?: number | null; cacheWrite?: number | null } = {},
+): void {
   getModelCatalogMetadata.mockReturnValue({
-    pricingUsdPerToken: { input, output },
+    pricingUsdPerToken: {
+      input,
+      output,
+      cacheRead: cache.cacheRead ?? null,
+      cacheWrite: cache.cacheWrite ?? null,
+    },
   });
 }
 
@@ -171,4 +182,67 @@ test('estimateRoutingSavingsUsd includes escalation overhead and permits negativ
   expect(estimate?.actualCostUsd).toBeCloseTo(0.003, 10);
   expect(estimate?.counterfactualCostUsd).toBeCloseTo(0.0002, 10);
   expect(estimate?.savedUsd).toBeCloseTo(-0.0028, 10);
+});
+
+test('estimateModelUsageCostUsd carves cached tokens out of OpenAI-style prompt tokens', () => {
+  mockPricing(2 / 1_000_000, 10 / 1_000_000, {
+    cacheRead: 0.2 / 1_000_000,
+  });
+  expect(promptTokensIncludeCacheTokens('openrouter/openai/gpt-5')).toBe(true);
+
+  expect(
+    estimateModelUsageCostUsd({
+      model: 'openrouter/openai/gpt-5',
+      promptTokens: 1_000_000,
+      completionTokens: 100_000,
+      cacheReadTokens: 800_000,
+    }),
+  ).toBeCloseTo(0.2 * 2 + 0.8 * 0.2 + 0.1 * 10, 8);
+});
+
+test('estimateModelUsageCostUsd adds cache tokens on top of native Anthropic prompt tokens', () => {
+  mockPricing(5 / 1_000_000, 25 / 1_000_000, {
+    cacheRead: 0.5 / 1_000_000,
+    cacheWrite: 6.25 / 1_000_000,
+  });
+  expect(promptTokensIncludeCacheTokens('anthropic/claude-opus-5')).toBe(false);
+
+  expect(
+    estimateModelUsageCostUsd({
+      model: 'anthropic/claude-opus-5',
+      promptTokens: 100_000,
+      completionTokens: 10_000,
+      cacheReadTokens: 900_000,
+      cacheWriteTokens: 50_000,
+    }),
+  ).toBeCloseTo(0.1 * 5 + 0.9 * 0.5 + 0.05 * 6.25 + 0.01 * 25, 8);
+});
+
+test('estimateModelUsageCostUsd bills cache tokens at the input price when no cache price is known', () => {
+  mockPricing(2 / 1_000_000, 10 / 1_000_000);
+
+  expect(
+    estimateModelUsageCostUsd({
+      model: 'hybridai/gpt-5-mini',
+      promptTokens: 1_000_000,
+      completionTokens: 0,
+      cacheReadTokens: 600_000,
+    }),
+  ).toBeCloseTo(2, 8);
+});
+
+test('resolveUsageCostUsd applies cache discounts from reported token usage', () => {
+  mockPricing(2 / 1_000_000, 10 / 1_000_000, { cacheRead: 0.2 / 1_000_000 });
+
+  expect(
+    resolveUsageCostUsd({
+      model: 'hybridai/gpt-5',
+      tokenUsage: makeTokenUsage({
+        apiCacheUsageAvailable: true,
+        apiCacheReadTokens: 500_000,
+        apiCacheWriteTokens: 0,
+      }),
+      usage: { promptTokens: 1_000_000, completionTokens: 0 },
+    }),
+  ).toBeCloseTo(0.5 * 2 + 0.5 * 0.2, 8);
 });

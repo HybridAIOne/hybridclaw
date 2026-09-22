@@ -677,6 +677,21 @@ related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session
 context-window accounting.
 
+### Agent-created schedules
+
+When an agent uses the `cron` tool, recurring expressions use the timezone
+recorded in the workspace's `USER.md`, or an explicit IANA `tz` value such as
+`Europe/Berlin`. If neither is available, the fallback is UTC. Write five-field
+expressions in that local time; `0 9 * * *` means 09:00 in the stored timezone.
+This timezone selection applies to the agent tool, not the separate
+`!claw schedule add` command above.
+
+The tool returns a real task ID after the gateway persists the schedule.
+Web-chat and heartbeat tasks require an explicit delivery channel. The task
+list and **Automation → Scheduler** show the stored timezone and the reason
+for a failed run or delivery. Invalid cron expressions are disabled with the
+parse error recorded; one-shot tasks that never ran are retained.
+
 ## In Session
 
 - `/help` shows the same canonical slash-command list in TUI and embedded web

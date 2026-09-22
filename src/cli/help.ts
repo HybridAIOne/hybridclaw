@@ -214,10 +214,14 @@ export function printLocalUsage(): void {
 
 Commands:
   hybridclaw local status
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
+  hybridclaw local setup [--list] [--model <catalog-id>] [--yes]
+  hybridclaw local serve
+  hybridclaw local stop
+  hybridclaw local benchmark
+  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
 
 Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm> [model-id] ...
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] ...
   hybridclaw auth status local
   hybridclaw auth logout local
 

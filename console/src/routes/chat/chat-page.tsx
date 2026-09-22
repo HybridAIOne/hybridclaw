@@ -380,6 +380,12 @@ export function ChatPage() {
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
     staleTime: 30_000,
+    // Match catalog freshness while local servers can start or stop outside chat.
+    refetchInterval: (query) =>
+      query.state.status !== 'error' &&
+      query.state.data?.models.some((model) => model.zone === 'local')
+        ? 30_000
+        : false,
     enabled: chatApiReady,
   });
   const skillsQuery = useQuery({
@@ -1427,6 +1433,9 @@ export function ChatPage() {
                     </div>
                   ) : (
                     <MessageBlock
+                      showRoutingInfo={
+                        contextQuery.data?.routing?.showRoutingInfo
+                      }
                       key={msg.id}
                       message={msg}
                       token={auth.token}

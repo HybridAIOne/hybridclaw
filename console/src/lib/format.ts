@@ -9,11 +9,30 @@ function normalizeCount(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+export function cacheHitRatio(
+  inputTokens: number | null | undefined,
+  cacheReadTokens: number | null | undefined,
+): number | null {
+  const input = normalizeCount(inputTokens);
+  const cached = normalizeCount(cacheReadTokens);
+  if (input <= 0 || cached <= 0) return null;
+  return Math.min(1, cached / input);
+}
+
+export function formatCacheHit(ratio: number | null): string {
+  return ratio == null ? '—' : `${Math.round(ratio * 100)}%`;
+}
+
 export function formatTokenBreakdown(params: {
   inputTokens: number | null | undefined;
   outputTokens: number | null | undefined;
+  cacheReadTokens?: number | null;
 }): string {
-  return `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
+  const breakdown = `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
+  const ratio = cacheHitRatio(params.inputTokens, params.cacheReadTokens);
+  return ratio == null
+    ? breakdown
+    : `${breakdown} · ${formatCacheHit(ratio)} cached`;
 }
 
 export function formatPercent(value: number): string {

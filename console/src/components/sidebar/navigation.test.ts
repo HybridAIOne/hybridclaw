@@ -65,6 +65,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         items: [
           { to: '/admin/harness-evolution', label: 'Harness Evolution' },
           { to: '/admin/distill', label: 'Distill' },
+          { to: '/admin/local-models', label: 'Local Models' },
         ],
       },
     ]);

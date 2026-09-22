@@ -1,3 +1,8 @@
+/**
+ * Owns plugin registration and dispatch for one gateway lifecycle.
+ * Live routing reads return copies of current policy; registration snapshots
+ * remain separate and this manager does not decide which tier executes.
+ */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -2041,6 +2046,10 @@ export class PluginManager {
   }): Promise<string[]> {
     const result = await this.collectPromptContextDetails(params);
     return result.sections;
+  }
+
+  getRoutingConfig(): RuntimeConfig['routing'] {
+    return structuredClone(this.getConfig().routing);
   }
 
   getMcpServerConfig(name: string): McpServerConfig | null {

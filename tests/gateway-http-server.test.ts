@@ -2462,6 +2462,25 @@ async function importFreshHealth(options?: {
     }),
   );
 
+  const localModelStatus = vi.fn(async () => ({ supported: true, running: false }));
+  const localModelActivity = vi.fn(async () => ({ running: false, connected: false, installation: null, installationError: null, metricsHistory: [], job: null }));
+  const localModelCommand = vi.fn();
+  const startLocalModelMetrics = vi.fn();
+  const closeLocalModels = vi.fn(async () => {});
+  const getLocalContextSettings = vi.fn(() => ({ instance: { mode: 'starred', starred: ['read'] }, agents: [], disabled: [] }));
+  const saveLocalContextSettings = vi.fn(() => getLocalContextSettings());
+  vi.doMock('../src/gateway/gateway-local-context-settings.js', () => ({ getLocalContextSettings, saveLocalContextSettings }));
+
+  vi.doMock('../src/gateway/gateway-local-model-service.js', () => ({
+    GatewayLocalModelService: class {
+      status = localModelStatus;
+      activity = localModelActivity;
+      command = localModelCommand;
+      startMetrics = startLocalModelMetrics;
+      close = closeLocalModels;
+    },
+  }));
+
   vi.doMock('node:http', () => ({
     default: { createServer },
     createServer,
@@ -2905,6 +2924,13 @@ async function importFreshHealth(options?: {
 
   return {
     dataDir,
+    localModelStatus,
+    localModelActivity,
+    localModelCommand,
+    startLocalModelMetrics,
+    closeLocalModels,
+    getLocalContextSettings,
+    saveLocalContextSettings,
     handler,
     httpServer,
     listenArgs,
@@ -6430,7 +6456,59 @@ describe('gateway HTTP server', () => {
     expect(res.body).toContain('javascript:alert(1)');
   });
 
-  test('renders raw HTML from stored docs as text instead of executable markup', async () => {
+  test.each([
+    {
+      name: 'inline code',
+      markdown: '`https://<public-host><voice.webhookPath>/webhook`',
+      expected:
+        '<code>https://&lt;public-host&gt;&lt;voice.webhookPath&gt;/webhook</code>',
+    },
+    {
+      name: 'fenced code with quotes and ampersands',
+      markdown: '```json\n{"host":"<public-host>","query":"a&b"}\n```',
+      expected:
+        '<pre><code class="language-json">{"host":"&lt;public-host&gt;","query":"a&amp;b"}\n</code></pre>',
+    },
+    {
+      name: 'indented code',
+      markdown: '    echo "<tag>" && echo \'&\'\n',
+      expected:
+        '<pre><code>echo "&lt;tag&gt;" &amp;&amp; echo \'&amp;\'\n</code></pre>',
+    },
+    {
+      name: 'literal entities in code',
+      markdown: '`&lt;literal&gt; &amp; &#60;`',
+      expected: '<code>&amp;lt;literal&amp;gt; &amp;amp; &amp;#60;</code>',
+    },
+    {
+      name: 'HTML in code',
+      markdown: '`<img src=x onerror=alert(1)>`',
+      expected: '<code>&lt;img src=x onerror=alert(1)&gt;</code>',
+    },
+  ])('preserves docs $name', async ({ markdown, expected }) => {
+    const installRoot = makeTempDocsDir();
+    fs.writeFileSync(
+      path.join(installRoot, 'docs', 'content', 'guides', 'code.md'),
+      `# Code\n\n${markdown}\n`,
+      'utf8',
+    );
+
+    const state = await importFreshHealth({ docsDir: installRoot });
+    const req = makeRequest({ url: '/docs/guides/code' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(expected);
+    expect(res.body).not.toContain('<img src=x');
+  });
+
+  test.each([
+    '<script id="stored-injection">alert(1)</script>',
+    'Inline <img src=x onerror=alert(1)> markup.',
+    '<div onclick="alert(1)">Raw HTML</div>',
+  ])('renders raw HTML from stored docs as text: %s', async (markup) => {
     const installRoot = makeTempDocsDir();
     fs.writeFileSync(
       path.join(installRoot, 'docs', 'content', 'guides', 'stored-markup.md'),
@@ -6443,7 +6521,7 @@ describe('gateway HTTP server', () => {
         '',
         '# Stored Markup',
         '',
-        '<script id="stored-injection">alert(1)</script>',
+        markup,
         '',
       ].join('\n'),
       'utf8',
@@ -6457,7 +6535,11 @@ describe('gateway HTTP server', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain('<script id="stored-injection">');
-    expect(res.body).toContain('&lt;script');
+    expect(res.body).not.toContain('<img src=x');
+    expect(res.body).not.toContain('<div onclick=');
+    expect(res.body).toContain(
+      markup.replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    );
   });
 
   test('returns a visible error for malformed docs frontmatter', async () => {
@@ -9837,6 +9919,26 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('decodes daily memory file names in admin agent file routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/memory%2F2026-09-21.md',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentMarkdownFile).toHaveBeenCalledWith(
+      'main',
+      'memory/2026-09-21.md',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).file.content).toBe(
+      '# main:memory/2026-09-21.md\n',
+    );
+  });
+
   test('returns the selected admin agent markdown revision', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -12046,6 +12148,52 @@ describe('gateway HTTP server', () => {
     expect(
       commands.find((c: { id: string }) => c.id === 'demo_status'),
     ).toBeUndefined();
+  });
+
+  test.each([false, true])('dispatches inline escalation through normal chat (stream=%s)', async (stream) => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Escalating', continueWithMessage: true });
+    state.handleGatewayMessage.mockImplementationOnce(async (request: { onTextDelta?: (text: string) => void; onToolProgress?: (event: { toolName: string; phase: 'start' }) => void }) => {
+      request.onToolProgress?.({ toolName: 'test-tool', phase: 'start' });
+      request.onTextDelta?.('Photosynthesis answer');
+      return { status: 'success', result: 'Photosynthesis answer', toolsUsed: [] };
+    });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', channelId: 'web', userId: 'user-web',
+      content: '/escalate Explain photosynthesis\nKeep it brief.', stream,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    if (stream) { expect(res.body).toContain('test-tool'); expect(res.body).toContain('Photosynthesis answer'); }
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(expect.objectContaining({ args: ['escalate', 'Explain photosynthesis\nKeep it brief.'] }));
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Explain photosynthesis\nKeep it brief.' }));
+  });
+
+  test('guards secret commands inside inline escalation before queueing a turn', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate hybridclaw secret set API_TOKEN test-key', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).not.toContain('test-key');
+  });
+
+  test('does not dispatch inline escalation when routing refuses it', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Model routing is disabled.' });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate Explain photosynthesis', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).toContain('Model routing is disabled.');
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {
@@ -17562,4 +17710,122 @@ describe('gateway HTTP server', () => {
       '401 Unauthorized',
     );
   });
+});
+
+
+test.each([
+  { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+  { headers: { host: 'example.com' } },
+  { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+])('denies remote/forwarded local-model management before executing: %j', async (request) => {
+  const state = await importFreshHealth();
+  const req = makeRequest({ url: '/api/admin/local-models', method: 'POST', body: { action: 'start' }, ...request });
+  const res = makeResponse();
+  state.handler(req as never, res as never);
+  await settle();
+  expect(res.statusCode).toBe(403);
+  expect(state.localModelCommand).not.toHaveBeenCalled();
+});
+
+test('requires authentication and dedicated permission for local-model mutations', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_local_read': { id: 'test-local', label: 'test-local', claims: { actions: ['admin.models.read', 'admin.models.write'] } },
+  } });
+  for (const authorization of [undefined, 'Bearer hck_test_local_read']) {
+    const req = makeRequest({ url: '/api/admin/local-models', method: 'POST', noAuth: true, headers: { host: 'localhost:9090', ...(authorization ? { authorization } : {}) }, body: { action: 'start' } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect([401, 403]).toContain(res.statusCode);
+    expect(state.localModelCommand).not.toHaveBeenCalled();
+  }
+});
+
+test('routes authenticated loopback status and actions to local-model service', async () => {
+  const state = await importFreshHealth();
+  const get = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models', headers: { host: 'localhost:9090' } }) as never, get as never);
+  await settle();
+  expect(get.statusCode).toBe(200);
+  expect(state.localModelStatus).toHaveBeenCalledOnce();
+  const post = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models', method: 'POST', headers: { host: 'localhost:9090' }, body: { action: 'setup', modelId: 'spark-x2.5-4b' } }) as never, post as never);
+  await settle();
+  expect(post.statusCode).toBe(202);
+  expect(state.localModelCommand).toHaveBeenCalledWith({ action: 'setup', modelId: 'spark-x2.5-4b' });
+});
+
+
+test.each(['tools', 'skills'])('authenticates local %s settings and requires config write permission', async (kind) => {
+  const state = await importFreshHealth({ apiTokens: { hck_test_context_read: { id: 'context-read', label: 'context-read', claims: { actions: ['admin.tools.read', 'admin.skills.read'] } } } });
+  for (const authorization of [undefined, 'Bearer hck_test_context_read']) {
+    const res = makeResponse();
+    state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings`, method: 'PUT', noAuth: true, headers: authorization ? { authorization } : {}, body: { agentId: null, mode: 'full', starred: [] } }) as never, res as never);
+    await settle();
+    expect([401, 403]).toContain(res.statusCode);
+    expect(state.saveLocalContextSettings).not.toHaveBeenCalled();
+  }
+  const read = makeResponse();
+  state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings` }) as never, read as never);
+  await settle();
+  expect(read.statusCode).toBe(200);
+  expect(state.getLocalContextSettings).toHaveBeenCalledWith(kind);
+  const write = makeResponse();
+  const body = { agentId: 'main', mode: 'starred', starred: [] };
+  state.handler(makeRequest({ url: `/api/admin/${kind}/local-settings`, method: 'PUT', body }) as never, write as never);
+  await settle();
+  expect(write.statusCode).toBe(200);
+  expect(state.saveLocalContextSettings).toHaveBeenCalledWith(kind, body);
+});
+
+
+test('protects local activity readings with the same loopback and admin boundary', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_metrics_read': { id: 'metrics-read', label: 'metrics-read', claims: { actions: ['admin.skills.read'] } },
+  } });
+  for (const request of [
+    { noAuth: true, headers: { host: 'localhost:9090' } },
+    { noAuth: true, headers: { host: 'localhost:9090', authorization: 'Bearer hck_test_metrics_read' } },
+    { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+    { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+  ]) {
+    const response = makeResponse();
+    state.handler(makeRequest({ url: '/api/admin/local-models', ...request }) as never, response as never);
+    await settle();
+    expect([401, 403]).toContain(response.statusCode);
+    expect(state.localModelStatus).not.toHaveBeenCalled();
+  }
+});
+
+
+test('starts local model sampling with the HTTP server and closes it on shutdown', async () => {
+  const state = await importFreshHealth();
+  expect(state.startLocalModelMetrics).toHaveBeenCalledOnce();
+  expect(state.localModelStatus).not.toHaveBeenCalled();
+  state.httpServer.broadcastShutdown();
+  expect(state.closeLocalModels).toHaveBeenCalledOnce();
+});
+
+test('routes lightweight activity without probing setup and enforces the same read boundary', async () => {
+  const state = await importFreshHealth({ apiTokens: {
+    'hck_test_activity_read': { id: 'activity', label: 'activity', claims: { actions: ['admin.skills.read'] } },
+  } });
+  const response = makeResponse();
+  state.handler(makeRequest({ url: '/api/admin/local-models?view=activity', headers: { host: 'localhost:9090' } }) as never, response as never);
+  await settle();
+  expect(response.statusCode).toBe(200);
+  expect(state.localModelActivity).toHaveBeenCalledOnce();
+  expect(state.localModelStatus).not.toHaveBeenCalled();
+  for (const request of [
+    { noAuth: true, headers: { host: 'localhost:9090' } },
+    { noAuth: true, headers: { host: 'localhost:9090', authorization: 'Bearer hck_test_activity_read' } },
+    { remoteAddress: '192.0.2.10', headers: { host: 'localhost:9090' } },
+    { headers: { host: 'localhost:9090', 'x-forwarded-for': '192.0.2.10' } },
+  ]) {
+    const denied = makeResponse();
+    state.handler(makeRequest({ url: '/api/admin/local-models?view=activity', ...request }) as never, denied as never);
+    await settle();
+    expect([401, 403]).toContain(denied.statusCode);
+  }
+  expect(state.localModelActivity).toHaveBeenCalledOnce();
 });

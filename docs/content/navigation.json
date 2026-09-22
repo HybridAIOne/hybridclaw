@@ -131,6 +131,10 @@
           "path": "guides/local-providers.md"
         },
         {
+          "title": "Mac Local Model Setup",
+          "path": "guides/mac-local-models.md"
+        },
+        {
           "title": "Remote Access",
           "path": "guides/remote-access.md"
         },

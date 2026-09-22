@@ -581,3 +581,33 @@ describe('local discovery', () => {
     });
   });
 });
+
+
+test.each([true, false])('refreshes invalidated discovery immediately when online=%s, ignoring an older in-flight probe', async (online) => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.local.endpoints = [{ name: 'mac-mlx', type: 'mlx', enabled: true, baseUrl: 'http://127.0.0.1:8321/v1', apiKey: 'test-key', models: ['spark-x2.5-4b'] }];
+  });
+  const discovery = await importFreshDiscovery(homeDir);
+  const response = (ready: boolean) => new Response(JSON.stringify({ data: ready ? [{ id: 'spark-x2.5-4b', context_length: 40960, max_tokens: 2048 }] : [] }), { status: 200 });
+  let finishOld!: (response: Response) => void;
+  const fetchMock = vi.fn().mockResolvedValueOnce(response(!online))
+    .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishOld = resolve; }))
+    .mockResolvedValueOnce(response(online));
+  vi.stubGlobal('fetch', fetchMock);
+  await discovery.discoverAllLocalModels();
+  const oldProbe = discovery.discoverAllLocalModels({ force: true });
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  discovery.invalidateLocalModelDiscovery();
+  const fresh = await discovery.discoverAllLocalModels();
+  expect(fresh).toHaveLength(online ? 1 : 0);
+  finishOld(response(!online));
+  expect(await oldProbe).toEqual(fresh);
+  expect(await discovery.discoverAllLocalModels()).toEqual(fresh);
+  expect(Boolean(discovery.getLocalModelInfo('mac-mlx/spark-x2.5-4b'))).toBe(online);
+  expect(discovery.getLocalModelInfo('other-mac/spark-x2.5-4b')).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});

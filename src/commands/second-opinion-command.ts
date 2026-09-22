@@ -992,6 +992,8 @@ export async function runSecondOpinionCommand(
     totalTokens:
       response.usage?.totalTokens ??
       estimatedInputTokens + (response.usage?.outputTokens ?? 0),
+    cacheReadTokens: response.usage?.cacheReadTokens,
+    cacheWriteTokens: response.usage?.cacheWriteTokens,
     costUsd: response.usage?.costUsd ?? 0,
   });
 

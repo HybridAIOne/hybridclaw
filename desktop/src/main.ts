@@ -1,7 +1,16 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  Menu,
+  nativeImage,
+  powerMonitor,
+  shell,
+} from 'electron';
 import { type GatewayExitPayload, GatewayRuntime } from './gateway-runtime.js';
 import {
   type DesktopRoute,
@@ -10,11 +19,14 @@ import {
   normalizeGatewayBaseUrl,
   routeForUrl,
 } from './gateway-target.js';
+import { DesktopMlxRuntime } from './mlx-runtime.js';
 import { resolveRuntimeRoot } from './runtime-paths.js';
 import { MAC_WINDOW_CHROME_CSS } from './window-chrome.js';
 
 const APP_NAME = 'HybridClaw';
 const IS_MAC = process.platform === 'darwin';
+const SUPPORTS_LOCAL_MODELS =
+  IS_MAC && process.arch === 'arm64' && Number.parseInt(os.release(), 10) >= 24;
 
 const SAFE_EXTERNAL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 
@@ -58,6 +70,13 @@ const gateway = new GatewayRuntime({
       undefined,
   ),
   logPath: path.join(app.getPath('logs'), 'gateway.log'),
+  packaged: app.isPackaged,
+  processEnv: process.env,
+  processExecPath: process.execPath,
+  runtimeRoot,
+});
+const mlxRuntime = new DesktopMlxRuntime({
+  baseUrl: gateway.baseUrl,
   packaged: app.isPackaged,
   processEnv: process.env,
   processExecPath: process.execPath,
@@ -577,6 +596,30 @@ function buildMenu(): Menu {
           },
         },
         {
+          label: 'Labs',
+          visible: SUPPORTS_LOCAL_MODELS,
+          submenu: [
+            {
+              label: 'Set Up Local Model…',
+              click: () => {
+                void mlxRuntime.setup();
+              },
+            },
+            {
+              label: 'Start Local Model',
+              click: () => {
+                void mlxRuntime.start();
+              },
+            },
+            {
+              label: 'Stop Local Model',
+              click: () => {
+                void mlxRuntime.stop();
+              },
+            },
+          ],
+        },
+        {
           label: 'Restart Local Gateway',
           click: async () => {
             if (!gateway.startedChild) {
@@ -635,6 +678,7 @@ function handleGatewayCrash(payload: GatewayExitPayload): void {
 }
 
 app.on('before-quit', () => {
+  void mlxRuntime.stop();
   gateway.requestStop();
 });
 app.on('window-all-closed', () => {
@@ -652,6 +696,9 @@ void app
     Menu.setApplicationMenu(buildMenu());
     gateway.on('unexpected-exit', handleGatewayCrash);
 
+    powerMonitor.on('suspend', () => mlxRuntime.suspend());
+    powerMonitor.on('resume', () => mlxRuntime.resume());
+    if (SUPPORTS_LOCAL_MODELS) void mlxRuntime.start();
     await openRoute('chat');
 
     app.on('activate', () => {

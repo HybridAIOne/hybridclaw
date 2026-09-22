@@ -28,6 +28,12 @@ export interface MediaContextItem {
   mimeType: string | null;
   sizeBytes: number;
   filename: string;
+  /**
+   * Set when the channel could not download the attachment, so `path` is
+   * null and the content never reached the agent. The prompt uses it to tell
+   * the model the file did not arrive instead of leaving a dead URL behind.
+   */
+  unavailableReason?: string | null;
 }
 
 export type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
@@ -98,6 +104,9 @@ export interface ContainerInput {
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   skillCatalog?: SessionSkillCatalogEntry[];
+  localToolMode?: 'full' | 'starred';
+  localStarterTools?: string[];
+  mcpToolMode?: 'full' | 'deferred';
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];

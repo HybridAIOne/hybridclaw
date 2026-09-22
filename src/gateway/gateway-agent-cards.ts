@@ -34,6 +34,8 @@ import { numberFromUnknown, parseAuditPayload } from './gateway-utils.js';
 export interface GatewaySessionUsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_write_tokens: number;
   total_cost_usd: number;
   total_tool_calls: number;
 }
@@ -380,6 +382,8 @@ export function mapSessionCard(params: {
     runtimeMinutes,
     inputTokens: usage?.total_input_tokens || 0,
     outputTokens: usage?.total_output_tokens || 0,
+    cacheReadTokens: usage?.total_cache_read_tokens || 0,
+    cacheWriteTokens: usage?.total_cache_write_tokens || 0,
     costUsd: usage?.total_cost_usd || 0,
     messageCount: session.message_count,
     toolCalls: usage?.total_tool_calls || 0,
@@ -436,6 +440,8 @@ export function mapLogicalAgentCard(params: {
     lastActive: sessions[0]?.lastActive || null,
     inputTokens: usage?.total_input_tokens || 0,
     outputTokens: usage?.total_output_tokens || 0,
+    cacheReadTokens: usage?.total_cache_read_tokens || 0,
+    cacheWriteTokens: usage?.total_cache_write_tokens || 0,
     costUsd: usage?.total_cost_usd || 0,
     monthlySpendUsd: params.monthlySpendUsd || 0,
     messageCount: sessions.reduce(

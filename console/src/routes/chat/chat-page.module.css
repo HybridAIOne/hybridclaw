@@ -2554,3 +2554,17 @@ aside[data-state="collapsed"] .chatSidebarContent {
     animation: none;
   }
 }
+
+.markdownContent :global(.citation-unavailable) {
+  display: inline-block;
+  margin-inline: 0.25em;
+  padding: 0.1em 0.5em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.72em;
+  line-height: 1.5;
+  vertical-align: 0.1em;
+  font-weight: 400;
+}

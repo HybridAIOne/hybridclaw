@@ -42,6 +42,7 @@ export interface ChatMessage {
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  is_error?: boolean;
   anthropic_content?: AnthropicContentBlock[];
   openai_response_items?: Array<Record<string, unknown>>;
 }
@@ -142,7 +143,8 @@ export interface TaskModelPolicy {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'mlx';
   providerMethod?: string;
   baseUrl?: string;
   apiKey?: string;
@@ -251,7 +253,8 @@ export interface ContainerInput {
     | 'ollama'
     | 'lmstudio'
     | 'llamacpp'
-    | 'vllm';
+    | 'vllm'
+    | 'mlx';
   providerMethod?: string;
   requestHeaders?: Record<string, string>;
   isLocal?: boolean;
@@ -278,6 +281,9 @@ export interface ContainerInput {
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
   skillCatalog?: SessionSkillCatalogEntry[];
+  localToolMode?: 'full' | 'starred';
+  localStarterTools?: string[];
+  mcpToolMode?: 'full' | 'deferred';
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];
@@ -300,6 +306,12 @@ export interface MediaContextItem {
   mimeType: string | null;
   sizeBytes: number;
   filename: string;
+  /**
+   * Set when the channel could not download the attachment, so `path` is
+   * null and the content never reached the agent. The prompt uses it to tell
+   * the model the file did not arrive instead of leaving a dead URL behind.
+   */
+  unavailableReason?: string | null;
 }
 
 export type ToolExecutionStakesSignal = CanonicalStakesSignal;

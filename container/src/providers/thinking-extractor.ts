@@ -1,3 +1,8 @@
+/**
+ * Separates model reasoning from visible text without inventing either.
+ * Unlike completion handling, this parser cannot decide that a task succeeded;
+ * reasoning-only and truncated reasoning therefore have no visible content.
+ */
 export interface ThinkingExtractionResult {
   thinking: string | null;
   content: string | null;
@@ -79,7 +84,7 @@ export function extractThinkingBlocks(
   const thinkingOnly = normalizedContent.length === 0;
   return {
     thinking,
-    content: thinkingOnly ? 'Done.' : normalizedContent,
+    content: thinkingOnly ? null : normalizedContent,
     thinkingOnly,
   };
 }

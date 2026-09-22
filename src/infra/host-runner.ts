@@ -1,3 +1,8 @@
+/**
+ * Runner binds model credentials and per-agent configuration to one request.
+ * Local starter names control schema visibility; the independent allowed/blocked
+ * tool lists remain the permission boundary enforced by the worker.
+ */
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,6 +12,11 @@ import type {
   ExecutorRequest,
   ExecutorSessionHealthSnapshot,
 } from '../agent/executor-types.js';
+import {
+  resolveLocalStarterTools,
+  resolveLocalToolMode,
+  resolveMcpToolMode,
+} from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -859,6 +869,14 @@ export function getActiveHostProcessCount(): number {
   return pool.size;
 }
 
+export function getInFlightHostProcessCount(): number {
+  let count = 0;
+  for (const entry of pool.values()) {
+    if (entry.activity) count += 1;
+  }
+  return count;
+}
+
 export function stopSessionHostProcess(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
@@ -1029,6 +1047,13 @@ async function runHostProcessInner(
       }),
     ),
     skillCatalog: params.skillCatalog,
+    localToolMode: modelRuntime.isLocal
+      ? resolveLocalToolMode(agentId)
+      : undefined,
+    localStarterTools: modelRuntime.isLocal
+      ? resolveLocalStarterTools(agentId)
+      : undefined,
+    mcpToolMode: modelRuntime.isLocal ? undefined : resolveMcpToolMode(agentId),
     allowedTools: effectiveAllowedTools,
     blockedTools,
     media,
@@ -1253,6 +1278,10 @@ export class HostExecutor {
 
   getActiveSessionCount(): number {
     return getActiveHostProcessCount();
+  }
+
+  getInFlightSessionCount(): number {
+    return getInFlightHostProcessCount();
   }
 
   getActiveSessionIds(): string[] {

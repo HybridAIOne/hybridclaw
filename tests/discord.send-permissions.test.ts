@@ -86,6 +86,29 @@ test('resolveSendAllowedFromSnapshot allows allowlist mode when channel is confi
   expect(result).toEqual({ allowed: true });
 });
 
+test('resolveSendAllowedFromSnapshot inherits parent channel policy for threads', () => {
+  const result = resolveSendAllowedFromSnapshot(
+    buildSnapshot({
+      sendPolicy: 'allowlist',
+      sendAllowedChannelIds: [CHANNEL_ID],
+      guilds: {
+        [GUILD_ID]: {
+          defaultMode: 'mention',
+          channels: {
+            [CHANNEL_ID]: { mode: 'mention' },
+          },
+        },
+      },
+    }),
+    {
+      channelId: OTHER_CHANNEL_ID,
+      parentChannelId: CHANNEL_ID,
+      guildId: GUILD_ID,
+    },
+  );
+  expect(result).toEqual({ allowed: true });
+});
+
 test('resolveSendAllowedFromSnapshot respects explicit channel send deny', () => {
   const result = resolveSendAllowedFromSnapshot(
     buildSnapshot({

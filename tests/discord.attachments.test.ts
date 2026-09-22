@@ -147,6 +147,71 @@ describe('buildAttachmentContext', () => {
     expect(cachedFile).toBeTruthy();
   });
 
+  test('caches attachments carried by a forwarded message', async () => {
+    const dataDir = makeTempDataDir();
+    const fetchBody = Buffer.from('%PDF-1.7\n', 'utf8');
+    const fetchDiscordCdnBufferMock = vi.fn(async () => ({
+      body: fetchBody,
+      contentLength: fetchBody.length,
+      contentType: 'application/pdf',
+      url: 'https://cdn.discordapp.com/attachments/1/2/report.pdf',
+    }));
+
+    vi.doMock('../src/channels/discord/discord-cdn-fetch.js', () => ({
+      fetchDiscordCdnBuffer: fetchDiscordCdnBufferMock,
+      fetchDiscordCdnText: vi.fn(),
+      isSafeDiscordCdnUrl: vi.fn(() => true),
+    }));
+    vi.doMock('../src/config/config.ts', () => ({
+      CONTAINER_SANDBOX_MODE: 'container',
+      DATA_DIR: dataDir,
+    }));
+    vi.doMock('../src/logger.js', () => ({
+      logger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+      },
+    }));
+
+    const { buildAttachmentContext } = await import(
+      '../src/channels/discord/attachments.js'
+    );
+
+    const attachment = {
+      contentType: 'application/pdf',
+      id: 'att-fwd-1',
+      name: 'report.pdf',
+      proxyURL: 'https://media.discordapp.net/attachments/1/2/report.pdf',
+      size: fetchBody.length,
+      url: 'https://cdn.discordapp.com/attachments/1/2/report.pdf',
+    };
+    // A Discord forward: the outer message has no attachments of its own,
+    // the original's attachments live in the message snapshot.
+    const message = {
+      attachments: new Map(),
+      id: 'msg-fwd-1',
+      messageSnapshots: new Map([
+        [
+          'msg-original-1',
+          { attachments: new Map([[attachment.id, attachment]]) },
+        ],
+      ]),
+    };
+
+    const result = await buildAttachmentContext([message as never]);
+
+    expect(fetchDiscordCdnBufferMock).toHaveBeenCalledTimes(1);
+    expect(result.context).toContain('report.pdf: PDF attachment cached');
+    expect(result.media).toHaveLength(1);
+    expect(result.media[0]).toMatchObject({
+      filename: 'report.pdf',
+      mimeType: 'application/pdf',
+      path: expect.stringMatching(/^\/discord-media-cache\//),
+    });
+  });
+
   test('caches audio attachments into the media context', async () => {
     const dataDir = makeTempDataDir();
     const fetchBody = Buffer.from('ogg-payload', 'utf8');

@@ -166,7 +166,10 @@ Supported environment variables:
   `hybridclaw-gateway`)
 
 When enabled, HybridClaw emits spans for gateway message handling, agent runs,
-host or container execution, and skill loading. Structured logs also include
+host or container execution, skill loading, and every tool execution
+(`hybridclaw.tool.execute`, nested under the turn span, with the tool name in
+`hybridclaw.tool_name` / `gen_ai.tool.name` and `langfuse.observation.type=tool`
+so Langfuse shows it as a TOOL observation). Structured logs also include
 `traceId` and `spanId` fields so logs and traces can be correlated in the same
 incident workflow. The OTel SDK is loaded lazily, so there is no startup or
 runtime overhead when tracing is off.

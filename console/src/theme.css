@@ -100,6 +100,10 @@
   --line-strong: var(--border-strong);
   --text: var(--foreground);
   --accent-soft: var(--accent);
+  --chart-input: #2a78d6;
+  --chart-input-cached: #86b6ef;
+  --chart-cache-write: #184f95;
+  --chart-output: #1baf7a;
 }
 
 :root,
@@ -192,4 +196,8 @@ html[data-theme="dark"] {
   --text: var(--foreground);
   --accent-soft: var(--accent);
   --sidebar-fg: var(--sidebar-foreground);
+  --chart-input: #3987e5;
+  --chart-input-cached: #86b6ef;
+  --chart-cache-write: #184f95;
+  --chart-output: #199e70;
 }
