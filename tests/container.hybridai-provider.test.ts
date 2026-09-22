@@ -80,6 +80,55 @@ afterEach(() => {
 });
 
 describe('HybridAI container provider', () => {
+  test('sends an explicit thinking override for supported Qwen3.8 models', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return makeEventStreamResponse([
+          'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      model: 'hybridai/qwen/qwen3.8-27b',
+      reasoningEffort: 'none',
+      onTextDelta: vi.fn(),
+    });
+
+    expect(requestBody).toMatchObject({
+      reasoning_effort: 'none',
+      chat_template_kwargs: { enable_thinking: false },
+    });
+  });
+
+  test('does not send thinking fields to unsupported models', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return makeEventStreamResponse([
+          'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      }),
+    );
+
+    await callHybridAIProviderStream({
+      ...baseStreamArgs,
+      reasoningEffort: 'none',
+      onTextDelta: vi.fn(),
+    });
+
+    expect(requestBody).not.toHaveProperty('reasoning_effort');
+    expect(requestBody).not.toHaveProperty('chat_template_kwargs');
+  });
+
   test('keeps delta-only streams unchanged, including repeated text', async () => {
     const streamed = await streamPayloads([
       { choices: [{ delta: { content: 'Ja' } }] },
