@@ -7,7 +7,10 @@ import { useMemo, useState } from 'react';
 import { fetchConfig, requestJson, saveConfig } from '../api/client';
 import type { AdminConfig, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
-import { privacyModelPreview } from '../lib/privacy-model-preview';
+import {
+  isRoutingLanguageModel,
+  privacyModelPreview,
+} from '../lib/privacy-model-preview';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
@@ -253,7 +256,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       },
     });
   }
-  const selectableModels = models.filter((model) => isAllowed(model.id));
+  const selectableModels = models.filter(
+    (model) => isRoutingLanguageModel(model) && isAllowed(model.id),
+  );
   const topPrivacyModels = (zone: Ladder['maximumZone']) =>
     privacyModelPreview(
       models,

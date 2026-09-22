@@ -5,6 +5,14 @@
  */
 import type { ChatModel } from '../api/types';
 
+// The chat catalog has no task-kind field; recognize embedding/reranker names
+// and families without excluding generative models from the same maker.
+export function isRoutingLanguageModel(model: ChatModel): boolean {
+  return !/(?:^|[/_. -])(?:embeddings?|embed|rerank(?:er)?|bge|e5)(?:$|[/_. -])/i.test(
+    `${model.id} ${model.family ?? ''}`,
+  );
+}
+
 function identity(id: string) {
   return id.toLowerCase().split('/').at(-1)!.replace(/:.*$/, '');
 }
@@ -34,6 +42,7 @@ export function privacyModelPreview(
   const candidates = models
     .filter(
       (model) =>
+        isRoutingLanguageModel(model) &&
         (model.zone ?? 'cloud') === zone &&
         !(model.backend && model.discovered === false) &&
         !/claude-3(?:[.-]|$)|:batch$|\/~/.test(model.id.toLowerCase()),

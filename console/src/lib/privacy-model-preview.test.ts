@@ -4,7 +4,10 @@
  */
 import { expect, test } from 'vitest';
 import type { ChatModel } from '../api/types';
-import { privacyModelPreview } from './privacy-model-preview';
+import {
+  isRoutingLanguageModel,
+  privacyModelPreview,
+} from './privacy-model-preview';
 
 test('previews prefer configured equivalents and different makers, excluding old and duplicate routes', () => {
   const ids = [
@@ -34,4 +37,28 @@ test('a level with one maker can still show three distinct models', () => {
   })) as ChatModel[];
   expect(privacyModelPreview(models, 'eu-provider', [])).toHaveLength(3);
   expect(privacyModelPreview(models, 'region', [])).toEqual([]);
+});
+
+test('embedding and reranker models never appear in routing previews', () => {
+  const models = [
+    'lmstudio/text-embedding-nomic-embed-text-v1.5',
+    'ollama/nomic-embed-text',
+    'vllm/Qwen/Qwen3-Embedding-8B',
+    'openai/text-embedding-3-large',
+    'lmstudio/BAAI/bge-m3',
+    'lmstudio/intfloat/multilingual-e5-large',
+    'vllm/Qwen/Qwen3-Reranker-8B',
+    'lmstudio/nvidia/nemotron-3-nano',
+    'vllm/Qwen/Qwen3.6-27B-FP8',
+  ].map((id) => ({ id, zone: 'local' })) as ChatModel[];
+  expect(
+    models.filter(isRoutingLanguageModel).map((model) => model.id),
+  ).toEqual(['lmstudio/nvidia/nemotron-3-nano', 'vllm/Qwen/Qwen3.6-27B-FP8']);
+  expect(
+    privacyModelPreview(
+      models,
+      'local',
+      models.map((model) => model.id),
+    ),
+  ).toHaveLength(2);
 });
