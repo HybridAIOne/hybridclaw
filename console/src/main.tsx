@@ -3,6 +3,7 @@ import { App } from './app';
 import { AuthProvider } from './auth';
 import { ToastProvider } from './components/toast';
 import { initThemeStore } from './theme';
+import 'katex/dist/katex.min.css';
 import './theme.css';
 import './styles.css';
 
