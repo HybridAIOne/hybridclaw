@@ -153,7 +153,9 @@ saved revision history directly.
 - **Models → Routing** stores separate model assignments per mode in
   `routing.tiers[].modelsByMode` (`auto`, `privacy`, `speed`, `cost`). Tier names
   and capability order are shared. The editor prefills modes from configured
-  models at the same or higher capability tier; it does not infer capabilities
+  alternatives within that capability tier; higher-tier models are not copied
+  into backup slots. Retry-safe failures escalate to the next tier automatically.
+  The editor does not infer capabilities
   for unrelated catalog models. Changing a model edits only the displayed mode.
   `models` supplies the base pool for modes without explicit assignments.
 - `routing.mode`: Cost chooses the lowest known combined input/output token rate

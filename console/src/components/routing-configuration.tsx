@@ -69,10 +69,8 @@ function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
       config,
       'routing.evaluator',
     ) as Ladder['evaluator']) ?? { mode: 'off' },
-    tiers: tiers.map((tier, index) => {
-      const eligible = [
-        ...new Set(tiers.slice(index).flatMap((t) => t.models)),
-      ];
+    tiers: tiers.map((tier) => {
+      const eligible = [...tier.models];
       const modelsByMode = {
         auto: [...tier.models],
         privacy: [...eligible].sort((a, b) => zone(a) - zone(b)),

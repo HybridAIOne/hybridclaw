@@ -330,10 +330,6 @@ it('keeps independent model assignments when switching modes and saving', async 
   fireEvent.change(screen.getByLabelText('Tier 1 model 1'), {
     target: { value: 'cloud-model' },
   });
-  // Remove the now-duplicate backup from the generated Cost preset.
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Remove tier 1 backup 1' }),
-  );
   fireEvent.change(screen.getByLabelText('Mode'), {
     target: { value: 'auto' },
   });
@@ -355,6 +351,14 @@ it('keeps independent model assignments when switching modes and saving', async 
 });
 
 it('prefills Cost and Speed from capable models and restores Auto assignments', async () => {
+  mocks.fetch.mockResolvedValue({
+    config: {
+      routing: {
+        ...routing,
+        tiers: [{ name: 'Local', models: ['local-model', 'cloud-model'] }],
+      },
+    },
+  });
   const catalog = models.map((model) => ({
     ...model,
     latencyMs: model.id === 'cloud-model' ? 10 : 100,
@@ -407,4 +411,20 @@ it('local-only hides cloud selections and choices in every mode, without losing 
   expect(
     (screen.getByLabelText('Tier 2 model 1') as HTMLSelectElement).value,
   ).toBe('cloud-model');
+});
+
+it('never copies the next tier into generated mode backups', async () => {
+  await renderEditor();
+  for (const mode of ['privacy', 'speed', 'cost', 'auto']) {
+    fireEvent.change(screen.getByLabelText('Mode'), {
+      target: { value: mode },
+    });
+    expect(
+      (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
+    ).toBe('local-model');
+    expect(
+      (screen.getByLabelText('Tier 2 model 1') as HTMLSelectElement).value,
+    ).toBe('cloud-model');
+    expect(screen.queryByLabelText('Tier 1 model 2')).toBeNull();
+  }
 });
