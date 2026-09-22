@@ -1165,6 +1165,9 @@ describe('ChatPage', () => {
         messageCount: 1,
         promptTokens: null,
         completionTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        cacheHitPercent: null,
       },
     });
 

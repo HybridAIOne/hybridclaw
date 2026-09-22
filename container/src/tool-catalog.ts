@@ -1,5 +1,7 @@
 /**
- * Local requests expose stable starter schemas and bounded discovery results.
+ * Requests expose a stable set of starter schemas and bounded discovery results.
+ * Local requests start from a configured starter list; remote requests can
+ * instead defer the tools of connected MCP servers behind the catalog.
  * Only tools admitted by the request policy enter this catalog. Calls unwrap
  * before approval/audit; unlike tools.ts this module never executes actions.
  * Deferred arguments are schema-checked; invalid shapes return bounded feedback.
@@ -72,7 +74,7 @@ function readArgs(text: string): Record<string, unknown> {
 
 class CatalogArgumentError extends Error {}
 
-export class LocalToolCatalog {
+export class ToolCatalog {
   readonly tools: ToolDefinition[];
   private readonly byName: Map<string, ToolDefinition>;
   private readonly starters: Set<string>;
@@ -82,20 +84,44 @@ export class LocalToolCatalog {
     ReturnType<AjvJsonSchemaValidator['getValidator']>
   >();
 
+  /**
+   * A catalog that exposes every available tool except the named ones, which
+   * stay reachable through discovery. Returns null when nothing would be
+   * deferred, so the request keeps its plain tool array.
+   */
+  static deferring(
+    availableTools: ToolDefinition[],
+    deferredTools: ReadonlySet<string>,
+  ): ToolCatalog | null {
+    const names = availableTools.map((tool) => tool.function.name);
+    if (!names.some((name) => deferredTools.has(name))) return null;
+    return new ToolCatalog(
+      availableTools,
+      new Set(names.filter((name) => !deferredTools.has(name))),
+      false,
+      'Tools from connected MCP servers are not exposed as direct functions',
+    );
+  }
+
   constructor(
     availableTools: ToolDefinition[],
-    starterTools?: string[],
+    starterTools?: string[] | ReadonlySet<string>,
     discoveryDisabled = false,
+    private readonly deferredLabel = 'Additional permitted tools',
   ) {
     if (availableTools.some((tool) => tool.function.name === NAME))
-      throw new Error('The tool_catalog name is reserved for local discovery.');
+      throw new Error('The tool_catalog name is reserved for discovery.');
     this.byName = new Map(
       availableTools.map((tool) => [tool.function.name, tool]),
     );
-    this.starters = new Set(
-      normalizeLocalStarterTools(starterTools, 'localStarterTools') ??
-        DEFAULT_LOCAL_STARTER_TOOLS,
-    );
+    // A Set is a resolved selection; an array is operator input to validate.
+    this.starters =
+      starterTools instanceof Set
+        ? new Set(starterTools)
+        : new Set(
+            normalizeLocalStarterTools(starterTools, 'localStarterTools') ??
+              DEFAULT_LOCAL_STARTER_TOOLS,
+          );
     this.tools = availableTools.filter((tool) =>
       this.starters.has(tool.function.name),
     );
@@ -111,12 +137,12 @@ export class LocalToolCatalog {
     const names = this.tools.map((tool) => tool.function.name);
     const directory = names.includes(NAME);
     return [
-      '## Local tool call boundary',
+      '## Tool call boundary',
       names.length
         ? `Directly exposed functions in this request are ${names.join(names.length === 2 ? ' and ' : ', ')}.`
         : 'No functions are exposed in this request.',
       directory
-        ? 'Additional permitted tools are available through tool_catalog. Execute them with action=call, their exact name in name, and their parameters in arguments; their own schemas do not need to be directly exposed.'
+        ? `${this.deferredLabel} are available through tool_catalog. Execute them with action=call, their exact name in name, and their parameters in arguments; their own schemas do not need to be directly exposed.`
         : '',
       'Skills are instruction packages, not tool functions. Reading a SKILL.md provides workflow instructions; it does not register tools or grant permissions.',
       directory && this.byName.has('read') && !names.includes('read')
@@ -203,7 +229,7 @@ export class LocalToolCatalog {
         );
       } catch {
         throw new Error(
-          'This tool schema cannot be validated for local discovery. No action was executed.',
+          'This tool schema cannot be validated for catalog discovery. No action was executed.',
         );
       }
       this.validators.set(tool.function.name, validate);
@@ -277,7 +303,7 @@ export class LocalToolCatalog {
       return output.length > MAX_SCHEMA_CHARS
         ? {
             output:
-              'Error: This tool schema is too large for local discovery. Use a smaller tool or a model with a larger context.',
+              'Error: This tool schema is too large for catalog discovery. Use a smaller tool or a model with a larger context.',
             isError: true,
           }
         : { output, isError: false };

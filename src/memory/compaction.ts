@@ -91,6 +91,12 @@ export interface CompactConversationParams {
   promptRunner: CompactionPromptRunner;
   embed?: (text: string) => number[] | null;
   config?: Partial<CompactionConfig>;
+  /**
+   * Exact number of newest non-system messages to keep verbatim. When set,
+   * it replaces the ratio-based split so callers that already resolved a
+   * turn-aligned retention get exactly that slice.
+   */
+  retainRecentCount?: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -293,10 +299,19 @@ async function runSummaryAttempt(params: {
 function splitConversation(
   messages: StoredMessage[],
   overrides?: Partial<CompactionConfig>,
+  retainRecentCount?: number,
 ): ConversationSplit {
   const config = resolveCompactionConfig(overrides);
   const system = messages.filter((message) => message.role === 'system');
   const nonSystem = messages.filter((message) => message.role !== 'system');
+  if (retainRecentCount != null && Number.isFinite(retainRecentCount)) {
+    const retain = clamp(Math.floor(retainRecentCount), 1, nonSystem.length);
+    return {
+      system,
+      compactable: nonSystem.slice(0, nonSystem.length - retain),
+      recent: nonSystem.slice(nonSystem.length - retain),
+    };
+  }
   if (nonSystem.length <= config.keepRecentMessages) {
     return {
       system,
@@ -654,7 +669,11 @@ export async function compactConversation(
 ): Promise<CompactionResult> {
   const startedAt = Date.now();
   const config = resolveCompactionConfig(params.config);
-  const split = splitConversation(params.messages, config);
+  const split = splitConversation(
+    params.messages,
+    config,
+    params.retainRecentCount,
+  );
   if (split.compactable.length === 0) {
     throw new NoCompactableMessagesError(params.session.id);
   }

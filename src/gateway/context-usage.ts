@@ -22,6 +22,9 @@ export interface ContextUsageSnapshot {
   messageCount: number;
   promptTokens: number | null;
   completionTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  cacheHitPercent: number | null;
 }
 
 export function buildContextUsageSnapshot(params: {
@@ -60,5 +63,8 @@ export function buildContextUsageSnapshot(params: {
       : 0,
     promptTokens: snapshot.promptTokens,
     completionTokens: snapshot.completionTokens,
+    cacheReadTokens: snapshot.cacheReadTokens,
+    cacheWriteTokens: snapshot.cacheWriteTokens,
+    cacheHitPercent: snapshot.cacheHitPercent,
   };
 }
