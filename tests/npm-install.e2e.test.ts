@@ -153,6 +153,8 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     await waitForHealth(`${GATEWAY_URL}/health`, STARTUP_TIMEOUT_MS);
   }, STARTUP_TIMEOUT_MS + 150_000);
 
+  // 30s (Codex, 2026-09-22): allow the bounded 7s shutdown plus removal of
+  // both installed dependency trees on CI; production shutdown tuning is deferred.
   afterAll(async () => {
     if (gatewayProcess) {
       const proc = gatewayProcess;
@@ -186,7 +188,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
         console.warn('[cleanup] Failed to remove temp dir:', err);
       }
     }
-  });
+  }, 30_000);
 
   // ── CLI binary works ────────────────────────────────────────────────
 
