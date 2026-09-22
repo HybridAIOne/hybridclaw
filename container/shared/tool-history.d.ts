@@ -12,8 +12,13 @@ interface HistoryMessage {
   openai_response_items?: Array<Record<string, unknown>>;
 }
 export const TOOL_HISTORY_RESULT_MAX_CHARS: number;
+export const TOOL_RESULTS_DIR: string;
 export function sessionTranscriptFilename(sessionId: string): string;
+export function toolResultFilePath(
+  sessionId: string,
+  toolCallId: string | undefined,
+): string;
 export function toolResultForHistory<
   T extends { role: string; content: unknown; tool_call_id?: string },
->(message: T, sessionId: string): T;
+>(message: T, sessionId: string, resultPath?: string): T;
 export function validateToolHistory(value: unknown): HistoryMessage[];

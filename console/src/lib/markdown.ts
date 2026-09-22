@@ -1,10 +1,12 @@
 /**
  * Chat markdown stays sanitized; provider citation IDs never become invented URLs.
+ * Math is rendered separately with KaTeX in untrusted mode; raw HTML stays restricted.
  * Unlike provider adapters, this renderer has no source registry and marks unresolved citations.
  */
 import { Marked, type Tokens } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { highlightCodeBlock } from './highlight';
+import { createMathRenderer } from './markdown-math';
 
 const CHAT_MARKDOWN_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -186,12 +188,6 @@ function createMarked(highlight: boolean): Marked {
   return instance;
 }
 
-// Two preconfigured instances rather than re-registering the renderer per call.
-// The plain one skips syntax highlighting for streaming renders (see
-// renderMarkdown's `highlight` option).
-const markdownHighlighted = createMarked(true);
-const markdownPlain = createMarked(false);
-
 export function renderMarkdown(
   raw: string,
   options?: { highlight?: boolean },
@@ -205,12 +201,15 @@ export function renderMarkdown(
     .replace(/^(\s*)\*\*(\d+)\.\s+(.+?)\*\*\s*$/gm, '$1$2. **$3**');
   if (!normalized.trim()) return '';
 
-  const instance =
-    options?.highlight === false ? markdownPlain : markdownHighlighted;
+  const math = createMathRenderer();
+  const instance = createMarked(options?.highlight !== false);
+  instance.use(math.extension);
   const rendered = instance.parse(linkifyBareLocalAppRoutes(normalized));
 
-  return sanitizeHtml(
-    typeof rendered === 'string' ? rendered : String(rendered || ''),
-    CHAT_MARKDOWN_SANITIZE_OPTIONS,
-  ).trim();
+  return math.restore(
+    sanitizeHtml(
+      typeof rendered === 'string' ? rendered : String(rendered || ''),
+      CHAT_MARKDOWN_SANITIZE_OPTIONS,
+    ).trim(),
+  );
 }
