@@ -3,13 +3,6 @@
  * Probabilities are evidence, never permission to disclose input or execute tools.
  * No prompt content belongs in an evaluation record.
  */
-export const EVALUATION_LABELS = {
-  pii: ['absent', 'present', 'uncertain'],
-  confidentiality: ['public', 'confidential', 'uncertain'],
-  capability: ['basic', 'standard', 'advanced', 'uncertain'],
-  urgency: ['urgent', 'normal', 'relaxed', 'unspecified'],
-} as const;
-export type EvaluationDimension = keyof typeof EVALUATION_LABELS;
 export interface ChoiceDistribution {
   choice: string;
   confidence: number;
@@ -26,10 +19,8 @@ export interface TypedRoutingEvaluation {
   inputTokens: number | null;
   outputTokens: number | null;
   costUsd: number | null;
-  distributions: Record<EvaluationDimension, ChoiceDistribution> | null;
+  distributions: Record<string, ChoiceDistribution> | null;
   recommendedTier: string | null;
-  capability?: 'basic' | 'standard' | 'advanced' | 'uncertain';
-  urgency?: 'urgent' | 'normal' | 'relaxed' | 'unspecified';
   selectedModel?: string | null;
   applied: boolean;
 }
@@ -107,13 +98,6 @@ export function isTypedRoutingEvaluation(
   )
     return false;
   if (
-    v.capability !== undefined &&
-    !EVALUATION_LABELS.capability.includes(v.capability)
-  )
-    return false;
-  if (v.urgency !== undefined && !EVALUATION_LABELS.urgency.includes(v.urgency))
-    return false;
-  if (
     v.selectedModel != null &&
     (typeof v.selectedModel !== 'string' || v.selectedModel.length > 300)
   )
@@ -123,11 +107,12 @@ export function isTypedRoutingEvaluation(
       return false;
   if (v.distributions === null) return true;
   if (!v.distributions || typeof v.distributions !== 'object') return false;
-  for (const key of Object.keys(EVALUATION_LABELS) as EvaluationDimension[]) {
+  for (const key of Object.keys(v.distributions)) {
     const d = v.distributions[key];
-    const labels: readonly string[] = EVALUATION_LABELS[key];
+    const labels = Object.keys(d?.probabilities ?? {});
     if (
       !d ||
+      labels.length === 0 ||
       !labels.includes(d.choice) ||
       !Number.isFinite(d.confidence) ||
       d.confidence < 0 ||

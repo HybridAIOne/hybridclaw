@@ -208,16 +208,13 @@ it('keeps probability distributions out of chat and shows relevant privacy restr
           outputTokens: 40,
           costUsd: 0.0000042,
           distributions: {
-            pii: score('present'),
-            confidentiality: score('public'),
-            capability: score('basic'),
-            urgency: score('unspecified'),
+            tier: score('economy'),
           },
         },
       }}
     />,
   );
-  expect(screen.getByText('92% capability confidence')).not.toBeNull();
+  expect(screen.getByText('92% confidence')).not.toBeNull();
   expect(screen.getByText('Privacy: local models only')).not.toBeNull();
   expect(screen.queryByText('Scores')).toBeNull();
   expect(screen.queryByText(/Personal data/)).toBeNull();

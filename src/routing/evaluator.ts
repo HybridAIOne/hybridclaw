@@ -55,6 +55,7 @@ export async function evaluateRouting(input: {
   if (blocked) return { ...result, reason: blocked };
   if (!input.classifier)
     return { ...result, status: 'fallback', reason: 'credential-missing' };
+  if (!input.tiers.length) return { ...result, reason: 'no-tiers' };
   const timeout = AbortSignal.timeout(input.config.timeoutMs);
   const signal = input.signal
     ? AbortSignal.any([input.signal, timeout])
@@ -63,34 +64,19 @@ export async function evaluateRouting(input: {
     const response = await input.classifier.evaluate({
       text: input.text,
       model: input.config.model,
+      tiers: input.tiers,
       signal,
     });
     Object.assign(result, response, { status: 'evaluated' });
-    const d = response.distributions;
-    if (
-      // Capability routing depends on these dimensions; unspecified urgency
-      // must not veto a clear task (routing policy, 2026-09-21).
-      [d.pii, d.confidentiality, d.capability].some(
-        (value) => value.confidence < input.config.minConfidence,
-      ) ||
-      d.capability.choice === 'uncertain'
-    )
+    const score = response.distributions.tier;
+    if (!input.tiers.some((tier) => tier.name === score.choice))
+      throw new Error('invalid-response');
+    if (score.confidence < input.config.minConfidence) {
+      result.status = 'fallback';
       result.reason = 'low-confidence';
-    else if (d.pii.choice !== 'absent' || d.confidentiality.choice !== 'public')
-      result.reason = 'sensitive-or-uncertain';
-    else if (!input.tiers.length) result.reason = 'no-tiers';
-    else {
-      // Phase 2 policy (2026-09-21): fixed capability anchors span any configured
-      // ladder; learned tier quality estimates and optimization belong to phase 3.
-      const fraction =
-        d.capability.choice === 'basic'
-          ? 0
-          : d.capability.choice === 'standard'
-            ? 0.5
-            : 1;
-      result.recommendedTier =
-        input.tiers[Math.ceil(fraction * (input.tiers.length - 1))].name;
-      result.reason = 'capability-recommendation';
+    } else {
+      result.recommendedTier = score.choice;
+      result.reason = 'tier-recommendation';
     }
   } catch (error) {
     result.status = 'fallback';

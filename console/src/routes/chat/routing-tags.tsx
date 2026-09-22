@@ -93,10 +93,9 @@ function RoutingDecisionRow({
             {value.selectedModel ? <small>{value.selectedModel}</small> : null}
           </>
         )}
-        {value.distributions ? (
-          <small title="Confidence in the capability classification, not a calibrated probability that the selected tier is optimal.">
-            {Math.round(value.distributions.capability.confidence * 100)}%
-            capability confidence
+        {value.distributions?.tier ? (
+          <small title="Confidence in the tier recommendation.">
+            {Math.round(value.distributions.tier.confidence * 100)}% confidence
           </small>
         ) : null}
         {value.reason.includes('local only') ||

@@ -393,13 +393,14 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
     agentId: 'main',
     provider: 'hybridai',
     model: 'hybridai/gpt-5-nano',
+    traceReason: 'routing-classifier',
     allowFallback: false,
     fallbackChatbotId: 'bot_123',
     maxTokens: 2048,
     temperature: 0.1,
     messages: [{ role: 'user', content: 'Rewrite this memory.' }],
   }));
-  expect(trace.attempts[0]).toMatchObject({ model: 'hybridai/gpt-5-nano', cacheReadTokens: 20 });
+  expect(trace.attempts[0]).toMatchObject({ model: 'hybridai/gpt-5-nano', reason: 'routing-classifier', cacheReadTokens: 20 });
 
   expect(result).toEqual({
     provider: 'hybridai',

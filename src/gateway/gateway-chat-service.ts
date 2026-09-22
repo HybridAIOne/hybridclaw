@@ -1612,8 +1612,6 @@ async function handleGatewayMessageInner(
       recordRoutingEvaluation(
         {
           ...shadow.evaluation,
-          capability: shadow.signals.capability,
-          urgency: shadow.signals.urgency,
           recommendedTier:
             shadow.evaluation.status === 'evaluated'
               ? shadowDecision.ladder.startTier
@@ -1669,8 +1667,6 @@ async function handleGatewayMessageInner(
       unifiedRoutingReason = decision.reason;
       recordRoutingEvaluation({
         ...classification.evaluation,
-        capability: classification.signals.capability,
-        urgency: classification.signals.urgency,
         selectedModel: model,
         recommendedTier: tierRoutingLadder.startTier,
         reason:

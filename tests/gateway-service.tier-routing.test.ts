@@ -1,4 +1,3 @@
-import { EVALUATION_LABELS } from '../src/routing/evaluator-contract.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
@@ -314,7 +313,7 @@ test('does not remember an unsuccessful manual escalation', async () => {
 test('shadow JEV is recorded beside the live rules without changing execution', async () => {
  const fixture = await createFixture();
  fixture.updateRuntimeConfig(draft => {draft.routing.evaluator.mode='shadow';draft.routing.showRoutingInfo=true;});
- evaluatorMock.mockResolvedValue({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'capability-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0.00001,distributions: signals('advanced'),recommendedTier:'general',applied:false});
+ evaluatorMock.mockResolvedValue({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'capability-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0.00001,distributions: signals('general'),recommendedTier:'general',applied:false});
  runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
  const result = await fixture.handleGatewayMessage({sessionId:'shadow-test',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
  const {parseRoutingTrace} = await import('../src/types/routing-trace.js');
@@ -323,8 +322,8 @@ test('shadow JEV is recorded beside the live rules without changing execution', 
  expect(result.routingTrace?.evaluation).toMatchObject({provider:'rules',recommendedTier:'economy',costUsd:0,applied:true});
  expect(result.routingTrace?.shadowEvaluation).toMatchObject({provider:'jev',recommendedTier:'general',costUsd:0.00001,applied:false});
 });
-function signals(capability: string) {
- return Object.fromEntries(Object.entries({pii:'absent',confidentiality:'public',capability,urgency:'unspecified'}).map(([key,choice])=>[key,{choice,confidence:1,probabilities:Object.fromEntries(EVALUATION_LABELS[key as keyof typeof EVALUATION_LABELS].map(label=>[label,label===choice?1:0]))}]));
+function signals(tier: string) {
+ return {tier:{choice:tier,confidence:1,probabilities:{[tier]:1}}};
 }
 
 test('JEV concierge chooses tiers with evaluator off and preserves successive escalation and pins', async () => {
@@ -336,7 +335,7 @@ test('JEV concierge chooses tiers with evaluator off and preserves successive es
     draft.routing.showRoutingInfo = true;
     draft.routing.tiers.push({ name: 'advanced', models: ['lmstudio/test-advanced'] });
   });
-  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: signals('basic'), recommendedTier: 'economy', applied: false }));
+  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: signals('economy'), recommendedTier: 'economy', applied: false }));
   runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
   const request = { sessionId: 'jev-concierge', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
   const result = await fixture.handleGatewayMessage(request);

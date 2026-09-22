@@ -1,15 +1,12 @@
 import { describe, expect, test, vi } from 'vitest';
-import { DEFAULT_ROUTING_EVALUATOR, EVALUATION_LABELS, normalizeRoutingEvaluator } from '../src/routing/evaluator-contract.js';
+import { DEFAULT_ROUTING_EVALUATOR, normalizeRoutingEvaluator } from '../src/routing/evaluator-contract.js';
 import { evaluateRouting } from '../src/routing/evaluator.js';
 import { createJevClassifier, parseJevResponse } from '../src/routing/jev-adapter.js';
-function response(capability = 'basic') {
-  return { model: 'jev-1.13.0', answers: Object.fromEntries(Object.entries(EVALUATION_LABELS).map(([key, labels]) => {
-    const choice = key === 'capability' ? capability : key === 'urgency' ? 'unspecified' : labels[0];
-    return [key, { type: 'choice', choice, confidence: 0.95, probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? 1 : 0])) }];
-  })), usage: { input_tokens: 100, output_tokens: 20 } };
+const tiers = ['one','two','three','four','five'].map(name => ({ name }));
+function response(choice = 'one') {
+ return {model:'jev-1.13.0', answers:{tier:{type:'choice',choice,confidence:0.95,probabilities:Object.fromEntries(tiers.map(t=>[t.name,t.name===choice?1:0]))}},usage:{input_tokens:100,output_tokens:20}};
 }
 const config = { ...DEFAULT_ROUTING_EVALUATOR, mode: 'shadow' as const };
-const tiers = ['one','two','three','four','five'].map(name => ({ name }));
 describe('typed evaluator', () => {
   test.each([
     { text: 'Summarize a confidential memo.', approved: true },
@@ -24,21 +21,9 @@ describe('typed evaluator', () => {
     expect(evaluate).not.toHaveBeenCalled();
     expect(result.distributions).toBeNull();
   });
-  test.each([['basic','one'],['standard','three'],['advanced','five']])('maps %s across the operator ladder', async (capability, tier) => {
-    const result = await evaluateRouting({ text: 'Explain photosynthesis', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(response(capability)) } });
-    expect(result).toMatchObject({ status: 'evaluated', recommendedTier: tier, applied: false, inputTokens: 100, outputTokens: 20, costUsd: null });
-    expect(result.distributions?.urgency.choice).toBe('unspecified');
-    expect(JSON.stringify(result)).not.toContain('photosynthesis');
-  });
-  test('does not recommend on uncertainty or sensitive evidence', async () => {
-    for (const [dimension, choice] of [['pii','present'],['confidentiality','confidential'],['capability','uncertain']]) {
-      const raw = response();
-      const answer = raw.answers[dimension];
-      answer.choice = choice;
-      for (const key of Object.keys(answer.probabilities)) answer.probabilities[key] = key === choice ? 1 : 0;
-      const result = await evaluateRouting({ text: 'Example', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(raw) } });
-      expect(result.recommendedTier).toBeNull();
-    }
+  test.each(['one','two','three','four','five'])('selects configured tier %s directly', async tier => {
+    const result = await evaluateRouting({text:'Public task',approved:true,config,tiers,classifier:{evaluate:async()=>parseJevResponse(response(tier),tiers)}});
+    expect(result.recommendedTier).toBe(tier);
   });
   test('falls back without leaking provider errors', async () => {
     const result = await evaluateRouting({ text: 'Example', approved: true, config, tiers, classifier: { evaluate: async () => { throw new Error('private provider body'); } } });
@@ -54,23 +39,23 @@ describe('typed evaluator', () => {
   });
   test('adapter uses the fixed endpoint and closed Choice questions', async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(response())));
-    await createJevClassifier('test-key', transport).evaluate({ text: 'Example', model: 'jev-latest', signal: new AbortController().signal });
+    await createJevClassifier('test-key', transport).evaluate({ text: 'Example', model: 'jev-latest', tiers, signal: new AbortController().signal });
     expect(transport).toHaveBeenCalledWith('https://api.typesafe.ai/v1/systemone', expect.objectContaining({ redirect: 'error' }));
     const sent = JSON.parse(String(transport.mock.calls[0][1]?.body));
     expect(sent.state).toBe('Example');
     expect(sent.questions).not.toHaveProperty('task');
-    expect(Object.keys(sent.questions)).toEqual(Object.keys(EVALUATION_LABELS));
+    expect(Object.keys(sent.questions)).toEqual(['tier']);
   });
   test.each(['missing','extra','sum','negative','nan','choice','usage'])('rejects malformed %s response', mode => {
     const raw = response();
-    if (mode === 'missing') delete raw.answers.pii.probabilities.absent;
-    if (mode === 'extra') raw.answers.pii.probabilities.extra = 0;
-    if (mode === 'sum') raw.answers.pii.probabilities.absent = 0.5;
-    if (mode === 'negative') raw.answers.pii.probabilities.present = -1;
-    if (mode === 'nan') raw.answers.pii.confidence = NaN;
-    if (mode === 'choice') raw.answers.pii.choice = 'arbitrary';
+    if (mode === 'missing') delete raw.answers.tier.probabilities.one;
+    if (mode === 'extra') raw.answers.tier.probabilities.extra = 0;
+    if (mode === 'sum') raw.answers.tier.probabilities.one = 0.5;
+    if (mode === 'negative') raw.answers.tier.probabilities.two = -1;
+    if (mode === 'nan') raw.answers.tier.confidence = NaN;
+    if (mode === 'choice') raw.answers.tier.choice = 'arbitrary';
     if (mode === 'usage') raw.usage.input_tokens = -1;
-    expect(() => parseJevResponse(raw)).toThrow('invalid-response');
+    expect(() => parseJevResponse(raw, tiers)).toThrow('invalid-response');
   });
   test('normalizes defaults and rejects unsafe settings', () => {
     expect(normalizeRoutingEvaluator(undefined)).toEqual(DEFAULT_ROUTING_EVALUATOR);
@@ -78,11 +63,10 @@ describe('typed evaluator', () => {
   });
 });
 
-test.each(['pii', 'confidentiality', 'capability', 'urgency'])('confidence gating uses routing-relevant dimensions: %s', async dimension => {
-  const raw = response();
-  raw.answers[dimension].confidence = 0.2;
-  const result = await evaluateRouting({ text: 'Explain photosynthesis', approved: true, config, tiers, classifier: { evaluate: async () => parseJevResponse(raw) } });
-  expect(result.recommendedTier).toBe(dimension === 'urgency' ? 'one' : null);
+test('low tier confidence preserves the configured fallback', async () => {
+ const raw=response(); raw.answers.tier.confidence=0.2;
+ const result=await evaluateRouting({text:'Example',approved:true,config,tiers,classifier:{evaluate:async()=>parseJevResponse(raw,tiers)}});
+ expect(result).toMatchObject({status:'fallback',reason:'low-confidence',recommendedTier:null});
 });
 
 test('provider HTTP failures expose a status code without provider bodies', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { DEFAULT_ROUTING_EVALUATOR, EVALUATION_LABELS } from '../src/routing/evaluator-contract.js';
+import { DEFAULT_ROUTING_EVALUATOR } from '../src/routing/evaluator-contract.js';
 import { captureRoutingTrace } from '../src/usage/routing-trace.js';
 const mocks = vi.hoisted(() => ({ config: vi.fn(), secret: vi.fn(), fetch: vi.fn() }));
 vi.mock('../src/config/runtime-config.js', () => ({ getRuntimeConfig: mocks.config }));
@@ -28,7 +28,7 @@ test('playground defaults to no external disclosure', async () => {
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
 test('approved input records classifier tokens as auxiliary overhead', async () => {
-  const answers = Object.fromEntries(Object.entries(EVALUATION_LABELS).map(([key, labels]) => [key, { type: 'choice', choice: labels[0], confidence: 1, probabilities: Object.fromEntries(labels.map((label,index) => [label, index === 0 ? 1 : 0])) }]));
+  const answers = {tier: {type:'choice', choice:'first', confidence:1, probabilities:{first:1}}};
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ model: 'jev-test', answers, usage: { input_tokens: 100, output_tokens: 20 } })));
   const { result, trace } = await captureRoutingTrace(() => evaluateConfiguredRouting({ text: 'Explain photosynthesis.' }));
   expect(result.status).toBe('evaluated');

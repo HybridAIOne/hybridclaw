@@ -106,7 +106,7 @@ export function RoutingComparison() {
                 <thead>
                   <tr>
                     <th>Router</th>
-                    <th>Difficulty / urgency</th>
+                    <th>Tier</th>
                     <th>Decision</th>
                     <th>Time</th>
                     <th>Tokens in / out</th>
@@ -116,10 +116,7 @@ export function RoutingComparison() {
                 <tbody>
                   <tr>
                     <td>JEV · {result.jev.model}</td>
-                    <td>
-                      {result.jev.signals?.capability ?? '—'} /{' '}
-                      {result.jev.signals?.urgency ?? '—'}
-                    </td>
+                    <td>{result.jev.signals?.tier ?? '—'}</td>
                     <td>
                       {result.jev.recommendedTier ?? result.jev.decision}
                       {result.jev.selectedModel
@@ -137,10 +134,7 @@ export function RoutingComparison() {
                   </tr>
                   <tr>
                     <td>{result.concierge.model}</td>
-                    <td>
-                      {result.concierge.signals?.capability ?? '—'} /{' '}
-                      {result.concierge.signals?.urgency ?? '—'}
-                    </td>
+                    <td>{result.concierge.signals?.tier ?? '—'}</td>
                     <td>
                       {result.concierge.decision.replaceAll('-', ' ')}
                       {result.concierge.selectedModel

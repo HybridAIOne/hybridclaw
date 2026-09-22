@@ -5,10 +5,12 @@ one tier ladder, classifier selection, routing mode, urgency preference, shadow
 comparison and chat visibility. Save routing applies them together. Model assignments
 exist only in tiers; ASAP, Balanced and No hurry are preferences.
 
-Tiers run from lighter/faster to more capable. Difficulty supplies a minimum tier:
-basic uses the first, standard the middle, advanced the last. Uncertain difficulty
-uses the configured default. Manual escalation and sticky tiers remain minimums;
-explicit model pins skip classification but cannot bypass local-only restrictions.
+Both classifiers choose the lowest configured tier capable of completing the task.
+They receive the same ordered tier names and descriptions. The recommended tier
+is the minimum; configured mode/preferences, privacy eligibility, manual escalation
+and sticky tiers determine execution. Invalid or low-confidence decisions use the
+configured default. Explicit model pins skip classification but cannot bypass
+local-only restrictions.
 
 - Privacy admits only models marked local, including retry and fallback candidates.
 - Speed takes the first eligible model in configured order.
@@ -20,17 +22,16 @@ explicit model pins skip classification but cannot bypass local-only restriction
   normalized rank/cost scores. Tier order is a speed proxy, not measured latency.
 
 The concierge can be rule-based (no classifier cost), JEV, or a catalog model.
-Both AI classifier types assess difficulty, explicit urgency and sensitivity;
-only the shared policy can choose a model. Unspecified urgency uses the preference.
-Text classifiers return validated labels, not calibrated probabilities. JEV
-returns distributions and confidence; low-confidence dimensions stay uncertain.
+Both AI classifiers answer only the tier question. Text classifiers return one
+validated tier name; JEV returns one Choice with probabilities and confidence.
+Neither classifier assesses urgency, personal data, confidentiality or task type.
 
 ## Shadow comparison in chat
 
 Select a rule-based or text-model concierge and enable **Compare JEV in shadow**.
 The live router determines execution; JEV evaluates the same eligible prompt in
 parallel. Chat tags show both decisions and separate classification costs. Expanded
-details show difficulty, urgency, tier, proposed model, latency, usage and cost.
+details show tier, proposed model, latency, usage and cost.
 A failed shadow call cannot change the live route. No model is substituted for a
 failed classifier. Missing usage/prices remain unavailable rather than zero.
 Historical messages retain their recorded decisions and prices.
@@ -39,7 +40,7 @@ Historical messages retain their recorded decisions and prices.
 
 JEV uses `https://api.typesafe.ai/v1/systemone`. `JEV_API_KEY` comes from the
 runtime secret store or gateway environment and never enters the console.
-Profile and difficulty descriptions belong in Choice `criteria`; the selection
+Configured tier descriptions belong in Choice `criteria`; the selection
 rule belongs in `instructions`; `state` is the current prompt. See the
 [TypeSafe Choice documentation](https://docs.typesafe.ai/primitives/choice).
 
@@ -62,7 +63,7 @@ either route or changes live selection. Sample consent is explicit and resets on
 edits. Agreement is not accuracy; calibration and observed latency models remain
 future evaluation work.
 
-Chat shows the tier recommendation and capability confidence, with local-only
-privacy restrictions when applicable. Full probability distributions remain in
-Labs. JEV evaluates personal data, confidentiality, capability and urgency;
-unused task-type classification is not requested.
+Chat shows the tier recommendation and JEV tier confidence, with local-only
+privacy restrictions when applicable. Full tier probabilities remain in Labs.
+The classifiers do not provide privacy detection; local disclosure checks and
+configured privacy policy remain the boundary, with the limitations stated above.

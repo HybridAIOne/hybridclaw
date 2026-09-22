@@ -127,6 +127,7 @@ interface AuxiliaryRequestOptions {
 
 export interface AuxiliaryModelCallParams {
   task: AuxiliaryTextTask;
+  traceReason?: string;
   messages: ChatMessage[];
   fallbackModel?: string;
   fallbackChatbotId?: string;
@@ -1565,7 +1566,7 @@ async function callAuxiliaryTextProviderWithLogging(
   const routingAttempt = startRoutingTraceAttempt(
     traceModel,
     'auxiliary',
-    params.task,
+    params.traceReason ?? params.task,
   );
   if (typeof logger.info === 'function') {
     logger.info(
