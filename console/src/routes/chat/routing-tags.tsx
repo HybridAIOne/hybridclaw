@@ -34,6 +34,19 @@ function count(value: number | null): string {
   return value === null ? 'Unavailable' : value.toLocaleString();
 }
 
+// Normalized totals include cache tokens for Anthropic; other providers already
+// include them in input. Subtract output instead of adding cache counters twice.
+function totalInput(attempt: RoutingTraceAttempt): number | null {
+  if (
+    attempt.totalTokens !== null &&
+    attempt.outputTokens !== null &&
+    attempt.totalTokens >= attempt.outputTokens
+  ) {
+    return attempt.totalTokens - attempt.outputTokens;
+  }
+  return attempt.inputTokens;
+}
+
 const ZONE_LABELS: Record<string, string> = {
   local: 'Local',
   hai: 'HybridAI',
@@ -101,7 +114,8 @@ function RoutingDecisionRow({
           : `${(value.durationMs / 1000).toFixed(2)}s`}
       </td>
       <td className={css.numeric}>
-        {count(value.inputTokens)} in / {count(value.outputTokens)} out
+        {count(call ? totalInput(call) : value.inputTokens)} in /{' '}
+        {count(value.outputTokens)} out
       </td>
       <td
         className={css.numeric}
@@ -250,20 +264,22 @@ export function RoutingTags({ trace }: { trace: RoutingTrace }) {
                 </p>
                 <dl className={css.metrics}>
                   <div>
-                    <dt>Input</dt>
-                    <dd>{count(attempt.inputTokens)}</dd>
+                    <dt>Total input</dt>
+                    <dd>{count(totalInput(attempt))}</dd>
+                    <dd className={css.cacheBreakdown}>
+                      Cache read:{' '}
+                      {attempt.cacheReadTokens === null
+                        ? 'Not reported'
+                        : count(attempt.cacheReadTokens)}
+                      {' · '}Cache write:{' '}
+                      {attempt.cacheWriteTokens === null
+                        ? 'Not reported'
+                        : count(attempt.cacheWriteTokens)}
+                    </dd>
                   </div>
                   <div>
                     <dt>Output</dt>
                     <dd>{count(attempt.outputTokens)}</dd>
-                  </div>
-                  <div>
-                    <dt>Cache read</dt>
-                    <dd>{count(attempt.cacheReadTokens)}</dd>
-                  </div>
-                  <div>
-                    <dt>Cache write</dt>
-                    <dd>{count(attempt.cacheWriteTokens)}</dd>
                   </div>
                   <div>
                     <dt>Cost</dt>

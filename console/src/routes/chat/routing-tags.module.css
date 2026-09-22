@@ -175,3 +175,8 @@
 .model svg {
   flex-shrink: 0;
 }
+
+.metrics dd.cacheBreakdown {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}

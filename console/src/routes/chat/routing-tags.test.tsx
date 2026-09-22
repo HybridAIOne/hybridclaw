@@ -222,3 +222,37 @@ it('keeps probability distributions out of chat and shows relevant privacy restr
   expect(screen.queryByText(/Personal data/)).toBeNull();
   expect(screen.queryByText(/unspecified/)).toBeNull();
 });
+
+it.each([
+  {
+    inputTokens: 266,
+    outputTokens: 991,
+    totalTokens: 76338,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 75081,
+    expected: 75347,
+  },
+  {
+    inputTokens: 1000,
+    outputTokens: 100,
+    totalTokens: 1100,
+    cacheReadTokens: 800,
+    cacheWriteTokens: null,
+    expected: 1000,
+  },
+])(
+  'shows normalized total input without double-counting cache ($expected)',
+  ({ expected, ...usage }) => {
+    render(<RoutingTags trace={trace([{ ...attempt, ...usage }])} />);
+    const label = screen.getByText('Total input');
+    expect(label.nextElementSibling?.textContent).toBe(
+      expected.toLocaleString(),
+    );
+    expect(label.parentElement?.textContent).toContain(
+      `Cache read: ${usage.cacheReadTokens.toLocaleString()}`,
+    );
+    expect(label.parentElement?.textContent).toContain(
+      `Cache write: ${usage.cacheWriteTokens === null ? 'Not reported' : usage.cacheWriteTokens.toLocaleString()}`,
+    );
+  },
+);
