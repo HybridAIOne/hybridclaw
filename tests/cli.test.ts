@@ -505,6 +505,10 @@ async function importFreshCli(options?: {
   }
 
   const clearHybridAICredentials = vi.fn(() => '/tmp/credentials.json');
+  const logoutHybridAI = vi.fn(async () => ({
+    path: '/tmp/credentials.json',
+    revoked: false,
+  }));
   const getHybridAIAuthStatus = vi.fn(
     () =>
       options?.hybridAIStatus || {
@@ -1253,6 +1257,7 @@ async function importFreshCli(options?: {
 
   vi.doMock('../src/auth/hybridai-auth.ts', () => ({
     clearHybridAICredentials,
+    logoutHybridAI,
     getHybridAIAuthStatus,
     loginHybridAIInteractive,
   }));
@@ -1469,6 +1474,7 @@ async function importFreshCli(options?: {
   return {
     cli,
     clearHybridAICredentials,
+    logoutHybridAI,
     getAnthropicAuthStatus,
     clearCodexCredentials,
     getCodexAuthStatus,
@@ -3668,7 +3674,7 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        'hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]',
+        'hybridclaw auth login hybridai [--device-code|--browser|--api-key|--import] [--base-url <url>]',
       ),
     );
   });
@@ -4812,12 +4818,12 @@ describe('CLI hybridai commands', () => {
   });
 
   it('runs hybridai logout', async () => {
-    const { cli, clearHybridAICredentials } = await importFreshCli();
+    const { cli, logoutHybridAI } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cli.main(['hybridai', 'logout']);
 
-    expect(clearHybridAICredentials).toHaveBeenCalled();
+    expect(logoutHybridAI).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       'Cleared HybridAI credentials in /tmp/credentials.json.',
     );

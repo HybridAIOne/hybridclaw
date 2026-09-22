@@ -38,6 +38,7 @@ import {
   startObservabilityIngest,
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
+import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
 import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
@@ -4375,6 +4376,7 @@ async function main(): Promise<void> {
   migrateConfigSchedulerJobsToDatabase();
   listAgents();
   await initGatewayService();
+  startHybridAIAccessTokenMaintenance();
   try {
     persistThirdPartySkillDiscoveryDefaults();
   } catch (error) {
