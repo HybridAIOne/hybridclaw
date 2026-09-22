@@ -68,11 +68,16 @@ interface RecordedRequest {
 function stubPlatform(options?: {
   withMetadata?: boolean;
   withRegistration?: boolean;
+  withDeviceFlow?: boolean;
+  /** Token endpoint answers for device polls, in order; last one repeats. */
+  devicePolls?: Array<'authorization_pending' | 'slow_down' | 'access_denied' | 'expired_token' | 'ok'>;
+  deviceInterval?: number;
   refreshError?: { status: number; error: string };
   expiresIn?: number;
 }): RecordedRequest[] {
   const requests: RecordedRequest[] = [];
   let issued = 0;
+  let polls = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -102,6 +107,11 @@ function stubPlatform(options?: {
           ...(options?.withRegistration === false
             ? {}
             : { registration_endpoint: `${ISSUER}/oauth/register` }),
+          ...(options?.withDeviceFlow
+            ? {
+                device_authorization_endpoint: `${ISSUER}/oauth/device_authorization`,
+              }
+            : {}),
           scopes_supported: ['profile', 'api', 'mcp'],
           code_challenge_methods_supported: ['S256'],
         });
@@ -112,8 +122,27 @@ function stubPlatform(options?: {
       if (url === `${ISSUER}/oauth/register`) {
         return jsonResponse({ client_id: 'hac_test' }, 201);
       }
+      if (url === `${ISSUER}/oauth/device_authorization`) {
+        return jsonResponse({
+          device_code: 'dev-1',
+          user_code: 'WXKT-QMBD',
+          verification_uri: `${ISSUER}/device`,
+          verification_uri_complete: `${ISSUER}/device?user_code=WXKT-QMBD`,
+          expires_in: 900,
+          interval: options?.deviceInterval ?? 0,
+        });
+      }
       if (url === `${ISSUER}/oauth/token`) {
         const params = body as URLSearchParams;
+        if (
+          params.get('grant_type') ===
+          'urn:ietf:params:oauth:grant-type:device_code'
+        ) {
+          const script = options?.devicePolls ?? ['ok'];
+          const answer = script[Math.min(polls, script.length - 1)];
+          polls += 1;
+          if (answer !== 'ok') return jsonResponse({ error: answer }, 400);
+        }
         if (
           params.get('grant_type') === 'refresh_token' &&
           options?.refreshError
@@ -359,4 +388,96 @@ test('revokeHybridAIOAuthSession revokes the refresh token and forgets the sessi
   expect(params.get('client_id')).toBe('hac_test');
   expect(oauth.readHybridAIOAuthRecord()).toBeNull();
   await expect(oauth.revokeHybridAIOAuthSession()).resolves.toBe(false);
+});
+
+test('device flow registers a device-capable client, polls through pending and slow_down, and stores the session', async () => {
+  const homeDir = makeTempHome();
+  const requests = stubPlatform({
+    withDeviceFlow: true,
+    devicePolls: ['authorization_pending', 'slow_down', 'ok'],
+  });
+  const { oauth, secrets } = await importFresh(homeDir);
+
+  const device = await oauth.startHybridAIDeviceAuthorization({
+    baseUrl: ISSUER,
+  });
+  expect(device).not.toBeNull();
+  if (!device) throw new Error('unreachable');
+  expect(device.userCode).toBe('WXKT-QMBD');
+  expect(device.verificationUri).toBe(`${ISSUER}/device`);
+  expect(device.verificationUriComplete).toBe(
+    `${ISSUER}/device?user_code=WXKT-QMBD`,
+  );
+  expect(device.expiresAt).toBeGreaterThan(Date.now());
+  const registration = requests.find(
+    (r) => r.url === `${ISSUER}/oauth/register`,
+  );
+  expect(registration?.body).toMatchObject({
+    grant_types: ['refresh_token', 'urn:ietf:params:oauth:grant-type:device_code'],
+    token_endpoint_auth_method: 'none',
+  });
+  const deviceRequest = requests.find(
+    (r) => r.url === `${ISSUER}/oauth/device_authorization`,
+  );
+  const deviceParams = deviceRequest?.body as URLSearchParams;
+  expect(deviceParams.get('client_id')).toBe('hac_test');
+  expect(deviceParams.get('scope')).toBe('profile api mcp');
+
+  vi.useFakeTimers();
+  const pending = device.waitForSignIn();
+  // interval 0 → poll 1 (pending) → poll 2 (slow_down, +5 s) → poll 3 (ok)
+  await vi.advanceTimersByTimeAsync(10);
+  await vi.advanceTimersByTimeAsync(5_000);
+  const signIn = await pending;
+  vi.useRealTimers();
+
+  expect(signIn.accessToken).toBe('hao_access-1');
+  expect(signIn.account?.email).toBe('max@example.com');
+  const polls = requests.filter(
+    (r) =>
+      r.url === `${ISSUER}/oauth/token` &&
+      (r.body as URLSearchParams).get('grant_type') ===
+        'urn:ietf:params:oauth:grant-type:device_code',
+  );
+  expect(polls).toHaveLength(3);
+  expect((polls[0]?.body as URLSearchParams).get('device_code')).toBe('dev-1');
+  expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBe(
+    'hao_access-1',
+  );
+  expect(oauth.readHybridAIOAuthRecord()).toMatchObject({
+    clientId: 'hac_test',
+    refreshToken: 'hor_refresh-1',
+    tokenEndpoint: `${ISSUER}/oauth/token`,
+  });
+  await expect(device.waitForSignIn()).rejects.toThrow(/already started/);
+});
+
+test('device flow reports denial and expiry, and is skipped on platforms without it', async () => {
+  const homeDir = makeTempHome();
+  stubPlatform({ withDeviceFlow: true, devicePolls: ['access_denied'] });
+  const { oauth, secrets } = await importFresh(homeDir);
+  const denied = await oauth.startHybridAIDeviceAuthorization({
+    baseUrl: ISSUER,
+  });
+  await expect(denied?.waitForSignIn()).rejects.toThrow(/denied/);
+
+  stubPlatform({ withDeviceFlow: true, devicePolls: ['expired_token'] });
+  const expired = await oauth.startHybridAIDeviceAuthorization({
+    baseUrl: ISSUER,
+  });
+  await expect(expired?.waitForSignIn()).rejects.toThrow(/expired/);
+  expect(secrets.readStoredRuntimeSecret('HYBRIDAI_API_KEY')).toBeNull();
+
+  stubPlatform({ withDeviceFlow: true, deviceInterval: 5 });
+  const canceled = await oauth.startHybridAIDeviceAuthorization({
+    baseUrl: ISSUER,
+  });
+  const waiting = canceled?.waitForSignIn();
+  canceled?.cancel();
+  await expect(waiting).rejects.toThrow(/canceled/);
+
+  stubPlatform();
+  await expect(
+    oauth.startHybridAIDeviceAuthorization({ baseUrl: ISSUER }),
+  ).resolves.toBeNull();
 });

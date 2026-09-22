@@ -10,6 +10,10 @@ import { createHash, randomBytes } from 'node:crypto';
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const TOKEN_TIMEOUT_MS = 20_000;
+const SLOW_DOWN_INCREMENT_MS = 5_000;
+
+export const DEVICE_CODE_GRANT_TYPE =
+  'urn:ietf:params:oauth:grant-type:device_code';
 
 export interface OAuthTokenSet {
   accessToken: string;
@@ -24,7 +28,17 @@ export interface AuthorizationServerMetadata {
   tokenEndpoint: string;
   registrationEndpoint?: string;
   revocationEndpoint?: string;
+  deviceAuthorizationEndpoint?: string;
   scopesSupported?: string[];
+}
+
+export interface DeviceAuthorizationResponse {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  expiresAt: number;
+  intervalMs: number;
 }
 
 export function generatePkcePair(): { verifier: string; challenge: string } {
@@ -109,6 +123,8 @@ export async function discoverAuthorizationServerMetadata(
         asTrimmedString(metadata.registration_endpoint) || undefined,
       revocationEndpoint:
         asTrimmedString(metadata.revocation_endpoint) || undefined,
+      deviceAuthorizationEndpoint:
+        asTrimmedString(metadata.device_authorization_endpoint) || undefined,
       scopesSupported: asStringArray(metadata.scopes_supported),
     };
   }
@@ -120,6 +136,8 @@ export async function registerPublicClient(input: {
   registrationEndpoint: string;
   redirectUri: string;
   clientName: string;
+  /** Defaults to authorization_code + refresh_token. */
+  grantTypes?: string[];
 }): Promise<{ clientId: string; clientSecret?: string }> {
   let response: Response;
   try {
@@ -129,7 +147,10 @@ export async function registerPublicClient(input: {
       body: JSON.stringify({
         client_name: input.clientName,
         redirect_uris: [input.redirectUri],
-        grant_types: ['authorization_code', 'refresh_token'],
+        grant_types: input.grantTypes ?? [
+          'authorization_code',
+          'refresh_token',
+        ],
         response_types: ['code'],
         token_endpoint_auth_method: 'none',
       }),
@@ -241,5 +262,124 @@ export async function revokeToken(input: {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+/** RFC 8628 §3.1/3.2: ask the server for a device code and a user code. */
+export async function requestDeviceAuthorization(input: {
+  deviceAuthorizationEndpoint: string;
+  clientId: string;
+  scope?: string;
+}): Promise<DeviceAuthorizationResponse> {
+  const params = new URLSearchParams({ client_id: input.clientId });
+  if (input.scope) params.set('scope', input.scope);
+  let response: Response;
+  try {
+    response = await fetch(input.deviceAuthorizationEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new Error(
+      `OAuth device authorization failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const payload = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const deviceCode = asTrimmedString(payload.device_code);
+  const userCode = asTrimmedString(payload.user_code);
+  const verificationUri = asTrimmedString(payload.verification_uri);
+  if (!response.ok || !deviceCode || !userCode || !verificationUri) {
+    const detail =
+      asTrimmedString(payload.error_description) ||
+      asTrimmedString(payload.error) ||
+      `HTTP ${response.status}`;
+    throw new Error(`OAuth device authorization failed (${detail}).`);
+  }
+  const expiresIn =
+    typeof payload.expires_in === 'number' &&
+    Number.isFinite(payload.expires_in)
+      ? payload.expires_in
+      : 300;
+  const interval =
+    typeof payload.interval === 'number' && Number.isFinite(payload.interval)
+      ? payload.interval
+      : 5;
+  return {
+    deviceCode,
+    userCode,
+    verificationUri,
+    verificationUriComplete:
+      asTrimmedString(payload.verification_uri_complete) || undefined,
+    expiresAt: Date.now() + expiresIn * 1000,
+    intervalMs: Math.max(0, interval) * 1000,
+  };
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('OAuth device sign-in canceled.'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort(): void {
+      clearTimeout(timer);
+      reject(new Error('OAuth device sign-in canceled.'));
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * RFC 8628 §3.4/3.5: poll the token endpoint until the user decides.
+ * `authorization_pending` keeps polling, `slow_down` widens the interval,
+ * `access_denied` / `expired_token` reject; transient transport errors keep
+ * polling until the device code expires.
+ */
+export async function pollDeviceToken(input: {
+  tokenEndpoint: string;
+  clientId: string;
+  device: DeviceAuthorizationResponse;
+  signal?: AbortSignal;
+}): Promise<OAuthTokenSet> {
+  let intervalMs = input.device.intervalMs;
+  const params = new URLSearchParams({
+    grant_type: DEVICE_CODE_GRANT_TYPE,
+    device_code: input.device.deviceCode,
+    client_id: input.clientId,
+  });
+  while (true) {
+    await sleep(intervalMs, input.signal);
+    if (Date.now() >= input.device.expiresAt) {
+      throw new Error('The sign-in code expired before it was approved.');
+    }
+    try {
+      return await requestToken(input.tokenEndpoint, params);
+    } catch (err) {
+      if (!(err instanceof OAuthTokenRequestError)) {
+        // Transport hiccup: keep polling; expiry above bounds the loop.
+        continue;
+      }
+      if (err.code === 'authorization_pending') continue;
+      if (err.code === 'slow_down') {
+        intervalMs += SLOW_DOWN_INCREMENT_MS;
+        continue;
+      }
+      if (err.code === 'access_denied') {
+        throw new Error('The sign-in request was denied.');
+      }
+      if (err.code === 'expired_token') {
+        throw new Error('The sign-in code expired before it was approved.');
+      }
+      throw err;
+    }
   }
 }

@@ -16,10 +16,12 @@ import { promptForSecretInput } from '../utils/secret-prompt.js';
 import {
   clearHybridAIOAuthRecord,
   type HybridAIOAuthAccount,
+  type HybridAISignInResult,
   isHybridAIAccessToken,
   readHybridAIOAuthRecord,
   revokeHybridAIOAuthSession,
   startHybridAIAuthorization,
+  startHybridAIDeviceAuthorization,
   waitForHybridAIAuthorizationCode,
 } from './hybridai-oauth.js';
 
@@ -254,9 +256,11 @@ function createPromptInterface(): readline.Interface {
 }
 
 /**
- * OAuth sign-in: discovery, dynamic registration and a PKCE authorization
- * code flow against the platform. `browser` auto-opens the consent page;
- * `device-code` (headless shells) prints it and accepts the pasted redirect.
+ * OAuth sign-in. `browser` runs the authorization code + PKCE flow with a
+ * loopback redirect and auto-opens the consent page. `device-code` (headless
+ * shells) prefers the RFC 8628 device flow: a short code to type in at the
+ * platform's `/device` page; platforms without it get the loopback flow with
+ * a pasted redirect instead.
  */
 async function loginWithOAuth(options: {
   method: 'browser' | 'device-code';
@@ -266,12 +270,59 @@ async function loginWithOAuth(options: {
   const baseUrl = normalizeBaseUrl(
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
   );
+  console.log('HybridAI sign-in');
+  const signIn =
+    options.method === 'device-code'
+      ? await signInWithDeviceCode(baseUrl)
+      : await signInWithLoopback(baseUrl, { autoOpen: true });
+
+  if (signIn.account?.email) {
+    console.log(`Signed in as ${signIn.account.email}.`);
+  }
+  const validation = await validateApiKey(baseUrl, signIn.accessToken);
+  if (validation.ok) {
+    console.log('Access token validated successfully.');
+  } else {
+    console.log(
+      `Signed in, but the bot API rejected the token: ${validation.error || 'Unknown validation error.'}`,
+    );
+  }
+  return {
+    path: runtimeSecretsPath(),
+    apiKey: signIn.accessToken,
+    maskedApiKey: maskToken(signIn.accessToken),
+    method: options.method,
+    validated: validation.ok,
+    account: signIn.account,
+  };
+}
+
+async function signInWithDeviceCode(
+  baseUrl: string,
+): Promise<HybridAISignInResult> {
+  const device = await startHybridAIDeviceAuthorization({ baseUrl });
+  if (!device) return await signInWithLoopback(baseUrl, { autoOpen: false });
+  console.log('On any device with a browser, open:');
+  console.log(`  ${device.verificationUri}`);
+  console.log(`and enter the code:  ${device.userCode}`);
+  if (device.verificationUriComplete) {
+    console.log(`(or open ${device.verificationUriComplete} directly)`);
+  }
+  console.log(
+    `Waiting for approval (code valid for ${Math.max(1, Math.round((device.expiresAt - Date.now()) / 60_000))} min) ...`,
+  );
+  return await device.waitForSignIn();
+}
+
+async function signInWithLoopback(
+  baseUrl: string,
+  options: { autoOpen: boolean },
+): Promise<HybridAISignInResult> {
   const rl = createPromptInterface();
   try {
-    console.log('HybridAI sign-in');
     const authorization = await startHybridAIAuthorization({ baseUrl });
     if (
-      options.method === 'browser' &&
+      options.autoOpen &&
       (await promptYesNo(
         rl,
         'Open the HybridAI sign-in page in your browser now?',
@@ -292,28 +343,7 @@ async function loginWithOAuth(options: {
       rl,
       text: 'If the browser cannot reach this machine, paste the URL it was redirected to here: ',
     });
-    const signIn = await authorization.complete(code);
-    if (signIn.account?.email) {
-      console.log(`Signed in as ${signIn.account.email}.`);
-    }
-
-    const validation = await validateApiKey(baseUrl, signIn.accessToken);
-    if (validation.ok) {
-      console.log('Access token validated successfully.');
-    } else {
-      console.log(
-        `Signed in, but the bot API rejected the token: ${validation.error || 'Unknown validation error.'}`,
-      );
-    }
-
-    return {
-      path: runtimeSecretsPath(),
-      apiKey: signIn.accessToken,
-      maskedApiKey: maskToken(signIn.accessToken),
-      method: options.method,
-      validated: validation.ok,
-      account: signIn.account,
-    };
+    return await authorization.complete(code);
   } finally {
     rl.close();
   }

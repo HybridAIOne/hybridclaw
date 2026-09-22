@@ -15,9 +15,12 @@ import {
   getCodexAuthStatus,
   loginCodexInteractive,
 } from './auth/codex-auth.js';
+import { selectDefaultHybridAILoginMethod } from './auth/hybridai-auth.js';
 import {
   ensureFreshHybridAIAccessToken,
+  type HybridAISignInResult,
   startHybridAIAuthorization,
+  startHybridAIDeviceAuthorization,
   waitForHybridAIAuthorizationCode,
 } from './auth/hybridai-oauth.js';
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
@@ -1029,39 +1032,48 @@ async function ensureValidRuntimeConfig(
   }
 }
 
-async function runHybridAIOnboarding(params: {
-  rl: readline.Interface;
-  baseUrl: string;
-  commandLabel: string;
-  existingKey: string;
-}): Promise<void> {
-  const { rl, commandLabel, existingKey } = params;
-  const baseUrl = normalizeBaseUrl(
-    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
-  );
-  printMeta('HYBRIDAI_BASE_URL', baseUrl);
-  if (!existingKey) {
-    printInfo(
-      `No HybridAI credentials found. ${commandLabel} needs a HybridAI sign-in before it can start.`,
-    );
-  } else {
-    printSetup('Reconfiguring HybridAI credentials.');
+/** The platform offers no OAuth sign-in at all (discovery/registration failed). */
+class HybridAIOAuthUnavailableError extends Error {}
+
+/**
+ * Headless shells get the device flow (type a short code on any browser);
+ * desktops get the loopback flow with the consent page auto-opened.
+ */
+async function signInToHybridAI(
+  rl: readline.Interface,
+  baseUrl: string,
+): Promise<HybridAISignInResult> {
+  if (selectDefaultHybridAILoginMethod() === 'device-code') {
+    let device: Awaited<ReturnType<typeof startHybridAIDeviceAuthorization>>;
+    try {
+      device = await startHybridAIDeviceAuthorization({ baseUrl });
+    } catch (err) {
+      throw new HybridAIOAuthUnavailableError(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    if (device) {
+      printInfo('On any device with a browser, open:');
+      printLink(device.verificationUri);
+      printInfo(`and enter the code:  ${device.userCode}`);
+      if (device.verificationUriComplete) {
+        printInfo(`(or open ${device.verificationUriComplete} directly)`);
+      }
+      printInfo(
+        `Waiting for approval (code valid for ${Math.max(1, Math.round((device.expiresAt - Date.now()) / 60_000))} min) ...`,
+      );
+      return await device.waitForSignIn();
+    }
   }
-  console.log();
 
   let authorization: Awaited<ReturnType<typeof startHybridAIAuthorization>>;
   try {
     authorization = await startHybridAIAuthorization({ baseUrl });
   } catch (err) {
-    printWarn(
-      `Browser sign-in is not available: ${err instanceof Error ? err.message : String(err)}`,
+    throw new HybridAIOAuthUnavailableError(
+      err instanceof Error ? err.message : String(err),
     );
-    console.log();
-    await runHybridAIApiKeyOnboarding(params);
-    return;
   }
-
-  let signIn: Awaited<ReturnType<typeof authorization.complete>>;
   try {
     printInfo(
       'Sign in (or create an account) in your browser and approve HybridClaw.',
@@ -1089,9 +1101,43 @@ async function runHybridAIOnboarding(params: {
         ICON_KEYBOARD,
       ),
     });
-    signIn = await authorization.complete(code);
+    return await authorization.complete(code);
   } catch (err) {
     authorization.close();
+    throw err;
+  }
+}
+
+async function runHybridAIOnboarding(params: {
+  rl: readline.Interface;
+  baseUrl: string;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingKey } = params;
+  const baseUrl = normalizeBaseUrl(
+    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
+  );
+  printMeta('HYBRIDAI_BASE_URL', baseUrl);
+  if (!existingKey) {
+    printInfo(
+      `No HybridAI credentials found. ${commandLabel} needs a HybridAI sign-in before it can start.`,
+    );
+  } else {
+    printSetup('Reconfiguring HybridAI credentials.');
+  }
+  console.log();
+
+  let signIn: HybridAISignInResult;
+  try {
+    signIn = await signInToHybridAI(rl, baseUrl);
+  } catch (err) {
+    if (err instanceof HybridAIOAuthUnavailableError) {
+      printWarn(`Browser sign-in is not available: ${err.message}`);
+      console.log();
+      await runHybridAIApiKeyOnboarding(params);
+      return;
+    }
     printWarn(
       `Sign-in failed: ${err instanceof Error ? err.message : String(err)}`,
     );

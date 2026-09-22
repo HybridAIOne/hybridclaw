@@ -351,6 +351,94 @@ describe('HybridAI login helpers', () => {
     });
   });
 
+  it('signs in through the device flow on headless shells', async () => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    delete process.env.HYBRIDAI_API_KEY;
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    const json = (payload: unknown, status = 200) =>
+      new Response(JSON.stringify(payload), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    let polls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/.well-known/oauth-authorization-server')) {
+          return json({
+            issuer: 'https://hybridai.one',
+            authorization_endpoint: 'https://hybridai.one/oauth/authorize',
+            token_endpoint: 'https://hybridai.one/oauth/token',
+            registration_endpoint: 'https://hybridai.one/oauth/register',
+            device_authorization_endpoint:
+              'https://hybridai.one/oauth/device_authorization',
+          });
+        }
+        if (url.endsWith('/oauth/register')) {
+          return json({ client_id: 'hac_device' }, 201);
+        }
+        if (url.endsWith('/oauth/device_authorization')) {
+          return json({
+            device_code: 'dev-1',
+            user_code: 'WXKT-QMBD',
+            verification_uri: 'https://hybridai.one/device',
+            expires_in: 900,
+            interval: 0,
+          });
+        }
+        if (url.endsWith('/oauth/token')) {
+          polls += 1;
+          if (polls === 1) return json({ error: 'authorization_pending' }, 400);
+          return json({
+            access_token: 'hao_device-token',
+            refresh_token: 'hor_device-refresh',
+            expires_in: 3600,
+            scope: 'profile api mcp',
+          });
+        }
+        if (url.endsWith('/oauth/userinfo')) {
+          return json({ sub: 'user-1', email: 'max@example.com' });
+        }
+        if (url.includes('/api/v1/bot-management/bots')) {
+          return json({ data: [] });
+        }
+        return json({ error: `unexpected ${url} ${init?.method ?? 'GET'}` }, 404);
+      }),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const hybridAIAuth = await importFreshHybridAIAuth(homeDir, {
+      readlineAnswers: [],
+    });
+    const result = await hybridAIAuth.loginHybridAIInteractive({
+      method: 'device-code',
+      homeDir,
+    });
+
+    expect(result).toMatchObject({
+      method: 'device-code',
+      maskedApiKey: 'hao_…oken',
+      validated: true,
+      account: { email: 'max@example.com' },
+    });
+    expect(logSpy).toHaveBeenCalledWith('  https://hybridai.one/device');
+    expect(logSpy).toHaveBeenCalledWith('and enter the code:  WXKT-QMBD');
+    expect(hybridAIAuth.getHybridAIAuthStatus(homeDir)).toMatchObject({
+      authenticated: true,
+      method: 'oauth',
+      account: { email: 'max@example.com' },
+    });
+  });
+
   it('rejects interactive login when no tty is available', async () => {
     const homeDir = makeTempHome();
     process.env.HOME = homeDir;

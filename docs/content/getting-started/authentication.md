@@ -90,8 +90,10 @@ hybridclaw auth whatsapp reset
   short-lived access token plus a refresh token in the encrypted secret store.
   The gateway rotates the access token before it expires. `--browser` opens
   the consent page automatically (the default on local GUI machines);
-  `--device-code` prints it and lets you paste the redirect URL back on
-  headless shells. `--api-key` pastes a long-lived platform API key instead,
+  `--device-code` (the default on SSH sessions and in containers) shows a
+  short code to enter at `hybridai.one/device` from any browser and waits
+  for approval; on platforms without the device flow it prints the sign-in
+  URL and lets you paste the redirect URL back instead. `--api-key` pastes a long-lived platform API key instead,
   `--import` copies the current `HYBRIDAI_API_KEY` from your shell into the
   encrypted secret store, and `--base-url` updates `hybridai.baseUrl` before
   login. `hybridclaw auth logout hybridai` revokes the OAuth session.
