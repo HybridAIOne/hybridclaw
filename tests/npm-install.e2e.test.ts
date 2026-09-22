@@ -18,6 +18,9 @@ import {
 const NPM_E2E = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
 const STARTUP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 5_000;
+// CI maintenance (2026-09-22): allow shutdown plus removal of both installed
+// dependency trees on slower runners; startup/request timeouts stay separate.
+const CLEANUP_TIMEOUT_MS = 60_000;
 const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
   '2026-05-20T08:35:12.000Z',
 );
@@ -171,7 +174,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
           '[cleanup] Gateway did not exit after SIGTERM, sending SIGKILL',
         );
         proc.kill('SIGKILL');
-        // Wait for the kill to land before rmSync below races a process that
+        // Wait for the kill to land before directory removal races a process that
         // is still writing under tempDir (HOME, npm prefix, data dir).
         await Promise.race([
           new Promise<void>((resolve) => proc.on('exit', () => resolve())),
@@ -181,12 +184,12 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     }
     if (tempDir) {
       try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
       } catch (err) {
         console.warn('[cleanup] Failed to remove temp dir:', err);
       }
     }
-  });
+  }, CLEANUP_TIMEOUT_MS);
 
   // ── CLI binary works ────────────────────────────────────────────────
 
