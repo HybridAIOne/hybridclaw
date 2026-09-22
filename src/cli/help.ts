@@ -205,7 +205,7 @@ export function printOnboardingUsage(): void {
 Runs the HybridClaw onboarding flow:
   1) trust-model acceptance
   2) auth provider selection
-  3) HybridAI API key setup, OpenAI Codex OAuth login, OpenRouter API key setup, Mistral API key setup, or Hugging Face token setup
+  3) HybridAI sign-in (OAuth) or API key setup, OpenAI Codex OAuth login, OpenRouter API key setup, Mistral API key setup, or Hugging Face token setup
   4) default model/bot persistence`);
 }
 
@@ -258,6 +258,7 @@ Commands:
 Examples:
   hybridclaw auth login
   hybridclaw auth login hybridai --browser
+  hybridclaw auth login hybridai --api-key
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
   hybridclaw auth login openai --api-key sk-... --set-default
@@ -605,12 +606,12 @@ export function printHybridAIUsage(): void {
 
 Commands:
   hybridclaw hybridai base-url [url]
-  hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
+  hybridclaw hybridai login [--device-code|--browser|--api-key|--import] [--base-url <url>]
   hybridclaw hybridai logout
   hybridclaw hybridai status
 
 Use Instead:
-  hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
+  hybridclaw auth login hybridai [--device-code|--browser|--api-key|--import] [--base-url <url>]
   hybridclaw auth logout hybridai
   hybridclaw auth status hybridai
 

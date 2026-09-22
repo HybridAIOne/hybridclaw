@@ -13,15 +13,32 @@ import {
 } from '../security/runtime-secrets.js';
 import { tryOpenUrlInBrowser } from '../utils/open-url.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
+import {
+  clearHybridAIOAuthRecord,
+  type HybridAIOAuthAccount,
+  type HybridAISignInResult,
+  isHybridAIAccessToken,
+  readHybridAIOAuthRecord,
+  revokeHybridAIOAuthSession,
+  signInToHybridAI,
+} from './hybridai-oauth.js';
 
 export interface HybridAIAuthStatus {
   authenticated: boolean;
   path: string;
   maskedApiKey: string | null;
   source: 'env' | 'runtime-secrets' | null;
+  /** `oauth` for a platform sign-in, `api-key` for a pasted/imported key. */
+  method: 'oauth' | 'api-key' | null;
+  account?: HybridAIOAuthAccount;
+  accessExpiresAt?: number;
 }
 
-export type HybridAILoginMethod = 'browser' | 'device-code' | 'env-import';
+export type HybridAILoginMethod =
+  | 'browser'
+  | 'device-code'
+  | 'api-key'
+  | 'env-import';
 
 export interface HybridAILoginResult {
   path: string;
@@ -29,6 +46,7 @@ export interface HybridAILoginResult {
   maskedApiKey: string;
   method: HybridAILoginMethod;
   validated: boolean;
+  account?: HybridAIOAuthAccount;
 }
 
 interface ApiKeyValidationResult {
@@ -226,39 +244,84 @@ function saveApiKey(apiKey: string): string {
   return filePath;
 }
 
-async function loginWithApiKeyPrompt(options: {
+function createPromptInterface(): readline.Interface {
+  return readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+}
+
+async function loginWithOAuth(options: {
   method: 'browser' | 'device-code';
   baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   requireInteractiveTerminal();
+  const baseUrl = normalizeBaseUrl(
+    options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
+  );
+  console.log('HybridAI sign-in');
+  const rl = createPromptInterface();
+  let signIn: HybridAISignInResult;
+  try {
+    signIn = await signInToHybridAI({
+      baseUrl,
+      method: options.method,
+      ui: {
+        rl,
+        info: (message) => console.log(message),
+        warn: (message) => console.log(message),
+        link: (url) => console.log(`  ${url}`),
+        confirm: (question) => promptYesNo(rl, question, true),
+        pastePrompt: (text) => text,
+      },
+    });
+  } finally {
+    rl.close();
+  }
 
-  const method = options.method;
+  if (signIn.account?.email) {
+    console.log(`Signed in as ${signIn.account.email}.`);
+  }
+  const validation = await validateApiKey(baseUrl, signIn.accessToken);
+  if (validation.ok) {
+    console.log('Access token validated successfully.');
+  } else {
+    console.log(
+      `Signed in, but the bot API rejected the token: ${validation.error || 'Unknown validation error.'}`,
+    );
+  }
+  return {
+    path: runtimeSecretsPath(),
+    apiKey: signIn.accessToken,
+    maskedApiKey: maskToken(signIn.accessToken),
+    method: options.method,
+    validated: validation.ok,
+    account: signIn.account,
+  };
+}
+
+/** Legacy path: paste a long-lived `hai-` platform API key. */
+async function loginWithApiKeyPrompt(options: {
+  baseUrl?: string;
+}): Promise<HybridAILoginResult> {
+  requireInteractiveTerminal();
+
   const baseUrl = normalizeBaseUrl(
     options.baseUrl || HYBRIDAI_BASE_URL || DEFAULT_BASE_URL,
   );
   const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
-  const createPromptInterface = () =>
-    readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
   let rl = createPromptInterface();
 
   try {
-    if (method === 'browser') {
-      console.log('HybridAI browser login');
-      console.log(`Login page: ${loginUrl}`);
-      if (
-        await promptYesNo(rl, 'Open the login page in your browser now?', true)
-      ) {
-        const opened = await tryOpenUrlInBrowser(loginUrl);
-        if (!opened) {
-          console.log('Could not auto-open browser. Open the link manually.');
-        }
+    console.log('HybridAI API key login');
+    console.log(`API keys page: ${loginUrl}`);
+    if (
+      await promptYesNo(rl, 'Open the API keys page in your browser now?', true)
+    ) {
+      const opened = await tryOpenUrlInBrowser(loginUrl);
+      if (!opened) {
+        console.log('Could not auto-open browser. Open the link manually.');
       }
-    } else {
-      console.log('HybridAI headless login');
-      console.log(`Open this page to retrieve an API key: ${loginUrl}`);
     }
 
     let apiKey = '';
@@ -299,7 +362,7 @@ async function loginWithApiKeyPrompt(options: {
       path,
       apiKey,
       maskedApiKey: maskToken(apiKey),
-      method,
+      method: 'api-key',
       validated,
     };
   } finally {
@@ -307,10 +370,21 @@ async function loginWithApiKeyPrompt(options: {
   }
 }
 
+/** Forget the stored credential and OAuth session without contacting the platform. */
 export function clearHybridAICredentials(): string {
+  clearHybridAIOAuthRecord();
   const filePath = saveRuntimeSecrets({ HYBRIDAI_API_KEY: null });
   refreshRuntimeSecretsFromEnv();
   return filePath;
+}
+
+/** Sign out: revoke the OAuth session at the platform (best-effort), then forget it. */
+export async function logoutHybridAI(): Promise<{
+  path: string;
+  revoked: boolean;
+}> {
+  const revoked = await revokeHybridAIOAuthSession();
+  return { path: clearHybridAICredentials(), revoked };
 }
 
 export function importHybridAIEnvCredentials(): HybridAILoginResult {
@@ -350,7 +424,7 @@ export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
 }
 
 export async function loginHybridAIInteractive(options?: {
-  method?: 'auto' | 'device-code' | 'browser' | 'import';
+  method?: 'auto' | 'device-code' | 'browser' | 'api-key' | 'import';
   baseUrl?: string;
 }): Promise<HybridAILoginResult> {
   const method = options?.method || 'auto';
@@ -359,10 +433,13 @@ export async function loginHybridAIInteractive(options?: {
   if (method === 'import') {
     return importHybridAIEnvCredentials();
   }
+  if (method === 'api-key') {
+    return loginWithApiKeyPrompt({ ...(baseUrl ? { baseUrl } : {}) });
+  }
 
   const selectedMethod =
     method === 'auto' ? selectDefaultHybridAILoginMethod() : method;
-  return loginWithApiKeyPrompt({
+  return loginWithOAuth({
     method: selectedMethod,
     ...(baseUrl ? { baseUrl } : {}),
   });
@@ -377,13 +454,23 @@ export function getHybridAIAuthStatus(): HybridAIAuthStatus {
       path,
       maskedApiKey: null,
       source: null,
+      method: null,
     };
   }
 
+  const record =
+    source === 'runtime-secrets' && isHybridAIAccessToken(apiKey)
+      ? readHybridAIOAuthRecord()
+      : null;
   return {
     authenticated: true,
     path,
     maskedApiKey: maskToken(apiKey),
     source,
+    method: record ? 'oauth' : 'api-key',
+    ...(record?.account ? { account: record.account } : {}),
+    ...(typeof record?.accessExpiresAt === 'number'
+      ? { accessExpiresAt: record.accessExpiresAt }
+      : {}),
   };
 }
