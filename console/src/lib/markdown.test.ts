@@ -337,3 +337,80 @@ describe('provider citation markers', () => {
     ).toContain('Keep this sentence.');
   });
 });
+
+describe('equations', () => {
+  it.each([true, false])(
+    'renders the reported equation and inline symbols (highlight=%s)',
+    (highlight) => {
+      const html = renderMarkdown(
+        String.raw`$$\rho\left(\frac{\partial \mathbf{v}}{\partial t} + (\mathbf{v}\cdot\nabla)\mathbf{v}\right) = -\nabla p + \mu\nabla^2\mathbf{v} + \mathbf{f}$$
+
+- $\rho$ is density; $\mathbf{v}$ is velocity.`,
+        { highlight },
+      );
+      expect(html).toContain('class="katex-display"');
+      expect(html.match(/class="katex"/g)).toHaveLength(3);
+      expect(html).toContain('<math');
+      expect(html).toContain('class="mfrac"');
+      expect(html).not.toContain('katex-error');
+      expect(html).toContain('<li>');
+    },
+  );
+
+  it.each(['$$\nx^2\n$$', String.raw`\[x^2\]`, 'Before\n$$x^2$$\nAfter'])(
+    'renders display delimiters: %s',
+    (source) => {
+      expect(renderMarkdown(source)).toContain('class="katex-display"');
+    },
+  );
+
+  it('handles parenthesized inline math and adjacent dollar formulas', () => {
+    const html = renderMarkdown(String.raw`Use \(\frac{a}{b}\), $x$ and $y$.`);
+    expect(html.match(/class="katex"/g)).toHaveLength(3);
+  });
+
+  it.each([
+    '`$x$`',
+    '```tex\n$$x^2$$\n```',
+    '    $$x^2$$',
+    String.raw`\$x\$`,
+    'Prices: $5 and $10.',
+    'Streaming: $\\frac{a}',
+    'Streaming: $$x',
+  ])(
+    'keeps code, currency, escaped and incomplete delimiters literal: %s',
+    (source) => {
+      expect(renderMarkdown(source, { highlight: false })).not.toContain(
+        'class="katex',
+      );
+    },
+  );
+
+  it('renders invalid TeX without throwing or injecting HTML', () => {
+    const html = renderMarkdown(
+      String.raw`$\frac{<img src=x onerror=alert(1)>}$`,
+    );
+    expect(html).toContain('katex-error');
+    expect(html).not.toContain('<img');
+  });
+
+  it('does not enable trusted TeX commands or relax raw HTML sanitization', () => {
+    const html = renderMarkdown(String.raw`$\href{javascript:alert(1)}{click}$
+$\includegraphics{https://example.com/image.png}$
+$\htmlStyle{position:fixed}{x}$
+<span style="position:fixed" onclick="alert(1)">raw</span>
+<svg onload="alert(1)"></svg><math href="javascript:alert(1)"></math>`);
+    expect(html).not.toMatch(/<a[\s>]/);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('style="position:fixed');
+    expect(html).not.toContain('onclick=');
+    expect(html).not.toContain('onload=');
+    expect(html).not.toContain('href="javascript:');
+  });
+
+  it('bounds recursive macros and keeps definitions local to each equation', () => {
+    expect(renderMarkdown(String.raw`$\def\a{\a}\a$`)).toContain('katex-error');
+    const html = renderMarkdown(String.raw`$\gdef\custom{z}\custom$ $\custom$`);
+    expect(html).toContain('color:#cc0000');
+  });
+});

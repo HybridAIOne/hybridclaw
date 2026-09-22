@@ -4619,3 +4619,10 @@ th {
     flex-direction: column;
   }
 }
+
+/* Display equations scroll within the message on narrow screens. */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
+}
