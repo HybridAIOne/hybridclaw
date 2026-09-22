@@ -170,6 +170,7 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/security/runtime-secrets-bootstrap.ts');
+  vi.doUnmock('../src/auth/hybridai-auth.ts');
   vi.doUnmock('../src/utils/secret-prompt.js');
   vi.doUnmock('../src/utils/secret-prompt.ts');
   vi.doUnmock('../src/migration/agent-home-migration.js');
@@ -971,6 +972,13 @@ test('interactive HybridAI onboarding signs in with OAuth and stores the access 
     configurable: true,
   });
 
+  // CI sets `CI`, which would pick the headless device-code method.
+  vi.doMock('../src/auth/hybridai-auth.ts', async () => ({
+    ...(await vi.importActual<typeof import('../src/auth/hybridai-auth.ts')>(
+      '../src/auth/hybridai-auth.ts',
+    )),
+    selectDefaultHybridAILoginMethod: () => 'browser',
+  }));
   // open browser? → no; paste redirect → bare code; default bot → first.
   const answers = ['n', 'code-1', ''];
   vi.doMock('node:readline/promises', () => ({
