@@ -257,3 +257,20 @@
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+.privacyStops > span[data-inactive="true"] .privacyStopButton {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+}
+.privacyAvailability {
+  font-size: 0.625rem;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.privacyStopButton:disabled {
+  cursor: not-allowed;
+}
+.privacyStopButton:disabled:hover {
+  background: transparent;
+}

@@ -11,10 +11,14 @@ export function ModelRoutingPage() {
   const models = useQuery({
     queryKey: ['models', token],
     queryFn: () => fetchModels(token),
+    refetchInterval: 30_000,
   });
   return (
     <div className="page-stack">
-      <RoutingConfiguration models={models.data?.models ?? []} />
+      <RoutingConfiguration
+        models={models.data?.models ?? []}
+        providerStatus={models.data?.providerStatus}
+      />
     </div>
   );
 }

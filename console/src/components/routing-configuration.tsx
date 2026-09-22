@@ -5,7 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { fetchConfig, requestJson, saveConfig } from '../api/client';
-import type { AdminConfig, ChatModel } from '../api/types';
+import type { AdminConfig, AdminModelsResponse, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
 import {
   isRoutingLanguageModel,
@@ -109,7 +109,13 @@ function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
   };
 }
 
-export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
+export function RoutingConfiguration({
+  models,
+  providerStatus,
+}: {
+  models: ChatModel[];
+  providerStatus?: AdminModelsResponse['providerStatus'];
+}) {
   const { token } = useAuth();
   const client = useQueryClient();
   const toast = useToast();
@@ -242,7 +248,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     );
   };
   function selectPrivacy(maximumZone: Ladder['maximumZone']) {
-    if (!value) return;
+    if (!value || privacyAvailability(maximumZone) === 'Inactive') return;
     edit({
       ...value,
       maximumZone,
@@ -265,6 +271,50 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       zone,
       [...(value?.tiers ?? [])].reverse().flatMap((tier) => tier.models),
     );
+
+  function privacyAvailability(zone: Ladder['maximumZone']) {
+    if (!providerStatus) return 'Checking…';
+    if (
+      zone === 'hai' &&
+      (!providerStatus.hybridai?.reachable ||
+        providerStatus.hybridai.loginRequired)
+    )
+      return 'Inactive';
+    const active = models.some((model) => {
+      if (
+        (model.zone ?? 'cloud') !== zone ||
+        !isRoutingLanguageModel(model) ||
+        (model.backend && model.discovered === false)
+      )
+        return false;
+      const prefix = model.id.split('/')[0];
+      const health =
+        providerStatus?.[prefix] ??
+        providerStatus?.[model.provider] ??
+        (prefix === 'openai-codex' ? providerStatus?.codex : undefined) ??
+        (model.backend ? providerStatus?.[model.backend] : undefined);
+      return health?.reachable === true && !health.loginRequired;
+    });
+    return active ? null : 'Inactive';
+  }
+  function movePrivacy(index: number) {
+    if (!value) return;
+    const current = privacyLevels.findIndex(
+      ([zone]) => zone === value.maximumZone,
+    );
+    const direction = index >= current ? 1 : -1;
+    for (
+      let next = index;
+      next >= 0 && next < privacyLevels.length;
+      next += direction
+    ) {
+      const zone = privacyLevels[next][0];
+      if (privacyAvailability(zone) !== 'Inactive') {
+        selectPrivacy(zone);
+        return;
+      }
+    }
+  }
 
   const names =
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
@@ -362,7 +412,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               </label>
               <div className={`${styles.field} ${styles.policyField}`}>
                 <span className={styles.privacyHeading}>
-                  Privacy{' '}
+                  Privacy boundary{' '}
                   <strong>
                     <PrivacyLevelIcon zone={value.maximumZone} />
                     {
@@ -374,7 +424,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 </span>
                 <input
                   type="range"
-                  aria-label="Privacy"
+                  aria-label="Privacy boundary"
                   aria-valuetext={
                     privacyLevels.find(
                       ([zone]) => zone === value.maximumZone,
@@ -387,16 +437,19 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   value={privacyLevels.findIndex(
                     ([zone]) => zone === value.maximumZone,
                   )}
-                  onChange={(event) =>
-                    selectPrivacy(privacyLevels[Number(event.target.value)][0])
-                  }
+                  onChange={(event) => movePrivacy(Number(event.target.value))}
                 />
                 <span className={styles.privacyStops}>
                   {privacyLevels.map(([zone, label]) => (
-                    <span key={zone} data-selected={zone === value.maximumZone}>
+                    <span
+                      key={zone}
+                      data-selected={zone === value.maximumZone}
+                      data-inactive={privacyAvailability(zone) === 'Inactive'}
+                    >
                       <button
                         type="button"
                         className={styles.privacyStopButton}
+                        disabled={privacyAvailability(zone) === 'Inactive'}
                         aria-label={label}
                         aria-pressed={zone === value.maximumZone}
                         aria-describedby={`privacy-models-${zone}`}
@@ -404,14 +457,35 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                       >
                         <PrivacyLevelIcon zone={zone} />
                         <span>{label}</span>
+                        {privacyAvailability(zone) && (
+                          <small
+                            className={styles.privacyAvailability}
+                            aria-hidden="true"
+                          >
+                            {privacyAvailability(zone)}
+                          </small>
+                        )}
                       </button>
                       <span
                         className={styles.privacyTooltip}
                         role="tooltip"
                         id={`privacy-models-${zone}`}
                       >
-                        <strong>{label} · Available models</strong>
-                        {topPrivacyModels(zone).length ? (
+                        <strong>
+                          {label} ·{' '}
+                          {privacyAvailability(zone) ?? 'Available models'}
+                        </strong>
+                        {privacyAvailability(zone) === 'Inactive' && (
+                          <span>
+                            {zone === 'hai'
+                              ? 'Activate your HybridAI API key and configure a hosted language model.'
+                              : zone === 'local'
+                                ? 'Configure and start a local language model.'
+                                : 'Configure an active provider with a language model at this privacy level.'}
+                          </span>
+                        )}
+                        {privacyAvailability(zone) ===
+                        'Inactive' ? null : topPrivacyModels(zone).length ? (
                           topPrivacyModels(zone).map((model) => (
                             <span key={model.id}>{model.id}</span>
                           ))
