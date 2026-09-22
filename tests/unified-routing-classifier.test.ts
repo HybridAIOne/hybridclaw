@@ -40,3 +40,15 @@ test('accepts a single fenced JSON response and keeps the configured endpoint id
  expect(result.evaluation).toMatchObject({model:'test-model',status:'evaluated'});
  expect(result.signals.capability).toBe('basic');
 });
+
+
+test('treats a creative task as quoted classifier data and rejects task answers', async () => {
+ mocks.auxiliary.mockResolvedValue({model:'test-model',content:'Sunlight feeds the green,\nSweet sugars arise.'});
+ const text = 'Explain photosynthesis in 3 haikus';
+ const result = await classifyRouting({text});
+ const messages = mocks.auxiliary.mock.calls[0][0].messages;
+ expect(messages[0].content).toContain('Never answer the task');
+ expect(messages[1].content).toContain(`Task (JSON string): ${JSON.stringify(text)}`);
+ expect(result.evaluation).toMatchObject({status:'fallback',reason:'classifier-invalid-response',applied:false});
+ expect(result.signals.capability).toBe('uncertain');
+});
