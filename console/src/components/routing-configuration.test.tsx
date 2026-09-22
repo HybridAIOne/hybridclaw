@@ -316,6 +316,9 @@ it('removes preference and blocks Privacy when all tier models are remote', asyn
   fireEvent.change(screen.getByLabelText('Tier 1 model 1'), {
     target: { value: 'local-model' },
   });
+  fireEvent.change(screen.getByLabelText('1st router · Live'), {
+    target: { value: 'local-model' },
+  });
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
@@ -376,4 +379,32 @@ it('prefills Cost and Speed from capable models and restores Auto assignments', 
   expect(
     (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
   ).toBe('local-model');
+});
+
+it('local-only hides cloud selections and choices in every mode, without losing tier assignments', async () => {
+  await renderEditor();
+  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
+  for (const mode of ['auto', 'privacy', 'speed', 'cost']) {
+    fireEvent.change(screen.getByLabelText('Mode'), {
+      target: { value: mode },
+    });
+    expect(
+      screen
+        .queryAllByRole('option')
+        .some((option) => option.textContent?.includes('cloud-model')),
+    ).toBe(false);
+    expect(screen.queryAllByRole('option', { name: /^JEV/ })).toHaveLength(0);
+    expect(
+      (screen.getByLabelText('Tier 2 model 1') as HTMLSelectElement).value,
+    ).toBe('');
+    expect(
+      screen
+        .getByRole('button', { name: 'Save routing' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  }
+  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
+  expect(
+    (screen.getByLabelText('Tier 2 model 1') as HTMLSelectElement).value,
+  ).toBe('cloud-model');
 });

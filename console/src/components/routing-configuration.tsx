@@ -221,40 +221,49 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     ];
     edit({ ...value, tiers });
   }
+  const isLocal = (id: string) =>
+    models.some((model) => model.id === id && model.zone === 'local');
+  const selectableModels = value?.localOnly
+    ? models.filter((model) => model.zone === 'local')
+    : models;
   const names =
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
   const error =
     value &&
     (value.localOnly &&
-    !value.tiers
-      .slice(-1)
-      .some((tier) =>
-        tier.models.some((id) =>
-          models.some((model) => model.id === id && model.zone === 'local'),
-        ),
-      )
+    (!value.tiers.length ||
+      value.tiers.some((tier) => tier.models.some((id) => !isLocal(id))))
       ? 'Configure a local model first.'
-      : value.enabled && !value.tiers.length
-        ? 'Add a tier before enabling automatic routing.'
-        : names.some((name) => !name)
-          ? 'Give every tier a name.'
-          : new Set(names).size !== names.length
-            ? 'Use a different name for each tier.'
-            : value.tiers.some(
-                  (tier) =>
-                    tier.models.some((model) => !model) || !tier.models.length,
-                )
-              ? 'Choose a model for every slot.'
+      : value.localOnly &&
+          (!isLocal(value.concierge.model) ||
+            Boolean(
+              value.concierge.comparisonModel &&
+                !isLocal(value.concierge.comparisonModel),
+            ))
+        ? 'Choose a local router and clear any cloud comparison router.'
+        : value.enabled && !value.tiers.length
+          ? 'Add a tier before enabling automatic routing.'
+          : names.some((name) => !name)
+            ? 'Give every tier a name.'
+            : new Set(names).size !== names.length
+              ? 'Use a different name for each tier.'
               : value.tiers.some(
-                    (tier) => new Set(tier.models).size !== tier.models.length,
+                    (tier) =>
+                      tier.models.some((model) => !model) ||
+                      !tier.models.length,
                   )
-                ? 'Choose different models within each tier.'
-                : value.tiers.length &&
-                    !value.tiers.some(
-                      (tier) => tier.name === value.defaultStart,
+                ? 'Choose a model for every slot.'
+                : value.tiers.some(
+                      (tier) =>
+                        new Set(tier.models).size !== tier.models.length,
                     )
-                  ? 'Choose a starting tier.'
-                  : null);
+                  ? 'Choose different models within each tier.'
+                  : value.tiers.length &&
+                      !value.tiers.some(
+                        (tier) => tier.name === value.defaultStart,
+                      )
+                    ? 'Choose a starting tier.'
+                    : null);
   return (
     <Card id="routing-concierge">
       <CardHeader>
@@ -312,7 +321,24 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               <label className={styles.toggle}>
                 <Switch
                   checked={value.localOnly}
-                  onCheckedChange={(localOnly) => edit({ ...value, localOnly })}
+                  onCheckedChange={(localOnly) =>
+                    edit({
+                      ...value,
+                      localOnly,
+                      concierge: localOnly
+                        ? {
+                            model: isLocal(value.concierge.model)
+                              ? value.concierge.model
+                              : '',
+                            comparisonModel: isLocal(
+                              value.concierge.comparisonModel,
+                            )
+                              ? value.concierge.comparisonModel
+                              : '',
+                          }
+                        : value.concierge,
+                    })
+                  }
                 />
                 Local models only
               </label>
@@ -323,11 +349,15 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     : '2nd router · Compare'}
                   <NativeSelect
                     value={
-                      field === 'comparisonModel' &&
-                      value.concierge[field].startsWith('jev/') &&
-                      availability.data?.jevAvailable === false
-                        ? ''
-                        : value.concierge[field]
+                      value.localOnly &&
+                      value.concierge[field] &&
+                      !isLocal(value.concierge[field])
+                        ? '__blocked__'
+                        : field === 'comparisonModel' &&
+                            value.concierge[field].startsWith('jev/') &&
+                            availability.data?.jevAvailable === false
+                          ? ''
+                          : value.concierge[field]
                     }
                     onChange={(event) =>
                       edit({
@@ -339,19 +369,33 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                       })
                     }
                   >
+                    {value.localOnly &&
+                      value.concierge[field] &&
+                      !isLocal(value.concierge[field]) && (
+                        <option value="__blocked__" disabled>
+                          Choose a local router…
+                        </option>
+                      )}
                     <option value="">
-                      {field === 'model' ? 'Automatic · Gemma E4B' : 'Unset'}
+                      {field === 'model'
+                        ? value.localOnly
+                          ? 'Choose a local router…'
+                          : 'Automatic · Gemma E4B'
+                        : 'Unset'}
                     </option>
-                    <option
-                      value="jev/jev-latest"
-                      disabled={!availability.data?.jevAvailable}
-                    >
-                      JEV
-                      {availability.data?.jevAvailable
-                        ? ''
-                        : ' · API key required'}
-                    </option>
-                    {value.concierge[field] &&
+                    {!value.localOnly && (
+                      <option
+                        value="jev/jev-latest"
+                        disabled={!availability.data?.jevAvailable}
+                      >
+                        JEV
+                        {availability.data?.jevAvailable
+                          ? ''
+                          : ' · API key required'}
+                      </option>
+                    )}
+                    {!value.localOnly &&
+                    value.concierge[field] &&
                     !value.concierge[field].startsWith('jev/') &&
                     !models.some(
                       (model) => model.id === value.concierge[field],
@@ -360,7 +404,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                         {value.concierge[field]}
                       </option>
                     ) : null}
-                    {models
+                    {selectableModels
                       .filter((model) => !model.id.startsWith('jev/'))
                       .map((model) => (
                         <option key={model.id} value={model.id}>
@@ -391,6 +435,32 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               }{' '}
               Models below are saved for this mode.
             </p>
+            {value.mode === 'privacy' &&
+              !value.tiers.some((tier) =>
+                tier.models.some((id) =>
+                  models.some(
+                    (model) =>
+                      model.id === id && model.zone && model.zone !== 'cloud',
+                  ),
+                ),
+              ) && (
+                <p className={styles.help}>
+                  Only cloud models are assigned. Add a local or private
+                  endpoint model to these tiers.
+                </p>
+              )}
+            {(value.mode === 'speed' || value.mode === 'auto') &&
+              !value.tiers.some((tier) =>
+                tier.models.some((id) =>
+                  models.some(
+                    (model) => model.id === id && model.latencyMs != null,
+                  ),
+                ),
+              ) && (
+                <p className={styles.help}>
+                  No timings yet · using configured order.
+                </p>
+              )}
             <ol className={styles.tiers}>
               {value.tiers.map((tier, index) => (
                 <li key={tier.id} className={styles.tier}>
@@ -462,7 +532,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                         <NativeSelect
                           size="sm"
                           aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
-                          value={model}
+                          value={
+                            value.localOnly && !isLocal(model) ? '' : model
+                          }
                           onChange={(event) =>
                             changeTier(index, {
                               ...tier,
@@ -472,14 +544,19 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                             })
                           }
                         >
-                          <option value="">Choose a model…</option>
+                          <option value="">
+                            {value.localOnly
+                              ? 'Choose a local model…'
+                              : 'Choose a model…'}
+                          </option>
                           {model &&
+                          !value.localOnly &&
                           !models.some((item) => item.id === model) ? (
                             <option value={model}>
                               {model} · not in current catalog
                             </option>
                           ) : null}
-                          {models.map((item) => (
+                          {selectableModels.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.id} ·{' '}
                               {item.zone === 'local'
