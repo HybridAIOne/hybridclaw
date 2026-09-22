@@ -9,6 +9,11 @@
   taskId, so schedule changes no longer leave duplicate tasks behind.
 ### Changed
 
+- **Recall snippets are labeled as chat recall**: The prompt block is titled
+  `### Chat Recall` and states that entries are recalled chat excerpts, not
+  saved memory files. Per-turn memories whose turn is still in the verbatim
+  prompt history are skipped, and compaction summary rows are skipped while the
+  session summary is injected, so recall no longer duplicates visible context.
 - **Prompt history and compaction share one token budget**: The prompt carries
   the newest whole turns that fit a budget derived from the model's context
   window, clipped by `sessionCompaction.tokenBudget`. Compaction is triggered

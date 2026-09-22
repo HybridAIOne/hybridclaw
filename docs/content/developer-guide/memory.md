@@ -216,6 +216,13 @@ Important properties:
 
 - semantic memories are query-matched, not always injected
 - prompt assembly recalls only a small top-N set
+- per-turn memories whose source turn is still in the verbatim prompt history
+  are skipped at prompt time, so recall never duplicates what the model can
+  already see
+- compaction summary memories are skipped while the current `session_summary`
+  is injected, because that summary already merges them
+- recalled rows are rendered under `### Chat Recall` and labeled as chat
+  excerpts, not saved memory files
 - recalled rows update their access metadata, so recall is stateful
 - stale rows decay during dream consolidation
 
