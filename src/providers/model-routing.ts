@@ -103,6 +103,12 @@ export function configuredRemoteRoutingZone(
       : '';
   if (/^(openai\/|anthropic\/|gpt-|claude-|o[134](?:-|$))/.test(hybrid))
     return 'region';
+  // Operator clarification (2026-09-22): HybridAI routes never belong to World.
+  // Qwen/Gemma are HAI-hosted; other proxied routes use the EU-hosting boundary.
+  if (id.startsWith('hybridai/')) {
+    if (/(?:^|[/ -])(?:qwen|gemma)/.test(hybrid)) return 'hai';
+    return 'region';
+  }
   return null;
 }
 

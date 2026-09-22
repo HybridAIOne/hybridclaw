@@ -112,3 +112,8 @@ DE/EU provider; Mistral through OpenRouter remains World. Privacy previews prefe
 configured capability models across equivalent routes, diversify model makers,
 and omit old Claude 3, batch variants and duplicate aliases. This preview does
 not change the saved execution tiers or remove entries from the full catalog.
+
+Operator clarification (2026-09-22): no HybridAI route belongs to World.
+HybridAI Qwen/Gemma are HAI-hosted; Mistral remains DE/EU provider, and other
+HybridAI routes use DE/EU hosting. This overrides the earlier unknown-HybridAI
+World fallback for this deployment.

@@ -130,7 +130,7 @@ test('provider privacy classification distinguishes direct and HybridAI transpor
   for (const model of ['openai/gpt-5.6-sol','openai-codex/gpt-5.6-sol','anthropic/claude-sonnet-5','openrouter/anthropic/claude-sonnet-5','xai/grok']) {
     expect(configuredRemoteRoutingZone(model)).toBe('cloud');
   }
-  expect(configuredRemoteRoutingZone('hybridai/unknown-model')).toBeNull();
+  expect(configuredRemoteRoutingZone('hybridai/unknown-model')).toBe('region');
   expect(configuredRemoteRoutingZone('haigpu1/Qwen/Qwen3.6-27B-FP8')).toBeNull();
 });
 
@@ -139,4 +139,10 @@ test('Mistral direct and HybridAI are EU provider, but OpenRouter remains World'
   expect(configuredRemoteRoutingZone('mistral/mistral-large-latest')).toBe('eu-provider');
   expect(configuredRemoteRoutingZone('hybridai/mistral/mistral-large-latest')).toBe('eu-provider');
   expect(configuredRemoteRoutingZone('openrouter/mistralai/mistral-large')).toBe('cloud');
+});
+
+test('HybridAI hosted Qwen and Gemma never fall back to World', async () => {
+  const {configuredRemoteRoutingZone} = await import('../src/providers/model-routing.js');
+  for (const id of ['hybridai/Qwen/Qwen3.6-27B-FP8','hybridai/google/gemma-4-e4b-it','hybridai/franconia/qwen-3.6-27b','hybridai/franconia/gemma-4-26b']) expect(configuredRemoteRoutingZone(id)).toBe('hai');
+  expect(configuredRemoteRoutingZone('openrouter/qwen/qwen3.6-27b')).toBe('cloud');
 });
