@@ -133,3 +133,10 @@ test('provider privacy classification distinguishes direct and HybridAI transpor
   expect(configuredRemoteRoutingZone('hybridai/unknown-model')).toBeNull();
   expect(configuredRemoteRoutingZone('haigpu1/Qwen/Qwen3.6-27B-FP8')).toBeNull();
 });
+
+test('Mistral direct and HybridAI are EU provider, but OpenRouter remains World', async () => {
+  const {configuredRemoteRoutingZone} = await import('../src/providers/model-routing.js');
+  expect(configuredRemoteRoutingZone('mistral/mistral-large-latest')).toBe('eu-provider');
+  expect(configuredRemoteRoutingZone('hybridai/mistral/mistral-large-latest')).toBe('eu-provider');
+  expect(configuredRemoteRoutingZone('openrouter/mistralai/mistral-large')).toBe('cloud');
+});

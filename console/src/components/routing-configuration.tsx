@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { fetchConfig, requestJson, saveConfig } from '../api/client';
 import type { AdminConfig, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
+import { privacyModelPreview } from '../lib/privacy-model-preview';
 import { settingValue, withSettingValue } from '../lib/settings-registry';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
@@ -253,24 +254,12 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     });
   }
   const selectableModels = models.filter((model) => isAllowed(model.id));
-  const topPrivacyModels = (zone: Ladder['maximumZone']) => {
-    const available = models.filter(
-      (model) =>
-        (model.zone ?? 'cloud') === zone &&
-        !(model.backend && model.discovered === false),
+  const topPrivacyModels = (zone: Ladder['maximumZone']) =>
+    privacyModelPreview(
+      models,
+      zone,
+      [...(value?.tiers ?? [])].reverse().flatMap((tier) => tier.models),
     );
-    // Operator capability order is the ranking source; no invented benchmark scores.
-    const preferred = [...(value?.tiers ?? [])]
-      .reverse()
-      .flatMap((tier) => tier.models);
-    const rank = (id: string) => {
-      const index = preferred.indexOf(id);
-      return index < 0 ? Infinity : index;
-    };
-    return [...available]
-      .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id))
-      .slice(0, 3);
-  };
 
   const names =
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];

@@ -461,9 +461,9 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   ).toEqual({ input: 0.000001, output: 0.000002 });
   expect(
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small').zone,
-  ).toBe('region');
+  ).toBe('eu-provider');
   expect(catalog.getModelCatalogMetadata('mistral/mistral-small').zone).toBe(
-    'cloud',
+    'eu-provider',
   );
 });
 

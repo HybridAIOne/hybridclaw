@@ -106,3 +106,9 @@ HybridAI are DE/EU hosting. Direct OpenRouter, Anthropic, OpenAI/Codex and xAI
 routes remain World. This is an operator-provided deployment classification,
 not an inference from model authorship. Unclassified HybridAI models retain
 catalog metadata; unknown locations remain World.
+
+Operator classification (2026-09-22): Mistral direct and through HybridAI are
+DE/EU provider; Mistral through OpenRouter remains World. Privacy previews prefer
+configured capability models across equivalent routes, diversify model makers,
+and omit old Claude 3, batch variants and duplicate aliases. This preview does
+not change the saved execution tiers or remove entries from the full catalog.

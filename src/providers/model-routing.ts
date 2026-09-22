@@ -90,6 +90,12 @@ export function configuredRemoteRoutingZone(
   // Direct services remain World; this does not certify a provider's residency claims.
   if (/^(openrouter|anthropic|openai|openai-codex|codex|xai)\//.test(id))
     return 'cloud';
+  // Operator deployment classification: direct and HybridAI Mistral are EU providers.
+  if (
+    id.startsWith('mistral/') ||
+    /^hybridai\/(?:mistral|mistralai)\//.test(id)
+  )
+    return 'eu-provider';
   const hybrid = id.startsWith('hybridai/')
     ? id.slice('hybridai/'.length)
     : !id.includes('/')
