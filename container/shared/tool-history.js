@@ -8,19 +8,35 @@
 // 16k (Codex, 2026-09-10); retention configuration deferred until needed.
 export const TOOL_HISTORY_RESULT_MAX_CHARS = 16_000;
 
-export function sessionTranscriptFilename(sessionId) {
-  return `${sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session'}.jsonl`;
+export const TOOL_RESULTS_DIR = '.tool-results';
+
+function safeName(value, fallback) {
+  return (
+    String(value || '')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '_') || fallback
+  );
 }
 
-export function toolResultForHistory(message, sessionId) {
+export function sessionTranscriptFilename(sessionId) {
+  return `${safeName(sessionId, 'session')}.jsonl`;
+}
+
+export function toolResultFilePath(sessionId, toolCallId) {
+  return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
+}
+
+export function toolResultForHistory(message, sessionId, resultPath) {
   if (
     message.role !== 'tool' ||
     typeof message.content !== 'string' ||
     message.content.length <= TOOL_HISTORY_RESULT_MAX_CHARS
   )
     return message;
-  const reference = `.session-transcripts/${sessionTranscriptFilename(sessionId)}`;
-  let marker = `\n\n[Tool result truncated. Full result is retained after this turn in ${reference}, tool_call_id=${JSON.stringify(message.tool_call_id)}. Use read or session_search to retrieve it.]\n\n`;
+  const transcript = `.session-transcripts/${sessionTranscriptFilename(sessionId)}`;
+  let marker = resultPath
+    ? `\n\n[Tool result truncated. Full result saved to ${resultPath}; read it with offset/limit or grep it.]\n\n`
+    : `\n\n[Tool result truncated. Full result is retained after this turn in ${transcript}, tool_call_id=${JSON.stringify(message.tool_call_id)}. Use read or session_search to retrieve it.]\n\n`;
   if (marker.length >= TOOL_HISTORY_RESULT_MAX_CHARS) {
     marker =
       '\n\n[Tool result truncated. Use session_search with include_current=true to retrieve the full result after this turn.]\n\n';

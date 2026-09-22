@@ -1048,7 +1048,7 @@ function inputRuntimeContext(
 async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
-  const turnToolHistory = new TurnToolHistory(params.sessionId);
+  const turnToolHistory = new TurnToolHistory(params.sessionId, WORKSPACE_ROOT);
   const output = await processRequestInner(params, turnToolHistory);
   const reason = output.pendingApproval
     ? 'Awaiting human approval; execution has not occurred.'

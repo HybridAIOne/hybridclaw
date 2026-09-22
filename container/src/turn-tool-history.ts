@@ -3,18 +3,29 @@
  * Unlike loop detection, it retains ordered model messages for later replay;
  * unexecuted calls receive explicit terminal results, never fabricated success.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import {
+  TOOL_HISTORY_RESULT_MAX_CHARS,
+  TOOL_RESULTS_DIR,
+  toolResultFilePath,
   toolResultForHistory,
   validateToolHistory,
 } from '../shared/tool-history.js';
 import type { ChatMessage } from './types.js';
 
+const TOOL_RESULT_FILE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export class TurnToolHistory {
   private readonly messages: ChatMessage[] = [];
   private readonly replayMessages: ChatMessage[] = [];
   private activeHistory: ChatMessage[] | undefined;
+  private prunedStaleResults = false;
 
-  constructor(private readonly sessionId: string) {}
+  constructor(
+    private readonly sessionId: string,
+    private readonly workspaceRoot?: string,
+  ) {}
 
   retain(history: ChatMessage[]): void {
     this.activeHistory = history;
@@ -29,9 +40,47 @@ export class TurnToolHistory {
 
   recordResult(message: ChatMessage): ChatMessage {
     this.messages.push(structuredClone(message));
-    const visible = toolResultForHistory(message, this.sessionId);
+    const visible = toolResultForHistory(
+      message,
+      this.sessionId,
+      this.saveFullResult(message),
+    );
     this.replayMessages.push(visible);
     return visible;
+  }
+
+  private saveFullResult(message: ChatMessage): string | undefined {
+    if (
+      !this.workspaceRoot ||
+      typeof message.content !== 'string' ||
+      message.content.length <= TOOL_HISTORY_RESULT_MAX_CHARS
+    )
+      return undefined;
+    const relative = toolResultFilePath(this.sessionId, message.tool_call_id);
+    try {
+      const filePath = path.join(this.workspaceRoot, relative);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, message.content, { mode: 0o600 });
+      this.pruneStaleResults();
+      return relative;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private pruneStaleResults(): void {
+    if (this.prunedStaleResults || !this.workspaceRoot) return;
+    this.prunedStaleResults = true;
+    const root = path.join(this.workspaceRoot, TOOL_RESULTS_DIR);
+    const cutoff = Date.now() - TOOL_RESULT_FILE_MAX_AGE_MS;
+    try {
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const dir = path.join(root, entry.name);
+        if (fs.statSync(dir).mtimeMs < cutoff)
+          fs.rmSync(dir, { recursive: true, force: true });
+      }
+    } catch {}
   }
 
   finish(reason: string, forReplay = false): ChatMessage[] {
