@@ -15,6 +15,11 @@ import {
   getCodexAuthStatus,
   loginCodexInteractive,
 } from './auth/codex-auth.js';
+import {
+  ensureFreshHybridAIAccessToken,
+  startHybridAIAuthorization,
+  waitForHybridAIAuthorizationCode,
+} from './auth/hybridai-oauth.js';
 import { refreshRuntimeSecretsFromEnv } from './config/config.js';
 import {
   acceptSecurityTrustModel,
@@ -774,7 +779,9 @@ async function promptAuthMethod(
               : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
-  console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
+  console.log(
+    `  ${TEAL}1.${RESET} HybridAI account (sign in with your browser)`,
+  );
   console.log(`  ${TEAL}2.${RESET} Anthropic Claude Code / API key`);
   console.log(`  ${TEAL}3.${RESET} OpenAI Codex (OAuth login)`);
   console.log(`  ${TEAL}4.${RESET} OpenRouter API key`);
@@ -1022,7 +1029,7 @@ async function ensureValidRuntimeConfig(
   }
 }
 
-async function runHybridAIApiKeyOnboarding(params: {
+async function runHybridAIOnboarding(params: {
   rl: readline.Interface;
   baseUrl: string;
   commandLabel: string;
@@ -1032,16 +1039,133 @@ async function runHybridAIApiKeyOnboarding(params: {
   const baseUrl = normalizeBaseUrl(
     params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
   );
-  const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
-  const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
   printMeta('HYBRIDAI_BASE_URL', baseUrl);
   if (!existingKey) {
     printInfo(
-      `No HYBRIDAI_API_KEY found. ${commandLabel} needs HybridAI credentials before it can start.`,
+      `No HybridAI credentials found. ${commandLabel} needs a HybridAI sign-in before it can start.`,
     );
   } else {
     printSetup('Reconfiguring HybridAI credentials.');
   }
+  console.log();
+
+  let authorization: Awaited<ReturnType<typeof startHybridAIAuthorization>>;
+  try {
+    authorization = await startHybridAIAuthorization({ baseUrl });
+  } catch (err) {
+    printWarn(
+      `Browser sign-in is not available: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.log();
+    await runHybridAIApiKeyOnboarding(params);
+    return;
+  }
+
+  let signIn: Awaited<ReturnType<typeof authorization.complete>>;
+  try {
+    printInfo(
+      'Sign in (or create an account) in your browser and approve HybridClaw.',
+    );
+    const openBrowser = await promptYesNo(
+      rl,
+      'Open the HybridAI sign-in page in your browser now?',
+      true,
+      ICON_AUTH,
+    );
+    if (openBrowser) {
+      const opened = await tryOpenUrlInBrowser(authorization.authorizationUrl);
+      if (!opened) {
+        printWarn('Could not auto-open browser. Open the link manually.');
+      }
+    }
+    printLink(authorization.authorizationUrl);
+    printInfo(
+      `Waiting for the browser to return to ${authorization.redirectUri} ...`,
+    );
+    const code = await waitForHybridAIAuthorizationCode(authorization, {
+      rl,
+      text: styledPromptWithIcon(
+        'If the browser cannot reach this machine, paste the URL it was redirected to here: ',
+        ICON_KEYBOARD,
+      ),
+    });
+    signIn = await authorization.complete(code);
+  } catch (err) {
+    authorization.close();
+    printWarn(
+      `Sign-in failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    const retry = await promptYesNo(rl, 'Try signing in again?', true);
+    if (retry) {
+      await runHybridAIOnboarding(params);
+      return;
+    }
+    const useApiKey = await promptYesNo(
+      rl,
+      'Paste a HybridAI API key instead?',
+      false,
+      ICON_KEY,
+    );
+    if (useApiKey) await runHybridAIApiKeyOnboarding(params);
+    return;
+  }
+
+  printSuccess(
+    signIn.account?.email
+      ? `Signed in as ${signIn.account.email}.`
+      : 'Signed in to HybridAI.',
+  );
+  const validation = await validateApiKey(baseUrl, signIn.accessToken);
+  if (!validation.ok) {
+    printWarn(`Could not load your bots: ${validation.error}`);
+  }
+  console.log();
+
+  const fallbackChatbotId = getRuntimeConfig().hybridai.defaultChatbotId.trim();
+  const chosenChatbotId = await chooseDefaultBot(
+    rl,
+    validation.ok ? validation.bots : [],
+    fallbackChatbotId,
+    validation.accountChatbotId || '',
+  );
+  saveDefaultChatbotId(chosenChatbotId || '');
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    defaultHybridAIModel(),
+    'HybridAI auth works only with HybridAI models.',
+  );
+
+  console.log();
+  printSuccess(`Saved credentials to ${runtimeSecretsPath()}.`);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (chosenChatbotId) {
+    printSuccess(`Default bot set to: ${chosenChatbotId}`);
+  } else {
+    printInfo(
+      `No default bot selected. You can set hybridai.defaultChatbotId in ${runtimeConfigPath()} later.`,
+    );
+  }
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${defaultHybridAIModel()}`);
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
+/** Fallback for platforms without OAuth: paste a long-lived platform API key. */
+async function runHybridAIApiKeyOnboarding(params: {
+  rl: readline.Interface;
+  baseUrl: string;
+  commandLabel: string;
+  existingKey: string;
+}): Promise<void> {
+  const { rl, commandLabel } = params;
+  const baseUrl = normalizeBaseUrl(
+    params.baseUrl || getRuntimeConfig().hybridai.baseUrl || DEFAULT_BASE_URL,
+  );
+  const registerPageUrl = resolveUrl(baseUrl, DEFAULT_REGISTER_PATH);
+  const loginUrl = resolveUrl(baseUrl, DEFAULT_LOGIN_PATH);
+  printSetup('Continuing with a HybridAI API key.');
   console.log();
 
   const wantsNewAccount = await promptYesNo(
@@ -1559,6 +1683,9 @@ export async function ensureRuntimeCredentials(
 ): Promise<void> {
   bootstrapRuntimeSecrets();
   const bootstrappedConfig = ensureRuntimeConfigFile();
+  // An OAuth access token may have expired while nothing was running; rotate
+  // it before deciding whether credentials are present.
+  await ensureFreshHybridAIAccessToken();
 
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
   let rl: readline.Interface | null = null;
@@ -1866,11 +1993,11 @@ export async function ensureRuntimeCredentials(
       return;
     }
 
-    await runHybridAIApiKeyOnboarding({
+    await runHybridAIOnboarding({
       rl,
       baseUrl: normalizeBaseUrl(
-        refreshedRuntimeConfig.hybridai.baseUrl ||
-          process.env.HYBRIDAI_BASE_URL ||
+        process.env.HYBRIDAI_BASE_URL ||
+          refreshedRuntimeConfig.hybridai.baseUrl ||
           DEFAULT_BASE_URL,
       ),
       commandLabel,

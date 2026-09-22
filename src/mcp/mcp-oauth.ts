@@ -12,8 +12,21 @@
  * and injected as `Authorization` headers when MCP server configs are handed
  * to the container.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
+import {
+  type AuthorizationServerMetadata,
+  asStringArray,
+  asTrimmedString,
+  discoverAuthorizationServerMetadata,
+  fetchJson,
+  generateOAuthState,
+  generatePkcePair,
+  type OAuthTokenSet,
+  registerPublicClient,
+  requestToken,
+  wellKnownCandidates,
+} from '../auth/oauth2-client.js';
 import { logger } from '../logger.js';
 import {
   readStoredRuntimeSecret,
@@ -25,18 +38,11 @@ import { supportsMcpOAuth } from './server-config.js';
 
 const MCP_OAUTH_SECRET_PREFIX = 'MCP_OAUTH_';
 const MAX_SECRET_NAME_LENGTH = 128;
-const DISCOVERY_TIMEOUT_MS = 10_000;
-const TOKEN_TIMEOUT_MS = 20_000;
 const PENDING_FLOW_TTL_MS = 10 * 60_000;
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 const CLIENT_NAME = 'HybridClaw';
 
-export interface McpOAuthTokenSet {
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt?: number;
-  scope?: string;
-}
+export type McpOAuthTokenSet = OAuthTokenSet;
 
 export interface McpOAuthRecord {
   serverUrl: string;
@@ -73,13 +79,6 @@ interface PendingMcpOAuthFlow {
   verifier: string;
   record: McpOAuthRecord;
   createdAt: number;
-}
-
-interface AuthorizationServerMetadata {
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
-  registrationEndpoint?: string;
-  scopesSupported?: string[];
 }
 
 const pendingFlows = new Map<string, PendingMcpOAuthFlow>();
@@ -123,12 +122,6 @@ function writeMcpOAuthRecordToStore(
   });
 }
 
-function generatePkcePair(): { verifier: string; challenge: string } {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
-}
-
 function pruneExpiredFlows(): void {
   const now = Date.now();
   for (const [state, flow] of pendingFlows) {
@@ -138,52 +131,11 @@ function pruneExpiredFlows(): void {
   }
 }
 
-async function fetchJson(
-  url: string,
-  init?: RequestInit & { timeoutMs?: number },
-): Promise<Record<string, unknown> | null> {
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(init?.timeoutMs ?? DISCOVERY_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as unknown;
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return null;
-    }
-    return payload as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function asTrimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function asStringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string')
-    : undefined;
-}
-
 function tokenExpiresSoon(tokens: McpOAuthTokenSet): boolean {
   return (
     typeof tokens.expiresAt === 'number' &&
     tokens.expiresAt - Date.now() <= TOKEN_REFRESH_SKEW_MS
   );
-}
-
-function wellKnownCandidates(baseUrl: string, suffix: string): string[] {
-  const parsed = new URL(baseUrl);
-  const candidates: string[] = [];
-  const pathname = parsed.pathname.replace(/\/+$/, '');
-  if (pathname && pathname !== '/') {
-    candidates.push(`${parsed.origin}/.well-known/${suffix}${pathname}`);
-  }
-  candidates.push(`${parsed.origin}/.well-known/${suffix}`);
-  return candidates;
 }
 
 /**
@@ -227,128 +179,13 @@ export async function discoverProtectedResource(serverUrl: string): Promise<{
 export async function discoverAuthorizationServer(
   issuer: string,
 ): Promise<AuthorizationServerMetadata> {
-  const candidates = [
-    ...wellKnownCandidates(issuer, 'oauth-authorization-server'),
-    ...wellKnownCandidates(issuer, 'openid-configuration'),
-  ];
-  for (const candidate of candidates) {
-    const metadata = await fetchJson(candidate);
-    if (!metadata) continue;
-    const authorizationEndpoint = asTrimmedString(
-      metadata.authorization_endpoint,
-    );
-    const tokenEndpoint = asTrimmedString(metadata.token_endpoint);
-    if (!authorizationEndpoint || !tokenEndpoint) continue;
-    return {
-      authorizationEndpoint,
-      tokenEndpoint,
-      registrationEndpoint:
-        asTrimmedString(metadata.registration_endpoint) || undefined,
-      scopesSupported: asStringArray(metadata.scopes_supported),
-    };
-  }
+  const discovered = await discoverAuthorizationServerMetadata(issuer);
+  if (discovered) return discovered;
   const origin = new URL(issuer).origin;
   return {
     authorizationEndpoint: `${origin}/authorize`,
     tokenEndpoint: `${origin}/token`,
     registrationEndpoint: `${origin}/register`,
-  };
-}
-
-/** RFC 7591 dynamic client registration. */
-async function registerClient(
-  registrationEndpoint: string,
-  redirectUri: string,
-): Promise<{ clientId: string; clientSecret?: string }> {
-  let response: Response;
-  try {
-    response = await fetch(registrationEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_name: CLIENT_NAME,
-        redirect_uris: [redirectUri],
-        grant_types: ['authorization_code', 'refresh_token'],
-        response_types: ['code'],
-        token_endpoint_auth_method: 'none',
-      }),
-      signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new Error(
-      `MCP OAuth client registration failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  const payload = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  const clientId = asTrimmedString(payload.client_id);
-  if (!response.ok || !clientId) {
-    const detail =
-      asTrimmedString(payload.error_description) ||
-      asTrimmedString(payload.error) ||
-      `HTTP ${response.status}`;
-    throw new Error(
-      `MCP OAuth client registration failed (${detail}). The authorization server may require a manually configured client id.`,
-    );
-  }
-  return {
-    clientId,
-    clientSecret: asTrimmedString(payload.client_secret) || undefined,
-  };
-}
-
-interface TokenResponse {
-  access_token?: unknown;
-  refresh_token?: unknown;
-  expires_in?: unknown;
-  scope?: unknown;
-  error?: unknown;
-  error_description?: unknown;
-}
-
-async function requestToken(
-  tokenEndpoint: string,
-  params: URLSearchParams,
-): Promise<McpOAuthTokenSet> {
-  let response: Response;
-  try {
-    response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-    });
-  } catch (err) {
-    throw new Error(
-      `MCP OAuth token request failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  const payload = (await response.json().catch(() => ({}))) as TokenResponse;
-  if (!response.ok) {
-    const error = asTrimmedString(payload.error) || `HTTP ${response.status}`;
-    const description = asTrimmedString(payload.error_description);
-    throw new Error(
-      `MCP OAuth token request failed: ${description ? `${error}: ${description}` : error}`,
-    );
-  }
-  const accessToken = asTrimmedString(payload.access_token);
-  if (!accessToken) {
-    throw new Error(
-      'MCP OAuth token response did not include an access token.',
-    );
-  }
-  const expiresIn =
-    typeof payload.expires_in === 'number' &&
-    Number.isFinite(payload.expires_in)
-      ? payload.expires_in
-      : null;
-  return {
-    accessToken,
-    refreshToken: asTrimmedString(payload.refresh_token) || undefined,
-    expiresAt: expiresIn === null ? undefined : Date.now() + expiresIn * 1000,
-    scope: asTrimmedString(payload.scope) || undefined,
   };
 }
 
@@ -392,7 +229,11 @@ export async function startMcpOAuthFlow(input: {
   const client = canReuseClient
     ? { clientId: existing.clientId, clientSecret: existing.clientSecret }
     : authServer.registrationEndpoint
-      ? await registerClient(authServer.registrationEndpoint, input.redirectUri)
+      ? await registerPublicClient({
+          registrationEndpoint: authServer.registrationEndpoint,
+          redirectUri: input.redirectUri,
+          clientName: CLIENT_NAME,
+        })
       : null;
   if (!client) {
     throw new Error(
@@ -401,7 +242,7 @@ export async function startMcpOAuthFlow(input: {
   }
 
   const pkce = generatePkcePair();
-  const state = randomBytes(32).toString('base64url');
+  const state = generateOAuthState();
   const record: McpOAuthRecord = {
     serverUrl,
     resource: resource.resource,

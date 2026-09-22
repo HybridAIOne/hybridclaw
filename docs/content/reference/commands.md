@@ -281,7 +281,7 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 
 ```bash
 hybridclaw auth login
-hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
+hybridclaw auth login hybridai [--device-code|--browser|--api-key|--import] [--base-url <url>]
 hybridclaw auth login codex [--device-code|--browser|--import]
 hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]

@@ -12,6 +12,7 @@ HybridClaw uses one provider-focused command surface:
 hybridclaw auth login
 hybridclaw auth login hybridai --device-code
 hybridclaw auth login hybridai --browser
+hybridclaw auth login hybridai --api-key
 hybridclaw auth login hybridai --import
 hybridclaw auth login hybridai --base-url http://localhost:5000
 hybridclaw auth login codex --device-code
@@ -84,10 +85,16 @@ hybridclaw auth whatsapp reset
 ## Notes
 
 - `hybridclaw auth login` without a provider runs the standard onboarding flow.
-- `hybridclaw auth login hybridai` prefers browser login on local GUI machines
-  and falls back to a manual flow on headless shells. `--import` copies the
-  current `HYBRIDAI_API_KEY` from your shell into the encrypted secret store,
-  and `--base-url` updates `hybridai.baseUrl` before login.
+- `hybridclaw auth login hybridai` signs you in with OAuth: HybridClaw
+  registers itself with the platform, opens the consent page, and stores a
+  short-lived access token plus a refresh token in the encrypted secret store.
+  The gateway rotates the access token before it expires. `--browser` opens
+  the consent page automatically (the default on local GUI machines);
+  `--device-code` prints it and lets you paste the redirect URL back on
+  headless shells. `--api-key` pastes a long-lived platform API key instead,
+  `--import` copies the current `HYBRIDAI_API_KEY` from your shell into the
+  encrypted secret store, and `--base-url` updates `hybridai.baseUrl` before
+  login. `hybridclaw auth logout hybridai` revokes the OAuth session.
 - `hybridclaw auth login codex` prefers browser PKCE locally and device code on
   headless or remote shells.
 - `hybridclaw auth login openai` stores `OPENAI_API_KEY`, enables the direct
