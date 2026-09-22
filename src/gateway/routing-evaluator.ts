@@ -41,7 +41,7 @@ export async function evaluateConfiguredRouting(input: {
         }
       : routing.evaluator;
   const approved =
-    !routing.localOnly &&
+    routing.maximumZone === 'cloud' &&
     (input.concierge
       ? routing.enabled && routing.concierge.model.startsWith('jev/')
       : input.playground

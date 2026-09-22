@@ -21,7 +21,7 @@ describe('unified routing policy', () => {
   });
   test('privacy remains local even for public inputs and fails closed without local candidates', () => {
     expect(route({ mode: 'privacy' }).ladder.tiers[0].models).toEqual(['local-small']);
-    expect(route({ mode: 'privacy', localOnly: true, tiers: config.tiers.map(tier => ({ ...tier, models: tier.models.filter(model => !model.startsWith('local')) })) }).ladder.exhausted).toBe(true);
+    expect(route({ mode: 'privacy', maximumZone: 'local', tiers: config.tiers.map(tier => ({ ...tier, models: tier.models.filter(model => !model.startsWith('local')) })) }).ladder.exhausted).toBe(true);
   });
   test('manual escalation and sticky floors cannot be lowered', () => {
     expect(route({ mode: 'speed' }, { ...UNKNOWN_SIGNALS, tier: 'small' }, { minimumTier: 'large' }).ladder.startTier).toBe('large');
@@ -50,5 +50,22 @@ test('privacy can choose a trusted endpoint, but explicit local-only cannot', ()
   const info = (model: string) => ({ ...metadata(model), zone: model === 'trusted' ? 'hai' as const : 'cloud' as const });
   const result = route({ mode: 'privacy', tiers }, UNKNOWN_SIGNALS, { metadata: info });
   expect(result.ladder.tiers[0].models).toEqual(['trusted']);
-  expect(route({ mode: 'privacy', tiers, localOnly: true }, UNKNOWN_SIGNALS, { metadata: info }).ladder.exhausted).toBe(true);
+  expect(route({ mode: 'privacy', tiers, maximumZone: 'local' }, UNKNOWN_SIGNALS, { metadata: info }).ladder.exhausted).toBe(true);
+});
+
+test.each(['local', 'hai', 'eu-provider', 'region', 'cloud'] as const)('privacy limit %s bounds every mode and fallback', maximumZone => {
+  const zones = ['local', 'hai', 'eu-provider', 'region', 'cloud'] as const;
+  const models = zones.map(zone => `endpoint-${zone}`);
+  for (const mode of ['auto', 'speed', 'cost', 'privacy']) {
+    const result = route({mode, maximumZone, tiers: [{name: 'small', models}]}, UNKNOWN_SIGNALS, {
+      metadata: (model: string) => ({zone: zones[models.indexOf(model)], latencyMs: 10, pricingUsdPerToken: {input: 1, output: 1}}),
+    });
+    const eligible = models.slice(0, zones.indexOf(maximumZone) + 1);
+    expect(result.ladder.exhausted).toBe(false);
+    expect(result.ladder.tiers.flatMap(tier => tier.models).every(model => eligible.includes(model))).toBe(true);
+  }
+});
+test('HAI limit fails closed when the capability floor has only world models', () => {
+  const result = route({maximumZone:'hai', tiers:[{name:'small',models:['local-small']},{name:'large',models:['cloud-large']}]}, {tier:'large'});
+  expect(result.ladder.exhausted).toBe(true);
 });

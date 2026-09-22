@@ -92,6 +92,7 @@
 /* Reuse semantic theme tokens so routing stays legible in both color schemes. */
 .model[data-zone="cloud"],
 .model[data-zone="hai"],
+.model[data-zone="eu-provider"],
 .model[data-zone="region"] {
   color: var(--accent-foreground);
   background: var(--accent);

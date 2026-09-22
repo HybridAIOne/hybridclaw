@@ -113,3 +113,41 @@
     grid-column: 1 / -1;
   }
 }
+
+.privacyHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.privacyHeading strong {
+  color: var(--foreground);
+  font-size: 0.8125rem;
+}
+.privacySlider {
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  min-height: 24px;
+}
+.privacySlider:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.privacyStops {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+.privacyStops > span {
+  max-width: 22%;
+  text-align: center;
+}
+.privacyStops > span[data-selected="true"] {
+  color: var(--primary);
+  font-weight: 600;
+}

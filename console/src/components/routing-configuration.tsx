@@ -24,7 +24,7 @@ interface Tier {
   modelsByMode?: Partial<Record<Ladder['mode'], string[]>>;
 }
 interface Ladder {
-  localOnly: boolean;
+  maximumZone: NonNullable<ChatModel['zone']>;
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
   concierge: { model: string; comparisonModel: string };
   showRoutingInfo: boolean;
@@ -33,6 +33,13 @@ interface Ladder {
   tiers: Tier[];
   defaultStart: string;
 }
+const privacyLevels = [
+  ['local', '💻 Local'],
+  ['hai', '🏢 HAI'],
+  ['eu-provider', '🇪🇺 DE/EU provider'],
+  ['region', '🇪🇺 DE/EU hosting'],
+  ['cloud', '🌐 World'],
+] as const;
 const modes = ['auto', 'privacy', 'speed', 'cost'] as const;
 function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
   const mode =
@@ -49,13 +56,13 @@ function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
     return p?.input != null && p.output != null ? p.input + p.output : Infinity;
   };
   const zone = (id: string) =>
-    ['local', 'hai', 'region', 'cloud'].indexOf(
+    ['local', 'hai', 'eu-provider', 'region', 'cloud'].indexOf(
       catalog.find((m) => m.id === id)?.zone ?? 'cloud',
     );
   return {
-    localOnly: Boolean(
-      settingValue(config, 'routing.localOnly') ?? mode === 'privacy',
-    ),
+    maximumZone:
+      (settingValue(config, 'routing.maximumZone') as Ladder['maximumZone']) ??
+      'cloud',
     enabled: Boolean(settingValue(config, 'routing.enabled')),
     mode: (settingValue(config, 'routing.mode') as Ladder['mode']) ?? 'auto',
     concierge: {
@@ -124,7 +131,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       let config = latest.config;
       for (const key of [
         'enabled',
-        'localOnly',
+        'maximumZone',
         'tiers',
         'defaultStart',
         'mode',
@@ -135,7 +142,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
         if (
           saved &&
           key !== 'tiers' &&
-          key !== 'localOnly' &&
+          key !== 'maximumZone' &&
           JSON.stringify(ladder[key]) === JSON.stringify(saved[key])
         )
           continue;
@@ -219,26 +226,34 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     ];
     edit({ ...value, tiers });
   }
-  const isLocal = (id: string) =>
-    models.some((model) => model.id === id && model.zone === 'local');
-  const selectableModels = value?.localOnly
-    ? models.filter((model) => model.zone === 'local')
-    : models;
+  const isAllowed = (
+    id: string,
+    maximumZone = value?.maximumZone ?? 'cloud',
+  ) => {
+    const zone = models.find((model) => model.id === id)?.zone ?? 'cloud';
+    return (
+      privacyLevels.findIndex(([key]) => key === zone) <=
+      privacyLevels.findIndex(([key]) => key === maximumZone)
+    );
+  };
+  const selectableModels = models.filter((model) => isAllowed(model.id));
   const names =
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
   const error =
     value &&
-    (value.localOnly &&
+    (value.maximumZone !== 'cloud' &&
     (!value.tiers.length ||
-      value.tiers.some((tier) => tier.models.some((id) => !isLocal(id))))
-      ? 'Configure a local model first.'
-      : value.localOnly &&
-          (!isLocal(value.concierge.model) ||
+      value.tiers.some((tier) => tier.models.some((id) => !isAllowed(id))))
+      ? value.maximumZone === 'local'
+        ? 'Configure a local model first.'
+        : 'Configure models within the selected privacy limit first.'
+      : value.maximumZone !== 'cloud' &&
+          (!isAllowed(value.concierge.model) ||
             Boolean(
               value.concierge.comparisonModel &&
-                !isLocal(value.concierge.comparisonModel),
+                !isAllowed(value.concierge.comparisonModel),
             ))
-        ? 'Choose a local router and clear any cloud comparison router.'
+        ? 'Choose routers within the selected privacy limit.'
         : value.enabled && !value.tiers.length
           ? 'Add a tier before enabling automatic routing.'
           : names.some((name) => !name)
@@ -316,29 +331,59 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   <option value="cost">Cost</option>
                 </NativeSelect>
               </label>
-              <label className={styles.toggle}>
-                <Switch
-                  checked={value.localOnly}
-                  onCheckedChange={(localOnly) =>
+              <label className={styles.field}>
+                <span className={styles.privacyHeading}>
+                  Privacy limit{' '}
+                  <strong>
+                    {
+                      privacyLevels.find(
+                        ([zone]) => zone === value.maximumZone,
+                      )?.[1]
+                    }
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  aria-label="Privacy limit"
+                  aria-valuetext={
+                    privacyLevels.find(
+                      ([zone]) => zone === value.maximumZone,
+                    )?.[1]
+                  }
+                  className={styles.privacySlider}
+                  min={0}
+                  max={4}
+                  step={1}
+                  value={privacyLevels.findIndex(
+                    ([zone]) => zone === value.maximumZone,
+                  )}
+                  onChange={(event) => {
+                    const maximumZone =
+                      privacyLevels[Number(event.target.value)][0];
                     edit({
                       ...value,
-                      localOnly,
-                      concierge: localOnly
-                        ? {
-                            model: isLocal(value.concierge.model)
-                              ? value.concierge.model
-                              : '',
-                            comparisonModel: isLocal(
-                              value.concierge.comparisonModel,
-                            )
-                              ? value.concierge.comparisonModel
-                              : '',
-                          }
-                        : value.concierge,
-                    })
-                  }
+                      maximumZone,
+                      concierge: {
+                        model: isAllowed(value.concierge.model, maximumZone)
+                          ? value.concierge.model
+                          : '',
+                        comparisonModel: isAllowed(
+                          value.concierge.comparisonModel,
+                          maximumZone,
+                        )
+                          ? value.concierge.comparisonModel
+                          : '',
+                      },
+                    });
+                  }}
                 />
-                Local models only
+                <span className={styles.privacyStops} aria-hidden="true">
+                  {privacyLevels.map(([zone, label]) => (
+                    <span key={zone} data-selected={zone === value.maximumZone}>
+                      {label}
+                    </span>
+                  ))}
+                </span>
               </label>
               {(['model', 'comparisonModel'] as const).map((field) => (
                 <label key={field} className={styles.field}>
@@ -347,9 +392,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     : '2nd router · Compare'}
                   <NativeSelect
                     value={
-                      value.localOnly &&
+                      value.maximumZone !== 'cloud' &&
                       value.concierge[field] &&
-                      !isLocal(value.concierge[field])
+                      !isAllowed(value.concierge[field])
                         ? '__blocked__'
                         : field === 'comparisonModel' &&
                             value.concierge[field].startsWith('jev/') &&
@@ -367,21 +412,21 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                       })
                     }
                   >
-                    {value.localOnly &&
+                    {value.maximumZone !== 'cloud' &&
                       value.concierge[field] &&
-                      !isLocal(value.concierge[field]) && (
+                      !isAllowed(value.concierge[field]) && (
                         <option value="__blocked__" disabled>
-                          Choose a local router…
+                          Choose an eligible router…
                         </option>
                       )}
                     <option value="">
                       {field === 'model'
-                        ? value.localOnly
-                          ? 'Choose a local router…'
+                        ? value.maximumZone !== 'cloud'
+                          ? 'Choose an eligible router…'
                           : 'Automatic · Gemma E4B'
                         : 'Unset'}
                     </option>
-                    {!value.localOnly && (
+                    {!(value.maximumZone !== 'cloud') && (
                       <option
                         value="jev/jev-latest"
                         disabled={!availability.data?.jevAvailable}
@@ -392,7 +437,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                           : ' · API key required'}
                       </option>
                     )}
-                    {!value.localOnly &&
+                    {!(value.maximumZone !== 'cloud') &&
                     value.concierge[field] &&
                     !value.concierge[field].startsWith('jev/') &&
                     !models.some(
@@ -531,7 +576,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                           size="sm"
                           aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
                           value={
-                            value.localOnly && !isLocal(model) ? '' : model
+                            value.maximumZone !== 'cloud' && !isAllowed(model)
+                              ? ''
+                              : model
                           }
                           onChange={(event) =>
                             changeTier(index, {
@@ -543,12 +590,12 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                           }
                         >
                           <option value="">
-                            {value.localOnly
-                              ? 'Choose a local model…'
+                            {value.maximumZone !== 'cloud'
+                              ? 'Choose an eligible model…'
                               : 'Choose a model…'}
                           </option>
                           {model &&
-                          !value.localOnly &&
+                          !(value.maximumZone !== 'cloud') &&
                           !models.some((item) => item.id === model) ? (
                             <option value={model}>
                               {model} · not in current catalog
@@ -557,15 +604,9 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                           {selectableModels.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.id} ·{' '}
-                              {item.zone === 'local'
-                                ? 'Local'
-                                : item.zone === 'hai'
-                                  ? 'HybridAI'
-                                  : item.zone === 'region'
-                                    ? 'Regional'
-                                    : item.zone === 'cloud'
-                                      ? 'Cloud'
-                                      : 'Location unknown'}
+                              {privacyLevels.find(
+                                ([zone]) => zone === item.zone,
+                              )?.[1] ?? '🌐 World'}
                             </option>
                           ))}
                         </NativeSelect>

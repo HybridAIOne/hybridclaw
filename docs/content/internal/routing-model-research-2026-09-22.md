@@ -84,3 +84,19 @@ inference benchmark was run. Public throughput and scores are research evidence,
 not injected measurements in the gateway's recent-latency cache. The existing
 runtime continues to collect real successful execution times and uses configured
 order when those are absent.
+
+### Privacy limits
+
+Operator classification (2026-09-22): the configured Gemma E4B and Qwen 27B
+endpoints are HAI-hosted. Their earlier cloud classification above was incorrect.
+
+The maximum permitted endpoint level replaces the local-only switch:
+💻 Local → 🏢 HAI → 🇪🇺 DE/EU provider → 🇪🇺 DE/EU hosting → 🌐 World.
+DE/EU provider means EU operator and EU hosting; DE/EU hosting allows a non-EU
+operator. Unknown locations count as World. Endpoint zone keys are `local`,
+`hai`, `eu-provider`, `region`, and `cloud`, respectively.
+
+The limit bounds execution, live and comparison routers, manual model selections,
+and fallback in every routing mode. Capability tiers remain separate. Invalid
+saves are rejected if an enabled capability tier has no eligible path. These
+checks restrict disclosure; they do not certify a provider's legal jurisdiction.

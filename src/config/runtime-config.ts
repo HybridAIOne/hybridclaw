@@ -95,8 +95,11 @@ import type {
   LocalProviderConfig,
 } from '../providers/local-types.js';
 import {
+  MODEL_ROUTING_ZONES,
   type ModelRoutingConfig,
   type ModelRoutingTier,
+  type ModelRoutingZone,
+  modelRoutingZoneAllows,
   normalizeModelRoutingZone,
 } from '../providers/model-routing.js';
 import {
@@ -536,7 +539,7 @@ export interface RuntimeRoutingConciergeConfig {
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
-  localOnly: boolean;
+  maximumZone: ModelRoutingZone;
   evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
@@ -2166,7 +2169,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
-    localOnly: false,
+    maximumZone: 'cloud',
     evaluator: DEFAULT_ROUTING_EVALUATOR,
     // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
     showRoutingInfo: false,
@@ -8793,9 +8796,10 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
-      localOnly: normalizeBoolean(
-        rawRouting.localOnly,
-        rawRouting.mode === 'privacy',
+      maximumZone: normalizeRoutingChoice(
+        rawRouting.maximumZone,
+        MODEL_ROUTING_ZONES,
+        'cloud',
       ),
       mode: normalizeRoutingChoice(
         rawRouting.mode,
@@ -9698,7 +9702,7 @@ export type {
 
 // Validate dependencies against the proposed config, including provider edits.
 function validateRoutingForSave(config: RuntimeConfig): void {
-  const zone = (model: string): string | null => {
+  const zone = (model: string): ModelRoutingZone | null => {
     const prefix = model.split('/')[0];
     const endpoint = config.local.endpoints.find(
       (item) => item.name === prefix,
@@ -9724,13 +9728,21 @@ function validateRoutingForSave(config: RuntimeConfig): void {
     }
   }
   if (
-    routing.localOnly &&
+    routing.maximumZone !== 'cloud' &&
     !routing.tiers.some((tier) =>
-      tier.models.some((model) => zone(model) === 'local'),
+      tier.models.some((model) => {
+        const location = zone(model);
+        return (
+          location !== null &&
+          modelRoutingZoneAllows(routing.maximumZone, location)
+        );
+      }),
     )
   )
     throw new Error(
-      'Configure a local model first: Privacy mode requires a local model in the routing tiers.',
+      routing.maximumZone === 'local'
+        ? 'Configure a local model first.'
+        : 'Configure a model within the selected privacy limit first.',
     );
   if (!routing.enabled) return;
   for (let index = 0; index < routing.tiers.length; index++) {
@@ -9738,24 +9750,29 @@ function validateRoutingForSave(config: RuntimeConfig): void {
       tier.models.some((model) => {
         const modelZone = zone(model);
         return (
-          modelZone !== null && (!routing.localOnly || modelZone === 'local')
+          modelZone !== null &&
+          modelRoutingZoneAllows(routing.maximumZone, modelZone)
         );
       }),
     );
     if (!eligible)
       throw new Error(
-        routing.localOnly
+        routing.maximumZone === 'local'
           ? `Configure a local model first: tier "${routing.tiers[index].name}" needs a local model in this or a higher tier.`
-          : `Tier "${routing.tiers[index].name}" needs an enabled model in this or a higher tier.`,
+          : `Tier "${routing.tiers[index].name}" needs an enabled model within the selected privacy limit in this or a higher tier.`,
       );
   }
   for (const model of [
     routing.concierge.model,
     routing.concierge.comparisonModel,
   ]) {
-    if (model && zone(model) === null)
+    if (
+      model &&
+      (zone(model) === null ||
+        !modelRoutingZoneAllows(routing.maximumZone, zone(model) ?? undefined))
+    )
       throw new Error(
-        `Routing model "${model}" uses a disabled endpoint. Enable it or select another router first.`,
+        `Routing model "${model}" is disabled or outside the selected privacy limit. Select an eligible router first.`,
       );
   }
 }

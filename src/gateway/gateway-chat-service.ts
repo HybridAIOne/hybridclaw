@@ -93,6 +93,7 @@ import {
 } from '../providers/model-lookup.js';
 import { isGpt5ModelId } from '../providers/model-metadata.js';
 import {
+  modelRoutingZoneAllows,
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
@@ -1645,8 +1646,10 @@ async function handleGatewayMessageInner(
     });
     if (
       (explicitModelPinned &&
-        decision.privateRoute &&
-        getModelCatalogMetadata(model).zone !== 'local') ||
+        !modelRoutingZoneAllows(
+          classification.localOnly ? 'local' : policyConfig.maximumZone,
+          getModelCatalogMetadata(model).zone,
+        )) ||
       (!explicitModelPinned && decision.ladder.exhausted)
     ) {
       recordRoutingEvaluation({

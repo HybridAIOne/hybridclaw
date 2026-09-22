@@ -2,7 +2,15 @@
  * Capability tiers share names while modes own their model assignments.
  * Ladder resolution enforces ordering and zone boundaries, not classifier decisions.
  */
-export const MODEL_ROUTING_ZONES = ['local', 'hai', 'region', 'cloud'] as const;
+// Operator decision (2026-09-22): jurisdiction and hosting are separate privacy levels.
+// Region denotes EU hosting; cloud denotes World, including unknown locations.
+export const MODEL_ROUTING_ZONES = [
+  'local',
+  'hai',
+  'eu-provider',
+  'region',
+  'cloud',
+] as const;
 
 export type ModelRoutingZone = (typeof MODEL_ROUTING_ZONES)[number];
 

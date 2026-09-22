@@ -21,7 +21,7 @@ const models = [
 ] as ChatModel[];
 const routing = {
   enabled: true,
-  localOnly: false,
+  maximumZone: 'cloud',
   showRoutingInfo: true,
   defaultStart: 'Local',
   escalationStickyTurns: 3,
@@ -304,7 +304,9 @@ it('removes preference and blocks Privacy when all tier models are remote', asyn
   });
   await renderEditor();
   expect(screen.queryByLabelText('Preference')).toBeNull();
-  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+    target: { value: '0' },
+  });
   expect(screen.getByRole('alert').textContent).toContain(
     'Configure a local model first',
   );
@@ -387,7 +389,9 @@ it('prefills Cost and Speed from capable models and restores Auto assignments', 
 
 it('local-only hides cloud selections and choices in every mode, without losing tier assignments', async () => {
   await renderEditor();
-  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+    target: { value: '0' },
+  });
   for (const mode of ['auto', 'privacy', 'speed', 'cost']) {
     fireEvent.change(screen.getByLabelText('Mode'), {
       target: { value: mode },
@@ -407,7 +411,9 @@ it('local-only hides cloud selections and choices in every mode, without losing 
         .hasAttribute('disabled'),
     ).toBe(true);
   }
-  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
+  fireEvent.change(screen.getByRole('slider', { name: 'Privacy limit' }), {
+    target: { value: '4' },
+  });
   expect(
     (screen.getByLabelText('Tier 2 model 1') as HTMLSelectElement).value,
   ).toBe('cloud-model');

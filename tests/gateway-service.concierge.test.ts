@@ -99,7 +99,7 @@ test('one concierge chooses a configured tier without a separate urgency exchang
 });
 test('privacy rejects an explicit cloud pin before any agent call', async () => {
  const fixture = await createFixture();
- fixture.updateRuntimeConfig(draft => {draft.routing.mode='privacy';draft.routing.localOnly=true;});
+ fixture.updateRuntimeConfig(draft => {draft.routing.mode='privacy';draft.routing.maximumZone='local';draft.routing.concierge.comparisonModel='';});
  const result = await fixture.handleGatewayMessage({sessionId:'privacy-pin',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Public question',model:'hybridai/gpt-5',chatbotId:'bot_test'});
  expect(result.status).toBe('error');
  expect(runAgentMock).not.toHaveBeenCalled();

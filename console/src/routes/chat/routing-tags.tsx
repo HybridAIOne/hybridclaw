@@ -48,10 +48,11 @@ function totalInput(attempt: RoutingTraceAttempt): number | null {
 }
 
 const ZONE_LABELS: Record<string, string> = {
-  local: 'Local',
-  hai: 'HybridAI',
-  region: 'Regional',
-  cloud: 'Cloud',
+  local: '💻 Local',
+  hai: '🏢 HAI',
+  'eu-provider': '🇪🇺 DE/EU provider',
+  region: '🇪🇺 DE/EU hosting',
+  cloud: '🌐 World',
 };
 
 function RoutingDecisionRow({

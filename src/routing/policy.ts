@@ -5,7 +5,9 @@
  */
 import type { RuntimeRoutingConfig } from '../config/runtime-config.js';
 import {
+  MODEL_ROUTING_ZONES,
   type ModelRoutingZone,
+  modelRoutingZoneAllows,
   resolveLadder,
   routingTierModels,
 } from '../providers/model-routing.js';
@@ -58,10 +60,11 @@ export function selectRoutingPolicy(input: {
         reason: 'no-eligible-models' as const,
         exhausted: true,
       },
-      privateRoute: input.localOnly || config.localOnly,
+      privateRoute: input.localOnly || config.maximumZone === 'local',
       reason: 'no-eligible-models',
     };
-  const privateRoute = input.localOnly || config.localOnly;
+  const privateRoute = input.localOnly || config.maximumZone === 'local';
+  const maximumZone = privateRoute ? 'local' : config.maximumZone;
   const zones = Object.fromEntries(
     config.tiers.flatMap((tier) =>
       tier.models.map((model) => [model, metadata(model).zone]),
@@ -83,14 +86,14 @@ export function selectRoutingPolicy(input: {
       ? []
       : tier.models.flatMap((model, order) => {
           const info = metadata(model);
-          if (privateRoute && info.zone !== 'local') return [];
+          if (!modelRoutingZoneAllows(maximumZone, info.zone)) return [];
           const price = info.pricingUsdPerToken;
           return [
             {
               index,
               order,
               model,
-              zone: ['local', 'hai', 'region', 'cloud'].indexOf(info.zone),
+              zone: MODEL_ROUTING_ZONES.indexOf(info.zone),
               latency: info.latencyMs ?? routingLatencyMs(model),
               cost:
                 price.input !== null && price.output !== null
@@ -158,7 +161,7 @@ export function selectRoutingPolicy(input: {
       ? 'local'
       : config.mode === 'privacy' && selected
         ? metadata(selected.model).zone
-        : 'cloud',
+        : maximumZone,
     modelZones: zones,
   });
   if (selected && !ladder.exhausted) {

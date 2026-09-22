@@ -9,6 +9,7 @@ import {
   getAvailableModelList,
   getModelCatalogMetadata,
 } from '../providers/model-catalog.js';
+import { modelRoutingZoneAllows } from '../providers/model-routing.js';
 import { evaluatorDisclosureReason } from '../routing/evaluator.js';
 import type { TypedRoutingEvaluation } from '../routing/evaluator-contract.js';
 import {
@@ -39,7 +40,7 @@ export async function classifyRouting(input: {
     approved: !input.comparison || input.publicSample === true,
   });
   const localOnly =
-    routing.localOnly ||
+    routing.maximumZone === 'local' ||
     Boolean(disclosure && disclosure !== 'public-approval-required');
   let signals = { ...UNKNOWN_SIGNALS };
   const evaluation: TypedRoutingEvaluation = {
@@ -79,13 +80,19 @@ export async function classifyRouting(input: {
       localOnly,
     };
   if (
-    localOnly &&
-    (model.startsWith('jev/') ||
-      getModelCatalogMetadata(model).zone !== 'local')
+    !modelRoutingZoneAllows(
+      localOnly ? 'local' : routing.maximumZone,
+      model.startsWith('jev/') ? 'cloud' : getModelCatalogMetadata(model).zone,
+    )
   )
     return {
       signals,
-      evaluation: { ...evaluation, reason: 'local-only-classification' },
+      evaluation: {
+        ...evaluation,
+        reason: localOnly
+          ? 'local-only-classification'
+          : 'privacy-limit-classification',
+      },
       localOnly,
     };
   // Attachments, expanded context and suspected instruction attacks are not classifier input.

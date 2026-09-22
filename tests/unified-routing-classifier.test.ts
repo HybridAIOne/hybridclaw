@@ -11,6 +11,7 @@ beforeEach(() => {
 });
 test.each([{ text: 'Public task', mode: 'privacy' }, { text: 'Confidential memo', mode: 'auto' }, { text: 'Public task', mode: 'auto', hasPrivateContext: true }])('no remote classifier disclosure for $mode', async ({mode,...input}) => {
  mocks.config().routing.mode = mode;
+ if(mode === 'privacy') mocks.config().routing.maximumZone = 'local';
  const result = await classifyRouting(input);
  expect(result.localOnly).toBe(true);
  expect(mocks.auxiliary).not.toHaveBeenCalled();
@@ -67,4 +68,12 @@ test('automatic live routing defaults to available Gemma E4B', async () => {
  mocks.auxiliary.mockResolvedValue({model:'test/gemma-4-e4b-it',content:'{"tier":"economy"}'});
  const result=await classifyRouting({text:'Public task'});
  expect(result.evaluation).toMatchObject({model:'test/gemma-4-e4b-it',status:'evaluated'});
+});
+
+test.each(['local','hai','eu-provider','region'])('privacy limit %s blocks world classifiers before transport', async maximumZone => {
+  mocks.config().routing.maximumZone = maximumZone;
+  const result = await classifyRouting({text:'Explain photosynthesis'});
+  expect(result.evaluation.status).toBe('blocked');
+  expect(mocks.auxiliary).not.toHaveBeenCalled();
+  expect(mocks.jev).not.toHaveBeenCalled();
 });

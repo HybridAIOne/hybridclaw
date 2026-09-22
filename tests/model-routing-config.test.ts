@@ -176,7 +176,7 @@ test('rejects saving Privacy without a local tier model and preserves saved conf
  const mod=await loadConfigModule();
  const before=mod.getRuntimeConfig();
  const draft=structuredClone(before);
- draft.routing.mode='privacy';draft.routing.localOnly=true;
+ draft.routing.mode='privacy';draft.routing.maximumZone='local';draft.routing.concierge={model:'',comparisonModel:''};
  draft.routing.tiers=[];
  expect(()=>mod.saveRuntimeConfig(draft)).toThrow('Configure a local model first');
  expect(mod.getRuntimeConfig().routing.mode).toBe(before.routing.mode);
@@ -205,7 +205,8 @@ test('rejects endpoint edits and unreachable privacy tiers without changing disk
   })).toThrow('needs an enabled model');
   const invalid = structuredClone(saved);
   invalid.routing.mode = 'privacy';
-  invalid.routing.localOnly = true;
+  invalid.routing.maximumZone = 'local';
+  invalid.routing.concierge={model:'',comparisonModel:''};
   invalid.routing.tiers.push({ name: 'higher', models: ['hybridai/gpt-5'] });
   expect(() => mod.saveRuntimeConfig(invalid)).toThrow('Configure a local model first');
   expect(fs.readFileSync(configPath, 'utf8')).toBe(stored);
@@ -226,7 +227,7 @@ test('rejects disabling a configured router endpoint', async () => {
   draft.routing.concierge.model = 'ollama/test-router';
   mod.saveRuntimeConfig(draft);
   draft.local.backends.ollama.enabled = false;
-  expect(() => mod.saveRuntimeConfig(draft)).toThrow('uses a disabled endpoint');
+  expect(() => mod.saveRuntimeConfig(draft)).toThrow('disabled or outside the selected privacy limit');
 });
 
 test('failed persistence leaves active values and explicit-setting metadata intact', async () => {
@@ -262,13 +263,19 @@ test('mode assignments persist and invalid inactive models cannot be saved', asy
   expect(mod.getRuntimeConfig().routing.tiers).toEqual(saved.routing.tiers);
 });
 
-test('an existing Privacy setting keeps its local-only boundary when normalized', async () => {
+test('an explicit privacy boundary survives reload', async () => {
   const mod = await loadConfigModule();
   const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
   const source = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  source.routing = { ...source.routing, mode: 'privacy' };
-  delete source.routing.localOnly;
+  source.routing = { ...source.routing, mode: 'privacy', maximumZone: 'hai' };
   fs.writeFileSync(configPath, JSON.stringify(source));
   mod.reloadRuntimeConfig();
-  expect(mod.getRuntimeConfig().routing.localOnly).toBe(true);
+  expect(mod.getRuntimeConfig().routing.maximumZone).toBe('hai');
+});
+
+test('rejects an unknown privacy limit without changing the saved configuration', async () => {
+  const mod = await loadConfigModule();
+  const before = mod.getRuntimeConfig();
+  expect(() => mod.updateRuntimeConfig(draft => { Object.assign(draft.routing, {maximumZone:'unknown'}); })).toThrow('Invalid routing option');
+  expect(mod.getRuntimeConfig().routing.maximumZone).toBe(before.routing.maximumZone);
 });

@@ -2248,10 +2248,10 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 1500,
     },
     {
-      path: 'routing.localOnly',
+      path: 'routing.maximumZone',
       section: 'routing',
-      kind: 'boolean',
-      defaultValue: false,
+      kind: 'string',
+      defaultValue: 'cloud',
     },
     {
       path: 'routing.mode',

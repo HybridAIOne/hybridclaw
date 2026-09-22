@@ -10,7 +10,7 @@ afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', mocks.fetch);
-  mocks.config.mockReturnValue({ routing: { evaluator: { ...DEFAULT_ROUTING_EVALUATOR, mode: 'shadow', publicPrompts: ['Explain photosynthesis.'] }, tiers: [{ name: 'first' }] } });
+  mocks.config.mockReturnValue({ routing: { maximumZone: 'cloud', evaluator: { ...DEFAULT_ROUTING_EVALUATOR, mode: 'shadow', publicPrompts: ['Explain photosynthesis.'] }, tiers: [{ name: 'first' }] } });
   mocks.secret.mockReturnValue('test-key');
 });
 test('unapproved live input never reads credentials or calls JEV', async () => {
@@ -70,4 +70,11 @@ test.each([true, false])('call success is independent of confidence eligibility:
  expect(result.reason).toBe(valid?'low-confidence':'invalid-response');
  expect(result.applied).toBe(false);
  expect(trace.attempts[0].status).toBe(valid?'success':'error');
+});
+
+test.each(['local','hai','eu-provider','region'])('Labs JEV cannot cross the %s privacy limit', async maximumZone => {
+  mocks.config().routing.maximumZone = maximumZone;
+  expect((await evaluateConfiguredRouting({text:'Explain photosynthesis.',playground:true,publicSample:true})).status).toBe('blocked');
+  expect(mocks.secret).not.toHaveBeenCalled();
+  expect(mocks.fetch).not.toHaveBeenCalled();
 });
