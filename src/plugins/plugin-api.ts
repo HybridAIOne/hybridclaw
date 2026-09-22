@@ -1,3 +1,8 @@
+/**
+ * Plugin capabilities preserve immutable registration snapshots. Routing is read
+ * explicitly from live configuration so saved policy changes apply on each turn;
+ * plugins never receive a mutable reference to gateway configuration.
+ */
 import path from 'node:path';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
@@ -121,6 +126,9 @@ export function createPluginApi(params: {
     registrationMode: params.registrationMode,
     config,
     pluginConfig,
+    getRoutingConfig() {
+      return deepFreezeClone(params.manager.getRoutingConfig());
+    },
     logger: pluginLogger,
     runtime,
     registerMemoryLayer(layer: MemoryLayerPlugin): void {

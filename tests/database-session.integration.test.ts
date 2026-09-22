@@ -24,6 +24,7 @@ let deleteMessagesBeforeId: typeof import('../src/memory/db.js').deleteMessagesB
 let updateSessionSummary: typeof import('../src/memory/db.js').updateSessionSummary;
 let forkSessionBranch: typeof import('../src/memory/db.js').forkSessionBranch;
 let getSessionById: typeof import('../src/memory/db.js').getSessionById;
+let upsertRegisteredAgent: typeof import('../src/agents/agent-registry.js').upsertRegisteredAgent;
 let schemaVersion: number;
 
 beforeAll(async () => {
@@ -51,6 +52,7 @@ beforeAll(async () => {
   updateSessionSummary = dbMod.updateSessionSummary;
   forkSessionBranch = dbMod.forkSessionBranch;
   getSessionById = dbMod.getSessionById;
+  upsertRegisteredAgent = (await import('../src/agents/agent-registry.js')).upsertRegisteredAgent;
   schemaVersion = dbMod.DATABASE_SCHEMA_VERSION;
 
   initDatabase({ quiet: true, dbPath });
@@ -134,6 +136,24 @@ describe('database session integration', () => {
     for (let i = 1; i < ids.length; i++) {
       expect(ids[i]).toBeGreaterThan(ids[i - 1]);
     }
+  });
+
+  it('a new session inherits the agent-level enableRag setting', () => {
+    upsertRegisteredAgent({ id: 'rag-off-agent', enableRag: false });
+    upsertRegisteredAgent({ id: 'rag-on-agent', enableRag: true });
+    upsertRegisteredAgent({ id: 'rag-unset-agent' });
+
+    expect(
+      getOrCreateSession('sess-rag-off', null, 'openai', 'rag-off-agent').enable_rag,
+    ).toBe(0);
+    expect(
+      getOrCreateSession('sess-rag-on', null, 'openai', 'rag-on-agent').enable_rag,
+    ).toBe(1);
+    // No agent-level value -> the column keeps its schema default (enabled).
+    expect(
+      getOrCreateSession('sess-rag-unset', null, 'openai', 'rag-unset-agent')
+        .enable_rag,
+    ).toBe(1);
   });
 
   it('getOrCreateSession returns existing session on second call', () => {

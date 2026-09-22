@@ -408,6 +408,7 @@ import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
 import { parseSessionKey } from '../session/session-key.js';
 import {
+  compactSessionNow,
   maybeCompactSession,
   runPreCompactionMemoryFlush,
 } from '../session/session-maintenance.js';
@@ -473,12 +474,17 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { cacheHitRatio } from '../usage/cache-accounting.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
+  estimateModelUsageCostUsd,
   extractExplicitUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
 } from '../usage/model-cost.js';
-import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import {
+  enqueueTokenUsage,
+  readCacheTokenUsage,
+} from '../usage/token-usage-buffer.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import {
   dedupeStrings,
@@ -739,6 +745,9 @@ const ADMIN_AGENT_SHARED_MEMORY_FILES = [
     cloudPath: '/MEMORY.md',
   },
 ] as const;
+const ADMIN_AGENT_DAILY_MEMORY_DIRNAME = 'memory';
+const ADMIN_AGENT_DAILY_MEMORY_ENTRY_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
+const ADMIN_AGENT_DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ADMIN_AGENT_MARKDOWN_FILES = [
   ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
   ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
@@ -753,7 +762,10 @@ const ADMIN_AGENT_SHARED_MEMORY_FILE_BY_NAME = new Map<
   string,
   (typeof ADMIN_AGENT_SHARED_MEMORY_FILES)[number]
 >(ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => [file.name, file]));
-type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
+type AdminAgentDailyMemoryFileName = `memory/${string}.md`;
+type AdminAgentMarkdownFileName =
+  | (typeof ADMIN_AGENT_MARKDOWN_FILES)[number]
+  | AdminAgentDailyMemoryFileName;
 type AdminAgentLocalMarkdownFileName =
   (typeof ADMIN_AGENT_LOCAL_MARKDOWN_FILES)[number];
 type AdminAgentSharedMemoryFile =
@@ -1396,6 +1408,7 @@ async function persistDelegationAttempt(params: {
       inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      ...readCacheTokenUsage(params.output.tokenUsage),
       toolCalls: toolCallCount,
       costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
         model: params.model,
@@ -1540,9 +1553,27 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
+function formatUsageTokenBreakdown(row: {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_write_tokens: number;
+}): string {
+  const breakdown = `${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out`;
+  const hitRatio = cacheHitRatio(
+    row.total_input_tokens,
+    row.total_cache_read_tokens,
+  );
+  return hitRatio == null
+    ? breakdown
+    : `${breakdown} · ${Math.round(hitRatio * 100)}% cached`;
+}
+
 function mapUsageSummary(value: {
   total_input_tokens: number;
   total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_write_tokens: number;
   total_tokens: number;
   total_cost_usd: number;
   call_count: number;
@@ -1551,6 +1582,8 @@ function mapUsageSummary(value: {
   return {
     totalInputTokens: value.total_input_tokens,
     totalOutputTokens: value.total_output_tokens,
+    totalCacheReadTokens: value.total_cache_read_tokens,
+    totalCacheWriteTokens: value.total_cache_write_tokens,
     totalTokens: value.total_tokens,
     totalCostUsd: value.total_cost_usd,
     callCount: value.call_count,
@@ -1574,12 +1607,21 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   value: string,
 ): AdminAgentMarkdownFileName {
   const normalized = value.trim();
-  if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
+  if (
+    !ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized) &&
+    !ADMIN_AGENT_DAILY_MEMORY_FILE_RE.test(normalized)
+  ) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}, memory/YYYY-MM-DD.md`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
+}
+
+function isGatewayAdminDailyMemoryFileName(
+  fileName: AdminAgentMarkdownFileName,
+): fileName is AdminAgentDailyMemoryFileName {
+  return ADMIN_AGENT_DAILY_MEMORY_FILE_RE.test(fileName);
 }
 
 function isGatewayAdminLocalMarkdownFileName(
@@ -1592,6 +1634,9 @@ function normalizeGatewayAdminAgentLocalMarkdownFileName(
   value: string,
 ): AdminAgentLocalMarkdownFileName {
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(value);
+  if (isGatewayAdminDailyMemoryFileName(fileName)) {
+    throw new Error(`Daily memory file "${fileName}" is read-only.`);
+  }
   if (!isGatewayAdminLocalMarkdownFileName(fileName)) {
     throw new Error(`Shared markdown file "${fileName}" is read-only.`);
   }
@@ -1612,12 +1657,14 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
   resolvedAgent: AgentConfig;
   fileName: AdminAgentMarkdownFileName;
   sharedMemoryFile: AdminAgentSharedMemoryFile | null;
+  dailyMemoryFile: boolean;
   workspacePath: string;
   filePath: string;
 } {
   const agent = getGatewayAdminAgentConfig(params.agentId);
   const fileName = normalizeGatewayAdminAgentMarkdownFileName(params.fileName);
   const sharedMemoryFile = getGatewayAdminSharedMemoryFileSpec(fileName);
+  const dailyMemoryFile = isGatewayAdminDailyMemoryFileName(fileName);
   const resolvedAgent = resolveAgentConfig(agent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(resolvedAgent.id));
   const filePath = sharedMemoryFile
@@ -1628,6 +1675,7 @@ function resolveGatewayAdminAgentMarkdownFile(params: {
     resolvedAgent,
     fileName,
     sharedMemoryFile,
+    dailyMemoryFile,
     workspacePath,
     filePath,
   };
@@ -1706,6 +1754,7 @@ function mapGatewayAdminAgentMarkdownFile(params: {
       path: `cloud-memory://${sharedMemoryFile.scope}${sharedMemoryFile.cloudPath}`,
       scope: sharedMemoryFile.scope,
       cloudPath: sharedMemoryFile.cloudPath,
+      kind: 'shared-memory',
       readOnly: true,
       exists: stats.exists,
       updatedAt: stats.updatedAt,
@@ -1714,6 +1763,19 @@ function mapGatewayAdminAgentMarkdownFile(params: {
   }
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
+  if (isGatewayAdminDailyMemoryFileName(params.fileName)) {
+    return {
+      name: params.fileName,
+      displayName: path.basename(params.fileName, '.md'),
+      path: filePath,
+      scope: 'agent',
+      kind: 'daily-memory',
+      readOnly: true,
+      exists: stats.exists,
+      updatedAt: stats.updatedAt,
+      sizeBytes: stats.sizeBytes,
+    };
+  }
   return {
     name: params.fileName,
     path: filePath,
@@ -1757,6 +1819,32 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
   );
 }
 
+function listGatewayAdminAgentDailyMemoryFileNames(
+  workspacePath: string,
+): AdminAgentDailyMemoryFileName[] {
+  const memoryDir = path.join(workspacePath, ADMIN_AGENT_DAILY_MEMORY_DIRNAME);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(memoryDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+      return [];
+    }
+    throw error;
+  }
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile() && ADMIN_AGENT_DAILY_MEMORY_ENTRY_RE.test(entry.name),
+    )
+    .map(
+      (entry): AdminAgentDailyMemoryFileName =>
+        `${ADMIN_AGENT_DAILY_MEMORY_DIRNAME}/${entry.name}` as AdminAgentDailyMemoryFileName,
+    )
+    .sort((left, right) => right.localeCompare(left));
+}
+
 function mapGatewayAdminAgent(
   agent: AgentConfig,
   options?: {
@@ -1798,7 +1886,11 @@ function mapGatewayAdminAgent(
     peers: Array.isArray(resolved.peers) ? [...resolved.peers] : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
+    markdownFiles: [
+      ...ADMIN_AGENT_LOCAL_MARKDOWN_FILES,
+      ...listGatewayAdminAgentDailyMemoryFileNames(workspacePath),
+      ...ADMIN_AGENT_SHARED_MEMORY_FILES.map((file) => file.name),
+    ].map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -1807,7 +1899,9 @@ function mapGatewayAdminAgent(
           fileName,
           stats: isGatewayAdminLocalMarkdownFileName(fileName)
             ? options?.markdownFileStats?.[fileName]
-            : undefined,
+            : isGatewayAdminDailyMemoryFileName(fileName)
+              ? { exists: true, updatedAt: null, sizeBytes: null }
+              : undefined,
         }),
     ),
   };
@@ -1950,7 +2044,7 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
       content: fileState.content,
       revisions:
         params.revisions ??
-        (params.resolved.sharedMemoryFile
+        (params.resolved.sharedMemoryFile || params.resolved.dailyMemoryFile
           ? []
           : listGatewayAdminAgentMarkdownRevisions({
               workspacePath: params.resolved.workspacePath,
@@ -2315,6 +2409,8 @@ function mapModelUsageRow(
     model: value.model,
     totalInputTokens: value.total_input_tokens,
     totalOutputTokens: value.total_output_tokens,
+    totalCacheReadTokens: value.total_cache_read_tokens,
+    totalCacheWriteTokens: value.total_cache_write_tokens,
     totalTokens: value.total_tokens,
     totalCostUsd: value.total_cost_usd,
     callCount: value.call_count,
@@ -3076,14 +3172,11 @@ function resolveModelCostLabel(params: {
   model: string;
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
 }): string | null {
-  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
-  if (pricing.input == null && pricing.output == null) return null;
-  const inputCost =
-    pricing.input == null ? 0 : params.promptTokens * pricing.input;
-  const outputCost =
-    pricing.output == null ? 0 : params.completionTokens * pricing.output;
-  return formatUsd(inputCost + outputCost);
+  const costUsd = estimateModelUsageCostUsd(params);
+  return costUsd == null ? null : formatUsd(costUsd);
 }
 
 function resolveSessionAgentId(session: { agent_id: string }): string {
@@ -3898,6 +3991,7 @@ export function recordSuccessfulTurn(opts: {
   toolHistoryForReplay?: ChatMessage[];
   startedAt: number;
   replaceBuiltInMemory?: boolean;
+  promptOverheadTokens?: number;
 }): {
   userMessageId: number;
   assistantMessageId: number;
@@ -3999,6 +4093,7 @@ export function recordSuccessfulTurn(opts: {
       model: opts.model,
       channelId: opts.channelId,
       promptMode: opts.promptMode,
+      promptOverheadTokens: opts.promptOverheadTokens,
     }).catch((err) => {
       logger.warn(
         { sessionId: opts.sessionId, err },
@@ -5396,6 +5491,8 @@ export function getGatewayAdminStatistics(params?: {
       totalMessages: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       totalTokens: 0,
       callCount: 0,
       toolCalls: 0,
@@ -5432,6 +5529,8 @@ export function getGatewayAdminStatistics(params?: {
     upsertDay(row.day, (day) => {
       day.inputTokens = row.total_input_tokens;
       day.outputTokens = row.total_output_tokens;
+      day.cacheReadTokens = row.total_cache_read_tokens;
+      day.cacheWriteTokens = row.total_cache_write_tokens;
       day.totalTokens = row.total_tokens;
       day.callCount = row.call_count;
       day.toolCalls = row.total_tool_calls;
@@ -5447,6 +5546,8 @@ export function getGatewayAdminStatistics(params?: {
     (acc, day) => {
       acc.totalInputTokens += day.inputTokens;
       acc.totalOutputTokens += day.outputTokens;
+      acc.totalCacheReadTokens += day.cacheReadTokens;
+      acc.totalCacheWriteTokens += day.cacheWriteTokens;
       acc.totalTokens += day.totalTokens;
       acc.totalCostUsd += day.costUsd;
       acc.callCount += day.callCount;
@@ -5456,6 +5557,8 @@ export function getGatewayAdminStatistics(params?: {
     {
       totalInputTokens: 0,
       totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheWriteTokens: 0,
       totalTokens: 0,
       totalCostUsd: 0,
       callCount: 0,
@@ -5580,9 +5683,9 @@ export function getGatewayAdminAgentMarkdownRevision(params: {
   revisionId: string;
 }): GatewayAdminAgentMarkdownRevisionResponse {
   const resolved = resolveGatewayAdminAgentMarkdownFile(params);
-  if (resolved.sharedMemoryFile) {
+  if (resolved.sharedMemoryFile || resolved.dailyMemoryFile) {
     throw new Error(
-      `Shared markdown file "${resolved.fileName}" does not have local revisions.`,
+      `Markdown file "${resolved.fileName}" does not have local revisions.`,
     );
   }
   const fileName = normalizeGatewayAdminAgentLocalMarkdownFileName(
@@ -5965,6 +6068,14 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
           (sum, agent) => sum + agent.outputTokens,
           0,
         ),
+        totalCacheReadTokens: agents.reduce(
+          (sum, agent) => sum + agent.cacheReadTokens,
+          0,
+        ),
+        totalCacheWriteTokens: agents.reduce(
+          (sum, agent) => sum + agent.cacheWriteTokens,
+          0,
+        ),
         totalTokens: agents.reduce(
           (sum, agent) => sum + agent.inputTokens + agent.outputTokens,
           0,
@@ -5986,6 +6097,14 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         ),
         totalOutputTokens: sessions.reduce(
           (sum, session) => sum + session.outputTokens,
+          0,
+        ),
+        totalCacheReadTokens: sessions.reduce(
+          (sum, session) => sum + session.cacheReadTokens,
+          0,
+        ),
+        totalCacheWriteTokens: sessions.reduce(
+          (sum, session) => sum + session.cacheWriteTokens,
           0,
         ),
         totalTokens: sessions.reduce(
@@ -9436,6 +9555,8 @@ export async function ensureGatewayBootstrapAutostart(params: {
           openingResult.usage?.totalTokens ||
           firstNumber([usagePayload.totalTokens]) ||
           0,
+        cacheReadTokens: openingResult.usage?.cacheReadTokens,
+        cacheWriteTokens: openingResult.usage?.cacheWriteTokens,
         toolCalls: 0,
         costUsd:
           openingResult.usage?.costUsd ??
@@ -9585,6 +9706,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      ...readCacheTokenUsage(output.tokenUsage),
       toolCalls: (output.toolExecutions || []).length,
       costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
         model,
@@ -9760,6 +9882,10 @@ export function getGatewayHistory(
       );
     })
     .map((message) => {
+      if (!getRuntimeConfig().routing.showRoutingInfo) {
+        const { routingTrace: _routingTrace, ...visibleMessage } = message;
+        message = visibleMessage;
+      }
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
       const assistantPresentation =
@@ -10145,6 +10271,8 @@ export function getGatewayHistorySummary(
     toolCallCount: usage.total_tool_calls,
     inputTokenCount: usage.total_input_tokens,
     outputTokenCount: usage.total_output_tokens,
+    cacheReadTokenCount: usage.total_cache_read_tokens,
+    cacheWriteTokenCount: usage.total_cache_write_tokens,
     costUsd: usage.total_cost_usd,
     toolBreakdown,
     fileChanges,
@@ -11531,6 +11659,7 @@ export interface GatewaySessionModelRouting {
   active: boolean;
   startTier: string | null;
   startModel: string | null;
+  showRoutingInfo: boolean;
 }
 
 function buildGatewaySessionModelRouting(
@@ -11538,7 +11667,12 @@ function buildGatewaySessionModelRouting(
 ): GatewaySessionModelRouting {
   const routing = getRuntimeConfig().routing;
   if (!routing.enabled || session.model?.trim()) {
-    return { active: false, startTier: null, startModel: null };
+    return {
+      active: false,
+      startTier: null,
+      startModel: null,
+      showRoutingInfo: routing.showRoutingInfo,
+    };
   }
 
   const agentModel = resolveAgentModel(resolveAgentConfig(session.agent_id));
@@ -11552,6 +11686,7 @@ function buildGatewaySessionModelRouting(
     active: true,
     startTier: startTier?.name ?? null,
     startModel: startTier?.models[0]?.trim() || null,
+    showRoutingInfo: routing.showRoutingInfo,
   };
 }
 
@@ -12512,7 +12647,19 @@ export async function handleGatewayCommand(
                     pricing.output == null
                       ? 'unknown'
                       : formatUsd(pricing.output * 1_000_000)
-                  } output per 1M tokens`
+                  } output${
+                    pricing.cacheRead != null || pricing.cacheWrite != null
+                      ? ` / ${
+                          pricing.cacheRead == null
+                            ? 'unknown'
+                            : formatUsd(pricing.cacheRead * 1_000_000)
+                        } cache read / ${
+                          pricing.cacheWrite == null
+                            ? 'unknown'
+                            : formatUsd(pricing.cacheWrite * 1_000_000)
+                        } cache write`
+                      : ''
+                  } per 1M tokens`
                 : 'Pricing: dynamic pricing unavailable';
           const capabilities =
             [
@@ -13944,7 +14091,20 @@ export async function handleGatewayCommand(
 
       case 'compact': {
         try {
-          const result = await memoryService.compactSession(session.id);
+          const runtime = resolveSessionRuntimeTarget(session);
+          const result = await compactSessionNow({
+            sessionId: session.id,
+            agentId: runtime.agentId,
+            chatbotId: runtime.chatbotId,
+            enableRag: session.enable_rag !== 0,
+            model: runtime.model,
+            channelId: req.channelId,
+          });
+          if (!result) {
+            return plainCommand(
+              'Nothing to compact. The session is already within the preserved recent window.',
+            );
+          }
           const compressionRatio =
             result.tokensBefore > 0
               ? 1 - result.tokensAfter / result.tokensBefore
@@ -14187,12 +14347,16 @@ export async function handleGatewayCommand(
           model: sessionModel,
           promptTokens: mainPromptTokens,
           completionTokens: mainCompletionTokens,
+          cacheReadTokens: metrics.cacheReadTokens,
+          cacheWriteTokens: metrics.cacheWriteTokens,
         });
         const delegateCostLabel = showDelegateSetup
           ? resolveModelCostLabel({
               model: delegateModel,
               promptTokens: delegatePromptTokens,
               completionTokens: delegateCompletionTokens,
+              cacheReadTokens: delegateMetrics?.cacheReadTokens ?? null,
+              cacheWriteTokens: delegateMetrics?.cacheWriteTokens ?? null,
             })
           : null;
         const costLabel =
@@ -14552,7 +14716,7 @@ export async function handleGatewayCommand(
             return plainCommand(`No usage events recorded for ${sub} window.`);
           }
           const lines = rows.slice(0, 20).map((row) => {
-            return `${row.agent_id} — ${formatCompactNumber(row.total_tokens)} tokens (${formatCompactNumber(row.total_input_tokens)} in / ${formatCompactNumber(row.total_output_tokens)} out) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+            return `${row.agent_id} — ${formatCompactNumber(row.total_tokens)} tokens (${formatUsageTokenBreakdown(row)}) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
           });
           return infoCommand(`Usage (${sub} · by agent)`, lines.join('\n'));
         }
@@ -14577,7 +14741,7 @@ export async function handleGatewayCommand(
             );
           }
           const lines = rows.slice(0, 20).map((row) => {
-            return `${formatModelForDisplay(row.model)} — ${formatCompactNumber(row.total_tokens)} tokens · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
+            return `${formatModelForDisplay(row.model)} — ${formatCompactNumber(row.total_tokens)} tokens (${formatUsageTokenBreakdown(row)}) · ${row.call_count} calls · ${formatUsd(row.total_cost_usd)}`;
           });
           const scope = modelAgentId ? `agent ${modelAgentId}` : 'all agents';
           return infoCommand(
@@ -14609,15 +14773,15 @@ export async function handleGatewayCommand(
         const scopeLabel = currentAgentId;
         const lines = [
           `Scope: ${scopeLabel}`,
-          `Today: ${formatCompactNumber(daily.total_tokens)} tokens · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
-          `Month: ${formatCompactNumber(monthly.total_tokens)} tokens · ${monthly.call_count} calls · ${formatUsd(monthly.total_cost_usd)}`,
+          `Today: ${formatCompactNumber(daily.total_tokens)} tokens (${formatUsageTokenBreakdown(daily)}) · ${daily.call_count} calls · ${formatUsd(daily.total_cost_usd)}`,
+          `Month: ${formatCompactNumber(monthly.total_tokens)} tokens (${formatUsageTokenBreakdown(monthly)}) · ${monthly.call_count} calls · ${formatUsd(monthly.total_cost_usd)}`,
         ];
         if (topModels.length > 0) {
           lines.push('Top models (monthly):');
           lines.push(
             ...topModels.map(
               (row) =>
-                `- ${formatModelForDisplay(row.model)}: ${formatCompactNumber(row.total_tokens)} tokens · ${formatUsd(row.total_cost_usd)}`,
+                `- ${formatModelForDisplay(row.model)}: ${formatCompactNumber(row.total_tokens)} tokens (${formatUsageTokenBreakdown(row)}) · ${formatUsd(row.total_cost_usd)}`,
             ),
           );
         }

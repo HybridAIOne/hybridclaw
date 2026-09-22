@@ -131,6 +131,12 @@ function formatUsage(usage: AuxModelUsage): string | null {
   const parts = [
     usage.inputTokens == null ? null : `${usage.inputTokens} input`,
     usage.outputTokens == null ? null : `${usage.outputTokens} output`,
+    usage.cacheReadTokens == null
+      ? null
+      : `${usage.cacheReadTokens} cache read`,
+    usage.cacheWriteTokens == null
+      ? null
+      : `${usage.cacheWriteTokens} cache write`,
     usage.totalTokens == null ? null : `${usage.totalTokens} total`,
   ].filter((part): part is string => part !== null);
   return parts.length > 0 ? `Usage: ${parts.join(' / ')}` : null;

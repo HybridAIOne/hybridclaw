@@ -9870,6 +9870,26 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('decodes daily memory file names in admin agent file routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/memory%2F2026-09-21.md',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentMarkdownFile).toHaveBeenCalledWith(
+      'main',
+      'memory/2026-09-21.md',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).file.content).toBe(
+      '# main:memory/2026-09-21.md\n',
+    );
+  });
+
   test('returns the selected admin agent markdown revision', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
@@ -12079,6 +12099,52 @@ describe('gateway HTTP server', () => {
     expect(
       commands.find((c: { id: string }) => c.id === 'demo_status'),
     ).toBeUndefined();
+  });
+
+  test.each([false, true])('dispatches inline escalation through normal chat (stream=%s)', async (stream) => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Escalating', continueWithMessage: true });
+    state.handleGatewayMessage.mockImplementationOnce(async (request: { onTextDelta?: (text: string) => void; onToolProgress?: (event: { toolName: string; phase: 'start' }) => void }) => {
+      request.onToolProgress?.({ toolName: 'test-tool', phase: 'start' });
+      request.onTextDelta?.('Photosynthesis answer');
+      return { status: 'success', result: 'Photosynthesis answer', toolsUsed: [] };
+    });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', channelId: 'web', userId: 'user-web',
+      content: '/escalate Explain photosynthesis\nKeep it brief.', stream,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    if (stream) { expect(res.body).toContain('test-tool'); expect(res.body).toContain('Photosynthesis answer'); }
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(expect.objectContaining({ args: ['escalate', 'Explain photosynthesis\nKeep it brief.'] }));
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Explain photosynthesis\nKeep it brief.' }));
+  });
+
+  test('guards secret commands inside inline escalation before queueing a turn', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate hybridclaw secret set API_TOKEN test-key', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayCommand).not.toHaveBeenCalled();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).not.toContain('test-key');
+  });
+
+  test('does not dispatch inline escalation when routing refuses it', async () => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'Model routing is disabled.' });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-inline-escalate', content: '/escalate Explain photosynthesis', stream: true,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.body).toContain('Model routing is disabled.');
   });
 
   test('routes web slash commands through the streaming /api/chat path', async () => {

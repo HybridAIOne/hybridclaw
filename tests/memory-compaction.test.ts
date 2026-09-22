@@ -165,6 +165,45 @@ describe('memory compaction', () => {
     expect(deletedIds[0]).toEqual([2, 3, 4]);
   });
 
+  test('compactConversation honors an explicit retained message count', async () => {
+    const archiveBaseDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-compact-retain-'),
+    );
+    const messages = [
+      makeMessage(1, 'system', 'System instruction'),
+      makeMessage(2, 'user', 'User asks for a release plan'),
+      makeMessage(3, 'assistant', 'Assistant outlines the first plan'),
+      makeMessage(4, 'user', 'User adds a deadline and team size'),
+      makeMessage(5, 'assistant', 'Assistant revises the plan'),
+      makeMessage(6, 'user', 'User asks for risk tracking'),
+      makeMessage(7, 'assistant', 'Assistant adds risks and owners'),
+    ];
+    const deletedIds: number[][] = [];
+
+    const result = await compactConversation({
+      session: makeSession(),
+      messages,
+      backend: {
+        deleteMessagesByIds: (_sessionId, ids) => {
+          deletedIds.push([...ids]);
+          return ids.length;
+        },
+        storeSemanticMemory: () => 1,
+        updateSessionSummary: () => {},
+      },
+      promptRunner: {
+        run: async () => makeStructuredSummary('explicit-retain'),
+      },
+      embed: () => [0.5, 0.5],
+      config: { archiveBaseDir, keepRecentMessages: 1, compactRatio: 0.9 },
+      retainRecentCount: 4,
+    });
+
+    expect(result.messagesCompacted).toBe(2);
+    expect(result.messagesPreserved).toBe(5);
+    expect(deletedIds[0]).toEqual([2, 3]);
+  });
+
   test('compactConversation archives transcript, stores semantic memory, and deletes only compacted messages', async () => {
     const archiveBaseDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-compact-'),

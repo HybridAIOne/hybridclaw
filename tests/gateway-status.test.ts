@@ -3066,6 +3066,50 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
 });
 
+test('status reads nested OpenAI-style cache writes', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-nested-cache-write',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/example/model',
+      promptTokens: 2995,
+      completionTokens: 10,
+      prompt_tokens_details: {
+        cached_tokens: 0,
+        cache_write_tokens: 2995,
+      },
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-nested-cache-write',
+    guildId: null,
+    channelId: 'channel-status-nested-cache-write',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 3k new');
+});
+
 test('status shows estimated cost when model pricing is cached', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

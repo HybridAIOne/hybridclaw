@@ -19,7 +19,10 @@ import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
-import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
+import {
+  enqueueTokenUsage,
+  readCacheTokenUsage,
+} from '../usage/token-usage-buffer.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
@@ -164,6 +167,7 @@ export async function runIsolatedScheduledTask(params: {
       inputTokens: usage.promptTokens,
       outputTokens: usage.completionTokens,
       totalTokens: usage.totalTokens,
+      ...readCacheTokenUsage(usage),
       toolCalls: usage.toolCallCount,
       costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
         model,

@@ -1,3 +1,8 @@
+/**
+ * OpenAI-compatible model boundary — normalizes provider variants into HybridClaw types.
+ * Unlike provider selection, this module owns request/response wire-shape compatibility.
+ * It does not persist usage or decide how token costs are presented.
+ */
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -46,6 +51,7 @@ export interface OpenAICompatibleUsagePayload {
   cache_creation_input_tokens?: number;
   prompt_tokens_details?: {
     cached_tokens?: number;
+    cache_write_tokens?: number;
   };
 }
 
@@ -688,7 +694,9 @@ export function mapOpenAICompatibleUsageToTokenStats(
     usage.prompt_tokens_details?.cached_tokens ??
     usage.cached_tokens ??
     usage.cache_read_input_tokens;
-  const cacheWriteTokens = usage.cache_creation_input_tokens;
+  const cacheWriteTokens =
+    usage.prompt_tokens_details?.cache_write_tokens ??
+    usage.cache_creation_input_tokens;
   const cacheUsageAvailable =
     cacheReadTokens !== undefined || cacheWriteTokens !== undefined;
   return {

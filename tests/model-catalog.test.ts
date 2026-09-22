@@ -106,7 +106,12 @@ test('model catalog metadata resolves context and capabilities from static data'
 
   expect(metadata.known).toBe(true);
   expect(metadata.contextWindow).toBe(400_000);
-  expect(metadata.pricingUsdPerToken).toEqual({ input: null, output: null });
+  expect(metadata.pricingUsdPerToken).toEqual({
+    input: null,
+    output: null,
+    cacheRead: null,
+    cacheWrite: null,
+  });
   expect(metadata.capabilities).toEqual({
     vision: true,
     tools: true,
@@ -121,7 +126,12 @@ test('model catalog metadata resolves context and capabilities from static data'
   expect(flagship.known).toBe(true);
   expect(flagship.contextWindow).toBe(1_000_000);
   expect(flagship.maxTokens).toBe(128_000);
-  expect(flagship.pricingUsdPerToken).toEqual({ input: null, output: null });
+  expect(flagship.pricingUsdPerToken).toEqual({
+    input: null,
+    output: null,
+    cacheRead: null,
+    cacheWrite: null,
+  });
 });
 
 test('direct OpenAI catalog exposes configured models only when enabled', async () => {
@@ -289,7 +299,7 @@ test('available model catalog merges the current default model with discovered l
   expect(
     catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b')
       .pricingUsdPerToken,
-  ).toEqual({ input: null, output: null });
+  ).toEqual({ input: null, output: null, cacheRead: null, cacheWrite: null });
   expect(
     catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b').zone,
   ).toBe('local');
@@ -458,7 +468,12 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   expect(
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
       .pricingUsdPerToken,
-  ).toEqual({ input: 0.000001, output: 0.000002 });
+  ).toEqual({
+    input: 0.000001,
+    output: 0.000002,
+    cacheRead: null,
+    cacheWrite: null,
+  });
   expect(
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small').zone,
   ).toBe('region');
@@ -599,7 +614,7 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
   expect(
     catalog.getModelCatalogMetadata('openrouter/zeta/model-b')
       .pricingUsdPerToken,
-  ).toEqual({ input: 1, output: 1 });
+  ).toEqual({ input: 1, output: 1, cacheRead: null, cacheWrite: null });
   expect(catalog.getAvailableModelList('codex')).toEqual([]);
 });
 
@@ -711,7 +726,7 @@ test('available model catalog discovers Codex models from the models endpoint', 
   expect(
     catalog.getModelCatalogMetadata('openai-codex/gpt-5-codex')
       .pricingUsdPerToken,
-  ).toEqual({ input: 0, output: 0 });
+  ).toEqual({ input: 0, output: 0, cacheRead: null, cacheWrite: null });
 });
 
 test('available model catalog discovers Anthropic models from /v1/models', async () => {
@@ -768,7 +783,12 @@ test('available model catalog discovers Anthropic models from /v1/models', async
   expect(
     catalog.getModelCatalogMetadata('anthropic/claude-opus-4-20250514')
       .pricingUsdPerToken,
-  ).toEqual({ input: 15 / 1_000_000, output: 75 / 1_000_000 });
+  ).toEqual({
+    input: 15 / 1_000_000,
+    output: 75 / 1_000_000,
+    cacheRead: (15 / 1_000_000) * 0.1,
+    cacheWrite: (15 / 1_000_000) * 1.25,
+  });
   const anthropicRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
       url: new URL(String(input)),
@@ -1238,7 +1258,12 @@ test('available model catalog merges discovered Mistral models from /models', as
   expect(
     catalog.getModelCatalogMetadata('mistral/mistral-medium-2508')
       .pricingUsdPerToken,
-  ).toEqual({ input: 0.000002, output: 0.000006 });
+  ).toEqual({
+    input: 0.000002,
+    output: 0.000006,
+    cacheRead: null,
+    cacheWrite: null,
+  });
 });
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {

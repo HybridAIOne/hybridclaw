@@ -252,6 +252,80 @@ describe('A2A JSON-RPC inbound adapter', () => {
     expect(deliveredAudit).not.toHaveProperty('outcome');
   });
 
+  test('answers a replayed JSON-RPC message idempotently', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
+      await loadInboundTestModules();
+
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    inbound.upsertA2ATrustedA2APeer({
+      peerId: 'peer-replay',
+      senderAgentId: 'remote@team@peer-instance',
+      publicKeyPem: keyPair.publicKeyPem,
+    });
+
+    const envelope = inboundEnvelope('msg-inbound-a2a-replay');
+    const rawBody = JSON.stringify(
+      encodeA2AJsonRpcRequest(envelope, {
+        url: 'http://localhost/a2a',
+      }),
+    );
+    const token = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: 'remote@team@peer-instance',
+      targetAgentId: 'main@team@local-dev',
+      audience: 'http://localhost/a2a',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-remote-parent',
+      jwtId: 'msg-inbound-a2a-replay',
+      messageId: 'msg-inbound-a2a-replay',
+      threadId: 'thread-a2a-inbound',
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    const accept = () =>
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody,
+        authorization: `Bearer ${token}`,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      });
+
+    expect(await accept()).toMatchObject({
+      statusCode: 202,
+      body: { id: 'msg-inbound-a2a-replay' },
+    });
+    expect(await accept()).toEqual({
+      statusCode: 200,
+      body: {
+        jsonrpc: '2.0',
+        result: {
+          delivered: true,
+          already_delivered: true,
+          message_id: 'msg-inbound-a2a-replay',
+          thread_id: 'thread-a2a-inbound',
+          recipient_agent_id: 'main@team@local-dev',
+        },
+        id: 'msg-inbound-a2a-replay',
+      },
+    });
+    expect(runtime.inbox('main')).toHaveLength(1);
+    const audit = getRecentStructuredAuditForSession(
+      'a2a:inbound:peer-replay',
+      10,
+    ).map((event) => JSON.parse(event.payload || '{}'));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'a2a.inbound_post',
+          downstreamDisposition: 'duplicate',
+          statusCode: 200,
+        }),
+      ]),
+    );
+  });
+
   test('decrypts signed E2EE envelopes and rejects digest or plaintext downgrades', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
     const { runtime, inbound, outbound } = await loadInboundTestModules();
@@ -686,14 +760,14 @@ describe('A2A JSON-RPC inbound adapter', () => {
       body: {
         jsonrpc: '2.0',
         error: {
-          code: -32001,
+          code: -32000,
           message: 'Unauthorized',
           data: {
             reason:
               'Authorization bearer token or mTLS client certificate is required',
           },
         },
-        id: null,
+        id: 'msg-unknown-recipient-no-auth-a2a',
       },
     });
   });
@@ -810,11 +884,11 @@ describe('A2A JSON-RPC inbound adapter', () => {
       body: {
         jsonrpc: '2.0',
         error: {
-          code: -32001,
+          code: -32000,
           message: 'Unauthorized',
           data: { reason: 'JWT has been revoked' },
         },
-        id: null,
+        id: 'msg-revoked-a2a',
       },
     });
     expect(runtime.inbox('main')).toEqual([]);
@@ -872,11 +946,11 @@ describe('A2A JSON-RPC inbound adapter', () => {
       body: {
         jsonrpc: '2.0',
         error: {
-          code: -32001,
+          code: -32000,
           message: 'Unauthorized',
           data: { reason: 'No trusted A2A peer for token sender' },
         },
-        id: null,
+        id: 'msg-missing-peer-a2a',
       },
     });
 
@@ -935,14 +1009,14 @@ describe('A2A JSON-RPC inbound adapter', () => {
       body: {
         jsonrpc: '2.0',
         error: {
-          code: -32001,
+          code: -32000,
           message: 'Unauthorized',
           data: {
             reason:
               'mTLS certificate public key does not match trusted A2A peer',
           },
         },
-        id: null,
+        id: 'msg-mtls-mismatch-a2a',
       },
     });
     expect(runtime.inbox('main')).toEqual([]);

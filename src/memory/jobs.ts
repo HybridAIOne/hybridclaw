@@ -31,6 +31,15 @@ export interface CreateJobInput {
   everyMs?: number;
 }
 
+export interface UpdateScheduledTaskInput {
+  cronExpr?: string;
+  tz?: string;
+  runAt?: string;
+  everyMs?: number;
+  prompt: string;
+  channelId: string;
+}
+
 interface JobRow {
   id: string;
   kind: string;
@@ -295,6 +304,89 @@ export function createJob(input: CreateJobInput): number {
         initialLastRun,
       );
     return jobId;
+  });
+}
+
+export function updateScheduledTask(
+  jobId: number,
+  patch: UpdateScheduledTaskInput,
+): void {
+  withMemoryDatabase((database) => {
+    const normalizedJobId = `task:${jobId}`;
+    const existing = queryOne<{
+      schedule: string;
+      last_run: string | null;
+      last_status: string | null;
+      last_error: string | null;
+      consecutive_errors: number;
+    }>(
+      database,
+      "SELECT schedule, last_run, last_status, last_error, consecutive_errors FROM jobs WHERE id = ? AND kind = 'scheduled_task'",
+      normalizedJobId,
+    );
+    if (!existing) return;
+
+    const schedule: RuntimeSchedulerJob['schedule'] = patch.runAt
+      ? { kind: 'at', at: patch.runAt, everyMs: null, expr: null, tz: '' }
+      : patch.everyMs
+        ? {
+            kind: 'every',
+            at: null,
+            everyMs: patch.everyMs,
+            expr: null,
+            tz: '',
+          }
+        : {
+            kind: 'cron',
+            at: null,
+            everyMs: null,
+            expr: patch.cronExpr ?? '',
+            tz: patch.tz?.trim() || '',
+          };
+    if (
+      schedule.kind === 'cron' &&
+      schedule.tz &&
+      !isValidTimezone(schedule.tz)
+    ) {
+      throw new Error(`Unknown timezone "${schedule.tz}" for scheduled task.`);
+    }
+    const scheduleChanged = JSON.stringify(schedule) !== existing.schedule;
+    // Same catch-up-avoidance rule as createJob: a changed cron schedule
+    // resets last_run to now, a changed one-shot/interval schedule clears it,
+    // and an unchanged schedule keeps its run history.
+    const lastRun = scheduleChanged
+      ? schedule.kind === 'cron'
+        ? new Date().toISOString()
+        : null
+      : existing.last_run;
+    const lastStatus = scheduleChanged ? null : existing.last_status;
+    const lastError = scheduleChanged ? null : existing.last_error;
+    const consecutiveErrors = scheduleChanged ? 0 : existing.consecutive_errors;
+
+    database
+      .prepare(
+        `UPDATE jobs
+         SET channel_id = ?, schedule = ?, action = ?, delivery = ?,
+             last_run = ?, last_status = ?, last_error = ?, consecutive_errors = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+      )
+      .run(
+        patch.channelId,
+        JSON.stringify(schedule),
+        JSON.stringify({ kind: 'agent_turn', message: patch.prompt }),
+        JSON.stringify({
+          kind: 'channel',
+          channel: 'session',
+          to: patch.channelId,
+          webhookUrl: '',
+        }),
+        lastRun,
+        lastStatus,
+        lastError,
+        consecutiveErrors,
+        normalizedJobId,
+      );
   });
 }
 

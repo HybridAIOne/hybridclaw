@@ -1,8 +1,10 @@
 /**
  * Message storage attaches validated tool exchanges to their final assistant
  * row so retrieval/deletion cannot split pairs. Unlike audit storage, these
- * rows are conversation context and never confer execution authority.
+ * rows are conversation context and never confer execution authority. Routing
+ * evidence is separate metadata that survives history retrieval and branching.
  */
+
 import type Database from 'better-sqlite3';
 import { sanitizeToolHistory } from '../session/tool-history.js';
 import {
@@ -12,6 +14,10 @@ import {
 } from '../types/activity-trace.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import {
+  parseRoutingTrace,
+  type RoutingTrace,
+} from '../types/routing-trace.js';
 import type {
   ConversationBranchFamily,
   ConversationHistoryPage,
@@ -38,6 +44,7 @@ interface ConversationHistoryPageRow {
   content: string | null;
   artifacts_json: string | null;
   activity_trace_json: string | null;
+  routing_trace_json: string | null;
   created_at: string | null;
 }
 
@@ -215,6 +222,19 @@ export function setMessageActivityTrace(
   getMessageDatabase()
     .prepare('UPDATE messages SET activity_trace_json = ? WHERE id = ?')
     .run(serializeActivityTrace(trace), messageId);
+}
+
+export function setMessageRoutingTrace(
+  messageId: number,
+  trace: RoutingTrace,
+): void {
+  const serialized = JSON.stringify(trace);
+  if (!parseRoutingTrace(serialized)) throw new Error('Invalid routing trace.');
+  getMessageDatabase()
+    .prepare(
+      "UPDATE messages SET routing_trace_json = ? WHERE id = ? AND role = 'assistant'",
+    )
+    .run(serialized, messageId);
 }
 
 export function getConversationHistory(
@@ -583,6 +603,7 @@ export function getConversationHistoryPage(
          m.content,
          m.artifacts_json,
          m.activity_trace_json,
+         m.routing_trace_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -625,6 +646,7 @@ export function getConversationHistoryPage(
       continue;
     }
     const activityTrace = parseActivityTrace(row.activity_trace_json);
+    const routingTrace = parseRoutingTrace(row.routing_trace_json);
     history.push({
       id: row.id,
       session_id: row.session_id,
@@ -635,6 +657,7 @@ export function getConversationHistoryPage(
       content: row.content,
       artifacts: parseMessageArtifacts(row.artifacts_json),
       ...(activityTrace ? { activityTrace } : {}),
+      ...(routingTrace ? { routingTrace } : {}),
       created_at: row.created_at,
     });
   }

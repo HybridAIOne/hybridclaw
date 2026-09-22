@@ -16,6 +16,7 @@ export interface DiscordSendPermissionSnapshot {
 
 export interface ResolveSendAllowedParams {
   channelId: string;
+  parentChannelId?: string | null;
   guildId?: string | null;
   requestingUserId?: string | null;
   requestingRoleIds?: string[];
@@ -121,13 +122,17 @@ export function resolveSendAllowedFromSnapshot(
     return { allowed: false, reason: 'discord.sendPolicy is disabled.' };
   }
 
+  const parentChannelId = normalizeId(params.parentChannelId);
+
   const allowedChannels = normalizeIdList(snapshot.sendAllowedChannelIds);
   const channelIsInGlobalAllowlist =
-    allowedChannels.size > 0 && allowedChannels.has(channelId);
+    allowedChannels.size > 0 &&
+    (allowedChannels.has(channelId) ||
+      (parentChannelId ? allowedChannels.has(parentChannelId) : false));
   if (allowedChannels.size > 0 && !channelIsInGlobalAllowlist) {
     return {
       allowed: false,
-      reason: `channel ${channelId} is not in discord.sendAllowedChannelIds.`,
+      reason: `channel ${channelId} or its parent is not in discord.sendAllowedChannelIds.`,
     };
   }
 
@@ -141,11 +146,11 @@ export function resolveSendAllowedFromSnapshot(
       };
     }
 
-    const { guildConfig, channelConfig } = resolveGuildAndChannelConfig(
-      snapshot.guilds,
-      guildId,
-      channelId,
-    );
+    const guildConfig = snapshot.guilds[guildId];
+    const configChannelId = guildConfig?.channels[channelId]
+      ? channelId
+      : parentChannelId || channelId;
+    const channelConfig = guildConfig?.channels[configChannelId];
     if (!guildConfig) {
       return {
         allowed: false,
@@ -155,22 +160,26 @@ export function resolveSendAllowedFromSnapshot(
     if (!channelConfig) {
       return {
         allowed: false,
-        reason: `channel ${channelId} is not configured under discord.guilds.${guildId}.channels.`,
+        reason: `channel ${configChannelId} is not configured under discord.guilds.${guildId}.channels.`,
       };
     }
     if (channelConfig.allowSend === false) {
       return {
         allowed: false,
-        reason: `channel ${channelId} explicitly disables outbound sends.`,
+        reason: `channel ${configChannelId} explicitly disables outbound sends.`,
       };
     }
   }
 
   if (guildId) {
+    const guildConfig = snapshot.guilds[guildId];
+    const configChannelId = guildConfig?.channels[channelId]
+      ? channelId
+      : parentChannelId || channelId;
     const actorDecision = resolveActorAllowlistState({
       guilds: snapshot.guilds,
       guildId,
-      channelId,
+      channelId: configChannelId,
       requestingUserId: normalizeId(params.requestingUserId),
       requestingRoleIds: Array.from(
         normalizeIdList(params.requestingRoleIds || []),

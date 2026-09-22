@@ -40,6 +40,7 @@ async function importFreshConfig(homeDir: string) {
 }
 
 const ORIGINAL_HYBRIDAI_CHATBOT_ID = process.env.HYBRIDAI_CHATBOT_ID;
+const ORIGINAL_DISCORD_REPLY_STYLE = process.env.DISCORD_REPLY_STYLE;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -60,9 +61,34 @@ afterEach(() => {
   } else {
     process.env.HYBRIDAI_CHATBOT_ID = ORIGINAL_HYBRIDAI_CHATBOT_ID;
   }
+  if (ORIGINAL_DISCORD_REPLY_STYLE === undefined) {
+    delete process.env.DISCORD_REPLY_STYLE;
+  } else {
+    process.env.DISCORD_REPLY_STYLE = ORIGINAL_DISCORD_REPLY_STYLE;
+  }
 });
 
 describe('env var overrides', () => {
+  it('normalizes DISCORD_REPLY_STYLE and overrides config.json', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.discord.replyStyle = 'top-level';
+    });
+    process.env.DISCORD_REPLY_STYLE = ' THREAD ';
+    const config = await importFreshConfig(homeDir);
+    expect(config.DISCORD_REPLY_STYLE).toBe('thread');
+  });
+
+  it('ignores an invalid DISCORD_REPLY_STYLE override', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.discord.replyStyle = 'thread';
+    });
+    process.env.DISCORD_REPLY_STYLE = 'sideways';
+    const config = await importFreshConfig(homeDir);
+    expect(config.DISCORD_REPLY_STYLE).toBe('thread');
+  });
+
   it('HYBRIDAI_CHATBOT_ID env var overrides config.json value', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

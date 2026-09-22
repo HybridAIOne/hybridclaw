@@ -113,4 +113,28 @@ describe('DiscordStreamManager', () => {
       }),
     );
   });
+
+  test('sends the first streamed chunk to a resolved thread channel', async () => {
+    const { stream, chunkMessage } = await importFreshStream();
+    chunkMessage.mockReturnValue(['thread response']);
+
+    const reply = vi.fn(async () => makeSentMessage());
+    const sourceSend = vi.fn(async () => makeSentMessage());
+    const threadSend = vi.fn(async () => makeSentMessage());
+    const resolveResponseChannel = vi.fn(async () => ({ send: threadSend }));
+    const manager = new stream.DiscordStreamManager(
+      {
+        reply,
+        channel: { send: sourceSend },
+      } as never,
+      { resolveResponseChannel },
+    );
+
+    await manager.finalize('ignored');
+
+    expect(resolveResponseChannel).toHaveBeenCalledOnce();
+    expect(threadSend).toHaveBeenCalledWith({ content: 'thread response' });
+    expect(reply).not.toHaveBeenCalled();
+    expect(sourceSend).not.toHaveBeenCalled();
+  });
 });

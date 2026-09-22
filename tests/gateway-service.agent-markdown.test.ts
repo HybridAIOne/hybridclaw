@@ -74,6 +74,118 @@ test('saves and reloads allowlisted agent workspace markdown files', async () =>
   expect(restored.file.revisions[0]?.source).toBe('restore');
 });
 
+test('lists daily memory notes as read-only admin agent markdown files', async () => {
+  setupHome();
+
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const {
+    getGatewayAdminAgentMarkdownFile,
+    getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminAgents,
+    restoreGatewayAdminAgentMarkdownRevision,
+    saveGatewayAdminAgentMarkdownFile,
+  } = await import('../src/gateway/gateway-service.ts');
+
+  const workspacePath = agentWorkspaceDir('main');
+  const memoryDir = path.join(workspacePath, 'memory');
+  fs.mkdirSync(memoryDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(memoryDir, '2026-09-20.md'),
+    '# 2026-09-20\n\n- Older note.\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(memoryDir, '2026-09-21.md'),
+    '# 2026-09-21\n\n- Saved these rules.\n',
+    'utf-8',
+  );
+  fs.writeFileSync(path.join(memoryDir, 'scratch.md'), '# ignored\n', 'utf-8');
+  fs.mkdirSync(path.join(memoryDir, '2026-09-19.md'));
+
+  const response = getGatewayAdminAgents();
+  const mainAgent = response.agents.find((agent) => agent.id === 'main');
+  const dailyFiles =
+    mainAgent?.markdownFiles.filter((file) => file.kind === 'daily-memory') ||
+    [];
+
+  expect(dailyFiles).toEqual([
+    {
+      name: 'memory/2026-09-21.md',
+      displayName: '2026-09-21',
+      path: path.join(memoryDir, '2026-09-21.md'),
+      scope: 'agent',
+      kind: 'daily-memory',
+      readOnly: true,
+      exists: true,
+      updatedAt: null,
+      sizeBytes: null,
+    },
+    {
+      name: 'memory/2026-09-20.md',
+      displayName: '2026-09-20',
+      path: path.join(memoryDir, '2026-09-20.md'),
+      scope: 'agent',
+      kind: 'daily-memory',
+      readOnly: true,
+      exists: true,
+      updatedAt: null,
+      sizeBytes: null,
+    },
+  ]);
+  expect(
+    mainAgent?.markdownFiles.map((file) => file.name),
+  ).not.toContain('memory/scratch.md');
+
+  const loaded = getGatewayAdminAgentMarkdownFile(
+    'main',
+    'memory/2026-09-21.md',
+  );
+  expect(loaded.file.content).toBe('# 2026-09-21\n\n- Saved these rules.\n');
+  expect(loaded.file.readOnly).toBe(true);
+  expect(loaded.file.kind).toBe('daily-memory');
+  expect(loaded.file.updatedAt).not.toBeNull();
+  expect(loaded.file.revisions).toEqual([]);
+
+  expect(() =>
+    saveGatewayAdminAgentMarkdownFile({
+      agentId: 'main',
+      fileName: 'memory/2026-09-21.md',
+      content: '# Changed\n',
+    }),
+  ).toThrow('Daily memory file "memory/2026-09-21.md" is read-only.');
+  expect(() =>
+    restoreGatewayAdminAgentMarkdownRevision({
+      agentId: 'main',
+      fileName: 'memory/2026-09-21.md',
+      revisionId: 'rev-1',
+    }),
+  ).toThrow('Daily memory file "memory/2026-09-21.md" is read-only.');
+  expect(() =>
+    getGatewayAdminAgentMarkdownRevision({
+      agentId: 'main',
+      fileName: 'memory/2026-09-21.md',
+      revisionId: 'rev-1',
+    }),
+  ).toThrow(
+    'Markdown file "memory/2026-09-21.md" does not have local revisions.',
+  );
+  expect(fs.readFileSync(path.join(memoryDir, '2026-09-21.md'), 'utf-8')).toBe(
+    '# 2026-09-21\n\n- Saved these rules.\n',
+  );
+
+  for (const fileName of [
+    'memory/scratch.md',
+    'memory/../AGENTS.md',
+    'memory/2026-09-21.md/../AGENTS.md',
+    'memory/2026-9-21.md',
+    'memory',
+  ]) {
+    expect(() => getGatewayAdminAgentMarkdownFile('main', fileName)).toThrow(
+      `Unsupported markdown file "${fileName}"`,
+    );
+  }
+});
+
 test('rejects non-allowlisted agent workspace markdown file names', async () => {
   setupHome();
 
