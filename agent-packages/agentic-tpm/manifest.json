@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "name": "Agentic TPM",
+  "id": "agentic-tpm",
+  "description": "A project coordinator that tracks evidence, dependencies and decisions, with bounded authorized follow-ups.",
+  "version": "1.0.0",
+  "skills": {
+    "bundled": ["agentic-tpm"]
+  }
+}
