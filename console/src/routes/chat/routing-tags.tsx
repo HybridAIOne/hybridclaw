@@ -86,7 +86,11 @@ function RoutingDecisionRow({
       </td>
       <td title={value.reason}>
         {failed ? (
-          value.reason.replaceAll('-', ' ')
+          value.reason === 'low-confidence' && value.distributions?.tier ? (
+            `${value.distributions.tier.choice} · low confidence`
+          ) : (
+            value.reason.replaceAll('-', ' ')
+          )
         ) : (
           <>
             {value.recommendedTier ?? 'No selection'}

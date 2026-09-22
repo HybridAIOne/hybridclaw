@@ -73,7 +73,8 @@ export async function evaluateConfiguredRouting(input: {
     finishRoutingTraceAttempt({
       attempt,
       model,
-      status: result.status === 'evaluated' ? 'success' : 'error',
+      // A valid answer can be rejected by the confidence policy without a call failure.
+      status: result.distributions !== null ? 'success' : 'error',
       durationMs: result.durationMs,
       costUsd: result.costUsd ?? undefined,
       costSource: 'estimated',

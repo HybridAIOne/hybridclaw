@@ -61,3 +61,13 @@ test('availability accepts a gateway environment key without exposing its value'
   try { expect(isJevAvailable()).toBe(true); }
   finally { vi.unstubAllEnvs(); }
 });
+
+
+test.each([true, false])('call success is independent of confidence eligibility: valid=%s', async valid => {
+ const answers={tier:{type:'choice',choice:'first',confidence:0.42,probabilities:{first:valid?1:-1}}};
+ mocks.fetch.mockResolvedValue(new Response(JSON.stringify({model:'jev-test',answers,usage:{input_tokens:100,output_tokens:20}})));
+ const {result,trace}=await captureRoutingTrace(()=>evaluateConfiguredRouting({text:'Explain photosynthesis.'}));
+ expect(result.reason).toBe(valid?'low-confidence':'invalid-response');
+ expect(result.applied).toBe(false);
+ expect(trace.attempts[0].status).toBe(valid?'success':'error');
+});
