@@ -81,6 +81,25 @@ export function normalizeModelRoutingZone(value: unknown): ModelRoutingZone {
     : 'cloud';
 }
 
+/** Deployment classification applies to the transport route, not model authorship. */
+export function configuredRemoteRoutingZone(
+  model: string,
+): ModelRoutingZone | null {
+  const id = model.trim().toLowerCase();
+  // Operator decision (2026-09-22): OpenAI/Anthropic through HybridAI use EU hosting.
+  // Direct services remain World; this does not certify a provider's residency claims.
+  if (/^(openrouter|anthropic|openai|openai-codex|codex|xai)\//.test(id))
+    return 'cloud';
+  const hybrid = id.startsWith('hybridai/')
+    ? id.slice('hybridai/'.length)
+    : !id.includes('/')
+      ? id
+      : '';
+  if (/^(openai\/|anthropic\/|gpt-|claude-|o[134](?:-|$))/.test(hybrid))
+    return 'region';
+  return null;
+}
+
 export function modelRoutingZoneAllows(
   maximumZone: ModelRoutingZone,
   modelZone: ModelRoutingZone | undefined,

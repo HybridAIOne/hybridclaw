@@ -121,3 +121,15 @@ test('unknown zones default to cloud', () => {
   expect(normalizeModelRoutingZone('unclassified')).toBe('cloud');
   expect(normalizeModelRoutingZone('HAI')).toBe('hai');
 });
+
+test('provider privacy classification distinguishes direct and HybridAI transport', async () => {
+  const {configuredRemoteRoutingZone} = await import('../src/providers/model-routing.js');
+  for (const model of ['hybridai/gpt-5.6-luna','hybridai/openai/gpt-5.6-sol','hybridai/anthropic/claude-sonnet-5','hybridai/claude-opus-5']) {
+    expect(configuredRemoteRoutingZone(model)).toBe('region');
+  }
+  for (const model of ['openai/gpt-5.6-sol','openai-codex/gpt-5.6-sol','anthropic/claude-sonnet-5','openrouter/anthropic/claude-sonnet-5','xai/grok']) {
+    expect(configuredRemoteRoutingZone(model)).toBe('cloud');
+  }
+  expect(configuredRemoteRoutingZone('hybridai/unknown-model')).toBeNull();
+  expect(configuredRemoteRoutingZone('haigpu1/Qwen/Qwen3.6-27B-FP8')).toBeNull();
+});

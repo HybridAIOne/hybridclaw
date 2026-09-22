@@ -279,3 +279,17 @@ test('rejects an unknown privacy limit without changing the saved configuration'
   expect(() => mod.updateRuntimeConfig(draft => { Object.assign(draft.routing, {maximumZone:'unknown'}); })).toThrow('Invalid routing option');
   expect(mod.getRuntimeConfig().routing.maximumZone).toBe(before.routing.maximumZone);
 });
+
+test('HybridAI OpenAI routes save under EU hosting but not EU-provider privacy', async () => {
+  const mod = await loadConfigModule();
+  const draft = mod.getRuntimeConfig();
+  draft.routing.enabled = true;
+  draft.routing.maximumZone = 'region';
+  draft.routing.tiers = [{name:'general',models:['hybridai/gpt-5']}];
+  draft.routing.defaultStart = 'general';
+  draft.routing.concierge = {model:'hybridai/gpt-5',comparisonModel:''};
+  mod.saveRuntimeConfig(draft);
+  draft.routing.maximumZone = 'eu-provider';
+  expect(() => mod.saveRuntimeConfig(draft)).toThrow('selected privacy limit');
+  expect(mod.getRuntimeConfig().routing.maximumZone).toBe('region');
+});

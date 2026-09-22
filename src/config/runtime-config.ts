@@ -95,6 +95,7 @@ import type {
   LocalProviderConfig,
 } from '../providers/local-types.js';
 import {
+  configuredRemoteRoutingZone,
   MODEL_ROUTING_ZONES,
   type ModelRoutingConfig,
   type ModelRoutingTier,
@@ -9710,7 +9711,7 @@ function validateRoutingForSave(config: RuntimeConfig): void {
     if (endpoint) return endpoint.enabled ? (endpoint.zone ?? 'cloud') : null;
     if (isLocalBackendType(prefix))
       return config.local.backends[prefix].enabled ? 'local' : null;
-    return 'cloud';
+    return configuredRemoteRoutingZone(model) ?? 'cloud';
   };
   const routing = {
     ...config.routing,

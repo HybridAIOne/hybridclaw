@@ -64,6 +64,7 @@ import {
   HYBRIDAI_MODEL_PREFIX,
 } from './model-names.js';
 import {
+  configuredRemoteRoutingZone,
   type ModelRoutingZone,
   normalizeModelRoutingZone,
 } from './model-routing.js';
@@ -614,6 +615,8 @@ function resolveKnownModelZone(model: string): ModelRoutingZone {
         'local',
     );
   }
+  const configuredZone = configuredRemoteRoutingZone(model);
+  if (configuredZone) return configuredZone;
   const normalized = model.trim().toLowerCase();
   if (
     normalized.startsWith(HYBRIDAI_MODEL_PREFIX) ||

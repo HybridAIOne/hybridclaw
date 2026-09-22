@@ -100,3 +100,9 @@ The limit bounds execution, live and comparison routers, manual model selections
 and fallback in every routing mode. Capability tiers remain separate. Invalid
 saves are rejected if an enabled capability tier has no eligible path. These
 checks restrict disclosure; they do not certify a provider's legal jurisdiction.
+
+Operator classification (2026-09-22): OpenAI and Anthropic model routes through
+HybridAI are DE/EU hosting. Direct OpenRouter, Anthropic, OpenAI/Codex and xAI
+routes remain World. This is an operator-provided deployment classification,
+not an inference from model authorship. Unclassified HybridAI models retain
+catalog metadata; unknown locations remain World.
