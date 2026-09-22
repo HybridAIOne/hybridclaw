@@ -31,7 +31,8 @@ Important:
 
 - do not keep the Twilio auth token in plaintext config if you can avoid it
 - do not rely on `localhost` or `127.0.0.1` for Twilio callbacks
-- restart the gateway after changing Twilio voice config or secrets
+- voice settings apply when saved; saving the Twilio token starts an enabled
+  voice channel once its required credentials are available
 
 ## How The Channel Works
 
@@ -273,13 +274,18 @@ Admin console:
 
 Important:
 
-- setting the secret updates the stored credential immediately
-- use `/secret set ...`, `hybridclaw secret set ...`, `/admin/channels`, or a
-  SecretRef-backed `voice.twilio.authToken` value
-- the voice runtime itself is safest after a gateway restart
-- if voice was previously disabled because the token was missing, do not assume
-  it became active until the gateway has restarted and logged successful voice
-  startup
+- saving the secret through `/admin/channels` or `/secret set ...` refreshes
+  the running gateway and starts an enabled voice channel if its required
+  credentials are available
+- after writing secrets outside the running gateway (for example with
+  `hybridclaw secret set ...`), use **Reload Gateway** in the console to load
+  them and retry voice startup
+- an unchanged reload or token rotation keeps a healthy voice runtime running;
+  removing its effective Twilio token stops it
+- recovery respects `voice.enabled` and `deployment.a2a_local_mode`; it does
+  not enable channels or bypass Twilio signature validation
+- confirm `Voice integration started inside gateway` in the logs; credential
+  status alone does not prove the channel started
 
 ## Expose The Webhook Publicly
 
@@ -402,11 +408,14 @@ the same base path.
 
 ## Start And Verify
 
-After config and secrets are in place:
+After config and secrets are in place, start the gateway if it is not running:
 
 ```bash
-hybridclaw gateway restart --foreground
+hybridclaw gateway
 ```
+
+For an already running cloud gateway, save settings in the console and use
+**Reload Gateway** if voice needs to retry startup.
 
 Then verify:
 
@@ -448,7 +457,8 @@ If the phone rings but the conversation never starts, the usual causes are:
 
 - `ops.gatewayBaseUrl` does not match the public host
 - the relay websocket is not publicly reachable over `wss://`
-- the gateway was not restarted after setting the Twilio secret
+- the voice runtime did not start; use **Reload Gateway** and inspect the
+  `Voice integration` startup logs
 
 ## Test Outbound Calls
 
@@ -495,7 +505,7 @@ The fastest operator path is:
 4. store the Twilio auth token in the secret field
 5. set the Twilio number in E.164 format
 6. confirm the webhook path
-7. save and restart the gateway
+7. save and confirm `Voice integration started inside gateway` in the logs
 
 Use the admin UI when you want a persistent config workflow. Use TUI or CLI
 when you want quick local testing.
@@ -530,7 +540,7 @@ Check:
 - `voice.twilio.accountSid` is set
 - `voice.twilio.fromNumber` is set
 - `TWILIO_AUTH_TOKEN` exists in the encrypted secret store
-- the gateway was restarted after the secret was added
+- use **Reload Gateway** to retry startup after the secret was added
 
 ### `voice call` says the webhook is not public
 
@@ -555,8 +565,8 @@ The usual causes are:
 - TLS termination is configured for HTTPS but not WSS
 - the public hostname in `ops.gatewayBaseUrl` is different from the one Twilio
   actually uses
-- the voice runtime never started because the gateway was not restarted after a
-  secret or config change
+- the voice runtime failed to start; use **Reload Gateway** and check the
+  `Voice integration` logs for missing credentials or a startup error
 
 ### The called phone hears a Twilio trial message and then the call ends
 
@@ -576,6 +586,22 @@ Check:
 If the call still ends after you press a digit, then you are past the trial
 announcement and the next thing to inspect is the HybridClaw voice webhook and
 relay path.
+
+### The call says voice is unavailable
+
+This response means the webhook passed signature validation but the voice
+runtime is stopped or shutting down. Saving the Twilio auth token in the
+console retries startup automatically when Voice is enabled. **Reload Gateway**
+also retries a stopped channel without restarting the workspace container or
+requiring Voice to be toggled off and on.
+
+Set logging to **On**, reload, and look for:
+
+- `Voice integration started inside gateway`: startup succeeded
+- `Voice integration disabled: Twilio credentials are incomplete`: check the
+  account SID, auth token, and from number
+- another `Voice integration disabled:` or `Voice integration failed to start`
+  message: follow the reported startup error, including realtime credentials
 
 ### Signature validation fails
 
