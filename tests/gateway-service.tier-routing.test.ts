@@ -4,7 +4,7 @@ import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock, evaluatorMock } = vi.hoisted(() => ({ runAgentMock: vi.fn(), evaluatorMock: vi.fn() }));
-vi.mock('../src/gateway/routing-evaluator.ts', () => ({ evaluateConfiguredRouting: evaluatorMock }));
+vi.mock('../src/gateway/routing-evaluator.ts', () => ({ evaluateConfiguredRouting: evaluatorMock, isJevAvailable: () => true }));
 
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 
@@ -27,6 +27,7 @@ async function createFixture() {
   updateRuntimeConfig((draft) => {
     draft.local.backends.lmstudio.enabled = true;
     draft.routing.enabled = true;
+    draft.routing.concierge.comparisonModel = '';
     draft.routing.defaultStart = 'economy';
     draft.routing.escalationStickyTurns = 3;
     draft.routing.tiers = [
@@ -312,7 +313,7 @@ test('does not remember an unsuccessful manual escalation', async () => {
 
 test('shadow JEV is recorded beside the live rules without changing execution', async () => {
  const fixture = await createFixture();
- fixture.updateRuntimeConfig(draft => {draft.routing.evaluator.mode='shadow';draft.routing.showRoutingInfo=true;});
+ fixture.updateRuntimeConfig(draft => {draft.routing.concierge.comparisonModel='jev/jev-latest';draft.routing.showRoutingInfo=true;});
  evaluatorMock.mockResolvedValue({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'capability-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0.00001,distributions: signals('general'),recommendedTier:'general',applied:false});
  runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
  const result = await fixture.handleGatewayMessage({sessionId:'shadow-test',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});

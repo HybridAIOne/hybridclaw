@@ -77,7 +77,10 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
   },
   {
     label: 'Models',
-    items: [{ to: '/admin/models', label: 'Providers', icon: Models }],
+    items: [
+      { to: '/admin/models', label: 'Providers', icon: Models },
+      { to: '/admin/model-routing', label: 'Routing', icon: Network },
+    ],
   },
   {
     label: 'Security',

@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ config: vi.fn(), auxiliary: vi.fn(), jev: vi.fn() }));
 vi.mock('../src/config/runtime-config.js', () => ({ getRuntimeConfig: mocks.config }));
 vi.mock('../src/providers/auxiliary.js', () => ({ callAuxiliaryModel: mocks.auxiliary }));
-vi.mock('../src/providers/model-catalog.js', () => ({ getModelCatalogMetadata: (model: string) => ({ zone: model.startsWith('local') ? 'local' : 'cloud' }) }));
+vi.mock('../src/providers/model-catalog.js', () => ({ getAvailableModelList: () => ['test/gemma-4-e4b-it'], getModelCatalogMetadata: (model: string) => ({ zone: model.startsWith('local') ? 'local' : 'cloud' }) }));
 vi.mock('../src/gateway/routing-evaluator.js', () => ({ evaluateConfiguredRouting: mocks.jev }));
 import { classifyRouting } from '../src/gateway/unified-routing.js';
 beforeEach(() => {
@@ -51,4 +51,20 @@ test('treats a creative task as quoted classifier data and rejects task answers'
  expect(messages[1].content).toContain(`Task (JSON string): ${JSON.stringify(text)}`);
  expect(result.evaluation).toMatchObject({status:'fallback',reason:'classifier-invalid-response',applied:false});
  expect(result.signals.tier).toBeNull();
+});
+
+test('a text model can be the comparison router without changing live configuration', async () => {
+ mocks.auxiliary.mockResolvedValue({model:'second-router',content:'{"tier":"advanced"}'});
+ const result=await classifyRouting({text:'Public task',model:'second-router',comparison:true,publicSample:true});
+ expect(result.evaluation).toMatchObject({model:'second-router',mode:'shadow',status:'evaluated',applied:false});
+ expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({model:'second-router',allowFallback:false}));
+ expect(mocks.config().routing.concierge.model).toBe('test-model');
+});
+
+
+test('automatic live routing defaults to available Gemma E4B', async () => {
+ mocks.config().routing.concierge.model='';
+ mocks.auxiliary.mockResolvedValue({model:'test/gemma-4-e4b-it',content:'{"tier":"economy"}'});
+ const result=await classifyRouting({text:'Public task'});
+ expect(result.evaluation).toMatchObject({model:'test/gemma-4-e4b-it',status:'evaluated'});
 });

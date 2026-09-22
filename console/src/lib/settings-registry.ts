@@ -60,7 +60,7 @@ const SECTION_OWNERS: Readonly<
   kilo: PROVIDERS_OWNER,
   local: PROVIDERS_OWNER,
   auxiliaryModels: PROVIDERS_OWNER,
-  routing: { label: 'Routing', to: '/admin/models#routing-concierge' },
+  routing: { label: 'Routing', to: '/admin/model-routing' },
 };
 
 const FIELD_OWNERS: Readonly<Record<string, AdminConfigSectionOwner>> = {

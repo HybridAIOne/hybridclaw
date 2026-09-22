@@ -25,7 +25,7 @@ interface Tier {
 interface Ladder {
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
   preference: 'asap' | 'balanced' | 'no_hurry';
-  concierge: { model: string };
+  concierge: { model: string; comparisonModel: string };
   showRoutingInfo: boolean;
   evaluator: { mode: 'off' | 'shadow' | 'active'; [key: string]: unknown };
   enabled: boolean;
@@ -41,6 +41,9 @@ function readLadder(config: AdminConfig): Ladder {
       'balanced',
     concierge: {
       model: (settingValue(config, 'routing.concierge.model') as string) ?? '',
+      comparisonModel:
+        (settingValue(config, 'routing.concierge.comparisonModel') as string) ??
+        'jev/jev-latest',
     },
     showRoutingInfo: Boolean(settingValue(config, 'routing.showRoutingInfo')),
     evaluator: (settingValue(
@@ -114,6 +117,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       for (const modelId of new Set([
         ...ladder.tiers.flatMap((tier) => tier.models),
         ladder.concierge.model,
+        ladder.concierge.comparisonModel,
       ])) {
         const model = models.find((entry) => entry.id === modelId);
         if (!model || model.backend) continue;
@@ -235,42 +239,60 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                   <option value="no_hurry">No hurry</option>
                 </NativeSelect>
               </label>
-              <label className={styles.field}>
-                Concierge model
-                <NativeSelect
-                  value={value.concierge.model}
-                  onChange={(event) =>
-                    edit({ ...value, concierge: { model: event.target.value } })
-                  }
-                >
-                  <option value="">Rule-based · no classifier cost</option>
-                  <option
-                    value="jev/jev-latest"
-                    disabled={!availability.data?.jevAvailable}
+              {(['model', 'comparisonModel'] as const).map((field) => (
+                <label key={field} className={styles.field}>
+                  {field === 'model'
+                    ? '1st router · Live'
+                    : '2nd router · Compare'}
+                  <NativeSelect
+                    value={
+                      field === 'comparisonModel' &&
+                      value.concierge[field].startsWith('jev/') &&
+                      availability.data?.jevAvailable === false
+                        ? ''
+                        : value.concierge[field]
+                    }
+                    onChange={(event) =>
+                      edit({
+                        ...value,
+                        concierge: {
+                          ...value.concierge,
+                          [field]: event.target.value,
+                        },
+                      })
+                    }
                   >
-                    JEV
-                    {availability.data?.jevAvailable
-                      ? ''
-                      : ' · API key required'}
-                  </option>
-                  {value.concierge.model &&
-                  value.concierge.model !== 'jev/jev-latest' &&
-                  !models.some(
-                    (model) => model.id === value.concierge.model,
-                  ) ? (
-                    <option value={value.concierge.model}>
-                      {value.concierge.model}
+                    <option value="">
+                      {field === 'model' ? 'Automatic · Gemma E4B' : 'Unset'}
                     </option>
-                  ) : null}
-                  {models
-                    .filter((model) => !model.id.startsWith('jev/'))
-                    .map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.id}
+                    <option
+                      value="jev/jev-latest"
+                      disabled={!availability.data?.jevAvailable}
+                    >
+                      JEV
+                      {availability.data?.jevAvailable
+                        ? ''
+                        : ' · API key required'}
+                    </option>
+                    {value.concierge[field] &&
+                    !value.concierge[field].startsWith('jev/') &&
+                    !models.some(
+                      (model) => model.id === value.concierge[field],
+                    ) ? (
+                      <option value={value.concierge[field]}>
+                        {value.concierge[field]}
                       </option>
-                    ))}
-                </NativeSelect>
-              </label>
+                    ) : null}
+                    {models
+                      .filter((model) => !model.id.startsWith('jev/'))
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.id}
+                        </option>
+                      ))}
+                  </NativeSelect>
+                </label>
+              ))}
               <label className={styles.toggle}>
                 <Switch
                   checked={value.showRoutingInfo}
@@ -281,25 +303,6 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                 Show routing in chat
               </label>
             </div>
-            <label className={styles.toggle}>
-              <Switch
-                checked={value.evaluator.mode === 'shadow'}
-                disabled={
-                  value.concierge.model.startsWith('jev/') ||
-                  !availability.data?.jevAvailable
-                }
-                onCheckedChange={(enabled) =>
-                  edit({
-                    ...value,
-                    evaluator: {
-                      ...value.evaluator,
-                      mode: enabled ? 'shadow' : 'off',
-                    },
-                  })
-                }
-              />
-              Compare JEV in shadow · show both decisions and costs in chat
-            </label>
             <p className={styles.help}>
               Order tiers from lighter / faster to more capable. Speed uses this
               order.

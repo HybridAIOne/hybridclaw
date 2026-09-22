@@ -1,6 +1,6 @@
 # Unified routing and JEV evaluation
 
-**Providers → Routing** (`/admin/models#routing-concierge`) owns one enable switch,
+**Models → Routing** (`/admin/model-routing`) owns one enable switch,
 one tier ladder, classifier selection, routing mode, urgency preference, shadow
 comparison and chat visibility. Save routing applies them together. Model assignments
 exist only in tiers; ASAP, Balanced and No hurry are preferences.
@@ -28,8 +28,10 @@ Neither classifier assesses urgency, personal data, confidentiality or task type
 
 ## Shadow comparison in chat
 
-Select a rule-based or text-model concierge and enable **Compare JEV in shadow**.
-The live router determines execution; JEV evaluates the same eligible prompt in
+Select the **1st router · Live** and an optional **2nd router · Compare**.
+The first defaults to an available Gemma E4B model. The second defaults to JEV
+when its key is configured, otherwise remains inactive; choose Unset to disable it.
+The live router determines execution; the comparison router evaluates the same eligible prompt in
 parallel. Chat tags show both decisions and separate classification costs. Expanded
 details show tier, proposed model, latency, usage and cost.
 A failed shadow call cannot change the live route. No model is substituted for a

@@ -4,11 +4,15 @@ import type { ChatModel } from '../api/types';
 import { renderWithProviders } from '../test-utils';
 import { RoutingConfiguration } from './routing-configuration';
 
-const mocks = vi.hoisted(() => ({ fetch: vi.fn(), save: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  save: vi.fn(),
+  available: true,
+}));
 vi.mock('../api/client', () => ({
   fetchConfig: mocks.fetch,
   saveConfig: mocks.save,
-  requestJson: () => Promise.resolve({ jevAvailable: true }),
+  requestJson: () => Promise.resolve({ jevAvailable: mocks.available }),
 }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 const models = [
@@ -30,6 +34,7 @@ const routing = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.available = true;
   mocks.fetch.mockResolvedValue({ config: { routing } });
   mocks.save.mockImplementation((_token, config) =>
     Promise.resolve({ config }),
@@ -216,4 +221,55 @@ it('does not register a configured model missing from the discovered catalog', a
       },
     }),
   );
+});
+
+it('saves independent live and comparison models and can unset comparison', async () => {
+  await renderEditor();
+  fireEvent.change(screen.getByLabelText('1st router · Live'), {
+    target: { value: 'local-model' },
+  });
+  fireEvent.change(screen.getByLabelText('2nd router · Compare'), {
+    target: { value: 'cloud-model' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+  await waitFor(() =>
+    expect(mocks.save).toHaveBeenCalledWith(
+      'test-token',
+      expect.objectContaining({
+        routing: expect.objectContaining({
+          concierge: { model: 'local-model', comparisonModel: 'cloud-model' },
+        }),
+      }),
+    ),
+  );
+  fireEvent.change(screen.getByLabelText('2nd router · Compare'), {
+    target: { value: '' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+  await waitFor(() =>
+    expect(mocks.save).toHaveBeenLastCalledWith(
+      'test-token',
+      expect.objectContaining({
+        routing: expect.objectContaining({
+          concierge: { model: 'local-model', comparisonModel: '' },
+        }),
+      }),
+    ),
+  );
+});
+
+it('shows JEV as disabled and comparison unset without a key', async () => {
+  mocks.available = false;
+  await renderEditor();
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('2nd router · Compare') as HTMLSelectElement)
+        .value,
+    ).toBe(''),
+  );
+  expect(
+    screen
+      .getAllByRole('option', { name: 'JEV · API key required' })
+      .every((option) => option.hasAttribute('disabled')),
+  ).toBe(true);
 });

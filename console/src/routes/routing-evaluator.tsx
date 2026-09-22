@@ -1,6 +1,6 @@
 /**
  * Labs hosts the experimental routing evaluator and its playground.
- * Production concierge and execution-tier configuration stay on Providers.
+ * Production concierge and execution-tier configuration stay on Models → Routing.
  */
 import { RoutingComparison } from '../components/routing-comparison';
 import { RoutingEvaluatorSettings } from '../components/routing-evaluator-settings';

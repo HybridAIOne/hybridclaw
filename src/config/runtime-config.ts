@@ -531,6 +531,7 @@ export interface RuntimeMediaAudioConfig {
 
 export interface RuntimeRoutingConciergeConfig {
   model: string;
+  comparisonModel: string;
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
@@ -2173,7 +2174,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     escalationStickyTurns: 3,
     mode: 'auto',
     preference: 'balanced',
-    concierge: { model: '' },
+    concierge: { model: '', comparisonModel: 'jev/jev-latest' },
   },
   heartbeat: {
     enabled: true,
@@ -7074,6 +7075,11 @@ function normalizeRoutingConciergeConfig(
   const raw = isRecord(value) ? value : {};
   return {
     model: normalizeString(raw.model, fallback.model, { allowEmpty: true }),
+    comparisonModel: normalizeString(
+      raw.comparisonModel,
+      fallback.comparisonModel,
+      { allowEmpty: true },
+    ),
   };
 }
 

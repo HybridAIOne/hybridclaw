@@ -225,6 +225,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { isJevAvailable } from './routing-evaluator.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -1590,11 +1591,14 @@ async function handleGatewayMessageInner(
       }),
       !explicitModelPinned &&
       isInteractiveSource &&
-      !routingConfig.concierge.model.startsWith('jev/') &&
-      routingConfig.evaluator.mode === 'shadow'
+      routingConfig.concierge.comparisonModel &&
+      routingConfig.concierge.comparisonModel !==
+        routingConfig.concierge.model &&
+      (!routingConfig.concierge.comparisonModel.startsWith('jev/') ||
+        isJevAvailable())
         ? classifyRouting({
             ...classifierInput,
-            model: `jev/${routingConfig.evaluator.model}`,
+            model: routingConfig.concierge.comparisonModel,
             comparison: true,
             publicSample: true,
           })

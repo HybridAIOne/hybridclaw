@@ -27,6 +27,7 @@ import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { LocalModelsPage } from './routes/local-models';
 import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
+import { ModelRoutingPage } from './routes/model-routing';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
@@ -323,6 +324,12 @@ const configRoute = createRoute({
   component: ConfigPage,
 });
 
+const modelRoutingRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/model-routing',
+  component: ModelRoutingPage,
+});
+
 const modelsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/models',
@@ -588,6 +595,7 @@ const routeTree = rootRoute.addChildren([
     emailRoute,
     configRoute,
     modelsRoute,
+    modelRoutingRoute,
     automationRoute,
     schedulerRoute,
     jobsRoute,

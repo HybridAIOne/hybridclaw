@@ -5,7 +5,10 @@
  */
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
-import { getModelCatalogMetadata } from '../providers/model-catalog.js';
+import {
+  getAvailableModelList,
+  getModelCatalogMetadata,
+} from '../providers/model-catalog.js';
 import { evaluatorDisclosureReason } from '../routing/evaluator.js';
 import type { TypedRoutingEvaluation } from '../routing/evaluator-contract.js';
 import {
@@ -26,7 +29,11 @@ export async function classifyRouting(input: {
   comparison?: boolean;
 }) {
   const routing = getRuntimeConfig().routing;
-  const model = input.model ?? routing.concierge.model;
+  const model =
+    input.model ??
+    (routing.concierge.model ||
+      getAvailableModelList().find((model) => /gemma.*e4b/i.test(model)) ||
+      '');
   const disclosure = evaluatorDisclosureReason({
     ...input,
     approved: !input.comparison || input.publicSample === true,

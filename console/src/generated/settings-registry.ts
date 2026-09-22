@@ -2188,6 +2188,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: true,
     },
     {
+      path: 'routing.concierge.comparisonModel',
+      section: 'routing',
+      kind: 'string',
+      defaultValue: 'jev/jev-latest',
+    },
+    {
       path: 'routing.concierge.model',
       section: 'routing',
       kind: 'string',
