@@ -5,7 +5,10 @@
 import { HybridAILogo } from './HybridAILogo';
 
 export function PrivacyLevelIcon({ zone }: { zone: string }) {
-  if (zone === 'hai') return <HybridAILogo width={28} height={28} />;
+  if (zone === 'hai')
+    return (
+      <HybridAILogo width={28} height={28} style={{ filter: 'grayscale(1)' }} />
+    );
   return (
     <svg
       width="28"
