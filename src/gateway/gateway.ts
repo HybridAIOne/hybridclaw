@@ -1,3 +1,8 @@
+/**
+ * Owns channel startup and shutdown; webhook handlers only consume live runtimes.
+ * Voice refreshes serialize config and secret changes, preserve healthy calls on
+ * credential refresh, and cannot re-enable a channel during gateway shutdown.
+ */
 import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
@@ -125,7 +130,11 @@ import {
 import { isThreemaChannelId } from '../channels/threema/target.js';
 import { findNationalFormatAllowEntries } from '../channels/voice/caller-policy.js';
 import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
-import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
+import {
+  initVoice,
+  isVoiceRuntimeAvailable,
+  shutdownVoice,
+} from '../channels/voice/runtime.js';
 import {
   createVoiceTextStreamFormatter,
   normalizeVoiceUserTextForGateway,
@@ -149,6 +158,7 @@ import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
   onConfigChange,
+  onRuntimeSecretsRefresh,
   PROACTIVE_QUEUE_OUTSIDE_HOURS,
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
@@ -298,6 +308,9 @@ import {
 import { persistVoiceTranscript } from './voice-transcript-store.js';
 
 let detachConfigListener: (() => void) | null = null;
+let detachSecretsRefreshListener: (() => void) | null = null;
+let voiceIntegrationRefresh = Promise.resolve();
+let voiceIntegrationShuttingDown = false;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 let a2aLocalModeTransition = Promise.resolve();
@@ -475,7 +488,6 @@ function hasVoiceConfigChanged(
     next.enabled !== prev.enabled ||
     next.provider !== prev.provider ||
     next.twilio.accountSid !== prev.twilio.accountSid ||
-    next.twilio.authToken !== prev.twilio.authToken ||
     next.twilio.fromNumber !== prev.twilio.fromNumber ||
     next.relay.ttsProvider !== prev.relay.ttsProvider ||
     next.relay.voice !== prev.relay.voice ||
@@ -3698,56 +3710,58 @@ async function startVoiceIntegration(): Promise<boolean> {
   }
 }
 
+function refreshVoiceIntegration(restart = false): Promise<void> {
+  voiceIntegrationRefresh = voiceIntegrationRefresh
+    .then(async () => {
+      await a2aLocalModeTransition;
+      if (
+        voiceIntegrationShuttingDown ||
+        isA2ALocalModeEnabled(getConfigSnapshot())
+      )
+        return;
+      const voiceConfig = getConfigSnapshot().voice;
+      // Credential refreshes preserve healthy calls; config changes restart voice.
+      if (!restart) {
+        if (!voiceConfig.enabled) return;
+        if (isVoiceRuntimeAvailable()) {
+          if (!String(TWILIO_AUTH_TOKEN || '').trim()) {
+            await shutdownVoice();
+          }
+          return;
+        }
+      } else {
+        logger.info(
+          {
+            enabled: voiceConfig.enabled,
+            provider: voiceConfig.provider,
+            webhookPath: voiceConfig.webhookPath,
+          },
+          'Config changed, restarting Voice integration',
+        );
+        await shutdownVoice();
+      }
+      if (
+        voiceIntegrationShuttingDown ||
+        isA2ALocalModeEnabled(getConfigSnapshot())
+      )
+        return;
+      await startVoiceIntegration();
+    })
+    .catch((error) => {
+      logger.warn({ error }, 'Voice integration refresh failed');
+    });
+  return voiceIntegrationRefresh;
+}
+
 async function refreshVoiceIntegrationForConfigChange(
   next: ReturnType<typeof getConfigSnapshot>,
   prev: ReturnType<typeof getConfigSnapshot>,
 ): Promise<void> {
   if (shouldSkipChannelConfigRefresh(next, prev)) return;
-  if (!hasVoiceConfigChanged(next.voice, prev.voice)) return;
-  const sharedTwilioAuthToken = String(TWILIO_AUTH_TOKEN || '').trim();
-  const configTwilioAuthToken = String(
-    next.voice.twilio.authToken || '',
-  ).trim();
-  const accountSidConfigured = Boolean(next.voice.twilio.accountSid.trim());
-  const fromNumberConfigured = Boolean(next.voice.twilio.fromNumber.trim());
-
-  logger.info(
-    {
-      enabled: next.voice.enabled,
-      provider: next.voice.provider,
-      webhookPath: next.voice.webhookPath,
-      maxConcurrentCalls: next.voice.maxConcurrentCalls,
-    },
-    'Config changed, restarting Voice integration',
-  );
-  await shutdownVoice().catch((error) => {
-    logger.debug(
-      { error },
-      'Failed to stop Voice runtime during config-change restart',
-    );
-  });
-  if (
-    next.voice.enabled &&
-    next.voice.provider === 'twilio' &&
-    accountSidConfigured &&
-    fromNumberConfigured &&
-    !sharedTwilioAuthToken
-  ) {
-    logger.warn(
-      {
-        accountSidConfigured,
-        authTokenConfigured: false,
-        configAuthTokenConfigured: Boolean(configTwilioAuthToken),
-        fromNumberConfigured,
-        sharedAuthTokenConfigured: false,
-      },
-      configTwilioAuthToken
-        ? 'Config changed, keeping Voice integration stopped until shared Twilio auth token refresh completes'
-        : 'Config changed, leaving Voice integration stopped: Twilio auth token missing after reload',
-    );
+  const restart = hasVoiceConfigChanged(next.voice, prev.voice);
+  if (!restart && next.voice.twilio.authToken === prev.voice.twilio.authToken)
     return;
-  }
-  await startVoiceIntegration();
+  await refreshVoiceIntegration(restart);
 }
 
 async function startIMessageIntegration(): Promise<boolean> {
@@ -3997,11 +4011,14 @@ function setupShutdown(broadcastShutdown: () => void): void {
   const shutdown = async (opts?: { drain?: boolean }) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    voiceIntegrationShuttingDown = true;
     logger.info('Shutting down gateway...');
     if (detachConfigListener) {
       detachConfigListener();
       detachConfigListener = null;
     }
+    detachSecretsRefreshListener?.();
+    detachSecretsRefreshListener = null;
     setChannelPluginAvailabilityListener(null);
     await runShutdownStep(
       'set Discord maintenance presence',
@@ -4042,6 +4059,10 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
     await runShutdownStep('stop LINE runtime', shutdownLine);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
+    await runShutdownStep(
+      'settle Voice refresh',
+      () => voiceIntegrationRefresh,
+    );
     await runShutdownStep('stop Voice runtime', () =>
       shutdownVoice({ drain: opts?.drain }),
     );
@@ -4568,6 +4589,9 @@ async function main(): Promise<void> {
       'Config changed, restarting observability ingest',
     );
     startObservabilityIngest();
+  });
+  detachSecretsRefreshListener = onRuntimeSecretsRefresh(() => {
+    void refreshVoiceIntegration();
   });
   startScheduler(runScheduledTask);
   startOrRestartMemoryConsolidationScheduler();

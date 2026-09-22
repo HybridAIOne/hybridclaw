@@ -14,6 +14,10 @@
   consulted agent's actual tool activity and forbids speculation, questions,
   and claims of needing access or credentials — a live call had heard a made-up
   credentials request while the consult was succeeding.
+- **Twilio voice recovers after credential setup**: Saving the auth token starts
+  an enabled voice channel, and Reload Gateway retries a stopped channel without
+  requiring an off/on toggle. Routine secret refreshes and token rotations keep
+  healthy calls running.
 - **Admin console shows daily memory notes**: The Agent Files page lists
   `memory/YYYY-MM-DD.md` notes written by the container `memory` tool as
   read-only files, so operators can review persisted memory instead of only
