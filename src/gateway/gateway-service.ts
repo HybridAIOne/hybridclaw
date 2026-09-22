@@ -13,6 +13,7 @@ import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
+import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -7511,11 +7512,12 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
       .map((modelId) => {
         const info = getLocalModelInfo(modelId);
         const metadata = getModelCatalogMetadata(modelId);
+        const provider = providerKeyByModel.get(modelId) ?? 'hybridai';
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
-          provider: providerKeyByModel.get(modelId) ?? 'hybridai',
+          provider,
           zone: metadata.zone,
           discovered: Boolean(info),
           backend: info?.backend || null,
@@ -7525,6 +7527,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           capabilities: metadata.capabilities,
           metadataSources: metadata.sources,
           isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
+          supportedReasoningEfforts: getSupportedReasoningEfforts(
+            provider,
+            modelId,
+          ),
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,

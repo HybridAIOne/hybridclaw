@@ -1178,6 +1178,7 @@ async function runContainerInner(
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
+    reasoningEffort: params.reasoningEffort,
     codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,

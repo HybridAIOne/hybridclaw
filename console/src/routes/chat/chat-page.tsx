@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { appViewUrl } from '../../api/apps';
 import {
   cleanupNoUserChatSessions,
@@ -246,6 +247,9 @@ export function ChatPage() {
     launchAgentId || null,
   );
   const [selectedModelId, setSelectedModelId] = useState('');
+  const [reasoningEffort, setReasoningEffort] = useState<
+    ReasoningEffort | undefined
+  >();
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
   const [sessionPendingDelete, setSessionPendingDelete] =
@@ -485,6 +489,14 @@ export function ChatPage() {
     [agentOptions],
   );
   const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
+  const supportedReasoningEfforts =
+    modelOptions.find((model) => model.id === selectedModelId)
+      ?.supportedReasoningEfforts ?? [];
+  const effectiveReasoningEffort = reasoningEffort
+    ? supportedReasoningEfforts.includes(reasoningEffort)
+      ? reasoningEffort
+      : undefined
+    : undefined;
 
   const [previewApp, setPreviewApp] = useState<{
     id: string;
@@ -504,6 +516,7 @@ export function ChatPage() {
     // When a build is captured into the gallery, pop it open as a preview.
     onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
+    reasoningEffort: effectiveReasoningEffort,
   });
 
   useEffect(() => {
@@ -1504,6 +1517,9 @@ export function ChatPage() {
             selectedModelId={selectedModelId}
             modelRouting={contextQuery.data?.routing}
             onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
+            supportedReasoningEfforts={supportedReasoningEfforts}
+            reasoningEffort={effectiveReasoningEffort}
+            onReasoningEffortChange={setReasoningEffort}
             initialValue={initialComposerPrompt}
             voiceAvailable={voiceCapability?.available === true}
             voiceDetail={voiceDetail}
