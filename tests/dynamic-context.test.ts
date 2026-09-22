@@ -81,3 +81,51 @@ test('session context renders in the dynamic message, after the header block', a
     ),
   ).not.toContain('## Session Context');
 });
+
+test('history window note renders only when turns were omitted', async () => {
+  const { buildHistoryWindowPrompt } = await import(
+    '../src/agent/conversation.js'
+  );
+
+  expect(buildHistoryWindowPrompt(null)).toBe('');
+  expect(
+    buildHistoryWindowPrompt({
+      droppedTurns: 0,
+      droppedMessages: 0,
+      historyTruncated: false,
+    }),
+  ).toBe('');
+
+  const dropped = buildHistoryWindowPrompt({
+    droppedTurns: 3,
+    droppedMessages: 7,
+    historyTruncated: false,
+  });
+  expect(dropped).toContain('## History Window');
+  expect(dropped).toContain('The oldest 3 turn(s) (7 messages)');
+  expect(dropped).toContain('not summarized');
+  expect(dropped).not.toContain('beyond the loaded history window');
+
+  const truncated = buildHistoryWindowPrompt({
+    droppedTurns: 0,
+    droppedMessages: 0,
+    historyTruncated: true,
+  });
+  expect(truncated).toContain('## History Window');
+  expect(truncated).toContain('beyond the loaded history window');
+
+  const content = String(
+    buildDynamicContextMessage({
+      now: new Date('2026-07-20T12:00:00.000Z'),
+      sessionSummary: 'Earlier context',
+      historyWindow: {
+        droppedTurns: 2,
+        droppedMessages: 4,
+        historyTruncated: false,
+      },
+    }).content,
+  );
+  expect(content.indexOf('## History Window')).toBeLessThan(
+    content.indexOf('## Session Summary'),
+  );
+});

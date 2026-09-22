@@ -30,6 +30,8 @@ import {
   resolveSessionIdCompat,
 } from '../memory/db.js';
 import type { ModelRoutingZone } from '../providers/model-routing.js';
+import type { TokenUsageStats } from '../types/usage.js';
+import { toInclusiveInputTokens } from './cache-accounting.js';
 
 export interface TokenUsageEvent {
   sessionId: string;
@@ -37,6 +39,8 @@ export interface TokenUsageEvent {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens?: number;
   toolCalls?: number;
   costUsd?: number;
@@ -48,6 +52,19 @@ export interface TokenUsageEvent {
   timestamp?: string;
   /** Optional run context to thread the batch audit event. */
   auditRunId?: string;
+}
+
+export function readCacheTokenUsage(
+  tokenUsage?: Pick<
+    TokenUsageStats,
+    'apiCacheUsageAvailable' | 'apiCacheReadTokens' | 'apiCacheWriteTokens'
+  >,
+): Pick<TokenUsageEvent, 'cacheReadTokens' | 'cacheWriteTokens'> {
+  if (!tokenUsage?.apiCacheUsageAvailable) return {};
+  return {
+    cacheReadTokens: tokenUsage.apiCacheReadTokens,
+    cacheWriteTokens: tokenUsage.apiCacheWriteTokens,
+  };
 }
 
 export interface StartTokenUsageBufferOptions {
@@ -96,6 +113,8 @@ export interface TokenUsageBatchHashRow {
 
 interface PreparedUsageEvent extends TokenUsageBatchHashRow {
   id: string;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   auditRunId?: string;
   batchHash: string;
 }
@@ -307,6 +326,8 @@ function getInvalidUsageNumericFields(event: TokenUsageEvent): string[] {
   const usageNumbers: Array<keyof TokenUsageEvent> = [
     'inputTokens',
     'outputTokens',
+    'cacheReadTokens',
+    'cacheWriteTokens',
     'totalTokens',
     'toolCalls',
   ];
@@ -354,6 +375,8 @@ export async function flushTokenUsageBuffer(): Promise<void> {
           model: event.model,
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
+          cacheReadTokens: event.cacheReadTokens,
+          cacheWriteTokens: event.cacheWriteTokens,
           totalTokens: event.totalTokens,
           toolCalls: event.toolCalls,
           costUsd: event.costUsd,
@@ -399,7 +422,8 @@ function prepareUsageBatchGroups(
   batch: TokenUsageEvent[],
 ): PreparedUsageBatchGroup[] {
   const grouped = new Map<string, PreparedUsageEvent[]>();
-  for (const event of batch) {
+  for (const queued of batch) {
+    const event = toInclusiveInputTokens(queued);
     const sessionId = resolveSessionIdCompat(event.sessionId.trim());
     const agentId = event.agentId.trim();
     if (!sessionId || !agentId) continue;
@@ -415,6 +439,8 @@ function prepareUsageBatchGroups(
       model: event.model.trim() || 'unknown',
       inputTokens,
       outputTokens,
+      cacheReadTokens: normalizeUsageNumber(event.cacheReadTokens),
+      cacheWriteTokens: normalizeUsageNumber(event.cacheWriteTokens),
       totalTokens,
       toolCalls: normalizeUsageNumber(event.toolCalls),
       costUsd: normalizeUsageCost(event.costUsd),
@@ -463,6 +489,8 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
     const { batchHash, batchId, events, sessionId } = group;
     const inputTokens = sumUsageNumber(events, (e) => e.inputTokens);
     const outputTokens = sumUsageNumber(events, (e) => e.outputTokens);
+    const cacheReadTokens = sumUsageNumber(events, (e) => e.cacheReadTokens);
+    const cacheWriteTokens = sumUsageNumber(events, (e) => e.cacheWriteTokens);
     const totalTokens = sumUsageNumber(events, (e) => e.totalTokens);
     const toolCalls = sumUsageNumber(events, (e) => e.toolCalls);
     const costUsd = events.reduce(
@@ -482,6 +510,8 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
         eventCount: events.length,
         inputTokens,
         outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
         totalTokens,
         toolCalls,
         costUsd,

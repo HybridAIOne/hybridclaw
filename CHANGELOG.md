@@ -9,6 +9,21 @@
   saved memory files. Per-turn memories whose turn is still in the verbatim
   prompt history are skipped, and compaction summary rows are skipped while the
   session summary is injected, so recall no longer duplicates visible context.
+- **Prompt history and compaction share one token budget**: The prompt carries
+  the newest whole turns that fit a budget derived from the model's context
+  window, clipped by `sessionCompaction.tokenBudget`. Compaction is triggered
+  by the same budget, so stored turns are either sent verbatim or already
+  summarized. The fixed 40-message and 24,000-character history window is gone.
+- **Omitted history is announced**: When turns still have to be dropped, the
+  dynamic context message carries a `## History Window` note with the omitted
+  turn count instead of silently cutting the conversation.
+- **Post-compaction retention is turn-aligned and token-bounded**: The retained
+  slice starts at a user turn and stays within half the history budget, so
+  compaction runs about once per half budget of new turns.
+- **One compaction engine**: Automatic compaction and `/compact` run the same
+  engine, so both produce the structured summary, archive the transcript, and
+  keep the same retained slice. The separate JSONL compaction export is gone;
+  the transcript archive is the record of compacted history.
 
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 

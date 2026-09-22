@@ -420,6 +420,7 @@ function convertMessages(
             type: 'tool_result',
             tool_use_id: message.tool_call_id || '',
             content: normalizeMessageText(message.content),
+            ...(message.is_error ? { is_error: true } : {}),
           },
         ],
       });

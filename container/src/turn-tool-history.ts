@@ -54,6 +54,7 @@ export class TurnToolHistory {
         role: 'tool',
         tool_call_id: id,
         content: `Tool not executed: ${reason}`,
+        is_error: true,
       });
     }
     // Fail the turn on a pairing bug: persisting it would corrupt future replay,

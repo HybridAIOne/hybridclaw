@@ -168,9 +168,12 @@ reasoning metadata; signatures and encrypted reasoning are preserved verbatim.
 Important properties:
 
 - recent raw turns are passed directly in the conversation history
-- HybridClaw keeps only a bounded recent slice for prompt assembly
-- that slice is further compressed by character limits before sending
-- older turns are eventually compacted out of raw history
+- the prompt carries the newest whole turns that fit the session token budget
+- compaction is triggered by the same budget, so stored turns are either sent
+  verbatim or already folded into `session_summary`
+- if turns still have to be dropped (compaction disabled, failed, or not yet
+  finished), the dynamic context message carries a `## History Window` note
+  stating how many turns were omitted and that they are not summarized
 
 This is the highest-fidelity memory for the current session, but it is the
 least durable because it is the first thing that gets compacted.
@@ -280,8 +283,10 @@ The built-in path for a successful turn is roughly:
 5. Build the memory hook from canonical context, `session_summary`, and
    semantic recall.
 6. Include recent raw session history as chat messages.
-7. When thresholds are exceeded, run pre-compaction memory flush, write a new
-   `session_summary`, and delete older raw messages.
+7. When the history budget is exceeded, or on `/compact`, run the
+   pre-compaction memory flush, then the shared compaction engine: archive the
+   transcript, write a structured `session_summary`, and delete older raw
+   messages. Automatic and manual compaction use the same retention rule.
 8. On `/dream` or the scheduled consolidation run, fold older daily notes into
    `MEMORY.md` and decay stale semantic memories.
 
@@ -360,27 +365,45 @@ The values below describe the built-in defaults in the current codebase.
 | prior daily note lookback | `7` days | prior notes are loaded newest first |
 | prior daily note history budget | `12,000` chars | shared cap for prior notes, head and tail retained when a note is truncated; today's note has its own file cap |
 
-### Recent Session History
+### Session Context Budget
+
+Prompt history and compaction share one budget:
+
+```text
+session budget  = min(model context window, sessionCompaction.tokenBudget)
+                  × sessionCompaction.budgetRatio
+history budget  = max(2,000, session budget − prompt overhead)
+```
+
+Prompt overhead is the estimated size of the system blocks plus the dynamic
+context message (bootstrap files, daily notes, session summary, recall). The
+model context window comes from the model catalog; unknown models fall back to
+`tokenBudget`.
 
 | Limit | Default | Meaning |
 | --- | ---: | --- |
-| recent history fetch window | `40` messages | max recent non-silent messages loaded into prompt history |
-| history char budget | `24,000` chars | total char budget after history optimization |
-| per-message history cap | `1,200` chars | each history message is bounded before budgeting |
-| protected head messages | `4` | oldest messages kept during middle compression |
-| protected tail messages | `8` | newest messages kept during middle compression |
+| token budget | `100,000` estimated tokens | upper cap on the session budget, also the fallback when the model's context window is unknown |
+| budget ratio | `0.7` | share of the clipped context window given to the session prompt |
+| history floor | `2,000` estimated tokens | history budget never drops below this, even when prompt overhead is large |
+| history fetch cap | `500` rows | safety cap on stored rows loaded per turn; only reached when compaction is not running |
+
+### Recent Session History
+
+The prompt carries the newest whole turns that fit the history budget. The
+newest turn is always kept whole. When turns are dropped, the dynamic context
+message includes a `## History Window` note with the omitted turn count.
 
 ### Session Compaction
 
 | Limit | Default | Meaning |
 | --- | ---: | --- |
 | compaction enabled | `true` | current-session compaction runs automatically |
-| message-count trigger | `200` messages | compaction can trigger on message volume alone |
-| token budget | `100,000` estimated tokens | base compaction budget |
-| trigger ratio | `0.7` | compaction triggers at about `70,000` estimated tokens |
-| keep recent after compaction | `40` messages | recent raw turns retained after older rows are summarized |
+| token trigger | history budget | compaction runs after a turn once stored history exceeds the history budget of the turn that just completed |
+| message-count safety cap | `200` messages | compaction also runs on message volume alone |
+| keep recent after compaction | `40` messages, at most half the history budget | newest whole turns retained verbatim after older rows are summarized |
 | summary max size | `8,000` chars | `session_summary` is truncated to this size |
-| compaction source transcript | `240` messages / `80,000` chars | max older-history excerpt sent into the compaction summary prompt |
+| summary stages | up to `50,000` tokens per stage | larger regions are summarized in parts and merged |
+| transcript archive | `<data dir>/compaction-archives/<session>/` | every compaction writes the full pre-compaction transcript before deleting rows |
 
 ### Pre-Compaction Memory Flush
 
@@ -463,7 +486,8 @@ These commonly noticed caps are currently code defaults rather than normal
 operator config:
 
 - bootstrap file cap of `20,000` chars
-- recent prompt history fetch window of `40` messages
+- history budget floor of `2,000` estimated tokens
+- prompt history fetch cap of `500` rows
 - prompt-time semantic recall hard cap of `12`
 - prompt-time canonical fetch window of `12`
 

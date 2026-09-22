@@ -2786,6 +2786,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'starred',
     },
     {
+      path: 'tools.mcpToolMode',
+      section: 'tools',
+      kind: 'string',
+      defaultValue: 'full',
+    },
+    {
       path: 'ui.navigation',
       section: 'ui',
       kind: 'list',

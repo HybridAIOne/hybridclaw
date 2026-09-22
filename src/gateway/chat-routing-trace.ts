@@ -34,6 +34,8 @@ export async function withChatRoutingTrace(
       inputTokens: attempt.inputTokens ?? 0,
       outputTokens: attempt.outputTokens ?? 0,
       totalTokens: attempt.totalTokens ?? 0,
+      cacheReadTokens: attempt.cacheReadTokens ?? undefined,
+      cacheWriteTokens: attempt.cacheWriteTokens ?? undefined,
       costUsd: attempt.costUsd ?? 0,
       auditRunId: runId,
       routeReason: attempt.reason,

@@ -78,6 +78,7 @@ export interface AgentConfig {
   localStarterSkills?: string[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
+  mcpToolMode?: 'full' | 'deferred';
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;
