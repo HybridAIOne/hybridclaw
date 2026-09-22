@@ -146,7 +146,9 @@ centralizes transport status, managed secrets, and setup controls for Discord,
 Slack Incoming Webhooks, Telegram, WhatsApp, email, Microsoft Teams, and
 iMessage. The Agent Files page at `/admin/agents` lets operators edit the
 allowlisted workspace markdown files for a registered agent, inspect saved
-revisions, and restore an earlier version.
+revisions, and restore an earlier version. It also lists the agent's daily
+memory notes (`memory/YYYY-MM-DD.md`, written by the container `memory` tool)
+as read-only files so operators can review what the agent has persisted.
 
 ## Can I extend HybridClaw with plugins?
 
