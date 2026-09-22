@@ -2,7 +2,10 @@
  * Privacy-level pictograms distinguish endpoint ownership from hosting location.
  * These decorative marks share one geometry; they never determine routing policy.
  */
+import { HybridAILogo } from './HybridAILogo';
+
 export function PrivacyLevelIcon({ zone }: { zone: string }) {
+  if (zone === 'hai') return <HybridAILogo width={28} height={28} />;
   return (
     <svg
       width="28"
@@ -21,12 +24,6 @@ export function PrivacyLevelIcon({ zone }: { zone: string }) {
           <rect x="6" y="5" width="20" height="16" rx="2" />
           <path d="M3 26h26l-3-5H6l-3 5Z" />
           <path d="M13 24h6" />
-        </>
-      ) : zone === 'hai' ? (
-        <>
-          <path d="M5 13 16 5l11 8v14H5V13Z" />
-          <path d="M10 15v8m5-8v8m-5-4h5m6-4v8" />
-          <circle cx="21" cy="12" r=".6" fill="currentColor" />
         </>
       ) : zone === 'eu-provider' ? (
         <>
