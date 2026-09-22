@@ -9665,25 +9665,55 @@ export type {
   RuntimeRevisionAssetType,
 };
 
-function validatePrivacyRouting(config: RuntimeConfig): void {
-  if (config.routing.mode !== 'privacy') return;
-  const hasLocal = config.routing.tiers.some((tier) =>
-    tier.models.some((model) => {
-      const prefix = model.split('/')[0];
-      const endpoint = config.local.endpoints.find(
-        (endpoint) => endpoint.name === prefix,
-      );
-      if (endpoint)
-        return endpoint.enabled && (endpoint.zone ?? 'local') === 'local';
-      return (
-        isLocalBackendType(prefix) && config.local.backends[prefix].enabled
-      );
-    }),
-  );
-  if (!hasLocal)
+// Validate dependencies against the proposed config, including provider edits.
+function validateRoutingForSave(config: RuntimeConfig): void {
+  const zone = (model: string): string | null => {
+    const prefix = model.split('/')[0];
+    const endpoint = config.local.endpoints.find(
+      (item) => item.name === prefix,
+    );
+    if (endpoint) return endpoint.enabled ? (endpoint.zone ?? 'cloud') : null;
+    if (isLocalBackendType(prefix))
+      return config.local.backends[prefix].enabled ? 'local' : null;
+    return 'cloud';
+  };
+  const { routing } = config;
+  if (
+    routing.mode === 'privacy' &&
+    !routing.tiers.some((tier) =>
+      tier.models.some((model) => zone(model) === 'local'),
+    )
+  )
     throw new Error(
       'Configure a local model first: Privacy mode requires a local model in the routing tiers.',
     );
+  if (!routing.enabled) return;
+  for (let index = 0; index < routing.tiers.length; index++) {
+    const eligible = routing.tiers.slice(index).some((tier) =>
+      tier.models.some((model) => {
+        const modelZone = zone(model);
+        return (
+          modelZone !== null &&
+          (routing.mode !== 'privacy' || modelZone === 'local')
+        );
+      }),
+    );
+    if (!eligible)
+      throw new Error(
+        routing.mode === 'privacy'
+          ? `Configure a local model first: tier "${routing.tiers[index].name}" needs a local model in this or a higher tier.`
+          : `Tier "${routing.tiers[index].name}" needs an enabled model in this or a higher tier.`,
+      );
+  }
+  for (const model of [
+    routing.concierge.model,
+    routing.concierge.comparisonModel,
+  ]) {
+    if (model && zone(model) === null)
+      throw new Error(
+        `Routing model "${model}" uses a disabled endpoint. Enable it or select another router first.`,
+      );
+  }
 }
 
 export function saveRuntimeConfig(
@@ -9691,7 +9721,7 @@ export function saveRuntimeConfig(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
-  validatePrivacyRouting(normalized);
+  validateRoutingForSave(normalized);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
@@ -9700,10 +9730,6 @@ export function saveRuntimeConfig(
     currentConfigMetadata.containerMaxConcurrentExplicit ||
     normalized.container.maxConcurrent !==
       DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
-  currentConfigMetadata = {
-    containerSandboxModeExplicit: sandboxModeExplicit,
-    containerMaxConcurrentExplicit: maxConcurrentExplicit,
-  };
   const sourceConfig = mergeSubmittedSecretInputs(currentConfigSource, next);
   const nextSource = buildSerializableConfig(
     normalized,
@@ -9720,6 +9746,10 @@ export function saveRuntimeConfig(
     meta,
     sourceConfig,
   );
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
+  };
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);
@@ -9730,7 +9760,7 @@ function saveRuntimeConfigSource(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(parseConfigPatch(source));
-  validatePrivacyRouting(normalized);
+  validateRoutingForSave(normalized);
   const rawContainer = isRecord(source.container) ? source.container : {};
   const sandboxModeExplicit =
     hasOwn(rawContainer, 'sandboxMode') ||
@@ -9740,10 +9770,6 @@ function saveRuntimeConfigSource(
     hasOwn(rawContainer, 'maxConcurrent') ||
     normalized.container.maxConcurrent !==
       DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
-  currentConfigMetadata = {
-    containerSandboxModeExplicit: sandboxModeExplicit,
-    containerMaxConcurrentExplicit: maxConcurrentExplicit,
-  };
   const nextSource = buildSerializableConfig(
     normalized,
     {
@@ -9759,6 +9785,10 @@ function saveRuntimeConfigSource(
     meta,
     source,
   );
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
+  };
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);

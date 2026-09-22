@@ -187,3 +187,61 @@ test('rejects saving Privacy without a local tier model and preserves saved conf
  draft.local.backends.ollama.enabled=false;
  expect(()=>mod.saveRuntimeConfig(draft)).toThrow('Configure a local model first');
 });
+
+test('rejects endpoint edits and unreachable privacy tiers without changing disk or active config', async () => {
+  const mod = await loadConfigModule();
+  const draft = mod.getRuntimeConfig();
+  draft.local.backends.ollama.enabled = true;
+  draft.routing.enabled = true;
+  draft.routing.tiers = [{ name: 'local', models: ['ollama/test-model'] }];
+  draft.routing.defaultStart = 'local';
+  const saved = mod.saveRuntimeConfig(draft);
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const stored = fs.readFileSync(configPath, 'utf8');
+  const listener = vi.fn();
+  const unsubscribe = mod.onRuntimeConfigChange(listener);
+  expect(() => mod.updateRuntimeConfig(next => {
+    next.local.backends.ollama.enabled = false;
+  })).toThrow('needs an enabled model');
+  const invalid = structuredClone(saved);
+  invalid.routing.mode = 'privacy';
+  invalid.routing.tiers.push({ name: 'higher', models: ['hybridai/gpt-5'] });
+  expect(() => mod.saveRuntimeConfig(invalid)).toThrow('Configure a local model first');
+  expect(fs.readFileSync(configPath, 'utf8')).toBe(stored);
+  expect(mod.getRuntimeConfig()).toEqual(saved);
+  expect(listener).not.toHaveBeenCalled();
+  unsubscribe();
+  invalid.routing.tiers[1].models.push('ollama/test-model');
+  expect(mod.saveRuntimeConfig(invalid).routing.mode).toBe('privacy');
+});
+
+test('rejects disabling a configured router endpoint', async () => {
+  const mod = await loadConfigModule();
+  const draft = mod.getRuntimeConfig();
+  draft.local.backends.ollama.enabled = true;
+  draft.routing.enabled = true;
+  draft.routing.tiers = [{ name: 'cloud', models: ['hybridai/gpt-5'] }];
+  draft.routing.defaultStart = 'cloud';
+  draft.routing.concierge.model = 'ollama/test-router';
+  mod.saveRuntimeConfig(draft);
+  draft.local.backends.ollama.enabled = false;
+  expect(() => mod.saveRuntimeConfig(draft)).toThrow('uses a disabled endpoint');
+});
+
+test('failed persistence leaves active values and explicit-setting metadata intact', async () => {
+  const mod = await loadConfigModule();
+  const saved = mod.saveRuntimeConfig(mod.getRuntimeConfig());
+  const explicit = mod.isContainerMaxConcurrentExplicit();
+  const draft = structuredClone(saved);
+  draft.container.maxConcurrent = saved.container.maxConcurrent + 1;
+  const rename = vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+    throw new Error('test write failure');
+  });
+  try {
+    expect(() => mod.saveRuntimeConfig(draft)).toThrow('test write failure');
+    expect(mod.getRuntimeConfig()).toEqual(saved);
+    expect(mod.isContainerMaxConcurrentExplicit()).toBe(explicit);
+  } finally {
+    rename.mockRestore();
+  }
+});

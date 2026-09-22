@@ -161,11 +161,13 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
   const error =
     value &&
     (value.mode === 'privacy' &&
-    !value.tiers.some((tier) =>
-      tier.models.some((id) =>
-        models.some((model) => model.id === id && model.zone === 'local'),
-      ),
-    )
+    !value.tiers
+      .slice(-1)
+      .some((tier) =>
+        tier.models.some((id) =>
+          models.some((model) => model.id === id && model.zone === 'local'),
+        ),
+      )
       ? 'Configure a local model first.'
       : value.enabled && !value.tiers.length
         ? 'Add a tier before enabling automatic routing.'
