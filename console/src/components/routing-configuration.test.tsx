@@ -546,7 +546,7 @@ it('disables unconfigured privacy levels and skips them when moving the slider',
   );
   await screen.findByLabelText('Tier 1 name');
   const eu = screen.getByRole('button', {
-    name: 'DE/EU provider',
+    name: 'EU provider',
   }) as HTMLButtonElement;
   expect(eu.disabled).toBe(true);
   expect(eu.textContent).toContain('Inactive');
@@ -577,11 +577,11 @@ it('an active Mistral language model makes the EU-provider level selectable', as
   expect(
     (
       screen.getByRole('button', {
-        name: 'DE/EU provider',
+        name: 'EU provider',
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'DE/EU provider' }));
+  fireEvent.click(screen.getByRole('button', { name: 'EU provider' }));
   expect(
     (
       screen.getByRole('slider', {

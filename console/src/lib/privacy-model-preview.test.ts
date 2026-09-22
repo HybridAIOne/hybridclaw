@@ -15,8 +15,8 @@ test('previews prefer configured equivalents and different makers, excluding old
     'anthropic/claude-opus-5',
     'openrouter/anthropic/claude-opus-5',
     'anthropic/claude-sonnet-5',
-    'openai/gpt-5.6-sol',
-    'openai/gpt-5.6-sol:batch',
+    'openai-codex/gpt-5.6-sol',
+    'openai-codex/gpt-5.6-sol:batch',
     'xai/grok-4',
   ];
   const models = ids.map((id) => ({ id, zone: 'cloud' })) as ChatModel[];
@@ -27,7 +27,7 @@ test('previews prefer configured equivalents and different makers, excluding old
   expect(result.map((model) => model.id.split('/').at(-1))).toEqual([
     'claude-opus-5',
     'gpt-5.6-sol',
-    'grok-4',
+    'claude-sonnet-5',
   ]);
 });
 test('a level with one maker can still show three distinct models', () => {
@@ -61,4 +61,25 @@ test('embedding and reranker models never appear in routing previews', () => {
       models.map((model) => model.id),
     ),
   ).toHaveLength(2);
+});
+
+test('World examples use direct general-purpose Codex and Anthropic models', () => {
+  const ids = [
+    'openrouter/openai/gpt-5.6-sol',
+    'codex/gpt-5.6-sol-code',
+    'codex/gpt-image-2',
+    'codex/text-embedding-3-large',
+    'codex/gpt-audio',
+    'codex/gpt-5.6-sol',
+    'anthropic/claude-opus-5',
+    'anthropic/claude-sonnet-5',
+  ];
+  const models = ids.map((id) => ({ id, zone: 'cloud' })) as ChatModel[];
+  expect(
+    privacyModelPreview(models, 'cloud', ids).map((model) => model.id),
+  ).toEqual([
+    'codex/gpt-5.6-sol',
+    'anthropic/claude-opus-5',
+    'anthropic/claude-sonnet-5',
+  ]);
 });

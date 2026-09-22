@@ -43,6 +43,13 @@ export function privacyModelPreview(
     .filter(
       (model) =>
         isRoutingLanguageModel(model) &&
+        // Operator request (2026-09-22): preview general-purpose models only,
+        // with direct Codex/Anthropic routes for World examples.
+        !/(?:^|[/_. -])(?:code|coder|coding|image|vision|audio|tts|whisper|embedding)(?:$|[/_. -])/i.test(
+          `${identity(model.id)} ${model.family ?? ''}`,
+        ) &&
+        (zone !== 'cloud' ||
+          /^(?:codex|openai-codex|anthropic)\//i.test(model.id)) &&
         (model.zone ?? 'cloud') === zone &&
         !(model.backend && model.discovered === false) &&
         !/claude-3(?:[.-]|$)|:batch$|\/~/.test(model.id.toLowerCase()),

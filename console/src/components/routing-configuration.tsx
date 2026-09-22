@@ -41,8 +41,8 @@ interface Ladder {
 const privacyLevels = [
   ['local', 'Local'],
   ['hai', 'HybridAI'],
-  ['eu-provider', 'DE/EU provider'],
-  ['region', 'DE/EU hosting'],
+  ['eu-provider', 'EU provider'],
+  ['region', 'EU hosting'],
   ['cloud', 'World'],
 ] as const;
 const modes = ['auto', 'privacy', 'speed', 'cost'] as const;
