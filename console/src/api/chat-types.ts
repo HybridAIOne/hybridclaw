@@ -122,6 +122,9 @@ export interface ChatContextSnapshot {
   messageCount: number;
   promptTokens: number | null;
   completionTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  cacheHitPercent: number | null;
 }
 
 export interface ChatModelRoutingContext {

@@ -638,7 +638,7 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     const secondPrompt = buildPromptAt(
       '2026-05-13T12:01:00.000Z',
       [
-        '### Relevant Memory Recall',
+        '### Chat Recall',
         'Topic-matched context from older turns.',
         '- [mem:1] User asked for date and local time.',
       ].join('\n'),

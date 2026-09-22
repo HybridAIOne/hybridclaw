@@ -4,7 +4,6 @@ import {
 } from '../providers/auxiliary.js';
 import {
   dedupeExplicitModelNames,
-  getModelCatalogMetadata,
   type ModelCapabilityRequirements,
   refreshAvailableModelCatalogs,
   selectModelsByCapabilityAndCost,
@@ -15,6 +14,7 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
+import { estimateModelUsageCostUsd } from '../usage/model-cost.js';
 import {
   enqueueTokenUsage,
   flushTokenUsageBuffer,
@@ -193,6 +193,8 @@ function estimateJudgeUsage(params: {
 }): {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   totalTokens: number;
   costUsd: number | null;
 } {
@@ -210,21 +212,11 @@ function estimateJudgeUsage(params: {
   return {
     inputTokens: Math.floor(inputTokens),
     outputTokens: Math.floor(outputTokens),
+    cacheReadTokens: readUsageNumber(usage?.cacheReadTokens),
+    cacheWriteTokens: readUsageNumber(usage?.cacheWriteTokens),
     totalTokens: Math.floor(totalTokens),
     costUsd,
   };
-}
-
-function estimateCatalogCostUsd(params: {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-}): number {
-  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
-  return (
-    params.inputTokens * (pricing.input ?? 0) +
-    params.outputTokens * (pricing.output ?? 0)
-  );
 }
 
 async function defaultJudgeModelCaller(
@@ -314,11 +306,14 @@ async function recordJudgeUsage(params: {
   });
   const costUsd =
     usage.costUsd ??
-    estimateCatalogCostUsd({
+    estimateModelUsageCostUsd({
       model: params.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-    });
+      promptTokens: usage.inputTokens,
+      completionTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+    }) ??
+    0;
 
   enqueueTokenUsage({
     sessionId: params.context.sessionId,
@@ -326,6 +321,8 @@ async function recordJudgeUsage(params: {
     model: params.model,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens ?? undefined,
+    cacheWriteTokens: usage.cacheWriteTokens ?? undefined,
     totalTokens: usage.totalTokens,
     costUsd,
     timestamp: params.context.timestamp,

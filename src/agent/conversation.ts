@@ -7,11 +7,13 @@ import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-c
 import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
+import { resolveHistoryBudgetTokens } from '../session/context-budget.js';
 import {
   buildSessionContextPrompt,
   type SessionContext,
 } from '../session/session-context.js';
 import {
+  estimateTokenCountFromMessages,
   type HistoryOptimizationStats,
   optimizeHistoryMessagesForPrompt,
 } from '../session/token-efficiency.js';
@@ -58,11 +60,41 @@ function sanitizeDynamicContextValue(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
+export interface HistoryWindowNote {
+  droppedTurns: number;
+  droppedMessages: number;
+  /** True when stored rows older than the loaded history were not fetched. */
+  historyTruncated: boolean;
+}
+
+export function buildHistoryWindowPrompt(
+  note: HistoryWindowNote | null | undefined,
+): string {
+  if (!note) return '';
+  const lines: string[] = [];
+  if (note.droppedTurns > 0) {
+    lines.push(
+      `The oldest ${note.droppedTurns} turn(s) (${note.droppedMessages} messages) of this session were omitted from the messages above to fit the history budget.`,
+    );
+  }
+  if (note.historyTruncated) {
+    lines.push(
+      'Older messages beyond the loaded history window are also omitted.',
+    );
+  }
+  if (lines.length === 0) return '';
+  lines.push(
+    'The omitted turns are not summarized; do not assume you have seen them.',
+  );
+  return ['## History Window', ...lines].join('\n');
+}
+
 interface DynamicContextMessageOptions {
   agentId?: string;
   now?: Date;
   retrievedContext?: string | null;
   sessionSummary?: string | null;
+  historyWindow?: HistoryWindowNote | null;
   /**
    * Per-session identity block (platform, session id, session key, user).
    * Rendered here rather than in the system prompt so a new session does not
@@ -85,6 +117,7 @@ export function buildDynamicContextMessage(
       dynamicSections.push(buildSessionContextPrompt(options.sessionContext));
     }
     dynamicSections.push(
+      buildHistoryWindowPrompt(options.historyWindow),
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
@@ -145,6 +178,8 @@ export interface ConversationContext {
   messages: ChatMessage[];
   skills: Skill[];
   historyStats: HistoryOptimizationStats;
+  /** Estimated tokens of the system blocks plus the dynamic context message. */
+  promptOverheadTokens: number;
   explicitSkillInvocation: SkillInvocation | null;
 }
 
@@ -153,6 +188,8 @@ export function buildConversationContext(params: {
   sessionSummary?: string | null;
   retrievedContext?: string | null;
   history: HistoryMessage[];
+  /** True when the caller's history fetch hit its row limit. */
+  historyTruncated?: boolean;
   promptMode?: PromptMode;
   skillPromptMode?: SkillPromptMode;
   includePromptParts?: PromptPartName[];
@@ -168,6 +205,7 @@ export function buildConversationContext(params: {
     sessionSummary,
     retrievedContext,
     history,
+    historyTruncated = false,
     promptMode = 'full',
     skillPromptMode = 'full',
     includePromptParts,
@@ -224,27 +262,51 @@ export function buildConversationContext(params: {
     );
   }
 
-  const historyMessages = [...history].reverse().flatMap(expandStoredMessage);
+  const buildDynamicContext = (
+    historyWindow: HistoryWindowNote | null,
+  ): ChatMessage =>
+    buildDynamicContextMessage({
+      agentId,
+      retrievedContext,
+      sessionSummary,
+      historyWindow,
+      sessionContext: shouldRenderSessionContext(hookContext)
+        ? runtimeInfo?.sessionContext
+        : null,
+    });
+  const promptOverheadTokens =
+    systemPromptBlocks.length > 0
+      ? estimateTokenCountFromMessages([...messages, buildDynamicContext(null)])
+      : 0;
 
-  const optimizedHistory = optimizeHistoryMessagesForPrompt(historyMessages);
+  const historyMessages = [...history].reverse().flatMap(expandStoredMessage);
+  const optimizedHistory = optimizeHistoryMessagesForPrompt(historyMessages, {
+    maxTokens: resolveHistoryBudgetTokens({
+      model: runtimeInfo?.model,
+      promptOverheadTokens,
+    }),
+  });
 
   messages.push(...optimizedHistory.messages);
   if (systemPromptBlocks.length > 0) {
+    const { droppedTurns, droppedCount } = optimizedHistory.stats;
     messages.push(
-      buildDynamicContextMessage({
-        agentId,
-        retrievedContext,
-        sessionSummary,
-        sessionContext: shouldRenderSessionContext(hookContext)
-          ? runtimeInfo?.sessionContext
+      buildDynamicContext(
+        droppedTurns > 0 || historyTruncated
+          ? {
+              droppedTurns,
+              droppedMessages: droppedCount,
+              historyTruncated,
+            }
           : null,
-      }),
+      ),
     );
   }
   return {
     messages,
     skills,
     historyStats: optimizedHistory.stats,
+    promptOverheadTokens,
     explicitSkillInvocation,
   };
 }

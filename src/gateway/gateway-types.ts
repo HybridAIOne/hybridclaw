@@ -326,6 +326,8 @@ export interface GatewayHistorySummary {
   toolCallCount: number;
   inputTokenCount: number;
   outputTokenCount: number;
+  cacheReadTokenCount: number;
+  cacheWriteTokenCount: number;
   costUsd: number;
   toolBreakdown: GatewayHistoryToolBreakdownEntry[];
   fileChanges: GatewayHistoryFileChanges;
@@ -715,6 +717,8 @@ export interface GatewayAdminEmailDeleteResponse {
 export interface GatewayAdminUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   totalTokens: number;
   totalCostUsd: number;
   callCount: number;
@@ -771,6 +775,8 @@ export interface GatewayAdminStatisticsTrendDay {
   totalMessages: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
   callCount: number;
   toolCalls: number;
@@ -797,6 +803,8 @@ export interface GatewayAdminStatisticsResponse {
     assistantMessages: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalTokens: number;
     totalCostUsd: number;
     callCount: number;
@@ -823,6 +831,8 @@ export interface GatewaySessionCard {
   runtimeMinutes: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   costUsd: number;
   messageCount: number;
   toolCalls: number;
@@ -883,6 +893,8 @@ export interface GatewayLogicalAgentCard {
   lastActive: string | null;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   costUsd: number;
   monthlySpendUsd: number;
   messageCount: number;
@@ -900,6 +912,8 @@ export interface GatewayCollectionTotals {
   running: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   totalTokens: number;
   totalCostUsd: number;
 }
@@ -1301,6 +1315,7 @@ export interface GatewayAdminAgentMarkdownFile {
   path: string;
   scope?: 'agent' | 'installation' | 'company';
   cloudPath?: string;
+  kind?: 'daily-memory' | 'shared-memory';
   readOnly?: boolean;
   exists: boolean;
   updatedAt: string | null;
@@ -1412,6 +1427,8 @@ export interface GatewayAdminModelCatalogEntry {
   pricingUsdPerToken: {
     input: number | null;
     output: number | null;
+    cacheRead: number | null;
+    cacheWrite: number | null;
   };
   capabilities: {
     vision: boolean;

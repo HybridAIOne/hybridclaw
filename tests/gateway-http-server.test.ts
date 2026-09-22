@@ -9873,6 +9873,26 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('decodes daily memory file names in admin agent file routes', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/agents/main/files/memory%2F2026-09-21.md',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentMarkdownFile).toHaveBeenCalledWith(
+      'main',
+      'memory/2026-09-21.md',
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).file.content).toBe(
+      '# main:memory/2026-09-21.md\n',
+    );
+  });
+
   test('returns the selected admin agent markdown revision', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

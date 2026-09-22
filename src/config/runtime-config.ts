@@ -20,6 +20,7 @@ import {
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
+  normalizeMcpToolMode,
 } from '../../container/shared/local-tool-config.js';
 import {
   type AgentConfig,
@@ -273,6 +274,7 @@ export type DiscordGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordSendPolicy = 'open' | 'allowlist' | 'disabled';
 export type DiscordCommandMode = 'public' | 'restricted';
 export type DiscordChannelMode = 'off' | 'mention' | 'free';
+export type DiscordReplyStyle = 'thread' | 'top-level';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 export type DiscordHumanDelayMode = 'off' | 'natural' | 'custom';
 export type MSTeamsGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -577,6 +579,7 @@ export interface RuntimeDiscordLifecycleReactionsConfig {
 
 export interface RuntimeDiscordChannelConfig {
   mode: DiscordChannelMode;
+  replyStyle?: DiscordReplyStyle;
   typingMode?: DiscordTypingMode;
   debounceMs?: number;
   ackReaction?: string;
@@ -1153,6 +1156,7 @@ export interface RuntimeConfig {
   tools: {
     localToolMode?: 'full' | 'starred';
     localStarterTools?: string[];
+    mcpToolMode?: 'full' | 'deferred';
     disabled: string[];
     httpRequest: RuntimeHttpRequestToolConfig;
   };
@@ -1174,6 +1178,7 @@ export interface RuntimeConfig {
     botMessageChannels: string[];
     textChunkLimit: number;
     maxLinesPerMessage: number;
+    replyStyle: DiscordReplyStyle;
     humanDelay: RuntimeDiscordHumanDelayConfig;
     typingMode: DiscordTypingMode;
     presence: RuntimeDiscordPresenceConfig;
@@ -1637,6 +1642,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   tools: {
     localToolMode: 'starred',
     localStarterTools: [...DEFAULT_LOCAL_STARTER_TOOLS],
+    mcpToolMode: 'full',
     disabled: [],
     httpRequest: {
       authRules: [],
@@ -1697,6 +1703,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     botMessageChannels: [],
     textChunkLimit: 1_900,
     maxLinesPerMessage: 17,
+    replyStyle: 'top-level',
     humanDelay: {
       mode: 'natural',
       minMs: 800,
@@ -3109,6 +3116,10 @@ function normalizeAgentConfig(
     value.localStarterTools,
     'agents.list[].localStarterTools',
   );
+  const mcpToolMode = normalizeMcpToolMode(
+    value.mcpToolMode,
+    'agents.list[].mcpToolMode',
+  );
   const owner = normalizeString(value.owner, fallback?.owner ?? '', {
     allowEmpty: true,
   });
@@ -3170,6 +3181,7 @@ function normalizeAgentConfig(
     ...(localStarterSkills !== undefined ? { localStarterSkills } : {}),
     ...(localToolMode !== undefined ? { localToolMode } : {}),
     ...(localStarterTools !== undefined ? { localStarterTools } : {}),
+    ...(mcpToolMode !== undefined ? { mcpToolMode } : {}),
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
@@ -3441,6 +3453,19 @@ function normalizeDiscordSendPolicy(
   ) {
     return normalized;
   }
+  return fallback;
+}
+
+export function normalizeDiscordReplyStyle(
+  value: unknown,
+  fallback: DiscordReplyStyle,
+): DiscordReplyStyle {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'thread' || normalized === 'top-level') {
+    return normalized;
+  }
+  if (normalized === 'top_level') return 'top-level';
   return fallback;
 }
 
@@ -4822,6 +4847,16 @@ function normalizeDiscordChannelConfig(
   const channelConfig: RuntimeDiscordChannelConfig = {
     mode: normalizeDiscordChannelMode(value.mode, channelFallback.mode),
   };
+
+  if (
+    value.replyStyle !== undefined ||
+    channelFallback.replyStyle !== undefined
+  ) {
+    channelConfig.replyStyle = normalizeDiscordReplyStyle(
+      value.replyStyle,
+      channelFallback.replyStyle ?? DEFAULT_RUNTIME_CONFIG.discord.replyStyle,
+    );
+  }
 
   if (
     value.typingMode !== undefined ||
@@ -7860,6 +7895,11 @@ function normalizeRuntimeConfig(
         isRecord(raw.tools) ? raw.tools.localStarterTools : undefined,
         'tools.localStarterTools',
       ) ?? [...DEFAULT_LOCAL_STARTER_TOOLS],
+      mcpToolMode:
+        normalizeMcpToolMode(
+          isRecord(raw.tools) ? raw.tools.mcpToolMode : undefined,
+          'tools.mcpToolMode',
+        ) ?? 'full',
       disabled: normalizeStringArray(
         raw.tools && isRecord(raw.tools) ? raw.tools.disabled : undefined,
         DEFAULT_RUNTIME_CONFIG.tools.disabled,
@@ -8069,6 +8109,10 @@ function normalizeRuntimeConfig(
         rawDiscord.maxLinesPerMessage,
         DEFAULT_RUNTIME_CONFIG.discord.maxLinesPerMessage,
         { min: 4, max: 200 },
+      ),
+      replyStyle: normalizeDiscordReplyStyle(
+        rawDiscord.replyStyle,
+        DEFAULT_RUNTIME_CONFIG.discord.replyStyle,
       ),
       humanDelay: normalizeDiscordHumanDelayConfig(
         rawDiscord.humanDelay,

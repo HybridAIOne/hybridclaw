@@ -111,6 +111,11 @@ function formatGoalStatus(session: Session): GatewayCommandResult {
       `Elapsed: ${formatGoalDuration(goal.createdAt, durationEnd)}`,
       `Turns evaluated: ${goal.turnsUsed}/${goal.maxTurns}`,
       `Tokens: ${formatGoalInteger(usage.inputTokens)} in / ${formatGoalInteger(usage.outputTokens)} out (${formatGoalInteger(usage.totalTokens)} total, ~${formatGoalSpend(usage.costUsd)})`,
+      ...(usage.cacheReadTokens > 0 || usage.cacheWriteTokens > 0
+        ? [
+            `Cache: ${formatGoalInteger(usage.cacheReadTokens)} read / ${formatGoalInteger(usage.cacheWriteTokens)} written`,
+          ]
+        : []),
       ...(goal.lastVerdict ? [`Last verdict: ${goal.lastVerdict}`] : []),
       ...(goal.lastReason ? [`Last reason: ${goal.lastReason}`] : []),
       ...(goal.pausedReason ? [`Paused reason: ${goal.pausedReason}`] : []),

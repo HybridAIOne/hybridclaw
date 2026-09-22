@@ -4,12 +4,74 @@
 
 ### Fixed
 
+- **Admin console shows daily memory notes**: The Agent Files page lists
+  `memory/YYYY-MM-DD.md` notes written by the container `memory` tool as
+  read-only files, so operators can review persisted memory instead of only
+  the workspace bootstrap files.
+- **Cron tasks can be updated in place**: the `cron` tool gains an `update`
+  action that patches an existing task's schedule, channel, or prompt by
+  taskId, so schedule changes no longer leave duplicate tasks behind.
+### Changed
+
+- **Recall snippets are labeled as chat recall**: The prompt block is titled
+  `### Chat Recall` and states that entries are recalled chat excerpts, not
+  saved memory files. Per-turn memories whose turn is still in the verbatim
+  prompt history are skipped, and compaction summary rows are skipped while the
+  session summary is injected, so recall no longer duplicates visible context.
+- **Prompt history and compaction share one token budget**: The prompt carries
+  the newest whole turns that fit a budget derived from the model's context
+  window, clipped by `sessionCompaction.tokenBudget`. Compaction is triggered
+  by the same budget, so stored turns are either sent verbatim or already
+  summarized. The fixed 40-message and 24,000-character history window is gone.
+- **Omitted history is announced**: When turns still have to be dropped, the
+  dynamic context message carries a `## History Window` note with the omitted
+  turn count instead of silently cutting the conversation.
+- **Post-compaction retention is turn-aligned and token-bounded**: The retained
+  slice starts at a user turn and stays within half the history budget, so
+  compaction runs about once per half budget of new turns.
+- **One compaction engine**: Automatic compaction and `/compact` run the same
+  engine, so both produce the structured summary, archive the transcript, and
+  keep the same retained slice. The separate JSONL compaction export is gone;
+  the transcript archive is the record of compacted history.
+
+## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
+
+### Added
+
+- **Discord replies can start threads**: Global and per-channel reply-style
+  settings route guild responses into public threads while preserving parent
+  channel allowlists and falling back safely when thread permissions are absent.
+
+### Changed
+
+- **Tool executions appear in distributed traces**: Each tool execution emits
+  an OpenTelemetry span beneath its turn span when tracing is enabled.
+- **Session context stays in the dynamic prompt**: Per-session context is
+  rendered in the dynamic context message to preserve the stable system prompt.
+
+### Fixed
+
+- **Forwarded Discord messages retain their content**: Forwarded message
+  snapshots are read instead of treating forwarded messages as empty.
+- **Teams attachment downloads recover from transient failures**: Inbound
+  downloads retry, skip attachments Teams already reports as oversized, and
+  avoid duplicate fetches. Failed downloads are reported to the model.
+- **Documentation code examples render correctly**: Code examples avoid
+  double-escaping HTML entities.
+
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed
   Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
   including installations exposed through an interactive shell alias.
 - **OpenAI-compatible cache writes are recorded correctly**: Usage payloads
   that report `prompt_tokens_details.cache_write_tokens` now populate audit,
   scheduler, cost, and session-status cache metrics.
+- **A2A JSON-RPC follows standard request and error conventions**: Outbound
+  `message/send` requests carry a JSON-RPC `id`, so peers return a response
+  instead of treating the request as a notification. Reply threading stays in
+  the HybridClaw envelope and is no longer sent as an A2A `taskId`. Inbound
+  authentication failures use error code `-32000` instead of the code A2A
+  reserves for task-not-found. A replayed message returns the original
+  delivery receipt with HTTP 200 instead of a 409 error.
 
 ## [0.31.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.0) - 2026-09-10
 

@@ -145,6 +145,8 @@ export function finishRoutingTraceAttempt(params: {
           model: params.model,
           promptTokens: attempt.inputTokens,
           completionTokens: attempt.outputTokens,
+          cacheReadTokens: attempt.cacheReadTokens,
+          cacheWriteTokens: attempt.cacheWriteTokens,
         })
       : null;
   attempt.costUsd = explicit ?? estimated;

@@ -46,7 +46,7 @@ test('prompt truncation does not split UTF-16 surrogate pairs', () => {
   expect(headTail).not.toMatch(/(?<![\ud800-\udbff])[\udc00-\udfff]/u);
 });
 
-test('history optimization drops whole old turns without changing retained bytes', () => {
+test('history optimization drops whole old turns without changing retained messages', () => {
   const messages: ChatMessage[] = [
     { role: 'user', content: `old user ${'a'.repeat(40)}` },
     { role: 'assistant', content: `old answer ${'b'.repeat(40)}` },
@@ -55,13 +55,36 @@ test('history optimization drops whole old turns without changing retained bytes
   ];
 
   const optimized = optimizeHistoryMessagesForPrompt(messages, {
-    maxTotalChars: 110,
+    maxTokens: 40,
   });
 
   expect(optimized.messages).toEqual(messages.slice(2));
   expect(optimized.messages[0]?.content).toBe(messages[2]?.content);
   expect(optimized.messages[1]?.content).toBe(messages[3]?.content);
   expect(optimized.stats.droppedCount).toBe(2);
+  expect(optimized.stats.droppedTurns).toBe(1);
+  expect(optimized.stats.budgetTokens).toBe(40);
+  expect(optimized.stats.includedTokens).toBeLessThanOrEqual(40);
+  expect(optimized.stats.originalTokens).toBe(
+    optimized.stats.includedTokens + optimized.stats.droppedTokens,
+  );
+});
+
+test('history optimization keeps everything within the token budget', () => {
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'second' },
+    { role: 'user', content: 'third' },
+  ];
+
+  const optimized = optimizeHistoryMessagesForPrompt(messages, {
+    maxTokens: 10_000,
+  });
+
+  expect(optimized.messages).toEqual(messages);
+  expect(optimized.stats.droppedCount).toBe(0);
+  expect(optimized.stats.droppedTurns).toBe(0);
+  expect(optimized.stats.droppedTokens).toBe(0);
 });
 
 test('history optimization retains the newest whole turn when it exceeds the budget', () => {
@@ -75,9 +98,10 @@ test('history optimization retains the newest whole turn when it exceeds the bud
       { role: 'assistant', content: 'old answer' },
       ...newestTurn,
     ],
-    { maxTotalChars: 50 },
+    { maxTokens: 20 },
   );
 
   expect(optimized.messages).toEqual(newestTurn);
-  expect(optimized.stats.includedChars).toBeGreaterThan(50);
+  expect(optimized.stats.includedTokens).toBeGreaterThan(20);
+  expect(optimized.stats.droppedTurns).toBe(1);
 });

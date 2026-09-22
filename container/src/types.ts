@@ -42,6 +42,7 @@ export interface ChatMessage {
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  is_error?: boolean;
   anthropic_content?: AnthropicContentBlock[];
   openai_response_items?: Array<Record<string, unknown>>;
 }
@@ -282,6 +283,7 @@ export interface ContainerInput {
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
+  mcpToolMode?: 'full' | 'deferred';
   allowedTools?: string[];
   blockedTools?: string[];
   media?: MediaContextItem[];

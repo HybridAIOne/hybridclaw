@@ -415,6 +415,71 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
   });
 });
 
+test('host auxiliary caller surfaces prompt cache usage from OpenAI-compatible responses', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'hybridai-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 2048,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              { message: { role: 'assistant', content: 'Cached reply.' } },
+            ],
+            usage: {
+              prompt_tokens: 1200,
+              completion_tokens: 8,
+              total_tokens: 1208,
+              prompt_tokens_details: { cached_tokens: 1000 },
+              cache_creation_input_tokens: 150,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+    ),
+  );
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'flush_memories',
+    agentId: 'main',
+    provider: 'hybridai',
+    model: 'gpt-5-nano',
+    fallbackChatbotId: 'bot_123',
+    maxTokens: 2048,
+    messages: [{ role: 'user', content: 'Rewrite this memory.' }],
+  });
+
+  expect(result.usage).toEqual({
+    inputTokens: 1200,
+    outputTokens: 8,
+    cacheReadTokens: 1000,
+    cacheWriteTokens: 150,
+    totalTokens: 1208,
+  });
+});
+
 test('host auxiliary caller avoids empty tools for HybridAI providers', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({

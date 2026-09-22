@@ -950,6 +950,8 @@ function resolveSessionMetadataForTimestamp(params: {
     provider,
     totalTokens,
     tokenSource: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
   };
 }
 

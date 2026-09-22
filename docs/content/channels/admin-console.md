@@ -158,6 +158,8 @@ changes before navigation.
   avatar-backed mention pills, and stable addressed-agent routing
 - the web chat route renders slash-command results distinctly and lets
   operators apply persisted thumbs-up/down ratings to assistant responses
+- chat renders LaTeX equations with `$...$` or `\(...\)` inline and
+  `$$...$$` or `\[...\]` for display math; code spans and fences stay literal
 - the web chat route syntax-highlights completed code blocks, shows language
   labels, and keeps copy controls reachable on hover and touch devices
 - the web chat route offers a realtime voice mode (microphone button in the

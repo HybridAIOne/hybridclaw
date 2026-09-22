@@ -145,10 +145,10 @@ export interface AuxiliaryModelCallParams {
 }
 
 export interface AuxiliaryModelUsage {
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens?: number;
   costUsd?: number;
 }
@@ -255,26 +255,32 @@ function readAuxiliaryModelUsage(
     (inputTokens !== undefined && outputTokens !== undefined
       ? inputTokens + outputTokens
       : undefined);
-  const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
-  const details = isRecord(value.prompt_tokens_details)
+  const promptTokenDetails = isRecord(value.prompt_tokens_details)
     ? value.prompt_tokens_details
     : isRecord(value.input_tokens_details)
       ? value.input_tokens_details
-      : {};
+      : undefined;
   const cacheReadTokens = readFiniteNumber([
     value.cacheReadTokens,
+    value.cache_read_tokens,
     value.cache_read_input_tokens,
-    details.cached_tokens,
+    value.cached_tokens,
+    promptTokenDetails?.cached_tokens,
   ]);
   const cacheWriteTokens = readFiniteNumber([
     value.cacheWriteTokens,
+    value.cache_write_tokens,
     value.cache_creation_input_tokens,
+    promptTokenDetails?.cache_write_tokens,
   ]);
+  const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
 
   if (
     inputTokens === undefined &&
     outputTokens === undefined &&
     totalTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheWriteTokens === undefined &&
     costUsd === undefined
   ) {
     return undefined;
@@ -283,10 +289,10 @@ function readAuxiliaryModelUsage(
   return {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(totalTokens !== undefined ? { totalTokens } : {}),
-    ...(costUsd !== undefined ? { costUsd } : {}),
     ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
   };
 }
 

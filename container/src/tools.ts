@@ -215,6 +215,92 @@ export function validateCronExpression(expr: string): string | null {
   }
   return null;
 }
+
+type CronScheduleFields = {
+  runAt?: string;
+  cronExpr?: string;
+  tz?: string;
+  everyMs?: number;
+};
+
+const UNKNOWN_TZ_ERROR = (tz: string) =>
+  `Error: unknown timezone "${tz}". Use an IANA name such as "Europe/Berlin" or "America/New_York".`;
+
+/**
+ * Parses the `cron` tool's schedule arguments ("at"/"at_seconds", "cron"+"tz",
+ * "every"), shared by "add" (exactly one required) and "update" (zero, to
+ * keep the stored schedule, or one to replace it; a bare "tz" retimes an
+ * existing cron task). Returns the parsed fields, or an "Error: ..." string.
+ */
+function parseCronScheduleArgs(
+  args: Record<string, unknown>,
+  { requireOne }: { requireOne: boolean },
+): CronScheduleFields | string {
+  const atSeconds = readPositiveNumberValue(args.at_seconds ?? args.atSeconds);
+  const relativeDelayMs =
+    atSeconds != null ? Math.round(atSeconds * 1000) : null;
+  const rawAt = readStringValue(args.at);
+  const rawCron = readStringValue(args.cron);
+  const hasEvery = args.every != null;
+  const explicitTz = readStringValue(args.tz ?? args.timezone);
+
+  const given = [
+    Boolean(rawAt || relativeDelayMs != null),
+    Boolean(rawCron),
+    hasEvery,
+  ].filter(Boolean).length;
+  if (given > 1) {
+    return 'Error: provide at most one of "at"/"at_seconds", "cron", or "every".';
+  }
+  if (requireOne && given === 0) {
+    return 'Error: provide "at" (ISO-8601 timestamp), "at_seconds" (one-shot seconds from now), "cron" (cron expression), or "every" (seconds)';
+  }
+
+  if (rawAt || relativeDelayMs != null) {
+    const runAt =
+      relativeDelayMs != null
+        ? new Date(Date.now() + relativeDelayMs)
+        : new Date(rawAt || '');
+    if (Number.isNaN(runAt.getTime()))
+      return `Error: invalid ISO-8601 timestamp: ${rawAt}`;
+    if (runAt.getTime() <= Date.now())
+      return `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`;
+    return { runAt: runAt.toISOString() };
+  }
+
+  if (rawCron) {
+    const cronError = validateCronExpression(rawCron);
+    if (cronError) return cronError;
+    if (explicitTz && !isValidTimezone(explicitTz))
+      return UNKNOWN_TZ_ERROR(explicitTz);
+    return { cronExpr: rawCron, tz: explicitTz };
+  }
+
+  if (hasEvery) {
+    const secs = Number(args.every);
+    if (Number.isNaN(secs) || secs < 10)
+      return 'Error: "every" must be a number of seconds >= 10';
+    return { everyMs: Math.round(secs * 1000) };
+  }
+
+  // No schedule field given; only reachable by "update" (requireOne: false).
+  // A bare "tz" retimes an existing cron task without touching its expression.
+  if (explicitTz && !isValidTimezone(explicitTz))
+    return UNKNOWN_TZ_ERROR(explicitTz);
+  return { tz: explicitTz };
+}
+
+function describeSchedule(task: {
+  cronExpr?: unknown;
+  tz?: unknown;
+  runAt?: unknown;
+  everyMs?: unknown;
+}): string {
+  if (task.runAt) return `at ${task.runAt}`;
+  if (task.everyMs) return `every ${Number(task.everyMs) / 1000}s`;
+  return `cron "${task.cronExpr}" (${task.tz || 'UTC'})`;
+}
+
 let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
@@ -1387,8 +1473,14 @@ async function callGatewaySchedulerTask(
       typeof parsed?.error === 'string' && parsed.error.trim()
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
+    const actionLabel =
+      payload.action === 'remove'
+        ? 'removal'
+        : payload.action === 'update'
+          ? 'update'
+          : 'creation';
     throw new ToolExecutionFailure(
-      `Error: scheduled task ${payload.action === 'remove' ? 'removal' : 'creation'} failed (HTTP ${response.status}): ${detail}`,
+      `Error: scheduled task ${actionLabel} failed (HTTP ${response.status}): ${detail}`,
     );
   }
   return parsed;
@@ -3927,71 +4019,59 @@ async function executeToolInternal(
             'Error: scheduled task output cannot be delivered into this web chat session; the task would run but its result would be discarded. Pass "channel" with a configured messaging channel target (for example a Telegram/Discord/Slack target) or an email address. If no such channel is configured, tell the user that one must be set up before scheduling.',
           );
         }
-        const atSeconds = readPositiveNumberValue(
-          args.at_seconds ?? args.atSeconds,
-        );
-        const relativeDelayMs =
-          atSeconds != null ? Math.round(atSeconds * 1000) : null;
-        const rawAt = readStringValue(args.at);
 
-        if (rawAt || relativeDelayMs != null) {
-          const runAt =
-            relativeDelayMs != null
-              ? new Date(Date.now() + relativeDelayMs)
-              : new Date(rawAt || '');
-          if (Number.isNaN(runAt.getTime()))
-            return failTool(`Error: invalid ISO-8601 timestamp: ${rawAt}`);
-          if (runAt.getTime() <= Date.now())
-            return failTool(
-              `Error: timestamp must be in the future: ${rawAt || runAt.toISOString()}`,
-            );
-          const created = await callGatewaySchedulerTask({
-            action: 'add',
-            runAt: runAt.toISOString(),
-            prompt,
-            channelId: channelId || gatewayChannelId || undefined,
-          });
-          return `Scheduled one-shot task #${created.taskId} at ${runAt.toISOString()}${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+        const parsed = parseCronScheduleArgs(args, { requireOne: true });
+        if (typeof parsed === 'string') return failTool(parsed);
+        const fields = parsed;
+        if (fields.cronExpr && !fields.tz) {
+          fields.tz = resolveCronTimezone() || undefined;
         }
 
-        if (args.cron) {
-          const cronExpr = String(args.cron).trim();
-          const cronError = validateCronExpression(cronExpr);
-          if (cronError) return failTool(cronError);
-          const explicitTz = readStringValue(args.tz ?? args.timezone);
-          if (explicitTz && !isValidTimezone(explicitTz)) {
-            return failTool(
-              `Error: unknown timezone "${explicitTz}". Use an IANA name such as "Europe/Berlin" or "America/New_York".`,
-            );
-          }
-          const tz = explicitTz || resolveCronTimezone();
-          const created = await callGatewaySchedulerTask({
-            action: 'add',
-            cronExpr,
-            tz: tz || undefined,
-            prompt,
-            channelId: channelId || gatewayChannelId || undefined,
-          });
-          return `Scheduled recurring task #${created.taskId} with cron "${cronExpr}" (${tz || 'UTC'})${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
-        }
+        const created = await callGatewaySchedulerTask({
+          action: 'add',
+          ...fields,
+          prompt,
+          channelId: channelId || gatewayChannelId || undefined,
+        });
+        const destination = channelId ? ` -> ${channelId}` : '';
+        const kind = fields.runAt
+          ? 'one-shot'
+          : fields.everyMs
+            ? 'interval'
+            : 'recurring';
+        const withWord = kind === 'recurring' ? 'with ' : '';
+        return `Scheduled ${kind} task #${created.taskId} ${withWord}${describeSchedule(fields)}${destination}: ${prompt}`;
+      }
 
-        if (args.every) {
-          const secs = Number(args.every);
-          if (Number.isNaN(secs) || secs < 10)
-            return failTool('Error: "every" must be a number of seconds >= 10');
-          const everyMs = Math.round(secs * 1000);
-          const created = await callGatewaySchedulerTask({
-            action: 'add',
-            everyMs,
-            prompt,
-            channelId: channelId || gatewayChannelId || undefined,
-          });
-          return `Scheduled interval task #${created.taskId} every ${secs}s${channelId ? ` -> ${channelId}` : ''}: ${prompt}`;
+      if (action === 'update') {
+        if (!scheduleSideEffectsEnabled) {
+          return failTool(
+            'Error: scheduled task update is disabled for this run.',
+          );
         }
+        const taskId = Number(args.taskId);
+        if (!Number.isInteger(taskId) || taskId <= 0)
+          return failTool('Error: taskId is required');
 
-        return failTool(
-          'Error: provide "at" (ISO-8601 timestamp), "at_seconds" (one-shot seconds from now), "cron" (cron expression), or "every" (seconds)',
-        );
+        const payload: Record<string, unknown> = { action: 'update', taskId };
+
+        const promptInput =
+          readStringValue(args.prompt) ||
+          readStringValue(args.message) ||
+          readStringValue(args.text);
+        if (promptInput) payload.prompt = promptInput;
+
+        const channelId =
+          readStringValue(args.channel) || readStringValue(args.channelId);
+        if (channelId) payload.channelId = channelId;
+
+        const parsed = parseCronScheduleArgs(args, { requireOne: false });
+        if (typeof parsed === 'string') return failTool(parsed);
+        Object.assign(payload, parsed);
+
+        const updated = await callGatewaySchedulerTask(payload);
+        const destination = updated.channelId ? ` -> ${updated.channelId}` : '';
+        return `Updated task #${updated.taskId}: ${describeSchedule(updated)}${destination}: ${updated.prompt}`;
       }
 
       if (action === 'remove') {
@@ -4008,7 +4088,7 @@ async function executeToolInternal(
       }
 
       return failTool(
-        `Error: unknown cron action "${action}". Use "list", "add", or "remove".`,
+        `Error: unknown cron action "${action}". Use "list", "add", "update", or "remove".`,
       );
     }
 
@@ -5381,6 +5461,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
         '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
+        '- "update": change an existing task by taskId (get it from "list"). Provide any of "prompt", "channel", and at most one schedule field ("at"/"at_seconds", "cron"[+"tz"], or "every") to change; omitted fields keep their current value. Use this instead of "remove" + "add" when changing the time, channel, or prompt of a schedule the user already has, so the task keeps its id and does not duplicate.\n' +
         '- "remove": delete a task by taskId\n' +
         'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
       parameters: {
@@ -5388,12 +5469,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           action: {
             type: 'string',
-            description: 'Action to perform: "list", "add", or "remove"',
+            description:
+              'Action to perform: "list", "add", "update", or "remove"',
           },
           prompt: {
             type: 'string',
             description:
-              'Instruction the model should execute when task fires (required for "add")',
+              'Instruction the model should execute when task fires (required for "add"; optional patch field for "update")',
           },
           at: {
             type: 'string',
@@ -5423,11 +5505,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channel: {
             type: 'string',
             description:
-              'Optional delivery channel override for "add" (for example an email address, Discord channel id, Telegram target, iMessage handle, or "tui")',
+              'Optional delivery channel override for "add" or "update" (for example an email address, Discord channel id, Telegram target, iMessage handle, or "tui")',
           },
           taskId: {
             type: 'number',
-            description: 'Task ID to remove (required for "remove")',
+            description:
+              'Task ID to change (required for "update") or delete (required for "remove")',
           },
         },
         required: ['action'],

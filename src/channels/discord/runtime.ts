@@ -32,6 +32,7 @@ import {
   DISCORD_RATE_LIMIT_EXEMPT_ROLES,
   DISCORD_RATE_LIMIT_PER_USER,
   DISCORD_REMOVE_ACK_AFTER_REPLY,
+  DISCORD_REPLY_STYLE,
   DISCORD_SELF_PRESENCE,
   DISCORD_SUPPRESS_PATTERNS,
   DISCORD_TOKEN,
@@ -131,6 +132,10 @@ import {
   parseSlashInteractionArgs,
 } from './slash-commands.js';
 import { DiscordStreamManager } from './stream.js';
+import {
+  resolveDiscordParentChannelId,
+  resolveDiscordReplyChannel,
+} from './thread-replies.js';
 import {
   type CachedDiscordPresence,
   createDiscordToolActionRunner,
@@ -732,6 +737,7 @@ function buildSessionIdFromContext(
 
 interface ResolvedChannelBehavior {
   guildMessageMode: DiscordGuildMessageMode;
+  replyStyle: 'thread' | 'top-level';
   typingMode: 'instant' | 'thinking' | 'streaming' | 'never';
   debounceMs: number;
   ackReaction: string;
@@ -748,21 +754,36 @@ function resolveGuildMessageMode(msg: DiscordMessage): DiscordGuildMessageMode {
   if (DISCORD_GROUP_POLICY === 'disabled') return 'off';
 
   const guildConfig = DISCORD_GUILDS[msg.guild.id];
-  const explicitMode = guildConfig?.channels[msg.channelId]?.mode;
+  const parentChannelId = resolveDiscordParentChannelId(msg);
+  const explicitMode =
+    guildConfig?.channels[msg.channelId]?.mode ??
+    (parentChannelId
+      ? guildConfig?.channels[parentChannelId]?.mode
+      : undefined);
   if (DISCORD_GROUP_POLICY === 'allowlist') {
     return explicitMode ?? 'off';
   }
   if (explicitMode) return explicitMode;
-  if (DISCORD_FREE_RESPONSE_CHANNELS.includes(msg.channelId)) return 'free';
+  if (
+    DISCORD_FREE_RESPONSE_CHANNELS.includes(msg.channelId) ||
+    (parentChannelId &&
+      DISCORD_FREE_RESPONSE_CHANNELS.includes(parentChannelId))
+  ) {
+    return 'free';
+  }
   if (guildConfig) return guildConfig.defaultMode;
   return 'mention';
 }
 
 function resolveChannelBehavior(msg: DiscordMessage): ResolvedChannelBehavior {
   const guildConfig = msg.guild ? DISCORD_GUILDS[msg.guild.id] : undefined;
-  const channelConfig = guildConfig?.channels[msg.channelId];
+  const parentChannelId = resolveDiscordParentChannelId(msg);
+  const channelConfig =
+    guildConfig?.channels[msg.channelId] ??
+    (parentChannelId ? guildConfig?.channels[parentChannelId] : undefined);
   return {
     guildMessageMode: resolveGuildMessageMode(msg),
+    replyStyle: channelConfig?.replyStyle ?? DISCORD_REPLY_STYLE,
     typingMode: channelConfig?.typingMode ?? DISCORD_TYPING_MODE,
     debounceMs: resolveInboundDebounceMs(
       DISCORD_DEBOUNCE_MS,
@@ -2031,6 +2052,23 @@ export async function initDiscord(
     const stream = new DiscordStreamManager(msg, {
       onFirstMessage: () => emitLifecyclePhase('streaming'),
       humanDelay: behavior.humanDelay,
+      resolveResponseChannel: async () => {
+        const resolution = await resolveDiscordReplyChannel({
+          message: msg,
+          replyStyle: behavior.replyStyle,
+        });
+        if (resolution.warning) {
+          logger.warn(
+            {
+              channelId: msg.channelId,
+              messageId: msg.id,
+              warning: resolution.warning,
+            },
+            'Discord thread reply unavailable; replying in the source channel',
+          );
+        }
+        return resolution.channel;
+      },
     });
     const inFlight: InFlightConversation = {
       abortController,
