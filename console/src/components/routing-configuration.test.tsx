@@ -21,6 +21,7 @@ const models = [
 ] as ChatModel[];
 const routing = {
   enabled: true,
+  localOnly: false,
   showRoutingInfo: true,
   defaultStart: 'Local',
   escalationStickyTurns: 3,
@@ -64,7 +65,10 @@ it('renames the starting tier and merges into fresh config without overwriting o
         showRoutingInfo: false,
         escalationStickyTurns: 5,
         defaultStart: 'Fast',
-        tiers: [{ name: 'Fast', models: ['local-model'] }, routing.tiers[1]],
+        tiers: [
+          expect.objectContaining({ name: 'Fast', models: ['local-model'] }),
+          expect.objectContaining(routing.tiers[1]),
+        ],
       },
     }),
   );
@@ -79,7 +83,11 @@ it('reorders tiers and chooses a valid start when the starting tier is removed',
   fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
   await waitFor(() =>
     expect(mocks.save).toHaveBeenCalledWith('test-token', {
-      routing: { ...routing, defaultStart: 'Cloud', tiers: [routing.tiers[1]] },
+      routing: {
+        ...routing,
+        defaultStart: 'Cloud',
+        tiers: [expect.objectContaining(routing.tiers[1])],
+      },
     }),
   );
 });
@@ -137,7 +145,12 @@ it('preserves existing backups and permits replacing a missing catalog model', a
     expect(mocks.save).toHaveBeenCalledWith('test-token', {
       routing: {
         ...routing,
-        tiers: [{ name: 'Local', models: ['local-model', 'cloud-model'] }],
+        tiers: [
+          expect.objectContaining({
+            name: 'Local',
+            models: ['local-model', 'cloud-model'],
+          }),
+        ],
       },
     }),
   );
@@ -180,10 +193,10 @@ it('registers selected discovered remote models while preserving provider settin
         ...config.routing,
         defaultStart: 'Cloud',
         tiers: [
-          {
+          expect.objectContaining({
             name: 'Cloud',
             models: catalog.slice(0, 4).map((model) => model.id),
-          },
+          }),
         ],
       },
       anthropic: {
@@ -217,7 +230,12 @@ it('does not register a configured model missing from the discovered catalog', a
       routing: {
         ...config.routing,
         defaultStart: 'Cloud',
-        tiers: [{ name: 'Cloud', models: ['anthropic/missing-model'] }],
+        tiers: [
+          expect.objectContaining({
+            name: 'Cloud',
+            models: ['anthropic/missing-model'],
+          }),
+        ],
       },
     }),
   );
@@ -286,9 +304,7 @@ it('removes preference and blocks Privacy when all tier models are remote', asyn
   });
   await renderEditor();
   expect(screen.queryByLabelText('Preference')).toBeNull();
-  fireEvent.change(screen.getByLabelText('Mode'), {
-    target: { value: 'privacy' },
-  });
+  fireEvent.click(screen.getByRole('switch', { name: 'Local models only' }));
   expect(screen.getByRole('alert').textContent).toContain(
     'Configure a local model first',
   );
@@ -301,4 +317,63 @@ it('removes preference and blocks Privacy when all tier models are remote', asyn
     target: { value: 'local-model' },
   });
   expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps independent model assignments when switching modes and saving', async () => {
+  await renderEditor();
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'cost' },
+  });
+  fireEvent.change(screen.getByLabelText('Tier 1 model 1'), {
+    target: { value: 'cloud-model' },
+  });
+  // Remove the now-duplicate backup from the generated Cost preset.
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Remove tier 1 backup 1' }),
+  );
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'auto' },
+  });
+  expect(
+    (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
+  ).toBe('local-model');
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'cost' },
+  });
+  expect(
+    (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
+  ).toBe('cloud-model');
+  fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+  await waitFor(() => expect(mocks.save).toHaveBeenCalled());
+  const saved = mocks.save.mock.calls.at(-1)![1].routing;
+  expect(saved.tiers[0].modelsByMode.auto).toEqual(['local-model']);
+  expect(saved.tiers[0].modelsByMode.cost).toEqual(['cloud-model']);
+  expect(saved.mode).toBe('cost');
+});
+
+it('prefills Cost and Speed from capable models and restores Auto assignments', async () => {
+  const catalog = models.map((model) => ({
+    ...model,
+    latencyMs: model.id === 'cloud-model' ? 10 : 100,
+    pricingUsdPerToken: {
+      input: model.id === 'cloud-model' ? 1 : 3,
+      output: 1,
+    },
+  }));
+  renderWithProviders(<RoutingConfiguration models={catalog} />);
+  await screen.findByLabelText('Tier 1 name');
+  for (const mode of ['cost', 'speed']) {
+    fireEvent.change(screen.getByLabelText('Mode'), {
+      target: { value: mode },
+    });
+    expect(
+      (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
+    ).toBe('cloud-model');
+  }
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'auto' },
+  });
+  expect(
+    (screen.getByLabelText('Tier 1 model 1') as HTMLSelectElement).value,
+  ).toBe('local-model');
 });

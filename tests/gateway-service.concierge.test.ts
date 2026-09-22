@@ -92,14 +92,14 @@ useCleanMocks({
 
 test('one concierge chooses a configured tier without a separate urgency exchange', async () => {
  const fixture = await createFixture();
- callAuxiliaryModelMock.mockResolvedValue({model:'lmstudio/test-classifier',content:'{"capability":"advanced","urgency":"urgent","sensitive":false}'});
+ callAuxiliaryModelMock.mockResolvedValue({model:'lmstudio/test-classifier',content:'{"tier":"large"}'});
  const result = await fixture.handleGatewayMessage({sessionId:'unified-test',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a complex public scientific topic.',chatbotId:'bot_test'});
  expect(result.status).toBe('success');
  expect(runAgentMock.mock.calls.at(-1)?.[0].model).toBe('lmstudio/test-large');
 });
 test('privacy rejects an explicit cloud pin before any agent call', async () => {
  const fixture = await createFixture();
- fixture.updateRuntimeConfig(draft => {draft.routing.mode='privacy';});
+ fixture.updateRuntimeConfig(draft => {draft.routing.mode='privacy';draft.routing.localOnly=true;});
  const result = await fixture.handleGatewayMessage({sessionId:'privacy-pin',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Public question',model:'hybridai/gpt-5',chatbotId:'bot_test'});
  expect(result.status).toBe('error');
  expect(runAgentMock).not.toHaveBeenCalled();

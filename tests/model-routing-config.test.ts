@@ -176,7 +176,7 @@ test('rejects saving Privacy without a local tier model and preserves saved conf
  const mod=await loadConfigModule();
  const before=mod.getRuntimeConfig();
  const draft=structuredClone(before);
- draft.routing.mode='privacy';
+ draft.routing.mode='privacy';draft.routing.localOnly=true;
  draft.routing.tiers=[];
  expect(()=>mod.saveRuntimeConfig(draft)).toThrow('Configure a local model first');
  expect(mod.getRuntimeConfig().routing.mode).toBe(before.routing.mode);
@@ -205,6 +205,7 @@ test('rejects endpoint edits and unreachable privacy tiers without changing disk
   })).toThrow('needs an enabled model');
   const invalid = structuredClone(saved);
   invalid.routing.mode = 'privacy';
+  invalid.routing.localOnly = true;
   invalid.routing.tiers.push({ name: 'higher', models: ['hybridai/gpt-5'] });
   expect(() => mod.saveRuntimeConfig(invalid)).toThrow('Configure a local model first');
   expect(fs.readFileSync(configPath, 'utf8')).toBe(stored);
@@ -244,4 +245,30 @@ test('failed persistence leaves active values and explicit-setting metadata inta
   } finally {
     rename.mockRestore();
   }
+});
+
+test('mode assignments persist and invalid inactive models cannot be saved', async () => {
+  const mod = await loadConfigModule();
+  const draft = mod.getRuntimeConfig();
+  draft.routing.enabled = true;
+  draft.routing.tiers = [{ name: 'general', models: ['hybridai/gpt-5'], modelsByMode: { cost: ['hybridai/gpt-5-mini'] } }];
+  draft.routing.defaultStart = 'general';
+  draft.routing.mode = 'cost';
+  const saved = mod.saveRuntimeConfig(draft);
+  mod.reloadRuntimeConfig();
+  expect(mod.getRuntimeConfig().routing.tiers).toEqual(saved.routing.tiers);
+  draft.routing.tiers[0].modelsByMode = { privacy: ['unknown/no-model'] };
+  expect(() => mod.saveRuntimeConfig(draft)).toThrow('Unknown privacy routing model');
+  expect(mod.getRuntimeConfig().routing.tiers).toEqual(saved.routing.tiers);
+});
+
+test('an existing Privacy setting keeps its local-only boundary when normalized', async () => {
+  const mod = await loadConfigModule();
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const source = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  source.routing = { ...source.routing, mode: 'privacy' };
+  delete source.routing.localOnly;
+  fs.writeFileSync(configPath, JSON.stringify(source));
+  mod.reloadRuntimeConfig();
+  expect(mod.getRuntimeConfig().routing.localOnly).toBe(true);
 });

@@ -21,8 +21,10 @@ interface Tier {
   modelIds: string[];
   name: string;
   models: string[];
+  modelsByMode?: Partial<Record<Ladder['mode'], string[]>>;
 }
 interface Ladder {
+  localOnly: boolean;
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
   concierge: { model: string; comparisonModel: string };
   showRoutingInfo: boolean;
@@ -31,8 +33,29 @@ interface Ladder {
   tiers: Tier[];
   defaultStart: string;
 }
-function readLadder(config: AdminConfig): Ladder {
+const modes = ['auto', 'privacy', 'speed', 'cost'] as const;
+function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
+  const mode =
+    (settingValue(config, 'routing.mode') as Ladder['mode']) ?? 'auto';
+  const tiers =
+    (settingValue(config, 'routing.tiers') as Tier[] | undefined) ?? [];
+  const price = (id: string) => {
+    const entry = catalog.find((m) => m.id === id) as
+      | (ChatModel & {
+          pricingUsdPerToken?: { input: number | null; output: number | null };
+        })
+      | undefined;
+    const p = entry?.pricingUsdPerToken;
+    return p?.input != null && p.output != null ? p.input + p.output : Infinity;
+  };
+  const zone = (id: string) =>
+    ['local', 'hai', 'region', 'cloud'].indexOf(
+      catalog.find((m) => m.id === id)?.zone ?? 'cloud',
+    );
   return {
+    localOnly: Boolean(
+      settingValue(config, 'routing.localOnly') ?? mode === 'privacy',
+    ),
     enabled: Boolean(settingValue(config, 'routing.enabled')),
     mode: (settingValue(config, 'routing.mode') as Ladder['mode']) ?? 'auto',
     concierge: {
@@ -46,15 +69,30 @@ function readLadder(config: AdminConfig): Ladder {
       config,
       'routing.evaluator',
     ) as Ladder['evaluator']) ?? { mode: 'off' },
-    tiers: (
-      (settingValue(config, 'routing.tiers') as
-        | Pick<Tier, 'name' | 'models'>[]
-        | undefined) ?? []
-    ).map((tier) => ({
-      ...tier,
-      id: crypto.randomUUID(),
-      modelIds: tier.models.map(() => crypto.randomUUID()),
-    })),
+    tiers: tiers.map((tier, index) => {
+      const eligible = [
+        ...new Set(tiers.slice(index).flatMap((t) => t.models)),
+      ];
+      const modelsByMode = {
+        auto: [...tier.models],
+        privacy: [...eligible].sort((a, b) => zone(a) - zone(b)),
+        cost: [...eligible].sort((a, b) => price(a) - price(b)),
+        speed: [...eligible].sort(
+          (a, b) =>
+            (catalog.find((m) => m.id === a)?.latencyMs ?? Infinity) -
+            (catalog.find((m) => m.id === b)?.latencyMs ?? Infinity),
+        ),
+        ...tier.modelsByMode,
+      };
+      const models = modelsByMode[mode];
+      return {
+        ...tier,
+        modelsByMode,
+        models,
+        id: crypto.randomUUID(),
+        modelIds: models.map(() => crypto.randomUUID()),
+      };
+    }),
     defaultStart:
       (settingValue(config, 'routing.defaultStart') as string | undefined) ??
       '',
@@ -78,8 +116,8 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
   });
   const [draft, setDraft] = useState<Ladder | null>(null);
   const saved = useMemo(
-    () => (query.data ? readLadder(query.data.config) : null),
-    [query.data],
+    () => (query.data ? readLadder(query.data.config, models) : null),
+    [query.data, models],
   );
   const value = draft ?? saved;
   const mutation = useMutation({
@@ -88,6 +126,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
       let config = latest.config;
       for (const key of [
         'enabled',
+        'localOnly',
         'tiers',
         'defaultStart',
         'mode',
@@ -98,6 +137,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
         if (
           saved &&
           key !== 'tiers' &&
+          key !== 'localOnly' &&
           JSON.stringify(ladder[key]) === JSON.stringify(saved[key])
         )
           continue;
@@ -105,12 +145,22 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
           config,
           `routing.${key}`,
           key === 'tiers'
-            ? ladder.tiers.map(({ name, models }) => ({ name, models }))
+            ? ladder.tiers.map((tier) => ({
+                name: tier.name,
+                models: tier.modelsByMode?.auto ?? tier.models,
+                modelsByMode: {
+                  ...tier.modelsByMode,
+                  [ladder.mode]: tier.models,
+                },
+              }))
             : ladder[key],
         );
       }
       for (const modelId of new Set([
-        ...ladder.tiers.flatMap((tier) => tier.models),
+        ...ladder.tiers.flatMap((tier) => [
+          ...tier.models,
+          ...Object.values(tier.modelsByMode ?? {}).flat(),
+        ]),
         ladder.concierge.model,
         ladder.concierge.comparisonModel,
       ])) {
@@ -144,7 +194,22 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
         value.defaultStart === value.tiers[index].name
           ? tier.name
           : value.defaultStart,
-      tiers: value.tiers.map((item, i) => (i === index ? tier : item)),
+      tiers: value.tiers.map((item, i) =>
+        i === index
+          ? {
+              ...tier,
+              modelsByMode: Object.fromEntries(
+                modes.map((mode) => [
+                  mode,
+                  mode === value.mode ||
+                  !tier.modelsByMode?.[mode]?.some(Boolean)
+                    ? [...tier.models]
+                    : tier.modelsByMode[mode],
+                ]),
+              ),
+            }
+          : item,
+      ),
     });
   }
   function move(index: number, offset: number) {
@@ -160,7 +225,7 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
     value?.tiers.map((tier) => tier.name.trim().toLowerCase()) ?? [];
   const error =
     value &&
-    (value.mode === 'privacy' &&
+    (value.localOnly &&
     !value.tiers
       .slice(-1)
       .some((tier) =>
@@ -220,14 +285,36 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
                     edit({
                       ...value,
                       mode: event.target.value as Ladder['mode'],
+                      tiers: value.tiers.map((tier) => {
+                        const modelsByMode = {
+                          ...tier.modelsByMode,
+                          [value.mode]: [...tier.models],
+                        };
+                        const models =
+                          modelsByMode[event.target.value as Ladder['mode']] ??
+                          tier.models;
+                        return {
+                          ...tier,
+                          modelsByMode,
+                          models,
+                          modelIds: models.map(() => crypto.randomUUID()),
+                        };
+                      }),
                     })
                   }
                 >
                   <option value="auto">Auto</option>
-                  <option value="privacy">Privacy · local only</option>
+                  <option value="privacy">Privacy</option>
                   <option value="speed">Speed</option>
                   <option value="cost">Cost</option>
                 </NativeSelect>
+              </label>
+              <label className={styles.toggle}>
+                <Switch
+                  checked={value.localOnly}
+                  onCheckedChange={(localOnly) => edit({ ...value, localOnly })}
+                />
+                Local models only
               </label>
               {(['model', 'comparisonModel'] as const).map((field) => (
                 <label key={field} className={styles.field}>
@@ -294,8 +381,15 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
               </label>
             </div>
             <p className={styles.help}>
-              Order tiers from lighter / faster to more capable. Speed uses this
-              order.
+              {
+                {
+                  auto: 'Balance cost and measured speed.',
+                  privacy: 'Prefer local, then private endpoints, then cloud.',
+                  speed: 'Prefer the fastest measured model.',
+                  cost: 'Prefer the cheapest capable model.',
+                }[value.mode]
+              }{' '}
+              Models below are saved for this mode.
             </p>
             <ol className={styles.tiers}>
               {value.tiers.map((tier, index) => (

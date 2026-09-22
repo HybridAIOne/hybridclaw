@@ -1,17 +1,32 @@
+/**
+ * Capability tiers share names while modes own their model assignments.
+ * Ladder resolution enforces ordering and zone boundaries, not classifier decisions.
+ */
 export const MODEL_ROUTING_ZONES = ['local', 'hai', 'region', 'cloud'] as const;
 
 export type ModelRoutingZone = (typeof MODEL_ROUTING_ZONES)[number];
 
+export type RoutingMode = 'auto' | 'privacy' | 'speed' | 'cost';
+
 export interface ModelRoutingTier {
   name: string;
   models: string[];
+  modelsByMode?: Partial<Record<RoutingMode, string[]>>;
 }
 
 export interface ModelRoutingConfig {
   enabled: boolean;
+  mode?: RoutingMode;
   tiers: ModelRoutingTier[];
   defaultStart: string;
   escalationStickyTurns: number;
+}
+
+export function routingTierModels(
+  tier: ModelRoutingTier,
+  mode: RoutingMode = 'auto',
+): string[] {
+  return tier.modelsByMode?.[mode] ?? tier.models;
 }
 
 export interface ResolveLadderContext {
@@ -144,7 +159,7 @@ export function resolveLadder(
     .map(
       (tier, sourceIndex): ResolvedModelRoutingTier => ({
         name: tier.name,
-        models: tier.models.filter((model) =>
+        models: routingTierModels(tier, config.mode).filter((model) =>
           modelRoutingZoneAllows(maximumZone, context.modelZones?.[model]),
         ),
         sourceIndex,

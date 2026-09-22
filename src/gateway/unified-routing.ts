@@ -39,7 +39,7 @@ export async function classifyRouting(input: {
     approved: !input.comparison || input.publicSample === true,
   });
   const localOnly =
-    routing.mode === 'privacy' ||
+    routing.localOnly ||
     Boolean(disclosure && disclosure !== 'public-approval-required');
   let signals = { ...UNKNOWN_SIGNALS };
   const evaluation: TypedRoutingEvaluation = {

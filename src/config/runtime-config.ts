@@ -1,5 +1,6 @@
 /**
  * Runtime configuration validates source data before making it active.
+ * Saves validate mode assignments and preserve explicit local-only boundaries.
  * Invalid local endpoints and disabled named defaults block normalization writes;
  * refresh-based updates cannot replace those files with an in-memory fallback.
  * Local setup commits its endpoint, secret reference and default together;
@@ -535,6 +536,7 @@ export interface RuntimeRoutingConciergeConfig {
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  localOnly: boolean;
   evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
   mode: 'privacy' | 'speed' | 'cost' | 'auto';
@@ -2164,6 +2166,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    localOnly: false,
     evaluator: DEFAULT_ROUTING_EVALUATOR,
     // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
     showRoutingInfo: false,
@@ -7180,7 +7183,31 @@ function normalizeModelRoutingConfig(
         );
       }
     }
-    return { name, models };
+    const modelsByMode: ModelRoutingTier['modelsByMode'] = {};
+    if (entry.modelsByMode !== undefined) {
+      if (!isRecord(entry.modelsByMode))
+        throw new Error('Tier mode assignments must be an object.');
+      for (const mode of ['auto', 'privacy', 'speed', 'cost'] as const) {
+        const values = entry.modelsByMode[mode];
+        if (values === undefined) continue;
+        if (!Array.isArray(values) || !values.length)
+          throw new Error(`Configure models for ${mode} tier "${name}".`);
+        const ids = normalizeOptionalTrimmedUniqueStringArray(values);
+        if (!ids || ids.length !== values.length)
+          throw new Error(
+            `Invalid model assignments for ${mode} tier "${name}".`,
+          );
+        for (const id of ids)
+          if (!isKnownRoutingModelReference(id, catalog))
+            throw new Error(`Unknown ${mode} routing model "${id}".`);
+        modelsByMode[mode] = ids;
+      }
+    }
+    return {
+      name,
+      models,
+      ...(Object.keys(modelsByMode).length ? { modelsByMode } : {}),
+    };
   });
 
   if (enabled && tiers.length === 0) {
@@ -8766,6 +8793,10 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      localOnly: normalizeBoolean(
+        rawRouting.localOnly,
+        rawRouting.mode === 'privacy',
+      ),
       mode: normalizeRoutingChoice(
         rawRouting.mode,
         ['privacy', 'speed', 'cost', 'auto'] as const,
@@ -9677,9 +9708,23 @@ function validateRoutingForSave(config: RuntimeConfig): void {
       return config.local.backends[prefix].enabled ? 'local' : null;
     return 'cloud';
   };
-  const { routing } = config;
+  const routing = {
+    ...config.routing,
+    tiers: config.routing.tiers.map((tier) => ({
+      ...tier,
+      models: tier.modelsByMode?.[config.routing.mode] ?? tier.models,
+    })),
+  };
+  for (const tier of config.routing.tiers) {
+    for (const [mode, models] of Object.entries(tier.modelsByMode ?? {})) {
+      if (routing.enabled && !models.some((model) => zone(model) !== null))
+        throw new Error(
+          `Enable a model for ${mode} tier "${tier.name}" first.`,
+        );
+    }
+  }
   if (
-    routing.mode === 'privacy' &&
+    routing.localOnly &&
     !routing.tiers.some((tier) =>
       tier.models.some((model) => zone(model) === 'local'),
     )
@@ -9693,14 +9738,13 @@ function validateRoutingForSave(config: RuntimeConfig): void {
       tier.models.some((model) => {
         const modelZone = zone(model);
         return (
-          modelZone !== null &&
-          (routing.mode !== 'privacy' || modelZone === 'local')
+          modelZone !== null && (!routing.localOnly || modelZone === 'local')
         );
       }),
     );
     if (!eligible)
       throw new Error(
-        routing.mode === 'privacy'
+        routing.localOnly
           ? `Configure a local model first: tier "${routing.tiers[index].name}" needs a local model in this or a higher tier.`
           : `Tier "${routing.tiers[index].name}" needs an enabled model in this or a higher tier.`,
       );

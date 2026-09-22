@@ -96,6 +96,7 @@ import {
   type ResolvedLadder,
   resolveLadder,
 } from '../providers/model-routing.js';
+import { recordRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
@@ -2562,6 +2563,8 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
+      if (output.status === 'success')
+        recordRoutingLatency(model, executionDurationMs);
       finishRoutingTraceAttempt({
         model,
         status: output.status === 'success' ? 'success' : 'error',

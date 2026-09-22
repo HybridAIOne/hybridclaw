@@ -40,11 +40,13 @@ export async function evaluateConfiguredRouting(input: {
           mode: 'shadow' as const,
         }
       : routing.evaluator;
-  const approved = input.concierge
-    ? routing.enabled && routing.concierge.model.startsWith('jev/')
-    : input.playground
-      ? input.publicSample === true
-      : config.publicPrompts.includes(input.text.trim());
+  const approved =
+    !routing.localOnly &&
+    (input.concierge
+      ? routing.enabled && routing.concierge.model.startsWith('jev/')
+      : input.playground
+        ? input.publicSample === true
+        : config.publicPrompts.includes(input.text.trim()));
   const eligible =
     config.mode !== 'off' && !evaluatorDisclosureReason({ ...input, approved });
   const key = eligible

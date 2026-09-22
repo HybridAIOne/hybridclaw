@@ -1046,6 +1046,7 @@ export interface AdminCommandResult {
 
 /** Minimum fields the chat surface needs to render and switch between models. */
 export interface ChatModel {
+  latencyMs?: number | null;
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;

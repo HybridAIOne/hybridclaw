@@ -391,6 +391,7 @@ import {
   normalizeAuxiliaryProviderModel,
   resolveDefaultAuxiliaryModelForProvider,
 } from '../providers/task-routing.js';
+import { routingLatencyMs } from '../routing/latency.js';
 import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
@@ -7403,6 +7404,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           contextWindow: metadata.contextWindow,
           maxTokens: metadata.maxTokens,
           pricingUsdPerToken: metadata.pricingUsdPerToken,
+          latencyMs: routingLatencyMs(modelId),
           capabilities: metadata.capabilities,
           metadataSources: metadata.sources,
           isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
@@ -11554,7 +11556,11 @@ function buildGatewaySessionModelRouting(
   const agentModel = resolveAgentModel(resolveAgentConfig(session.agent_id));
   const startTier =
     (agentModel
-      ? routing.tiers.find((tier) => tier.models.includes(agentModel))
+      ? routing.tiers.find((tier) =>
+          (tier.modelsByMode?.[routing.mode] ?? tier.models).includes(
+            agentModel,
+          ),
+        )
       : undefined) ??
     routing.tiers.find((tier) => tier.name === routing.defaultStart);
 

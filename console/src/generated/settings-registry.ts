@@ -2248,6 +2248,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 1500,
     },
     {
+      path: 'routing.localOnly',
+      section: 'routing',
+      kind: 'boolean',
+      defaultValue: false,
+    },
+    {
       path: 'routing.mode',
       section: 'routing',
       kind: 'string',
