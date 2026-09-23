@@ -3,7 +3,8 @@
  *
  * A job exists in SQLite before the tool result reaches the model, so the
  * assistant can only confirm a schedule that is actually persisted and quote
- * its real id. Validation here is the trust boundary for container input;
+ * its real id. Same-agent web chats may manage each other's tasks; messaging
+ * sessions remain isolated. Validation here is the trust boundary for container input;
  * schedule semantics (cron parsing, firing) belong to `scheduler.ts`.
  *
  * NOT the admin scheduler API (`gateway-scheduled-task-service.ts`), which
@@ -19,9 +20,9 @@ import {
   getJob,
   updateScheduledTask,
 } from '../memory/jobs.js';
-import { resolveSessionIdCompat } from '../memory/sessions.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import { isRecord } from '../utils/type-guards.js';
+import { canManageScheduledTask } from './scheduled-task-access.js';
 
 interface PersistedTaskResult {
   ok: true;
@@ -135,7 +136,7 @@ export function runScheduledTaskToolAction(
       throw new GatewayRequestError(400, 'Invalid `taskId`.');
     }
     const job = getJob(taskId, { kind: 'scheduled_task' });
-    if (!job || job.session_id !== resolveSessionIdCompat(sessionId)) {
+    if (!job || !canManageScheduledTask(job, session)) {
       throw new GatewayRequestError(
         404,
         `Unknown task #${taskId} for this session.`,
@@ -153,7 +154,7 @@ export function runScheduledTaskToolAction(
       throw new GatewayRequestError(400, 'Invalid `taskId`.');
     }
     const job = getJob(taskId, { kind: 'scheduled_task' });
-    if (!job || job.session_id !== resolveSessionIdCompat(sessionId)) {
+    if (!job || !canManageScheduledTask(job, session)) {
       throw new GatewayRequestError(
         404,
         `Unknown task #${taskId} for this session.`,

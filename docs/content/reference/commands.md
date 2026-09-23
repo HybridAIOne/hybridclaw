@@ -689,8 +689,11 @@ This timezone selection applies to the agent tool, not the separate
 The tool returns a real task ID after the gateway persists the schedule.
 Web-chat and heartbeat tasks require an explicit delivery channel. The task
 list and **Automation → Scheduler** show the stored timezone and the reason
-for a failed run or delivery. Invalid cron expressions are disabled with the
-parse error recorded; one-shot tasks that never ran are retained.
+for a failed run or delivery. In web chat, the agent can list, update, and
+remove tasks created in another web chat assigned to the same agent. Tasks
+created in messaging channels remain scoped to their original session.
+Invalid cron expressions are disabled with the parse error recorded; one-shot
+tasks that never ran are retained.
 
 ## In Session
 

@@ -915,6 +915,7 @@ test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without 
       getAvailableModelList: vi.fn(() => [
         'hybridai/o1-preview',
         'hybridai/o3-mini',
+        'hybridai/Qwen/Qwen3.8-27B',
       ]),
     };
   });
@@ -930,6 +931,14 @@ test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without 
   const byId = Object.fromEntries(result.models.map((m) => [m.id, m.provider]));
   expect(byId['hybridai/o1-preview']).toBe('hybridai');
   expect(byId['hybridai/o3-mini']).toBe('hybridai');
+  expect(
+    result.models.find((model) => model.id === 'hybridai/Qwen/Qwen3.8-27B')
+      ?.supportedReasoningEfforts,
+  ).toEqual(['none', 'low', 'medium', 'xhigh']);
+  expect(
+    result.models.find((model) => model.id === 'hybridai/o1-preview')
+      ?.supportedReasoningEfforts,
+  ).toEqual([]);
   expect(warnMock).not.toHaveBeenCalledWith(
     expect.anything(),
     'Unknown provider prefix in model id; defaulting to hybridai',

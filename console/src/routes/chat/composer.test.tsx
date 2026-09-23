@@ -99,6 +99,35 @@ describe('Composer', () => {
     clearAgentAvatarUrlCacheForTest();
   });
 
+  it('shows the thinking slider only for advertised model support', () => {
+    const onReasoningEffortChange = vi.fn();
+    const { rerender } = renderComposer();
+    expect(
+      screen.queryByRole('button', { name: /Thinking effort:/ }),
+    ).toBeNull();
+
+    rerender(
+      <Composer
+        isStreaming={false}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
+        token="test-token"
+        supportedReasoningEfforts={['none', 'low', 'medium', 'xhigh']}
+        onReasoningEffortChange={onReasoningEffortChange}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Thinking effort: Model default',
+      }),
+    );
+    const slider = screen.getByRole('slider', { name: 'Thinking effort' });
+    expect(slider.getAttribute('max')).toBe('4');
+    fireEvent.change(slider, { target: { value: '1' } });
+    expect(onReasoningEffortChange).toHaveBeenCalledWith('none');
+  });
+
   it('inserts dictated text for review without sending it', async () => {
     const originalMediaDevices = Object.getOwnPropertyDescriptor(
       navigator,

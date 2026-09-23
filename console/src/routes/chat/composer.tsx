@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { fetchChatCommands } from '../../api/chat';
 import type {
   ChatCommandSuggestion,
@@ -46,6 +47,7 @@ import {
   type SlashPanelMode,
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
+import { ThinkingEffortControl } from './thinking-effort-control';
 
 type SuggestionKind = 'slash' | 'agent';
 
@@ -95,6 +97,9 @@ export function Composer(props: {
   selectedModelId?: string;
   modelRouting?: ChatModelRoutingContext | null;
   onModelSwitch?: (modelId: string) => void;
+  supportedReasoningEfforts?: ReasoningEffort[];
+  reasoningEffort?: ReasoningEffort;
+  onReasoningEffortChange?: (value: ReasoningEffort | undefined) => void;
   initialValue?: string;
   voiceAvailable?: boolean;
   voiceDetail?: string | null;
@@ -660,6 +665,14 @@ export function Composer(props: {
                 disabled={props.isStreaming}
                 onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
               />
+              {props.supportedReasoningEfforts?.length ? (
+                <ThinkingEffortControl
+                  supportedEfforts={props.supportedReasoningEfforts}
+                  value={props.reasoningEffort}
+                  disabled={props.isStreaming}
+                  onChange={(value) => props.onReasoningEffortChange?.(value)}
+                />
+              ) : null}
             </div>
             <div className={css.composerRightActions}>
               <DictationControl

@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 import type {
   StakesScore as CanonicalStakesScore,
@@ -261,6 +262,7 @@ export interface ContainerInput {
   contextWindow?: number;
   modelBehavior?: ModelBehavior;
   thinkingFormat?: 'qwen';
+  reasoningEffort?: ReasoningEffort;
   gatewayBaseUrl?: string;
   gatewayApiToken?: string;
   browserProvider?: string;

@@ -103,6 +103,39 @@ describe('useChatStream', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
+  it('includes an explicit reasoning effort in the chat request', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      result: 'Answer',
+      messageRole: 'assistant',
+    } satisfies ChatStreamResult);
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'user_a',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+          reasoningEffort: 'none',
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('Test request', []);
+    });
+
+    expect(requestChatStreamMock).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({
+        body: expect.objectContaining({ reasoningEffort: 'none' }),
+      }),
+    );
+  });
+
   it.each(['success', 'error'])(
     'retains routing evidence after a %s result',
     async (status) => {
