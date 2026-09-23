@@ -16466,6 +16466,107 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test.each([
+    {
+      url: 'http://[::ffff:127.0.0.1]/',
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host ([::ffff:7f00:1]) is not allowlisted by workspace network policy for GET / on port 80.',
+    },
+    {
+      url: 'http://[::ffff:169.254.169.254]/latest/meta-data/',
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host ([::ffff:a9fe:a9fe]) is not allowlisted by workspace network policy for GET /latest/meta-data/ on port 80.',
+    },
+  ])('classifies the http_request IPv6 literal in $url without a DNS lookup', async ({
+    url,
+    error,
+  }) => {
+    // A public answer proves the literal itself is judged, not a DNS failure.
+    const lookupMock = vi.fn(async () => [
+      { address: '93.184.216.34', family: 4 },
+    ]);
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error });
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { address: '::ffff:7f00:1', family: 6 },
+    // Gateway-only: the fake-IP pool that the shared table leaves open.
+    { address: '198.18.0.1', family: 4 },
+    { address: '::ffff:c612:1', family: 6 },
+    { address: '64:ff9b::c612:1', family: 6 },
+  ])('blocks http_request hosts whose DNS answer is $address', async (answer) => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [answer]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url: 'https://internal.example.com/admin' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (internal.example.com) is not allowlisted by workspace network policy for GET /admin on port 443.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('sends http_request to a public IPv6 literal without a DNS lookup', async () => {
+    const lookupMock = vi.fn(async () => {
+      throw new Error('dns unavailable');
+    });
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url: 'https://[2606:4700:4700::1111]/dns-query' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://[2606:4700:4700::1111]/dns-query',
+    );
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
   test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {
     const dataDir = makeTempDataDir();
     const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');

@@ -17,6 +17,7 @@ import {
   Agent as UndiciAgent,
 } from 'undici';
 
+import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
@@ -166,39 +167,30 @@ type SecretResolveContext = {
   selector?: string;
 };
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
-    return false;
-  }
-  if (parts[0] === 0) return true;
-  if (parts[0] === 10 || parts[0] === 127) return true;
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
-  if (parts[0] >= 224) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const normalized = ip.trim().toLowerCase();
-  return (
-    normalized === '::1' ||
-    normalized.startsWith('fc') ||
-    normalized.startsWith('fd') ||
-    normalized.startsWith('fe80:')
-  );
-}
+// 198.18.0.0/15 stays blocked here (owner-delegated call, 2026-09-23). The
+// shared table leaves it open because Clash, Surge, and sing-box TUN modes
+// answer DNS from it (fake-IP). Such an answer hides the real destination and
+// this proxy injects secrets, so it fails closed; those setups allowlist hosts
+// in workspace network policy. Accepting fake-IP answers here is deferred.
+const HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS = new net.BlockList();
+HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.addSubnet('198.18.0.0', 15, 'ipv4');
+// NAT64 form, as the shared table adds for each of its IPv4 ranges.
+HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.addSubnet(
+  '64:ff9b::198.18.0.0',
+  111,
+  'ipv6',
+);
 
 function isPrivateIp(ip: string): boolean {
-  const normalized = ip.replace(/^::ffff:/, '');
-  const version = net.isIP(normalized);
-  if (version === 4) return isPrivateIpv4(normalized);
-  if (version === 6) return isPrivateIpv6(normalized);
-  return false;
+  const family = net.isIP(ip);
+  if (family === 0) return false;
+  return (
+    isPrivateNetworkAddress(ip) ||
+    HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.check(
+      ip,
+      family === 4 ? 'ipv4' : 'ipv6',
+    )
+  );
 }
 
 function formatOutboundHttpError(error: unknown): string {
@@ -270,7 +262,12 @@ function normalizeResponseArtifactOptions(
 }
 
 async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
-  const host = hostname.trim().toLowerCase();
+  // URL.hostname keeps IPv6 literals bracketed; unbracket them so they are
+  // classified below instead of failing the DNS lookup.
+  const host = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/u, '$1');
   if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
