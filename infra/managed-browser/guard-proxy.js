@@ -2,10 +2,8 @@ import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
-import {
-  browserPrivateNetworkAllowed,
-  isPrivateBrowserIp,
-} from '../../container/shared/browser-navigation.js';
+import { browserPrivateNetworkAllowed } from '../../container/shared/browser-navigation.js';
+import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { evaluateTenantNavigation } from './policy.js';
 
 function send(res, status, text) {
@@ -95,7 +93,7 @@ async function resolveUpstreamAddress(hostname) {
   }
   if (
     !browserPrivateNetworkAllowed() &&
-    addresses.some((entry) => isPrivateBrowserIp(entry.address))
+    addresses.some((entry) => isPrivateNetworkAddress(entry.address))
   ) {
     throw new Error('private network targets are disabled');
   }

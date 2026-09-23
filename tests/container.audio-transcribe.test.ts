@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.doUnmock('node:child_process');
+  vi.doUnmock('node:dns/promises');
   if (ORIGINAL_WORKSPACE_ROOT == null) {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
@@ -199,6 +200,55 @@ describe('audio_transcribe tool', () => {
       'https://cdn.discordapp.com/attachments/1/2/clip.wav',
       expect.objectContaining({ redirect: 'manual' }),
     );
+  });
+
+  test.each([
+    'https://[::ffff:169.254.169.254]/latest/meta-data/clip.wav',
+    'https://[::ffff:127.0.0.1]/clip.wav',
+    'https://[::1]/clip.wav',
+    'https://[fe80::1]/clip.wav',
+  ])('rejects remote audio on private IPv6 literal %s before fetching', async (audio) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+
+    const result = await executeToolWithMetadata(
+      'audio_transcribe',
+      JSON.stringify({ audio }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('audio URL host is not allowed');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects remote audio hosts that resolve to IPv4-mapped private addresses', async () => {
+    const lookupMock = vi.fn(async () => [
+      { address: '::ffff:7f00:1', family: 6 },
+    ]);
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+
+    const result = await executeToolWithMetadata(
+      'audio_transcribe',
+      JSON.stringify({ audio: 'https://audio.example/clip.wav' }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'audio URL resolves to a private network address',
+    );
+    expect(lookupMock).toHaveBeenCalledWith('audio.example', {
+      all: true,
+      verbatim: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('detect-language returns metadata only and skips transcript artifacts', async () => {

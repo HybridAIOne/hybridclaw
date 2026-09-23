@@ -12,6 +12,15 @@
 
 ### Fixed
 
+- **SSRF guards block IPv6 spellings of private hosts**: Browser navigation,
+  the managed-browser guard proxy, and remote `audio_transcribe` fetches now
+  reject IPv6 literals such as `http://[::ffff:169.254.169.254]/` (cloud
+  metadata), `[::ffff:127.0.0.1]`, `[::1]`, and `[fd00:ec2::254]`. The URL
+  parser rewrites IPv4-mapped hosts to hex (`::ffff:a9fe:a9fe`), which these
+  guards did not decode, and the browser guard sent every bracketed IPv6
+  literal to a DNS lookup whose failure let it through. The container SSRF
+  guards share one private-range table that also covers IPv4-compatible and
+  NAT64 (`64:ff9b::/96`) forms.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

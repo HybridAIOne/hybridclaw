@@ -2,10 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { estimateAudioTranscriptionCostUsd } from '../shared/audio-transcription-pricing.js';
+import { isPrivateNetworkAddress } from '../shared/private-network.js';
 import {
   classifyProviderError,
   shouldFallbackProviderError,
@@ -221,66 +221,6 @@ function normalizeHostname(hostname: string): string {
   return normalized;
 }
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-
-  const [a, b] = parts;
-  if (a === 0) return true;
-  if (a === 10 || a === 127) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a >= 224) return true;
-  return false;
-}
-
-function decodeIpv4MappedIpv6Tail(value: string): string | null {
-  if (net.isIP(value) === 4) return value;
-
-  const parts = value.split(':');
-  if (parts.length !== 2) return null;
-
-  const words = parts.map((part) => Number.parseInt(part, 16));
-  if (
-    words.length !== 2 ||
-    words.some((part) => Number.isNaN(part) || part < 0 || part > 0xffff)
-  ) {
-    return null;
-  }
-  return [
-    (words[0] >> 8) & 0xff,
-    words[0] & 0xff,
-    (words[1] >> 8) & 0xff,
-    words[1] & 0xff,
-  ].join('.');
-}
-
-function isUnsafeIpAddress(address: string): boolean {
-  const normalized = normalizeHostname(address);
-  if (net.isIP(normalized) === 4) return isPrivateIpv4(normalized);
-  if (net.isIP(normalized) === 6) {
-    if (
-      normalized === '::1' ||
-      normalized === '::' ||
-      normalized.startsWith('fc') ||
-      normalized.startsWith('fd') ||
-      normalized.startsWith('fe80:')
-    ) {
-      return true;
-    }
-    const mapped = decodeIpv4MappedIpv6Tail(normalized);
-    if (mapped) return isPrivateIpv4(mapped);
-  }
-  return false;
-}
-
 async function assertSafeRemoteUrl(rawUrl: string): Promise<URL> {
   let parsed: URL;
   try {
@@ -295,12 +235,16 @@ async function assertSafeRemoteUrl(rawUrl: string): Promise<URL> {
   if (isSafeDiscordCdnUrl(rawUrl)) return parsed;
 
   const hostname = normalizeHostname(parsed.hostname);
-  if (!hostname || hostname === 'localhost' || isUnsafeIpAddress(hostname)) {
+  if (
+    !hostname ||
+    hostname === 'localhost' ||
+    isPrivateNetworkAddress(hostname)
+  ) {
     throw new Error('audio URL host is not allowed');
   }
 
   const records = await lookup(hostname, { all: true, verbatim: false });
-  if (records.some((record) => isUnsafeIpAddress(record.address))) {
+  if (records.some((record) => isPrivateNetworkAddress(record.address))) {
     throw new Error('audio URL resolves to a private network address');
   }
   // DNS is still resolved separately from fetch; redirect blocking below closes

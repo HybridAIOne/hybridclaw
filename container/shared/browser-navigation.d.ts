@@ -1,4 +1,3 @@
-export function isPrivateBrowserIp(ip: string): boolean;
 export function isPrivateBrowserHost(hostname: unknown): Promise<boolean>;
 export function browserPrivateNetworkAllowed(
   env?: Record<string, string | undefined>,
