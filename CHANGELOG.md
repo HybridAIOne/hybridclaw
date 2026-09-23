@@ -26,6 +26,14 @@
   them, much like ripgrep skipping hidden and ignored files; the output says
   how many files were skipped, and naming them (for example
   `include: ".env*"`) searches them after explicit approval.
+- **Connector credential changes require secret permissions**: Saving the
+  HybridAI API key and starting a connector OAuth flow require
+  `secret.overwrite`, and logging a connector out requires `secret.unset`, for
+  scoped admin sessions and scoped API tokens alike. The admin route gate left
+  every `secret.*` action to the route handler, and the connector handler never
+  checked it. `admin.integrations_manager`, `admin.config_manager`, and
+  `admin:operator` now get 403 on these routes unless they also hold the secret
+  actions.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
