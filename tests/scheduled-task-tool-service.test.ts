@@ -37,6 +37,9 @@ async function setup() {
   const { runScheduledTaskToolAction } = await import(
     '../src/gateway/scheduled-task-tool-service.ts'
   );
+  const { listManageableScheduledTasks } = await import(
+    '../src/gateway/scheduled-task-access.ts'
+  );
   const { GatewayRequestError } = await import(
     '../src/errors/gateway-request-error.ts'
   );
@@ -48,6 +51,8 @@ async function setup() {
     rearmScheduler,
     createJob,
     getAllJobs,
+    getOrCreateSession,
+    listManageableScheduledTasks,
     markJobFailure,
     runScheduledTaskToolAction,
     GatewayRequestError,
@@ -321,6 +326,121 @@ test('update rejects a task belonging to a different session', async () => {
         sessionId: 'session-1',
         taskId: otherTaskId,
         prompt: 'stolen',
+      }),
+    ),
+  ).toBe(404);
+});
+
+
+test('web chats of the same agent can list, update, and remove prior web tasks', async () => {
+  const {
+    getAllJobs,
+    getOrCreateSession,
+    listManageableScheduledTasks,
+    runScheduledTaskToolAction,
+  } = await setup();
+  const first = getOrCreateSession('web-chat-1', null, 'web', 'main');
+  const second = getOrCreateSession('web-chat-2', null, 'web', 'main');
+  const taskId = runScheduledTaskToolAction({
+    action: 'add',
+    sessionId: first.id,
+    channelId: 'ops@example.com',
+    cronExpr: '0 9 * * *',
+    prompt: 'Check competitors.',
+  }).taskId;
+
+  expect(listManageableScheduledTasks(second).map((task) => task.id)).toContain(
+    taskId,
+  );
+  expect(
+    runScheduledTaskToolAction({
+      action: 'update',
+      sessionId: second.id,
+      taskId,
+      prompt: 'Check competitors and summarize changes.',
+    }),
+  ).toMatchObject({ taskId, prompt: 'Check competitors and summarize changes.' });
+  expect(getAllJobs({ kind: 'scheduled_task' })[0]).toMatchObject({
+    id: taskId,
+    session_id: first.id,
+    channel_id: 'ops@example.com',
+  });
+  expect(
+    runScheduledTaskToolAction({ action: 'remove', sessionId: second.id, taskId }),
+  ).toMatchObject({ taskId, action: 'remove' });
+  expect(getAllJobs({ kind: 'scheduled_task' })).toHaveLength(0);
+});
+
+test('web cron access excludes other agents and messaging sessions', async () => {
+  const {
+    createJob,
+    getOrCreateSession,
+    listManageableScheduledTasks,
+    runScheduledTaskToolAction,
+  } = await setup();
+  const ownWeb = getOrCreateSession('web-own', null, 'web', 'main');
+  const otherWeb = getOrCreateSession('web-other', null, 'web', 'other-agent');
+  const discord = getOrCreateSession(
+    'discord-other',
+    null,
+    'discord-channel-2',
+    'main',
+  );
+  const ownTaskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: ownWeb.id,
+    channelId: 'ops@example.com',
+    cronExpr: '0 9 * * *',
+    prompt: 'mine',
+  });
+  const otherTaskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: otherWeb.id,
+    channelId: 'other@example.com',
+    cronExpr: '0 9 * * *',
+    prompt: 'other agent',
+  });
+  const discordTaskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: discord.id,
+    channelId: 'discord-channel-2',
+    cronExpr: '0 9 * * *',
+    prompt: 'discord peer',
+  });
+
+  expect(listManageableScheduledTasks(ownWeb).map((task) => task.id)).toEqual([
+    ownTaskId,
+  ]);
+  expect(listManageableScheduledTasks(discord).map((task) => task.id)).toEqual([
+    discordTaskId,
+  ]);
+  for (const taskId of [otherTaskId, discordTaskId]) {
+    expect(
+      statusOf(() =>
+        runScheduledTaskToolAction({
+          action: 'update',
+          sessionId: ownWeb.id,
+          taskId,
+          prompt: 'changed',
+        }),
+      ),
+    ).toBe(404);
+    expect(
+      statusOf(() =>
+        runScheduledTaskToolAction({
+          action: 'remove',
+          sessionId: ownWeb.id,
+          taskId,
+        }),
+      ),
+    ).toBe(404);
+  }
+  expect(
+    statusOf(() =>
+      runScheduledTaskToolAction({
+        action: 'remove',
+        sessionId: discord.id,
+        taskId: ownTaskId,
       }),
     ),
   ).toBe(404);

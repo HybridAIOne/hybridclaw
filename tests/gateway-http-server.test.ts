@@ -12752,6 +12752,43 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('forwards a valid reasoning effort to the gateway handler', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'be direct', reasoningEffort: 'none' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningEffort: 'none' }),
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  test('rejects an invalid reasoning effort at the HTTP boundary', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'be direct', reasoningEffort: 'high' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Invalid `reasoningEffort`; expected none, low, medium, or xhigh.',
+    });
+  });
+
   test('accepts media-only chat requests and forwards media to the gateway handler', async () => {
     const state = await importFreshHealth();
     const media = [

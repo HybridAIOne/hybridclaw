@@ -64,7 +64,6 @@ import {
   logAudit,
   storeSemanticMemory,
 } from '../memory/db.js';
-import { getAllJobs } from '../memory/jobs.js';
 import {
   type BuildMemoryPromptResult,
   memoryService,
@@ -224,6 +223,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
@@ -2144,10 +2144,7 @@ async function handleGatewayMessageInner(
   };
 
   try {
-    const scheduledTasks = getAllJobs({
-      kind: 'scheduled_task',
-      sessionId: req.sessionId,
-    });
+    const scheduledTasks = listManageableScheduledTasks(session);
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {
@@ -2242,6 +2239,7 @@ async function handleGatewayMessageInner(
         enableRag,
         executorModeOverride: req.executorModeOverride,
         model: params.model,
+        reasoningEffort: req.reasoningEffort,
         agentId,
         addressEnvelope: req.addressEnvelope,
         workspacePathOverride: req.workspacePathOverride,
@@ -2352,6 +2350,7 @@ async function handleGatewayMessageInner(
         enableRag,
         executorModeOverride: req.executorModeOverride,
         model,
+        reasoningEffort: req.reasoningEffort,
         agentId,
         addressEnvelope: req.addressEnvelope,
         workspacePathOverride: req.workspacePathOverride,

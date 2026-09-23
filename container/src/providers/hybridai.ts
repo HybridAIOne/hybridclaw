@@ -1,5 +1,6 @@
 import { fetchHybridAIDestination } from '../../shared/hybridai-destination.js';
 import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
+import { getSupportedReasoningEfforts } from '../../shared/reasoning-effort.js';
 import type {
   AnthropicContentBlock,
   ChatCompletionResponse,
@@ -74,6 +75,19 @@ function buildHybridAIRequestBody(
     args.maxTokens > 0
   ) {
     request.max_tokens = Math.floor(args.maxTokens);
+  }
+  const reasoningEffort =
+    args.reasoningEffort &&
+    getSupportedReasoningEfforts('hybridai', model).includes(
+      args.reasoningEffort,
+    )
+      ? args.reasoningEffort
+      : undefined;
+  if (reasoningEffort) {
+    request.reasoning_effort = reasoningEffort;
+    request.chat_template_kwargs = {
+      enable_thinking: reasoningEffort !== 'none',
+    };
   }
   if (
     /^anthropic\/claude-(?:sonnet-(?:4-6|5)|opus-4-(?:6|7|8))(?:$|-)/.test(

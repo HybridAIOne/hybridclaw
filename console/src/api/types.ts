@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
 export const LOG_LEVELS = [
   'fatal',
@@ -1086,6 +1087,7 @@ export interface ChatModel {
   isReasoning: boolean;
   family: string | null;
   parameterSize: string | null;
+  supportedReasoningEfforts?: ReasoningEffort[];
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {

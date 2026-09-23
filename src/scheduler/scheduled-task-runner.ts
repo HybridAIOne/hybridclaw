@@ -1,5 +1,6 @@
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import { isSilentReply } from '../agent/silent-reply.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -216,10 +217,12 @@ export async function runIsolatedScheduledTask(params: {
         username: null,
         content: output.result,
       });
-      await onResult({
-        text: output.result,
-        artifacts: output.artifacts,
-      });
+      if (!isSilentReply(output.result)) {
+        await onResult({
+          text: output.result,
+          artifacts: output.artifacts,
+        });
+      }
       recordAuditEvent({
         sessionId: activeSessionId,
         runId,

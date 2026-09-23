@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
   AddressEnvelope,
@@ -21,6 +22,7 @@ export interface ExecutorRequest {
   enableRag: boolean;
   executorModeOverride?: 'host' | 'container';
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   agentId?: string;
   addressEnvelope?: AddressEnvelope;
   workspacePathOverride?: string;
