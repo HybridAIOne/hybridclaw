@@ -1,6 +1,18 @@
+/**
+ * Workspace `glob` and `grep` tools: bounded, deterministic directory walks.
+ *
+ * grep never reads a file matching a hard-coded pinned path (`.env*`,
+ * `~/.ssh/**`, `/etc/**`) unless its path or include arg names one, which the
+ * approval policy gates. glob lists names only and does not filter them.
+ * NOT the path fence: runtime-paths.ts decides which roots a search may reach.
+ */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  HARD_PINNED_PATH_PATTERNS,
+  matchesHardPinnedPath,
+} from '../pinned-paths.js';
 import {
   replaceWorkspaceRootInOutput,
   resolveWorkspaceGlobPattern,
@@ -643,6 +655,12 @@ function buildSearchStatusNote(
   return `Results truncated due to ${status.reason}. Try narrowing the search scope.`;
 }
 
+function buildPinnedSkipNote(skippedFiles: number): string | null {
+  if (skippedFiles === 0) return null;
+  const noun = skippedFiles === 1 ? 'file' : 'files';
+  return `Skipped ${skippedFiles} ${noun} matching pinned paths (${HARD_PINNED_PATH_PATTERNS.join(', ')}). Set path or include to a pinned path to search them; that call needs approval.`;
+}
+
 function formatSearchOutput(
   items: string[],
   emptyMessage: string,
@@ -977,6 +995,11 @@ export function runGrepSearch(
     GREP_SEARCH_MAX_CONTEXT_LINES,
   );
   const searchPathArg = readStringValue(args.path);
+  // The approval policy gates calls whose path or include names a pinned path,
+  // but it cannot see which files a walk reaches, so other calls skip them.
+  const skipPinnedFiles = ![searchPathArg, includePattern].some(
+    (value) => value !== undefined && matchesHardPinnedPath(value),
+  );
   let searchPath = WORKSPACE_ROOT;
   if (isTaskSandboxSearchEnabled()) {
     searchPath =
@@ -1021,11 +1044,16 @@ export function runGrepSearch(
   let status = fileCollection.status;
   let totalChars = 0;
   let matchCount = 0;
+  let skippedPinnedFiles = 0;
 
   for (const filePath of fileCollection.files) {
     if (Date.now() >= deadlineAt) {
       status = SEARCH_STATUS_TIMEOUT;
       break;
+    }
+    if (skipPinnedFiles && matchesHardPinnedPath(filePath)) {
+      skippedPinnedFiles += 1;
+      continue;
     }
 
     const content = isTaskSandboxSearchEnabled()
@@ -1107,9 +1135,14 @@ export function runGrepSearch(
     if (isSearchDone(status)) break;
   }
 
-  const note = buildSearchStatusNote(status, 'grep', GREP_SEARCH_TIMEOUT_MS);
+  const note = [
+    buildSearchStatusNote(status, 'grep', GREP_SEARCH_TIMEOUT_MS),
+    buildPinnedSkipNote(skippedPinnedFiles),
+  ]
+    .filter(Boolean)
+    .join(' ');
   return {
-    output: formatSearchOutput(matches, 'No matches found.', note),
+    output: formatSearchOutput(matches, 'No matches found.', note || null),
     isError: false,
   };
 }

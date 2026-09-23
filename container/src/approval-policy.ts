@@ -39,7 +39,11 @@ import {
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import {
-  expandUserPath,
+  matchesHardPinnedPath,
+  matchesPathPattern,
+  normalizePathValue,
+} from './pinned-paths.js';
+import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -685,64 +689,12 @@ function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
   };
 }
 
-function globPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\/\*\*$/, '::DIR_DOUBLE_STAR::')
-    .replace(/\*\*/g, '::DOUBLE_STAR::')
-    .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*')
-    // Like picomatch, `dir/**` also matches `dir` itself: searching that
-    // directory reaches everything below it.
-    .replace('::DIR_DOUBLE_STAR::', '(?:/.*)?');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function normalizePathValue(rawPath: string): string {
-  const value = rawPath.trim().replace(/\\/g, '/');
-  const withoutWorkspace = value.startsWith('/workspace/')
-    ? value.slice('/workspace/'.length)
-    : value;
-  return withoutWorkspace.replace(/^\.\/+/, '').replace(/^\/+/, '');
-}
-
-// Resolve `~` and `..` the way file tools do, so `/home/me/.ssh/id_rsa` and
-// `/workspace/../etc/passwd` meet the same pinned rules as their short forms.
-function normalizeAbsolutePathValue(rawPath: string): string {
-  return path.posix.normalize(expandUserPath(rawPath).replace(/\\/g, '/'));
-}
-
 function isRootBootstrapPath(rawPath: string): boolean {
   const value = rawPath.trim();
   if (!value) return false;
 
   const relativePath = toWorkspaceRelativePath(value);
   return relativePath === 'BOOTSTRAP.md';
-}
-
-function matchesPathPattern(candidatePath: string, pattern: string): boolean {
-  const normalizedCandidate = normalizePathValue(candidatePath);
-  const normalizedPattern = pattern.trim().replace(/\\/g, '/');
-  if (!normalizedPattern) return false;
-
-  // Relative patterns (e.g. ".env*") should match both root and any nested path.
-  if (
-    !normalizedPattern.startsWith('/') &&
-    !normalizedPattern.startsWith('~/')
-  ) {
-    const relativePattern = normalizedPattern.replace(/^\.\//, '');
-    const relRe = globPatternToRegExp(relativePattern);
-    if (relRe.test(normalizedCandidate)) return true;
-    // Only slash-free patterns match a file name at any depth; `secrets/**`
-    // must not match an unrelated file named `docs/secrets`.
-    if (relativePattern.includes('/')) return false;
-    return relRe.test(path.posix.basename(normalizedCandidate));
-  }
-
-  const absoluteRe = globPatternToRegExp(
-    normalizeAbsolutePathValue(normalizedPattern),
-  );
-  return absoluteRe.test(normalizeAbsolutePathValue(candidatePath));
 }
 
 function lookupPathHints(
@@ -3810,13 +3762,8 @@ export class TrustedAgentApprovalRuntime {
     const fullText =
       `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
 
-    // Hard-coded pinned path safety net.
-    const hardPinnedPaths = ['.env*', '/etc/**', '~/.ssh/**'];
-    for (const pathHint of input.pathHints) {
-      if (
-        hardPinnedPaths.some((pattern) => matchesPathPattern(pathHint, pattern))
-      )
-        return true;
+    if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
+      return true;
     }
     if (fullText.includes('git push --force')) return true;
 
