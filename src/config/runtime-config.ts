@@ -2186,7 +2186,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultStart: '',
     escalationStickyTurns: 3,
     mode: 'auto',
-    concierge: { model: '', comparisonModel: 'jev/jev-latest' },
+    concierge: { model: '', comparisonModel: '' },
   },
   heartbeat: {
     enabled: true,
@@ -7114,7 +7114,11 @@ function normalizeRoutingConciergeConfig(
 ): RuntimeRoutingConciergeConfig {
   const raw = isRecord(value) ? value : {};
   return {
-    model: normalizeString(raw.model, fallback.model, { allowEmpty: true }),
+    // Preserve the shipped v1 opt-out when upgrading to the shared router.
+    model:
+      raw.enabled === false
+        ? ''
+        : normalizeString(raw.model, fallback.model, { allowEmpty: true }),
     comparisonModel: normalizeString(
       raw.comparisonModel,
       fallback.comparisonModel,

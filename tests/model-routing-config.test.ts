@@ -293,3 +293,10 @@ test('HybridAI OpenAI routes save under EU hosting but not EU-provider privacy',
   expect(() => mod.saveRuntimeConfig(draft)).toThrow('selected privacy limit');
   expect(mod.getRuntimeConfig().routing.maximumZone).toBe('region');
 });
+
+test('upgrade preserves a disabled v1 concierge and leaves comparison opt-in', async () => {
+ fs.mkdirSync(path.join(homeDir,'.hybridclaw'),{recursive:true});
+ fs.writeFileSync(path.join(homeDir,'.hybridclaw/config.json'),JSON.stringify({routing:{concierge:{enabled:false,model:'gemini-3-flash'}}}));
+ const {getRuntimeConfig}=await loadConfigModule();
+ expect(getRuntimeConfig().routing.concierge).toEqual({model:'',comparisonModel:''});
+});

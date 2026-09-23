@@ -3,6 +3,7 @@
  * Memory activity reflects actual recall or an included summary; eligibility,
  * session scope, and confidence policy belong to the memory service.
  * The unified policy owns tier selection and privacy eligibility for model calls.
+ * Shadow work runs beside execution and settles before final usage accounting.
  * Transports own authorization; transcript evidence never authorizes execution.
  */
 
@@ -112,7 +113,7 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import type { ContainerOutput, MediaContextItem } from '../types/container.js';
+import type { ContainerOutput } from '../types/container.js';
 import {
   type ArtifactMetadata,
   normalizeEscalationTarget,
@@ -198,11 +199,7 @@ import {
   shouldForceNewTuiSession,
   trackObservedToolCall,
 } from './gateway-service.js';
-import type {
-  GatewayChatRequest,
-  GatewayChatResult,
-  GatewayMessageComponents,
-} from './gateway-types.js';
+import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   extensionToMimeType,
   firstNumber,
@@ -229,7 +226,6 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
-import { isJevAvailable } from './routing-evaluator.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
@@ -657,30 +653,11 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
   };
 }
 
-interface ConciergeRouterMetadata {
-  profile?: string;
-  model?: string;
-  notice?: string | null;
-  effectiveUserTurnContent?: string;
-  effectiveUserTurnContentExpanded?: string;
-  effectiveUserTurnContentStripped?: string;
-  media?: MediaContextItem[];
-  components?: GatewayMessageComponents;
-}
-
 interface TierRouterMetadata {
   taxonomy?: string;
   startTier?: string;
   model?: string;
   reason?: string;
-}
-
-function getConciergeRouterMetadata(
-  event: MiddlewareEvent | undefined,
-): ConciergeRouterMetadata | null {
-  const raw = event?.metadata?.conciergeRouter;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  return raw as ConciergeRouterMetadata;
 }
 
 function getTierRouterMetadata(
@@ -689,31 +666,6 @@ function getTierRouterMetadata(
   const raw = event?.metadata?.tierRouter;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   return raw as TierRouterMetadata;
-}
-
-function resolvePluginRoutingModel(params: {
-  configuredModel?: string;
-  currentModel: string;
-  chatbotId: string;
-  profile?: string;
-}): string {
-  const configuredModel = String(params.configuredModel || '').trim();
-  if (!configuredModel) return params.currentModel;
-  if (!modelRequiresChatbotId(configuredModel) || params.chatbotId) {
-    return configuredModel;
-  }
-  if (!modelRequiresChatbotId(params.currentModel)) {
-    logger.info(
-      {
-        currentModel: params.currentModel,
-        configuredModel,
-        profile: params.profile,
-      },
-      'Routing middleware kept the current model because the configured model requires a chatbot',
-    );
-    return params.currentModel;
-  }
-  return configuredModel;
 }
 
 function captureGatewayChatResultError(params: {
@@ -1268,7 +1220,7 @@ async function handleGatewayMessageInner(
       activeGatewayRequest.release();
     }
   }
-  let media = normalizeMediaContextItems(req.media);
+  const media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
@@ -1377,9 +1329,9 @@ async function handleGatewayMessageInner(
     message: userTurnContent,
     ...contextReferenceOptions,
   });
-  let effectiveUserTurnContent = userTurnContent;
+  const effectiveUserTurnContent = userTurnContent;
   let effectiveUserTurnContentExpanded = contextRefResult.message;
-  let effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
+  const effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
   const canonicalContextScope = resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
@@ -1422,7 +1374,6 @@ async function handleGatewayMessageInner(
   );
   if (explicitModelPinned) setRoutingTraceMode('direct', 'explicit-model');
   const policyStickyTier = peekStickyModelRoutingTier(req.sessionId);
-  let routingExecutionNotice: string | null = null;
   let tierRoutingLadder: ResolvedLadder | null = null;
   let manuallyEscalatedRouting = false;
   if (pluginManager?.hasMiddleware('routing')) {
@@ -1449,12 +1400,6 @@ async function handleGatewayMessageInner(
       userContent: effectiveUserTurnContentExpanded,
       media,
     });
-    const routingEvent = routingOutcome.events.find((event) =>
-      Boolean(event.metadata?.conciergeRouter),
-    );
-    const routingMetadata = getConciergeRouterMetadata(routingEvent);
-    if (routingMetadata)
-      setRoutingTraceMode('concierge', `concierge-${routingMetadata.profile}`);
     const tierRoutingEvent = routingOutcome.events.find((event) =>
       Boolean(event.metadata?.tierRouter),
     );
@@ -1473,13 +1418,9 @@ async function handleGatewayMessageInner(
       );
     }
     if (routingOutcome.blocked) {
-      const blockedMedia = normalizeMediaContextItems(
-        routingMetadata?.media ?? media,
-      );
+      const blockedMedia = normalizeMediaContextItems(media);
       const blockedUserContent =
-        routingMetadata?.effectiveUserTurnContent ??
-        routingOutcome.userContent ??
-        effectiveUserTurnContentExpanded;
+        routingOutcome.userContent ?? effectiveUserTurnContentExpanded;
       const routingUserContent = buildStoredUserTurnContent(
         blockedUserContent,
         blockedMedia,
@@ -1516,8 +1457,6 @@ async function handleGatewayMessageInner(
         agentId,
         model,
         provider,
-        components:
-          source === 'discord' ? routingMetadata?.components : undefined,
         toolsUsed: [],
         assistantPresentation:
           getGatewayAssistantPresentationForMessageAgent(agentId),
@@ -1527,35 +1466,8 @@ async function handleGatewayMessageInner(
       await emitPostTurnForResult(result);
       return attachSessionIdentity(result);
     }
-    if (routingMetadata) {
-      model = resolvePluginRoutingModel({
-        configuredModel: routingMetadata.model,
-        currentModel: model,
-        chatbotId,
-        profile: routingMetadata.profile,
-      });
-      provider = resolveModelProvider(model);
-      routingExecutionNotice =
-        typeof routingMetadata.notice === 'string'
-          ? routingMetadata.notice
-          : null;
-      media = normalizeMediaContextItems(routingMetadata.media ?? media);
-      effectiveUserTurnContent =
-        typeof routingMetadata.effectiveUserTurnContent === 'string'
-          ? routingMetadata.effectiveUserTurnContent
-          : routingOutcome.userContent;
-      effectiveUserTurnContentExpanded =
-        typeof routingMetadata.effectiveUserTurnContentExpanded === 'string'
-          ? routingMetadata.effectiveUserTurnContentExpanded
-          : routingOutcome.userContent;
-      effectiveUserTurnContentStripped =
-        typeof routingMetadata.effectiveUserTurnContentStripped === 'string'
-          ? routingMetadata.effectiveUserTurnContentStripped
-          : routingOutcome.userContent;
-    } else {
-      effectiveUserTurnContentExpanded = routingOutcome.userContent;
-    }
-    if (tierRoutingMetadata?.startTier && !routingMetadata) {
+    effectiveUserTurnContentExpanded = routingOutcome.userContent;
+    if (tierRoutingMetadata?.startTier) {
       manuallyEscalatedRouting =
         tierRoutingMetadata.reason === 'manual-escalate';
       tierRoutingLadder = resolveLadder(getRuntimeConfig().routing, {
@@ -1574,6 +1486,7 @@ async function handleGatewayMessageInner(
   }
   const routingConfig = getRuntimeConfig().routing;
   let unifiedRoutingReason: string | undefined;
+  let shadowCompletion: Promise<void> | undefined;
   if (routingConfig.enabled) {
     const policyConfig = {
       ...routingConfig,
@@ -1591,56 +1504,63 @@ async function handleGatewayMessageInner(
       ),
       signal: activeGatewayRequest.signal,
     };
-    const [classification, shadow] = await Promise.all([
-      classifyRouting({
-        ...classifierInput,
-        ...(explicitModelPinned || !isInteractiveSource ? { model: '' } : {}),
-      }),
+    const minimumTier = manuallyEscalatedRouting
+      ? (tierRoutingLadder?.startTier ?? undefined)
+      : policyStickyTier;
+    const liveClassification = classifyRouting({
+      ...classifierInput,
+      ...(explicitModelPinned || !isInteractiveSource ? { model: '' } : {}),
+    });
+    const shadowClassification =
       !explicitModelPinned &&
       isInteractiveSource &&
       routingConfig.concierge.comparisonModel &&
-      routingConfig.concierge.comparisonModel !==
-        routingConfig.concierge.model &&
-      (!routingConfig.concierge.comparisonModel.startsWith('jev/') ||
-        isJevAvailable())
+      routingConfig.concierge.comparisonModel !== routingConfig.concierge.model
         ? classifyRouting({
             ...classifierInput,
             model: routingConfig.concierge.comparisonModel,
             comparison: true,
-            publicSample: true,
+            configuredComparison: true,
           })
-        : Promise.resolve(null),
-    ]);
-    if (shadow) {
-      const shadowDecision = selectRoutingPolicy({
-        config: policyConfig,
-        ...shadow,
-        metadata: getModelCatalogMetadata,
-        minimumTier: manuallyEscalatedRouting
-          ? (tierRoutingLadder?.startTier ?? undefined)
-          : policyStickyTier,
+        : Promise.resolve(null);
+    shadowCompletion = shadowClassification
+      .then((shadow) => {
+        if (shadow) {
+          const shadowDecision = selectRoutingPolicy({
+            config: policyConfig,
+            ...shadow,
+            metadata: getModelCatalogMetadata,
+            minimumTier,
+          });
+          recordRoutingEvaluation(
+            {
+              ...shadow.evaluation,
+              recommendedTier:
+                shadow.evaluation.status === 'evaluated'
+                  ? shadowDecision.ladder.startTier
+                  : null,
+              selectedModel:
+                shadow.evaluation.status === 'evaluated'
+                  ? (shadowDecision.ladder.tiers[
+                      shadowDecision.ladder.startIndex
+                    ]?.models[0] ?? null)
+                  : null,
+              reason:
+                shadow.evaluation.status === 'evaluated'
+                  ? shadowDecision.reason
+                  : shadow.evaluation.reason,
+              applied: false,
+            },
+            true,
+          );
+        }
+      })
+      .catch(() => {
+        logger.warn(
+          'Shadow routing evaluation failed; live routing is unchanged',
+        );
       });
-      recordRoutingEvaluation(
-        {
-          ...shadow.evaluation,
-          recommendedTier:
-            shadow.evaluation.status === 'evaluated'
-              ? shadowDecision.ladder.startTier
-              : null,
-          selectedModel:
-            shadow.evaluation.status === 'evaluated'
-              ? (shadowDecision.ladder.tiers[shadowDecision.ladder.startIndex]
-                  ?.models[0] ?? null)
-              : null,
-          reason:
-            shadow.evaluation.status === 'evaluated'
-              ? shadowDecision.reason
-              : shadow.evaluation.reason,
-          applied: false,
-        },
-        true,
-      );
-    }
+    const classification = await liveClassification;
     const decision = selectRoutingPolicy({
       config: policyConfig,
       ...classification,
@@ -2313,11 +2233,6 @@ async function handleGatewayMessageInner(
       },
       'Gateway chat invoking agent',
     );
-    if (routingExecutionNotice) {
-      if (!outputGuardActive) {
-        req.onTextDelta?.(routingExecutionNotice);
-      }
-    }
     recordAuditEvent({
       sessionId: req.sessionId,
       runId,
@@ -2502,6 +2417,9 @@ async function handleGatewayMessageInner(
       });
     }
     const executionDurationMs = Date.now() - executionStartedAt;
+    // The shadow call runs alongside execution, never before dispatch. Settle it
+    // before final accounting so comparison usage stays attached to this turn.
+    await shadowCompletion;
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
@@ -2581,7 +2499,7 @@ async function handleGatewayMessageInner(
         tokenUsage: output.tokenUsage,
         usage: usagePayload,
       });
-      if (output.status === 'success')
+      if (output.status === 'success' && toolExecutions.length === 0)
         recordRoutingLatency(model, executionDurationMs);
       finishRoutingTraceAttempt({
         model,
@@ -2616,6 +2534,11 @@ async function handleGatewayMessageInner(
       for (let index = 0; index < routingAttempts.length; index += 1) {
         const attempt = routingAttempts[index];
         const attemptToolExecutions = attempt.output.toolExecutions || [];
+        if (
+          attempt.output.status === 'success' &&
+          attemptToolExecutions.length === 0
+        )
+          recordRoutingLatency(attempt.model, attempt.durationMs);
         const usagePayload = buildTokenUsageAuditPayload(
           messages,
           attempt.output.result,
@@ -2944,9 +2867,7 @@ async function handleGatewayMessageInner(
       (sideEffectNotice
         ? `${agentResultText}\n\n${sideEffectNotice}`
         : agentResultText);
-    const unnormalizedResultText = routingExecutionNotice
-      ? `${routingExecutionNotice}${rawResultText}`
-      : rawResultText;
+    const unnormalizedResultText = rawResultText;
     const normalizedResult = normalizeSilentMessageSendReply({
       status: 'success',
       result: unnormalizedResultText,

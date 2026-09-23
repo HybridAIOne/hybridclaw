@@ -118,13 +118,15 @@ export function selectRoutingPolicy(input: {
     const measured = candidates.filter(
       (candidate) => candidate.latency !== null,
     );
-    timingUnavailable = measured.length === 0;
-    if (config.mode === 'speed')
+    // Review decision (2026-09-23): partial measurements cannot eliminate unknown
+    // candidates. Keep configured order until every eligible candidate has timing.
+    timingUnavailable = measured.length !== candidates.length;
+    if (!timingUnavailable && config.mode === 'speed')
       selected =
         [...measured].sort(
           (a, b) => a.latency! - b.latency! || a.index - b.index,
         )[0] ?? selected;
-    else {
+    else if (!timingUnavailable) {
       const known = measured.filter((candidate) => candidate.cost !== null);
       const frontier = known.filter(
         (candidate) =>

@@ -74,7 +74,7 @@ function readLadder(config: AdminConfig, catalog: ChatModel[]): Ladder {
       model: (settingValue(config, 'routing.concierge.model') as string) ?? '',
       comparisonModel:
         (settingValue(config, 'routing.concierge.comparisonModel') as string) ??
-        'jev/jev-latest',
+        '',
     },
     showRoutingInfo: Boolean(settingValue(config, 'routing.showRoutingInfo')),
     evaluator: (settingValue(
@@ -501,7 +501,7 @@ export function RoutingConfiguration({
                 <label key={field} className={styles.field}>
                   {field === 'model'
                     ? '1st router · Live'
-                    : '2nd router · Compare'}
+                    : '2nd router · Compare (receives prompts)'}
                   <NativeSelect
                     value={
                       value.maximumZone !== 'cloud' &&
@@ -533,9 +533,7 @@ export function RoutingConfiguration({
                       )}
                     <option value="">
                       {field === 'model'
-                        ? value.maximumZone !== 'cloud'
-                          ? 'Choose an eligible router…'
-                          : 'Automatic · Gemma E4B'
+                        ? 'Configured tier · no classifier'
                         : 'Unset'}
                     </option>
                     {!(value.maximumZone !== 'cloud') && (

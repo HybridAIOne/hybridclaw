@@ -1,14 +1,12 @@
 /**
  * Classifies only the current eligible prompt, then feeds the shared tier policy.
  * Local disclosure denials precede transport; classifier failure preserves uncertainty.
+ * Disclosure guards never redefine the saved execution privacy boundary.
  * Neither JEV nor a text model may return an executable model identifier.
  */
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
-import {
-  getAvailableModelList,
-  getModelCatalogMetadata,
-} from '../providers/model-catalog.js';
+import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 import { modelRoutingZoneAllows } from '../providers/model-routing.js';
 import { evaluatorDisclosureReason } from '../routing/evaluator.js';
 import type { TypedRoutingEvaluation } from '../routing/evaluator-contract.js';
@@ -28,20 +26,21 @@ export async function classifyRouting(input: {
   model?: string;
   publicSample?: boolean;
   comparison?: boolean;
+  configuredComparison?: boolean;
 }) {
   const routing = getRuntimeConfig().routing;
-  const model =
-    input.model ??
-    (routing.concierge.model ||
-      getAvailableModelList().find((model) => /gemma.*e4b/i.test(model)) ||
-      '');
-  const disclosure = evaluatorDisclosureReason({
-    ...input,
-    approved: !input.comparison || input.publicSample === true,
-  });
-  const localOnly =
-    routing.maximumZone === 'local' ||
-    Boolean(disclosure && disclosure !== 'public-approval-required');
+  const model = input.model ?? routing.concierge.model;
+  const comparisonApproved = Boolean(
+    input.configuredComparison &&
+      routing.enabled &&
+      model &&
+      routing.concierge.comparisonModel === model,
+  );
+  const approved =
+    !input.comparison || input.publicSample === true || comparisonApproved;
+  const disclosure = evaluatorDisclosureReason({ ...input, approved });
+  // Classifier disclosure guards never override the operator's execution boundary.
+  const localOnly = routing.maximumZone === 'local';
   let signals = { ...UNKNOWN_SIGNALS };
   const evaluation: TypedRoutingEvaluation = {
     version: 1,
@@ -73,7 +72,7 @@ export async function classifyRouting(input: {
       },
       localOnly,
     };
-  if (input.comparison && !input.publicSample)
+  if (!approved)
     return {
       signals,
       evaluation: { ...evaluation, reason: 'public-approval-required' },
@@ -106,7 +105,8 @@ export async function classifyRouting(input: {
     const jev = await evaluateConfiguredRouting({
       ...input,
       concierge: !input.comparison,
-      playground: input.comparison,
+      playground: input.comparison && input.publicSample === true,
+      comparison: input.comparison && comparisonApproved,
       evaluatorModel: model.slice(4),
     });
     if (jev.status === 'evaluated') signals.tier = jev.recommendedTier;
@@ -121,7 +121,7 @@ export async function classifyRouting(input: {
   const started = Date.now();
   try {
     const result = await callAuxiliaryModel({
-      task: 'skills_hub',
+      task: 'routing_classifier',
       traceReason: 'routing-classifier',
       model,
       provider: 'auto',

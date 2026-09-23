@@ -246,9 +246,12 @@ it('saves independent live and comparison models and can unset comparison', asyn
   fireEvent.change(screen.getByLabelText('1st router · Live'), {
     target: { value: 'local-model' },
   });
-  fireEvent.change(screen.getByLabelText('2nd router · Compare'), {
-    target: { value: 'cloud-model' },
-  });
+  fireEvent.change(
+    screen.getByLabelText('2nd router · Compare (receives prompts)'),
+    {
+      target: { value: 'cloud-model' },
+    },
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
   await waitFor(() =>
     expect(mocks.save).toHaveBeenCalledWith(
@@ -260,9 +263,12 @@ it('saves independent live and comparison models and can unset comparison', asyn
       }),
     ),
   );
-  fireEvent.change(screen.getByLabelText('2nd router · Compare'), {
-    target: { value: '' },
-  });
+  fireEvent.change(
+    screen.getByLabelText('2nd router · Compare (receives prompts)'),
+    {
+      target: { value: '' },
+    },
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Save routing' }));
   await waitFor(() =>
     expect(mocks.save).toHaveBeenLastCalledWith(
@@ -281,8 +287,11 @@ it('shows JEV as disabled and comparison unset without a key', async () => {
   await renderEditor();
   await waitFor(() =>
     expect(
-      (screen.getByLabelText('2nd router · Compare') as HTMLSelectElement)
-        .value,
+      (
+        screen.getByLabelText(
+          '2nd router · Compare (receives prompts)',
+        ) as HTMLSelectElement
+      ).value,
     ).toBe(''),
   );
   expect(

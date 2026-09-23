@@ -1,7 +1,7 @@
 /**
  * Local disclosure policy gates every external classification before transport.
- * Callers must grant disclosure through admin-approved samples or an enabled
- * cloud concierge. Prompt content cannot grant permission. This is not a PII guarantee.
+ * Callers must grant disclosure through admin-approved samples or explicit
+ * live/comparison classifier selection. Prompt content cannot grant permission. This is not a PII guarantee.
  */
 import type {
   RoutingEvaluatorConfig,

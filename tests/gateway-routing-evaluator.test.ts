@@ -78,3 +78,18 @@ test.each(['local','hai','eu-provider','region'])('Labs JEV cannot cross the %s 
   expect(mocks.secret).not.toHaveBeenCalled();
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
+
+test('a key alone does not authorize comparison, while an explicit router selection does', async () => {
+ const config=mocks.config();
+ config.routing.enabled=true;
+ config.routing.evaluator.mode='off';
+ config.routing.concierge={model:'local/classifier',comparisonModel:''};
+ expect((await evaluateConfiguredRouting({text:'Explain gravity.',comparison:true,evaluatorModel:'jev-latest'})).status).toBe('blocked');
+ expect(mocks.secret).not.toHaveBeenCalled();
+ expect(mocks.fetch).not.toHaveBeenCalled();
+ config.routing.concierge.comparisonModel='jev/jev-latest';
+ const answers={tier:{type:'choice',choice:'first',confidence:1,probabilities:{first:1}}};
+ mocks.fetch.mockResolvedValue(new Response(JSON.stringify({model:'jev-test',answers,usage:{input_tokens:1,output_tokens:1}})));
+ expect((await evaluateConfiguredRouting({text:'Explain gravity.',comparison:true,evaluatorModel:'jev-latest'})).status).toBe('evaluated');
+ expect(mocks.secret).toHaveBeenCalledTimes(1);
+});

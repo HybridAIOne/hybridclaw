@@ -3,7 +3,7 @@
 **Models → Routing** (`/admin/model-routing`) owns one enable switch,
 one tier ladder, classifier selection, routing mode, shadow
 comparison and chat visibility. Save routing applies them together. Model assignments
-exist only in tiers. Privacy cannot be saved without a configured local tier model.
+exist only in tiers. Every selected privacy boundary must have an eligible configured model.
 
 Both classifiers choose the lowest configured tier capable of completing the task.
 They receive the same ordered tier names and descriptions. The recommended tier
@@ -12,13 +12,12 @@ and sticky tiers determine execution. Invalid or low-confidence decisions use th
 configured default. Explicit model pins skip classification but cannot bypass
 local-only restrictions.
 
-- Privacy admits only models marked local, including retry and fallback candidates.
-- Speed takes the first eligible model in configured order.
-- Cost minimizes known input-plus-output token rates across eligible models.
-  Unknown prices are never treated as zero; this is a rate comparison, not a
-  prediction of task token counts.
-- Auto uses a Pareto frontier of configured speed order and known token rate.
-  It minimizes equal normalized rank/cost scores. Tier order is a speed proxy, not measured latency.
+- Privacy selects the narrowest eligible hosting zone within the privacy boundary.
+- Speed uses median successful tool-free execution times. With incomplete timing
+  coverage, it keeps configured order rather than discarding unmeasured models.
+- Cost minimizes known input-plus-output token rates; unknown prices are not zero.
+- Auto uses the cost/time Pareto frontier when timing coverage is complete,
+  otherwise configured order. Timings are estimates, not benchmarks.
 
 The concierge can be rule-based (no classifier cost), JEV, or a catalog model.
 Both AI classifiers answer only the tier question. Text classifiers return one
@@ -28,10 +27,13 @@ Neither classifier assesses urgency, personal data, confidentiality or task type
 ## Shadow comparison in chat
 
 Select the **1st router · Live** and an optional **2nd router · Compare**.
-The first defaults to an available Gemma E4B model. The second defaults to JEV
-when its key is configured, otherwise remains inactive; choose Unset to disable it.
+Both selectors default to unset. An unset live classifier uses the configured
+starting tier. Selecting and saving a comparison model explicitly authorizes
+classification of eligible live prompts; adding a JEV key alone does not.
+The Labs evaluator mode and public-sample consent are separate controls.
 The live router determines execution; the comparison router evaluates the same eligible prompt in
-parallel. Chat tags show both decisions and separate classification costs. Expanded
+parallel with execution. Dispatch does not wait for the comparison; final accounting
+waits for its bounded completion so usage is recorded on the same turn. Chat tags show both decisions and separate classification costs. Expanded
 details show tier, proposed model, latency, usage and cost.
 A failed shadow call cannot change the live route. No model is substituted for a
 failed classifier. Missing usage/prices remain unavailable rather than zero.
@@ -48,8 +50,11 @@ rule belongs in `instructions`; `state` is the current prompt. See the
 Classification excludes history, memory, system prompts, attachments and expanded
 context. Local sensitive-content/instruction checks precede all classifier calls;
 these checks are defense in depth, not comprehensive PII detection. Detected
-sensitivity requires local execution in every mode. Privacy mode never calls a
-cloud classifier. An empty eligible local ladder fails closed. Provider errors
+signals skip classification, retaining the configured execution boundary.
+Attachments, oversized prompts and instruction signals also skip classification;
+they do not force a pinned or routed turn onto a local model. Explicit privacy
+boundaries still apply to classification, execution and fallback. An empty eligible
+ladder fails closed. Provider errors
 are sanitized; HTTP failures expose only the status code, never bodies or keys.
 These controls govern model routing, not independently authorized tool calls.
 
@@ -68,3 +73,13 @@ Chat shows the tier recommendation and JEV tier confidence, with local-only
 privacy restrictions when applicable. Full tier probabilities remain in Labs.
 The classifiers do not provide privacy detection; local disclosure checks and
 configured privacy policy remain the boundary, with the limitations stated above.
+
+## Review boundaries
+
+Classifier disclosure guards control additional classifier calls; they are not a
+sensitivity verdict and do not silently replace the saved execution boundary.
+Explicit privacy limits still fail closed for live, shadow, pinned and fallback
+models. Tests cover blocked transport, comparison opt-in, disabled-classifier
+migration, invalid responses and a failed or pending shadow call. Latency samples
+exclude failed and tool-using execution; partial timing coverage retains configured
+order. Live-provider accuracy and latency calibration remain unverified.

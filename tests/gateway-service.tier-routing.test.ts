@@ -364,3 +364,41 @@ test('JEV concierge failure retains the configured route with fallback evidence'
   expect(result.model).toBe('lmstudio/test-cheap');
   expect(result.routingTrace?.evaluation).toMatchObject({ applied: false, reason: 'credential-missing' });
 });
+
+test('dispatches execution before a pending shadow result and records tool-free routed latency', async () => {
+ const fixture=await createFixture();
+ fixture.updateRuntimeConfig(draft=>{draft.routing.concierge.comparisonModel='jev/jev-latest';draft.routing.showRoutingInfo=true;});
+ let completeShadow!: (value: unknown) => void;
+ evaluatorMock.mockImplementation(()=>new Promise(resolve=>{completeShadow=resolve;}));
+ runAgentMock.mockImplementation(async()=>{
+   expect(completeShadow).toBeTypeOf('function');
+   completeShadow({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'tier-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0,distributions:signals('general'),recommendedTier:'general',applied:false});
+   await new Promise(resolve=>setTimeout(resolve,5));
+   return {status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]};
+ });
+ const result=await fixture.handleGatewayMessage({sessionId:'pending-shadow',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ expect(result.status).toBe('success');
+ expect(result.routingTrace?.shadowEvaluation?.recommendedTier).toBe('general');
+ const {routingLatencyMs}=await import('../src/routing/latency.js');
+ expect(routingLatencyMs('lmstudio/test-cheap')).toBeGreaterThan(0);
+ expect(evaluatorMock).toHaveBeenCalledWith(expect.objectContaining({comparison:true}));
+ expect(evaluatorMock.mock.calls[0][0].publicSample).not.toBe(true);
+});
+
+test('a failed shadow classifier cannot fail a live turn', async () => {
+ const fixture=await createFixture();
+ fixture.updateRuntimeConfig(draft=>{draft.routing.concierge.comparisonModel='jev/jev-latest';});
+ evaluatorMock.mockRejectedValue(new Error('unexpected shadow failure'));
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
+ const result=await fixture.handleGatewayMessage({sessionId:'failed-shadow',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ expect(result.status).toBe('success');
+ expect(result.model).toBe('lmstudio/test-cheap');
+});
+
+test('tool execution time is excluded from routed latency samples', async () => {
+ const fixture=await createFixture();
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:['read_file'],toolExecutions:[{name:'read_file',arguments:'{}',result:'example',durationMs:1000}]});
+ await fixture.handleGatewayMessage({sessionId:'tool-latency',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Read a file.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ const {routingLatencyMs}=await import('../src/routing/latency.js');
+ expect(routingLatencyMs('lmstudio/test-cheap')).toBeNull();
+});

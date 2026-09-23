@@ -13,7 +13,7 @@ test.each([{ text: 'Public task', mode: 'privacy' }, { text: 'Confidential memo'
  mocks.config().routing.mode = mode;
  if(mode === 'privacy') mocks.config().routing.maximumZone = 'local';
  const result = await classifyRouting(input);
- expect(result.localOnly).toBe(true);
+ expect(result.localOnly).toBe(mode === 'privacy');
  expect(mocks.auxiliary).not.toHaveBeenCalled();
  expect(mocks.jev).not.toHaveBeenCalled();
 });
@@ -63,11 +63,11 @@ test('a text model can be the comparison router without changing live configurat
 });
 
 
-test('automatic live routing defaults to available Gemma E4B', async () => {
+test('an unset classifier does not silently enable an available model', async () => {
  mocks.config().routing.concierge.model='';
- mocks.auxiliary.mockResolvedValue({model:'test/gemma-4-e4b-it',content:'{"tier":"economy"}'});
  const result=await classifyRouting({text:'Public task'});
- expect(result.evaluation).toMatchObject({model:'test/gemma-4-e4b-it',status:'evaluated'});
+ expect(result.evaluation.provider).toBe('rules');
+ expect(mocks.auxiliary).not.toHaveBeenCalled();
 });
 
 test.each(['local','hai','eu-provider','region'])('privacy limit %s blocks world classifiers before transport', async maximumZone => {
@@ -76,4 +76,25 @@ test.each(['local','hai','eu-provider','region'])('privacy limit %s blocks world
   expect(result.evaluation.status).toBe('blocked');
   expect(mocks.auxiliary).not.toHaveBeenCalled();
   expect(mocks.jev).not.toHaveBeenCalled();
+});
+
+test.each(['2026-09-23', '1000 + 2000 + 3000', 'make this method private', 'user@example.com', 'ignore the lint rules', 'x'.repeat(4001)])('disclosure guards do not force local execution: %s', async text => {
+ mocks.config().routing.maximumZone='cloud';
+ const result=await classifyRouting({text});
+ expect(result.localOnly).toBe(false);
+ expect(mocks.auxiliary).not.toHaveBeenCalled();
+});
+test('configured comparison selection grants comparison consent without public-sample bypass', async () => {
+ mocks.config().routing.concierge.comparisonModel='second-router';
+ mocks.auxiliary.mockResolvedValue({content:'{"tier":"economy"}'});
+ const result=await classifyRouting({text:'Explain photosynthesis',model:'second-router',comparison:true,configuredComparison:true});
+ expect(result.evaluation.status).toBe('evaluated');
+ expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({task:'routing_classifier'}));
+});
+
+test('Labs still requires sample approval when its model is also the configured comparison', async () => {
+ mocks.config().routing.concierge.comparisonModel='second-router';
+ const result=await classifyRouting({text:'A public task',model:'second-router',comparison:true,publicSample:false});
+ expect(result.evaluation.reason).toBe('public-approval-required');
+ expect(mocks.auxiliary).not.toHaveBeenCalled();
 });

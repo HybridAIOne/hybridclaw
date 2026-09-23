@@ -1,6 +1,6 @@
 /**
  * Bridges opt-in evaluation to runtime settings and per-turn accounting.
- * Public samples or an enabled cloud concierge grant disclosure; local denials
+ * Public samples or explicit live/comparison model selection grant disclosure; local denials
  * apply before credentials or transport are accessed. It returns
  * evidence only; the chat runtime decides whether an existing route may change.
  */
@@ -23,6 +23,7 @@ export async function evaluateConfiguredRouting(input: {
   signal?: AbortSignal;
   playground?: boolean;
   concierge?: boolean;
+  comparison?: boolean;
   evaluatorModel?: string;
   publicSample?: boolean;
 }) {
@@ -33,7 +34,7 @@ export async function evaluateConfiguredRouting(input: {
         mode: 'active' as const,
         model: input.evaluatorModel ?? routing.concierge.model.slice(4),
       }
-    : input.playground
+    : input.playground || input.comparison
       ? {
           ...routing.evaluator,
           model: input.evaluatorModel ?? routing.evaluator.model,
@@ -44,9 +45,12 @@ export async function evaluateConfiguredRouting(input: {
     routing.maximumZone === 'cloud' &&
     (input.concierge
       ? routing.enabled && routing.concierge.model.startsWith('jev/')
-      : input.playground
-        ? input.publicSample === true
-        : config.publicPrompts.includes(input.text.trim()));
+      : input.comparison
+        ? routing.enabled &&
+          routing.concierge.comparisonModel === `jev/${config.model}`
+        : input.playground
+          ? input.publicSample === true
+          : config.publicPrompts.includes(input.text.trim()));
   const eligible =
     config.mode !== 'off' && !evaluatorDisclosureReason({ ...input, approved });
   const key = eligible

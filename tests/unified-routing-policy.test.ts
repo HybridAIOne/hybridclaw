@@ -69,3 +69,9 @@ test('HAI limit fails closed when the capability floor has only world models', (
   const result = route({maximumZone:'hai', tiers:[{name:'small',models:['local-small']},{name:'large',models:['cloud-large']}]}, {tier:'large'});
   expect(result.ladder.exhausted).toBe(true);
 });
+
+test.each(['speed','auto'])('%s keeps configured order when only an advanced model has timing', mode => {
+ const result=route({mode}, UNKNOWN_SIGNALS, {metadata: (model: string) => ({...metadata(model),latencyMs: model==='cloud-large'?10:null})});
+ expect(result.ladder.startTier).toBe('small');
+ expect(result.reason).toContain('timing unavailable');
+});

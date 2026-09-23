@@ -1,5 +1,5 @@
 /**
- * Recent successful execution times inform routing; classifier calls never enter this sample.
+ * Recent successful tool-free execution times inform routing; classifier calls never enter this sample.
  * Measurements are process-local estimates, not latency guarantees or billing data.
  */
 const samples = new Map<string, number[]>();
