@@ -2994,6 +2994,9 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminConnectorsWithPlatformState,
     testGatewayAdminConnector,
+    saveGatewayAdminHybridAIConnectorApiKey,
+    startGatewayAdminConnectorOAuth,
+    logoutGatewayAdminConnector,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
     getGatewayAdminSkillPackageFile,
@@ -8060,6 +8063,195 @@ describe('gateway HTTP server', () => {
     expect(state.reloadRuntimeConfig).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+  });
+
+  const connectorCredentialRoutes = [
+    {
+      method: 'PUT',
+      url: '/api/admin/connectors/hybridai/key',
+      body: { apiKey: 'test-key' },
+      service: 'saveGatewayAdminHybridAIConnectorApiKey',
+    },
+    {
+      method: 'POST',
+      url: '/api/admin/connectors/oauth/start',
+      body: { provider: 'microsoft365' },
+      service: 'startGatewayAdminConnectorOAuth',
+    },
+    {
+      method: 'POST',
+      url: '/api/admin/connectors/logout',
+      body: { provider: 'github' },
+      service: 'logoutGatewayAdminConnector',
+    },
+  ] as const;
+  const sameOriginBrowserHeaders = {
+    origin: 'https://console.example.test',
+    'sec-fetch-site': 'same-origin',
+  };
+
+  test.each(connectorCredentialRoutes)(
+    'denies $method $url to scoped sessions without the secret action',
+    async ({ method, url, body, service }) => {
+      const authSecret = 'connector-rbac-session-deny-auth-secret';
+      const state = await importFreshHealth({ authSecret });
+
+      for (const role of [
+        'admin.viewer',
+        'admin.integrations_manager',
+        'admin.config_manager',
+        'admin:operator',
+      ]) {
+        const req = makeRequest({
+          method,
+          url,
+          body,
+          headers: {
+            cookie: makeSessionCookie(authSecret, {
+              sessionId: 'admin-session-1',
+              actor: 'admin-user',
+              role,
+            }),
+            ...sameOriginBrowserHeaders,
+          },
+          noAuth: true,
+        });
+        const res = makeResponse();
+
+        state.handler(req as never, res as never);
+        await waitForResponse(res, (next) => next.writableEnded);
+
+        expect(res.statusCode, role).toBe(403);
+        expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+      }
+      expect(state[service]).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(connectorCredentialRoutes)(
+    'denies $method $url to scoped API tokens without the secret action',
+    async ({ method, url, body, service }) => {
+      const apiToken = 'hck_connector_reader';
+      const state = await importFreshHealth({
+        apiTokens: {
+          [apiToken]: {
+            id: 'ccc333ccc333',
+            label: 'connector-reader',
+            claims: { actions: ['status.read', 'admin.connectors.read'] },
+          },
+        },
+      });
+      const req = makeRequest({
+        method,
+        url,
+        body,
+        headers: { authorization: `Bearer ${apiToken}` },
+        noAuth: true,
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(state.verifyApiToken).toHaveBeenCalledWith(apiToken);
+      expect(state[service]).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+    },
+  );
+
+  test.each(connectorCredentialRoutes)(
+    'allows $method $url for callers holding the secret action',
+    async ({ method, url, body, service }) => {
+      const authSecret = 'connector-rbac-allow-auth-secret';
+      const apiToken = 'hck_connector_secret_writer';
+      const state = await importFreshHealth({
+        authSecret,
+        apiTokens: {
+          [apiToken]: {
+            id: 'ddd444ddd444',
+            label: 'connector-secret-writer',
+            claims: { actions: ['secret.overwrite', 'secret.unset'] },
+          },
+        },
+      });
+      const callers: Record<string, Record<string, string>> = {
+        'admin.security_manager session': {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'security-owner',
+            role: 'admin.security_manager',
+          }),
+          ...sameOriginBrowserHeaders,
+        },
+        'admin:secret-manager session': {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-2',
+            actor: 'secret-custodian',
+            roles: ['admin:secret-manager'],
+          }),
+          ...sameOriginBrowserHeaders,
+        },
+        'secret-scoped API token': { authorization: `Bearer ${apiToken}` },
+      };
+
+      for (const [caller, headers] of Object.entries(callers)) {
+        const req = makeRequest({ method, url, body, headers, noAuth: true });
+        const res = makeResponse();
+
+        state.handler(req as never, res as never);
+        await waitForResponse(res, (next) => next.writableEnded);
+
+        expect(res.statusCode, caller).toBe(200);
+      }
+      expect(state[service]).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  test('keeps audited handler denials on admin secret routes for scoped sessions', async () => {
+    const authSecret = 'secret-route-audit-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const cookie = makeSessionCookie(authSecret, {
+      sessionId: 'admin-session-1',
+      actor: 'admin-user',
+      role: 'admin:operator',
+    });
+
+    for (const { method, body } of [
+      { method: 'PUT', body: { value: 'denied-operator-secret' } },
+      { method: 'DELETE', body: undefined },
+    ]) {
+      const req = makeRequest({
+        method,
+        url: '/api/admin/secrets/SET_SECRET',
+        body,
+        headers: { cookie, ...sameOriginBrowserHeaders },
+        noAuth: true,
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode, method).toBe(403);
+      expect(res.body).not.toContain('denied-operator-secret');
+    }
+
+    expect(state.overwriteGatewayAdminSecret).not.toHaveBeenCalled();
+    expect(state.unsetGatewayAdminSecret).not.toHaveBeenCalled();
+    const failure = {
+      name: 'SET_SECRET',
+      audit: {
+        sessionId: 'admin-session-1',
+        actor: 'admin-user',
+        sourceIp: '127.0.0.1',
+      },
+      errorCode: 'forbidden',
+    };
+    expect(state.recordGatewayAdminSecretMutationFailure.mock.calls).toEqual([
+      [{ type: 'secret.overwritten', ...failure }],
+      [{ type: 'secret.unset', ...failure }],
+    ]);
   });
 
   test('allows unscoped HybridAI sessions as full admin sessions', async () => {

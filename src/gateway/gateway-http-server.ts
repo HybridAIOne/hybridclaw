@@ -2419,8 +2419,19 @@ function resolveAdminSecretAuditContext(
   };
 }
 
-function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
-  return action.startsWith('secret.');
+// Path-scoped on purpose: only the /api/admin/secrets handlers check their
+// secret.* action themselves, so denied mutations reach the secret audit
+// trail. A secret.* action mapped onto any other route (the connector
+// credential routes) is enforced at the gate like every other action.
+function shouldDeferAdminRbacToHandler(
+  pathname: string,
+  action: AdminRbacAction,
+): boolean {
+  return (
+    action.startsWith('secret.') &&
+    (pathname === '/api/admin/secrets' ||
+      pathname.startsWith('/api/admin/secrets/'))
+  );
 }
 
 function isAdminRouteActionAllowed(
@@ -2475,13 +2486,13 @@ function enforceAdminRouteRbac(
       sendJson(res, 403, { error: 'Forbidden.' });
       return false;
     }
-    if (shouldDeferAdminRbacToHandler(action)) return true;
+    if (shouldDeferAdminRbacToHandler(pathname, action)) return true;
     if (isAdminRouteActionAllowed(authContext, action)) return true;
     sendJson(res, 403, { error: 'Forbidden.' });
     return false;
   }
   if (!isAdminPath(pathname)) return true;
-  if (!action || shouldDeferAdminRbacToHandler(action)) return true;
+  if (!action || shouldDeferAdminRbacToHandler(pathname, action)) return true;
   if (isAdminRouteActionAllowed(authContext, action)) return true;
   sendJson(res, 403, { error: 'Forbidden.' });
   return false;

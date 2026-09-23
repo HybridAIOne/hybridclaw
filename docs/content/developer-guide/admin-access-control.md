@@ -43,6 +43,13 @@ can still issue narrower sessions by using explicit `actions` or `scope` claims.
 | `admin.terminal_operator` | Break-glass runtime maintainer | Terminal start, stop, stream, overview read, jobs read | General admin mutations, secrets, policy, config |
 | `admin.full` | Break-glass administrator | Entire admin action catalog | Nothing |
 
+Connector credential changes are secret mutations. Saving the HybridAI API key
+and starting a connector OAuth flow require `secret.overwrite`, and logging a
+connector out requires `secret.unset`. Only `admin.security_manager` and
+`admin.full` include them, or `admin:owner` and `admin:secret-manager` among
+the [ISO role bundles](./iso27001/access-control-matrix.md). Viewing connector
+status and running a connector test need only `admin.connectors.read`.
+
 ## Session Claim Examples
 
 Role-based session:
