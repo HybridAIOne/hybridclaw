@@ -12,6 +12,11 @@
 
 ### Fixed
 
+- **Competitor monitoring no longer copies its example**: The skill's
+  example watchlist and result block used a real company with plausible
+  numbers, and an agent wrote that example into its daily note, so the app
+  showed a made-up finding. The examples are now `<…>` templates with an
+  explicit rule to write only real targets and this run's findings.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

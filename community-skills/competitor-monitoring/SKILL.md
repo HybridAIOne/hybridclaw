@@ -41,13 +41,17 @@ user's language.
 at all — the tool is blocked there — so they can only know the full list from
 this file. Change it in the same step as the cron task, every time:
 
-```json
+```
 {"targets": [
-  {"id": "allianz-de", "name": "Allianz", "kind": "company",
-   "focus": "Tierversicherungen", "schedule": "täglich 07:30",
-   "url": "https://allianz.de", "task_id": 42}
+  {"id": "<target-id>", "name": "<display name>", "kind": "company",
+   "focus": "<what to watch>", "schedule": "<e.g. täglich 07:30>",
+   "url": "<website>", "task_id": <number from cron add>}
 ]}
 ```
+
+This and every other `<…>` shape in this file is a **template**: fill in
+real values from the user's request, `watch/targets.json` or this run. Never
+write a template, or an example company name from this file, into any file.
 
 `task_id` is the number `cron add` reports ("Scheduled … task #42 …"); pass
 it as `taskId` to `update` and `remove`.
@@ -70,13 +74,13 @@ This happens in a chat with the user, where `cron` is available.
 
    ```
    cron action=add
-     cron="30 7 * * *"
-     tz="Europe/Berlin"
+     cron="<minute> <hour> * * *"
+     tz="<user's IANA time zone>"
      channel="<the user's email address>"
      prompt="Competitor monitoring: use the competitor-monitoring skill,
-             read its SKILL.md and follow it. Target: allianz-de
-             (Allianz, https://allianz.de), kind=company,
-             focus: pet insurance."
+             read its SKILL.md and follow it. Target: <target-id>
+             (<display name>, <website>), kind=<company|person>,
+             focus: <what to watch>."
    ```
 
    - Pass `tz` with the user's IANA time zone so the run keeps its local time
@@ -155,14 +159,13 @@ Work strictly in this order:
    (step 8).
 7. **Then update the state.** `write watch/<id>.json`:
 
-   ```json
-   {"target": "allianz-de",
+   ```
+   {"target": "<target-id>",
     "snapshots": {
-      "https://allianz.de/preise": {"fetched_at": "…", "summary": "…",
-                                    "key_facts": {"Premium": "27,90 €"}}},
+      "<source url>": {"fetched_at": "<ISO time>", "summary": "<short>",
+                       "key_facts": {"<fact>": "<value>"}}},
     "reported": {
-      "Preis|https://allianz.de/preise|Premium 27,90 €":
-        {"id": "allianz-de-2026-09-21-1", "first_seen": "2026-09-21"}}}
+      "<fingerprint>": {"id": "<finding id>", "first_seen": "<YYYY-MM-DD>"}}}
    ```
 
    Keep `summary` short — this file is your memory, not an archive. Drop
@@ -175,11 +178,11 @@ Work strictly in this order:
    JSON, no tables, no sign-off. Exactly one of these shapes:
 
    - significant findings, one line each, at most five:
-     `Allianz: Beitrag für den Tier-OP-Schutz um 12 % erhöht — https://allianz.de/tierversicherung/preise`
-   - only minor findings: `Allianz: 2 kleinere Änderungen, Details in der App.`
-   - nothing new: `Allianz: nichts Neues.`
-   - baseline run: `Allianz: Beobachtung läuft, Ausgangsstand gespeichert.`
-   - the block could not be written: `Allianz: Lauf fehlgeschlagen — <reason in a few words>.`
+     `<Name>: <finding title> — <source url>`
+   - only minor findings: `<Name>: <n> kleinere Änderungen, Details in der App.`
+   - nothing new: `<Name>: nichts Neues.`
+   - baseline run: `<Name>: Beobachtung läuft, Ausgangsstand gespeichert.`
+   - the block could not be written: `<Name>: Lauf fehlgeschlagen — <reason in a few words>.`
 
 If you find nothing, write the block anyway, with `"findings": []`. The app
 tells "nothing happened" apart from "the run did not take place".
@@ -189,24 +192,32 @@ tells "nothing happened" apart from "the run did not take place".
 The app reads **only** this block. Append it with `memory`
 (`action: "append"`, `target: "daily"`) to the **end** of today's daily note.
 
+The shape — a template, not data. Every `<…>` is replaced with real values;
+the block you write must be valid JSON with no `<` or `>` left in it:
+
 ````markdown
 ```watch
 {
   "targets": [
-    {"id": "allianz-de", "name": "Allianz", "kind": "company",
-     "focus": "Tierversicherungen", "schedule": "täglich 07:30",
-     "url": "https://allianz.de"}
+    {"id": "<target-id>", "name": "<display name>", "kind": "<company|person>",
+     "focus": "<what is watched>", "schedule": "<human-readable, local time>",
+     "url": "<website>"}
   ],
   "findings": [
-    {"id": "allianz-de-2026-09-21-1", "target": "allianz-de",
-     "date": "2026-09-21", "severity": "significant", "category": "Preis",
-     "title": "Beitrag für den Tier-OP-Schutz um 12 % erhöht",
-     "detail": "Monatsbeitrag im Tarif Premium von 24,90 € auf 27,90 €, Leistungen unverändert.",
-     "source": "https://allianz.de/tierversicherung/preise"}
+    {"id": "<finding id>", "target": "<target-id>",
+     "date": "<YYYY-MM-DD>", "severity": "<significant|minor>", "category": "<category>",
+     "title": "<one line, user's language>",
+     "detail": "<at most two sentences>",
+     "source": "<page where you saw it>"}
   ]
 }
 ```
 ````
+
+**Write only what is real.** `targets` comes from `watch/targets.json`;
+`findings` only from changes you saw in *this* run (or `[]`). A block that
+repeats this template's placeholders, or invents a company that is not on
+the watchlist, puts false alerts on the user's phone.
 
 Rules that are not negotiable:
 
