@@ -344,6 +344,7 @@ function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
     enableRag: true,
     proxy: null,
     role: null,
+    extends: null,
     reportsTo: null,
     delegatesTo: null,
     peers: null,

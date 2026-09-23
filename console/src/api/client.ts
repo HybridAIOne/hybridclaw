@@ -70,6 +70,7 @@ import type {
   AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminMSTeamsPersonalAgentResponse,
   AdminMSTeamsTabStatusResponse,
   AdminMSTeamsUsersResponse,
   AdminOutputGuardPreviewResponse,
@@ -1121,6 +1122,17 @@ export function saveMSTeamsUserAgent(
     method: 'PUT',
     body: { userId, agentId },
   });
+}
+
+export function createMSTeamsPersonalAgent(
+  token: string,
+  userId: string,
+  parentAgentId: string,
+): Promise<AdminMSTeamsPersonalAgentResponse> {
+  return requestJson<AdminMSTeamsPersonalAgentResponse>(
+    '/api/admin/msteams/users/personal-agent',
+    { token, method: 'POST', body: { userId, parentAgentId } },
+  );
 }
 
 export function fetchMSTeamsTabStatus(

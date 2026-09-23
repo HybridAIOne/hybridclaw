@@ -1351,6 +1351,7 @@ export interface GatewayAdminAgentProxyConfig {
 export interface GatewayAdminAgent {
   id: string;
   archived: boolean;
+  extends: string | null;
   name: string | null;
   emptyChatHeader: string | null;
   model: string | null;

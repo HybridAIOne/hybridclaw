@@ -49,10 +49,11 @@ export function observeMSTeamsUser(params: {
   });
 }
 
-export function getMSTeamsUserAgent(
+/** Mapping state of an observed sender; null when the sender was never seen. */
+export function getMSTeamsUserMapping(
   tenantId: string,
   userId: string,
-): string | null {
+): { agentId: string | null } | null {
   return withMemoryDatabase((db) => {
     const row = db
       .prepare(
@@ -61,8 +62,15 @@ export function getMSTeamsUserAgent(
       .get(tenantId.trim().toLowerCase(), userId.trim()) as
       | { agent_id: string | null }
       | undefined;
-    return row?.agent_id ?? null;
+    return row ? { agentId: row.agent_id ?? null } : null;
   });
+}
+
+export function getMSTeamsUserAgent(
+  tenantId: string,
+  userId: string,
+): string | null {
+  return getMSTeamsUserMapping(tenantId, userId)?.agentId ?? null;
 }
 
 export function setMSTeamsUserAgent(

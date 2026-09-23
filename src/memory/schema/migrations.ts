@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 62;
+export const DATABASE_SCHEMA_VERSION = 63;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3624,6 +3624,20 @@ function migrateV62(
   );
 }
 
+function migrateV63(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'extends_agent_id',
+    ddl: 'extends_agent_id TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 63, 'Persist agent settings inheritance');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3803,6 +3817,7 @@ export function runMigrations(
     );
   }
   if (currentVersion < 62) migrateV62(database, opts);
+  if (currentVersion < 63) migrateV63(database, opts);
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

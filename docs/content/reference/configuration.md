@@ -201,6 +201,13 @@ saved revision history directly.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `agents.list[].extends` names a parent agent. Model, skills, tools, local
+  and MCP tool modes, chatbot ID, RAG, web search, proxy, budget, and A2A
+  exposure resolve from the parent whenever the child leaves them unset, at
+  read time, so editing the parent changes every child at once. Identity,
+  display name, workspace, archived state, and org-chart links never inherit.
+  Lists replace rather than merge, inheritance is one level deep, and a parent
+  cannot be archived or deleted while active children extend it.
 - `agents.list[].proxy` for agents that forward their turns to a hosted
   HybridAI chatbot instead of running the local agent loop. Proxy agents
   require `kind: "hybridai"`, an HTTPS `baseUrl`, `chatbotId`, and a

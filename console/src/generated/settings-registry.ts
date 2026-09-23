@@ -1830,6 +1830,12 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 100,
     },
     {
+      path: 'msteams.personalAgentParent',
+      section: 'msteams',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
       path: 'msteams.replyStyle',
       section: 'msteams',
       kind: 'string',

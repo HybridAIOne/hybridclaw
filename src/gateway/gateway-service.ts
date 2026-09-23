@@ -1869,6 +1869,7 @@ function mapGatewayAdminAgent(
   return {
     id: resolved.id,
     archived: resolved.archived === true,
+    extends: resolved.extends || null,
     name: resolved.name || null,
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
@@ -5862,6 +5863,7 @@ function buildGatewayAdminAgentOrgChartPatch(
 
 export function createGatewayAdminAgent(params: {
   id: string;
+  extends?: string | null;
   name?: string | null;
   model?: string | null;
   skills?: string[] | null;
@@ -5877,6 +5879,7 @@ export function createGatewayAdminAgent(params: {
 }): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const saved = upsertRegisteredAgent({
     id: params.id,
+    ...(params.extends?.trim() ? { extends: params.extends.trim() } : {}),
     ...(params.name?.trim() ? { name: params.name.trim() } : {}),
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
     ...(params.skills !== undefined
@@ -5901,6 +5904,7 @@ export function createGatewayAdminAgent(params: {
 export function updateGatewayAdminAgent(
   agentId: string,
   params: {
+    extends?: string | null;
     name?: string | null;
     model?: string | null;
     skills?: string[] | null;
@@ -5925,6 +5929,9 @@ export function updateGatewayAdminAgent(
   }
   const saved = upsertRegisteredAgent({
     ...existing,
+    ...(params.extends !== undefined
+      ? { extends: params.extends?.trim() || undefined }
+      : {}),
     ...(params.name !== undefined
       ? { name: params.name?.trim() || undefined }
       : {}),
