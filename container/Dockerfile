@@ -43,31 +43,18 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # runtime; python3-venv above keeps the venv route working too.
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
+# Agent tool libraries: one lockfile-backed manifest shared with the gateway
+# image (container/tools). Agent-written scripts resolve them via NODE_PATH.
+COPY tools/ /opt/hybridclaw-tools/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --break-system-packages \
-    pypdf==5.4.0 \
-    pdfplumber==0.11.6 \
-    pdf2image==1.17.0 \
-    reportlab==4.4.4 \
-    pillow==11.3.0 \
-    openpyxl==3.1.5
-
-# Security owner call, 2026-08-13: PptxGenJS does not import image-size;
-# remove the unpatched parser until upstream drops the unused dependency.
+    python3 -m pip install --break-system-packages --require-hashes \
+      -r /opt/hybridclaw-tools/requirements.txt
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g --ignore-scripts \
-    docx@9.5.1 \
-    pptxgenjs@4.0.1 \
-    csv-parse@7.0.2 \
-    iconv-lite@0.7.0 \
-    @e965/xlsx@0.20.3 \
-    xlsx-populate@1.21.0 \
-    && npm pkg delete dependencies.image-size --prefix /usr/local/lib/node_modules/pptxgenjs \
-    && rm -rf /usr/local/lib/node_modules/pptxgenjs/node_modules/image-size
+    cd /opt/hybridclaw-tools \
+    && npm ci --ignore-scripts --omit=dev --no-audit --fund=false \
+    && rm -f node_modules/.package-lock.json
 
-RUN ln -s /usr/local/lib/node_modules/@e965/xlsx /usr/local/lib/node_modules/xlsx
-
-ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules
+ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/app/node_modules
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app

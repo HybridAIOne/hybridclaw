@@ -1,0 +1,10 @@
+# Python libraries the bundled skills reference from agent-written scripts.
+# Direct pins only; requirements.txt is the hashed, fully resolved lockfile:
+#   uv pip compile --generate-hashes --universal --python-version 3.11 \
+#     container/tools/requirements.in -o container/tools/requirements.txt
+pypdf==5.4.0
+pdfplumber==0.11.6
+pdf2image==1.17.0
+reportlab==4.4.4
+pillow==11.3.0
+openpyxl==3.1.5
