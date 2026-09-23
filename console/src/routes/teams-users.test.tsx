@@ -12,12 +12,14 @@ const mocks = vi.hoisted(() => ({
   users: vi.fn(),
   agents: vi.fn(),
   save: vi.fn(),
+  create: vi.fn(),
 }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 vi.mock('../api/client', () => ({
   fetchMSTeamsUsers: mocks.users,
   fetchAdminAgents: mocks.agents,
   saveMSTeamsUserAgent: mocks.save,
+  createMSTeamsPersonalAgent: mocks.create,
 }));
 const user: AdminMSTeamsUser = {
   tenantId: 'tenant-a',
@@ -35,11 +37,25 @@ const user: AdminMSTeamsUser = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.users.mockResolvedValue({ users: [user] });
+  mocks.users.mockResolvedValue({
+    users: [user],
+    defaultAgentId: 'main',
+    personalAgentParent: null,
+  });
   mocks.agents.mockResolvedValue([
+    { id: 'main', name: 'Main' },
     { id: 'sales', name: 'Sales' },
+    { id: 'sales-erika', name: 'Sales · Erika', extends: 'sales' },
     { id: 'archived', name: 'Archived', archived: true },
   ]);
+  mocks.create.mockImplementation((_token, userId) =>
+    Promise.resolve({
+      agentId: 'sales-erika',
+      defaultAgentId: 'main',
+      personalAgentParent: null,
+      users: [{ ...user, userId, agentId: 'sales-erika' }],
+    }),
+  );
   mocks.save.mockImplementation((_token, _userId, agentId) =>
     Promise.resolve({ users: [{ ...user, agentId }] }),
   );
@@ -67,6 +83,37 @@ describe('Teams user administration', () => {
       expect(mocks.save).toHaveBeenLastCalledWith('test-token', 'user-a', null),
     );
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe(''));
+  });
+
+  it('creates a personal agent under the chosen parent and marks mapped personal agents', async () => {
+    renderWithProviders(<TeamsUsers />);
+    expect(await screen.findByText('Example User')).toBeTruthy();
+    const parentSelect = screen.getByLabelText(
+      'Parent agent for personal agents',
+    );
+    expect(
+      screen.queryByRole('option', { name: 'Sales · Erika' }),
+    ).toBeTruthy();
+    expect(
+      Array.from((parentSelect as HTMLSelectElement).options).map(
+        (o) => o.value,
+      ),
+    ).toEqual(['main', 'sales']);
+    fireEvent.change(parentSelect, { target: { value: 'sales' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Create personal agent' }),
+    );
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        'test-token',
+        'user-a',
+        'sales',
+      ),
+    );
+    expect(await screen.findByText('Personal agent of sales')).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Create personal agent' }),
+    ).toBeNull();
   });
 
   it('searches by identity and refreshes usage', async () => {

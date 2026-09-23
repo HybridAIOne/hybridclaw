@@ -321,7 +321,7 @@ describe('Teams user routing and attribution', () => {
     });
     const migrated = new Database(dbPath, { readonly: true });
     try {
-      expect(migrated.pragma('user_version', { simple: true })).toBe(62);
+      expect(migrated.pragma('user_version', { simple: true })).toBe(63);
       expect(
         migrated
           .prepare('SELECT * FROM migrations WHERE version <= ? ORDER BY version')

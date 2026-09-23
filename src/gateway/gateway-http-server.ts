@@ -425,6 +425,7 @@ import {
   validateMSTeamsTabIdToken,
 } from './msteams-tab.js';
 import {
+  createAdminMSTeamsPersonalAgent,
   getAdminMSTeamsUsers,
   updateAdminMSTeamsUser,
 } from './msteams-users.js';
@@ -5028,10 +5029,12 @@ type ApiAdminAgentPayloadBody = {
   delegates_to?: unknown;
   peers?: unknown;
   workspace?: unknown;
+  extends?: unknown;
 };
 
 type ApiAdminAgentPayload = {
   id?: string;
+  extends?: string | null;
   name?: string;
   model?: string;
   skills?: string[] | null;
@@ -5214,6 +5217,12 @@ async function readApiAdminAgentPayload(
   );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
+    extends:
+      typeof body.extends === 'string'
+        ? body.extends
+        : body.extends === null
+          ? null
+          : undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
     skills: normalizeApiAdminAgentSkills(body.skills),
@@ -5261,6 +5270,7 @@ async function handleApiAdminAgentCollectionResource(
         200,
         createGatewayAdminAgent({
           id: payload.id || '',
+          extends: payload.extends,
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
@@ -5301,6 +5311,7 @@ async function handleApiAdminAgentResource(
         res,
         200,
         updateGatewayAdminAgent(normalizedAgentId, {
+          extends: payload.extends,
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
@@ -10968,6 +10979,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT' || method === 'DELETE')
           ) {
             await handleApiAdminChannels(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/msteams/users/personal-agent') {
+            if (method !== 'POST') {
+              sendMethodNotAllowed(res);
+              return;
+            }
+            try {
+              const result = createAdminMSTeamsPersonalAgent(
+                await readJsonBody(req),
+              );
+              sendJson(
+                res,
+                result.status,
+                result.error
+                  ? { error: result.error }
+                  : { agentId: result.agentId, ...getAdminMSTeamsUsers() },
+              );
+            } catch (error) {
+              sendJson(res, 400, {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Personal agent creation failed.',
+              });
+            }
             return;
           }
           if (pathname === '/api/admin/msteams/users') {

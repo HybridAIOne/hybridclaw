@@ -973,7 +973,14 @@ export interface AdminMSTeamsUser {
 
 export interface AdminMSTeamsUsersResponse {
   defaultAgentId: string;
+  /** Parent for auto-created personal agents; null when auto-provisioning is off. */
+  personalAgentParent: string | null;
   users: AdminMSTeamsUser[];
+}
+
+export interface AdminMSTeamsPersonalAgentResponse
+  extends AdminMSTeamsUsersResponse {
+  agentId: string;
 }
 
 export interface AdminMSTeamsTabStatusResponse {
@@ -1244,6 +1251,8 @@ export interface AdminAgentProxyConfig {
 export interface AdminAgent {
   id: string;
   archived?: boolean;
+  /** Parent agent whose settings fill in fields this agent leaves unset. */
+  extends: string | null;
   name: string | null;
   emptyChatHeader?: string | null;
   model: string | null;
@@ -1267,6 +1276,8 @@ export interface AdminAgentsResponse {
 
 /** Editable agent fields shared by the create and update admin endpoints. */
 export interface AdminAgentSettingsPayload {
+  /** `null` detaches the agent from its parent. */
+  extends?: string | null;
   name?: string;
   model?: string;
   workspace?: string;

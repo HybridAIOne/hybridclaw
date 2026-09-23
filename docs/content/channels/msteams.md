@@ -153,6 +153,30 @@ User tracking, routing, and usage attribution require a configured **Tenant
 ID**. A bot without one (multi-tenant app registration) still answers, but uses
 the default agent for everyone and records no per-user data.
 
+### Personal agents
+
+A personal agent is a child of a shared parent agent: it carries only its own
+identity, workspace, and memory, and takes model, skills, tools, chatbot, RAG,
+and budget from the parent through `extends`. Editing the parent changes every
+personal agent at once.
+
+Pick the parent in **Parent agent for personal agents** and use **Create
+personal agent** on a user's row. The console creates
+`<parent>-<user name>`, copies the parent's `SOUL.md`, `IDENTITY.md`, and
+other workspace instructions (never `USER.md` or `MEMORY.md`), writes a
+`USER.md` with the sender's name, Entra object ID and Teams user ID, skips the
+hatching flow, and maps the user to the new agent. Creating personal agents
+requires the agents write permission.
+
+Set `msteams.personalAgentParent` to an agent ID to do this automatically for
+every new sender on their first direct message. Leave it empty to create
+personal agents by hand only.
+
+Personal agents answer their user in direct chats. In group chats and channel
+threads the parent answers instead, so one shared conversation never mixes
+several people's private agents. Usage stays attributed to the sender either
+way.
+
 Each agent has a separate session key for a Teams conversation. Changing the
 assignment selects that agent's history; it does not copy the previous agent's
 history. Users mapped to the same agent in the same group chat or thread still

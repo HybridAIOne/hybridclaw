@@ -67,6 +67,7 @@ type AgentRow = {
   escalation_target: string | null;
   a2a: string | null;
   proxy: string | null;
+  extends_agent_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -451,11 +452,13 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   const a2a = parseAgentA2AConfig(row.a2a);
   const proxy = parseAgentProxyConfig(row.proxy);
+  const extendsAgentId = row.extends_agent_id?.trim() || '';
   return {
     id: row.id,
     archived: row.archived !== 0,
     ...(canonicalId ? { canonicalId } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
+    ...(extendsAgentId ? { extends: extendsAgentId } : {}),
     ...(name ? { name } : {}),
     ...(displayName ? { displayName } : {}),
     ...(imageAsset ? { imageAsset } : {}),
@@ -481,7 +484,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, tools, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, created_at, updated_at';
+  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, tools, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, extends_agent_id, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -527,10 +530,12 @@ interface SerializedAgentSettings {
   escalationTarget: string | null;
   a2a: string | null;
   proxy: string | null;
+  extendsAgentId: string | null;
 }
 
 function serializeAgentSettings(agent: AgentConfig): SerializedAgentSettings {
   return {
+    extendsAgentId: agent.extends?.trim() || null,
     name: agent.name?.trim() || null,
     displayName: agent.displayName?.trim() || null,
     imageAsset: agent.imageAsset?.trim() || null,
@@ -677,9 +682,10 @@ export function upsertAgent(
        escalation_target,
        a2a,
        proxy,
+       extends_agent_id,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        archived = excluded.archived,
        canonical_id = excluded.canonical_id,
@@ -703,6 +709,7 @@ export function upsertAgent(
        escalation_target = excluded.escalation_target,
        a2a = excluded.a2a,
        proxy = excluded.proxy,
+       extends_agent_id = excluded.extends_agent_id,
        updated_at = datetime('now')`,
     )
     .run(
@@ -729,6 +736,7 @@ export function upsertAgent(
       settings.escalationTarget,
       settings.a2a,
       settings.proxy,
+      settings.extendsAgentId,
     );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

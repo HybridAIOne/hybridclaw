@@ -1,15 +1,19 @@
 /**
  * Teams bot users pair observed sender identities with administrator-selected agents.
- * Totals come from user-attributed usage, not shared session totals. Tab SSO setup
- * remains on the parent page and assigning an agent does not grant bot access.
+ * Totals come from user-attributed usage, not shared session totals. Personal
+ * agents are created here as children of a parent agent; the parent's settings
+ * cascade to them. Tab SSO setup remains on the parent page and assigning an
+ * agent does not grant bot access.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  createMSTeamsPersonalAgent,
   fetchAdminAgents,
   fetchMSTeamsUsers,
   saveMSTeamsUserAgent,
 } from '../api/client';
+import type { AdminMSTeamsUsersResponse } from '../api/types';
 import { useAuth } from '../auth';
 import { Button } from '../components/button';
 import {
@@ -30,6 +34,7 @@ export function TeamsUsers() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [parentOverride, setParentOverride] = useState<string | null>(null);
   const usersQuery = useQuery({
     queryKey: ['msteams-users', token],
     queryFn: () => fetchMSTeamsUsers(token),
@@ -42,6 +47,13 @@ export function TeamsUsers() {
     queryFn: () => fetchAdminAgents(token),
     retry: false,
   });
+  const applyUsers = (payload: AdminMSTeamsUsersResponse) => {
+    queryClient.setQueryData(['msteams-users', token], {
+      users: payload.users,
+      defaultAgentId: payload.defaultAgentId,
+      personalAgentParent: payload.personalAgentParent,
+    });
+  };
   const saveMutation = useMutation({
     mutationFn: ({
       userId,
@@ -51,19 +63,43 @@ export function TeamsUsers() {
       agentId: string | null;
     }) => saveMSTeamsUserAgent(token, userId, agentId),
     onSuccess: (payload) => {
-      queryClient.setQueryData(['msteams-users', token], payload);
+      applyUsers(payload);
       toast.success('Teams user mapping saved. Applies to the next turn.');
     },
     onError: (error) =>
       toast.error(`Mapping failed: ${getErrorMessage(error)}`),
   });
+  const createMutation = useMutation({
+    mutationFn: ({
+      userId,
+      parentAgentId,
+    }: {
+      userId: string;
+      parentAgentId: string;
+    }) => createMSTeamsPersonalAgent(token, userId, parentAgentId),
+    onSuccess: (payload) => {
+      applyUsers(payload);
+      void queryClient.invalidateQueries({ queryKey: ['admin-agents', token] });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      toast.success(`Personal agent ${payload.agentId} created and mapped.`);
+    },
+    onError: (error) =>
+      toast.error(`Personal agent failed: ${getErrorMessage(error)}`),
+  });
   const agents = (agentsQuery.data ?? []).filter((agent) => !agent.archived);
+  const parentCandidates = agents.filter((agent) => !agent.extends);
+  const parentAgentId =
+    parentOverride ??
+    usersQuery.data?.personalAgentParent ??
+    usersQuery.data?.defaultAgentId ??
+    '';
   const needle = search.trim().toLowerCase();
   const users = (usersQuery.data?.users ?? []).filter((user) =>
     [user.userId, user.teamsUserId, user.entraObjectId, user.displayName].some(
       (value) => value?.toLowerCase().includes(needle),
     ),
   );
+  const busy = saveMutation.isPending || createMutation.isPending;
 
   return (
     <Card>
@@ -95,6 +131,27 @@ export function TeamsUsers() {
             Refresh users
           </Button>
         </div>
+        <div className={styles.row}>
+          <NativeSelect
+            aria-label="Parent agent for personal agents"
+            value={parentAgentId}
+            disabled={!agentsQuery.isSuccess}
+            onChange={(event) => setParentOverride(event.target.value)}
+          >
+            {parentCandidates.map((agent) => (
+              <NativeSelectOption key={agent.id} value={agent.id}>
+                {agent.name || agent.id}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <span className={styles.muted}>
+            Personal agents inherit this agent’s model, skills, tools and
+            budget, and answer their user in direct chats only.
+            {usersQuery.data?.personalAgentParent
+              ? ' New users get one automatically.'
+              : ''}
+          </span>
+        </div>
         {usersQuery.isLoading ? (
           <p>Loading Teams users…</p>
         ) : usersQuery.isError ? (
@@ -122,62 +179,87 @@ export function TeamsUsers() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
-                  <tr key={user.userId}>
-                    <td>
-                      <strong>{user.displayName || user.userId}</strong>
-                      {user.entraObjectId ? (
-                        <span className={styles.userIdentity}>
-                          Entra: {user.entraObjectId}
-                        </span>
-                      ) : null}
-                      {user.teamsUserId ? (
-                        <span className={styles.userIdentity}>
-                          Teams: {user.teamsUserId}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td>
-                      <NativeSelect
-                        aria-label={`Agent for ${user.displayName || user.userId}`}
-                        value={user.agentId || ''}
-                        disabled={
-                          saveMutation.isPending || !agentsQuery.isSuccess
-                        }
-                        onChange={(event) =>
-                          saveMutation.mutate({
-                            userId: user.userId,
-                            agentId: event.target.value || null,
-                          })
-                        }
-                      >
-                        <NativeSelectOption value="">
-                          Default ({usersQuery.data?.defaultAgentId || 'main'})
-                        </NativeSelectOption>
-                        {agents.map((agent) => (
-                          <NativeSelectOption key={agent.id} value={agent.id}>
-                            {agent.name || agent.id}
-                          </NativeSelectOption>
-                        ))}
-                        {user.agentId &&
-                        !agents.some((agent) => agent.id === user.agentId) ? (
-                          <NativeSelectOption value={user.agentId}>
-                            Unavailable: {user.agentId}
-                          </NativeSelectOption>
+                {users.map((user) => {
+                  const mapped = agents.find(
+                    (agent) => agent.id === user.agentId,
+                  );
+                  const label = user.displayName || user.userId;
+                  return (
+                    <tr key={user.userId}>
+                      <td>
+                        <strong>{label}</strong>
+                        {user.entraObjectId ? (
+                          <span className={styles.userIdentity}>
+                            Entra: {user.entraObjectId}
+                          </span>
                         ) : null}
-                      </NativeSelect>
-                    </td>
-                    <td>{user.messageCount.toLocaleString()}</td>
-                    <td>{user.sessionCount.toLocaleString()}</td>
-                    <td>{user.totalTokens.toLocaleString()}</td>
-                    <td>${user.costUsd.toFixed(4)}</td>
-                    <td>
-                      <time dateTime={user.lastSeen}>
-                        {new Date(user.lastSeen).toLocaleString()}
-                      </time>
-                    </td>
-                  </tr>
-                ))}
+                        {user.teamsUserId ? (
+                          <span className={styles.userIdentity}>
+                            Teams: {user.teamsUserId}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>
+                        <NativeSelect
+                          aria-label={`Agent for ${label}`}
+                          value={user.agentId || ''}
+                          disabled={busy || !agentsQuery.isSuccess}
+                          onChange={(event) =>
+                            saveMutation.mutate({
+                              userId: user.userId,
+                              agentId: event.target.value || null,
+                            })
+                          }
+                        >
+                          <NativeSelectOption value="">
+                            Default ({usersQuery.data?.defaultAgentId || 'main'}
+                            )
+                          </NativeSelectOption>
+                          {agents.map((agent) => (
+                            <NativeSelectOption key={agent.id} value={agent.id}>
+                              {agent.name || agent.id}
+                            </NativeSelectOption>
+                          ))}
+                          {user.agentId &&
+                          !agents.some((agent) => agent.id === user.agentId) ? (
+                            <NativeSelectOption value={user.agentId}>
+                              Unavailable: {user.agentId}
+                            </NativeSelectOption>
+                          ) : null}
+                        </NativeSelect>
+                        {mapped?.extends ? (
+                          <span className={styles.userIdentity}>
+                            Personal agent of {mapped.extends}
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy || !parentAgentId}
+                            onClick={() =>
+                              createMutation.mutate({
+                                userId: user.userId,
+                                parentAgentId,
+                              })
+                            }
+                          >
+                            Create personal agent
+                          </Button>
+                        )}
+                      </td>
+                      <td>{user.messageCount.toLocaleString()}</td>
+                      <td>{user.sessionCount.toLocaleString()}</td>
+                      <td>{user.totalTokens.toLocaleString()}</td>
+                      <td>${user.costUsd.toFixed(4)}</td>
+                      <td>
+                        <time dateTime={user.lastSeen}>
+                          {new Date(user.lastSeen).toLocaleString()}
+                        </time>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

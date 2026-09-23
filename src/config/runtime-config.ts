@@ -42,6 +42,7 @@ import {
   normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
+  validateAgentInheritance,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import type {
@@ -626,6 +627,8 @@ export interface RuntimeMSTeamsConfig {
   enabled: boolean;
   appId: string;
   tenantId: string;
+  /** Agent whose personal child agents are created for Teams senders on first contact; empty disables auto-provisioning. */
+  personalAgentParent: string;
   webhook: RuntimeMSTeamsWebhookConfig;
   tab: RuntimeMSTeamsTabConfig;
   groupPolicy: MSTeamsGroupPolicy;
@@ -1736,6 +1739,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     appId: '',
     tenantId: '',
+    personalAgentParent: '',
     webhook: {
       port: 3_978,
       path: '/api/msteams/messages',
@@ -3044,6 +3048,9 @@ function normalizeAgentConfig(
     ),
     path: 'agents.list[]',
   });
+  const extendsId = normalizeString(value.extends, fallback?.extends ?? '', {
+    allowEmpty: true,
+  });
   const name = normalizeString(value.name, fallback?.name ?? '', {
     allowEmpty: true,
   });
@@ -3169,6 +3176,7 @@ function normalizeAgentConfig(
   return {
     id,
     ...identityFields,
+    ...(extendsId ? { extends: extendsId } : {}),
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
@@ -3219,6 +3227,7 @@ function normalizeAgentsConfig(
     seen.add(DEFAULT_AGENT_ID);
   }
   validateAgentOrgChart(list);
+  validateAgentInheritance(list);
   const defaultAgentId = normalizeString(
     raw.defaultAgentId,
     fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
@@ -5188,6 +5197,11 @@ function normalizeMSTeamsConfig(
     tenantId: normalizeString(raw.tenantId, fallback.tenantId, {
       allowEmpty: true,
     }),
+    personalAgentParent: normalizeString(
+      raw.personalAgentParent,
+      fallback.personalAgentParent,
+      { allowEmpty: true },
+    ),
     webhook: normalizeMSTeamsWebhookConfig(raw.webhook, fallback.webhook),
     tab: normalizeMSTeamsTabConfig(raw.tab, fallback.tab),
     groupPolicy: normalizeMSTeamsGroupPolicy(

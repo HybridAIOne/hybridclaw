@@ -217,6 +217,52 @@ function writeWorkspaceOnboardingState(
   fs.renameSync(tempPath, statePath);
 }
 
+// Files a child workspace starts from. USER.md is written per person and
+// MEMORY.md is never shared, so both stay out of the copy.
+const INHERITED_WORKSPACE_FILES = WORKSPACE_BOOTSTRAP_FILES.filter(
+  (name) =>
+    name !== 'USER.md' && name !== 'MEMORY.md' && name !== 'BOOTSTRAP.md',
+);
+
+/**
+ * Seed a fresh workspace from another agent's files and skip the hatching
+ * flow: a personal agent is born already onboarded, with its own USER.md.
+ * Existing files in the target workspace are never overwritten.
+ */
+export function seedWorkspaceFromAgent(params: {
+  agentId: string;
+  sourceAgentId: string;
+  userMarkdown: string;
+}): void {
+  const sourceDir = agentWorkspaceDir(params.sourceAgentId);
+  const wsDir = agentWorkspaceDir(params.agentId);
+  fs.mkdirSync(wsDir, { recursive: true });
+  for (const filename of INHERITED_WORKSPACE_FILES) {
+    const destPath = path.join(wsDir, filename);
+    if (fs.existsSync(destPath)) continue;
+    const sourcePath = path.join(sourceDir, filename);
+    if (fs.existsSync(sourcePath)) fs.copyFileSync(sourcePath, destPath);
+  }
+  const userPath = path.join(wsDir, 'USER.md');
+  if (!fs.existsSync(userPath)) {
+    fs.writeFileSync(userPath, params.userMarkdown, 'utf-8');
+  }
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  if (!state.onboardingCompletedAt) {
+    const now = new Date().toISOString();
+    writeWorkspaceOnboardingState(statePath, {
+      ...state,
+      bootstrapSeededAt: state.bootstrapSeededAt || now,
+      onboardingCompletedAt: now,
+    });
+  }
+  logger.info(
+    { agentId: params.agentId, sourceAgentId: params.sourceAgentId },
+    'Seeded workspace from parent agent',
+  );
+}
+
 function readTemplateFile(
   filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
 ): string {

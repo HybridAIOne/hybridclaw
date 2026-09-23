@@ -59,7 +59,10 @@ import {
 } from './send-permissions.js';
 import { MSTeamsStreamManager } from './stream.js';
 import { createMSTeamsTypingController } from './typing.js';
-import { resolveMSTeamsUserAgent } from './user-routing.js';
+import {
+  ensureMSTeamsPersonalAgent,
+  resolveMSTeamsUserAgent,
+} from './user-routing.js';
 import {
   isRecord,
   MSTEAMS_CONVERSATION_REFERENCE_KEY,
@@ -611,7 +614,11 @@ async function maybeHandleMSTeamsMessageReaction(
   try {
     sessionId = buildSessionIdFromActivity(
       activity,
-      resolveMSTeamsUserAgent(MSTEAMS_TENANT_ID, actor.userId),
+      resolveMSTeamsUserAgent(
+        MSTEAMS_TENANT_ID,
+        actor.userId,
+        resolveTeamsConversationKind(activity),
+      ),
     );
     await reactionHandler({
       sessionId,
@@ -704,10 +711,27 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
       displayName: actor.displayName || actor.username,
       isMessage: !parsedCommand.isCommand,
     });
+    if (isDm) {
+      try {
+        ensureMSTeamsPersonalAgent({
+          tenantId: configuredTenant,
+          userId: actor.userId,
+          displayName: actor.displayName || actor.username,
+          entraObjectId: actor.aadObjectId,
+          teamsUserId: normalizeValue(activity.from?.id) || null,
+        });
+      } catch (error) {
+        logger.warn({ error }, 'Personal Teams agent provisioning failed');
+      }
+    }
   }
   let agentId: string;
   try {
-    agentId = resolveMSTeamsUserAgent(configuredTenant, actor.userId);
+    agentId = resolveMSTeamsUserAgent(
+      configuredTenant,
+      actor.userId,
+      conversationKind,
+    );
   } catch (error) {
     await reply(
       error instanceof Error ? error.message : 'Teams user routing failed.',
