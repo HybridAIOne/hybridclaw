@@ -151,7 +151,8 @@ Work strictly in this order:
 6. **Write the result block first** (section C). Only if the `memory` append
    succeeded, go on to step 7. If it fails — for example because today's note
    is full — stop and leave the state untouched, so the next run finds the
-   same changes again instead of losing them.
+   same changes again instead of losing them. Reply with the failure line
+   (step 8).
 7. **Then update the state.** `write watch/<id>.json`:
 
    ```json
@@ -167,6 +168,18 @@ Work strictly in this order:
    Keep `summary` short — this file is your memory, not an archive. Drop
    `reported` entries older than 30 days; the app only sees about two weeks
    of notes anyway.
+
+8. **Reply with a short digest.** Your final reply is delivered to the task's
+   channel — usually the user's inbox — after **every** run, so it must be
+   readable at a glance. Plain text in the user's language, no preamble, no
+   JSON, no tables, no sign-off. Exactly one of these shapes:
+
+   - significant findings, one line each, at most five:
+     `Allianz: Beitrag für den Tier-OP-Schutz um 12 % erhöht — https://allianz.de/tierversicherung/preise`
+   - only minor findings: `Allianz: 2 kleinere Änderungen, Details in der App.`
+   - nothing new: `Allianz: nichts Neues.`
+   - baseline run: `Allianz: Beobachtung läuft, Ausgangsstand gespeichert.`
+   - the block could not be written: `Allianz: Lauf fehlgeschlagen — <reason in a few words>.`
 
 If you find nothing, write the block anyway, with `"findings": []`. The app
 tells "nothing happened" apart from "the run did not take place".
@@ -223,8 +236,8 @@ Rules that are not negotiable:
 - Do not estimate prices or figures. If it is not stated, it is not in there.
 - Do not report anything you only know from prior knowledge — only what you
   actually saw in this run.
-- Do not flood the user in chat. The report is the block, not a paragraph to
-  them.
+- Do not write anything beyond the digest in step 8. The report is the
+  block; the digest only points at it.
 
 ## Prerequisites
 
