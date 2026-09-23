@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Competitor monitoring community skill**: Added a packaged
+  `competitor-monitoring` skill (`official/competitor-monitoring`) that keeps
+  one cron task per watched competitor, diffs each run against a workspace
+  snapshot, and appends a fenced `watch` JSON block to the daily memory note,
+  which the Sales Companion iOS app reads through cloud memory.
+
 ### Fixed
 
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
