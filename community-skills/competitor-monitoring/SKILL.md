@@ -28,30 +28,44 @@ Keep the tone factual. No "exciting", no "interestingly". A salesperson reads
 this in twenty seconds in the morning. Write names, titles and details in the
 user's language.
 
-## The three stores
+## The four stores
 
 | What | Where | How |
 |---|---|---|
-| Watchlist | one cron task per target | `cron` `list` / `add` / `update` / `remove` |
+| Schedule | one cron task per target | `cron` `add` / `update` / `remove` — chat only |
+| Watchlist | `watch/targets.json` in the workspace | `read` / `write` |
 | Comparison state | `watch/<target-id>.json` in the workspace | `read` / `write` |
 | Result for the app | today's daily note | `memory` with `action: "append"`, `target: "daily"` |
 
-The **cron tasks are the truth** about the watchlist. Do not store the list
-anywhere else, and derive it from `cron list` on every run.
+**`watch/targets.json` is the watchlist.** Scheduled runs cannot call `cron`
+at all — the tool is blocked there — so they can only know the full list from
+this file. Change it in the same step as the cron task, every time:
+
+```json
+{"targets": [
+  {"id": "allianz-de", "name": "Allianz", "kind": "company",
+   "focus": "Tierversicherungen", "schedule": "täglich 07:30",
+   "url": "https://allianz.de", "task_id": 42}
+]}
+```
+
+`task_id` is the number `cron add` reports ("Scheduled … task #42 …"); pass
+it as `taskId` to `update` and `remove`.
 
 Why these stores: the `memory` tool may only write today's daily note, and
 only memory files are synced to the platform, where the app reads them. A
-workspace file never reaches the app, so it holds your own comparison state.
+workspace file never reaches the app, so it holds your own state.
 
 ## A. Set up a watch
 
-When someone wants a competitor watched:
+This happens in a chat with the user, where `cron` is available.
 
 1. Clarify **who** and **what to look for**. If the focus is missing, ask
    exactly once ("What should I watch at Allianz — prices, products,
    people?"). If the website is missing, look it up yourself; do not ask.
 2. Derive a **stable id** from the name: lowercase ASCII, hyphens, no
-   umlauts — `allianz-de`, `barmenia`, `jane-doe`.
+   umlauts — `allianz-de`, `barmenia`, `jane-doe`. If `watch/targets.json`
+   already has it, update that watch instead of adding a second one.
 3. Create the cron task:
 
    ```
@@ -73,27 +87,35 @@ When someone wants a competitor watched:
      created without a delivery channel would be discarded. Use the user's
      email address or another configured messaging target. If none is known,
      say so plainly instead of trying without one.
-   - To change the time or focus of an existing watch, use
-     `cron action=update` with the task id from `cron list`. Never add a
-     second task for the same target.
-4. Create an empty comparison state: `write` `watch/<id>.json` with
-   `{"target": "<id>", "snapshots": {}}`.
-5. **Write the result block right away** (section C) with the updated list and
+4. Add the target with its `task_id` to `watch/targets.json` (create the file
+   if it is missing).
+5. **Do not create `watch/<id>.json`.** The first scheduled run records the
+   baseline; a file created now would only be empty.
+6. **Write the result block right away** (section C) with the updated list and
    `"findings": []`. Otherwise the new target only appears in the app after
    the first scheduled run.
-6. Confirm in one sentence: "I'm watching Allianz from tomorrow morning,
+7. Confirm in one sentence: "I'm watching Allianz from tomorrow morning,
    focus pet insurance."
 
-**Removing a watch:** find the task with `cron list`, `cron action=remove`,
-delete `watch/<id>.json`, write the block again.
+**Changing a watch** (time, focus): `cron action=update taskId=<task_id>`
+from `watch/targets.json`, then update the entry there. Never add a second
+task for the same target.
+
+**Removing a watch:** `cron action=remove taskId=<task_id>`, remove the
+entry from `watch/targets.json`, delete `watch/<id>.json`, write the block
+again.
 
 ## B. A scheduled run
 
-You receive the task's prompt. Work strictly in this order:
+You receive the task's prompt. `cron` is not available here; do not try it.
+Work strictly in this order:
 
-1. **Read the previous state.** `read watch/<id>.json`. If the file is
-   missing, this is the first run: everything is new, but report **nothing**
-   as a finding — there is nothing to compare against. Only create the state.
+1. **Read the watchlist and the previous state.** `read watch/targets.json`
+   and `read watch/<id>.json`. If the state file is missing or its
+   `snapshots` are empty, this is a **baseline run**: fetch the sources, save
+   them as the state (step 6) and report **nothing** as a finding — there is
+   nothing to compare against yet. Still write the block with
+   `"findings": []`.
 2. **Fetch the current state.** Use several sources, not just one:
    - `web_search` with `freshness: "week"` on company name plus focus
    - `web_fetch` on the pages that belong to the focus (pricing, product,
@@ -121,10 +143,30 @@ You receive the task's prompt. Work strictly in this order:
    today because it changes a conversation**; only `significant` triggers a
    notification on their phone. When in doubt, `minor`: a phone that buzzes
    too often gets muted.
-5. **Update the state.** `write watch/<id>.json` with the new state per
-   source: `{"url": …, "fetched_at": …, "summary": …, "key_facts": {…}}`.
-   Keep `summary` short — this file is your memory, not an archive.
-6. **Write the result block** (section C).
+5. **Deduplicate.** Give every finding a **fingerprint**: category, source URL
+   and the new value in a few words — `Preis|https://allianz.de/preise|Premium
+   27,90 €`. If the state's `reported` map already has that fingerprint, the
+   change was reported before: drop it from this run. Otherwise assign a new
+   id (see section C).
+6. **Write the result block first** (section C). Only if the `memory` append
+   succeeded, go on to step 7. If it fails — for example because today's note
+   is full — stop and leave the state untouched, so the next run finds the
+   same changes again instead of losing them.
+7. **Then update the state.** `write watch/<id>.json`:
+
+   ```json
+   {"target": "allianz-de",
+    "snapshots": {
+      "https://allianz.de/preise": {"fetched_at": "…", "summary": "…",
+                                    "key_facts": {"Premium": "27,90 €"}}},
+    "reported": {
+      "Preis|https://allianz.de/preise|Premium 27,90 €":
+        {"id": "allianz-de-2026-09-21-1", "first_seen": "2026-09-21"}}}
+   ```
+
+   Keep `summary` short — this file is your memory, not an archive. Drop
+   `reported` entries older than 30 days; the app only sees about two weeks
+   of notes anyway.
 
 If you find nothing, write the block anyway, with `"findings": []`. The app
 tells "nothing happened" apart from "the run did not take place".
@@ -155,16 +197,17 @@ The app reads **only** this block. Append it with `memory`
 
 Rules that are not negotiable:
 
-- **`targets` always holds the complete list**, derived from `cron list` —
-  not just this run's target. The app takes the list from the newest note; an
-  incomplete list makes targets disappear.
+- **`targets` always holds the complete list** from `watch/targets.json` —
+  not just this run's target — without the internal `task_id`. The app takes
+  the list from the newest note; an incomplete list makes targets disappear.
 - **`kind`** is `company` or `person`. **`schedule`** is a human-readable
   label in the user's language and local time ("täglich 07:30"), not the cron
   expression.
-- **A finding's `id` must be stable.** Scheme:
-  `<target>-<YYYY-MM-DD>-<running number>`. The same change must **not** get
-  two ids on two days — check against the previous state before reporting a
-  finding as new. The app remembers announced ids and would notify twice.
+- **A finding's `id` is assigned once and never changes.** Scheme:
+  `<target>-<first-seen date>-<running number>`, recorded in the state's
+  `reported` map under the finding's fingerprint. Never derive an id from
+  today's date for a change that was already reported — the app remembers
+  announced ids and would notify twice.
 - **Valid JSON**: double quotes, no comments, no trailing commas. The app
   discards a broken block — the whole run is then lost.
 - **`detail` stays within two sentences.** Daily notes are truncated at
