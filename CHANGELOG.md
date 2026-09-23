@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **Pinned paths gate file lookups**: `read`, `glob`, and `grep` calls that
+  target a pinned path (`.env*`, `~/.ssh/**`, `/etc/**`, or an
+  `approval.pinned_red` path) now require explicit approval; reading
+  `.env.local` previously ran green without a prompt. Pinned paths also match
+  the expanded home directory (`/Users/me/.ssh/id_rsa`) and `..`-collapsed
+  spellings, and `dir/**` covers a search rooted at `dir` itself.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
