@@ -19,6 +19,7 @@ runs:
           package-lock.json
           container/npm-shrinkwrap.json
           container/package-lock.json
+          container/tools/package-lock.json
           console/package-lock.json
 
     - name: Use npm 11
@@ -39,6 +40,10 @@ runs:
     - name: Install container dependencies
       shell: bash
       run: npm --prefix container ci --ignore-scripts --no-audit --fund=false
+
+    - name: Install runtime tool dependencies
+      shell: bash
+      run: npm --prefix container/tools ci --ignore-scripts --omit=dev --no-audit --fund=false
 
     - name: Verify npm registry signatures
       shell: bash
