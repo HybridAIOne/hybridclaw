@@ -96,7 +96,7 @@ function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
-function expandUserPath(input: string): string {
+export function expandUserPath(input: string): string {
   const trimmed = input.trim();
   if (trimmed === '~') return os.homedir();
   if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {

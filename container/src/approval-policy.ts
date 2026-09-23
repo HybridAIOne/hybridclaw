@@ -39,6 +39,7 @@ import {
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import {
+  expandUserPath,
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -375,6 +376,13 @@ const SCRATCH_ROOTS = Array.from(
       .map((value) => path.resolve(value)),
   ),
 );
+// Args naming the files a read-only lookup touches. Pinned path rules only
+// match pathHints, so a lookup that reports none reads `.env*` unprompted.
+const LOOKUP_PATH_ARG_KEYS = new Map<string, readonly string[]>([
+  ['read', ['path']],
+  ['glob', ['pattern']],
+  ['grep', ['path', 'include']],
+]);
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {
   approvalRuleOrder: [...DEFAULT_APPROVAL_RULE_ORDER],
@@ -680,9 +688,13 @@ function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
 function globPatternToRegExp(pattern: string): RegExp {
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\/\*\*$/, '::DIR_DOUBLE_STAR::')
     .replace(/\*\*/g, '::DOUBLE_STAR::')
     .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*');
+    .replace(/::DOUBLE_STAR::/g, '.*')
+    // Like picomatch, `dir/**` also matches `dir` itself: searching that
+    // directory reaches everything below it.
+    .replace('::DIR_DOUBLE_STAR::', '(?:/.*)?');
   return new RegExp(`^${escaped}$`, 'i');
 }
 
@@ -692,6 +704,12 @@ function normalizePathValue(rawPath: string): string {
     ? value.slice('/workspace/'.length)
     : value;
   return withoutWorkspace.replace(/^\.\/+/, '').replace(/^\/+/, '');
+}
+
+// Resolve `~` and `..` the way file tools do, so `/home/me/.ssh/id_rsa` and
+// `/workspace/../etc/passwd` meet the same pinned rules as their short forms.
+function normalizeAbsolutePathValue(rawPath: string): string {
+  return path.posix.normalize(expandUserPath(rawPath).replace(/\\/g, '/'));
 }
 
 function isRootBootstrapPath(rawPath: string): boolean {
@@ -712,16 +730,28 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
     !normalizedPattern.startsWith('/') &&
     !normalizedPattern.startsWith('~/')
   ) {
-    const relRe = globPatternToRegExp(normalizedPattern.replace(/^\.\//, ''));
+    const relativePattern = normalizedPattern.replace(/^\.\//, '');
+    const relRe = globPatternToRegExp(relativePattern);
     if (relRe.test(normalizedCandidate)) return true;
-    const basename = path.posix.basename(normalizedCandidate);
-    if (relRe.test(basename)) return true;
-    return false;
+    // Only slash-free patterns match a file name at any depth; `secrets/**`
+    // must not match an unrelated file named `docs/secrets`.
+    if (relativePattern.includes('/')) return false;
+    return relRe.test(path.posix.basename(normalizedCandidate));
   }
 
-  const absoluteCandidate = candidatePath.trim().replace(/\\/g, '/');
-  const absoluteRe = globPatternToRegExp(normalizedPattern);
-  return absoluteRe.test(absoluteCandidate);
+  const absoluteRe = globPatternToRegExp(
+    normalizeAbsolutePathValue(normalizedPattern),
+  );
+  return absoluteRe.test(normalizeAbsolutePathValue(candidatePath));
+}
+
+function lookupPathHints(
+  lowerTool: string,
+  args: Record<string, unknown>,
+): string[] {
+  return (LOOKUP_PATH_ARG_KEYS.get(lowerTool) || [])
+    .map((key) => normalizeText(args[key]))
+    .filter(Boolean);
 }
 
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
@@ -2929,7 +2959,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without this lookup.',
         reason: 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
+        pathHints: lookupPathHints(lowerTool, args),
         hostHints: [],
         writeIntent: false,
         promotableRed: false,

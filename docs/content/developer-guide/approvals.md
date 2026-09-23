@@ -99,7 +99,7 @@ Two important transitions:
 
 | Family | Tier | Examples | Notes |
 | --- | --- | --- | --- |
-| Read-only file and session tools | Green | `read`, `glob`, `grep`, `session_search` | No side effects |
+| Read-only file and session tools | Green | `read`, `glob`, `grep`, `session_search` | No side effects; pinned targets such as `.env*` are red |
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
 | Image analysis | Green | `vision_analyze` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
@@ -120,7 +120,7 @@ Two important transitions:
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh` | Treated as high risk |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, `.env*`, `~/.ssh/**`, `/etc/**`, `force_push` | Pinned rules never gain durable trust |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path |
 
 ## Network Policy
 
