@@ -20,7 +20,9 @@
   guards did not decode, and the browser guard sent every bracketed IPv6
   literal to a DNS lookup whose failure let it through. The container SSRF
   guards share one private-range table that also covers IPv4-compatible and
-  NAT64 (`64:ff9b::/96`) forms.
+  NAT64 (`64:ff9b::/96`) forms, plus the IETF protocol-assignment block
+  `192.0.0.0/24`, which holds Oracle Cloud Classic's metadata service at
+  `192.0.0.192`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
