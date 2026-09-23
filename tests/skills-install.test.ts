@@ -137,6 +137,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: ['openhue'],
       env: [],
+      nodeModules: [],
     });
     // openclaw input is normalized into the hybridclaw-shaped output metadata.
     expect(skill?.metadata.hybridclaw.install).toEqual([
@@ -184,6 +185,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: ['openhue'],
       env: [],
+      nodeModules: [],
     });
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
@@ -239,6 +241,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: [],
       env: [],
+      nodeModules: [],
     });
     expect(logger.warn).toHaveBeenCalledWith(
       {
@@ -553,7 +556,7 @@ describe('skill install metadata', () => {
             userInvocable: true,
             disableModelInvocation: false,
             always: false,
-            requires: { bins: [], env: [] },
+            requires: { bins: [], env: [], nodeModules: [] },
             metadata: {
               hybridclaw: {
                 tags: [],

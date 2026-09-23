@@ -30,6 +30,7 @@ import {
 } from '../policy/skill-policy.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { hasResolvableNodeModule } from '../utils/node-modules.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -68,6 +69,18 @@ export type SkillInstallKind =
   | 'go'
   | 'download';
 
+/**
+ * Runtime prerequisites a skill declares in its frontmatter `requires:` block.
+ * `bins` are executables on PATH, `env` are environment variables, and
+ * `nodeModules` (frontmatter key `node_modules`) are bare module specifiers an
+ * agent-written script must be able to `require()` from the workspace.
+ */
+export interface SkillRequirements {
+  bins: string[];
+  env: string[];
+  nodeModules: string[];
+}
+
 export interface SkillInstallSpec {
   id?: string;
   kind: SkillInstallKind;
@@ -94,10 +107,7 @@ interface SkillCandidate {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
-  requires: {
-    bins: string[];
-    env: string[];
-  };
+  requires: SkillRequirements;
   metadata: {
     hybridclaw: {
       shortDescription?: string;
@@ -552,21 +562,39 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
   };
 }
 
-function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
-  bins: string[];
-  env: string[];
-} {
+function emptyRequirements(): SkillRequirements {
+  return { bins: [], env: [], nodeModules: [] };
+}
+
+function hasAnyRequirement(requires: SkillRequirements): boolean {
+  return (
+    requires.bins.length > 0 ||
+    requires.env.length > 0 ||
+    requires.nodeModules.length > 0
+  );
+}
+
+function parseRequiresRecord(
+  record: Record<string, unknown>,
+): SkillRequirements {
+  return {
+    bins: normalizeStringList(record.bins),
+    env: normalizeStringList(record.env),
+    nodeModules: normalizeStringList(record.node_modules),
+  };
+}
+
+function parseRequiresFromMetadataRecord(
+  raw: Record<string, unknown>,
+): SkillRequirements {
   const record = resolveCompatibleMetadataRecord(raw);
   if (!Object.hasOwn(record, 'requires')) {
-    return { bins: [], env: [] };
+    return emptyRequirements();
   }
   if (!isRecord(record.requires)) {
-    return { bins: [], env: [] };
+    return emptyRequirements();
   }
-  return {
-    bins: normalizeStringList(record.requires.bins),
-    env: normalizeStringList(record.requires.env),
-  };
+  return parseRequiresRecord(record.requires);
 }
 
 function resolveTopLevelSectionLookup(
@@ -615,13 +643,13 @@ function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
   };
 }
 
-function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
-  bins: string[];
-  env: string[];
-} {
+function parseRequiresSection(
+  sectionFields: Map<string, FrontmatterSection>,
+): SkillRequirements {
   return {
     bins: parseSectionStringList(sectionFields.get('bins')),
     env: parseSectionStringList(sectionFields.get('env')),
+    nodeModules: parseSectionStringList(sectionFields.get('node_modules')),
   };
 }
 
@@ -646,23 +674,17 @@ function warnMalformedRequiresDeclaration(
 function parseRequiresFromFrontmatter(
   frontmatter: FrontmatterParseResult,
   skillFilePath: string,
-): {
-  bins: string[];
-  env: string[];
-} {
+): SkillRequirements {
   const directRequiresLookup = resolveTopLevelSectionLookup(
     frontmatter,
     'requires',
   );
   if (directRequiresLookup.inlineObject) {
-    return {
-      bins: normalizeStringList(directRequiresLookup.inlineObject.bins),
-      env: normalizeStringList(directRequiresLookup.inlineObject.env),
-    };
+    return parseRequiresRecord(directRequiresLookup.inlineObject);
   }
 
   let requires = parseRequiresSection(directRequiresLookup.sectionFields);
-  if (requires.bins.length > 0 || requires.env.length > 0) {
+  if (hasAnyRequirement(requires)) {
     return requires;
   }
   if (
@@ -676,8 +698,7 @@ function parseRequiresFromFrontmatter(
   if (metadataLookup.inlineObject) {
     const parsed = parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
     if (
-      parsed.bins.length === 0 &&
-      parsed.env.length === 0 &&
+      !hasAnyRequirement(parsed) &&
       Object.hasOwn(
         resolveCompatibleMetadataRecord(metadataLookup.inlineObject),
         'requires',
@@ -692,8 +713,7 @@ function parseRequiresFromFrontmatter(
       metadataLookup.compatibleInlineObject,
     );
     if (
-      parsed.bins.length === 0 &&
-      parsed.env.length === 0 &&
+      !hasAnyRequirement(parsed) &&
       Object.hasOwn(metadataLookup.compatibleInlineObject, 'requires')
     ) {
       warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
@@ -705,15 +725,12 @@ function parseRequiresFromFrontmatter(
   if (!nestedRequires) return requires;
   const nestedRequiresInlineObject = tryParseJsonObject(nestedRequires.inline);
   if (nestedRequiresInlineObject) {
-    return {
-      bins: normalizeStringList(nestedRequiresInlineObject.bins),
-      env: normalizeStringList(nestedRequiresInlineObject.env),
-    };
+    return parseRequiresRecord(nestedRequiresInlineObject);
   }
   requires = parseRequiresSection(
     parseSectionChildren(nestedRequires.children),
   );
-  if (requires.bins.length === 0 && requires.env.length === 0) {
+  if (!hasAnyRequirement(requires)) {
     warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
   }
   return requires;
@@ -817,12 +834,7 @@ export function hasBinary(binName: string): boolean {
   return hasExecutableCommand(binName);
 }
 
-function checkEligibility(skill: {
-  requires?: {
-    bins?: string[];
-    env?: string[];
-  };
-}): {
+function checkEligibility(skill: { requires?: Partial<SkillRequirements> }): {
   available: boolean;
   missing: string[];
 } {
@@ -832,6 +844,11 @@ function checkEligibility(skill: {
   }
   for (const envVar of skill.requires?.env ?? []) {
     if (!process.env[envVar]) missing.push(`env:${envVar}`);
+  }
+  for (const specifier of skill.requires?.nodeModules ?? []) {
+    if (!hasResolvableNodeModule(specifier)) {
+      missing.push(`node_module:${specifier}`);
+    }
   }
   return { available: missing.length === 0, missing };
 }

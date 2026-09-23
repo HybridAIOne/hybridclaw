@@ -547,7 +547,7 @@ test('getGatewayAdminSkills includes detail metadata for admin skill pages', asy
   );
   expect(posthogSkill).toEqual(
     expect.objectContaining({
-      requires: { bins: ['node'], env: [] },
+      requires: { bins: ['node'], env: [], nodeModules: [] },
       credentials: expect.arrayContaining([
         expect.objectContaining({
           id: 'posthog-project-token',

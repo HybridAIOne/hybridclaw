@@ -37,7 +37,7 @@ function makeTempSkill(skillName: string): Skill {
     userInvocable: true,
     disableModelInvocation: false,
     always: false,
-    requires: { bins: [], env: [] },
+    requires: { bins: [], env: [], nodeModules: [] },
     metadata: {
       hybridclaw: {
         tags: [],

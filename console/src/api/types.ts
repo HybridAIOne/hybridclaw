@@ -2024,6 +2024,7 @@ export interface AdminSkill {
   requires: {
     bins: string[];
     env: string[];
+    nodeModules: string[];
   };
   tags: string[];
   relatedSkills: string[];

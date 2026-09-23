@@ -431,7 +431,7 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
       userInvocable: false,
       disableModelInvocation: false,
       always: false,
-      requires: { bins: [], env: [] },
+      requires: { bins: [], env: [], nodeModules: [] },
       metadata: {
         hybridclaw: {
           tags: [],

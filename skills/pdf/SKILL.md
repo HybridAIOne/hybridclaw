@@ -6,6 +6,9 @@ disable-model-invocation: false
 requires:
   bins:
     - node
+  node_modules:
+    - pdf-lib
+    - pdfjs-dist
 metadata:
   hybridclaw:
     category: office

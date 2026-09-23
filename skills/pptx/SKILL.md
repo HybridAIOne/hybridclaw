@@ -6,6 +6,10 @@ disable-model-invocation: false
 requires:
   bins:
     - node
+  node_modules:
+    - pptxgenjs
+    - jszip
+    - linkedom
 metadata:
   hybridclaw:
     category: office
