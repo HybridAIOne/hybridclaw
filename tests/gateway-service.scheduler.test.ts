@@ -565,6 +565,50 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
   });
 });
 
+test('scheduled silent replies are recorded without delivery', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: '__MESSAGE_SEND_HANDLED__',
+    toolExecutions: [],
+    artifacts: [],
+  });
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { runIsolatedScheduledTask } = await import(
+    '../src/scheduler/scheduled-task-runner.ts'
+  );
+  initDatabase({ quiet: true });
+  const session = getOrCreateSession('scheduler:silent', null, 'tui', 'main');
+  const onResult = vi.fn(async () => {});
+  const onError = vi.fn();
+
+  await runIsolatedScheduledTask({
+    taskId: 250,
+    prompt: 'Check for new findings.',
+    channelId: 'tui',
+    chatbotId: 'test-chatbot',
+    model: 'gpt-4o-mini',
+    agentId: 'main',
+    sessionId: session.id,
+    onResult,
+    onError,
+  });
+
+  expect(onError).not.toHaveBeenCalled();
+  expect(onResult).not.toHaveBeenCalled();
+  expect(memoryService.getRecentMessages(session.id).at(-1)).toMatchObject({
+    role: 'assistant',
+    content: '__MESSAGE_SEND_HANDLED__',
+  });
+});
+
 test('runGatewayScheduledTask reports a missing chatbot as a task error instead of resolving silently', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
