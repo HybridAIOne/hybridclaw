@@ -1,3 +1,12 @@
+/**
+ * Admin connector service behind /api/admin/connectors: connector status,
+ * HybridAI API key storage, and connector OAuth flows.
+ *
+ * The admin route gate enforces RBAC before the admin handlers call in
+ * (`secret.overwrite` / `secret.unset` on the credential routes). The `actions`
+ * field of a connectors response only mirrors that decision so the console can
+ * leave out controls the caller cannot use; it is never an access check.
+ */
 import { randomBytes } from 'node:crypto';
 
 import {
@@ -36,6 +45,10 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import {
+  type AdminRbacAction,
+  isAdminActionAllowed,
+} from '../security/admin-rbac.js';
+import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
   saveNamedRuntimeSecrets,
@@ -44,6 +57,12 @@ import {
 const PENDING_CONNECTOR_OAUTH_TTL_MS = 10 * 60_000;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
 const HYBRIDAI_CONNECTORS_PATH = '/admin_workspace/connectors';
+// Mirrors resolveAdminRbacAction for the credential routes: saving the HybridAI
+// key and starting OAuth need secret.overwrite, logout needs secret.unset.
+const CONNECTOR_CREDENTIAL_ACTIONS = [
+  'secret.overwrite',
+  'secret.unset',
+] as const satisfies readonly AdminRbacAction[];
 
 export type GatewayAdminConnectorId =
   | 'hybridai'
@@ -86,6 +105,21 @@ export interface GatewayAdminConnectorsResponse {
   connectors: GatewayAdminConnector[];
   secretsPath: string;
   oauthRedirectUri: string | null;
+  /**
+   * Connector credential actions the requester is allowed to perform. The
+   * console renders Connect, Rotate key, Reconnect, and Disconnect only when
+   * the caller can use them.
+   */
+  actions: AdminRbacAction[];
+}
+
+interface ConnectorsRequestContext {
+  requestBaseUrl?: string;
+  /**
+   * The caller's RBAC claims; null for legacy bearer tokens and loopback
+   * sessions, which hold every action.
+   */
+  authPayload: Record<string, unknown> | null;
 }
 
 export interface GatewayAdminConnectorTestResult {
@@ -736,8 +770,16 @@ async function startHybridAIPlatformConnectorOAuth(input: {
   };
 }
 
+function resolveAllowedConnectorCredentialActions(
+  authPayload: Record<string, unknown> | null,
+): AdminRbacAction[] {
+  return CONNECTOR_CREDENTIAL_ACTIONS.filter((action) =>
+    isAdminActionAllowed(authPayload, action),
+  );
+}
+
 export function getGatewayAdminConnectors(
-  requestBaseUrl?: string,
+  context: ConnectorsRequestContext,
 ): GatewayAdminConnectorsResponse {
   return {
     connectors: [
@@ -747,12 +789,13 @@ export function getGatewayAdminConnectors(
       buildMicrosoft365Connector(),
     ],
     secretsPath: runtimeSecretsPath(),
-    oauthRedirectUri: connectorOAuthRedirectUri(requestBaseUrl),
+    oauthRedirectUri: connectorOAuthRedirectUri(context.requestBaseUrl),
+    actions: resolveAllowedConnectorCredentialActions(context.authPayload),
   };
 }
 
 export async function getGatewayAdminConnectorsWithPlatformState(
-  requestBaseUrl?: string,
+  context: ConnectorsRequestContext,
 ): Promise<GatewayAdminConnectorsResponse> {
   const platformStatuses = await readHybridAIPlatformConnectorStatuses();
   return {
@@ -763,7 +806,8 @@ export async function getGatewayAdminConnectorsWithPlatformState(
       buildMicrosoft365Connector(platformStatuses.get('microsoft365')),
     ],
     secretsPath: runtimeSecretsPath(),
-    oauthRedirectUri: connectorOAuthRedirectUri(requestBaseUrl),
+    oauthRedirectUri: connectorOAuthRedirectUri(context.requestBaseUrl),
+    actions: resolveAllowedConnectorCredentialActions(context.authPayload),
   };
 }
 
@@ -771,7 +815,7 @@ export function saveGatewayAdminHybridAIConnectorApiKey(
   input: {
     apiKey?: unknown;
   },
-  requestBaseUrl?: string,
+  context: ConnectorsRequestContext,
 ): GatewayAdminConnectorsResponse {
   const apiKey = trimString(input.apiKey);
   if (!apiKey) {
@@ -779,7 +823,7 @@ export function saveGatewayAdminHybridAIConnectorApiKey(
   }
   saveNamedRuntimeSecrets({ HYBRIDAI_API_KEY: apiKey });
   refreshRuntimeSecretsFromEnv();
-  return getGatewayAdminConnectors(requestBaseUrl);
+  return getGatewayAdminConnectors(context);
 }
 
 interface GoogleOAuthCredentials {
@@ -951,7 +995,7 @@ export function logoutGatewayAdminConnector(
   input: {
     provider?: unknown;
   },
-  requestBaseUrl?: string,
+  context: ConnectorsRequestContext,
 ): GatewayAdminConnectorsResponse {
   const provider = parseConnectorId(input.provider);
   if (provider === 'hybridai') {
@@ -964,5 +1008,5 @@ export function logoutGatewayAdminConnector(
   } else if (provider === 'google') {
     clearGoogleAuth();
   }
-  return getGatewayAdminConnectors(requestBaseUrl);
+  return getGatewayAdminConnectors(context);
 }

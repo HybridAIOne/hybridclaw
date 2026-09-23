@@ -270,6 +270,10 @@ export function ConnectorsPage() {
   });
 
   const connectors = connectorsQuery.data?.connectors || [];
+  const canOverwrite =
+    connectorsQuery.data?.actions.includes('secret.overwrite') ?? false;
+  const canUnset =
+    connectorsQuery.data?.actions.includes('secret.unset') ?? false;
   const oauthTarget =
     connectors.find((connector) => connector.id === oauthTargetId) || null;
   const oauthRedirectUri = connectorsQuery.data?.oauthRedirectUri ?? null;
@@ -361,6 +365,9 @@ export function ConnectorsPage() {
           const isConnected =
             stateIsConnected(connector) ||
             (isPlatform && platformConnectedIds.has(connector.id));
+          // Manage only opens the HybridAI connector page, which enforces its
+          // own permissions; Connect starts a gateway OAuth flow.
+          const showPlatformButton = isConnected || canOverwrite;
 
           return (
             <Card key={connector.id} className={styles.connectorCard}>
@@ -394,21 +401,27 @@ export function ConnectorsPage() {
               <div className={styles.connectorActions}>
                 {connector.id === 'hybridai' ? (
                   <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        if (connector.loginUrl) {
-                          window.open(connector.loginUrl, '_blank', 'noopener');
-                        }
-                        setHybridKeyOpen(true);
-                      }}
-                    >
-                      {connector.state === 'connected'
-                        ? 'Rotate key'
-                        : 'Connect'}
-                    </Button>
-                    {connector.state === 'connected' ? (
+                    {canOverwrite ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          if (connector.loginUrl) {
+                            window.open(
+                              connector.loginUrl,
+                              '_blank',
+                              'noopener',
+                            );
+                          }
+                          setHybridKeyOpen(true);
+                        }}
+                      >
+                        {connector.state === 'connected'
+                          ? 'Rotate key'
+                          : 'Connect'}
+                      </Button>
+                    ) : null}
+                    {canUnset && connector.state === 'connected' ? (
                       <Button
                         type="button"
                         size="sm"
@@ -422,29 +435,7 @@ export function ConnectorsPage() {
                     ) : null}
                   </>
                 ) : isPlatform ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    loading={
-                      oauthMutation.isPending &&
-                      oauthMutation.variables?.provider === connector.id
-                    }
-                    disabled={oauthMutation.isPending}
-                    aria-label={`${isConnected ? 'Manage' : 'Connect'} ${
-                      connector.name
-                    }`}
-                    onClick={() => {
-                      if (isConnected) {
-                        openPlatformConnector(connector);
-                        return;
-                      }
-                      oauthMutation.mutate({ provider: connector.id });
-                    }}
-                  >
-                    {isConnected ? 'Manage' : 'Connect'}
-                  </Button>
-                ) : (
-                  <>
+                  showPlatformButton ? (
                     <Button
                       type="button"
                       size="sm"
@@ -453,13 +444,39 @@ export function ConnectorsPage() {
                         oauthMutation.variables?.provider === connector.id
                       }
                       disabled={oauthMutation.isPending}
-                      onClick={() => openOAuthDialog(connector)}
+                      aria-label={`${isConnected ? 'Manage' : 'Connect'} ${
+                        connector.name
+                      }`}
+                      onClick={() => {
+                        if (isConnected) {
+                          openPlatformConnector(connector);
+                          return;
+                        }
+                        oauthMutation.mutate({ provider: connector.id });
+                      }}
                     >
-                      {connector.state === 'connected'
-                        ? 'Reconnect'
-                        : 'Connect'}
+                      {isConnected ? 'Manage' : 'Connect'}
                     </Button>
-                    {connector.state === 'connected' ? (
+                  ) : null
+                ) : (
+                  <>
+                    {canOverwrite ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        loading={
+                          oauthMutation.isPending &&
+                          oauthMutation.variables?.provider === connector.id
+                        }
+                        disabled={oauthMutation.isPending}
+                        onClick={() => openOAuthDialog(connector)}
+                      >
+                        {connector.state === 'connected'
+                          ? 'Reconnect'
+                          : 'Connect'}
+                      </Button>
+                    ) : null}
+                    {canUnset && connector.state === 'connected' ? (
                       <Button
                         type="button"
                         size="sm"
