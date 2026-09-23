@@ -570,12 +570,13 @@ function extractReactionTypes(
 }
 
 function isConfiguredMSTeamsTenant(activity: Activity): boolean {
+  const configuredTenant = normalizeValue(MSTEAMS_TENANT_ID).toLowerCase();
+  if (!configuredTenant) return true;
   const tenant =
     isRecord(activity.channelData) && isRecord(activity.channelData.tenant)
       ? normalizeValue(activity.channelData.tenant.id)
       : '';
   const conversationTenant = normalizeValue(activity.conversation?.tenantId);
-  const configuredTenant = normalizeValue(MSTEAMS_TENANT_ID).toLowerCase();
   if (
     [tenant, conversationTenant].some(
       (value) => value && value.toLowerCase() !== configuredTenant,
@@ -694,14 +695,16 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
     });
   };
 
-  observeMSTeamsUser({
-    tenantId: configuredTenant,
-    userId: actor.userId,
-    teamsUserId: activity.from?.id,
-    entraObjectId: actor.aadObjectId,
-    displayName: actor.displayName || actor.username,
-    isMessage: !parsedCommand.isCommand,
-  });
+  if (configuredTenant) {
+    observeMSTeamsUser({
+      tenantId: configuredTenant,
+      userId: actor.userId,
+      teamsUserId: activity.from?.id,
+      entraObjectId: actor.aadObjectId,
+      displayName: actor.displayName || actor.username,
+      isMessage: !parsedCommand.isCommand,
+    });
+  }
   let agentId: string;
   try {
     agentId = resolveMSTeamsUserAgent(configuredTenant, actor.userId);

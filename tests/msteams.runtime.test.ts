@@ -33,6 +33,7 @@ const loggerInfoMock = vi.fn();
 const loggerWarnMock = vi.fn();
 const cloudAdapters: Array<{ onTurnError?: unknown }> = [];
 let msteamsAppPassword = 'teams-secret';
+let msteamsTenantId = 'teams-tenant-id';
 
 function makeRequest(body: unknown): IncomingMessage {
   return Object.assign(
@@ -153,7 +154,9 @@ async function importRuntime() {
       return msteamsAppPassword;
     },
     MSTEAMS_ENABLED: true,
-    MSTEAMS_TENANT_ID: 'teams-tenant-id',
+    get MSTEAMS_TENANT_ID() {
+      return msteamsTenantId;
+    },
   }));
   vi.doMock('../src/logger.js', () => ({
     logger: {
@@ -259,6 +262,7 @@ afterEach(() => {
   channelPolicyMock.mockReset().mockReturnValue({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] });
   buildSessionIdMock.mockReset().mockReturnValue('teams:dm:user');
   msteamsAppPassword = 'teams-secret';
+  msteamsTenantId = 'teams-tenant-id';
   vi.restoreAllMocks();
   vi.resetModules();
 });
@@ -302,6 +306,24 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(observeUserMock).not.toHaveBeenCalled();
     expect(resolveUserAgentMock).not.toHaveBeenCalled();
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  test('without a configured tenant, activities are delivered but not recorded or routed', async () => {
+    msteamsTenantId = '';
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: 'conversation-a', tenantId: 'real-tenant' },
+        from: { id: '29:user-a' }, channelData: { tenant: { id: 'real-tenant' } } },
+      turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, vi.fn(async () => {}));
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(loggerWarnMock).not.toHaveBeenCalledWith('Ignored Teams activity from a different tenant.');
+    expect(observeUserMock).not.toHaveBeenCalled();
+    expect(resolveUserAgentMock).toHaveBeenCalledWith('', 'user-id');
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'main', tenantId: '' });
   });
 
   test('an unavailable mapping fails without dispatching to the default agent', async () => {

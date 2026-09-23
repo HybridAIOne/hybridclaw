@@ -1,7 +1,9 @@
 /**
  * Teams user routing selects an existing agent within the configured tenant.
  * It runs after channel access checks and never treats a mapping as permission.
- * Session construction stays with inbound.ts; unavailable mappings fail closed.
+ * Without a configured tenant (multi-tenant bot) it always picks the default
+ * agent. Session construction stays with inbound.ts; unavailable mappings fail
+ * closed.
  */
 import { getAgentById } from '../../agents/agent-registry.js';
 import {
@@ -14,7 +16,9 @@ export function resolveMSTeamsUserAgent(
   tenantId: string,
   userId: string,
 ): string {
-  const agentId = getMSTeamsUserAgent(tenantId, userId);
+  const agentId = tenantId.trim()
+    ? getMSTeamsUserAgent(tenantId, userId)
+    : null;
   if (!agentId) return resolveDefaultAgentId(getRuntimeConfig());
   const agent = getAgentById(agentId);
   if (!agent || agent.archived) {

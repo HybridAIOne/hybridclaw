@@ -149,6 +149,10 @@ gateway database, scoped to the configured Teams tenant. If an assigned agent is
 deleted or archived, the bot asks for an administrator to repair the mapping;
 it does not send that user's turn to another agent.
 
+User tracking, routing, and usage attribution require a configured **Tenant
+ID**. A bot without one (multi-tenant app registration) still answers, but uses
+the default agent for everyone and records no per-user data.
+
 Each agent has a separate session key for a Teams conversation. Changing the
 assignment selects that agent's history; it does not copy the previous agent's
 history. Users mapped to the same agent in the same group chat or thread still
@@ -171,7 +175,10 @@ remain separate surfaces: this table tracks messages to the bot.
 ## Sessions
 
 Within each selected agent, HybridClaw maps Teams conversations to sessions
-using the containers Teams provides natively:
+using the containers Teams provides natively. Session keys include the selected
+agent, so a Teams conversation that existed before user routing was introduced
+continues in a fresh session the first time it reaches the bot afterwards.
+Teams conversations map to sessions as follows:
 
 - **Team channels:** every channel post starts its own session. Mention the
   bot in a new post for a fresh session; reply inside the post's thread to

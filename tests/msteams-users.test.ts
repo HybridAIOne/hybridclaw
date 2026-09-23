@@ -87,6 +87,7 @@ describe('Teams user routing and attribution', () => {
     ]);
     expect(resolveMSTeamsUserAgent('tenant-a', 'user-a')).toBe('sales');
     expect(resolveMSTeamsUserAgent('tenant-a', 'user-b')).toBe('main');
+    expect(resolveMSTeamsUserAgent('', 'user-a')).toBe('main');
     expect(updateAdminMSTeamsUser({ userId: 'user-a', agentId: null })).toEqual(
       { status: 200 },
     );
