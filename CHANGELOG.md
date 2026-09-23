@@ -30,7 +30,9 @@
   bracketed IPv6 literals itself instead of relying on their DNS lookup to
   fail, so public ones such as `https://[2606:4700:4700::1111]/` work. It still
   blocks `198.18.0.0/15`, which the shared table leaves open for fake-IP TUN
-  proxies.
+  proxies. Discord CDN downloads and the iMessage BlueBubbles server URL check
+  use the same table, and BlueBubbles classifies bracketed IPv6 server URLs
+  the same way.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
