@@ -185,6 +185,15 @@ describe('web fetch SSRF guard', () => {
         extractMode: 'text',
       }),
     ).rejects.toThrow(/SSRF guard/);
+    await expect(
+      webFetch({ url: 'http://[::127.0.0.1]/admin', extractMode: 'text' }),
+    ).rejects.toThrow(/SSRF guard/);
+    await expect(
+      webFetch({
+        url: 'http://[64:ff9b::169.254.169.254]/latest/meta-data/',
+        extractMode: 'text',
+      }),
+    ).rejects.toThrow(/SSRF guard/);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
