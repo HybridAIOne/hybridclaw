@@ -16,12 +16,12 @@ import {
  *
  * Each case mounts the *working-tree* copy of install.sh (so it tests local
  * edits, not the version on `main`) read-only at /tmp/install.sh and runs it
- * against a deliberately bare base image. The scenarios pin three behaviours
+ * against fresh base images. The scenarios pin three behaviours
  * that have regressed before:
  *
  *   1. Managed-Node path needs no `xz`: nodejs.org's tarball is fetched as
- *      .tar.gz and extracted with `tar -xzf`, so a minimal Debian/Ubuntu box
- *      (no xz-utils) installs cleanly instead of dying in `tar -xJf`.
+ *      .tar.gz and extracted with `tar -xzf`, so a Debian box with no
+ *      system Node or xz installs cleanly instead of dying in `tar -xJf`.
  *   2. System-Node + root-owned global prefix installs with no sudo: the
  *      EACCES fallback repoints npm at ~/.hybridclaw/npm-global without ever
  *      escalating or mutating the system prefix.
@@ -54,12 +54,12 @@ const INSTALL_ATTEMPT_MS = 300_000;
 const INSTALL_TEST_MS = 660_000;
 const QUICK_TIMEOUT_MS = 150_000;
 
-// npm registry reads and apt mirrors flake intermittently on a fat install;
-// that is infrastructure noise, not an installer bug. Retry the whole
+// npm registry reads flake intermittently (ETIMEDOUT/ECONNRESET) on a fat
+// install; that is infrastructure noise, not an installer bug. Retry the whole
 // container run a bounded number of times — but only on a network signature, so
 // a genuine logic failure still fails fast on the first attempt.
 const NETWORK_ERROR =
-  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EINTEGRITY|ERR_SOCKET_TIMEOUT|fetch failed|503 Service Unavailable|Temporary failure|Hash Sum mismatch|network (?:read|connectivity|request)|E: Failed to fetch [^\n]*404 Not Found/i;
+  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EINTEGRITY|ERR_SOCKET_TIMEOUT|fetch failed|503 Service Unavailable|Temporary failure|Hash Sum mismatch|network (?:read|connectivity|request)/i;
 
 interface ContainerRun {
   status: number;
@@ -158,20 +158,18 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
   });
 
   test(
-    'clean Debian/Ubuntu without xz: managed Node via gzip tarball, then CLI install',
+    'Debian without system Node or xz: managed Node via gzip tarball, then CLI install',
     () => {
       const { status, output } = runInstall({
-        image: 'ubuntu:24.04',
+        image: 'node:22',
         script: [
           'set -e',
-          // stdout silenced for noise, stderr kept: an apt mirror flake must
-          // surface its own diagnostics (and match the transient-retry regex)
-          // instead of failing the later assertions with no clue.
-          'apt-get update -qq >/dev/null',
-          // curl + ca-certificates is the floor a `curl | bash` user already
-          // meets; python3/make/g++ let native modules compile. We pointedly do
-          // NOT install xz-utils — the managed-Node path must not need it.
-          'apt-get install -y -qq curl ca-certificates python3 make g++ >/dev/null',
+          // The image has curl, CA certificates, and build tools. Hide its Node
+          // and remove xz so the installer must use its managed-Node path.
+          'export PATH=/usr/bin:/bin',
+          'rm -f /usr/bin/xz /usr/bin/unxz /usr/bin/xzcat',
+          '! command -v node >/dev/null',
+          '! command -v xz >/dev/null',
           'export npm_config_fetch_retries=5',
           'export ONNXRUNTIME_NODE_INSTALL_CUDA=skip',
           `bash /tmp/install.sh --no-prompt --verify --version ${INSTALL_VERSION}`,
@@ -251,11 +249,9 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
     '--dry-run prints the plan and touches nothing',
     () => {
       const { status, output } = runInContainer({
-        image: 'ubuntu:24.04',
+        image: 'node:22',
         timeoutMs: QUICK_TIMEOUT_MS,
         script: [
-          'apt-get update -qq >/dev/null 2>&1',
-          'apt-get install -y -qq curl ca-certificates >/dev/null 2>&1',
           'bash /tmp/install.sh --dry-run --no-prompt',
           'echo "HOME_EXISTS=$([ -e "$HOME/.hybridclaw" ] && echo yes || echo no)"',
         ].join('\n'),
