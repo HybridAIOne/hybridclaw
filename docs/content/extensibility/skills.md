@@ -346,6 +346,10 @@ Operator surfaces:
 `skill install` and `skill setup` are limited to local TUI and web sessions
 because they change the host dependency state.
 
+An install entry can set `verifyArgs: ["--help"]` or `["--version"]` with
+exactly one `bins` entry. Setup runs that binary before claiming success and
+skips installation when an existing binary passes the check.
+
 ## Catalog And Admin Surfaces
 
 - `hybridclaw skill list` and `/skill list` group skills by category, show

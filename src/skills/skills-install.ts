@@ -1,3 +1,8 @@
+/**
+ * Operator-invoked skill dependency setup validates both installation and
+ * declared executable checks before reporting success. Skill discovery only
+ * reads this metadata; it never installs packages during an agent turn.
+ */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -213,6 +218,14 @@ function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
 }
 
 function validateInstallSpec(spec: SkillInstallSpec): string | null {
+  if (
+    spec.verifyArgs?.length &&
+    (spec.bins?.length !== 1 ||
+      spec.verifyArgs.length !== 1 ||
+      !['--help', '--version'].includes(spec.verifyArgs[0]))
+  ) {
+    return 'verifyArgs must be --help or --version for one declared binary';
+  }
   switch (spec.kind) {
     case 'brew':
       if (!spec.formula) return 'missing formula';
@@ -431,6 +444,17 @@ export async function installSkillDependency(params: {
     env = uvSetup.env;
   }
 
+  const verifyBin = selection.spec.bins?.[0];
+  const verifyArgs = selection.spec.verifyArgs;
+  if (verifyBin && verifyArgs?.length && hasBinary(verifyBin)) {
+    const existing = await runCommand([verifyBin, ...verifyArgs]);
+    if (existing.code === 0) {
+      return createInstallSuccess({
+        message: `Already installed ${selection.skill.name} via ${selection.installId}`,
+      });
+    }
+  }
+
   const argv = buildInstallCommand(selection.spec);
   if (!argv) {
     return createInstallFailure({
@@ -456,6 +480,18 @@ export async function installSkillDependency(params: {
       stderr: result.stderr,
       code: result.code,
     });
+  }
+
+  if (verifyBin && verifyArgs?.length) {
+    const verification = await runCommand([verifyBin, ...verifyArgs], env);
+    if (verification.code !== 0) {
+      return createInstallFailure({
+        message: `Installed ${selection.skill.name}, but ${verifyBin} ${verifyArgs.join(' ')} failed`,
+        stdout: result.stdout,
+        stderr: verification.stderr || result.stderr,
+        code: verification.code,
+      });
+    }
   }
 
   return createInstallSuccess({

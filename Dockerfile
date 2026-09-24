@@ -62,6 +62,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # route working too.
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
+COPY container/install-gws.sh /tmp/install-gws.sh
+RUN sh /tmp/install-gws.sh "$TARGETARCH" && rm /tmp/install-gws.sh
+
 RUN python3 -m pip install --break-system-packages \
       openpyxl==3.1.5
 

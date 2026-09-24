@@ -22,6 +22,7 @@ metadata:
         kind: npm
         package: "@googleworkspace/cli"
         bins: ["gws"]
+        verifyArgs: ["--help"]
         label: Install Google Workspace CLI (npm)
 ---
 

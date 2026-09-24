@@ -142,6 +142,7 @@ describe('skill resolution integration', () => {
         kind: 'npm',
         label: 'Install Google Workspace CLI (npm)',
         bins: ['gws'],
+        verifyArgs: ['--help'],
       }),
     ]);
     const gwsSkillBody = fs.readFileSync(

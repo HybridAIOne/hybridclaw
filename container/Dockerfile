@@ -20,6 +20,8 @@ RUN npx tsc
 # --- Runtime base (no LibreOffice) ---
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime-lite
 
+ARG TARGETARCH
+
 LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
 LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
 
@@ -36,6 +38,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ripgrep git curl python3 python3-pip python3-venv python-is-python3 unzip file poppler-utils qpdf pandoc
+
+COPY install-gws.sh /tmp/install-gws.sh
+RUN sh /tmp/install-gws.sh "$TARGETARCH" && rm /tmp/install-gws.sh
 
 # Debian's PEP 668 marker makes bare `pip install` fail with
 # externally-managed-environment. This image is a disposable sandbox, so the

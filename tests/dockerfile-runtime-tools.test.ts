@@ -34,6 +34,19 @@ function expectRuntimePipInstallable(runtime: string): void {
 }
 
 describe('Docker runtime tool parity', () => {
+  test('both runtime images install the same verified gws build', () => {
+    const gateway = runtimeStage(readRepoFile('Dockerfile'), 'runtime');
+    const agent = runtimeStage(readRepoFile('container/Dockerfile'), 'runtime-lite');
+    expect(gateway).toContain('container/install-gws.sh');
+    expect(agent).toContain('COPY install-gws.sh');
+    expect(gateway).toContain('sh /tmp/install-gws.sh "$TARGETARCH"');
+    expect(agent).toContain('sh /tmp/install-gws.sh "$TARGETARCH"');
+    const installer = readRepoFile('container/install-gws.sh');
+    expect(installer).toContain('unknown-linux-musl');
+    expect(installer).toContain('sha256sum -c -');
+    expect(installer).toContain('--help >/dev/null');
+  });
+
   test('gateway host-sandbox runtime includes spreadsheet inspection tools', () => {
     const runtime = runtimeStage(readRepoFile('Dockerfile'), 'runtime');
     expectSpreadsheetRuntimeTools(runtime);

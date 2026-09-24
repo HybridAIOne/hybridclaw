@@ -73,6 +73,7 @@ export interface SkillInstallSpec {
   kind: SkillInstallKind;
   label?: string;
   bins?: string[];
+  verifyArgs?: string[];
   formula?: string;
   package?: string;
   module?: string;
@@ -316,11 +317,13 @@ function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
       continue;
     }
 
+    const verifyArgs = normalizeStringList(entry.verifyArgs);
     specs.push({
       id: typeof entry.id === 'string' ? entry.id.trim() : undefined,
       kind: kindRaw,
       label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
       bins: normalizeStringList(entry.bins),
+      ...(verifyArgs.length > 0 ? { verifyArgs } : {}),
       formula:
         typeof entry.formula === 'string' ? entry.formula.trim() : undefined,
       package:

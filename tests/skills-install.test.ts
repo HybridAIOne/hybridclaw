@@ -613,4 +613,69 @@ describe('skill install metadata', () => {
       }),
     );
   });
+
+  test('uses an existing runnable gws without replacing it with npm', async () => {
+    const spawnMock = vi.fn().mockImplementation(() =>
+      createMockSpawnProcess({ code: 0 }),
+    );
+    vi.doMock('node:child_process', () => ({ spawn: spawnMock }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return { ...actual, hasBinary: (bin: string) => bin === 'gws' };
+    });
+
+    const { installSkillDependency } = await import(
+      '../src/skills/skills-install.ts'
+    );
+    const result = await installSkillDependency({
+      skillName: 'gws',
+      installId: 'gws',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(spawnMock).toHaveBeenCalledExactlyOnceWith(
+      'gws',
+      ['--help'],
+      expect.any(Object),
+    );
+  });
+
+  test('reports a gws binary that cannot execute after npm installation', async () => {
+    const spawnMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        createMockSpawnProcess({ code: 1, stderr: 'GLIBC_2.39 not found' }),
+      )
+      .mockImplementationOnce(() => createMockSpawnProcess({ code: 0 }))
+      .mockImplementationOnce(() =>
+        createMockSpawnProcess({ code: 1, stderr: 'GLIBC_2.39 not found' }),
+      );
+    vi.doMock('node:child_process', () => ({ spawn: spawnMock }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return { ...actual, hasBinary: () => true };
+    });
+
+    const { installSkillDependency } = await import(
+      '../src/skills/skills-install.ts'
+    );
+    const result = await installSkillDependency({
+      skillName: 'gws',
+      installId: 'gws',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('gws --help failed');
+    expect(result.stderr).toContain('GLIBC_2.39 not found');
+    expect(spawnMock).toHaveBeenNthCalledWith(
+      2,
+      'npm',
+      ['install', '-g', '--ignore-scripts', '@googleworkspace/cli'],
+      expect.any(Object),
+    );
+  });
 });
