@@ -12,6 +12,15 @@
 
 ### Fixed
 
+- **SSRF guards block IPv6 spellings of private hosts**: Browser navigation,
+  the managed-browser guard proxy, and remote `audio_transcribe` fetches now
+  reject IPv6 literals such as `http://[::ffff:169.254.169.254]/` (cloud
+  metadata), `[::ffff:127.0.0.1]`, `[::1]`, and `[fd00:ec2::254]`. The URL
+  parser rewrites IPv4-mapped hosts to hex (`::ffff:a9fe:a9fe`), which these
+  guards did not decode, and the browser guard sent every bracketed IPv6
+  literal to a DNS lookup whose failure let it through. The container SSRF
+  guards share one private-range table that also covers IPv4-compatible and
+  NAT64 (`64:ff9b::/96`) forms.
 - **Competitor monitoring no longer copies its example**: The skill's
   example watchlist and result block used a real company with plausible
   numbers, and an agent wrote that example into its daily note, so the app

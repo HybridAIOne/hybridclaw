@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { isPrivateNetworkAddress } from '../shared/private-network.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
 import { ProviderRequestError } from './providers/shared.js';
@@ -210,74 +211,6 @@ function normalizeHostname(hostname: string): string {
   return normalized;
 }
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-
-  const [a, b] = parts;
-  if (a === 0) return true;
-  if (a === 10 || a === 127) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a >= 224) return true;
-  return false;
-}
-
-function decodeIpv4MappedIpv6Tail(value: string): string | null {
-  if (net.isIP(value) === 4) return value;
-
-  const parts = value.split(':');
-  if (parts.length !== 2) return null;
-
-  const words = parts.map((part) => Number.parseInt(part, 16));
-  if (
-    words.some(
-      (word, index) =>
-        !/^[0-9a-f]{1,4}$/i.test(parts[index] ?? '') ||
-        Number.isNaN(word) ||
-        word < 0 ||
-        word > 0xffff,
-    )
-  ) {
-    return null;
-  }
-
-  return [
-    (words[0] >> 8) & 0xff,
-    words[0] & 0xff,
-    (words[1] >> 8) & 0xff,
-    words[1] & 0xff,
-  ].join('.');
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = (ip.split('%')[0] ?? '').toLowerCase();
-  if (lower === '::') return true;
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = decodeIpv4MappedIpv6Tail(lower.slice('::ffff:'.length));
-    return mapped ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-function isPrivateIp(ip: string): boolean {
-  const normalized = normalizeHostname(ip);
-  const version = net.isIP(normalized);
-  if (version === 4) return isPrivateIpv4(normalized);
-  if (version === 6) return isPrivateIpv6(normalized);
-  return false;
-}
-
 async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
   let parsedUrl: URL;
   try {
@@ -304,7 +237,7 @@ async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
     );
   }
   if (net.isIP(host) > 0) {
-    if (isPrivateIp(host)) {
+    if (isPrivateNetworkAddress(host)) {
       throw new Error(
         `provider image URL blocked: private or loopback host (${host})`,
       );
@@ -319,7 +252,7 @@ async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
         `provider image URL blocked: DNS lookup failed (${host})`,
       );
     }
-    if (resolved.some((entry) => isPrivateIp(entry.address))) {
+    if (resolved.some((entry) => isPrivateNetworkAddress(entry.address))) {
       throw new Error(
         `provider image URL blocked: private or loopback host (${host})`,
       );
