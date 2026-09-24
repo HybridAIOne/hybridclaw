@@ -122,6 +122,13 @@ Two important transitions:
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
 | Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path |
 
+Approval classifies a `grep` call by its `path` and `include` arguments, which
+do not show which files a directory walk will read. `grep` therefore skips
+files matching the built-in pinned paths (`.env*`, `~/.ssh/**`, `/etc/**`)
+unless `path` or `include` names a pinned path, which makes the call red. The
+output reports how many files were skipped. Paths added under
+`approval.pinned_red` gate explicit arguments only; walks do not skip them.
+
 ## Network Policy
 
 HTTP and web access are controlled by a structured `network` section in

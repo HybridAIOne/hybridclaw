@@ -51,7 +51,11 @@ and starting a connector OAuth flow require `secret.overwrite`, and logging a
 connector out requires `secret.unset`. Only `admin.security_manager` and
 `admin.full` include them, or `admin:owner` and `admin:secret-manager` among
 the [ISO role bundles](./iso27001/access-control-matrix.md). Viewing connector
-status and running a connector test need only `admin.connectors.read`.
+status and running a connector test need only `admin.connectors.read`. The
+console Connectors page shows Connect, Rotate key, Reconnect, and Disconnect
+only to callers holding the matching action; other callers keep Test and, for
+connected GitHub and Microsoft 365, the Manage link to HybridAI, which applies
+its own permissions.
 
 ## Session Claim Examples
 

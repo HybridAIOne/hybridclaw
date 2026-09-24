@@ -8240,6 +8240,134 @@ describe('gateway HTTP server', () => {
     },
   );
 
+  test('lists connectors with the caller auth payload for credential action hints', async () => {
+    const authSecret = 'connector-actions-auth-secret';
+    const apiToken = 'hck_connector_viewer';
+    const tokenClaims = { actions: ['admin.connectors.read'] };
+    const state = await importFreshHealth({
+      authSecret,
+      apiTokens: {
+        [apiToken]: {
+          id: 'eee555eee555',
+          label: 'connector-viewer',
+          claims: tokenClaims,
+        },
+      },
+    });
+    const callers = [
+      {
+        caller: 'admin.viewer session',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-1',
+            actor: 'viewer',
+            role: 'admin.viewer',
+          }),
+        },
+        requestBaseUrl: 'http://127.0.0.1:9090',
+        authPayload: expect.objectContaining({ role: 'admin.viewer' }),
+      },
+      {
+        caller: 'admin.security_manager session',
+        headers: {
+          cookie: makeSessionCookie(authSecret, {
+            sessionId: 'admin-session-2',
+            actor: 'security-owner',
+            role: 'admin.security_manager',
+          }),
+        },
+        requestBaseUrl: 'http://127.0.0.1:9090',
+        authPayload: expect.objectContaining({
+          role: 'admin.security_manager',
+        }),
+      },
+      {
+        caller: 'scoped API token',
+        headers: { authorization: `Bearer ${apiToken}` },
+        requestBaseUrl: 'http://127.0.0.1:9090',
+        authPayload: tokenClaims,
+      },
+      {
+        caller: 'legacy bearer token',
+        headers: {
+          authorization: `Bearer ${DEFAULT_TEST_GATEWAY_API_TOKEN}`,
+        },
+        requestBaseUrl: 'http://127.0.0.1:9090',
+        authPayload: null,
+      },
+      {
+        caller: 'loopback session',
+        headers: {
+          cookie: issueLocalWebSessionCookie(state),
+          host: 'localhost:9090',
+        },
+        requestBaseUrl: 'http://localhost:9090',
+        authPayload: null,
+      },
+    ];
+
+    for (const { caller, headers, requestBaseUrl, authPayload } of callers) {
+      state.getGatewayAdminConnectorsWithPlatformState.mockClear();
+      const req = makeRequest({
+        url: '/api/admin/connectors',
+        headers,
+        noAuth: true,
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode, caller).toBe(200);
+      expect(
+        state.getGatewayAdminConnectorsWithPlatformState,
+        caller,
+      ).toHaveBeenCalledWith({ requestBaseUrl, authPayload });
+    }
+  });
+
+  test('returns connector key save and logout lists for the caller auth payload', async () => {
+    const authSecret = 'connector-actions-mutation-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const headers = {
+      cookie: makeSessionCookie(authSecret, {
+        sessionId: 'admin-session-1',
+        actor: 'security-owner',
+        role: 'admin.security_manager',
+      }),
+      ...sameOriginBrowserHeaders,
+    };
+
+    for (const { method, url, body, service } of [
+      {
+        method: 'PUT',
+        url: '/api/admin/connectors/hybridai/key',
+        body: { apiKey: 'test-key' },
+        service: 'saveGatewayAdminHybridAIConnectorApiKey',
+      },
+      {
+        method: 'POST',
+        url: '/api/admin/connectors/logout',
+        body: { provider: 'hybridai' },
+        service: 'logoutGatewayAdminConnector',
+      },
+    ] as const) {
+      const req = makeRequest({ method, url, body, headers, noAuth: true });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode, url).toBe(200);
+      expect(state[service], url).toHaveBeenCalledWith(body, {
+        requestBaseUrl: 'http://127.0.0.1:9090',
+        authPayload: expect.objectContaining({
+          role: 'admin.security_manager',
+        }),
+      });
+    }
+  });
+
   test('keeps audited handler denials on admin secret routes for scoped sessions', async () => {
     const authSecret = 'secret-route-audit-auth-secret';
     const state = await importFreshHealth({ authSecret });
