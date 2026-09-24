@@ -44,41 +44,39 @@ function writeBehaviorTrajectoryStore(params: {
   storeDir: string;
   agentId: string;
   count: number;
-  toolName?: string;
-  args?: Record<string, unknown>;
+  tools?: Array<{ name: string; args: Record<string, unknown> }>;
 }): void {
   const date = '2026-05-01';
   const dir = path.join(params.storeDir, date);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `${params.agentId}.jsonl`);
-  const toolName = params.toolName || 'read';
-  const args = params.args || { path: '/workspace/docs/readme.md' };
+  const tools = params.tools || [
+    { name: 'read', args: { path: '/workspace/docs/readme.md' } },
+  ];
   const lines = Array.from({ length: params.count }, (_, index) =>
     JSON.stringify({
       schema_version: 2,
       captured_at: `2026-05-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
       agent_id: params.agentId,
       outcome: 'success',
-      tools_used: [
-        {
-          name: toolName,
-          duration_ms: 1,
-          is_error: false,
-          blocked: false,
-          approval_tier: 'green',
-          approval_decision: 'auto',
-          arguments: {
-            content: JSON.stringify(args),
-            truncated: false,
-            source: 'full',
-          },
-          result: {
-            content: 'ok',
-            truncated: false,
-            source: 'full',
-          },
+      tools_used: tools.map((tool) => ({
+        name: tool.name,
+        duration_ms: 1,
+        is_error: false,
+        blocked: false,
+        approval_tier: 'green',
+        approval_decision: 'auto',
+        arguments: {
+          content: JSON.stringify(tool.args),
+          truncated: false,
+          source: 'full',
         },
-      ],
+        result: {
+          content: 'ok',
+          truncated: false,
+          source: 'full',
+        },
+      })),
     }),
   );
   fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
@@ -492,10 +490,6 @@ approval:
     const score = reranker.score({
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     });
 
@@ -520,10 +514,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -555,10 +545,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -591,10 +577,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -616,6 +598,62 @@ approval:
     });
   });
 
+  test('behavior anomaly reranker does not elevate calls identical to approved history', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-identical-'),
+    );
+    const tools = [
+      { name: 'glob', args: { pattern: 'src/**/*.ts' } },
+      { name: 'grep', args: { pattern: 'TODO' } },
+      { name: 'bash', args: { command: 'ls -la src' } },
+    ];
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+      tools,
+    });
+    vi.stubEnv('HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR', storeDir);
+    vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'lena');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const now = new Date('2026-05-01T10:15:00.000Z');
+
+    const evaluations = tools.map((tool) => {
+      const evaluation = runtime.evaluateToolCall({
+        toolName: tool.name,
+        argsJson: JSON.stringify(tool.args),
+        latestUserPrompt: 'List the TODOs in src',
+        now,
+      });
+      runtime.afterToolExecution(evaluation, true);
+      return { tool, evaluation };
+    });
+
+    for (const { tool, evaluation } of evaluations) {
+      expect(evaluation.anomaly).toMatchObject({
+        trajectoryCount: 80,
+        tuple: buildBehaviorTuple({
+          toolName: tool.name,
+          args: tool.args,
+          at: now,
+        }),
+      });
+      expect(evaluation.anomaly?.score).toBeLessThanOrEqual(
+        evaluation.anomaly?.threshold ?? -1,
+      );
+      expect(evaluation.baseTier).toBe('green');
+      expect(evaluation.tier).toBe('green');
+    }
+    // With the approved glob -> grep calls as session context, the replayed
+    // bash call matches the trained transition and scores clearly below the
+    // adaptive threshold instead of needing an F11 trace-judge opinion.
+    const bash = evaluations.at(-1)?.evaluation.anomaly;
+    expect(bash?.status).toBe('scored');
+    expect(bash?.score).toBeLessThan(bash?.threshold ?? -1);
+  });
+
   test('behavior anomaly tuple uses UTC hour buckets', () => {
     const at = new Date('2026-05-01T10:15:00.000Z');
     vi.spyOn(at, 'getHours').mockReturnValue(23);
@@ -623,10 +661,6 @@ approval:
     const tuple = buildBehaviorTuple({
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       at,
     });
 

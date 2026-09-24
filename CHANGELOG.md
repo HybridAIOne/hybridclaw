@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **Anomaly reranker recognizes an agent's routine calls**: Live tool calls are
+  scored with behavior tuples built from the tool name and arguments, the same
+  facts the model trains on. Scoring used to mix in approval-classifier action
+  keys and path/host hints, so routine `glob`, `grep`, read-only `bash`, web,
+  `memory`, and MCP calls never matched the agent's own history and were
+  elevated a tier once the agent had 50 approved trajectories.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

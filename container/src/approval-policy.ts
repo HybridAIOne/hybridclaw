@@ -1861,15 +1861,10 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   anomaly_reranker(context) {
-    const classified = requireClassified(context);
     const currentTier = context.tier || requireBaseTier(context);
     const anomaly = context.helpers.scoreBehaviorAnomaly({
       toolName: context.params.toolName,
       args: context.args,
-      actionKey: classified.actionKey,
-      pathHints: classified.pathHints,
-      hostHints: classified.hostHints,
-      writeIntent: classified.writeIntent,
       now: context.params.now,
     });
     context.anomaly = anomaly;

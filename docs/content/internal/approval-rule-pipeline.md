@@ -45,8 +45,11 @@ allowlisted actions/fingerprints retain their existing storage.
 `anomaly_reranker` is a CPU-only v1 model. It reads scrubbed R10.1 trajectory
 JSONL files for the current agent and trains an order-2 Markov chain plus a
 frequency baseline over `(action_class, target_class, hour_bucket, tool)`
-tuples. The model abstains until the agent has at least 50 approved
-trajectories. The adaptive threshold is the agent's p99 training score.
+tuples. Tuples come from the tool name and arguments only, never from
+approval-classifier output, so live calls are scored on the same facts the
+trajectories recorded and stay stable across policy reloads. The model
+abstains until the agent has at least 50 approved trajectories. The adaptive
+threshold is the agent's p99 training score.
 
 Live calls are scored after `stakes` and before `autonomy_override`. Scores
 above threshold elevate one tier (`green` to `yellow`, `yellow` to `red`).
