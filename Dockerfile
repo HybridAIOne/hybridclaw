@@ -130,7 +130,7 @@ COPY --link SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
-ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/app/node_modules:/app/container/node_modules
+ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules
 # Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data

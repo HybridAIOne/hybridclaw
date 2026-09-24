@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=/root/.npm \
     && npm ci --ignore-scripts --omit=dev --no-audit --fund=false \
     && rm -f node_modules/.package-lock.json
 
-ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/app/node_modules
+ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/app/node_modules
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
