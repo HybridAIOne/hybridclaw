@@ -41,6 +41,11 @@ import {
   type SkillManifest,
 } from './skill-manifest.js';
 import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
+import {
+  normalizeInstallSpecs,
+  parseInstallSpecList,
+  type SkillInstallSpec,
+} from './skills-install-spec.js';
 
 export type {
   SkillManifestConfigVariable,
@@ -48,6 +53,10 @@ export type {
   SkillManifestDeclaredCredential,
   SkillManifestSecretRef,
 } from './skill-manifest.js';
+export type {
+  SkillInstallKind,
+  SkillInstallSpec,
+} from './skills-install-spec.js';
 export { SKILL_MANIFEST_CREDENTIAL_KINDS };
 
 export type SkillSource =
@@ -59,27 +68,6 @@ export type SkillSource =
   | 'agents-project'
   | 'community'
   | 'workspace';
-
-export type SkillInstallKind =
-  | 'brew'
-  | 'uv'
-  | 'npm'
-  | 'node'
-  | 'go'
-  | 'download';
-
-export interface SkillInstallSpec {
-  id?: string;
-  kind: SkillInstallKind;
-  label?: string;
-  bins?: string[];
-  formula?: string;
-  package?: string;
-  module?: string;
-  url?: string;
-  path?: string;
-  chmod?: string;
-}
 
 /**
  * A skill as parsed from disk, before any consumer-specific state is attached.
@@ -297,44 +285,6 @@ function tryParseJsonArray(raw: string): unknown[] | null {
   }
 }
 
-function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
-  if (!Array.isArray(raw)) return [];
-
-  const specs: SkillInstallSpec[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
-    const kindRaw =
-      typeof entry.kind === 'string' ? entry.kind.trim().toLowerCase() : '';
-    if (
-      kindRaw !== 'brew' &&
-      kindRaw !== 'uv' &&
-      kindRaw !== 'npm' &&
-      kindRaw !== 'node' &&
-      kindRaw !== 'go' &&
-      kindRaw !== 'download'
-    ) {
-      continue;
-    }
-
-    specs.push({
-      id: typeof entry.id === 'string' ? entry.id.trim() : undefined,
-      kind: kindRaw,
-      label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
-      bins: normalizeStringList(entry.bins),
-      formula:
-        typeof entry.formula === 'string' ? entry.formula.trim() : undefined,
-      package:
-        typeof entry.package === 'string' ? entry.package.trim() : undefined,
-      module:
-        typeof entry.module === 'string' ? entry.module.trim() : undefined,
-      url: typeof entry.url === 'string' ? entry.url.trim() : undefined,
-      path: typeof entry.path === 'string' ? entry.path.trim() : undefined,
-      chmod: typeof entry.chmod === 'string' ? entry.chmod.trim() : undefined,
-    });
-  }
-  return specs;
-}
-
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = stripQuotes(raw.trim());
   if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('[')))
@@ -444,40 +394,6 @@ function parseSectionStringList(
   return values;
 }
 
-function parseSectionObjectList(
-  section: FrontmatterSection | undefined,
-): Record<string, string>[] {
-  if (!section) return [];
-  const values: Record<string, string>[] = [];
-  let current: Record<string, string> | null = null;
-
-  for (const line of section.children) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const itemMatch = trimmed.match(/^-\s*(.*)$/);
-    if (itemMatch) {
-      if (current && Object.keys(current).length > 0) values.push(current);
-      current = {};
-      const remainder = (itemMatch[1] || '').trim();
-      if (!remainder) continue;
-      const inlineMatch = remainder.match(/^([\w-]+):\s*(.*)$/);
-      if (inlineMatch) {
-        current[inlineMatch[1]] = stripQuotes((inlineMatch[2] || '').trim());
-      }
-      continue;
-    }
-
-    const fieldMatch = trimmed.match(/^([\w-]+):\s*(.*)$/);
-    if (!fieldMatch) continue;
-    if (!current) current = {};
-    current[fieldMatch[1]] = stripQuotes((fieldMatch[2] || '').trim());
-  }
-
-  if (current && Object.keys(current).length > 0) values.push(current);
-  return values;
-}
-
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
@@ -548,7 +464,9 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
         ...normalizeStringList(record.relatedSkills),
       ]),
     ),
-    install: mergeUniqueInstallSpecs([normalizeInstallSpecs(record.install)]),
+    install: mergeUniqueInstallSpecs([
+      normalizeInstallSpecs(record.install, normalizeStringList),
+    ]),
   };
 }
 
@@ -767,7 +685,9 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
       ]),
     ),
     install: normalizeInstallSpecs(
-      installInlineJson ?? parseSectionObjectList(installSection),
+      installInlineJson ??
+        parseInstallSpecList(installSection?.children.join('\n') || ''),
+      normalizeStringList,
     ),
   };
 }
