@@ -79,7 +79,7 @@ describe('Docker runtime tool parity', () => {
     expectRuntimePipInstallable(runtime);
     expectManifestInstall(runtime, RUNTIME_TOOLS_DIR, inventory);
     expect(runtime).toContain(
-      `NODE_PATH=${RUNTIME_TOOLS_TARGET}/node_modules:/app/node_modules:/app/container/node_modules`,
+      `NODE_PATH=${RUNTIME_TOOLS_TARGET}/node_modules:/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules`,
     );
     expect(runtime).toContain('ARG SIGNAL_CLI_VERSION=0.14.7');
     expect(runtime).toContain(
@@ -97,7 +97,7 @@ describe('Docker runtime tool parity', () => {
     // The agent image builds with `container/` as its context.
     expectManifestInstall(runtime, 'tools', inventory);
     expect(runtime).toContain(
-      `NODE_PATH=${RUNTIME_TOOLS_TARGET}/node_modules:/app/node_modules`,
+      `NODE_PATH=${RUNTIME_TOOLS_TARGET}/node_modules:/usr/local/lib/node_modules:/app/node_modules`,
     );
   });
 
