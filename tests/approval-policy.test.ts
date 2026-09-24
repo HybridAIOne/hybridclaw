@@ -44,44 +44,76 @@ function writeBehaviorTrajectoryStore(params: {
   storeDir: string;
   agentId: string;
   count: number;
-  toolName?: string;
-  args?: Record<string, unknown>;
+  tools?: Array<{ name: string; args: Record<string, unknown> }>;
 }): void {
   const date = '2026-05-01';
   const dir = path.join(params.storeDir, date);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `${params.agentId}.jsonl`);
-  const toolName = params.toolName || 'read';
-  const args = params.args || { path: '/workspace/docs/readme.md' };
+  const tools = params.tools || [
+    { name: 'read', args: { path: '/workspace/docs/readme.md' } },
+  ];
   const lines = Array.from({ length: params.count }, (_, index) =>
     JSON.stringify({
       schema_version: 2,
       captured_at: `2026-05-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
       agent_id: params.agentId,
       outcome: 'success',
-      tools_used: [
-        {
-          name: toolName,
-          duration_ms: 1,
-          is_error: false,
-          blocked: false,
-          approval_tier: 'green',
-          approval_decision: 'auto',
-          arguments: {
-            content: JSON.stringify(args),
-            truncated: false,
-            source: 'full',
-          },
-          result: {
-            content: 'ok',
-            truncated: false,
-            source: 'full',
-          },
+      tools_used: tools.map((tool) => ({
+        name: tool.name,
+        duration_ms: 1,
+        is_error: false,
+        blocked: false,
+        approval_tier: 'green',
+        approval_decision: 'auto',
+        arguments: {
+          content: JSON.stringify(tool.args),
+          truncated: false,
+          source: 'full',
         },
-      ],
+        result: {
+          content: 'ok',
+          truncated: false,
+          source: 'full',
+        },
+      })),
     }),
   );
   fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
+}
+
+// 80 approved read/glob trajectories captured at 10:xx UTC; score calls at
+// ANOMALY_BASELINE_NOW so they share the baseline's hour bucket.
+const ANOMALY_BASELINE_NOW = new Date('2026-05-01T10:15:00.000Z');
+
+function stubBehaviorAnomalyBaseline(): void {
+  const storeDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-anomaly-baseline-'),
+  );
+  writeBehaviorTrajectoryStore({
+    storeDir,
+    agentId: 'lena',
+    count: 80,
+    tools: [
+      { name: 'read', args: { path: '/workspace/docs/readme.md' } },
+      { name: 'glob', args: { pattern: 'docs/**/*.md' } },
+    ],
+  });
+  vi.stubEnv('HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR', storeDir);
+  vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'lena');
+}
+
+function createIsolatedApprovalRuntime(
+  name: string,
+): TrustedAgentApprovalRuntime {
+  return new TrustedAgentApprovalRuntime(
+    '/tmp/hybridclaw-missing-policy.yaml',
+    tempTrustStorePath(`${name}-agent-trust`),
+    tempTrustStorePath(`${name}-all-trust`),
+    tempTrustStorePath(`${name}-legacy-trust`),
+    undefined,
+    tempTrustStorePath(`${name}-pending`),
+  );
 }
 
 const LOW_STAKES_SCORE: StakesScore = {
@@ -492,10 +524,6 @@ approval:
     const score = reranker.score({
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     });
 
@@ -520,10 +548,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -555,10 +579,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -591,10 +611,6 @@ approval:
     const input = {
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       now: new Date('2026-05-01T10:15:00.000Z'),
     };
 
@@ -616,6 +632,62 @@ approval:
     });
   });
 
+  test('behavior anomaly reranker does not elevate calls identical to approved history', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-identical-'),
+    );
+    const tools = [
+      { name: 'glob', args: { pattern: 'src/**/*.ts' } },
+      { name: 'grep', args: { pattern: 'TODO' } },
+      { name: 'bash', args: { command: 'ls -la src' } },
+    ];
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+      tools,
+    });
+    vi.stubEnv('HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR', storeDir);
+    vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'lena');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const now = new Date('2026-05-01T10:15:00.000Z');
+
+    const evaluations = tools.map((tool) => {
+      const evaluation = runtime.evaluateToolCall({
+        toolName: tool.name,
+        argsJson: JSON.stringify(tool.args),
+        latestUserPrompt: 'List the TODOs in src',
+        now,
+      });
+      runtime.afterToolExecution(evaluation, true);
+      return { tool, evaluation };
+    });
+
+    for (const { tool, evaluation } of evaluations) {
+      expect(evaluation.anomaly).toMatchObject({
+        trajectoryCount: 80,
+        tuple: buildBehaviorTuple({
+          toolName: tool.name,
+          args: tool.args,
+          at: now,
+        }),
+      });
+      expect(evaluation.anomaly?.score).toBeLessThanOrEqual(
+        evaluation.anomaly?.threshold ?? -1,
+      );
+      expect(evaluation.baseTier).toBe('green');
+      expect(evaluation.tier).toBe('green');
+    }
+    // With the approved glob -> grep calls as session context, the replayed
+    // bash call matches the trained transition and scores clearly below the
+    // adaptive threshold instead of needing an F11 trace-judge opinion.
+    const bash = evaluations.at(-1)?.evaluation.anomaly;
+    expect(bash?.status).toBe('scored');
+    expect(bash?.score).toBeLessThan(bash?.threshold ?? -1);
+  });
+
   test('behavior anomaly tuple uses UTC hour buckets', () => {
     const at = new Date('2026-05-01T10:15:00.000Z');
     vi.spyOn(at, 'getHours').mockReturnValue(23);
@@ -623,10 +695,6 @@ approval:
     const tuple = buildBehaviorTuple({
       toolName: 'read',
       args: { path: '/workspace/docs/readme.md' },
-      actionKey: 'read',
-      pathHints: ['/workspace/docs/readme.md'],
-      hostHints: [],
-      writeIntent: false,
       at,
     });
 
@@ -662,6 +730,165 @@ approval:
     expect(context.anomaly).toMatchObject({
       score: 0.99,
       threshold: 0.9,
+    });
+  });
+
+  test('anomaly elevation to red requires an approval that the replay consumes', () => {
+    stubBehaviorAnomalyBaseline();
+    const runtime = createIsolatedApprovalRuntime('anomaly-red');
+    const call = {
+      toolName: 'memory',
+      argsJson: JSON.stringify({ action: 'append', content: 'note' }),
+      latestUserPrompt: 'Remember this note',
+      now: ANOMALY_BASELINE_NOW,
+    };
+
+    const pending = runtime.evaluateToolCall(call);
+
+    expect(pending).toMatchObject({
+      baseTier: 'yellow',
+      tier: 'red',
+      decision: 'required',
+      escalationRoute: 'approval_request',
+      pinned: false,
+      anomaly: { status: 'scored' },
+    });
+    expect(pending.requestId).toBeTruthy();
+    expect(pending.reason).toBe(
+      `this modifies project files; ${pending.anomaly?.reason}`,
+    );
+    expect(runtime.formatApprovalRequest(pending)).toContain(
+      `Why: ${pending.reason}`,
+    );
+
+    expect(runtime.handleApprovalResponse([userMessage('yes')])).toMatchObject({
+      approvalMode: 'once',
+      approvedRequestId: pending.requestId,
+    });
+    const approved = runtime.evaluateToolCall(call);
+    expect(approved).toMatchObject({
+      baseTier: 'yellow',
+      tier: 'yellow',
+      decision: 'approved_once',
+    });
+    runtime.afterToolExecution(approved, true);
+
+    const next = runtime.evaluateToolCall(call);
+    expect(next.decision).toBe('required');
+    expect(next.requestId).toBeTruthy();
+    expect(next.requestId).not.toBe(pending.requestId);
+  });
+
+  test('anomaly elevation to yellow gives an implicit notice', () => {
+    stubBehaviorAnomalyBaseline();
+    const runtime = createIsolatedApprovalRuntime('anomaly-yellow');
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'grep',
+      argsJson: JSON.stringify({ pattern: 'TODO' }),
+      latestUserPrompt: 'Find the TODOs',
+      now: ANOMALY_BASELINE_NOW,
+    });
+
+    expect(evaluation).toMatchObject({
+      baseTier: 'green',
+      tier: 'yellow',
+      decision: 'implicit',
+      escalationRoute: 'implicit_notice',
+      anomaly: { status: 'scored' },
+    });
+    expect(evaluation.requestId).toBeUndefined();
+    expect(evaluation.reason).toBe(
+      `this is a read-only operation; ${evaluation.anomaly?.reason}`,
+    );
+  });
+
+  test('full-auto approves anomaly-elevated red calls unless the tool is never-approve', () => {
+    stubBehaviorAnomalyBaseline();
+    const call = {
+      toolName: 'memory',
+      argsJson: JSON.stringify({ action: 'append', content: 'note' }),
+      latestUserPrompt: 'Remember this note',
+      now: ANOMALY_BASELINE_NOW,
+    };
+    const fullAuto = createIsolatedApprovalRuntime('anomaly-full-auto');
+    fullAuto.setFullAutoOptions({ enabled: true });
+    const neverApprove = createIsolatedApprovalRuntime('anomaly-never-approve');
+    neverApprove.setFullAutoOptions({
+      enabled: true,
+      neverApproveTools: ['memory'],
+    });
+
+    expect(fullAuto.evaluateToolCall(call)).toMatchObject({
+      baseTier: 'yellow',
+      tier: 'yellow',
+      decision: 'approved_fullauto',
+    });
+    expect(neverApprove.evaluateToolCall(call)).toMatchObject({
+      baseTier: 'yellow',
+      tier: 'red',
+      decision: 'required',
+    });
+  });
+
+  test('red approval rules keep gating base-red calls after a later rule lowers the tier', () => {
+    registerApprovalRule('test_lower_tier_after_anomaly', (context) => {
+      context.tier = 'yellow';
+      return { kind: 'next' };
+    });
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - anomaly_reranker
+    - test_lower_tier_after_anomaly
+    - autonomy_override
+`);
+    const evaluate = (classified: ClassifiedAction, pinned: boolean) => {
+      const context = makeRuleContext({
+        classified,
+        helpers: {
+          isPinnedRed: () => pinned,
+          scoreBehaviorAnomaly: () => ({
+            score: 0.99,
+            threshold: 0.9,
+            reason:
+              'behavior anomaly score 0.990 exceeds adaptive threshold 0.900',
+            status: 'scored',
+            model: 'order2_markov_frequency_v1',
+            trajectoryCount: 80,
+            tuple: 'read',
+          }),
+        },
+      });
+      context.policy = {
+        ...DEFAULT_POLICY,
+        approvalRuleOrder:
+          parsed.approvalRuleOrder || DEFAULT_POLICY.approvalRuleOrder,
+      };
+      context.helpers.reloadPolicyIfNeeded = () => context.policy;
+      return runApprovalRulePipeline(context).evaluation;
+    };
+
+    const hardDenied = evaluate(
+      {
+        ...GREEN_CLASSIFIED,
+        tier: 'red',
+        actionKey: 'network:blocked.example',
+        reason: 'this host is blocked by approval policy',
+        hardDeny: true,
+      },
+      false,
+    );
+    const pinned = evaluate(GREEN_CLASSIFIED, true);
+
+    expect(hardDenied).toMatchObject({ baseTier: 'red', decision: 'denied' });
+    // Base-red calls are never anomaly-elevated, so the reason stays the
+    // classifier's own.
+    expect(pinned).toMatchObject({
+      baseTier: 'red',
+      decision: 'required',
+      pinned: true,
+      reason: GREEN_CLASSIFIED.reason,
     });
   });
 
