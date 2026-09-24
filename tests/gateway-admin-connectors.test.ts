@@ -8,6 +8,7 @@ import type {
   RuntimeConfig,
   RuntimeHttpRequestAuthRule,
 } from '../src/config/runtime-config.js';
+import { resolveAdminRbacAction } from '../src/security/admin-rbac.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
@@ -111,16 +112,17 @@ describe('gateway admin connectors', () => {
 
     expect(
       connectors
-        .getGatewayAdminConnectors()
+        .getGatewayAdminConnectors({ authPayload: null })
         .connectors.find((entry) => entry.id === 'hybridai'),
     ).toMatchObject({
       state: 'not_connected',
       loginUrl: 'https://hybridai.one/login?context=hybridclaw&next=/admin_api_keys',
     });
 
-    const response = connectors.saveGatewayAdminHybridAIConnectorApiKey({
-      apiKey: 'hai-test-secret-key',
-    });
+    const response = connectors.saveGatewayAdminHybridAIConnectorApiKey(
+      { apiKey: 'hai-test-secret-key' },
+      { authPayload: null },
+    );
     const hybridai = response.connectors.find(
       (entry) => entry.id === 'hybridai',
     );
@@ -134,6 +136,94 @@ describe('gateway admin connectors', () => {
       'hai-test-secret-key',
     );
     expect(refreshRuntimeSecretsFromEnv).toHaveBeenCalledTimes(1);
+  });
+
+  const allCredentialActions = ['secret.overwrite', 'secret.unset'];
+
+  test.each([
+    {
+      caller: 'a legacy bearer token or loopback session',
+      authPayload: null,
+      actions: allCredentialActions,
+    },
+    {
+      caller: 'an unscoped HybridAI session',
+      authPayload: { typ: 'session', actor: 'admin-user' },
+      actions: allCredentialActions,
+    },
+    {
+      caller: 'admin.viewer',
+      authPayload: { role: 'admin.viewer' },
+      actions: [],
+    },
+    {
+      caller: 'admin.integrations_manager',
+      authPayload: { role: 'admin.integrations_manager' },
+      actions: [],
+    },
+    {
+      caller: 'admin:operator',
+      authPayload: { roles: ['admin:operator'] },
+      actions: [],
+    },
+    {
+      caller: 'admin.security_manager',
+      authPayload: { role: 'admin.security_manager' },
+      actions: allCredentialActions,
+    },
+    {
+      caller: 'admin:secret-manager',
+      authPayload: { roles: ['admin:secret-manager'] },
+      actions: allCredentialActions,
+    },
+    {
+      caller: 'an overwrite-only API token',
+      authPayload: { actions: ['admin.connectors.read', 'secret.overwrite'] },
+      actions: ['secret.overwrite'],
+    },
+  ])(
+    'lists the connector credential actions held by $caller',
+    async ({ authPayload, actions }) => {
+      const { connectors } = await importFreshConnectors();
+
+      const response =
+        await connectors.getGatewayAdminConnectorsWithPlatformState({
+          authPayload,
+        });
+
+      expect(response.actions).toEqual(actions);
+    },
+  );
+
+  test('keeps the caller credential actions on key save and logout responses', async () => {
+    const { connectors } = await importFreshConnectors();
+
+    const saved = connectors.saveGatewayAdminHybridAIConnectorApiKey(
+      { apiKey: 'hai-test-secret-key' },
+      { authPayload: { actions: ['secret.overwrite'] } },
+    );
+    expect(saved.actions).toEqual(['secret.overwrite']);
+
+    const loggedOut = connectors.logoutGatewayAdminConnector(
+      { provider: 'hybridai' },
+      { authPayload: { role: 'admin.security_manager' } },
+    );
+    expect(loggedOut.actions).toEqual(allCredentialActions);
+  });
+
+  test('advertises exactly the actions the admin route gate requires for connector credentials', async () => {
+    const { connectors } = await importFreshConnectors();
+    const gatedActions = [
+      resolveAdminRbacAction('/api/admin/connectors/hybridai/key', 'PUT'),
+      resolveAdminRbacAction('/api/admin/connectors/oauth/start', 'POST'),
+      resolveAdminRbacAction('/api/admin/connectors/logout', 'POST'),
+    ];
+
+    expect(
+      new Set(
+        connectors.getGatewayAdminConnectors({ authPayload: null }).actions,
+      ),
+    ).toEqual(new Set(gatedActions));
   });
 
   test('starts Microsoft 365 OAuth through HybridAI as the API key owner', async () => {
@@ -349,7 +439,9 @@ describe('gateway admin connectors', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response =
-      await connectors.getGatewayAdminConnectorsWithPlatformState();
+      await connectors.getGatewayAdminConnectorsWithPlatformState({
+        authPayload: null,
+      });
 
     expect(response.connectors.find((entry) => entry.id === 'github')).toMatchObject(
       {
@@ -392,7 +484,9 @@ describe('gateway admin connectors', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response =
-      await connectors.getGatewayAdminConnectorsWithPlatformState();
+      await connectors.getGatewayAdminConnectorsWithPlatformState({
+        authPayload: null,
+      });
 
     expect(
       response.connectors.find((entry) => entry.id === 'microsoft365'),
@@ -426,13 +520,17 @@ describe('gateway admin connectors', () => {
   test('exposes the console-origin OAuth redirect URI for a remote Web client', async () => {
     const { connectors } = await importFreshConnectors();
 
-    const listed = await connectors.getGatewayAdminConnectorsWithPlatformState(
-      'http://console.example',
-    );
+    const listed = await connectors.getGatewayAdminConnectorsWithPlatformState({
+      requestBaseUrl: 'http://console.example',
+      authPayload: null,
+    });
     expect(listed.oauthRedirectUri).toBe(
       'http://console.example/api/connectors/oauth/callback',
     );
-    expect(connectors.getGatewayAdminConnectors().oauthRedirectUri).toBeNull();
+    expect(
+      connectors.getGatewayAdminConnectors({ authPayload: null })
+        .oauthRedirectUri,
+    ).toBeNull();
 
     const started = await connectors.startGatewayAdminConnectorOAuth({
       requestBaseUrl: 'http://console.example',
@@ -455,15 +553,17 @@ describe('gateway admin connectors', () => {
     const { connectors } = await importFreshConnectors();
 
     const localhost =
-      await connectors.getGatewayAdminConnectorsWithPlatformState(
-        'http://localhost:5000',
-      );
+      await connectors.getGatewayAdminConnectorsWithPlatformState({
+        requestBaseUrl: 'http://localhost:5000',
+        authPayload: null,
+      });
     expect(localhost.oauthRedirectUri).toBeNull();
 
     const loopbackIp =
-      await connectors.getGatewayAdminConnectorsWithPlatformState(
-        'http://127.0.0.1:5000',
-      );
+      await connectors.getGatewayAdminConnectorsWithPlatformState({
+        requestBaseUrl: 'http://127.0.0.1:5000',
+        authPayload: null,
+      });
     expect(loopbackIp.oauthRedirectUri).toBeNull();
   });
 
@@ -509,7 +609,7 @@ describe('gateway admin connectors', () => {
 
     await vi.waitFor(() => {
       const google = connectors
-        .getGatewayAdminConnectors()
+        .getGatewayAdminConnectors({ authPayload: null })
         .connectors.find((entry) => entry.id === 'google');
       expect(google?.state).toBe('connected');
     });
