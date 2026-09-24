@@ -803,6 +803,15 @@ async function handleGatewayMessageInner(
   // turn's async context; keep the turn span so tool spans nest under it.
   const turnTraceContext = captureActiveContext();
   const source = req.source?.trim() || 'gateway.chat';
+  const usageAttribution =
+    req.msteamsTenantId &&
+    (source === 'msteams' || source.startsWith('msteams.'))
+      ? {
+          userId: req.userId,
+          channelKind: 'msteams',
+          tenantId: req.msteamsTenantId,
+        }
+      : {};
   if (
     isA2ALocalModeEnabled(getRuntimeConfig()) &&
     isA2ALocalModeExternalChannelSource(source)
@@ -2519,6 +2528,7 @@ async function handleGatewayMessageInner(
         costSource: explicitUsageCostSource(output.tokenUsage),
       });
       enqueueTokenUsage({
+        ...usageAttribution,
         sessionId: req.sessionId,
         agentId,
         model,
@@ -2594,6 +2604,7 @@ async function handleGatewayMessageInner(
           costSource: explicitUsageCostSource(attempt.output.tokenUsage),
         });
         enqueueTokenUsage({
+          ...usageAttribution,
           sessionId: req.sessionId,
           agentId,
           model: attempt.model,
@@ -2617,7 +2628,7 @@ async function handleGatewayMessageInner(
       auditRunId: runId,
       toolExecutions,
     })) {
-      enqueueTokenUsage(event);
+      enqueueTokenUsage({ ...event, ...usageAttribution });
     }
     if (observedSkillName) {
       try {

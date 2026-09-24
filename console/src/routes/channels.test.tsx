@@ -24,6 +24,8 @@ const validateTokenMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchMSTeamsUsers: vi.fn(async () => ({ users: [], defaultAgentId: 'main' })),
+  saveMSTeamsUserAgent: vi.fn(),
   fetchAdminAgents: () => fetchAdminAgentsMock(),
   fetchConfig: () => fetchConfigMock(),
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
@@ -342,6 +344,7 @@ function makeAgent(overrides: Partial<AdminAgent> = {}): AdminAgent {
     enableRag: true,
     proxy: null,
     role: null,
+    extends: null,
     reportsTo: null,
     delegatesTo: null,
     peers: null,
@@ -2432,6 +2435,10 @@ describe('ChannelsPage', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: /Microsoft Teams/i }),
     );
+    expect(await screen.findByText('Bot users and agent routing')).toBeTruthy();
+    expect(
+      await screen.findByText('No Teams bot users recorded yet.'),
+    ).toBeTruthy();
     expect(screen.queryByLabelText('New password')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Set password' }));

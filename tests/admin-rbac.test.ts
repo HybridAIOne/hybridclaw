@@ -222,6 +222,11 @@ describe('admin RBAC role bundles', () => {
     expect(resolveAdminRbacAction('/api/apps/app-1/teams-manifest', 'GET')).toBe(
       'apps.read',
     );
+    expect(resolveAdminRbacAction('/api/admin/msteams/users', 'GET')).toBe('admin.channels.read');
+    expect(resolveAdminRbacAction('/api/admin/msteams/users', 'PUT')).toBe('admin.channels.write');
+    expect(resolveAdminRbacAction('/api/admin/msteams/users', 'DELETE')).toBeNull();
+    expect(resolveAdminRbacAction('/api/admin/msteams/users/personal-agent', 'POST')).toBe('admin.agents.write');
+    expect(resolveAdminRbacAction('/api/admin/msteams/users/personal-agent', 'GET')).toBeNull();
     expect(resolveAdminRbacAction('/api/admin/msteams/tab-status', 'GET')).toBe(
       'admin.config.read',
     );

@@ -72,6 +72,7 @@ function makeAgent(overrides: Partial<AdminAgent>): AdminAgent {
     chatbotId: null,
     enableRag: true,
     role: null,
+    extends: null,
     reportsTo: null,
     delegatesTo: null,
     peers: null,

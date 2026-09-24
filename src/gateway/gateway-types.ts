@@ -214,6 +214,8 @@ export interface GatewayChatRequestBody {
 }
 
 export interface GatewayChatRequest {
+  /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
+  msteamsTenantId?: string;
   appBuild?: boolean;
   appCategory?: string | null;
   appKind?: 'web' | 'live';
@@ -270,6 +272,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Tenant captured by the authenticated Teams transport, never HTTP input. */
+  msteamsTenantId?: string;
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
@@ -1347,6 +1351,7 @@ export interface GatewayAdminAgentProxyConfig {
 export interface GatewayAdminAgent {
   id: string;
   archived: boolean;
+  extends: string | null;
   name: string | null;
   emptyChatHeader: string | null;
   model: string | null;

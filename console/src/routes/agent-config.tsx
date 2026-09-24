@@ -32,6 +32,7 @@ import {
 } from '../components/dialog';
 import { Field, FieldDescription, FieldLabel } from '../components/field';
 import { Input } from '../components/input';
+import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { useToast } from '../components/toast';
 import { SegmentedToggle } from '../components/ui';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
@@ -41,6 +42,7 @@ import { type AgentScopeGroup, AgentScopePicker } from './agent-scope-picker';
 import { ModelSwitchSelect } from './chat/model-switch-select';
 
 interface AgentDraft {
+  extends: string;
   name: string;
   model: string;
   workspace: string;
@@ -50,6 +52,7 @@ interface AgentDraft {
 
 function toDraft(agent: AdminAgent): AgentDraft {
   return {
+    extends: agent.extends || '',
     name: agent.name || '',
     model: agent.model || '',
     workspace: agent.workspace || '',
@@ -66,6 +69,7 @@ function sameSelection(a: string[] | null, b: string[] | null): boolean {
 function isDirtyDraft(draft: AgentDraft, agent: AdminAgent): boolean {
   const base = toDraft(agent);
   return (
+    draft.extends !== base.extends ||
     draft.name !== base.name ||
     draft.model !== base.model ||
     draft.workspace !== base.workspace ||
@@ -208,6 +212,7 @@ export function AgentConfigPage(props: {
   const saveMutation = useMutation({
     mutationFn: async (input: { agentId: string; draft: AgentDraft }) =>
       updateAdminAgent(auth.token, input.agentId, {
+        extends: input.draft.extends || null,
         name: input.draft.name.trim(),
         model: input.draft.model.trim(),
         workspace: input.draft.workspace.trim(),
@@ -307,6 +312,31 @@ export function AgentConfigPage(props: {
             />
             <FieldDescription>
               Workspace directory name. Empty uses the agent id.
+            </FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel>Inherits settings from</FieldLabel>
+            <NativeSelect
+              aria-label="Parent agent"
+              value={draft.extends}
+              onChange={(event) =>
+                setDraft({ ...draft, extends: event.target.value })
+              }
+            >
+              <NativeSelectOption value="">No parent</NativeSelectOption>
+              {activeAgents
+                .filter((entry) => entry.id !== agent.id && !entry.extends)
+                .map((entry) => (
+                  <NativeSelectOption key={entry.id} value={entry.id}>
+                    {entry.name || entry.id}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelect>
+            <FieldDescription>
+              {draft.extends
+                ? `Model, skills, tools, chatbot, RAG and budget follow ${draft.extends} unless set here.`
+                : 'Pick a parent to follow its model, skills, tools, chatbot, RAG and budget.'}
             </FieldDescription>
           </Field>
         </div>

@@ -327,6 +327,7 @@ import {
   setJobEnabled,
 } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
+import type { UsageAttribution } from '../memory/usage.js';
 import {
   ensurePluginManagerInitialized,
   listLoadedPluginCommands,
@@ -1869,6 +1870,7 @@ function mapGatewayAdminAgent(
   return {
     id: resolved.id,
     archived: resolved.archived === true,
+    extends: resolved.extends || null,
     name: resolved.name || null,
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
@@ -5862,6 +5864,7 @@ function buildGatewayAdminAgentOrgChartPatch(
 
 export function createGatewayAdminAgent(params: {
   id: string;
+  extends?: string | null;
   name?: string | null;
   model?: string | null;
   skills?: string[] | null;
@@ -5877,6 +5880,7 @@ export function createGatewayAdminAgent(params: {
 }): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const saved = upsertRegisteredAgent({
     id: params.id,
+    ...(params.extends?.trim() ? { extends: params.extends.trim() } : {}),
     ...(params.name?.trim() ? { name: params.name.trim() } : {}),
     ...(params.model?.trim() ? { model: params.model.trim() } : {}),
     ...(params.skills !== undefined
@@ -5901,6 +5905,7 @@ export function createGatewayAdminAgent(params: {
 export function updateGatewayAdminAgent(
   agentId: string,
   params: {
+    extends?: string | null;
     name?: string | null;
     model?: string | null;
     skills?: string[] | null;
@@ -5925,6 +5930,9 @@ export function updateGatewayAdminAgent(
   }
   const saved = upsertRegisteredAgent({
     ...existing,
+    ...(params.extends !== undefined
+      ? { extends: params.extends?.trim() || undefined }
+      : {}),
     ...(params.name !== undefined
       ? { name: params.name?.trim() || undefined }
       : {}),
@@ -9199,6 +9207,7 @@ function resolveBootstrapAutostartContext(params: {
 }
 
 export async function ensureGatewayBootstrapAutostart(params: {
+  usageAttribution?: UsageAttribution;
   sessionId: string;
   channelId?: string | null;
   userId?: string | null;
@@ -9548,6 +9557,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       }
 
       enqueueTokenUsage({
+        ...params.usageAttribution,
         sessionId: session.id,
         agentId: resolved.agentId,
         model: openingResult.model,
@@ -9708,6 +9718,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       },
     });
     enqueueTokenUsage({
+      ...params.usageAttribution,
       sessionId: session.id,
       agentId: resolved.agentId,
       model,
@@ -9729,7 +9740,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       auditRunId: runId,
       toolExecutions: output.toolExecutions || [],
     })) {
-      enqueueTokenUsage(event);
+      enqueueTokenUsage({ ...event, ...params.usageAttribution });
     }
 
     if (output.status !== 'success' || !resultText) {
@@ -11723,6 +11734,14 @@ export function getGatewaySessionContextUsage(sessionId: string): {
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
+  const usageAttribution: UsageAttribution | undefined =
+    req.msteamsTenantId && req.userId
+      ? {
+          userId: req.userId,
+          tenantId: req.msteamsTenantId,
+          channelKind: 'msteams',
+        }
+      : undefined;
   const { pluginManager, pluginInitError } =
     await tryEnsurePluginManagerInitializedForGateway({
       sessionId: req.sessionId,
@@ -11879,6 +11898,7 @@ export async function handleGatewayCommand(
             targetAgent.id,
           );
           void ensureGatewayBootstrapAutostart({
+            usageAttribution,
             sessionId: session.id,
             channelId: req.channelId,
             userId: req.userId,
@@ -12454,7 +12474,11 @@ export async function handleGatewayCommand(
         try {
           return infoCommand(
             'Second Opinion',
-            await runSecondOpinionCommand(session, req.args.slice(1)),
+            await runSecondOpinionCommand(
+              session,
+              req.args.slice(1),
+              usageAttribution,
+            ),
           );
         } catch (error) {
           return badCommand(

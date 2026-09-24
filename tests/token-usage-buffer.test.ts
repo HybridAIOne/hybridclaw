@@ -73,6 +73,9 @@ describe.sequential('token usage buffer', () => {
     _resetTokenUsageBufferForTests();
 
     enqueueTokenUsage({
+      userId: '29:User-A',
+      channelKind: 'msteams',
+      tenantId: 'TENANT-A',
       sessionId: 'sess-1',
       agentId: 'agent-x',
       model: 'gpt-5-nano',
@@ -117,13 +120,16 @@ describe.sequential('token usage buffer', () => {
     try {
       const rows = probe
         .prepare(
-          `SELECT session_id, agent_id, model, input_tokens, output_tokens, total_tokens, tool_calls, cost_usd, batch_id, batch_hash
+          `SELECT user_id, channel_kind, tenant_id, session_id, agent_id, model, input_tokens, output_tokens, total_tokens, tool_calls, cost_usd, batch_id, batch_hash
              FROM usage_events
             ORDER BY input_tokens ASC`,
         )
         .all() as Array<Record<string, unknown>>;
       expect(rows).toHaveLength(3);
       expect(rows[0]).toMatchObject({
+        user_id: '29:User-A',
+        channel_kind: 'msteams',
+        tenant_id: 'tenant-a',
         session_id: 'sess-1',
         input_tokens: 10,
         output_tokens: 5,
