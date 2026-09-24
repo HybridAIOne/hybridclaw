@@ -644,11 +644,7 @@ export function ModelSwitchSelect(props: {
       >
         {triggerModel ? (
           <span aria-hidden="true" className={chrome.triggerLogo}>
-            <VendorIcon
-              vendor={triggerModel.vendor}
-              fallbackProvider={triggerModel.provider}
-              size={16}
-            />
+            <ProviderIcon provider={triggerModel.provider} size={16} />
           </span>
         ) : null}
         <SelectValue placeholder="Select model">{triggerLabel}</SelectValue>
