@@ -6347,15 +6347,17 @@ async function handleApiAdminConnectors(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
   const pathname = url.pathname;
   if (pathname === '/api/admin/connectors' && req.method === 'GET') {
     sendJson(
       res,
       200,
-      await getGatewayAdminConnectorsWithPlatformState(
-        resolveRequestOrigin(req),
-      ),
+      await getGatewayAdminConnectorsWithPlatformState({
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -6368,7 +6370,10 @@ async function handleApiAdminConnectors(
     sendJson(
       res,
       200,
-      saveGatewayAdminHybridAIConnectorApiKey(body, resolveRequestOrigin(req)),
+      saveGatewayAdminHybridAIConnectorApiKey(body, {
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -6394,7 +6399,10 @@ async function handleApiAdminConnectors(
     sendJson(
       res,
       200,
-      logoutGatewayAdminConnector(body, resolveRequestOrigin(req)),
+      logoutGatewayAdminConnector(body, {
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -11018,7 +11026,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/connectors/test' ||
             pathname === '/api/admin/connectors/logout'
           ) {
-            await handleApiAdminConnectors(req, res, url);
+            await handleApiAdminConnectors(req, res, url, authContext);
             return;
           }
           if (
