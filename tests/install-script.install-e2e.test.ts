@@ -173,6 +173,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
           // NOT install xz-utils — the managed-Node path must not need it.
           'apt-get install -y -qq curl ca-certificates python3 make g++ >/dev/null',
           'export npm_config_fetch_retries=5',
+          'export ONNXRUNTIME_NODE_INSTALL_CUDA=skip',
           `bash /tmp/install.sh --no-prompt --verify --version ${INSTALL_VERSION}`,
         ].join('\n'),
       });
@@ -182,8 +183,8 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
       expect(output).not.toMatch(/unbound variable/);
       // Proof the download + checksum + extract stage actually ran.
       expect(output).toContain('Verified Node.js download (sha256)');
+      expect(status, output).toBe(0);
       expect(output).toMatch(/hybridclaw --version -> \d+\.\d+\.\d+/);
-      expect(status).toBe(0);
     },
     INSTALL_TEST_MS,
   );
@@ -196,6 +197,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         user: 'node',
         script: [
           'export npm_config_fetch_retries=5',
+          'export ONNXRUNTIME_NODE_INSTALL_CUDA=skip',
           'bash /tmp/install.sh --no-prompt --verify',
           'echo "PREFIX=$(npm config get prefix)"',
           'grep -qs "added by HybridClaw installer" "$HOME/.bashrc" "$HOME/.profile" && echo RC_PERSISTED=yes || echo RC_PERSISTED=no',
@@ -214,7 +216,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
       // PATH persistence must land in an rc file, not just this process's env
       // (the in-process --verify above cannot see a broken rc write).
       expect(output).toContain('RC_PERSISTED=yes');
-      expect(status).toBe(0);
+      expect(status, output).toBe(0);
     },
     INSTALL_TEST_MS,
   );
