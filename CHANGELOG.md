@@ -33,6 +33,13 @@
   proxies. Discord CDN downloads and the iMessage BlueBubbles server URL check
   use the same table, and BlueBubbles classifies bracketed IPv6 server URLs
   the same way.
+- **`http_request` rechecks DNS when it connects**: The gateway proxy checked a
+  hostname's DNS answers before sending, but fetch then resolved the name
+  again, so a rebinding domain (public on the first lookup, `127.0.0.1` or
+  `169.254.169.254` on the second) could reach loopback or cloud metadata with
+  injected secrets. Every connection now resolves through the same
+  private-range check, including pinned and self-signed TLS requests. Private
+  hosts that workspace network policy allows still connect.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
