@@ -1406,6 +1406,94 @@ approval:
     expect(evaluation.requestId).toBeTruthy();
   });
 
+  test.each([
+    ['read', { path: '.env.local' }],
+    ['read', { path: '/workspace/config/.env.production' }],
+    ['read', { path: '~/.ssh/id_rsa' }],
+    ['read', { path: path.join(os.homedir(), '.ssh', 'id_rsa') }],
+    ['read', { path: '/etc/passwd' }],
+    ['read', { path: '/workspace/../etc/shadow' }],
+    ['glob', { pattern: '**/.env*' }],
+    ['glob', { pattern: '~/.ssh/*' }],
+    ['grep', { pattern: 'KEY', path: '.env.local' }],
+    ['grep', { pattern: 'KEY', include: '.env*' }],
+    ['grep', { pattern: 'PRIVATE KEY', path: '~/.ssh' }],
+    ['grep', { pattern: 'root', path: '/etc' }],
+  ])('pinned paths require explicit approval for %s %j', (toolName, args) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName,
+      argsJson: JSON.stringify(args),
+      latestUserPrompt: 'Check the local configuration',
+    });
+
+    expect(evaluation.pinned).toBe(true);
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    ['read', { path: 'README.md' }],
+    ['read', { path: 'config/env.example.ts' }],
+    ['glob', { pattern: 'src/**/*.ts' }],
+    ['grep', { pattern: 'TODO' }],
+    ['grep', { pattern: 'TODO', path: 'src', include: '*.ts' }],
+  ])('unpinned lookups stay green for %s %j', (toolName, args) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName,
+      argsJson: JSON.stringify(args),
+      latestUserPrompt: 'Look around the project',
+    });
+
+    expect(evaluation.pinned).toBe(false);
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+  });
+
+  test('configured pinned paths apply to lookups and cover the directory itself', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  pinned_red:
+    - paths: ["secrets/**"]
+`);
+    const evaluate = (toolName: string, args: Record<string, unknown>) =>
+      new TrustedAgentApprovalRuntime(policyPath).evaluateToolCall({
+        toolName,
+        argsJson: JSON.stringify(args),
+        latestUserPrompt: 'Check the secrets',
+      });
+
+    expect(evaluate('read', { path: 'secrets/api.txt' }).pinned).toBe(true);
+    expect(evaluate('grep', { pattern: 'KEY', path: 'secrets' }).pinned).toBe(
+      true,
+    );
+    expect(evaluate('read', { path: 'docs/secrets' }).pinned).toBe(false);
+  });
+
+  test('home-directory pinned paths match expanded absolute paths', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: `cat ${path.join(os.homedir(), '.ssh', 'id_ed25519')}`,
+      }),
+      latestUserPrompt: 'Show my key',
+    });
+
+    expect(evaluation.pinned).toBe(true);
+    expect(evaluation.baseTier).toBe('red');
+  });
+
   test('bash absolute path classification does not realpath path tokens', () => {
     const realpathSpy = vi.spyOn(fs, 'realpathSync');
     const runtime = new TrustedAgentApprovalRuntime(
