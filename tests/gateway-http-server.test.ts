@@ -1,5 +1,6 @@
 import { createHash, createHmac, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -601,6 +602,42 @@ async function waitForResponse(
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('Timed out waiting for response state.');
+}
+
+// Captured before any test stubs fetch, for tests that dial real sockets.
+const realFetch = globalThis.fetch;
+
+// Loopback HTTP server that counts TCP connections, showing whether a request
+// actually reached a private address.
+async function startLoopbackHttpServer(): Promise<{
+  port: number;
+  connections: () => number;
+  close: () => Promise<void>;
+}> {
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.once('data', () => {
+      socket.end(
+        'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok',
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  let connections = 0;
+  server.on('connection', () => {
+    connections += 1;
+  });
+  return {
+    port: (server.address() as net.AddressInfo).port,
+    connections: () => connections,
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        server.close(() => resolve());
+      }),
+  };
 }
 
 async function importFreshHealth(options?: {
@@ -3137,6 +3174,7 @@ useCleanMocks({
   unmock: [
     'node:http',
     'node:dns/promises',
+    'undici',
     '../src/config/config.ts',
     '../src/infra/install-root.js',
     '../src/logger.js',
@@ -16986,6 +17024,228 @@ describe('gateway HTTP server', () => {
       }),
       'DNS lookup failed during SSRF host check; treating host as private/blocked',
     );
+  });
+
+  test.each([
+    {
+      url: 'http://[::ffff:127.0.0.1]/',
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host ([::ffff:7f00:1]) is not allowlisted by workspace network policy for GET / on port 80.',
+    },
+    {
+      url: 'http://[::ffff:169.254.169.254]/latest/meta-data/',
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host ([::ffff:a9fe:a9fe]) is not allowlisted by workspace network policy for GET /latest/meta-data/ on port 80.',
+    },
+  ])('classifies the http_request IPv6 literal in $url without a DNS lookup', async ({
+    url,
+    error,
+  }) => {
+    // A public answer proves the literal itself is judged, not a DNS failure.
+    const lookupMock = vi.fn(async () => [
+      { address: '93.184.216.34', family: 4 },
+    ]);
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error });
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { address: '::ffff:7f00:1', family: 6 },
+    // Gateway-only: the fake-IP pool that the shared table leaves open.
+    { address: '198.18.0.1', family: 4 },
+    { address: '::ffff:c612:1', family: 6 },
+    { address: '64:ff9b::c612:1', family: 6 },
+  ])('blocks http_request hosts whose DNS answer is $address', async (answer) => {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [answer]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url: 'https://internal.example.com/admin' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error:
+        'HTTP request blocked by SSRF guard: private or loopback host (internal.example.com) is not allowlisted by workspace network policy for GET /admin on port 443.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('sends http_request to a public IPv6 literal without a DNS lookup', async () => {
+    const lookupMock = vi.fn(async () => {
+      throw new Error('dns unavailable');
+    });
+    vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: { url: 'https://[2606:4700:4700::1111]/dns-query' },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'https://[2606:4700:4700::1111]/dns-query',
+    );
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { name: 'default', protocol: 'http', options: {} },
+    {
+      name: 'self-signed TLS',
+      protocol: 'https',
+      options: { allowSelfSignedTls: true },
+    },
+    {
+      name: 'pinned TLS',
+      protocol: 'https',
+      options: { tlsCertificateSha256: 'a'.repeat(64) },
+    },
+  ])('refuses a DNS answer that turns private after the SSRF check ($name dispatcher)', async ({
+    protocol,
+    options,
+  }) => {
+    const target = await startLoopbackHttpServer();
+    try {
+      // Rebinding: public for the URL check, loopback when fetch dials.
+      const lookupMock = vi
+        .fn()
+        .mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }])
+        .mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+      vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+      const state = await importFreshHealth({
+        gatewayApiToken: 'gateway-token',
+      });
+      vi.stubGlobal('fetch', realFetch);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: {
+          url: `${protocol}://rebind.example.com:${target.port}/admin`,
+          ...options,
+        },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual({
+        error:
+          'HTTP request blocked by SSRF guard: rebind.example.com resolved to a private or loopback address at connect time.',
+      });
+      expect(lookupMock).toHaveBeenCalledTimes(2);
+      expect(target.connections()).toBe(0);
+      expect(state.loggerWarn).toHaveBeenCalledWith(
+        { host: 'rebind.example.com', addresses: ['127.0.0.1'] },
+        'DNS answer turned private between the SSRF check and connect; blocking request',
+      );
+    } finally {
+      await target.close();
+    }
+  });
+
+  test('dials a policy-allowed private hostname without the connect-time guard', async () => {
+    const target = await startLoopbackHttpServer();
+    try {
+      const dataDir = makeTempDataDir();
+      const workspacePath = path.join(dataDir, 'agents', 'main', 'workspace');
+      fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+        [
+          'network:',
+          '  default: deny',
+          '  rules:',
+          '    - action: allow',
+          '      host: localhost',
+          `      port: ${target.port}`,
+          '      methods:',
+          '        - GET',
+          '      paths:',
+          '        - /status',
+          '      agent: "*"',
+          '  presets: []',
+        ].join('\n'),
+        'utf8',
+      );
+      // The guard would refuse this answer. Policy allows the host, so fetch
+      // resolves localhost on its own and reaches the loopback server.
+      const lookupMock = vi.fn(async () => [
+        { address: '127.0.0.1', family: 4 },
+      ]);
+      vi.doMock('node:dns/promises', () => ({ lookup: lookupMock }));
+      const state = await importFreshHealth({
+        dataDir,
+        gatewayApiToken: 'gateway-token',
+      });
+      vi.stubGlobal('fetch', realFetch);
+
+      const req = makeRequest({
+        method: 'POST',
+        url: '/api/http/request',
+        headers: { authorization: 'Bearer gateway-token' },
+        body: { url: `http://localhost:${target.port}/status` },
+      });
+      const res = makeResponse();
+
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({
+        ok: true,
+        status: 200,
+        body: 'ok',
+      });
+      expect(target.connections()).toBe(1);
+      expect(lookupMock).not.toHaveBeenCalled();
+    } finally {
+      await target.close();
+    }
   });
 
   test('allows private outbound http_request targets only when explicitly allowlisted by policy', async () => {

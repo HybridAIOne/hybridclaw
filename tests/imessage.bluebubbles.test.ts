@@ -225,6 +225,44 @@ describe('bluebubbles iMessage backend', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  test('classifies bracketed IPv6 BlueBubbles server urls without a DNS lookup', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { createBlueBubblesIMessageBackend } =
+      await importFreshBlueBubblesBackend({
+        // A public answer proves the literal itself is judged.
+        lookupResult: [{ address: '198.51.100.10', family: 4 }],
+        serverUrl: 'http://[::ffff:127.0.0.1]:1234',
+      });
+    const backend = createBlueBubblesIMessageBackend({
+      onInbound: vi.fn(async () => {}),
+    });
+
+    await expect(backend.start()).rejects.toThrow(
+      'Blocked BlueBubbles server URL host: ::ffff:7f00:1',
+    );
+    const dnsModule = await import('node:dns/promises');
+    expect(dnsModule.lookup).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test('blocks BlueBubbles server hosts whose DNS answer is IPv4-mapped loopback', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { createBlueBubblesIMessageBackend } =
+      await importFreshBlueBubblesBackend({
+        lookupResult: [{ address: '::ffff:7f00:1', family: 6 }],
+      });
+    const backend = createBlueBubblesIMessageBackend({
+      onInbound: vi.fn(async () => {}),
+    });
+
+    await expect(backend.start()).rejects.toThrow(
+      'Blocked BlueBubbles server URL host: bb.example.com',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   test('validates the BlueBubbles base url once at startup and reuses it for sends', async () => {
     const fetchSpy = vi.fn(async () => ({
       ok: true,
