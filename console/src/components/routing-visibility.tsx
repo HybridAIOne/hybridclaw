@@ -1,5 +1,6 @@
 /**
  * The routing visibility switch changes presentation only; usage remains recorded.
+ * It is inactive while routing is off and retains the saved visibility preference.
  * Unlike provider settings, it cannot select models or alter execution policy.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -42,6 +43,9 @@ export function RoutingVisibility() {
     onError: (error) =>
       toast.error('Routing visibility save failed', error.message),
   });
+  const routingEnabled = Boolean(
+    query.data && settingValue(query.data.config, 'routing.enabled'),
+  );
   return (
     <Card>
       <CardHeader>
@@ -55,10 +59,11 @@ export function RoutingVisibility() {
           <Switch
             id="show-routing-info"
             checked={Boolean(
-              query.data &&
+              routingEnabled &&
+                query.data &&
                 settingValue(query.data.config, 'routing.showRoutingInfo'),
             )}
-            disabled={!query.data || mutation.isPending}
+            disabled={!routingEnabled || mutation.isPending}
             onCheckedChange={(checked) => mutation.mutate(checked)}
           />
           <FieldContent>
@@ -66,8 +71,9 @@ export function RoutingVisibility() {
               Show routing information in chat
             </FieldLabel>
             <FieldDescription>
-              Model, location, attempts, tokens, and costs. Usage collection
-              continues when hidden.
+              {routingEnabled
+                ? 'Model, location, attempts, tokens, and costs. Usage collection continues when hidden.'
+                : 'Enable automatic model routing to show routing information in chat.'}
             </FieldDescription>
           </FieldContent>
         </Field>

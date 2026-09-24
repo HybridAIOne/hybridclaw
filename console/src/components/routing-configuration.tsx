@@ -1,6 +1,7 @@
 /**
  * Edits the ordered model fallback ladder without changing execution policy.
- * Conversation grouping and routing visibility are independent settings;
+ * Tier controls require routing to be enabled; saved preferences are retained.
+ * Conversation grouping and routing visibility are separate settings;
  * saves merge the ladder and selected catalog models into the latest configuration.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -175,201 +176,206 @@ export function RoutingConfiguration({ models }: { models: ChatModel[] }) {
             <p className={styles.help}>
               {value.enabled
                 ? 'Models are tried in order, starting at the selected tier.'
-                : 'Routing is off. Configure your tiers below, then enable it when ready.'}{' '}
+                : 'Routing is off. Enable automatic model routing to edit your tiers.'}{' '}
             </p>
-            <ol className={styles.tiers}>
-              {value.tiers.map((tier, index) => (
-                <li key={tier.id} className={styles.tier}>
-                  <div className={styles.heading}>
-                    <div className={styles.actions}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Move tier ${index + 1} earlier`}
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Move tier ${index + 1} later`}
-                        disabled={index === value.tiers.length - 1}
-                        onClick={() => move(index, 1)}
-                      >
-                        ↓
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Remove tier ${index + 1}`}
-                        onClick={() => {
-                          const tiers = value.tiers.filter(
-                            (_, i) => i !== index,
-                          );
-                          edit({
-                            ...value,
-                            tiers,
-                            defaultStart:
-                              value.defaultStart === tier.name
-                                ? (tiers[0]?.name ?? '')
-                                : value.defaultStart,
-                          });
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                  <label className={`${styles.field} ${styles.name}`}>
-                    Tier {index + 1}
-                    <Input
-                      size="sm"
-                      aria-label={`Tier ${index + 1} name`}
-                      value={tier.name}
-                      placeholder="e.g. Local, Balanced, Powerful"
-                      onChange={(event) =>
-                        changeTier(index, { ...tier, name: event.target.value })
-                      }
-                    />
-                  </label>
-                  {tier.models.map((model, modelIndex) => (
-                    <div
-                      key={tier.modelIds[modelIndex]}
-                      className={
-                        modelIndex === 0 ? styles.model : styles.backup
-                      }
-                    >
-                      <label className={styles.field}>
-                        {modelIndex === 0
-                          ? 'Try first'
-                          : `Backup ${modelIndex}`}
-                        <NativeSelect
-                          size="sm"
-                          aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
-                          value={model}
-                          onChange={(event) =>
-                            changeTier(index, {
-                              ...tier,
-                              models: tier.models.map((item, i) =>
-                                i === modelIndex ? event.target.value : item,
-                              ),
-                            })
-                          }
-                        >
-                          <option value="">Choose a model…</option>
-                          {model &&
-                          !models.some((item) => item.id === model) ? (
-                            <option value={model}>
-                              {model} · not in current catalog
-                            </option>
-                          ) : null}
-                          {models.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.id} ·{' '}
-                              {item.zone === 'local'
-                                ? 'Local'
-                                : item.zone === 'hai'
-                                  ? 'HybridAI'
-                                  : item.zone === 'region'
-                                    ? 'Regional'
-                                    : item.zone === 'cloud'
-                                      ? 'Cloud'
-                                      : 'Location unknown'}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      </label>
-                      {modelIndex > 0 ? (
+            <fieldset className={styles.editor} disabled={!value.enabled}>
+              <ol className={styles.tiers}>
+                {value.tiers.map((tier, index) => (
+                  <li key={tier.id} className={styles.tier}>
+                    <div className={styles.heading}>
+                      <div className={styles.actions}>
                         <Button
                           variant="ghost"
-                          aria-label={`Remove tier ${index + 1} backup ${modelIndex}`}
-                          onClick={() =>
-                            changeTier(index, {
-                              ...tier,
-                              modelIds: tier.modelIds.filter(
-                                (_, i) => i !== modelIndex,
-                              ),
-                              models: tier.models.filter(
-                                (_, i) => i !== modelIndex,
-                              ),
-                            })
-                          }
+                          size="sm"
+                          aria-label={`Move tier ${index + 1} earlier`}
+                          disabled={index === 0}
+                          onClick={() => move(index, -1)}
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Move tier ${index + 1} later`}
+                          disabled={index === value.tiers.length - 1}
+                          onClick={() => move(index, 1)}
+                        >
+                          ↓
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove tier ${index + 1}`}
+                          onClick={() => {
+                            const tiers = value.tiers.filter(
+                              (_, i) => i !== index,
+                            );
+                            edit({
+                              ...value,
+                              tiers,
+                              defaultStart:
+                                value.defaultStart === tier.name
+                                  ? (tiers[0]?.name ?? '')
+                                  : value.defaultStart,
+                            });
+                          }}
                         >
                           Remove
                         </Button>
-                      ) : null}
+                      </div>
                     </div>
-                  ))}
-                  <Button
-                    className={styles.addBackup}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      changeTier(index, {
-                        ...tier,
-                        models: [...tier.models, ''],
-                        modelIds: [...tier.modelIds, crypto.randomUUID()],
-                      })
+                    <label className={`${styles.field} ${styles.name}`}>
+                      Tier {index + 1}
+                      <Input
+                        size="sm"
+                        aria-label={`Tier ${index + 1} name`}
+                        value={tier.name}
+                        placeholder="e.g. Local, Balanced, Powerful"
+                        onChange={(event) =>
+                          changeTier(index, {
+                            ...tier,
+                            name: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    {tier.models.map((model, modelIndex) => (
+                      <div
+                        key={tier.modelIds[modelIndex]}
+                        className={
+                          modelIndex === 0 ? styles.model : styles.backup
+                        }
+                      >
+                        <label className={styles.field}>
+                          {modelIndex === 0
+                            ? 'Try first'
+                            : `Backup ${modelIndex}`}
+                          <NativeSelect
+                            size="sm"
+                            aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
+                            value={model}
+                            onChange={(event) =>
+                              changeTier(index, {
+                                ...tier,
+                                models: tier.models.map((item, i) =>
+                                  i === modelIndex ? event.target.value : item,
+                                ),
+                              })
+                            }
+                          >
+                            <option value="">Choose a model…</option>
+                            {model &&
+                            !models.some((item) => item.id === model) ? (
+                              <option value={model}>
+                                {model} · not in current catalog
+                              </option>
+                            ) : null}
+                            {models.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.id} ·{' '}
+                                {item.zone === 'local'
+                                  ? 'Local'
+                                  : item.zone === 'hai'
+                                    ? 'HybridAI'
+                                    : item.zone === 'region'
+                                      ? 'Regional'
+                                      : item.zone === 'cloud'
+                                        ? 'Cloud'
+                                        : 'Location unknown'}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </label>
+                        {modelIndex > 0 ? (
+                          <Button
+                            variant="ghost"
+                            aria-label={`Remove tier ${index + 1} backup ${modelIndex}`}
+                            onClick={() =>
+                              changeTier(index, {
+                                ...tier,
+                                modelIds: tier.modelIds.filter(
+                                  (_, i) => i !== modelIndex,
+                                ),
+                                models: tier.models.filter(
+                                  (_, i) => i !== modelIndex,
+                                ),
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))}
+                    <Button
+                      className={styles.addBackup}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        changeTier(index, {
+                          ...tier,
+                          models: [...tier.models, ''],
+                          modelIds: [...tier.modelIds, crypto.randomUUID()],
+                        })
+                      }
+                    >
+                      + Add backup model
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+              {!value.tiers.length ? (
+                <p className={styles.help}>
+                  Start with a local model, a cloud model, or both. Each tier is
+                  one step in your fallback order.
+                </p>
+              ) : null}
+              <Button
+                className={styles.addTier}
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  let number = value.tiers.length + 1;
+                  while (names.includes(`tier ${number}`)) number++;
+                  const name = `Tier ${number}`;
+                  edit({
+                    ...value,
+                    tiers: [
+                      ...value.tiers,
+                      {
+                        name,
+                        models: [''],
+                        id: crypto.randomUUID(),
+                        modelIds: [crypto.randomUUID()],
+                      },
+                    ],
+                    defaultStart: value.defaultStart || name,
+                  });
+                }}
+              >
+                + Add tier
+              </Button>
+              {value.tiers.length ? (
+                <label className={styles.field}>
+                  Start new requests at
+                  <NativeSelect
+                    value={value.defaultStart}
+                    onChange={(event) =>
+                      edit({ ...value, defaultStart: event.target.value })
                     }
                   >
-                    + Add backup model
-                  </Button>
-                </li>
-              ))}
-            </ol>
-            {!value.tiers.length ? (
-              <p className={styles.help}>
-                Start with a local model, a cloud model, or both. Each tier is
-                one step in your fallback order.
-              </p>
-            ) : null}
-            <Button
-              className={styles.addTier}
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                let number = value.tiers.length + 1;
-                while (names.includes(`tier ${number}`)) number++;
-                const name = `Tier ${number}`;
-                edit({
-                  ...value,
-                  tiers: [
-                    ...value.tiers,
-                    {
-                      name,
-                      models: [''],
-                      id: crypto.randomUUID(),
-                      modelIds: [crypto.randomUUID()],
-                    },
-                  ],
-                  defaultStart: value.defaultStart || name,
-                });
-              }}
-            >
-              + Add tier
-            </Button>
-            {value.tiers.length ? (
-              <label className={styles.field}>
-                Start new requests at
-                <NativeSelect
-                  value={value.defaultStart}
-                  onChange={(event) =>
-                    edit({ ...value, defaultStart: event.target.value })
-                  }
-                >
-                  <option value="" disabled>
-                    Choose a starting tier…
-                  </option>
-                  {value.tiers.map((tier, index) => (
-                    <option key={tier.id} value={tier.name}>
-                      {index + 1}. {tier.name || 'Unnamed tier'}
+                    <option value="" disabled>
+                      Choose a starting tier…
                     </option>
-                  ))}
-                </NativeSelect>
-              </label>
-            ) : null}
+                    {value.tiers.map((tier, index) => (
+                      <option key={tier.id} value={tier.name}>
+                        {index + 1}. {tier.name || 'Unnamed tier'}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+              ) : null}
+            </fieldset>
             {error ? <p role="alert">{error}</p> : null}
             {mutation.isError ? (
               <p role="alert">
