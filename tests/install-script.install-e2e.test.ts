@@ -54,12 +54,12 @@ const INSTALL_ATTEMPT_MS = 300_000;
 const INSTALL_TEST_MS = 660_000;
 const QUICK_TIMEOUT_MS = 150_000;
 
-// npm registry reads flake intermittently (ETIMEDOUT/ECONNRESET) on a fat
-// install; that is infrastructure noise, not an installer bug. Retry the whole
+// npm registry reads and apt mirrors flake intermittently on a fat install;
+// that is infrastructure noise, not an installer bug. Retry the whole
 // container run a bounded number of times — but only on a network signature, so
 // a genuine logic failure still fails fast on the first attempt.
 const NETWORK_ERROR =
-  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EINTEGRITY|ERR_SOCKET_TIMEOUT|fetch failed|503 Service Unavailable|Temporary failure|Hash Sum mismatch|network (?:read|connectivity|request)/i;
+  /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EINTEGRITY|ERR_SOCKET_TIMEOUT|fetch failed|503 Service Unavailable|Temporary failure|Hash Sum mismatch|network (?:read|connectivity|request)|E: Failed to fetch [^\n]*404 Not Found/i;
 
 interface ContainerRun {
   status: number;
@@ -178,12 +178,12 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         ].join('\n'),
       });
 
+      expect(status, output).toBe(0);
       // Regression guards for the two bugs this path used to hit.
       expect(output).not.toMatch(/xz: Cannot exec/);
       expect(output).not.toMatch(/unbound variable/);
       // Proof the download + checksum + extract stage actually ran.
       expect(output).toContain('Verified Node.js download (sha256)');
-      expect(status, output).toBe(0);
       expect(output).toMatch(/hybridclaw --version -> \d+\.\d+\.\d+/);
     },
     INSTALL_TEST_MS,
@@ -204,6 +204,7 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
         ].join('\n'),
       });
 
+      expect(status, output).toBe(0);
       // EACCES on the root-owned /usr/local prefix → user-local prefix, no sudo.
       expect(output).toMatch(
         /not writable; using .*npm-global instead \(no sudo\)/,
@@ -216,7 +217,6 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
       // PATH persistence must land in an rc file, not just this process's env
       // (the in-process --verify above cannot see a broken rc write).
       expect(output).toContain('RC_PERSISTED=yes');
-      expect(status, output).toBe(0);
     },
     INSTALL_TEST_MS,
   );
