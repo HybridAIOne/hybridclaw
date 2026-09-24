@@ -48,3 +48,8 @@ it('does not mutate already emitted progress or collect detached work after comp
 describe('stored trace boundary', () => {
   it.each(['bad json', 'null', '{"version":2}', '{"version":1,"status":"complete","mode":"direct","durationMs":0,"attempts":[null]}'])('ignores invalid metadata: %s', (raw) => expect(parseRoutingTrace(raw)).toBeNull());
 });
+
+it('rejects malformed evaluator evidence in persisted traces', async () => {
+  const { parseRoutingTrace } = await import('../src/types/routing-trace.js');
+  expect(parseRoutingTrace(JSON.stringify({ version: 1, status: 'complete', mode: 'tiered', attempts: [], durationMs: 1, evaluation: { version: 1, distributions: { pii: '<script>' } } }))).toBeNull();
+});

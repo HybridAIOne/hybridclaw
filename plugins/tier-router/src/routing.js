@@ -41,6 +41,13 @@ export function resolveTierRoutingDecision(config, context, manualEscalate) {
     return null;
   }
   if (context.explicitModelPinned) return null;
+  config = {
+    ...config,
+    tiers: config.tiers.map((tier) => ({
+      ...tier,
+      models: tier.modelsByMode?.[config.mode] ?? tier.models,
+    })),
+  };
 
   const taxonomy = classifyRoutingTurn(context);
   let startIndex = 0;

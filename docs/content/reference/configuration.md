@@ -150,6 +150,30 @@ saved revision history directly.
   request and session model selections bypass the ladder. Enabling routing
   also enables the bundled `tier-router` middleware and rejects attempts to
   replace it with a custom path.
+- **Models → Routing** stores separate model assignments per mode in
+  `routing.tiers[].modelsByMode` (`auto`, `privacy`, `speed`, `cost`). Tier names
+  and capability order are shared. The editor prefills modes from configured
+  alternatives within that capability tier; higher-tier models are not copied
+  into backup slots. Retry-safe failures escalate to the next tier automatically.
+  The editor does not infer capabilities
+  for unrelated catalog models. Changing a model edits only the displayed mode.
+  `models` supplies the base pool for modes without explicit assignments.
+- `routing.mode`: Cost chooses the lowest known combined input/output token rate
+  among capable models. Privacy prefers local, private HybridAI, regional, then
+  public cloud endpoints, and fallback never broadens the selected privacy zone.
+  Speed chooses the lowest recent median successful execution time. Auto removes
+  models dominated on both known price and time, then balances normalized cost
+  and time equally. These are estimates: execution times include the work done
+  by a turn, and token rates do not predict the final request bill.
+- `routing.localOnly` is a hard constraint independent of mode. It blocks cloud
+  classifiers and excludes remote execution models. Existing Privacy settings
+  without an explicit constraint default to local-only. Admin saves validate
+  model references across all mode assignments and reject changes that leave
+  the selected mode without a permitted execution path.
+- Speed measurements use the latest 20 successful executions per model in the
+  current gateway process. Classifier calls and failed executions are excluded.
+  Without measurements, Speed and Auto use configured order and report that
+  fallback in routing details. Restarting the gateway clears these samples.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
   standard HybridClaw tool loop or `app-server` for the native Codex app-server

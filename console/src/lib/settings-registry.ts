@@ -60,7 +60,7 @@ const SECTION_OWNERS: Readonly<
   kilo: PROVIDERS_OWNER,
   local: PROVIDERS_OWNER,
   auxiliaryModels: PROVIDERS_OWNER,
-  routing: { label: 'Model routing', to: '/admin/models#model-routing' },
+  routing: { label: 'Routing', to: '/admin/model-routing' },
 };
 
 const FIELD_OWNERS: Readonly<Record<string, AdminConfigSectionOwner>> = {
@@ -209,6 +209,9 @@ export function settingsOwnerForPath(
   path: string,
 ): AdminConfigSectionOwner | undefined {
   const [section, subpage] = path.split('.');
+  if (section === 'routing' && subpage === 'evaluator') {
+    return { label: 'Routing Evaluator', to: '/admin/routing-evaluator' };
+  }
   if (section === 'channelInstructions' && subpage) {
     return adminChannelOwner(subpage === 'msteams' ? 'teams' : subpage);
   }

@@ -157,3 +157,15 @@ export function finishRoutingTraceAttempt(params: {
         ? 'estimated'
         : 'unknown';
 }
+
+export function recordRoutingEvaluation(
+  evaluation: NonNullable<RoutingTrace['evaluation']>,
+  shadow = false,
+): void {
+  const state = scope.getStore();
+  if (state && !state.closed) {
+    state.trace[shadow ? 'shadowEvaluation' : 'evaluation'] =
+      structuredClone(evaluation);
+    state.progress?.(structuredClone(state.trace));
+  }
+}

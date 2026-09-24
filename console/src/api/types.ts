@@ -1055,11 +1055,12 @@ export interface AdminCommandResult {
 
 /** Minimum fields the chat surface needs to render and switch between models. */
 export interface ChatModel {
+  latencyMs?: number | null;
   id: string;
   /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
   provider: string;
   /** Catalog routing zone; unknown for a selection absent from the catalog. */
-  zone?: 'local' | 'hai' | 'region' | 'cloud';
+  zone?: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   /** Latest local discovery result; absent when discovery status is unknown. */
   discovered?: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
@@ -1071,7 +1072,7 @@ export interface ChatModel {
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {
-  zone: 'local' | 'hai' | 'region' | 'cloud';
+  zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
   maxTokens: number | null;
   pricingUsdPerToken: {

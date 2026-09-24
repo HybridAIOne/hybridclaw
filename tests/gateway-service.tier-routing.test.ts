@@ -3,7 +3,8 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));
+const { runAgentMock, evaluatorMock } = vi.hoisted(() => ({ runAgentMock: vi.fn(), evaluatorMock: vi.fn() }));
+vi.mock('../src/gateway/routing-evaluator.ts', () => ({ evaluateConfiguredRouting: evaluatorMock, isJevAvailable: () => true }));
 
 vi.mock('../src/agent/agent.js', () => ({ runAgent: runAgentMock }));
 
@@ -26,6 +27,7 @@ async function createFixture() {
   updateRuntimeConfig((draft) => {
     draft.local.backends.lmstudio.enabled = true;
     draft.routing.enabled = true;
+    draft.routing.concierge.comparisonModel = '';
     draft.routing.defaultStart = 'economy';
     draft.routing.escalationStickyTurns = 3;
     draft.routing.tiers = [
@@ -58,6 +60,7 @@ useCleanMocks({
   restoreAllMocks: true,
   cleanup: () => {
     runAgentMock.mockReset();
+    evaluatorMock.mockReset();
     if (ORIGINAL_HOME === undefined) delete process.env.HOME;
     else process.env.HOME = ORIGINAL_HOME;
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
@@ -306,4 +309,96 @@ test('does not remember an unsuccessful manual escalation', async () => {
   expect(result.status).toBe('error');
   expect(runAgentMock.mock.calls.map(([params]) => params.model)).toEqual(['lmstudio/test-strong']);
   expect(peekStickyModelRoutingTier(request.sessionId)).toBeUndefined();
+});
+
+test('shadow JEV is recorded beside the live rules without changing execution', async () => {
+ const fixture = await createFixture();
+ fixture.updateRuntimeConfig(draft => {draft.routing.concierge.comparisonModel='jev/jev-latest';draft.routing.showRoutingInfo=true;});
+ evaluatorMock.mockResolvedValue({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'capability-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0.00001,distributions: signals('general'),recommendedTier:'general',applied:false});
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
+ const result = await fixture.handleGatewayMessage({sessionId:'shadow-test',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ const {parseRoutingTrace} = await import('../src/types/routing-trace.js');
+ expect(parseRoutingTrace(JSON.stringify(result.routingTrace))).not.toBeNull();
+ expect(result.model).toBe('lmstudio/test-cheap');
+ expect(result.routingTrace?.evaluation).toMatchObject({provider:'rules',recommendedTier:'economy',costUsd:0,applied:true});
+ expect(result.routingTrace?.shadowEvaluation).toMatchObject({provider:'jev',recommendedTier:'general',costUsd:0.00001,applied:false});
+});
+function signals(tier: string) {
+ return {tier:{choice:tier,confidence:1,probabilities:{[tier]:1}}};
+}
+
+test('JEV concierge chooses tiers with evaluator off and preserves successive escalation and pins', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig(draft => {
+
+    draft.routing.concierge.model = 'jev/jev-latest';
+    draft.routing.defaultStart = 'general';
+    draft.routing.showRoutingInfo = true;
+    draft.routing.tiers.push({ name: 'advanced', models: ['lmstudio/test-advanced'] });
+  });
+  evaluatorMock.mockImplementation(async () => ({ version: 1, provider: 'jev', mode: 'active', status: 'evaluated', reason: 'capability-recommendation', model: 'jev-test', durationMs: 10, inputTokens: 5, outputTokens: 5, costUsd: null, distributions: signals('economy'), recommendedTier: 'economy', applied: false }));
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const request = { sessionId: 'jev-concierge', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath };
+  const result = await fixture.handleGatewayMessage(request);
+  expect(result.model).toBe('lmstudio/test-cheap');
+  expect(result.routingTrace).toMatchObject({ mode: 'concierge', evaluation: { applied: true, recommendedTier: 'economy' } });
+  expect(evaluatorMock).toHaveBeenCalledWith(expect.objectContaining({ concierge: true }));
+  fixture.updateRuntimeConfig(draft => { draft.routing.defaultStart = 'economy'; });
+  const { handleGatewayCommand } = await import('../src/gateway/gateway-service.ts');
+  await handleGatewayCommand({ ...request, args: ['escalate'] });
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-strong');
+  await handleGatewayCommand({ ...request, args: ['escalate'] });
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-advanced');
+  evaluatorMock.mockClear();
+  fixture.updateSessionModel(request.sessionId, 'lmstudio/test-cheap');
+  expect((await fixture.handleGatewayMessage(request)).model).toBe('lmstudio/test-cheap');
+  expect(evaluatorMock).not.toHaveBeenCalled();
+});
+
+test('JEV concierge failure retains the configured route with fallback evidence', async () => {
+  const fixture = await createFixture();
+  fixture.updateRuntimeConfig(draft => {  draft.routing.concierge.model = 'jev/jev-latest'; draft.routing.showRoutingInfo = true; });
+  evaluatorMock.mockResolvedValue({ version: 1, provider: 'jev', mode: 'active', status: 'fallback', reason: 'credential-missing', model: 'jev-latest', durationMs: 0, inputTokens: null, outputTokens: null, costUsd: null, distributions: null, recommendedTier: null, applied: false });
+  runAgentMock.mockResolvedValue({ status: 'success', result: 'Answer', toolsUsed: [], toolExecutions: [] });
+  const result = await fixture.handleGatewayMessage({ sessionId: 'jev-fallback', guildId: null, channelId: 'tui', userId: 'user-1', username: 'user', content: 'Explain photosynthesis.', chatbotId: 'bot_test', workspacePathOverride: fixture.workspacePath });
+  expect(result.model).toBe('lmstudio/test-cheap');
+  expect(result.routingTrace?.evaluation).toMatchObject({ applied: false, reason: 'credential-missing' });
+});
+
+test('dispatches execution before a pending shadow result and records tool-free routed latency', async () => {
+ const fixture=await createFixture();
+ fixture.updateRuntimeConfig(draft=>{draft.routing.concierge.comparisonModel='jev/jev-latest';draft.routing.showRoutingInfo=true;});
+ let completeShadow!: (value: unknown) => void;
+ evaluatorMock.mockImplementation(()=>new Promise(resolve=>{completeShadow=resolve;}));
+ runAgentMock.mockImplementation(async()=>{
+   expect(completeShadow).toBeTypeOf('function');
+   completeShadow({version:1,provider:'jev',mode:'shadow',status:'evaluated',reason:'tier-recommendation',model:'jev-test',durationMs:10,inputTokens:5,outputTokens:5,costUsd:0,distributions:signals('general'),recommendedTier:'general',applied:false});
+   await new Promise(resolve=>setTimeout(resolve,5));
+   return {status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]};
+ });
+ const result=await fixture.handleGatewayMessage({sessionId:'pending-shadow',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ expect(result.status).toBe('success');
+ expect(result.routingTrace?.shadowEvaluation?.recommendedTier).toBe('general');
+ const {routingLatencyMs}=await import('../src/routing/latency.js');
+ expect(routingLatencyMs('lmstudio/test-cheap')).toBeGreaterThan(0);
+ expect(evaluatorMock).toHaveBeenCalledWith(expect.objectContaining({comparison:true}));
+ expect(evaluatorMock.mock.calls[0][0].publicSample).not.toBe(true);
+});
+
+test('a failed shadow classifier cannot fail a live turn', async () => {
+ const fixture=await createFixture();
+ fixture.updateRuntimeConfig(draft=>{draft.routing.concierge.comparisonModel='jev/jev-latest';});
+ evaluatorMock.mockRejectedValue(new Error('unexpected shadow failure'));
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:[],toolExecutions:[]});
+ const result=await fixture.handleGatewayMessage({sessionId:'failed-shadow',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Explain a public topic.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ expect(result.status).toBe('success');
+ expect(result.model).toBe('lmstudio/test-cheap');
+});
+
+test('tool execution time is excluded from routed latency samples', async () => {
+ const fixture=await createFixture();
+ runAgentMock.mockResolvedValue({status:'success',result:'Answer',toolsUsed:['read_file'],toolExecutions:[{name:'read_file',arguments:'{}',result:'example',durationMs:1000}]});
+ await fixture.handleGatewayMessage({sessionId:'tool-latency',guildId:null,channelId:'tui',userId:'user-a',username:'user',content:'Read a file.',chatbotId:'bot_test',workspacePathOverride:fixture.workspacePath});
+ const {routingLatencyMs}=await import('../src/routing/latency.js');
+ expect(routingLatencyMs('lmstudio/test-cheap')).toBeNull();
 });

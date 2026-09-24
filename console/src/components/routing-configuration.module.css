@@ -113,3 +113,164 @@
     grid-column: 1 / -1;
   }
 }
+
+.policyField {
+  align-content: start;
+}
+.privacyHeading {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.privacyHeading strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+}
+.privacySlider {
+  appearance: none;
+  background: transparent;
+  width: calc(80% + 20px);
+  margin: 8px calc(10% - 10px) 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  min-height: 24px;
+}
+.privacySlider:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+.privacySlider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.privacySlider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.privacySlider::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 3px solid var(--primary);
+  background: var(--background);
+  box-shadow: 0 1px 4px #0002;
+}
+.privacySlider::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 3px solid var(--primary);
+  background: var(--background);
+}
+.privacyStops {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+.privacyStops > span {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  text-align: center;
+}
+.privacyStops svg {
+  flex-shrink: 0;
+}
+.privacyStops > span[data-selected="true"] {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.privacyTooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 70vw);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 6px 24px #0002;
+  text-align: left;
+  font-weight: 400;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.privacyTooltip strong {
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+}
+.privacyStops > span:hover .privacyTooltip,
+.privacyStops > span:focus-within .privacyTooltip {
+  display: grid;
+}
+.privacyStops > span:first-child .privacyTooltip {
+  left: 0;
+  transform: none;
+}
+.privacyStops > span:last-child .privacyTooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.privacyStopButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.privacyStopButton:hover {
+  background: var(--muted);
+}
+.privacyStopButton:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.privacyStops > span[data-inactive="true"] .privacyStopButton {
+  color: var(--muted-foreground);
+  opacity: 0.55;
+}
+.privacyAvailability {
+  font-size: 0.625rem;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.privacyStopButton:disabled {
+  cursor: not-allowed;
+}
+.privacyStopButton:disabled:hover {
+  background: transparent;
+}

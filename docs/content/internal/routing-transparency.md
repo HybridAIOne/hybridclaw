@@ -98,3 +98,8 @@ Successful manual escalations retain the resulting tier for the configured
 `/escalate` during that window advances from the retained tier and stops at the
 highest tier. Failed manual attempts do not establish a new retained tier.
 This temporary session state is cleared on gateway restart.
+
+Phase 2 adds optional [typed evaluator evidence](typed-routing-evaluator.md) to the
+expanded trace. Shadow recommendations are displayed separately from actual
+execution. The classifier has its own disclosure gate and contributes reported
+usage as auxiliary overhead; hiding routing tags does not change its policy.

@@ -170,7 +170,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
     conciergeDefinition?.options
       ?.map((option) => ('name' in option ? option.name : ''))
       .filter(Boolean),
-  ).toEqual(['info', 'on', 'off', 'model', 'profile']);
+  ).toEqual(['info']);
 });
 
 test('parseSlashInteractionArgs maps agent interactions to command args', () => {
@@ -311,14 +311,9 @@ test('parseSlashInteractionArgs maps concierge interactions to command args', ()
   );
 
   expect(infoArgs).toEqual(['concierge', 'info']);
-  expect(onArgs).toEqual(['concierge', 'on']);
-  expect(modelArgs).toEqual(['concierge', 'model', 'gemini-3-flash']);
-  expect(profileArgs).toEqual([
-    'concierge',
-    'profile',
-    'no_hurry',
-    'ollama/qwen3:latest',
-  ]);
+  expect(onArgs).toEqual(['concierge', 'info']);
+  expect(modelArgs).toEqual(['concierge', 'info']);
+  expect(profileArgs).toEqual(['concierge', 'info']);
 });
 
 test('buildSlashCommandDefinitions adds provider filter to model list', () => {

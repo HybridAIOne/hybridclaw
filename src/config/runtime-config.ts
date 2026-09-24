@@ -1,5 +1,6 @@
 /**
  * Runtime configuration validates source data before making it active.
+ * Saves validate mode assignments and preserve explicit local-only boundaries.
  * Invalid local endpoints and disabled named defaults block normalization writes;
  * refresh-based updates cannot replace those files with an in-memory fallback.
  * Local setup commits its endpoint, secret reference and default together;
@@ -95,8 +96,12 @@ import type {
   LocalProviderConfig,
 } from '../providers/local-types.js';
 import {
+  configuredRemoteRoutingZone,
+  MODEL_ROUTING_ZONES,
   type ModelRoutingConfig,
   type ModelRoutingTier,
+  type ModelRoutingZone,
+  modelRoutingZoneAllows,
   normalizeModelRoutingZone,
 } from '../providers/model-routing.js';
 import {
@@ -104,6 +109,11 @@ import {
   isRuntimeProviderId,
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
+import {
+  DEFAULT_ROUTING_EVALUATOR,
+  normalizeRoutingEvaluator,
+  type RoutingEvaluatorConfig,
+} from '../routing/evaluator-contract.js';
 import { parseLegacyAdditionalMountBinds } from '../security/mount-config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
@@ -527,17 +537,15 @@ export interface RuntimeMediaAudioConfig {
 }
 
 export interface RuntimeRoutingConciergeConfig {
-  enabled: boolean;
   model: string;
-  profiles: {
-    asap: string;
-    balanced: string;
-    noHurry: string;
-  };
+  comparisonModel: string;
 }
 
 export interface RuntimeRoutingConfig extends ModelRoutingConfig {
+  maximumZone: ModelRoutingZone;
+  evaluator: RoutingEvaluatorConfig;
   showRoutingInfo: boolean;
+  mode: 'privacy' | 'speed' | 'cost' | 'auto';
   concierge: RuntimeRoutingConciergeConfig;
 }
 
@@ -2169,21 +2177,16 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
   },
   routing: {
+    maximumZone: 'cloud',
+    evaluator: DEFAULT_ROUTING_EVALUATOR,
     // Product default (2026-09-21): routing details are opt-in; telemetry stays enabled.
     showRoutingInfo: false,
     enabled: false,
     tiers: [],
     defaultStart: '',
     escalationStickyTurns: 3,
-    concierge: {
-      enabled: false,
-      model: 'gemini-3-flash',
-      profiles: {
-        asap: 'gpt-5',
-        balanced: 'gpt-5-mini',
-        noHurry: 'gpt-5-nano',
-      },
-    },
+    mode: 'auto',
+    concierge: { model: '', comparisonModel: '' },
   },
   heartbeat: {
     enabled: true,
@@ -7094,36 +7097,33 @@ function normalizeMediaConfig(
   };
 }
 
+function normalizeRoutingChoice<T extends string>(
+  value: unknown,
+  choices: readonly T[],
+  fallback: T,
+): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !choices.includes(value as T))
+    throw new Error(`Invalid routing option: expected ${choices.join(', ')}.`);
+  return value as T;
+}
+
 function normalizeRoutingConciergeConfig(
   value: unknown,
   fallback: RuntimeRoutingConciergeConfig,
 ): RuntimeRoutingConciergeConfig {
   const raw = isRecord(value) ? value : {};
-  const rawProfiles = isRecord(raw.profiles) ? raw.profiles : {};
   return {
-    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
-    model: normalizeString(raw.model, fallback.model, {
-      allowEmpty: false,
-    }),
-    profiles: {
-      asap: normalizeString(rawProfiles.asap, fallback.profiles.asap, {
-        allowEmpty: false,
-      }),
-      balanced: normalizeString(
-        rawProfiles.balanced,
-        fallback.profiles.balanced,
-        {
-          allowEmpty: false,
-        },
-      ),
-      noHurry: normalizeString(
-        rawProfiles.noHurry ?? rawProfiles.no_hurry,
-        fallback.profiles.noHurry,
-        {
-          allowEmpty: false,
-        },
-      ),
-    },
+    // Preserve the shipped v1 opt-out when upgrading to the shared router.
+    model:
+      raw.enabled === false
+        ? ''
+        : normalizeString(raw.model, fallback.model, { allowEmpty: true }),
+    comparisonModel: normalizeString(
+      raw.comparisonModel,
+      fallback.comparisonModel,
+      { allowEmpty: true },
+    ),
   };
 }
 
@@ -7226,7 +7226,31 @@ function normalizeModelRoutingConfig(
         );
       }
     }
-    return { name, models };
+    const modelsByMode: ModelRoutingTier['modelsByMode'] = {};
+    if (entry.modelsByMode !== undefined) {
+      if (!isRecord(entry.modelsByMode))
+        throw new Error('Tier mode assignments must be an object.');
+      for (const mode of ['auto', 'privacy', 'speed', 'cost'] as const) {
+        const values = entry.modelsByMode[mode];
+        if (values === undefined) continue;
+        if (!Array.isArray(values) || !values.length)
+          throw new Error(`Configure models for ${mode} tier "${name}".`);
+        const ids = normalizeOptionalTrimmedUniqueStringArray(values);
+        if (!ids || ids.length !== values.length)
+          throw new Error(
+            `Invalid model assignments for ${mode} tier "${name}".`,
+          );
+        for (const id of ids)
+          if (!isKnownRoutingModelReference(id, catalog))
+            throw new Error(`Unknown ${mode} routing model "${id}".`);
+        modelsByMode[mode] = ids;
+      }
+    }
+    return {
+      name,
+      models,
+      ...(Object.keys(modelsByMode).length ? { modelsByMode } : {}),
+    };
   });
 
   if (enabled && tiers.length === 0) {
@@ -8821,6 +8845,17 @@ function normalizeRuntimeConfig(
     media: normalizeMediaConfig(rawMedia, DEFAULT_RUNTIME_CONFIG.media),
     routing: {
       ...modelRouting,
+      maximumZone: normalizeRoutingChoice(
+        rawRouting.maximumZone,
+        MODEL_ROUTING_ZONES,
+        'cloud',
+      ),
+      mode: normalizeRoutingChoice(
+        rawRouting.mode,
+        ['privacy', 'speed', 'cost', 'auto'] as const,
+        'auto',
+      ),
+      evaluator: normalizeRoutingEvaluator(rawRouting.evaluator),
       showRoutingInfo: normalizeBoolean(
         rawRouting.showRoutingInfo,
         DEFAULT_RUNTIME_CONFIG.routing.showRoutingInfo,
@@ -9714,11 +9749,89 @@ export type {
   RuntimeRevisionAssetType,
 };
 
+// Validate dependencies against the proposed config, including provider edits.
+function validateRoutingForSave(config: RuntimeConfig): void {
+  const zone = (model: string): ModelRoutingZone | null => {
+    const prefix = model.split('/')[0];
+    const endpoint = config.local.endpoints.find(
+      (item) => item.name === prefix,
+    );
+    if (endpoint) return endpoint.enabled ? (endpoint.zone ?? 'cloud') : null;
+    if (isLocalBackendType(prefix))
+      return config.local.backends[prefix].enabled ? 'local' : null;
+    return configuredRemoteRoutingZone(model) ?? 'cloud';
+  };
+  const routing = {
+    ...config.routing,
+    tiers: config.routing.tiers.map((tier) => ({
+      ...tier,
+      models: tier.modelsByMode?.[config.routing.mode] ?? tier.models,
+    })),
+  };
+  for (const tier of config.routing.tiers) {
+    for (const [mode, models] of Object.entries(tier.modelsByMode ?? {})) {
+      if (routing.enabled && !models.some((model) => zone(model) !== null))
+        throw new Error(
+          `Enable a model for ${mode} tier "${tier.name}" first.`,
+        );
+    }
+  }
+  if (
+    routing.maximumZone !== 'cloud' &&
+    !routing.tiers.some((tier) =>
+      tier.models.some((model) => {
+        const location = zone(model);
+        return (
+          location !== null &&
+          modelRoutingZoneAllows(routing.maximumZone, location)
+        );
+      }),
+    )
+  )
+    throw new Error(
+      routing.maximumZone === 'local'
+        ? 'Configure a local model first.'
+        : 'Configure a model within the selected privacy limit first.',
+    );
+  if (!routing.enabled) return;
+  for (let index = 0; index < routing.tiers.length; index++) {
+    const eligible = routing.tiers.slice(index).some((tier) =>
+      tier.models.some((model) => {
+        const modelZone = zone(model);
+        return (
+          modelZone !== null &&
+          modelRoutingZoneAllows(routing.maximumZone, modelZone)
+        );
+      }),
+    );
+    if (!eligible)
+      throw new Error(
+        routing.maximumZone === 'local'
+          ? `Configure a local model first: tier "${routing.tiers[index].name}" needs a local model in this or a higher tier.`
+          : `Tier "${routing.tiers[index].name}" needs an enabled model within the selected privacy limit in this or a higher tier.`,
+      );
+  }
+  for (const model of [
+    routing.concierge.model,
+    routing.concierge.comparisonModel,
+  ]) {
+    if (
+      model &&
+      (zone(model) === null ||
+        !modelRoutingZoneAllows(routing.maximumZone, zone(model) ?? undefined))
+    )
+      throw new Error(
+        `Routing model "${model}" is disabled or outside the selected privacy limit. Select an eligible router first.`,
+      );
+  }
+}
+
 export function saveRuntimeConfig(
   next: RuntimeConfig,
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(next);
+  validateRoutingForSave(normalized);
   const sandboxModeExplicit =
     currentConfigMetadata.containerSandboxModeExplicit ||
     normalized.container.sandboxMode !==
@@ -9727,10 +9840,6 @@ export function saveRuntimeConfig(
     currentConfigMetadata.containerMaxConcurrentExplicit ||
     normalized.container.maxConcurrent !==
       DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
-  currentConfigMetadata = {
-    containerSandboxModeExplicit: sandboxModeExplicit,
-    containerMaxConcurrentExplicit: maxConcurrentExplicit,
-  };
   const sourceConfig = mergeSubmittedSecretInputs(currentConfigSource, next);
   const nextSource = buildSerializableConfig(
     normalized,
@@ -9747,6 +9856,10 @@ export function saveRuntimeConfig(
     meta,
     sourceConfig,
   );
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
+  };
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);
@@ -9757,6 +9870,7 @@ function saveRuntimeConfigSource(
   meta?: RuntimeConfigChangeMeta,
 ): RuntimeConfig {
   const normalized = normalizeRuntimeConfig(parseConfigPatch(source));
+  validateRoutingForSave(normalized);
   const rawContainer = isRecord(source.container) ? source.container : {};
   const sandboxModeExplicit =
     hasOwn(rawContainer, 'sandboxMode') ||
@@ -9766,10 +9880,6 @@ function saveRuntimeConfigSource(
     hasOwn(rawContainer, 'maxConcurrent') ||
     normalized.container.maxConcurrent !==
       DEFAULT_RUNTIME_CONFIG.container.maxConcurrent;
-  currentConfigMetadata = {
-    containerSandboxModeExplicit: sandboxModeExplicit,
-    containerMaxConcurrentExplicit: maxConcurrentExplicit,
-  };
   const nextSource = buildSerializableConfig(
     normalized,
     {
@@ -9785,6 +9895,10 @@ function saveRuntimeConfigSource(
     meta,
     source,
   );
+  currentConfigMetadata = {
+    containerSandboxModeExplicit: sandboxModeExplicit,
+    containerMaxConcurrentExplicit: maxConcurrentExplicit,
+  };
   currentConfigSource = cloneConfig(nextSource);
   applyConfig(normalized);
   return cloneConfig(normalized);

@@ -20,9 +20,7 @@
   outline-offset: 4px;
   border-radius: 8px;
 }
-.tag,
-.model,
-.running {
+.model {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px 9px;
@@ -35,9 +33,6 @@
   gap: 6px;
   color: var(--foreground);
   overflow-wrap: anywhere;
-}
-.running {
-  color: var(--foreground);
 }
 .chevron {
   margin-left: 2px;
@@ -97,6 +92,7 @@
 /* Reuse semantic theme tokens so routing stays legible in both color schemes. */
 .model[data-zone="cloud"],
 .model[data-zone="hai"],
+.model[data-zone="eu-provider"],
 .model[data-zone="region"] {
   color: var(--accent-foreground);
   background: var(--accent);
@@ -107,20 +103,6 @@
   background: var(--success-soft);
   border-color: var(--success-border);
 }
-.routeDot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.running,
-.tag[data-tone="retry"] {
-  color: var(--foreground);
-  background: color-mix(in srgb, var(--tone-review) 15%, var(--card));
-  border-color: color-mix(in srgb, var(--tone-review) 45%, var(--border));
-}
-.tag[data-tone="error"],
 .status[data-status="error"] {
   color: var(--danger);
   background: var(--danger-soft);
@@ -139,4 +121,63 @@
 .status[data-status="running"] {
   color: var(--accent-foreground);
   background: var(--accent);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+.decisions {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.decisions th {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 12px 8px 0;
+}
+.decisions td {
+  padding: 9px 12px 9px 0;
+  vertical-align: top;
+  color: var(--foreground);
+}
+.decisions tbody tr + tr {
+  border-top: 1px solid var(--border);
+}
+.decisions strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.decisions small {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.numeric {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.role {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.callDetails {
+  margin-top: 10px;
+}
+.callDetails > summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.model svg {
+  flex-shrink: 0;
+}
+
+.metrics dd.cacheBreakdown {
+  color: var(--muted-foreground);
+  font-size: 11px;
 }

@@ -127,6 +127,7 @@ interface AuxiliaryRequestOptions {
 
 export interface AuxiliaryModelCallParams {
   task: AuxiliaryTextTask;
+  traceReason?: string;
   messages: ChatMessage[];
   fallbackModel?: string;
   fallbackChatbotId?: string;
@@ -256,7 +257,9 @@ function readAuxiliaryModelUsage(
       : undefined);
   const promptTokenDetails = isRecord(value.prompt_tokens_details)
     ? value.prompt_tokens_details
-    : undefined;
+    : isRecord(value.input_tokens_details)
+      ? value.input_tokens_details
+      : undefined;
   const cacheReadTokens = readFiniteNumber([
     value.cacheReadTokens,
     value.cache_read_tokens,
@@ -1561,10 +1564,15 @@ async function callAuxiliaryTextProviderWithLogging(
   options: AuxiliaryRequestOptions,
 ): Promise<AuxiliaryTextResponse> {
   const startedAt = Date.now();
+  // Explicit no-fallback calls keep endpoint identity for pricing and telemetry.
+  const traceModel =
+    params.allowFallback === false && params.model
+      ? params.model
+      : context.model;
   const routingAttempt = startRoutingTraceAttempt(
-    context.model,
+    traceModel,
     'auxiliary',
-    params.task,
+    params.traceReason ?? params.task,
   );
   if (typeof logger.info === 'function') {
     logger.info(
@@ -1587,7 +1595,7 @@ async function callAuxiliaryTextProviderWithLogging(
       options,
     );
     finishRoutingTraceAttempt({
-      model: context.model,
+      model: traceModel,
       attempt: routingAttempt,
       status: 'success',
       durationMs: Date.now() - startedAt,
@@ -1608,7 +1616,7 @@ async function callAuxiliaryTextProviderWithLogging(
     return response;
   } catch (error) {
     finishRoutingTraceAttempt({
-      model: context.model,
+      model: traceModel,
       attempt: routingAttempt,
       status: 'error',
       durationMs: Date.now() - startedAt,
