@@ -1599,10 +1599,13 @@ export interface AdminConnector {
   setupSecretNames: string[];
 }
 
+export type AdminConnectorAction = 'secret.overwrite' | 'secret.unset';
+
 export interface AdminConnectorsResponse {
   connectors: AdminConnector[];
   secretsPath: string;
   oauthRedirectUri: string | null;
+  actions: AdminConnectorAction[];
 }
 
 export interface AdminConnectorOAuthStartResponse {

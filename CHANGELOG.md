@@ -34,6 +34,12 @@
   checked it. `admin.integrations_manager`, `admin.config_manager`, and
   `admin:operator` now get 403 on these routes unless they also hold the secret
   actions.
+- **Connectors page shows only the credential controls a caller can use**:
+  `GET /api/admin/connectors` returns the caller's allowed connector credential
+  actions, and the admin console leaves out Connect, Rotate key, Reconnect, and
+  Disconnect unless the caller holds the matching `secret.overwrite` or
+  `secret.unset` action, instead of showing them and failing with "Forbidden."
+  after the click. Test stays available with `admin.connectors.read`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

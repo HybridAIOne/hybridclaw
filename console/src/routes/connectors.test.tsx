@@ -28,6 +28,7 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
   return {
     secretsPath: '/tmp/credentials.json',
     oauthRedirectUri: 'https://console.example/api/connectors/oauth/callback',
+    actions: ['secret.overwrite', 'secret.unset'],
     connectors: [
       {
         id: 'hybridai',
@@ -114,6 +115,33 @@ function makeConnectorsResponse(): AdminConnectorsResponse {
   };
 }
 
+function makeConnectedConnectorsResponse(
+  actions: AdminConnectorsResponse['actions'],
+): AdminConnectorsResponse {
+  const response = makeConnectorsResponse();
+  response.actions = actions;
+  response.connectors[0] = {
+    ...response.connectors[0],
+    state: 'connected',
+    detail: 'hai-...test via runtime-secrets',
+  };
+  response.connectors[2] = {
+    ...response.connectors[2],
+    state: 'connected',
+    account: 'user@example.com',
+    routesConfigured: true,
+    clientConfigured: true,
+    clientSecretConfigured: true,
+    detail: 'OAuth refresh token configured.',
+  };
+  response.connectors[3] = {
+    ...response.connectors[3],
+    state: 'connected',
+    detail: 'Connected through HybridAI.',
+  };
+  return response;
+}
+
 describe('ConnectorsPage', () => {
   beforeEach(() => {
     fetchConnectorsMock.mockReset();
@@ -143,6 +171,76 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByText(/hybridclaw auth login/u)).toBeNull();
     expect(screen.queryByText('HA')).toBeNull();
     expect(screen.queryByText('M365')).toBeNull();
+  });
+
+  it('hides Connect from callers without secret.overwrite but keeps Test', async () => {
+    fetchConnectorsMock.mockResolvedValue({
+      ...makeConnectorsResponse(),
+      actions: [],
+    });
+
+    renderWithProviders(<ConnectorsPage />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Test HybridAI' }),
+    ).toBeTruthy();
+    for (const name of [
+      'Test GitHub',
+      'Test Google Workspace',
+      'Test Microsoft 365',
+    ]) {
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+    }
+    for (const name of ['Connect', 'Connect GitHub', 'Connect Microsoft 365']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull();
+    }
+  });
+
+  it('hides key rotation, reconnect, and disconnect from callers without secret actions', async () => {
+    fetchConnectorsMock.mockResolvedValue(makeConnectedConnectorsResponse([]));
+
+    renderWithProviders(<ConnectorsPage />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Test HybridAI' }),
+    ).toBeTruthy();
+    for (const name of ['Rotate key', 'Reconnect', 'Disconnect']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull();
+    }
+    // Manage only links to HybridAI, which enforces its own permissions.
+    expect(
+      screen.getByRole('button', { name: 'Manage Microsoft 365' }),
+    ).toBeTruthy();
+  });
+
+  it('shows key rotation and connect but not Disconnect to overwrite-only callers', async () => {
+    fetchConnectorsMock.mockResolvedValue(
+      makeConnectedConnectorsResponse(['secret.overwrite']),
+    );
+
+    renderWithProviders(<ConnectorsPage />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Rotate key' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull();
+  });
+
+  it('shows Disconnect but not key rotation or connect to unset-only callers', async () => {
+    fetchConnectorsMock.mockResolvedValue(
+      makeConnectedConnectorsResponse(['secret.unset']),
+    );
+
+    renderWithProviders(<ConnectorsPage />);
+
+    expect(
+      await screen.findAllByRole('button', { name: 'Disconnect' }),
+    ).toHaveLength(2);
+    for (const name of ['Rotate key', 'Reconnect', 'Connect GitHub']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull();
+    }
   });
 
   it('starts GitHub through HybridClaw and opens the returned authorization URL', async () => {
