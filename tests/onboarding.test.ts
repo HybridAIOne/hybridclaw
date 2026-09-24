@@ -230,8 +230,8 @@ test('interactive HybridAI onboarding falls back to the runtime default model', 
     fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
   ) as RuntimeConfig;
 
-  expect(config.hybridai.defaultModel).toBe('gpt-5.6-luna');
-  expect(output).toContain('Default model set to: gpt-5.6-luna');
+  expect(config.hybridai.defaultModel).toBe('gpt-6-luna');
+  expect(output).toContain('Default model set to: gpt-6-luna');
 });
 
 test('interactive onboarding offers last-known-good restore when runtime config is invalid JSON', async () => {

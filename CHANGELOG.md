@@ -138,6 +138,10 @@
   engine, so both produce the structured summary, archive the transcript, and
   keep the same retained slice. The separate JSONL compaction export is gone;
   the transcript archive is the record of compacted history.
+- **HybridAI default model is GPT-6 Luna**: New configs default to
+  `gpt-6-luna` instead of `gpt-5.6-luna`, and the premium-access error now
+  names it as the non-premium model. Existing configs keep the default model
+  they already have.
 
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 

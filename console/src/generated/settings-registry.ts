@@ -1286,7 +1286,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'hybridai.defaultModel',
       section: 'hybridai',
       kind: 'string',
-      defaultValue: 'gpt-5.6-luna',
+      defaultValue: 'gpt-6-luna',
     },
     {
       path: 'hybridai.enableRag',
