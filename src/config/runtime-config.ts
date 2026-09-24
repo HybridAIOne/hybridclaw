@@ -183,7 +183,7 @@ import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 export const CONFIG_FILE_NAME = 'config.json';
 export const CONFIG_VERSION = 38;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
-export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.6-luna';
+export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
 const HYBRIDAI_LUNA_DEFAULT_CONFIG_VERSION = 37;
 const LEGACY_HYBRIDAI_DEFAULT_MODELS = new Set([

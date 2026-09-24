@@ -4769,7 +4769,7 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'Disabled local backends: ollama, lmstudio, llamacpp, mlx, vllm.',
     );
-    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-5.6-luna');
+    expect(logSpy).toHaveBeenCalledWith('Default model: hybridai/gpt-6-luna');
   });
 
   it('treats top-level login as an unknown command', async () => {

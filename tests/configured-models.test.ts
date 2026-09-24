@@ -164,7 +164,7 @@ describe('configured model catalog', () => {
     const config = await importFreshConfig(homeDir);
     const snapshot = config.getConfigSnapshot();
 
-    expect(snapshot.hybridai.defaultModel).toBe('gpt-5.6-luna');
+    expect(snapshot.hybridai.defaultModel).toBe('gpt-6-luna');
   });
 
   it('defaults the onboarding model override to empty', async () => {
