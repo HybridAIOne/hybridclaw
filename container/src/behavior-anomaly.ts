@@ -23,20 +23,12 @@ export interface BehaviorAnomalyScore {
 export interface BehaviorAnomalyInput {
   toolName: string;
   args: Record<string, unknown>;
-  actionKey: string;
-  pathHints: string[];
-  hostHints: string[];
-  writeIntent: boolean;
   now?: Date;
 }
 
 interface BehaviorTupleInput {
   toolName: string;
   args: Record<string, unknown>;
-  actionKey?: string;
-  pathHints?: string[];
-  hostHints?: string[];
-  writeIntent?: boolean;
   at: Date;
 }
 
@@ -178,13 +170,6 @@ function classifyPathTarget(rawPath: string): string {
 }
 
 function classifyTarget(input: BehaviorTupleInput): string {
-  if ((input.hostHints || []).length > 0) return 'network';
-  // Training tuples are rebuilt from logged args alone. A relative hint
-  // (a bash operand, a glob pattern) has no counterpart there, so only an
-  // absolute one sets the target; the rest use the same args lookup below.
-  const pathHint = (input.pathHints || []).find((value) => value.trim());
-  if (pathHint?.trim().startsWith('/')) return classifyPathTarget(pathHint);
-
   const toolName = input.toolName.trim().toLowerCase();
   const args = input.args;
   const url = firstStringField(args, ['url', 'uri', 'href']);
@@ -214,20 +199,6 @@ function classifyTarget(input: BehaviorTupleInput): string {
 }
 
 function classifyAction(input: BehaviorTupleInput): string {
-  const actionKey = normalizeToken(input.actionKey || '');
-  if (actionKey) {
-    if (actionKey.includes('install')) return 'install';
-    if (actionKey.includes('delete')) return 'delete';
-    if (actionKey.includes('network')) return 'network';
-    if (actionKey.includes('message') || actionKey.includes('send')) {
-      return 'message';
-    }
-    if (actionKey.includes('git')) return 'git';
-    if (actionKey.includes('write') || input.writeIntent) return 'write';
-    if (actionKey.includes('read')) return 'read';
-    return actionKey.split(':')[0] || 'unknown';
-  }
-
   const toolName = input.toolName.trim().toLowerCase();
   const command = firstStringField(input.args, ['command', 'cmd']);
   if (/\b(?:npm|pnpm|yarn|pip|uv)\s+(?:install|add)\b/i.test(command)) {
@@ -242,12 +213,15 @@ function classifyAction(input: BehaviorTupleInput): string {
     return 'network';
   }
   if (toolName === 'message') return 'message';
-  if (input.writeIntent || /^(write|edit|bash)$/i.test(toolName))
-    return 'write';
+  if (/^(write|edit|bash)$/i.test(toolName)) return 'write';
   if (/^(read|glob|grep|list|ls)$/i.test(toolName)) return 'read';
   return normalizeToken(toolName) || 'unknown';
 }
 
+// Training replays raw trajectory tool uses, so live scoring must derive the
+// tuple from the same tool name + args. Approval-classifier facts (action keys,
+// path/host hints) depend on the loaded policy and session state; mixing them
+// in makes calls miss their own history and shift across policy reloads.
 export function buildBehaviorTuple(input: BehaviorTupleInput): string {
   return [
     classifyAction(input),
