@@ -12,6 +12,10 @@
 
 ### Fixed
 
+- **Installer no longer downloads the unused CUDA runtime**: `install.sh`
+  sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
+  installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw
+  never uses and which could hang the install with no output.
 - **SSRF guards block IPv6 spellings of private hosts**: Browser navigation,
   the managed-browser guard proxy, and remote `audio_transcribe` fetches now
   reject IPv6 literals such as `http://[::ffff:169.254.169.254]/` (cloud
