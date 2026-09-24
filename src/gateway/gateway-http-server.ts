@@ -2492,7 +2492,15 @@ function enforceAdminRouteRbac(
     return false;
   }
   if (!isAdminPath(pathname)) return true;
-  if (!action || shouldDeferAdminRbacToHandler(pathname, action)) return true;
+  if (!action) {
+    // Deny by default: an admin route the resolver does not map stays closed
+    // to scoped sessions; unscoped sessions are full admins by design.
+    const claims = collectAdminActionClaims(authContext.payload);
+    if (!claims || claims.has('*')) return true;
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return false;
+  }
+  if (shouldDeferAdminRbacToHandler(pathname, action)) return true;
   if (isAdminRouteActionAllowed(authContext, action)) return true;
   sendJson(res, 403, { error: 'Forbidden.' });
   return false;

@@ -1834,6 +1834,25 @@ async function importFreshHealth(options?: {
   const getGatewayAdminMcp = vi.fn(() => ({
     servers: [],
   }));
+  const startGatewayAdminMcpOAuth = vi.fn(async () => ({
+    serverName: 'linear',
+    authorizationUrl: 'https://mcp.example.test/authorize',
+    state: 'mcp-state',
+    expiresAt: Date.now() + 600_000,
+  }));
+  const getGatewayAdminMcpOAuthStatus = vi.fn((name: string) => ({
+    name,
+    auth: { state: 'connected' },
+  }));
+  const logoutGatewayAdminMcpOAuth = vi.fn(() => ({
+    servers: [],
+  }));
+  const getA2AOutboxDeliveryStatus = vi.fn(() => ({
+    status: 'delivered',
+    attempts: 1,
+    maxAttempts: 8,
+    nextAttemptAt: '2026-09-23T00:00:00.000Z',
+  }));
   const getGatewayAdminConnectors = vi.fn(() => ({
     secretsPath: '/tmp/credentials.json',
     connectors: [],
@@ -2722,6 +2741,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailMessage,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
+    getGatewayAdminMcpOAuthStatus,
     getGatewayAdminModels,
     getGatewayAdminOverview,
     getGatewayAdminSessions,
@@ -2739,6 +2759,7 @@ async function importFreshHealth(options?: {
     getGatewaySessionContextUsage,
     getGatewayStatus,
     handleGatewayCommand,
+    logoutGatewayAdminMcpOAuth,
     reconnectGatewayAdminTunnel,
     previewGatewayAdminA2APairing,
     readSystemPromptMessage,
@@ -2762,12 +2783,19 @@ async function importFreshHealth(options?: {
     saveGatewayAdminModels,
     setGatewayAdminSkillEnabled,
     startGatewayAdminA2APairing,
+    startGatewayAdminMcpOAuth,
     stopGatewayAdminTunnel,
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
     upsertGatewayAdminA2ATrustPeer,
     upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
+  }));
+  vi.doMock('../src/a2a/a2a-outbox-persistence.js', async () => ({
+    ...(await vi.importActual<
+      typeof import('../src/a2a/a2a-outbox-persistence.js')
+    >('../src/a2a/a2a-outbox-persistence.js')),
+    getA2AOutboxDeliveryStatus,
   }));
   vi.doMock('../src/gateway/gateway-admin-secrets.js', () => ({
     getGatewayAdminSecrets,
@@ -2970,6 +2998,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     getGatewayAdminA2AInbox,
+    getA2AOutboxDeliveryStatus,
     getGatewayAdminA2ATrust,
     saveGatewayAdminA2AE2EERequired,
     saveGatewayAdminA2ALocalMode,
@@ -2992,6 +3021,9 @@ async function importFreshHealth(options?: {
     getGatewayAdminPlugins,
     getGatewayAdminScheduler,
     getGatewayAdminMcp,
+    startGatewayAdminMcpOAuth,
+    getGatewayAdminMcpOAuthStatus,
+    logoutGatewayAdminMcpOAuth,
     getGatewayAdminConnectorsWithPlatformState,
     testGatewayAdminConnector,
     saveGatewayAdminHybridAIConnectorApiKey,
@@ -8541,6 +8573,141 @@ describe('gateway HTTP server', () => {
     await settle();
 
     expect(res.statusCode).toBe(403);
+  });
+
+  test('denies scoped admin sessions MCP OAuth and A2A outbox routes without the route action', async () => {
+    const authSecret = 'admin-rbac-mcp-oauth-deny-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const cookie = makeSessionCookie(authSecret, {
+      sessionId: 'admin-session-1',
+      actor: 'admin-user',
+      actions: ['admin.overview.read'],
+    });
+
+    for (const route of [
+      {
+        method: 'POST',
+        url: '/api/admin/mcp/oauth/start',
+        body: { name: 'linear' },
+      },
+      {
+        method: 'POST',
+        url: '/api/admin/mcp/oauth/logout',
+        body: { name: 'linear' },
+      },
+      { method: 'GET', url: '/api/admin/mcp/oauth/status?name=linear' },
+      { method: 'GET', url: '/api/admin/a2a/outbox/status?messageId=msg-1' },
+    ]) {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({ ...route, headers: { cookie } }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+
+      expect(res.statusCode, route.url).toBe(403);
+      expect(JSON.parse(res.body)).toEqual({ error: 'Forbidden.' });
+    }
+    expect(state.startGatewayAdminMcpOAuth).not.toHaveBeenCalled();
+    expect(state.logoutGatewayAdminMcpOAuth).not.toHaveBeenCalled();
+    expect(state.getGatewayAdminMcpOAuthStatus).not.toHaveBeenCalled();
+    expect(state.getA2AOutboxDeliveryStatus).not.toHaveBeenCalled();
+  });
+
+  test('grants MCP OAuth and A2A outbox routes through MCP and A2A actions', async () => {
+    const authSecret = 'admin-rbac-mcp-oauth-role-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const send = async (role: string, method: string, url: string) => {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({
+          method,
+          url,
+          ...(method === 'POST' ? { body: { name: 'linear' } } : {}),
+          headers: {
+            cookie: makeSessionCookie(authSecret, {
+              sessionId: 'admin-session-1',
+              actor: 'admin-user',
+              role,
+            }),
+          },
+        }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res.statusCode;
+    };
+
+    expect(
+      await send(
+        'admin.viewer',
+        'GET',
+        '/api/admin/mcp/oauth/status?name=linear',
+      ),
+    ).toBe(200);
+    expect(
+      await send(
+        'admin.viewer',
+        'GET',
+        '/api/admin/a2a/outbox/status?messageId=msg-1',
+      ),
+    ).toBe(200);
+    expect(
+      await send('admin.viewer', 'POST', '/api/admin/mcp/oauth/start'),
+    ).toBe(403);
+    expect(
+      await send('admin.viewer', 'POST', '/api/admin/mcp/oauth/logout'),
+    ).toBe(403);
+    expect(state.startGatewayAdminMcpOAuth).not.toHaveBeenCalled();
+    expect(state.logoutGatewayAdminMcpOAuth).not.toHaveBeenCalled();
+
+    expect(
+      await send(
+        'admin.integrations_manager',
+        'POST',
+        '/api/admin/mcp/oauth/start',
+      ),
+    ).toBe(200);
+    expect(
+      await send(
+        'admin.integrations_manager',
+        'POST',
+        '/api/admin/mcp/oauth/logout',
+      ),
+    ).toBe(200);
+    expect(state.getGatewayAdminMcpOAuthStatus).toHaveBeenCalledWith('linear');
+    expect(state.getA2AOutboxDeliveryStatus).toHaveBeenCalledWith('msg-1');
+    expect(state.startGatewayAdminMcpOAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'linear' }),
+    );
+    expect(state.logoutGatewayAdminMcpOAuth).toHaveBeenCalledWith('linear');
+  });
+
+  test('denies scoped admin sessions on admin routes without an RBAC mapping', async () => {
+    const authSecret = 'admin-rbac-unmapped-auth-secret';
+    const state = await importFreshHealth({ authSecret });
+    const send = async (claims: Record<string, unknown>) => {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({
+          url: '/api/admin/unmapped-route',
+          headers: {
+            cookie: makeSessionCookie(authSecret, {
+              sessionId: 'admin-session-1',
+              actor: 'admin-user',
+              ...claims,
+            }),
+          },
+        }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res.statusCode;
+    };
+
+    expect(await send({ roles: ['admin:owner'] })).toBe(403);
+    expect(await send({ actions: ['*'] })).toBe(404);
+    expect(await send({ sub: 'user-1' })).toBe(404);
   });
 
   test('returns admin secret metadata without cleartext values', async () => {

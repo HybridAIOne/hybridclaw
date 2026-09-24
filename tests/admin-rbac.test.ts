@@ -165,6 +165,24 @@ describe('admin RBAC role bundles', () => {
     ).toBe('secret.unset');
   });
 
+  test('maps MCP OAuth and A2A outbox status routes to scoped actions', () => {
+    expect(resolveAdminRbacAction('/api/admin/mcp/oauth/status', 'GET')).toBe(
+      'admin.mcp.read',
+    );
+    expect(resolveAdminRbacAction('/api/admin/mcp/oauth/start', 'POST')).toBe(
+      'admin.mcp.write',
+    );
+    expect(resolveAdminRbacAction('/api/admin/mcp/oauth/logout', 'POST')).toBe(
+      'admin.mcp.write',
+    );
+    expect(
+      resolveAdminRbacAction('/api/admin/mcp/oauth/start', 'GET'),
+    ).toBeNull();
+    expect(resolveAdminRbacAction('/api/admin/a2a/outbox/status', 'GET')).toBe(
+      'admin.a2a.read',
+    );
+  });
+
   test('maps API token and scoped API routes', () => {
     expect(resolveAdminRbacAction('/api/admin/tokens', 'GET')).toBe(
       'admin.tokens.read',

@@ -26,7 +26,10 @@ browser tab only and deletes any legacy `localStorage` copy. Live admin event
 streams do not put bearer tokens in query strings.
 
 The route-level action catalog and role bundle source of truth is
-[`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts).
+[`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts). An admin
+route with no action mapping there is denied to scoped sessions and scoped API
+tokens unless they hold the `*` wildcard, so every new admin route needs an
+entry.
 
 ## Role Bundles
 
