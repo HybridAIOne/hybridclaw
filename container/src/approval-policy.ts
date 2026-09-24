@@ -247,6 +247,7 @@ export interface ToolCallContext {
   stakesScore?: StakesScore;
   stakesMiddlewareDecision?: StakesMiddlewareResult['decision'];
   anomaly?: BehaviorAnomalyScore;
+  anomalyElevated?: boolean;
   outOfBoundByAutonomy: boolean;
   escalationTarget?: EscalationTarget;
   helpers: ToolCallContextHelpers;
@@ -1671,7 +1672,7 @@ function buildEvaluation(
     intent: classified.intent,
     consequenceIfDenied:
       overrides.consequenceIfDenied || classified.consequenceIfDenied,
-    reason: overrides.reason || classified.reason,
+    reason: overrides.reason || approvalReason(context, classified),
     commandPreview: classified.commandPreview,
     pinned: pinnedByPolicy,
     ...(context.anomaly ? { anomaly: context.anomaly } : {}),
@@ -1768,8 +1769,24 @@ function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
   }
 }
 
+// `baseTier` keeps base-red and pinned calls on the red path even if a later
+// rule lowers `tier`; `tier` adds calls the anomaly reranker elevated to red.
 function isRedRuleActive(context: ToolCallContext): boolean {
-  return requireBaseTier(context) === 'red' && context.decision === 'auto';
+  return (
+    (requireBaseTier(context) === 'red' || context.tier === 'red') &&
+    context.decision === 'auto'
+  );
+}
+
+// Keep the classifier's reason and add the anomaly score, so approval prompts
+// and audit events say why an elevated call's tier rose.
+function approvalReason(
+  context: ToolCallContext,
+  classified: ClassifiedAction,
+): string {
+  return context.anomalyElevated && context.anomaly
+    ? `${classified.reason}; ${context.anomaly.reason}`
+    : classified.reason;
 }
 
 function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
@@ -1876,6 +1893,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     ) {
       const elevatedTier = elevateApprovalTier(currentTier);
       context.tier = elevatedTier;
+      context.anomalyElevated = true;
       context.decision = 'auto';
     }
     return nextRule();
@@ -2030,7 +2048,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       argsJson: context.params.argsJson,
       intent: classified.intent,
       consequenceIfDenied: classified.consequenceIfDenied,
-      reason: classified.reason,
+      reason: approvalReason(context, classified),
       commandPreview: classified.commandPreview,
       originalPrompt: context.params.latestUserPrompt,
       pinned: requirePinned(context),

@@ -18,6 +18,11 @@
   keys and path/host hints, so routine `glob`, `grep`, read-only `bash`, web,
   `memory`, and MCP calls never matched the agent's own history and were
   elevated a tier once the agent had 50 approved trajectories.
+- **Anomaly elevation to red requires approval**: A yellow tool call that the
+  anomaly reranker elevates to red goes through the red approval rules and
+  asks for approval, and the prompt names the anomaly score. The elevated call
+  previously skipped both the red rules and the yellow implicit notice, so an
+  unusual call ran with less oversight than a normal one.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

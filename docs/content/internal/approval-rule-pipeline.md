@@ -36,6 +36,11 @@ slotted between built-in anchors, for example between `stakes` and
 20. `yellow_execution_promotion` promotes repeated non-sticky yellow actions to green, or marks first yellow execution as implicit.
 21. `green_fallback` returns the final evaluation for all non-terminal paths.
 
+The red rules (10–18) run while no decision has been made and either the base
+tier or the working tier is red. The base tier keeps pinned and red-classified
+actions on this path even if a later rule lowers the working tier; the working
+tier adds actions that `anomaly_reranker` elevated to red.
+
 The trust-store layout is unchanged: one-shot fingerprints, session trusted
 actions/fingerprints, agent trusted actions/fingerprints, and workspace
 allowlisted actions/fingerprints retain their existing storage.
@@ -52,10 +57,14 @@ abstains until the agent has at least 50 approved trajectories. The adaptive
 threshold is the agent's p99 training score.
 
 Live calls are scored after `stakes` and before `autonomy_override`. Scores
-above threshold elevate one tier (`green` to `yellow`, `yellow` to `red`).
-Borderline scores within the configured epsilon call F11 trace-judge through
-the `eval_judge` auxiliary task before any anomaly tier elevation. The normal
-non-borderline path stays synchronous and does not make an LLM call.
+above threshold elevate one tier (`green` to `yellow`, `yellow` to `red`). A
+call elevated to `yellow` follows the yellow rules; a call elevated to `red`
+goes through the red rules, so it needs an approval unless a one-shot, trust,
+or full-auto grant already covers it. The evaluation reason appends the anomaly
+score to the classifier's reason, so the approval prompt says why the tier
+rose. Borderline scores within the configured epsilon call F11 trace-judge
+through the `eval_judge` auxiliary task before any anomaly tier elevation. The
+normal non-borderline path stays synchronous and does not make an LLM call.
 
 Every structured tool-execution audit event includes `anomaly.score` and
 `anomaly.reason`. The R3 scoreboard and generated `CV.md` render weekly
