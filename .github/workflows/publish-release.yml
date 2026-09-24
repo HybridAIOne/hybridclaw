@@ -301,6 +301,7 @@ jobs:
             package-lock.json
             container/npm-shrinkwrap.json
             container/package-lock.json
+            container/tools/package-lock.json
             console/package-lock.json
 
       - name: Use npm 11
@@ -312,6 +313,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm --prefix container ci --ignore-scripts
+          npm --prefix container/tools ci --ignore-scripts --omit=dev
 
       - name: Verify npm registry signatures
         run: npm run audit:signatures

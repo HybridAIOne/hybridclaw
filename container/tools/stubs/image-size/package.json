@@ -1,0 +1,8 @@
+{
+  "name": "image-size",
+  "version": "0.0.0-stub",
+  "private": true,
+  "description": "Stands in for the image-size parser that pptxgenjs declares but never imports. Security owner call, 2026-08-13: the upstream package has no patched release, so the runtime tools override it with this dependency-free stub until pptxgenjs drops it.",
+  "license": "MIT",
+  "main": "index.js"
+}

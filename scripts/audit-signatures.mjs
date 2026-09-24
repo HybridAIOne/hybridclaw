@@ -28,6 +28,16 @@ export const signatureAuditTargets = [
     label: 'container',
     args: ['--prefix', 'container', releaseAgeAuditArg, 'audit', 'signatures'],
   },
+  {
+    label: 'runtime-tools',
+    args: [
+      '--prefix',
+      'container/tools',
+      releaseAgeAuditArg,
+      'audit',
+      'signatures',
+    ],
+  },
 ];
 const missingAttestationPattern = /E404[\s\S]*\/-\/npm\/v1\/attestations\//u;
 
