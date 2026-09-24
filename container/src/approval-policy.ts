@@ -39,6 +39,11 @@ import {
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import {
+  matchesHardPinnedPath,
+  matchesPathPattern,
+  normalizePathValue,
+} from './pinned-paths.js';
+import {
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -376,6 +381,13 @@ const SCRATCH_ROOTS = Array.from(
       .map((value) => path.resolve(value)),
   ),
 );
+// Args naming the files a read-only lookup touches. Pinned path rules only
+// match pathHints, so a lookup that reports none reads `.env*` unprompted.
+const LOOKUP_PATH_ARG_KEYS = new Map<string, readonly string[]>([
+  ['read', ['path']],
+  ['glob', ['pattern']],
+  ['grep', ['path', 'include']],
+]);
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {
   approvalRuleOrder: [...DEFAULT_APPROVAL_RULE_ORDER],
@@ -678,23 +690,6 @@ function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
   };
 }
 
-function globPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '::DOUBLE_STAR::')
-    .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function normalizePathValue(rawPath: string): string {
-  const value = rawPath.trim().replace(/\\/g, '/');
-  const withoutWorkspace = value.startsWith('/workspace/')
-    ? value.slice('/workspace/'.length)
-    : value;
-  return withoutWorkspace.replace(/^\.\/+/, '').replace(/^\/+/, '');
-}
-
 function isRootBootstrapPath(rawPath: string): boolean {
   const value = rawPath.trim();
   if (!value) return false;
@@ -703,26 +698,13 @@ function isRootBootstrapPath(rawPath: string): boolean {
   return relativePath === 'BOOTSTRAP.md';
 }
 
-function matchesPathPattern(candidatePath: string, pattern: string): boolean {
-  const normalizedCandidate = normalizePathValue(candidatePath);
-  const normalizedPattern = pattern.trim().replace(/\\/g, '/');
-  if (!normalizedPattern) return false;
-
-  // Relative patterns (e.g. ".env*") should match both root and any nested path.
-  if (
-    !normalizedPattern.startsWith('/') &&
-    !normalizedPattern.startsWith('~/')
-  ) {
-    const relRe = globPatternToRegExp(normalizedPattern.replace(/^\.\//, ''));
-    if (relRe.test(normalizedCandidate)) return true;
-    const basename = path.posix.basename(normalizedCandidate);
-    if (relRe.test(basename)) return true;
-    return false;
-  }
-
-  const absoluteCandidate = candidatePath.trim().replace(/\\/g, '/');
-  const absoluteRe = globPatternToRegExp(normalizedPattern);
-  return absoluteRe.test(absoluteCandidate);
+function lookupPathHints(
+  lowerTool: string,
+  args: Record<string, unknown>,
+): string[] {
+  return (LOOKUP_PATH_ARG_KEYS.get(lowerTool) || [])
+    .map((key) => normalizeText(args[key]))
+    .filter(Boolean);
 }
 
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
@@ -2942,7 +2924,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without this lookup.',
         reason: 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
+        pathHints: lookupPathHints(lowerTool, args),
         hostHints: [],
         writeIntent: false,
         promotableRed: false,
@@ -3793,13 +3775,8 @@ export class TrustedAgentApprovalRuntime {
     const fullText =
       `${input.toolName} ${input.preview} ${normalizeText(JSON.stringify(input.args))}`.toLowerCase();
 
-    // Hard-coded pinned path safety net.
-    const hardPinnedPaths = ['.env*', '/etc/**', '~/.ssh/**'];
-    for (const pathHint of input.pathHints) {
-      if (
-        hardPinnedPaths.some((pattern) => matchesPathPattern(pathHint, pattern))
-      )
-        return true;
+    if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
+      return true;
     }
     if (fullText.includes('git push --force')) return true;
 

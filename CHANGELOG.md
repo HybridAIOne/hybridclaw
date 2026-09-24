@@ -23,6 +23,34 @@
   asks for approval, and the prompt names the anomaly score. The elevated call
   previously skipped both the red rules and the yellow implicit notice, so an
   unusual call ran with less oversight than a normal one.
+- **Pinned paths gate file lookups**: `read`, `glob`, and `grep` calls that
+  target a pinned path (`.env*`, `~/.ssh/**`, `/etc/**`, or an
+  `approval.pinned_red` path) now require explicit approval; reading
+  `.env.local` previously ran green without a prompt. Pinned paths also match
+  the expanded home directory (`/Users/me/.ssh/id_rsa`) and `..`-collapsed
+  spellings, and `dir/**` covers a search rooted at `dir` itself.
+- **grep no longer reads pinned files during directory walks**: Unless `path`
+  or `include` names a pinned path, `grep` skips files matching `.env*`,
+  `~/.ssh/**`, or `/etc/**`. Previously `grep {"pattern":"API_KEY"}` returned
+  lines from `.env` and `.env.local` without a prompt, and a host-mode search
+  of `~` could read `~/.ssh`. Searches that expected `.env` hits no longer get
+  them, much like ripgrep skipping hidden and ignored files; the output says
+  how many files were skipped, and naming them (for example
+  `include: ".env*"`) searches them after explicit approval.
+- **Connector credential changes require secret permissions**: Saving the
+  HybridAI API key and starting a connector OAuth flow require
+  `secret.overwrite`, and logging a connector out requires `secret.unset`, for
+  scoped admin sessions and scoped API tokens alike. The admin route gate left
+  every `secret.*` action to the route handler, and the connector handler never
+  checked it. `admin.integrations_manager`, `admin.config_manager`, and
+  `admin:operator` now get 403 on these routes unless they also hold the secret
+  actions.
+- **Connectors page shows only the credential controls a caller can use**:
+  `GET /api/admin/connectors` returns the caller's allowed connector credential
+  actions, and the admin console leaves out Connect, Rotate key, Reconnect, and
+  Disconnect unless the caller holds the matching `secret.overwrite` or
+  `secret.unset` action, instead of showing them and failing with "Forbidden."
+  after the click. Test stays available with `admin.connectors.read`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
