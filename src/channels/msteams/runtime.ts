@@ -1,3 +1,8 @@
+/**
+ * Authenticated Teams transport: access checks precede tenant-scoped user routing.
+ * Messages and commands use the selected agent's conversation key; the gateway
+ * owns execution and this transport does not grant access through user mappings.
+ */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   type Request as BotFrameworkRequest,
@@ -23,6 +28,7 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
+import { observeMSTeamsUser } from '../../memory/msteams-users.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
@@ -54,6 +60,10 @@ import {
 import { MSTeamsStreamManager } from './stream.js';
 import { createMSTeamsTypingController } from './typing.js';
 import {
+  ensureMSTeamsPersonalAgent,
+  resolveMSTeamsUserAgent,
+} from './user-routing.js';
+import {
   isRecord,
   MSTEAMS_CONVERSATION_REFERENCE_KEY,
   normalizeOptionalValue,
@@ -66,6 +76,8 @@ export type ReplyFn = (
 ) => Promise<void>;
 
 export interface MSTeamsMessageContext {
+  tenantId: string;
+  agentId: string;
   activity: Activity;
   turnContext: TurnContext;
   abortSignal: AbortSignal;
@@ -93,6 +105,7 @@ export type CommandHandler = (
   username: string,
   args: string[],
   reply: ReplyFn,
+  context: Pick<MSTeamsMessageContext, 'agentId' | 'tenantId'>,
 ) => Promise<void>;
 
 export interface MSTeamsReactionEvent {
@@ -559,12 +572,32 @@ function extractReactionTypes(
     .filter(Boolean);
 }
 
+function isConfiguredMSTeamsTenant(activity: Activity): boolean {
+  const configuredTenant = normalizeValue(MSTEAMS_TENANT_ID).toLowerCase();
+  if (!configuredTenant) return true;
+  const tenant =
+    isRecord(activity.channelData) && isRecord(activity.channelData.tenant)
+      ? normalizeValue(activity.channelData.tenant.id)
+      : '';
+  const conversationTenant = normalizeValue(activity.conversation?.tenantId);
+  if (
+    [tenant, conversationTenant].some(
+      (value) => value && value.toLowerCase() !== configuredTenant,
+    )
+  ) {
+    logger.warn('Ignored Teams activity from a different tenant.');
+    return false;
+  }
+
+  return true;
+}
+
 async function maybeHandleMSTeamsMessageReaction(
   turnContext: TurnContext,
 ): Promise<boolean> {
   const activity = turnContext.activity as Activity;
   if (activity.type !== ActivityTypes.MessageReaction) return false;
-  if (!reactionHandler) return true;
+  if (!reactionHandler || !isConfiguredMSTeamsTenant(activity)) return true;
 
   const actor = extractActorIdentity(activity);
   const reactedActivityId = normalizeValue(activity.replyToId);
@@ -575,10 +608,18 @@ async function maybeHandleMSTeamsMessageReaction(
   const removed = extractReactionTypes(activity.reactionsRemoved);
   if (added.length === 0 && removed.length === 0) return true;
 
-  const sessionId = buildSessionIdFromActivity(activity);
   const username =
     actor.displayName || actor.username || actor.aadObjectId || actor.userId;
+  let sessionId = '';
   try {
+    sessionId = buildSessionIdFromActivity(
+      activity,
+      resolveMSTeamsUserAgent(
+        MSTEAMS_TENANT_ID,
+        actor.userId,
+        resolveTeamsConversationKind(activity),
+      ),
+    );
     await reactionHandler({
       sessionId,
       channelId,
@@ -611,6 +652,9 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
   const teamId = extractTeamsTeamId(activity);
   const channelId = normalizeValue(activity.conversation?.id);
   if (!channelId) return;
+
+  const configuredTenant = normalizeValue(MSTEAMS_TENANT_ID).toLowerCase();
+  if (!isConfiguredMSTeamsTenant(activity)) return;
 
   const conversationKind = resolveTeamsConversationKind(activity);
   const isDm = conversationKind === 'personal';
@@ -658,7 +702,43 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
     });
   };
 
-  const sessionId = buildSessionIdFromActivity(activity);
+  if (configuredTenant) {
+    observeMSTeamsUser({
+      tenantId: configuredTenant,
+      userId: actor.userId,
+      teamsUserId: activity.from?.id,
+      entraObjectId: actor.aadObjectId,
+      displayName: actor.displayName || actor.username,
+      isMessage: !parsedCommand.isCommand,
+    });
+    if (isDm) {
+      try {
+        ensureMSTeamsPersonalAgent({
+          tenantId: configuredTenant,
+          userId: actor.userId,
+          displayName: actor.displayName || actor.username,
+          entraObjectId: actor.aadObjectId,
+          teamsUserId: normalizeValue(activity.from?.id) || null,
+        });
+      } catch (error) {
+        logger.warn({ error }, 'Personal Teams agent provisioning failed');
+      }
+    }
+  }
+  let agentId: string;
+  try {
+    agentId = resolveMSTeamsUserAgent(
+      configuredTenant,
+      actor.userId,
+      conversationKind,
+    );
+  } catch (error) {
+    await reply(
+      error instanceof Error ? error.message : 'Teams user routing failed.',
+    );
+    return;
+  }
+  const sessionId = buildSessionIdFromActivity(activity, agentId);
   const username =
     actor.displayName || actor.username || actor.aadObjectId || actor.userId;
   const reference = buildConversationReference(activity);
@@ -694,6 +774,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
           username,
           commandArgs,
           reply,
+          { agentId, tenantId: configuredTenant },
         );
       } finally {
         if (showTyping) typingController.stop();
@@ -728,6 +809,8 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
         media,
         reply,
         {
+          agentId,
+          tenantId: configuredTenant,
           activity,
           turnContext,
           abortSignal: abortController.signal,

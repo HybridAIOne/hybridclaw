@@ -8,6 +8,10 @@
  */
 import net from 'node:net';
 
+// 192.0.0.0/24 in, 198.18.0.0/15 out (owner-delegated call, 2026-09-23): the
+// benchmarking range doubles as the fake-IP DNS pool of Clash, Surge, and
+// sing-box TUN modes, so blocking it here would block all browsing for their
+// users. The gateway's secret-injecting http_request proxy blocks it itself.
 const PRIVATE_IPV4_SUBNETS = [
   ['0.0.0.0', 8],
   ['10.0.0.0', 8],
@@ -15,6 +19,8 @@ const PRIVATE_IPV4_SUBNETS = [
   ['127.0.0.0', 8],
   ['169.254.0.0', 16], // link-local, including cloud metadata
   ['172.16.0.0', 12],
+  // IETF protocol assignments; 192.0.0.192 is Oracle Cloud Classic metadata.
+  ['192.0.0.0', 24],
   ['192.168.0.0', 16],
   ['224.0.0.0', 3], // multicast, reserved, broadcast
 ];

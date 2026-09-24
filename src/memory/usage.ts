@@ -1,3 +1,8 @@
+/**
+ * Usage ledger preserves per-invocation costs and optional initiating-user identity.
+ * Unlike session rollups, attribution is recorded by the producer and is never
+ * inferred from shared chat membership. This module does not select agents.
+ */
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { AgentBudgetUnit } from '../agents/agent-types.js';
@@ -80,7 +85,13 @@ function applyUsageFilters(params: {
   if (windowClause) params.whereClauses.push(windowClause);
 }
 
-export interface RecordUsageEventEntry {
+export interface UsageAttribution {
+  userId?: string;
+  channelKind?: string;
+  tenantId?: string;
+}
+
+export interface RecordUsageEventEntry extends UsageAttribution {
   sessionId: string;
   agentId: string;
   model: string;
@@ -122,6 +133,9 @@ export interface MonthlyUsageByAgentEntry {
 export type MonthlyUsageByAgent = Map<string, MonthlyUsageByAgentEntry>;
 
 type NormalizedUsageEventRow = {
+  userId: string | null;
+  channelKind: string | null;
+  tenantId: string | null;
   id: string;
   sessionId: string;
   agentId: string;
@@ -166,6 +180,9 @@ function normalizeUsageEntry(
         : randomUUID(),
     sessionId,
     agentId,
+    userId: entry.userId?.trim() || null,
+    channelKind: entry.channelKind?.trim() || null,
+    tenantId: entry.tenantId?.trim().toLowerCase() || null,
     timestamp:
       typeof entry.timestamp === 'string' && entry.timestamp.trim()
         ? entry.timestamp.trim()
@@ -294,8 +311,8 @@ function getUsageEventBatchInsertStatement(): Database.Statement {
   if (!usageEventBatchInsertStatement) {
     usageEventBatchInsertStatement = getUsageDatabase().prepare(
       `INSERT INTO usage_events
-        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, batch_id, batch_hash, user_id, channel_kind, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
   }
   return usageEventBatchInsertStatement;
@@ -308,8 +325,8 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
   getUsageDatabase()
     .prepare(
       `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens, cost_usd, tool_calls, billable_unit, billable_quantity, user_id, channel_kind, tenant_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -326,6 +343,9 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
       row.toolCalls,
       row.billableUnit,
       row.billableQuantity,
+      row.userId,
+      row.channelKind,
+      row.tenantId,
     );
   notifyUsageRecords([row.agentId]);
 }
@@ -386,6 +406,9 @@ export function recordUsageEventBatch(
           row.billableQuantity,
           row.batchId,
           row.batchHash,
+          row.userId,
+          row.channelKind,
+          row.tenantId,
         );
       }
     },

@@ -1,3 +1,7 @@
+/**
+ * Text approvals preserve the transport's caller attribution when execution resumes.
+ * Gateway services own approval policy; this adapter only translates text replies.
+ */
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import {
   APPROVAL_SCOPE_MODES,
@@ -146,6 +150,7 @@ export function resolvePendingApprovalSessionId(sessionId: string): string {
 }
 
 export async function handleTextChannelApprovalCommand(params: {
+  msteamsTenantId?: string;
   sessionId: string;
   guildId: string | null;
   channelId: string;
@@ -307,6 +312,7 @@ export async function handleTextChannelApprovalCommand(params: {
     }
 
     const gatewayCommandResult = await handleGatewayCommand({
+      msteamsTenantId: params.msteamsTenantId,
       sessionId,
       guildId,
       channelId,
@@ -338,6 +344,12 @@ export async function handleTextChannelApprovalCommand(params: {
   const approvalResult = normalizePendingApprovalReply(
     normalizePlaceholderToolReply(
       await handleGatewayMessage({
+        ...(params.msteamsTenantId
+          ? {
+              msteamsTenantId: params.msteamsTenantId,
+              source: 'msteams.approval',
+            }
+          : {}),
         sessionId,
         guildId,
         channelId,

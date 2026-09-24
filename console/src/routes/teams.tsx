@@ -23,6 +23,7 @@ import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './teams.module.css';
+import { TeamsUsers } from './teams-users';
 
 function splitAllowFrom(value: string): string[] {
   return value
@@ -208,8 +209,10 @@ export function TeamsPage() {
 
   return (
     <div className={styles.page}>
-      <h1>Teams App Setup</h1>
-      <PageHeader description="Microsoft Teams tab sharing" />
+      <h1>Microsoft Teams</h1>
+      <PageHeader description="Bot users, agent routing and Teams app setup" />
+
+      <TeamsUsers />
 
       <div className={styles.grid}>
         <Card>

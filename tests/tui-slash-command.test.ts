@@ -103,7 +103,7 @@ test('maps Discord-style slash commands to gateway command args', () => {
       'no_hurry',
       'ollama/qwen3:latest',
     ]),
-  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
+  ).toEqual(['concierge', 'info']);
   expect(mapTuiSlashCommandToGatewayArgs(['model'])).toEqual(['model', 'info']);
   expect(
     mapTuiSlashCommandToGatewayArgs(['model', 'list', 'openrouter']),

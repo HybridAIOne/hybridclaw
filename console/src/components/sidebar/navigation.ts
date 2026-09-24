@@ -77,7 +77,10 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
   },
   {
     label: 'Models',
-    items: [{ to: '/admin/models', label: 'Providers', icon: Models }],
+    items: [
+      { to: '/admin/models', label: 'Providers', icon: Models },
+      { to: '/admin/model-routing', label: 'Routing', icon: Network },
+    ],
   },
   {
     label: 'Security',
@@ -115,6 +118,11 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: Harness,
       },
       { to: '/admin/distill', label: 'Distill', icon: Flask },
+      {
+        to: '/admin/routing-evaluator',
+        label: 'Routing Evaluator',
+        icon: Flask,
+      },
       {
         to: '/admin/local-models',
         label: 'Local Models',

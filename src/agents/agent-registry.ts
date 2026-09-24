@@ -30,7 +30,9 @@ import {
   type AgentDefaultsConfig,
   type AgentModelConfig,
   type AgentsConfig,
+  applyAgentInheritance,
   buildOptionalAgentPresentation,
+  childAgentIds,
   cloneAgentA2AConfig,
   cloneAgentBudgetConfig,
   cloneAgentCv,
@@ -45,6 +47,7 @@ import {
   normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
+  validateAgentInheritance,
   validateAgentOrgChart,
 } from './agent-types.js';
 import {
@@ -158,6 +161,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ),
     path: 'agents.list[]',
   });
+  const extendsId = normalizeString((value as { extends?: unknown }).extends);
   const name = normalizeString((value as { name?: unknown }).name);
   const displayName = normalizeString(
     (value as { displayName?: unknown }).displayName,
@@ -211,6 +215,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   return {
     id,
     ...identityFields,
+    ...(extendsId ? { extends: extendsId } : {}),
     ...(name ? { name } : {}),
     ...buildOptionalAgentPresentation(displayName, imageAsset, emptyChatHeader),
     ...(model ? { model } : {}),
@@ -291,6 +296,7 @@ function fingerprintAgent(agent: AgentConfig): string {
     agent.archived ? 'archived' : 'active',
     fingerprintString(agent.canonicalId),
     fingerprintString(agent.ownerUserId),
+    fingerprintString(agent.extends),
     fingerprintString(agent.name),
     fingerprintString(agent.displayName),
     fingerprintString(agent.imageAsset),
@@ -366,6 +372,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     seen.add(DEFAULT_AGENT_ID);
   }
   validateAgentOrgChart(list);
+  validateAgentInheritance(list);
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
   const fingerprint = fingerprintAgentsConfig({
     defaultAgentId,
@@ -380,7 +387,16 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
   };
 }
 
-function applyDefaults(agent: AgentConfig): AgentConfig {
+function parentOf(agent: AgentConfig): AgentConfig | null {
+  const parentId = normalizeString(agent.extends);
+  if (!parentId || parentId === agent.id) return null;
+  const parent = registry.get(parentId);
+  if (parent) return parent;
+  return isDatabaseInitialized() ? dbGetAgentById(parentId) : null;
+}
+
+function applyDefaults(rawAgent: AgentConfig): AgentConfig {
+  const agent = applyAgentInheritance(rawAgent, parentOf(rawAgent));
   const model = cloneModelConfig(agent.model ?? configuredDefaults.model);
   const skills = agent.skills ? [...agent.skills] : undefined;
   const tools = agent.tools ? [...agent.tools] : undefined;
@@ -403,6 +419,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     id: agent.id,
     ...(agent.archived ? { archived: true } : {}),
     ...identity,
+    ...(agent.extends ? { extends: agent.extends } : {}),
     ...(agent.name ? { name: agent.name } : {}),
     ...buildOptionalAgentPresentation(
       agent.displayName,
@@ -459,6 +476,7 @@ function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   }
   if (options?.validate !== false) {
     validateAgentOrgChart(Array.from(registry.values()));
+    validateAgentInheritance(Array.from(registry.values()));
   }
   lastDatabaseFingerprint = fingerprintAgents(Array.from(registry.values()));
 }
@@ -468,6 +486,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     id: agent.id,
     canonicalId: agent.canonicalId,
     ownerUserId: agent.ownerUserId,
+    extends: agent.extends,
     name: agent.name,
     displayName: agent.displayName,
     imageAsset: agent.imageAsset,
@@ -498,6 +517,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
 // already preserves them; `budget` and `webSearch` are config-only and never
 // stored in the database.
 const DB_BACKED_OPTIONAL_AGENT_FIELDS = [
+  'extends',
   'name',
   'displayName',
   'imageAsset',
@@ -583,6 +603,7 @@ function syncConfiguredAgentsToDatabase(): void {
   }
   const finalAgents = Array.from(finalAgentsById.values());
   validateAgentOrgChart(finalAgents);
+  validateAgentInheritance(finalAgents);
   dbUpsertAgentsWithTeamRevision({
     agents: agentsToUpsert,
     finalAgents,
@@ -830,8 +851,18 @@ function collectAgentDeletionBlockers(agentId: string): string[] {
     if (hasAgentReference(agent.peers, agentId)) {
       blockers.push(`${sourceAgentId}.peers`);
     }
+    if (normalizeString(agent.extends) === agentId) {
+      blockers.push(`${sourceAgentId}.extends`);
+    }
   }
   return blockers.sort();
+}
+
+export function childAgentsOf(agentId?: string | null): string[] {
+  const normalizedId = normalizeString(agentId);
+  if (!normalizedId) return [];
+  ensureRegistryCurrent();
+  return childAgentIds(Array.from(registry.values()), normalizedId);
 }
 
 function currentTeamStructureAgents(): AgentConfig[] {
@@ -856,6 +887,7 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
     });
   }
   validateAgentOrgChart(Array.from(nextAgentsById.values()));
+  validateAgentInheritance(Array.from(nextAgentsById.values()));
   dbUpsertAgentWithTeamRevision({
     agent: normalized,
     finalAgents: Array.from(nextAgentsById.values()),
@@ -913,6 +945,17 @@ export function setRegisteredAgentArchived(
     throw new Error('Database is not initialized.');
   }
   ensureRegistryCurrent();
+  if (archived) {
+    const children = childAgentIds(
+      Array.from(registry.values()).filter((agent) => !agent.archived),
+      normalizedId,
+    );
+    if (children.length > 0) {
+      throw new Error(
+        `Cannot archive agent "${normalizedId}" while active agents extend it: ${children.join(', ')}.`,
+      );
+    }
+  }
   const saved = dbSetAgentArchived(normalizedId, archived);
   if (!saved) {
     throw new Error(`Agent "${normalizedId}" was not found.`);

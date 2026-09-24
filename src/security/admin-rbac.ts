@@ -508,6 +508,14 @@ export function resolveAdminRbacAction(
     if (method === 'DELETE') return 'admin.scheduler.delete';
     return null;
   }
+  if (pathname === '/api/admin/msteams/users') {
+    if (method === 'GET') return 'admin.channels.read';
+    if (method === 'PUT') return 'admin.channels.write';
+    return null;
+  }
+  if (pathname === '/api/admin/msteams/users/personal-agent') {
+    return method === 'POST' ? 'admin.agents.write' : null;
+  }
   if (pathname === '/api/admin/channels') {
     return actionForReadWriteDelete(
       method,

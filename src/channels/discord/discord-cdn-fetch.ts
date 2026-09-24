@@ -3,8 +3,9 @@ import { lookup } from 'node:dns/promises';
 import type { IncomingHttpHeaders } from 'node:http';
 import https from 'node:https';
 import type { LookupFunction } from 'node:net';
-import net from 'node:net';
 import { URL } from 'node:url';
+
+import { isPrivateNetworkAddress } from '../../../container/shared/private-network.js';
 
 export const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
   /^cdn\.discordapp\.com$/i,
@@ -26,44 +27,6 @@ export interface DiscordCdnFetchResult {
   url: string;
 }
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().split('%')[0];
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice('::ffff:'.length);
-    return net.isIP(mapped) === 4 ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-function isPrivateIp(ip: string): boolean {
-  const version = net.isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return false;
-}
-
 function isPrivateHostLabel(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
   if (!normalized) return true;
@@ -74,7 +37,7 @@ function isPrivateHostLabel(hostname: string): boolean {
   ) {
     return true;
   }
-  return net.isIP(normalized) > 0 ? isPrivateIp(normalized) : false;
+  return isPrivateNetworkAddress(normalized);
 }
 
 function toHeaderString(
@@ -111,7 +74,7 @@ async function lookupPublicHostAddresses(
   if (resolved.length === 0) {
     throw new Error(`dns_lookup_failed:${normalized}`);
   }
-  if (resolved.some((entry) => isPrivateIp(entry.address))) {
+  if (resolved.some((entry) => isPrivateNetworkAddress(entry.address))) {
     throw new Error(`ssrf_blocked_host:${normalized}`);
   }
   return resolved;

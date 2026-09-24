@@ -406,21 +406,6 @@ test('handleGatewayMessage stores blocked routing middleware content', async () 
         skillId: 'router',
         phase: 'routing',
         action: 'block',
-        metadata: {
-          conciergeRouter: {
-            effectiveUserTurnContent: 'rewritten blocked request',
-            media: [
-              {
-                path: '/tmp/rewritten.pdf',
-                url: 'https://example.com/rewritten.pdf',
-                originalUrl: 'https://example.com/rewritten.pdf',
-                mimeType: 'application/pdf',
-                sizeBytes: 2048,
-                filename: 'rewritten.pdf',
-              },
-            ],
-          },
-        },
       },
     ],
   });
@@ -440,6 +425,16 @@ test('handleGatewayMessage stores blocked routing middleware content', async () 
     userId: 'user-42',
     username: 'alice',
     content: 'original request',
+    media: [
+      {
+        path: '/tmp/attachment.pdf',
+        url: 'https://example.com/attachment.pdf',
+        originalUrl: 'https://example.com/attachment.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2048,
+        filename: 'attachment.pdf',
+      },
+    ],
     model: 'test-model',
     chatbotId: 'bot-1',
   });
@@ -457,7 +452,7 @@ test('handleGatewayMessage stores blocked routing middleware content', async () 
     ),
   ).toBe(true);
   expect(
-    history.some((message) => message.content.includes('rewritten.pdf')),
+    history.some((message) => message.content.includes('attachment.pdf')),
   ).toBe(true);
 });
 

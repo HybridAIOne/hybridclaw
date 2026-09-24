@@ -509,6 +509,7 @@ describe('client command helpers', () => {
               conversationScope: 'user',
             },
             role: null,
+            extends: null,
             reportsTo: null,
             delegatesTo: null,
             peers: null,

@@ -20,7 +20,26 @@
   guards did not decode, and the browser guard sent every bracketed IPv6
   literal to a DNS lookup whose failure let it through. The container SSRF
   guards share one private-range table that also covers IPv4-compatible and
-  NAT64 (`64:ff9b::/96`) forms.
+  NAT64 (`64:ff9b::/96`) forms, plus the IETF protocol-assignment block
+  `192.0.0.0/24`, which holds Oracle Cloud Classic's metadata service at
+  `192.0.0.192`.
+- **Gateway SSRF checks share the container range table**: The outbound
+  `http_request` proxy now rejects DNS answers in the hex IPv4-mapped form
+  (`::ffff:7f00:1`), which its dotted-only check let through, and
+  IPv4-compatible or NAT64 answers that embed a private address. It classifies
+  bracketed IPv6 literals itself instead of relying on their DNS lookup to
+  fail, so public ones such as `https://[2606:4700:4700::1111]/` work. It still
+  blocks `198.18.0.0/15`, which the shared table leaves open for fake-IP TUN
+  proxies. Discord CDN downloads and the iMessage BlueBubbles server URL check
+  use the same table, and BlueBubbles classifies bracketed IPv6 server URLs
+  the same way.
+- **`http_request` rechecks DNS when it connects**: The gateway proxy checked a
+  hostname's DNS answers before sending, but fetch then resolved the name
+  again, so a rebinding domain (public on the first lookup, `127.0.0.1` or
+  `169.254.169.254` on the second) could reach loopback or cloud metadata with
+  injected secrets. Every connection now resolves through the same
+  private-range check, including pinned and self-signed TLS requests. Private
+  hosts that workspace network policy allows still connect.
 - **Competitor monitoring no longer copies its example**: The skill's
   example watchlist and result block used a real company with plausible
   numbers, and an agent wrote that example into its daily note, so the app

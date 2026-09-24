@@ -455,7 +455,7 @@ export function useChatStream(
 
         req.routingTrace = result.routingTrace ?? null;
         if (result.status === 'error') {
-          throw new Error(result.error ?? 'Unknown error');
+          throw new Error(result.error || result.result || 'Unknown error');
         }
 
         if (result.sessionId && result.sessionId !== targetSessionId) {

@@ -4,12 +4,18 @@
  * Handles `POST /api/http/request` — routes outbound HTTP calls with secret
  * placeholder resolution, bearer token injection, auth rule matching, and
  * explicit response-field capture.
+ *
+ * SSRF: DNS answers are checked when the URL is validated and again when fetch
+ * dials, so an answer that turns private in between (rebinding) is refused.
+ * Only a private target that workspace network policy allowed at validation
+ * dials without the connect-time check.
  */
 
 import { createHash, createHmac, createSign, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { LookupFunction } from 'node:net';
 import net from 'node:net';
 import path from 'node:path';
 import {
@@ -17,6 +23,7 @@ import {
   Agent as UndiciAgent,
 } from 'undici';
 
+import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import {
@@ -166,39 +173,100 @@ type SecretResolveContext = {
   selector?: string;
 };
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
-    return false;
-  }
-  if (parts[0] === 0) return true;
-  if (parts[0] === 10 || parts[0] === 127) return true;
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
-  if (parts[0] >= 224) return true;
-  return false;
-}
+// 198.18.0.0/15 stays blocked here (owner-delegated call, 2026-09-23). The
+// shared table leaves it open because Clash, Surge, and sing-box TUN modes
+// answer DNS from it (fake-IP). Such an answer hides the real destination and
+// this proxy injects secrets, so it fails closed; those setups allowlist hosts
+// in workspace network policy. Accepting fake-IP answers here is deferred.
+const HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS = new net.BlockList();
+HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.addSubnet('198.18.0.0', 15, 'ipv4');
+// NAT64 form, as the shared table adds for each of its IPv4 ranges.
+HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.addSubnet(
+  '64:ff9b::198.18.0.0',
+  111,
+  'ipv6',
+);
 
-function isPrivateIpv6(ip: string): boolean {
-  const normalized = ip.trim().toLowerCase();
+function isPrivateIp(ip: string): boolean {
+  const family = net.isIP(ip);
+  if (family === 0) return false;
   return (
-    normalized === '::1' ||
-    normalized.startsWith('fc') ||
-    normalized.startsWith('fd') ||
-    normalized.startsWith('fe80:')
+    isPrivateNetworkAddress(ip) ||
+    HTTP_REQUEST_EXTRA_BLOCKED_NETWORKS.check(
+      ip,
+      family === 4 ? 'ipv4' : 'ipv6',
+    )
   );
 }
 
-function isPrivateIp(ip: string): boolean {
-  const normalized = ip.replace(/^::ffff:/, '');
-  const version = net.isIP(normalized);
-  if (version === 4) return isPrivateIpv4(normalized);
-  if (version === 6) return isPrivateIpv6(normalized);
-  return false;
+class HttpRequestPrivateAddressError extends Error {
+  readonly addresses: string[];
+
+  constructor(hostname: string, addresses: string[]) {
+    super(
+      `${hostname} resolved to a private address (${addresses.join(', ')})`,
+    );
+    this.name = 'HttpRequestPrivateAddressError';
+    this.addresses = addresses;
+  }
+}
+
+async function lookupPublicAddresses(
+  hostname: string,
+  family: 0 | 4 | 6,
+  hints: number | undefined,
+) {
+  const addresses = await lookup(hostname, {
+    all: true,
+    verbatim: true,
+    hints,
+    ...(family ? { family } : {}),
+  });
+  const privateAddresses = addresses
+    .map((entry) => entry.address)
+    .filter((address) => isPrivateIp(address));
+  if (privateAddresses.length > 0) {
+    throw new HttpRequestPrivateAddressError(hostname, privateAddresses);
+  }
+  if (addresses.length === 0) {
+    throw new Error(`DNS lookup returned no addresses for ${hostname}`);
+  }
+  return addresses;
+}
+
+// Connect-time half of the SSRF guard: fetch resolves the hostname again when
+// it dials, so the addresses actually connected to are checked here. IP
+// literals never reach a lookup; checkPrivateHost has classified them.
+const ssrfGuardedLookup: LookupFunction = (hostname, options, callback) => {
+  const family =
+    options.family === 4 || options.family === 6 ? options.family : 0;
+  void lookupPublicAddresses(hostname, family, options.hints).then(
+    (addresses) => {
+      if (options.all) {
+        callback(null, addresses);
+        return;
+      }
+      callback(null, addresses[0].address, addresses[0].family);
+    },
+    (error) => callback(error, ''),
+  );
+};
+
+// Shared so keep-alive connections are reused across http_request calls; every
+// new connection resolves through the guard.
+const GUARDED_HTTP_REQUEST_DISPATCHER = new UndiciAgent({
+  connect: { lookup: ssrfGuardedLookup },
+});
+
+function findPrivateAddressError(
+  error: unknown,
+): HttpRequestPrivateAddressError | null {
+  let current = error;
+  while (current instanceof Error) {
+    if (current instanceof HttpRequestPrivateAddressError) return current;
+    current = current.cause;
+  }
+  return null;
 }
 
 function formatOutboundHttpError(error: unknown): string {
@@ -270,7 +338,12 @@ function normalizeResponseArtifactOptions(
 }
 
 async function checkPrivateHost(hostname: string): Promise<PrivateHostCheck> {
-  const host = hostname.trim().toLowerCase();
+  // URL.hostname keeps IPv6 literals bracketed; unbracket them so they are
+  // classified below instead of failing the DNS lookup.
+  const host = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/u, '$1');
   if (!host) return { blocked: true, reason: 'private' };
   if (
     host === 'localhost' ||
@@ -495,7 +568,7 @@ async function readHttpResponseBuffer(
 async function assertHttpRequestUrl(
   raw: unknown,
   context: { method: string; agentId?: string },
-): Promise<URL> {
+): Promise<{ url: URL; privateNetworkAllowed: boolean }> {
   const input = String(raw || '').trim();
   if (!input) {
     throw new GatewayRequestError(400, 'Missing `url` in request body.');
@@ -522,7 +595,7 @@ async function assertHttpRequestUrl(
       method: context.method,
       agentId: context.agentId,
     });
-    if (isAllowlisted) return parsed;
+    if (isAllowlisted) return { url: parsed, privateNetworkAllowed: true };
     if (privateHostCheck.reason === 'private') {
       throw new GatewayRequestError(
         400,
@@ -535,7 +608,7 @@ async function assertHttpRequestUrl(
     );
   }
 
-  return parsed;
+  return { url: parsed, privateNetworkAllowed: false };
 }
 
 function normalizeHttpRequestMethod(value: unknown): string {
@@ -1530,10 +1603,12 @@ function verifyPinnedTlsCertificateFromSocket(
 function createPinnedTlsDispatcher(
   expectedSha256: string,
   timeoutMs: number,
+  connectLookup: LookupFunction | undefined,
 ): UndiciAgent {
   const connector = buildUndiciConnector({
     rejectUnauthorized: false,
     timeout: Math.min(timeoutMs, 10_000),
+    lookup: connectLookup,
   });
   const pinnedConnector: UndiciConnector = (
     options: UndiciConnectorOptions,
@@ -1559,11 +1634,15 @@ function createPinnedTlsDispatcher(
   return new UndiciAgent({ connect: pinnedConnector });
 }
 
-function createSelfSignedTlsDispatcher(timeoutMs: number): UndiciAgent {
+function createSelfSignedTlsDispatcher(
+  timeoutMs: number,
+  connectLookup: LookupFunction | undefined,
+): UndiciAgent {
   return new UndiciAgent({
     connect: buildUndiciConnector({
       rejectUnauthorized: false,
       timeout: Math.min(timeoutMs, 10_000),
+      lookup: connectLookup,
     }),
   });
 }
@@ -2253,7 +2332,7 @@ export async function handleApiHttpRequest(
       })
     : body.url;
   const method = normalizeHttpRequestMethod(body.method);
-  const url = await assertHttpRequestUrl(rawUrl, {
+  const { url, privateNetworkAllowed } = await assertHttpRequestUrl(rawUrl, {
     method,
     agentId: baseSecretContext.agentId,
   });
@@ -2434,11 +2513,17 @@ export async function handleApiHttpRequest(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const dispatcher = tlsCertificateSha256
-    ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs)
+  // A private target that policy allowed dials wherever DNS points; every
+  // other request dials through the SSRF guard.
+  const connectLookup = privateNetworkAllowed ? undefined : ssrfGuardedLookup;
+  const tlsDispatcher = tlsCertificateSha256
+    ? createPinnedTlsDispatcher(tlsCertificateSha256, timeoutMs, connectLookup)
     : allowSelfSignedTls
-      ? createSelfSignedTlsDispatcher(timeoutMs)
+      ? createSelfSignedTlsDispatcher(timeoutMs, connectLookup)
       : undefined;
+  const dispatcher =
+    tlsDispatcher ??
+    (privateNetworkAllowed ? undefined : GUARDED_HTTP_REQUEST_DISPATCHER);
   let response: Response;
   try {
     const fetchOptions: RequestInit & { dispatcher?: UndiciAgent } = {
@@ -2453,7 +2538,18 @@ export async function handleApiHttpRequest(
     }
     response = await fetch(url, fetchOptions);
   } catch (error) {
-    await dispatcher?.close();
+    await tlsDispatcher?.close();
+    const privateAddressError = findPrivateAddressError(error);
+    if (privateAddressError) {
+      logger.warn(
+        { host: url.hostname, addresses: privateAddressError.addresses },
+        'DNS answer turned private between the SSRF check and connect; blocking request',
+      );
+      throw new GatewayRequestError(
+        400,
+        `HTTP request blocked by SSRF guard: ${url.hostname} resolved to a private or loopback address at connect time.`,
+      );
+    }
     throw new GatewayRequestError(
       502,
       `Outbound HTTP request failed: ${formatOutboundHttpError(error)}`,
@@ -2602,6 +2698,6 @@ export async function handleApiHttpRequest(
       ...(responseJson === undefined ? {} : { json: responseJson }),
     });
   } finally {
-    await dispatcher?.close();
+    await tlsDispatcher?.close();
   }
 }

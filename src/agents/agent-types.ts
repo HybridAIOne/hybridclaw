@@ -67,6 +67,8 @@ export interface AgentConfig {
   archived?: boolean;
   canonicalId?: string;
   ownerUserId?: string;
+  /** Parent agent whose settings fill in every field this agent leaves unset. */
+  extends?: string;
   name?: string;
   displayName?: string;
   imageAsset?: string;
@@ -598,5 +600,77 @@ export function validateAgentOrgChart(agents: AgentConfig[]): void {
 
   for (const agentId of reportsToByAgent.keys()) {
     visit(agentId, []);
+  }
+}
+
+/**
+ * Settings a child agent takes from its parent when it does not set them.
+ * Identity, presentation, workspace, archived state, and org-chart links are
+ * deliberately excluded: they describe one agent, never a family.
+ */
+export const INHERITED_AGENT_FIELDS = [
+  'model',
+  'skills',
+  'tools',
+  'localSkillMode',
+  'localStarterSkills',
+  'localToolMode',
+  'localStarterTools',
+  'mcpToolMode',
+  'chatbotId',
+  'enableRag',
+  'webSearch',
+  'proxy',
+  'budget',
+  'a2a',
+] as const satisfies ReadonlyArray<keyof AgentConfig>;
+
+export function applyAgentInheritance(
+  agent: AgentConfig,
+  parent: AgentConfig | null | undefined,
+): AgentConfig {
+  if (!parent) return agent;
+  const merged: AgentConfig = { ...agent };
+  for (const field of INHERITED_AGENT_FIELDS) {
+    if (merged[field] === undefined && parent[field] !== undefined) {
+      Object.assign(merged, { [field]: parent[field] });
+    }
+  }
+  return merged;
+}
+
+export function childAgentIds(
+  agents: AgentConfig[],
+  parentId: string,
+): string[] {
+  return agents
+    .filter((agent) => normalizeTrimmedString(agent.extends) === parentId)
+    .map((agent) => agent.id)
+    .sort();
+}
+
+/**
+ * Inheritance is one level deep on purpose (decided 2026-09-23 with the Teams
+ * personal-agent design): a parent is a plain agent, never itself a child.
+ */
+export function validateAgentInheritance(agents: AgentConfig[]): void {
+  const byId = new Map(agents.map((agent) => [agent.id, agent] as const));
+  for (const agent of agents) {
+    const parentId = normalizeTrimmedString(agent.extends);
+    if (!parentId) continue;
+    if (parentId === agent.id) {
+      throw new Error(`Agent "${agent.id}" extends cannot reference itself.`);
+    }
+    const parent = byId.get(parentId);
+    if (!parent) {
+      throw new Error(
+        `Agent "${agent.id}" extends references unknown agent "${parentId}".`,
+      );
+    }
+    if (normalizeTrimmedString(parent.extends)) {
+      throw new Error(
+        `Agent "${agent.id}" extends "${parentId}", which is itself a child agent; inheritance is one level deep.`,
+      );
+    }
   }
 }

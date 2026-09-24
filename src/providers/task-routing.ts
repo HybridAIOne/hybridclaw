@@ -1,3 +1,8 @@
+/**
+ * Auxiliary task policies resolve provider defaults, not execution tier choices.
+ * Routing classification has its own task identity and explicit model; Skills Hub
+ * settings cannot enable, disable or redirect that classifier.
+ */
 import {
   getRuntimeConfig,
   type RuntimeAuxiliaryModelPolicyConfig,
@@ -26,7 +31,10 @@ import {
 } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
-export type AuxiliaryTask = TaskModelKey | 'cv_narration';
+export type AuxiliaryTask =
+  | TaskModelKey
+  | 'cv_narration'
+  | 'routing_classifier';
 
 type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
@@ -111,6 +119,9 @@ function readTaskOverride(
 function getConfiguredTaskSelection(
   task: AuxiliaryTask,
 ): RuntimeAuxiliaryModelPolicyConfig {
+  // Routing owns this task's model and enablement; unrelated auxiliary settings do not apply.
+  if (task === 'routing_classifier')
+    return { provider: 'auto', model: '', maxTokens: 120 };
   return getRuntimeConfig().auxiliaryModels[task];
 }
 

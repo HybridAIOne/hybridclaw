@@ -36,6 +36,34 @@ describe('discord CDN fetch helper', () => {
     expect(requestMock).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { address: '::ffff:7f00:1', family: 6 as const },
+    { address: '64:ff9b::a9fe:a9fe', family: 6 as const },
+    { address: '224.0.0.1', family: 4 as const },
+  ])('blocks Discord CDN hosts that resolve to $address', async (answer) => {
+    const requestMock = vi.fn();
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [answer]),
+    }));
+    vi.doMock('node:https', () => ({
+      default: {
+        request: requestMock,
+      },
+    }));
+
+    const { fetchDiscordCdnBuffer } = await import(
+      '../src/channels/discord/discord-cdn-fetch.js'
+    );
+
+    await expect(
+      fetchDiscordCdnBuffer(
+        'https://cdn.discordapp.com/attachments/1/2/image.png',
+      ),
+    ).rejects.toThrow(/ssrf_blocked_host:cdn\.discordapp\.com/);
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
   test('returns bytes from allowed Discord CDN responses', async () => {
     const lookupMock = vi.fn(async () => [
       { address: '162.159.128.233', family: 4 as const },

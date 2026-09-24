@@ -70,7 +70,9 @@ import type {
   AdminMcpOAuthStatusResponse,
   AdminMcpResponse,
   AdminModelsResponse,
+  AdminMSTeamsPersonalAgentResponse,
   AdminMSTeamsTabStatusResponse,
+  AdminMSTeamsUsersResponse,
   AdminOutputGuardPreviewResponse,
   AdminOutputGuardProfile,
   AdminOutputGuardProfileResponse,
@@ -1100,6 +1102,37 @@ export function deleteChannel(
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {
   return requestJson<AdminConfigResponse>('/api/admin/config', { token });
+}
+
+export function fetchMSTeamsUsers(
+  token: string,
+): Promise<AdminMSTeamsUsersResponse> {
+  return requestJson<AdminMSTeamsUsersResponse>('/api/admin/msteams/users', {
+    token,
+  });
+}
+
+export function saveMSTeamsUserAgent(
+  token: string,
+  userId: string,
+  agentId: string | null,
+): Promise<AdminMSTeamsUsersResponse> {
+  return requestJson<AdminMSTeamsUsersResponse>('/api/admin/msteams/users', {
+    token,
+    method: 'PUT',
+    body: { userId, agentId },
+  });
+}
+
+export function createMSTeamsPersonalAgent(
+  token: string,
+  userId: string,
+  parentAgentId: string,
+): Promise<AdminMSTeamsPersonalAgentResponse> {
+  return requestJson<AdminMSTeamsPersonalAgentResponse>(
+    '/api/admin/msteams/users/personal-agent',
+    { token, method: 'POST', body: { userId, parentAgentId } },
+  );
 }
 
 export function fetchMSTeamsTabStatus(
