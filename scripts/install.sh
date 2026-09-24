@@ -528,6 +528,10 @@ install_cli() {
     info "[dry-run] would run: npm install -g --no-audit --no-fund ${spec}"
     return 0
   fi
+  # onnxruntime-node's postinstall otherwise downloads its CUDA build from
+  # GitHub on Linux x64; HybridClaw runs embeddings on CPU, and a stalled
+  # download hangs the install with no output.
+  export ONNXRUNTIME_NODE_INSTALL_CUDA="${ONNXRUNTIME_NODE_INSTALL_CUDA:-skip}"
   if ! npm install -g --no-audit --no-fund "$spec"; then
     err "Global npm install failed. Common causes:"
     err "  1) Missing build tools for native modules (node-gyp needs python3,"

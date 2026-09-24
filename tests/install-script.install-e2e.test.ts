@@ -16,7 +16,7 @@ import {
  *
  * Each case mounts the *working-tree* copy of install.sh (so it tests local
  * edits, not the version on `main`) read-only at /tmp/install.sh and runs it
- * against a deliberately bare base image. The scenarios pin three behaviours
+ * against a fresh base image. The scenarios pin three behaviours
  * that have regressed before:
  *
  *   1. Managed-Node path needs no `xz`: nodejs.org's tarball is fetched as
@@ -105,13 +105,18 @@ function runInContainer(opts: {
     timeout: timeoutMs ?? INSTALL_ATTEMPT_MS,
     maxBuffer: 64 * 1024 * 1024,
   });
-  if (r.error && (r.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT') {
+  const timedOut =
+    (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+  if (r.error && !timedOut) {
     throw new Error(`docker run failed to start: ${r.error.message}`);
   }
-  // status is null when the process is killed (e.g. by the timeout); surface
-  // that as a non-zero sentinel so the assertion fails loudly rather than
-  // throwing on a null comparison.
-  return { status: r.status ?? -1, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  // On timeout the docker CLI forwards SIGTERM into the container and exits
+  // with the container's code (143), not a null status, so key off the
+  // spawnSync error instead.
+  return {
+    status: timedOut ? -1 : (r.status ?? -1),
+    output: `${r.stdout ?? ''}${r.stderr ?? ''}`,
+  };
 }
 
 /**
@@ -161,19 +166,17 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
     'clean Debian/Ubuntu without xz: managed Node via gzip tarball, then CLI install',
     () => {
       const { status, output } = runInstall({
-        image: 'ubuntu:24.04',
+        // Ubuntu 24.04 with curl, CA certificates, and build tools preinstalled
+        // and no Node, so the case needs no apt mirror.
+        image: 'buildpack-deps:noble',
         script: [
           'set -e',
-          // stdout silenced for noise, stderr kept: an apt mirror flake must
-          // surface its own diagnostics (and match the transient-retry regex)
-          // instead of failing the later assertions with no clue.
-          'apt-get update -qq >/dev/null',
-          // curl + ca-certificates is the floor a `curl | bash` user already
-          // meets; python3/make/g++ let native modules compile. We pointedly do
-          // NOT install xz-utils — the managed-Node path must not need it.
-          'apt-get install -y -qq curl ca-certificates python3 make g++ >/dev/null',
+          // Remove xz: the managed-Node path must not need it.
+          'rm -f /usr/bin/xz /usr/bin/unxz /usr/bin/xzcat',
+          'if command -v xz || command -v node; then echo "precondition failed: xz or node present" >&2; exit 1; fi',
           'export npm_config_fetch_retries=5',
           `bash /tmp/install.sh --no-prompt --verify --version ${INSTALL_VERSION}`,
+          'find "$HOME/.hybridclaw" -name libonnxruntime_providers_cuda.so | grep -q . && echo CUDA_EP=yes || echo CUDA_EP=no',
         ].join('\n'),
       });
 
@@ -183,6 +186,9 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
       // Proof the download + checksum + extract stage actually ran.
       expect(output).toContain('Verified Node.js download (sha256)');
       expect(output).toMatch(/hybridclaw --version -> \d+\.\d+\.\d+/);
+      // The installer skips onnxruntime-node's CUDA download (a stall there
+      // hung the install with no output).
+      expect(output).toContain('CUDA_EP=no');
       expect(status).toBe(0);
     },
     INSTALL_TEST_MS,
@@ -249,11 +255,9 @@ describe.skipIf(!ENABLED)('install.sh bootstrap (Docker)', () => {
     '--dry-run prints the plan and touches nothing',
     () => {
       const { status, output } = runInContainer({
-        image: 'ubuntu:24.04',
+        image: 'buildpack-deps:noble-curl',
         timeoutMs: QUICK_TIMEOUT_MS,
         script: [
-          'apt-get update -qq >/dev/null 2>&1',
-          'apt-get install -y -qq curl ca-certificates >/dev/null 2>&1',
           'bash /tmp/install.sh --dry-run --no-prompt',
           'echo "HOME_EXISTS=$([ -e "$HOME/.hybridclaw" ] && echo yes || echo no)"',
         ].join('\n'),
