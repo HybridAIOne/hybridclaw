@@ -42,6 +42,17 @@
   them, much like ripgrep skipping hidden and ignored files; the output says
   how many files were skipped, and naming them (for example
   `include: ".env*"`) searches them after explicit approval.
+- **Pinned paths gate shell commands and browser uploads**: `bash` commands
+  that name a pinned path with a relative, `~/`, or `$HOME/` spelling, as an
+  operand or redirect target, now require explicit approval, as do
+  `browser_upload` calls whose `path` or `files` are pinned. `cat .env.local`
+  and `cat ~/.ssh/id_rsa` previously ran green, and uploading `.env.local` to
+  a web page ran without a prompt. Text a lone `echo` prints and `grep`
+  patterns are not treated as paths.
+- **Workspace fence sees quoted paths**: `mkdir`, `touch`, `chmod`, `chown`,
+  `cp`, and `mv` targets outside the workspace now require approval when
+  quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
+  write while the unquoted spelling was fenced.
 - **Connector credential changes require secret permissions**: Saving the
   HybridAI API key and starting a connector OAuth flow require
   `secret.overwrite`, and logging a connector out requires `secret.unset`, for
