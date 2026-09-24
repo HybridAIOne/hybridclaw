@@ -90,64 +90,89 @@ User message → Gateway (HTTP/Discord) → ContainerInput (JSON)
 | MCP Server    | `~/.hybridclaw/config.json` (`mcpServers.*`) → tool namespace | §7.3     |
 | Approval rule | `.hybridclaw/policy.yaml`                                    | §7.4     |
 | Template      | `templates/<name>.md` + `src/workspace.ts`                   | §7.5     |
+| Plugin        | `plugins/<name>/hybridclaw.plugin.yaml` + `register(api)`    | §7.6     |
 
 ### OpenTelemetry (Distributed Tracing)
 
-The gateway supports optional OpenTelemetry instrumentation for distributed
-tracing in cloud deployments. OTel is OFF by default (zero overhead).
-
-| Env Var                          | Purpose                                                      |
-|----------------------------------|--------------------------------------------------------------|
-| `OTEL_ENABLED=true`             | Enable OTel SDK initialization                               |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OTLP collector endpoint (also enables OTel if set)           |
-| `OTEL_EXPORTER_OTLP_PROTOCOL`   | `grpc` (default) or `http/protobuf`                          |
-| `OTEL_SERVICE_NAME`             | Service name reported in spans (default: `hybridclaw-gateway`)|
-
-When enabled, spans are emitted for: gateway message handling, agent runs,
-host/container execution, and skill loading. Trace context (traceId, spanId)
-is injected into structured log lines for correlation.
-
-Implementation: `src/observability/otel.ts`. The SDK packages
-(`@opentelemetry/sdk-node`, exporters) are dynamically imported only when
-OTel is active.
+Optional and off by default: the SDK is imported only when `OTEL_ENABLED=true`
+or `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Implementation in
+`src/observability/otel.ts`; env vars and emitted spans are documented in
+`docs/content/developer-guide/runtime.md`.
 
 ---
 
 ## 3) Engineering Principles
 
-These are implementation constraints, not suggestions.
+These are implementation constraints, not suggestions. Lean is the default: a
+change leaves the codebase smaller or says why it can't (owner call,
+2026-09-24: the bloat is copies of the same fact and optional features in
+core, not dead code).
 
 ### 3.1 KISS
 
 - Prefer straightforward control flow over abstraction.
 - Keep error paths obvious and localized.
+- Call a function directly. Do not route a direct call through an event bus,
+  queue, or registry that has a single consumer.
+- Dispatch from a table, not an if-chain with a fall-through default. An
+  unknown key must fail, not run another key's branch.
 - Three similar lines of code is better than a premature helper.
 
 ### 3.2 YAGNI
 
-- Do not add config keys, interfaces, or feature flags without a concrete caller.
+- Do not add config keys, interfaces, hooks, registries, plugin API members,
+  transports, or feature flags without a production caller in the same change.
 - Do not add error handling for scenarios that cannot happen.
 - Do not design for hypothetical future requirements.
+- Code that only tests call is dead; delete it. Test reset hooks named
+  `*ForTests` are the exception.
+- When a change replaces a mechanism (a router, client, runner, parser, or
+  guard), delete the old one in the same change. No parallel implementations.
 
-### 3.3 DRY — Rule of Three
+### 3.3 DRY — One Source per Fact, Rule of Three for Logic
 
-- Duplicate small local logic when it preserves clarity.
-- Extract shared helpers only after three repeated, stable patterns.
-- When extracting, preserve module boundaries.
+- **Facts are defined once, from day one.** A list or map of channels,
+  providers, tools, routes and their permissions, or config keys and defaults,
+  and any type that crosses the gateway / container / console boundary, has
+  exactly one definition. Before writing one, search for it and derive from it:
+  import it, generate from it, or look it up. If a second copy is unavoidable,
+  generate it and add a test that fails when the two diverge.
+- **Logic:** duplicate small local logic when it preserves clarity; extract a
+  helper on the third copy. Reusing a helper that already exists is never
+  premature: check `src/utils/`, `container/shared/`, and the owning module
+  before writing `isRecord`, `sleep`, `parseJsonObject`, a base-URL
+  normalizer, or a private-network check.
+- When extracting, preserve module boundaries. Code both the gateway and the
+  container need lives in `container/shared/`.
 
-### 3.4 Fail Fast
+### 3.4 Core Is for What Every Install Needs
+
+- A feature belongs in core only if every install needs it or it is part of
+  the security boundary (sandbox, approvals, secrets, audit). Everything else
+  ships as a plugin (§7.6), a skill (§7.1), or an unshipped workspace: vendor
+  and single-service integrations, channel SDKs, eval and benchmark harnesses,
+  labs features, and optional heavy or native dependencies.
+- If the plugin API lacks a hook the feature needs, add the smallest generic
+  hook to `src/plugins/` with the feature as its first caller, rather than
+  putting the feature in core.
+- Do not add a table, config section, or module to core that only one channel
+  or vendor uses. Make it channel-agnostic, or keep it in the plugin.
+
+### 3.5 Fail Fast
 
 - Prefer explicit errors for unsupported or unsafe states.
 - Never silently broaden permissions or capabilities.
 - Validate at system boundaries (user input, external APIs, IPC); trust internal
   code.
 
-### 3.5 Secure by Default
+### 3.6 Secure by Default
 
 - LLM output is untrusted by default.
 - Defaults are deny-by-default (mount allowlists, approval tiers, sandbox).
 - Never log secrets, raw tokens, or sensitive payloads.
 - Read `SECURITY.md` and `TRUST_MODEL.md` before touching security surfaces.
+- Extend the existing private-network (SSRF) guard, pinned-path matcher,
+  approval-policy parser, or secret redactor; never add another copy.
 
 ---
 
@@ -230,6 +255,11 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 - Do not preserve compatibility for previous internal states of a new,
   unreleased feature. Remove provisional names, aliases, and workflows instead
   of carrying them forward.
+- Compat code for released behaviour (a shim, alias, fallback, or data
+  migration) carries a `compat: remove after vX.Y` comment naming the release
+  that deletes it; §7.7 removes expired ones. A data migration runs once: gate
+  it on the schema version or clear its source after importing. Never
+  re-import on every start.
 - Do not rename or relocate files in `templates/` without updating
   `src/workspace.ts` and the workspace bootstrap tests.
 - Do not mix container and gateway changes in one commit unless they are
@@ -264,9 +294,15 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   committing. The Husky pre-commit hook runs `npx biome check --write --staged`.
 - **Single quotes** for strings (configured in `biome.json`).
 - **No `any`** without strong justification. No `@ts-nocheck`.
-- **File size:** aim for ~500 LOC; split when it improves clarity or
-  testability. `src/skills/skills-guard.ts` and `src/skills/skills.ts` are
-  current large exceptions — do not grow them further without splitting.
+- **File size (owner call, 2026-09-24):** aim for ~500 lines; a new file stays
+  under 800. Files over 1,000 lines are closed to feature growth: put new
+  routes, commands, handlers, config sections, and types in a new module and
+  wire it in with a line or two. Bug fixes may touch them but should not grow
+  them; if a fix needs more than a few lines there, extract first. The
+  most-edited ones: `src/gateway/gateway-service.ts`, `gateway-http-server.ts`,
+  `gateway.ts`, `gateway-chat-service.ts`, `src/config/runtime-config.ts`,
+  `src/command-registry.ts`, `container/src/tools.ts`, `container/src/index.ts`,
+  `container/src/approval-policy.ts`, and `console/src/api/types.ts`.
 - **Module headers:** every **new** file under `src/`, `container/src/`, and
   `console/src/` opens with a short block comment (2–6 lines) stating the
   contract, not the mechanics. Name the invariant the module guarantees, the
@@ -305,7 +341,11 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
 - **Imports:** let Biome organize imports. Do not mix dynamic
   `await import()` and static `import` for the same module in production paths.
 - **Dependencies:** root `package.json` is for gateway/CLI deps. Container-only
-  deps go in `container/package.json`. Never add container deps to root.
+  deps go in `container/package.json`. Never add container deps to root. A
+  dependency that serves one optional feature (a channel or vendor SDK, an ML
+  runtime, a native binary) belongs to that feature's plugin, or is loaded with
+  `await import()` on the feature's own path — never statically from the
+  gateway or CLI startup graph.
 - When changing npm dependencies, update every generated dependency artifact in
   the same change: the relevant `package-lock.json`, matching
   `npm-shrinkwrap.json`, and the approved lockfile hashes in
@@ -371,11 +411,16 @@ Skill resolution order (first match wins):
 
 ### 7.2 Adding a Provider
 
-1. Create `src/providers/<name>.ts` implementing the provider interface.
-2. Register in the provider factory (`src/providers/`).
-3. Add config section in `src/config/` if new credentials or endpoints needed.
-4. Add tests for factory wiring, error paths, and config parsing.
-5. Update `docs/` if the provider is user-facing.
+1. If the provider speaks the OpenAI-compatible API, add it to the generic
+   tables (`OPENAI_COMPAT_PROVIDER_IDS` in `src/providers/provider-ids.ts`,
+   `OPENAI_COMPAT_REMOTE_PROVIDERS` in `src/providers/openai-compat-remote.ts`)
+   instead of writing a module. Otherwise create `src/providers/<name>.ts`
+   implementing the provider interface and register it in the provider factory.
+2. Add config in `src/config/` only for credentials or endpoints the tables
+   can't express. A provider id is still hand-copied into about ten files; do
+   not add another copy, and fold the ones you touch into the tables (§3.3).
+3. Add tests for factory wiring, error paths, and config parsing.
+4. Update `docs/` if the provider is user-facing.
 
 ### 7.3 Adding an MCP Server
 
@@ -416,7 +461,28 @@ Skill resolution order (first match wins):
 4. Remember: templates are seeded into agent workspaces at runtime — changes
    only apply to new sessions or after workspace reset.
 
-### 7.6 Bump Release
+### 7.6 Adding an Optional Feature as a Plugin
+
+Use this for anything §3.4 keeps out of core. Reference:
+`docs/content/extensibility/plugins.md`; working examples live in `plugins/`.
+
+1. Create `plugins/<name>/` with `hybridclaw.plugin.yaml` (id, name, version,
+   kind, `configSchema`, `requires`, `credentials`) and an entrypoint that
+   exports `register(api)`.
+2. Register only the surfaces the feature uses: `api.registerTool`,
+   `registerCommand`, `registerService`, `registerMiddleware`,
+   `registerPromptHook`, `registerMemoryLayer`, `registerInboundWebhook`,
+   `registerChannelTransport`, and lifecycle hooks through `api.on(...)`.
+3. Read secrets with `api.getCredential(...)` and declare them in the
+   manifest. Keep the plugin's npm dependencies in its own `package.json`.
+4. If a needed hook is missing, add the smallest generic one to
+   `src/plugins/` in the same change, with this plugin as its caller (§3.2).
+5. Test in `tests/<name>-plugin.test.ts`; try it locally with
+   `hybridclaw plugin install ./plugins/<name>`.
+6. Add the plugin to the npm package `files` only if most installs want it;
+   otherwise document its install command.
+
+### 7.7 Bump Release
 
 When the user says "bump release":
 
@@ -444,11 +510,14 @@ When the user says "bump release":
    hashes in CI.
 5. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
    heading (or create one).
-6. Update `README.md` "latest tag" link/text if present.
-7. Commit with `chore: release vX.Y.Z`.
-8. Create an annotated git tag `vX.Y.Z`.
-9. Push the commit and tag.
-10. Create or publish a GitHub Release entry for the tag using the same curated
+6. On a minor release, delete compat code whose `compat: remove after vX.Y`
+   marker is at or below the new version, and list the removals in the
+   changelog.
+7. Update `README.md` "latest tag" link/text if present.
+8. Commit with `chore: release vX.Y.Z`.
+9. Create an annotated git tag `vX.Y.Z`.
+10. Push the commit and tag.
+11. Create or publish a GitHub Release entry for the tag using the same curated
    format as `v0.9.2`:
    - title: `HybridClaw vX.Y.Z`
    - `Release Date:` line with the calendar date
@@ -481,6 +550,16 @@ When the user says "bump release":
   and state that explicitly in your handoff.
 - If you skip a relevant check, state what you skipped and why.
 - Never hardcode real credentials in tests. Use env vars or test fixtures.
+- Put new tests in a focused file per module or route group; do not grow a
+  test file past 2,000 lines (`tests/gateway-http-server.test.ts` is past
+  18,000 — add to it only by splitting it).
+- Reuse `tests/test-utils.ts` (`useTempDir`, `useCleanMocks`) and
+  `tests/helpers/`. Set env vars with `vi.stubEnv` plus
+  `useCleanMocks({ unstubAllEnvs: true })` instead of hand-restoring
+  `process.env`.
+- Assert behaviour and structure, not copied prose: do not paste SKILL.md
+  text, help text, or prompt sentences into assertions. Prefer `it.each` tables
+  over one hand-written test per variant.
 
 ---
 
@@ -489,8 +568,9 @@ When the user says "bump release":
 - Do not rename or relocate `templates/` files without updating
   `src/workspace.ts`.
 - Do not add container-only deps to root `package.json`.
-- Do not grow `src/skills/skills-guard.ts` or `src/skills/skills.ts` further
-  without splitting.
+- Do not grow files over 1,000 lines with features, hand-copy a list or type
+  that already exists, add a second implementation of a mechanism, or put an
+  optional feature in core (§3, §6).
 - Do not use `@ts-nocheck` or disable lint rules without strong justification.
 - Do not silently weaken security policy, approval tiers, or mount allowlists.
 - Do not log secrets, tokens, or sensitive payloads — even at debug level.
@@ -537,7 +617,7 @@ When multiple agents may be working on this repo concurrently:
 |-----------------------------|---------------------|---------------------------------|
 | `README.md`                 | End users           | Product overview, setup         |
 | `AGENTS.md` (this file)     | Coding agents       | Canonical repo instructions     |
-| `CLAUDE.md`                 | Claude Code          | Thin shim → `AGENTS.md`        |
+| `CLAUDE.md`                 | Claude Code          | Shim that imports `AGENTS.md`  |
 | `CONTRIBUTING.md`           | Human contributors  | Quickstart, PR workflow         |
 | `SECURITY.md`               | Security reviewers  | Runtime security controls       |
 | `TRUST_MODEL.md`            | Operators           | Trust acceptance policy         |
@@ -552,10 +632,13 @@ When handing off work (agent → agent or agent → maintainer), include:
 
 1. **What changed** — files touched and why.
 2. **What did not change** — scope boundaries you respected.
-3. **Validation** — which checks you ran and their results.
-4. **Skipped checks** — what you did not run and why.
-5. **Remaining risks / unknowns** — open questions or edge cases.
-6. **Next recommended action** — what to do next.
+3. **Size** — net production lines (without tests, docs, lockfiles), lines
+   added to files over 1,000 lines, and copies of a fact removed or added. A
+   feature that grows core by more than ~500 lines says why it isn't a plugin.
+4. **Validation** — which checks you ran and their results.
+5. **Skipped checks** — what you did not run and why.
+6. **Remaining risks / unknowns** — open questions or edge cases.
+7. **Next recommended action** — what to do next.
 
 ---
 
@@ -564,7 +647,8 @@ When handing off work (agent → agent or agent → maintainer), include:
 When working in fast iterative mode:
 
 - Keep each iteration reversible (small commits, clear rollback path).
-- Validate assumptions with code search before implementing.
+- Search before you write: find the function, type, list, route, or helper
+  you are about to create, and reuse or extend it instead (§3.3).
 - Prefer deterministic behavior over clever shortcuts.
 - Do not "ship and hope" on security-sensitive paths.
 - If uncertain about an internal API, search `src/` for existing usage patterns
