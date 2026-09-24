@@ -120,7 +120,7 @@ Two important transitions:
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh` | Treated as high risk |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word: operands, redirect targets, and `--opt=` values count whether relative, `~/`, or `$HOME/`; text a lone `echo`/`printf` prints and `grep` patterns do not |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips

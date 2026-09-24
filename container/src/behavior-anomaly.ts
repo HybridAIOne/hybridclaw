@@ -179,8 +179,11 @@ function classifyPathTarget(rawPath: string): string {
 
 function classifyTarget(input: BehaviorTupleInput): string {
   if ((input.hostHints || []).length > 0) return 'network';
+  // Training tuples are rebuilt from logged args alone. A relative hint
+  // (a bash operand, a glob pattern) has no counterpart there, so only an
+  // absolute one sets the target; the rest use the same args lookup below.
   const pathHint = (input.pathHints || []).find((value) => value.trim());
-  if (pathHint) return classifyPathTarget(pathHint);
+  if (pathHint?.trim().startsWith('/')) return classifyPathTarget(pathHint);
 
   const toolName = input.toolName.trim().toLowerCase();
   const args = input.args;

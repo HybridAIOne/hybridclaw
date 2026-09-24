@@ -380,12 +380,15 @@ const SCRATCH_ROOTS = Array.from(
       .map((value) => path.resolve(value)),
   ),
 );
-// Args naming the files a read-only lookup touches. Pinned path rules only
-// match pathHints, so a lookup that reports none reads `.env*` unprompted.
-const LOOKUP_PATH_ARG_KEYS = new Map<string, readonly string[]>([
+// Args naming the local files a tool reads. Pinned path rules only match
+// pathHints, so a tool that reports none reads `.env*` unprompted.
+const PATH_ARG_KEYS = new Map<string, readonly string[]>([
   ['read', ['path']],
   ['glob', ['pattern']],
   ['grep', ['path', 'include']],
+  // Every key the upload executor reads. `path` leads because anomaly
+  // tuples take pathHints[0] while training tuples fall back to args.path.
+  ['browser_upload', ['path', 'file', 'files', 'paths']],
 ]);
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {
@@ -697,12 +700,13 @@ function isRootBootstrapPath(rawPath: string): boolean {
   return relativePath === 'BOOTSTRAP.md';
 }
 
-function lookupPathHints(
+function pathArgHints(
   lowerTool: string,
   args: Record<string, unknown>,
 ): string[] {
-  return (LOOKUP_PATH_ARG_KEYS.get(lowerTool) || [])
-    .map((key) => normalizeText(args[key]))
+  return (PATH_ARG_KEYS.get(lowerTool) || [])
+    .flatMap((key) => (Array.isArray(args[key]) ? args[key] : [args[key]]))
+    .map((value) => normalizeText(value))
     .filter(Boolean);
 }
 
@@ -1288,6 +1292,112 @@ function extractLikelyWritePaths(command: string): string[] {
   }
 
   return [...paths];
+}
+
+function normalizeBashPathWord(word: string): string {
+  // Drop subshell/substitution punctuation and curl's `@file` marker, and
+  // spell `$HOME` as `~` so home-relative pinned rules apply.
+  return word
+    .replace(/^(?:\$\(|[({`@])+/, '')
+    .replace(/^\$(?:HOME|\{HOME\})(?![\w}])/, '~')
+    .replace(/[)}`]+$/, '')
+    .replace(/^file:\/\//i, '');
+}
+
+// Every word of a command that can name a local file, relative or not:
+// operands, `--opt=` and assignment values, and redirect targets.
+function extractBashPathHints(inspectionSurface: string): string[] {
+  const hints = new Set<string>();
+  const addHint = (rawWord: string): void => {
+    // A quoted `"$(cat .env)"` stays one token; its inner words count.
+    if (/\$\(|`/.test(rawWord)) {
+      for (const piece of rawWord.split(/\$\(|[\s`()]+/)) addHint(piece);
+      return;
+    }
+    const word = normalizeBashPathWord(rawWord);
+    if (!word || word === '-' || /^[a-z][\w+.-]*:\/\//i.test(word)) return;
+    hints.add(word);
+    // The shell starts in the workspace root; resolve `../` escapes so
+    // absolute rules such as `/etc/**` still apply.
+    const normalized = path.posix.normalize(word);
+    if (normalized === '..' || normalized.startsWith('../')) {
+      hints.add(path.resolve(WORKSPACE_ROOT_ACTUAL, normalized));
+    }
+  };
+
+  const segments = splitCommandSegments(inspectionSurface);
+  for (const segment of segments) {
+    const words: string[] = [];
+    let pending: 'target' | 'delimiter' | null = null;
+    for (const token of tokenizeShellSegment(segment)) {
+      if (pending) {
+        if (pending === 'target') addHint(token);
+        pending = null;
+        continue;
+      }
+      // Whitespace only survives tokenizing inside quotes, where `<` and
+      // `>` are literal text.
+      const operatorAt = /\s/.test(token) ? -1 : token.search(/[<>]/);
+      if (operatorAt < 0) {
+        words.push(token);
+        continue;
+      }
+      // `x>.env` glues a word to the redirect; a bare fd (`2>`, `&>`) doesn't.
+      const word = token.slice(0, operatorAt);
+      if (word && !/^(?:\d+|&)$/.test(word)) words.push(word);
+      const [, operator = '', target = ''] =
+        /^([<>]+[&|-]?)(.*)$/s.exec(token.slice(operatorAt)) || [];
+      if (operator === '<<' || operator === '<<-') {
+        // Heredoc bodies are already stripped; the delimiter is no path.
+        if (!target) pending = 'delimiter';
+      } else if (operator.endsWith('&') && /^(?:\d+|-)$/.test(target)) {
+        // `2>&1` duplicates a descriptor.
+      } else if (target) {
+        addHint(target);
+      } else {
+        pending = 'target';
+      }
+    }
+
+    // Newlines, `&`, and substitutions start more commands inside one
+    // segment, so only a plain command gets its operands read as text.
+    const plain = !/[\n`]|\$\(|[<>]\(|(?:^|[^&<>])&(?![&>])/.test(segment);
+    const commandAt = words.findIndex((word) => !/^[A-Za-z_]\w*=/.test(word));
+    const command = path.posix.basename(words[commandAt] || '');
+    // A lone echo/printf only prints its operands (`echo "fill in .env"`);
+    // piped or followed by more commands, they may be read as paths.
+    const skipOperands =
+      plain && segments.length === 1 && /^(?:echo|printf)$/.test(command);
+    // grep's first operand is its pattern unless -e/-f (`-e.KEY`, `-rne`,
+    // GNU's abbreviated `--reg=`) supplies one: `grep -r ".env" src`
+    // searches src. sed and awk scripts are programs that can name files,
+    // so they are not skipped.
+    let skipPattern =
+      plain &&
+      /^(?:grep|egrep|fgrep|rg)$/.test(command) &&
+      !words.some((word) => /^(?:-[A-Za-z]*[ef]|--(?:reg|file))/.test(word));
+    let optionsEnded = false;
+    for (const [index, word] of words.entries()) {
+      const valueAt = word.indexOf('=') + 1;
+      if (commandAt < 0 || index < commandAt) {
+        addHint(word.slice(valueAt));
+      } else if (index === commandAt) {
+        addHint(word);
+      } else if (!optionsEnded && word.startsWith('-')) {
+        // `--env-file=.env` and `-T.env` carry file values too.
+        if (word === '--') optionsEnded = true;
+        else if (valueAt > 0) addHint(word.slice(valueAt));
+        else if (!word.startsWith('--')) addHint(word.slice(2));
+      } else if (skipPattern) {
+        skipPattern = false;
+      } else if (!skipOperands) {
+        addHint(word);
+        // `dd if=.env`, `curl -F file=@.env`
+        if (valueAt > 0) addHint(word.slice(valueAt));
+      }
+    }
+  }
+  return [...hints];
 }
 
 function isWithinResolvedRoot(candidate: string, root: string): boolean {
@@ -2882,7 +2992,7 @@ export class TrustedAgentApprovalRuntime {
         'I will continue without browser/vision interaction.',
       reason: 'this action interacts with external runtime state',
       commandPreview: normalizePreview(JSON.stringify(args)),
-      pathHints: [],
+      pathHints: pathArgHints(toolName.toLowerCase(), args),
       hostHints: [],
       writeIntent: false,
       promotableRed: false,
@@ -2911,7 +3021,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without this lookup.',
         reason: 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: lookupPathHints(lowerTool, args),
+        pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
         writeIntent: false,
         promotableRed: false,
@@ -3538,6 +3648,11 @@ export class TrustedAgentApprovalRuntime {
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
+    // Pinned rules match pathHints only, so they need relative and `~/`
+    // paths too. absPaths stay first: anomaly tuples read pathHints[0].
+    const pathHints = [
+      ...new Set([...absPaths, ...extractBashPathHints(inspectionSurface)]),
+    ];
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
       DELETE_RE.test(inspectionSurface) ||
@@ -3553,7 +3668,7 @@ export class TrustedAgentApprovalRuntime {
           'I will not execute that command and will propose a safer alternative.',
         reason: 'the command is high-risk or security-sensitive',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3578,7 +3693,7 @@ export class TrustedAgentApprovalRuntime {
           consequenceIfDenied: 'writes outside the workspace will be skipped.',
           reason: 'workspace fence blocks writes outside /workspace',
           commandPreview: normalizePreview(command),
-          pathHints: absPaths,
+          pathHints,
           hostHints: hosts,
           writeIntent,
           promotableRed: false,
@@ -3598,7 +3713,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without deleting files.',
         reason: 'the command deletes files',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: promotable,
@@ -3614,7 +3729,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will avoid executing unknown scripts.',
         reason: 'script execution is treated as high risk',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3623,15 +3738,20 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
-      return this.classifyNetworkTargets({
-        targets: httpTargets.map((target) => ({
-          ...target,
-          method: inferBashHttpMethod(command),
-        })),
-        intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
-        consequenceIfDenied: 'I will keep the task local and avoid that host.',
-        commandPreview: normalizePreview(command),
-      });
+      return {
+        ...this.classifyNetworkTargets({
+          targets: httpTargets.map((target) => ({
+            ...target,
+            method: inferBashHttpMethod(command),
+          })),
+          intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
+          consequenceIfDenied:
+            'I will keep the task local and avoid that host.',
+          commandPreview: normalizePreview(command),
+        }),
+        // `curl -T .env https://...` uploads a local file.
+        pathHints,
+      };
     }
 
     if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
@@ -3642,7 +3762,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will keep the task local and avoid that host.',
         reason: 'the command reaches a new network host',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: true,
@@ -3663,7 +3783,7 @@ export class TrustedAgentApprovalRuntime {
           'I will avoid controlling host applications and keep the task read-only.',
         reason: 'this command controls host GUI or application state',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3679,7 +3799,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'dependency installation will be skipped.',
         reason: 'this changes the local dependency state',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: false,
@@ -3698,7 +3818,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without mutating the workspace.',
         reason: 'this command has write side effects',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: false,
@@ -3714,7 +3834,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without that check.',
         reason: 'this command is read-only',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: false,
         promotableRed: false,
@@ -3730,7 +3850,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without that PDF check.',
         reason: 'this command only reads PDF content',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: false,
         promotableRed: false,
@@ -3745,7 +3865,7 @@ export class TrustedAgentApprovalRuntime {
       consequenceIfDenied: 'I will continue without running that command.',
       reason: 'this command may change local state',
       commandPreview: normalizePreview(command),
-      pathHints: absPaths,
+      pathHints,
       hostHints: hosts,
       writeIntent,
       promotableRed: false,
