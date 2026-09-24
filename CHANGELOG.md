@@ -21,6 +21,11 @@
   literal to a DNS lookup whose failure let it through. The container SSRF
   guards share one private-range table that also covers IPv4-compatible and
   NAT64 (`64:ff9b::/96`) forms.
+- **Competitor monitoring no longer copies its example**: The skill's
+  example watchlist and result block used a real company with plausible
+  numbers, and an agent wrote that example into its daily note, so the app
+  showed a made-up finding. The examples are now `<…>` templates with an
+  explicit rule to write only real targets and this run's findings.
 - **Anomaly reranker recognizes an agent's routine calls**: Live tool calls are
   scored with behavior tuples built from the tool name and arguments, the same
   facts the model trains on. Scoring used to mix in approval-classifier action
