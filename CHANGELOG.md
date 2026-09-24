@@ -40,6 +40,61 @@
   injected secrets. Every connection now resolves through the same
   private-range check, including pinned and self-signed TLS requests. Private
   hosts that workspace network policy allows still connect.
+- **Competitor monitoring no longer copies its example**: The skill's
+  example watchlist and result block used a real company with plausible
+  numbers, and an agent wrote that example into its daily note, so the app
+  showed a made-up finding. The examples are now `<…>` templates with an
+  explicit rule to write only real targets and this run's findings.
+- **Anomaly reranker recognizes an agent's routine calls**: Live tool calls are
+  scored with behavior tuples built from the tool name and arguments, the same
+  facts the model trains on. Scoring used to mix in approval-classifier action
+  keys and path/host hints, so routine `glob`, `grep`, read-only `bash`, web,
+  `memory`, and MCP calls never matched the agent's own history and were
+  elevated a tier once the agent had 50 approved trajectories.
+- **Anomaly elevation to red requires approval**: A yellow tool call that the
+  anomaly reranker elevates to red goes through the red approval rules and
+  asks for approval, and the prompt names the anomaly score. The elevated call
+  previously skipped both the red rules and the yellow implicit notice, so an
+  unusual call ran with less oversight than a normal one.
+- **Pinned paths gate file lookups**: `read`, `glob`, and `grep` calls that
+  target a pinned path (`.env*`, `~/.ssh/**`, `/etc/**`, or an
+  `approval.pinned_red` path) now require explicit approval; reading
+  `.env.local` previously ran green without a prompt. Pinned paths also match
+  the expanded home directory (`/Users/me/.ssh/id_rsa`) and `..`-collapsed
+  spellings, and `dir/**` covers a search rooted at `dir` itself.
+- **grep no longer reads pinned files during directory walks**: Unless `path`
+  or `include` names a pinned path, `grep` skips files matching `.env*`,
+  `~/.ssh/**`, or `/etc/**`. Previously `grep {"pattern":"API_KEY"}` returned
+  lines from `.env` and `.env.local` without a prompt, and a host-mode search
+  of `~` could read `~/.ssh`. Searches that expected `.env` hits no longer get
+  them, much like ripgrep skipping hidden and ignored files; the output says
+  how many files were skipped, and naming them (for example
+  `include: ".env*"`) searches them after explicit approval.
+- **Pinned paths gate shell commands and browser uploads**: `bash` commands
+  that name a pinned path with a relative, `~/`, or `$HOME/` spelling, as an
+  operand or redirect target, now require explicit approval, as do
+  `browser_upload` calls whose `path` or `files` are pinned. `cat .env.local`
+  and `cat ~/.ssh/id_rsa` previously ran green, and uploading `.env.local` to
+  a web page ran without a prompt. Text a lone `echo` prints and `grep`
+  patterns are not treated as paths.
+- **Workspace fence sees quoted paths**: `mkdir`, `touch`, `chmod`, `chown`,
+  `cp`, and `mv` targets outside the workspace now require approval when
+  quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
+  write while the unquoted spelling was fenced.
+- **Connector credential changes require secret permissions**: Saving the
+  HybridAI API key and starting a connector OAuth flow require
+  `secret.overwrite`, and logging a connector out requires `secret.unset`, for
+  scoped admin sessions and scoped API tokens alike. The admin route gate left
+  every `secret.*` action to the route handler, and the connector handler never
+  checked it. `admin.integrations_manager`, `admin.config_manager`, and
+  `admin:operator` now get 403 on these routes unless they also hold the secret
+  actions.
+- **Connectors page shows only the credential controls a caller can use**:
+  `GET /api/admin/connectors` returns the caller's allowed connector credential
+  actions, and the admin console leaves out Connect, Rotate key, Reconnect, and
+  Disconnect unless the caller holds the matching `secret.overwrite` or
+  `secret.unset` action, instead of showing them and failing with "Forbidden."
+  after the click. Test stays available with `admin.connectors.read`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
