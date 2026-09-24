@@ -387,8 +387,7 @@ const PATH_ARG_KEYS = new Map<string, readonly string[]>([
   ['read', ['path']],
   ['glob', ['pattern']],
   ['grep', ['path', 'include']],
-  // Every key the upload executor reads. `path` leads because anomaly
-  // tuples take pathHints[0] while training tuples fall back to args.path.
+  // Every key the upload executor reads, not only the schema's path/files.
   ['browser_upload', ['path', 'file', 'files', 'paths']],
 ]);
 
@@ -3666,7 +3665,7 @@ export class TrustedAgentApprovalRuntime {
     const absPaths = extractAbsolutePaths(inspectionSurface);
     const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
     // Pinned rules match pathHints only, so they need relative and `~/`
-    // paths too. absPaths stay first: anomaly tuples read pathHints[0].
+    // paths too.
     const pathHints = [
       ...new Set([...absPaths, ...extractBashPathHints(inspectionSurface)]),
     ];

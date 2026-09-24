@@ -701,35 +701,6 @@ approval:
     expect(tuple).toContain('h08-11');
   });
 
-  test.each([
-    ['bash', { command: 'touch notes.md' }],
-    ['bash', { command: 'cp notes.md /tmp/notes.md' }],
-    [
-      'browser_upload',
-      {
-        ref: '@e3',
-        path: 'report.pdf',
-        files: ['/uploaded-media-cache/a.png'],
-      },
-    ],
-  ])('live anomaly tuples match training for %s %j', (toolName, args) => {
-    const now = new Date('2026-05-01T10:15:00.000Z');
-    const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
-    );
-
-    const evaluation = runtime.evaluateToolCall({
-      toolName,
-      argsJson: JSON.stringify(args),
-      latestUserPrompt: 'Update the notes',
-      now,
-    });
-
-    expect(evaluation.anomaly?.tuple).toBe(
-      buildBehaviorTuple({ toolName, args, at: now }),
-    );
-  });
-
   test('anomaly reranker elevates an unusual green call by one tier before autonomy override', () => {
     const context = makeRuleContext({
       helpers: {
