@@ -1262,7 +1262,11 @@ function extractLikelyWritePaths(command: string): string[] {
   const segments = splitCommandSegments(command);
 
   for (const segment of segments) {
-    const segmentAbsPaths = extractAbsolutePaths(segment);
+    // Operands as shell words, not ABS_PATH_RE matches: a quote before the
+    // slash (`touch "/Users/me/x.txt"`) hid the path from the regex.
+    const segmentAbsPaths = tokenizeShellSegment(segment)
+      .filter((word) => word.startsWith('/'))
+      .map((word) => path.resolve(word));
     for (const match of segment.matchAll(
       /(?:^|\s)(?:--out|-o)\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
     )) {

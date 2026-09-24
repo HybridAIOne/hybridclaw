@@ -33,6 +33,10 @@
   and `cat ~/.ssh/id_rsa` previously ran green, and uploading `.env.local` to
   a web page ran without a prompt. Text a lone `echo` prints and `grep`
   patterns are not treated as paths.
+- **Workspace fence sees quoted paths**: `mkdir`, `touch`, `chmod`, `chown`,
+  `cp`, and `mv` targets outside the workspace now require approval when
+  quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
+  write while the unquoted spelling was fenced.
 - **Connector credential changes require secret permissions**: Saving the
   HybridAI API key and starting a connector OAuth flow require
   `secret.overwrite`, and logging a connector out requires `secret.unset`, for

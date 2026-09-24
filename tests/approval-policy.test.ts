@@ -2411,6 +2411,48 @@ browser:
     expect(evaluation.intent).toContain('/Users/example/out.txt');
   });
 
+  test.each([
+    ['touch "/Users/example/x.txt"', '/Users/example/x.txt'],
+    ['cp notes.md "/Users/example/notes.md"', '/Users/example/notes.md'],
+    [
+      "mkdir -p '/Users/example/My Projects/app'",
+      '/Users/example/My Projects/app',
+    ],
+  ])('quoted host paths hit the workspace fence for %s', (command, target) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command }),
+      latestUserPrompt: 'Save the file on the host',
+    });
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.intent).toContain(target);
+  });
+
+  test.each([
+    'touch "/workspace/notes.md"',
+    'mv "/workspace/draft.md" "/workspace/notes.md"',
+    "cp notes.md '/tmp/notes.md'",
+  ])('quoted workspace and scratch paths skip the fence for %s', (command) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command }),
+      latestUserPrompt: 'Save the notes',
+    });
+
+    expect(evaluation.actionKey).not.toBe('bash:workspace-fence');
+    expect(evaluation.tier).toBe('yellow');
+  });
+
   test('yes for agent persists trust across runtime restarts', () => {
     const trustStorePath = tempTrustStorePath('agent-trust');
     const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
