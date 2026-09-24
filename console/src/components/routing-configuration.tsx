@@ -1,5 +1,6 @@
 /**
  * One editor owns tiers, classifier, policy mode, visibility.
+ * Dependent controls require routing to be enabled; saved preferences are retained.
  * Saves preserve untouched settings from the latest config; models belong only to tiers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -377,436 +378,452 @@ export function RoutingConfiguration({
               />
               Automatic model routing
             </label>
-            <div className="two-column-grid">
-              <label className={`${styles.field} ${styles.policyField}`}>
-                <span className={styles.privacyHeading}>Mode</span>
-                <NativeSelect
-                  value={value.mode}
-                  onChange={(event) =>
-                    edit({
-                      ...value,
-                      mode: event.target.value as Ladder['mode'],
-                      tiers: value.tiers.map((tier) => {
-                        const modelsByMode = {
-                          ...tier.modelsByMode,
-                          [value.mode]: [...tier.models],
-                        };
-                        const models =
-                          modelsByMode[event.target.value as Ladder['mode']] ??
-                          tier.models;
-                        return {
-                          ...tier,
-                          modelsByMode,
-                          models,
-                          modelIds: models.map(() => crypto.randomUUID()),
-                        };
-                      }),
-                    })
-                  }
-                >
-                  <option value="auto">Auto</option>
-                  <option value="privacy">Privacy</option>
-                  <option value="speed">Speed</option>
-                  <option value="cost">Cost</option>
-                </NativeSelect>
-              </label>
-              <div className={`${styles.field} ${styles.policyField}`}>
-                <span className={styles.privacyHeading}>
-                  Privacy boundary{' '}
-                  <strong>
-                    <PrivacyLevelIcon zone={value.maximumZone} />
-                    {
+            {!value.enabled ? (
+              <p className={styles.help}>
+                Routing is off. Enable automatic model routing to edit these
+                settings.
+              </p>
+            ) : null}
+            <fieldset className={styles.editor} disabled={!value.enabled}>
+              <div className="two-column-grid">
+                <label className={`${styles.field} ${styles.policyField}`}>
+                  <span className={styles.privacyHeading}>Mode</span>
+                  <NativeSelect
+                    value={value.mode}
+                    onChange={(event) =>
+                      edit({
+                        ...value,
+                        mode: event.target.value as Ladder['mode'],
+                        tiers: value.tiers.map((tier) => {
+                          const modelsByMode = {
+                            ...tier.modelsByMode,
+                            [value.mode]: [...tier.models],
+                          };
+                          const models =
+                            modelsByMode[
+                              event.target.value as Ladder['mode']
+                            ] ?? tier.models;
+                          return {
+                            ...tier,
+                            modelsByMode,
+                            models,
+                            modelIds: models.map(() => crypto.randomUUID()),
+                          };
+                        }),
+                      })
+                    }
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="privacy">Privacy</option>
+                    <option value="speed">Speed</option>
+                    <option value="cost">Cost</option>
+                  </NativeSelect>
+                </label>
+                <div className={`${styles.field} ${styles.policyField}`}>
+                  <span className={styles.privacyHeading}>
+                    Privacy boundary{' '}
+                    <strong>
+                      <PrivacyLevelIcon zone={value.maximumZone} />
+                      {
+                        privacyLevels.find(
+                          ([zone]) => zone === value.maximumZone,
+                        )?.[1]
+                      }
+                    </strong>
+                  </span>
+                  <input
+                    type="range"
+                    aria-label="Privacy boundary"
+                    aria-valuetext={
                       privacyLevels.find(
                         ([zone]) => zone === value.maximumZone,
                       )?.[1]
                     }
-                  </strong>
-                </span>
-                <input
-                  type="range"
-                  aria-label="Privacy boundary"
-                  aria-valuetext={
-                    privacyLevels.find(
+                    className={styles.privacySlider}
+                    min={0}
+                    max={4}
+                    step={1}
+                    value={privacyLevels.findIndex(
                       ([zone]) => zone === value.maximumZone,
-                    )?.[1]
-                  }
-                  className={styles.privacySlider}
-                  min={0}
-                  max={4}
-                  step={1}
-                  value={privacyLevels.findIndex(
-                    ([zone]) => zone === value.maximumZone,
-                  )}
-                  onChange={(event) => movePrivacy(Number(event.target.value))}
-                />
-                <span className={styles.privacyStops}>
-                  {privacyLevels.map(([zone, label]) => (
-                    <span
-                      key={zone}
-                      data-selected={zone === value.maximumZone}
-                      data-inactive={privacyAvailability(zone) === 'Inactive'}
-                    >
-                      <button
-                        type="button"
-                        className={styles.privacyStopButton}
-                        disabled={privacyAvailability(zone) === 'Inactive'}
-                        aria-label={label}
-                        aria-pressed={zone === value.maximumZone}
-                        aria-describedby={`privacy-models-${zone}`}
-                        onClick={() => selectPrivacy(zone)}
-                      >
-                        <PrivacyLevelIcon zone={zone} />
-                        <span>{label}</span>
-                        {privacyAvailability(zone) && (
-                          <small
-                            className={styles.privacyAvailability}
-                            aria-hidden="true"
-                          >
-                            {privacyAvailability(zone)}
-                          </small>
-                        )}
-                      </button>
-                      <span
-                        className={styles.privacyTooltip}
-                        role="tooltip"
-                        id={`privacy-models-${zone}`}
-                      >
-                        <strong>
-                          {label} ·{' '}
-                          {privacyAvailability(zone) ?? 'Available models'}
-                        </strong>
-                        {privacyAvailability(zone) === 'Inactive' && (
-                          <span>
-                            {zone === 'hai'
-                              ? 'Activate your HybridAI API key and configure a hosted language model.'
-                              : zone === 'local'
-                                ? 'Configure and start a local language model.'
-                                : 'Configure an active provider with a language model at this privacy level.'}
-                          </span>
-                        )}
-                        {privacyAvailability(zone) ===
-                        'Inactive' ? null : topPrivacyModels(zone).length ? (
-                          topPrivacyModels(zone).map((model) => (
-                            <span key={model.id}>{model.id}</span>
-                          ))
-                        ) : (
-                          <span>No models available</span>
-                        )}
-                      </span>
-                    </span>
-                  ))}
-                </span>
-              </div>
-              {(['model', 'comparisonModel'] as const).map((field) => (
-                <label key={field} className={styles.field}>
-                  {field === 'model'
-                    ? '1st router · Live'
-                    : '2nd router · Compare (receives prompts)'}
-                  <NativeSelect
-                    value={
-                      value.maximumZone !== 'cloud' &&
-                      value.concierge[field] &&
-                      !isAllowed(value.concierge[field])
-                        ? '__blocked__'
-                        : field === 'comparisonModel' &&
-                            value.concierge[field].startsWith('jev/') &&
-                            availability.data?.jevAvailable === false
-                          ? ''
-                          : value.concierge[field]
-                    }
+                    )}
                     onChange={(event) =>
-                      edit({
-                        ...value,
-                        concierge: {
-                          ...value.concierge,
-                          [field]: event.target.value,
-                        },
-                      })
+                      movePrivacy(Number(event.target.value))
                     }
-                  >
-                    {value.maximumZone !== 'cloud' &&
-                      value.concierge[field] &&
-                      !isAllowed(value.concierge[field]) && (
-                        <option value="__blocked__" disabled>
-                          Choose an eligible router…
+                  />
+                  <span className={styles.privacyStops}>
+                    {privacyLevels.map(([zone, label]) => (
+                      <span
+                        key={zone}
+                        data-selected={zone === value.maximumZone}
+                        data-inactive={privacyAvailability(zone) === 'Inactive'}
+                      >
+                        <button
+                          type="button"
+                          className={styles.privacyStopButton}
+                          disabled={privacyAvailability(zone) === 'Inactive'}
+                          aria-label={label}
+                          aria-pressed={zone === value.maximumZone}
+                          aria-describedby={`privacy-models-${zone}`}
+                          onClick={() => selectPrivacy(zone)}
+                        >
+                          <PrivacyLevelIcon zone={zone} />
+                          <span>{label}</span>
+                          {privacyAvailability(zone) && (
+                            <small
+                              className={styles.privacyAvailability}
+                              aria-hidden="true"
+                            >
+                              {privacyAvailability(zone)}
+                            </small>
+                          )}
+                        </button>
+                        <span
+                          className={styles.privacyTooltip}
+                          role="tooltip"
+                          id={`privacy-models-${zone}`}
+                        >
+                          <strong>
+                            {label} ·{' '}
+                            {privacyAvailability(zone) ?? 'Available models'}
+                          </strong>
+                          {privacyAvailability(zone) === 'Inactive' && (
+                            <span>
+                              {zone === 'hai'
+                                ? 'Activate your HybridAI API key and configure a hosted language model.'
+                                : zone === 'local'
+                                  ? 'Configure and start a local language model.'
+                                  : 'Configure an active provider with a language model at this privacy level.'}
+                            </span>
+                          )}
+                          {privacyAvailability(zone) ===
+                          'Inactive' ? null : topPrivacyModels(zone).length ? (
+                            topPrivacyModels(zone).map((model) => (
+                              <span key={model.id}>{model.id}</span>
+                            ))
+                          ) : (
+                            <span>No models available</span>
+                          )}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                </div>
+                {(['model', 'comparisonModel'] as const).map((field) => (
+                  <label key={field} className={styles.field}>
+                    {field === 'model'
+                      ? '1st router · Live'
+                      : '2nd router · Compare (receives prompts)'}
+                    <NativeSelect
+                      value={
+                        value.maximumZone !== 'cloud' &&
+                        value.concierge[field] &&
+                        !isAllowed(value.concierge[field])
+                          ? '__blocked__'
+                          : field === 'comparisonModel' &&
+                              value.concierge[field].startsWith('jev/') &&
+                              availability.data?.jevAvailable === false
+                            ? ''
+                            : value.concierge[field]
+                      }
+                      onChange={(event) =>
+                        edit({
+                          ...value,
+                          concierge: {
+                            ...value.concierge,
+                            [field]: event.target.value,
+                          },
+                        })
+                      }
+                    >
+                      {value.maximumZone !== 'cloud' &&
+                        value.concierge[field] &&
+                        !isAllowed(value.concierge[field]) && (
+                          <option value="__blocked__" disabled>
+                            Choose an eligible router…
+                          </option>
+                        )}
+                      <option value="">
+                        {field === 'model'
+                          ? 'Configured tier · no classifier'
+                          : 'Unset'}
+                      </option>
+                      {!(value.maximumZone !== 'cloud') && (
+                        <option
+                          value="jev/jev-latest"
+                          disabled={!availability.data?.jevAvailable}
+                        >
+                          JEV
+                          {availability.data?.jevAvailable
+                            ? ''
+                            : ' · API key required'}
                         </option>
                       )}
-                    <option value="">
-                      {field === 'model'
-                        ? 'Configured tier · no classifier'
-                        : 'Unset'}
-                    </option>
-                    {!(value.maximumZone !== 'cloud') && (
-                      <option
-                        value="jev/jev-latest"
-                        disabled={!availability.data?.jevAvailable}
-                      >
-                        JEV
-                        {availability.data?.jevAvailable
-                          ? ''
-                          : ' · API key required'}
-                      </option>
-                    )}
-                    {!(value.maximumZone !== 'cloud') &&
-                    value.concierge[field] &&
-                    !value.concierge[field].startsWith('jev/') &&
-                    !models.some(
-                      (model) => model.id === value.concierge[field],
-                    ) ? (
-                      <option value={value.concierge[field]}>
-                        {value.concierge[field]}
-                      </option>
-                    ) : null}
-                    {selectableModels
-                      .filter((model) => !model.id.startsWith('jev/'))
-                      .map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.id}
+                      {!(value.maximumZone !== 'cloud') &&
+                      value.concierge[field] &&
+                      !value.concierge[field].startsWith('jev/') &&
+                      !models.some(
+                        (model) => model.id === value.concierge[field],
+                      ) ? (
+                        <option value={value.concierge[field]}>
+                          {value.concierge[field]}
                         </option>
-                      ))}
-                  </NativeSelect>
-                </label>
-              ))}
-              <label className={styles.toggle}>
-                <Switch
-                  checked={value.showRoutingInfo}
-                  onCheckedChange={(showRoutingInfo) =>
-                    edit({ ...value, showRoutingInfo })
-                  }
-                />
-                Show routing in chat
-              </label>
-            </div>
-            <p className={styles.help}>
-              {
-                {
-                  auto: 'Balance cost and measured speed.',
-                  privacy: 'Prefer local, then private endpoints, then cloud.',
-                  speed: 'Prefer the fastest measured model.',
-                  cost: 'Prefer the cheapest capable model.',
-                }[value.mode]
-              }{' '}
-              Models below are saved for this mode.
-            </p>
-            {value.mode === 'privacy' &&
-              !value.tiers.some((tier) =>
-                tier.models.some((id) =>
-                  models.some(
-                    (model) =>
-                      model.id === id && model.zone && model.zone !== 'cloud',
-                  ),
-                ),
-              ) && (
-                <p className={styles.help}>
-                  Only cloud models are assigned. Add a local or private
-                  endpoint model to these tiers.
-                </p>
-              )}
-            {(value.mode === 'speed' || value.mode === 'auto') &&
-              !value.tiers.some((tier) =>
-                tier.models.some((id) =>
-                  models.some(
-                    (model) => model.id === id && model.latencyMs != null,
-                  ),
-                ),
-              ) && (
-                <p className={styles.help}>
-                  No timings yet · using configured order.
-                </p>
-              )}
-            <ol className={styles.tiers}>
-              {value.tiers.map((tier, index) => (
-                <li key={tier.id} className={styles.tier}>
-                  <div className={styles.heading}>
-                    <div className={styles.actions}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Move tier ${index + 1} earlier`}
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Move tier ${index + 1} later`}
-                        disabled={index === value.tiers.length - 1}
-                        onClick={() => move(index, 1)}
-                      >
-                        ↓
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Remove tier ${index + 1}`}
-                        onClick={() => {
-                          const tiers = value.tiers.filter(
-                            (_, i) => i !== index,
-                          );
-                          edit({
-                            ...value,
-                            tiers,
-                            defaultStart:
-                              value.defaultStart === tier.name
-                                ? (tiers[0]?.name ?? '')
-                                : value.defaultStart,
-                          });
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                  <label className={`${styles.field} ${styles.name}`}>
-                    Tier {index + 1}
-                    <Input
-                      size="sm"
-                      aria-label={`Tier ${index + 1} name`}
-                      value={tier.name}
-                      placeholder="e.g. Local, Balanced, Powerful"
-                      onChange={(event) =>
-                        changeTier(index, { ...tier, name: event.target.value })
-                      }
-                    />
-                  </label>
-                  {tier.models.map((model, modelIndex) => (
-                    <div
-                      key={tier.modelIds[modelIndex]}
-                      className={
-                        modelIndex === 0 ? styles.model : styles.backup
-                      }
-                    >
-                      <label className={styles.field}>
-                        {modelIndex === 0
-                          ? 'Try first'
-                          : `Backup ${modelIndex}`}
-                        <NativeSelect
-                          size="sm"
-                          aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
-                          value={
-                            value.maximumZone !== 'cloud' && !isAllowed(model)
-                              ? ''
-                              : model
-                          }
-                          onChange={(event) =>
-                            changeTier(index, {
-                              ...tier,
-                              models: tier.models.map((item, i) =>
-                                i === modelIndex ? event.target.value : item,
-                              ),
-                            })
-                          }
-                        >
-                          <option value="">
-                            {value.maximumZone !== 'cloud'
-                              ? 'Choose an eligible model…'
-                              : 'Choose a model…'}
+                      ) : null}
+                      {selectableModels
+                        .filter((model) => !model.id.startsWith('jev/'))
+                        .map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.id}
                           </option>
-                          {model &&
-                          !(value.maximumZone !== 'cloud') &&
-                          !models.some((item) => item.id === model) ? (
-                            <option value={model}>
-                              {model} · not in current catalog
-                            </option>
-                          ) : null}
-                          {selectableModels.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.id} ·{' '}
-                              {privacyLevels.find(
-                                ([zone]) => zone === item.zone,
-                              )?.[1] ?? 'World'}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      </label>
-                      {modelIndex > 0 ? (
+                        ))}
+                    </NativeSelect>
+                  </label>
+                ))}
+                <label className={styles.toggle}>
+                  <Switch
+                    checked={value.enabled && value.showRoutingInfo}
+                    disabled={!value.enabled}
+                    onCheckedChange={(showRoutingInfo) =>
+                      edit({ ...value, showRoutingInfo })
+                    }
+                  />
+                  Show routing in chat
+                </label>
+              </div>
+              <p className={styles.help}>
+                {
+                  {
+                    auto: 'Balance cost and measured speed.',
+                    privacy:
+                      'Prefer local, then private endpoints, then cloud.',
+                    speed: 'Prefer the fastest measured model.',
+                    cost: 'Prefer the cheapest capable model.',
+                  }[value.mode]
+                }{' '}
+                Models below are saved for this mode.
+              </p>
+              {value.mode === 'privacy' &&
+                !value.tiers.some((tier) =>
+                  tier.models.some((id) =>
+                    models.some(
+                      (model) =>
+                        model.id === id && model.zone && model.zone !== 'cloud',
+                    ),
+                  ),
+                ) && (
+                  <p className={styles.help}>
+                    Only cloud models are assigned. Add a local or private
+                    endpoint model to these tiers.
+                  </p>
+                )}
+              {(value.mode === 'speed' || value.mode === 'auto') &&
+                !value.tiers.some((tier) =>
+                  tier.models.some((id) =>
+                    models.some(
+                      (model) => model.id === id && model.latencyMs != null,
+                    ),
+                  ),
+                ) && (
+                  <p className={styles.help}>
+                    No timings yet · using configured order.
+                  </p>
+                )}
+              <ol className={styles.tiers}>
+                {value.tiers.map((tier, index) => (
+                  <li key={tier.id} className={styles.tier}>
+                    <div className={styles.heading}>
+                      <div className={styles.actions}>
                         <Button
                           variant="ghost"
-                          aria-label={`Remove tier ${index + 1} backup ${modelIndex}`}
-                          onClick={() =>
-                            changeTier(index, {
-                              ...tier,
-                              modelIds: tier.modelIds.filter(
-                                (_, i) => i !== modelIndex,
-                              ),
-                              models: tier.models.filter(
-                                (_, i) => i !== modelIndex,
-                              ),
-                            })
-                          }
+                          size="sm"
+                          aria-label={`Move tier ${index + 1} earlier`}
+                          disabled={index === 0}
+                          onClick={() => move(index, -1)}
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Move tier ${index + 1} later`}
+                          disabled={index === value.tiers.length - 1}
+                          onClick={() => move(index, 1)}
+                        >
+                          ↓
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove tier ${index + 1}`}
+                          onClick={() => {
+                            const tiers = value.tiers.filter(
+                              (_, i) => i !== index,
+                            );
+                            edit({
+                              ...value,
+                              tiers,
+                              defaultStart:
+                                value.defaultStart === tier.name
+                                  ? (tiers[0]?.name ?? '')
+                                  : value.defaultStart,
+                            });
+                          }}
                         >
                           Remove
                         </Button>
-                      ) : null}
+                      </div>
                     </div>
-                  ))}
-                  <Button
-                    className={styles.addBackup}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      changeTier(index, {
-                        ...tier,
-                        models: [...tier.models, ''],
-                        modelIds: [...tier.modelIds, crypto.randomUUID()],
-                      })
+                    <label className={`${styles.field} ${styles.name}`}>
+                      Tier {index + 1}
+                      <Input
+                        size="sm"
+                        aria-label={`Tier ${index + 1} name`}
+                        value={tier.name}
+                        placeholder="e.g. Local, Balanced, Powerful"
+                        onChange={(event) =>
+                          changeTier(index, {
+                            ...tier,
+                            name: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    {tier.models.map((model, modelIndex) => (
+                      <div
+                        key={tier.modelIds[modelIndex]}
+                        className={
+                          modelIndex === 0 ? styles.model : styles.backup
+                        }
+                      >
+                        <label className={styles.field}>
+                          {modelIndex === 0
+                            ? 'Try first'
+                            : `Backup ${modelIndex}`}
+                          <NativeSelect
+                            size="sm"
+                            aria-label={`Tier ${index + 1} model ${modelIndex + 1}`}
+                            value={
+                              value.maximumZone !== 'cloud' && !isAllowed(model)
+                                ? ''
+                                : model
+                            }
+                            onChange={(event) =>
+                              changeTier(index, {
+                                ...tier,
+                                models: tier.models.map((item, i) =>
+                                  i === modelIndex ? event.target.value : item,
+                                ),
+                              })
+                            }
+                          >
+                            <option value="">
+                              {value.maximumZone !== 'cloud'
+                                ? 'Choose an eligible model…'
+                                : 'Choose a model…'}
+                            </option>
+                            {model &&
+                            !(value.maximumZone !== 'cloud') &&
+                            !models.some((item) => item.id === model) ? (
+                              <option value={model}>
+                                {model} · not in current catalog
+                              </option>
+                            ) : null}
+                            {selectableModels.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.id} ·{' '}
+                                {privacyLevels.find(
+                                  ([zone]) => zone === item.zone,
+                                )?.[1] ?? 'World'}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </label>
+                        {modelIndex > 0 ? (
+                          <Button
+                            variant="ghost"
+                            aria-label={`Remove tier ${index + 1} backup ${modelIndex}`}
+                            onClick={() =>
+                              changeTier(index, {
+                                ...tier,
+                                modelIds: tier.modelIds.filter(
+                                  (_, i) => i !== modelIndex,
+                                ),
+                                models: tier.models.filter(
+                                  (_, i) => i !== modelIndex,
+                                ),
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))}
+                    <Button
+                      className={styles.addBackup}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        changeTier(index, {
+                          ...tier,
+                          models: [...tier.models, ''],
+                          modelIds: [...tier.modelIds, crypto.randomUUID()],
+                        })
+                      }
+                    >
+                      + Add backup model
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+              {!value.tiers.length ? (
+                <p className={styles.help}>Add a tier to get started.</p>
+              ) : null}
+              <Button
+                className={styles.addTier}
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  let number = value.tiers.length + 1;
+                  while (names.includes(`tier ${number}`)) number++;
+                  const name = `Tier ${number}`;
+                  edit({
+                    ...value,
+                    tiers: [
+                      ...value.tiers,
+                      {
+                        name,
+                        models: [''],
+                        id: crypto.randomUUID(),
+                        modelIds: [crypto.randomUUID()],
+                      },
+                    ],
+                    defaultStart: value.defaultStart || name,
+                  });
+                }}
+              >
+                + Add tier
+              </Button>
+              {value.tiers.length ? (
+                <label className={styles.field}>
+                  Default tier · classifier unavailable
+                  <NativeSelect
+                    value={value.defaultStart}
+                    onChange={(event) =>
+                      edit({ ...value, defaultStart: event.target.value })
                     }
                   >
-                    + Add backup model
-                  </Button>
-                </li>
-              ))}
-            </ol>
-            {!value.tiers.length ? (
-              <p className={styles.help}>Add a tier to get started.</p>
-            ) : null}
-            <Button
-              className={styles.addTier}
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                let number = value.tiers.length + 1;
-                while (names.includes(`tier ${number}`)) number++;
-                const name = `Tier ${number}`;
-                edit({
-                  ...value,
-                  tiers: [
-                    ...value.tiers,
-                    {
-                      name,
-                      models: [''],
-                      id: crypto.randomUUID(),
-                      modelIds: [crypto.randomUUID()],
-                    },
-                  ],
-                  defaultStart: value.defaultStart || name,
-                });
-              }}
-            >
-              + Add tier
-            </Button>
-            {value.tiers.length ? (
-              <label className={styles.field}>
-                Default tier · classifier unavailable
-                <NativeSelect
-                  value={value.defaultStart}
-                  onChange={(event) =>
-                    edit({ ...value, defaultStart: event.target.value })
-                  }
-                >
-                  <option value="" disabled>
-                    Choose a starting tier…
-                  </option>
-                  {value.tiers.map((tier, index) => (
-                    <option key={tier.id} value={tier.name}>
-                      {index + 1}. {tier.name || 'Unnamed tier'}
+                    <option value="" disabled>
+                      Choose a starting tier…
                     </option>
-                  ))}
-                </NativeSelect>
-              </label>
-            ) : null}
+                    {value.tiers.map((tier, index) => (
+                      <option key={tier.id} value={tier.name}>
+                        {index + 1}. {tier.name || 'Unnamed tier'}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </label>
+              ) : null}
+            </fieldset>
             {error ? <p role="alert">{error}</p> : null}
             {mutation.isError ? (
               <p role="alert">
