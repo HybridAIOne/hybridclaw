@@ -128,17 +128,23 @@ function resolveStandardFont(name) {
 
 async function embedTextFont(
   pdfDoc,
-  text,
+  fields,
   standardName,
   fontPath,
   bundledName,
 ) {
-  const characters = [...new Set(normalizeTextBreaks(text).replace(/\s/g, ''))];
+  const characters = Object.entries(fields).map(([field, text]) => [
+    field,
+    [...new Set(normalizeTextBreaks(text).replace(/\s/g, ''))],
+  ]);
+  if (characters.every(([, values]) => values.length === 0)) return null;
   if (!fontPath) {
     const standard = await pdfDoc.embedFont(standardName);
     const supported = new Set(standard.getCharacterSet());
     if (
-      characters.every((character) => supported.has(character.codePointAt(0)))
+      characters.every(([, values]) =>
+        values.every((character) => supported.has(character.codePointAt(0))),
+      )
     ) {
       return standard;
     }
@@ -154,18 +160,22 @@ async function embedTextFont(
     );
   const bytes = fs.readFileSync(source);
   const parsed = fontkit.create(bytes);
-  const missing = characters.find(
-    (character) => !parsed.hasGlyphForCodePoint(character.codePointAt(0)),
-  );
-  if (missing) {
+  for (const [field, values] of characters) {
+    const missing = values.find(
+      (character) => !parsed.hasGlyphForCodePoint(character.codePointAt(0)),
+    );
+    if (!missing) continue;
     const code = missing
       .codePointAt(0)
       .toString(16)
       .toUpperCase()
       .padStart(4, '0');
+    const guidance = fontPath
+      ? `The supplied --font-path "${fontPath}" lacks this glyph; choose a font covering the requested text. `
+      : 'Use --font-path with a TTF/OTF font covering the requested text. ';
     throw new Error(
-      `PDF font cannot encode "${missing}" (U+${code}). ` +
-        'Use --font-path with a TTF/OTF font covering the requested text. ' +
+      `PDF font cannot encode "${missing}" (U+${code}) in --${field}. ` +
+        guidance +
         'Keep the original characters; do not replace them with transliterations.',
     );
   }
@@ -314,18 +324,22 @@ async function main() {
   const pdfDoc = await PDFDocument.create();
   const font = await embedTextFont(
     pdfDoc,
-    args.text,
+    args.fontPath
+      ? { text: args.text, title: args.title }
+      : { text: args.text },
     resolveStandardFont(args.fontName),
     args.fontPath,
     'Regular',
   );
-  const boldFont = await embedTextFont(
-    pdfDoc,
-    args.title,
-    StandardFonts.HelveticaBold,
-    args.fontPath,
-    'Bold',
-  );
+  const boldFont = args.fontPath
+    ? font
+    : await embedTextFont(
+        pdfDoc,
+        { title: args.title },
+        StandardFonts.HelveticaBold,
+        args.fontPath,
+        'Bold',
+      );
   const imageInput = await readImageBytes(args);
   let embeddedImage = null;
   if (imageInput) {
@@ -372,7 +386,7 @@ async function main() {
     return drewText;
   };
 
-  if (args.title) {
+  if (boldFont && args.title.trim()) {
     const titleSize = Math.min(args.fontSize * 1.5, 48);
     const titleLineHeight = computeLineHeight(boldFont, titleSize, 1.15);
     const titleLines = buildWrappedLines(
@@ -406,7 +420,7 @@ async function main() {
     y -= imageHeight + Math.max(18, args.fontSize * 0.75);
   }
 
-  if (args.text) {
+  if (font && args.text.trim()) {
     const bodyLineHeight = computeLineHeight(font, args.fontSize, 1.35);
     const bodyLines = buildWrappedLines(
       args.text,

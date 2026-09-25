@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { describe, expect, test } from 'vitest';
 
 import { openPdfDocument } from '../skills/pdf/scripts/_pdf_runtime.mjs';
@@ -81,6 +82,15 @@ describe('PDF creation font coverage', () => {
     const text = await extractText(output);
     expect(text).toContain('Ёж');
     expect(text).toContain('Ж ж — Zh');
+    const pdf = await PDFDocument.load(fs.readFileSync(output));
+    const unicodeFonts = pdf.context
+      .enumerateIndirectObjects()
+      .filter(
+        ([, object]) =>
+          object instanceof PDFDict &&
+          object.get(PDFName.of('Subtype'))?.toString() === '/Type0',
+      );
+    expect(unicodeFonts).toHaveLength(1);
   });
 
   test.each(['--title', '--text'])(
@@ -93,6 +103,70 @@ describe('PDF creation font coverage', () => {
       expect(result.stderr).toContain('U+4E2D');
       expect(result.stderr).toContain('--font-path');
       expect(fs.readFileSync(output, 'utf8')).toBe('existing deliverable');
+    },
+  );
+
+  test.each(['--title', '--text'])(
+    'identifies a supplied font with missing glyphs in %s',
+    (flag) => {
+      const output = path.join(makeTempDir(), 'unsupported.pdf');
+      const fontPath = new URL(
+        import.meta.resolve(
+          'pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf',
+        ),
+      ).pathname;
+      const result = createPdf(output, [
+        '--text',
+        'Latin',
+        '--title',
+        'Latin',
+        flag,
+        '中',
+        '--font-path',
+        fontPath,
+      ]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`in ${flag}`);
+      expect(result.stderr).toContain(fontPath);
+      expect(result.stderr).toContain('U+4E2D');
+      expect(fs.existsSync(output)).toBe(false);
+    },
+  );
+
+  test.each([false, true])(
+    'does not load fonts for an image-only PDF (custom: %s)',
+    async (custom) => {
+      const dir = makeTempDir();
+      const output = path.join(dir, 'image.pdf');
+      const image = path.join(dir, 'pixel.png');
+      fs.writeFileSync(
+        image,
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+          'base64',
+        ),
+      );
+      const result = createPdf(output, [
+        '--image-path',
+        image,
+        '--title',
+        '\\n',
+        '--text',
+        '  ',
+        ...(custom ? ['--font-path', path.join(dir, 'absent.ttf')] : []),
+      ]);
+      expect(result.status, result.stderr).toBe(0);
+      const pdf = await PDFDocument.load(fs.readFileSync(output));
+      expect(pdf.getPageCount()).toBe(1);
+      expect(
+        pdf.context
+          .enumerateIndirectObjects()
+          .filter(
+            ([, object]) =>
+              object instanceof PDFDict &&
+              object.get(PDFName.of('Type'))?.toString() === '/Font',
+          ),
+      ).toHaveLength(0);
     },
   );
 
