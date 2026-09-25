@@ -28,17 +28,26 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
-            cache_scope: hybridclaw-agent
+            image: hybridclaw-agent
           - name: gateway
             context: .
             file: ./Dockerfile
-            cache_scope: hybridclaw-gateway
+            image: hybridclaw-gateway
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        with:
+          cleanup: false
+
+      # Reuse the layer cache docker-build.yml pushes from main. A per-PR GHA
+      # cache started cold on every new PR and cost ~50s to export each run.
+      - name: Resolve main build cache
+        id: cache
+        shell: bash
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}:buildcache" >> "${GITHUB_OUTPUT}"
 
       - name: Build ${{ matrix.name }} image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
@@ -49,11 +58,12 @@ jobs:
           push: false
           load: true
           tags: hybridclaw-${{ matrix.name }}:preflight
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.cache_scope }}
+          cache-from: type=registry,ref=${{ steps.cache.outputs.ref }}
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
 
       - name: Gateway e2e tests (local, no API key)
         if: matrix.name == 'gateway'
@@ -134,8 +144,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       HAS_HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY != '' }}
       HAS_HYBRIDAI_CHATBOT_ID: ${{ secrets.HYBRIDAI_CHATBOT_ID != '' }}
@@ -145,6 +153,8 @@ jobs:
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
 
       - name: Build release artifacts
         run: npm run build
@@ -173,9 +183,6 @@ jobs:
       - name: Integration tests
         run: npx vitest run --project integration
 
-      - name: Unit tests with coverage
-        run: npx vitest run --coverage --project unit
-
       - name: Frontend unit tests (console)
         run: npm run test:console
 
@@ -186,6 +193,59 @@ jobs:
         env:
           HYBRIDCLAW_RUN_CLI_E2E: '1'
         run: npx vitest run --project e2e
+
+  # The unit suite is CPU-bound on a 4-vCPU runner, so it runs in shards
+  # whose blob reports (with coverage) are merged by the coverage job, which
+  # enforces the thresholds in vitest.config.ts.
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
+
+      - name: Unit tests with coverage (shard ${{ matrix.shard }}/3)
+        run: npx vitest run --coverage --project unit --shard=${{ matrix.shard }}/3 --reporter=default --reporter=blob
+
+      - name: Upload blob report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: .vitest-reports/
+          include-hidden-files: true
+          retention-days: 1
+
+  coverage:
+    needs: unit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
+
+      - name: Download blob reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: vitest-blob-*
+          path: .vitest-reports
+          merge-multiple: true
+
+      - name: Merge unit coverage
+        run: npx vitest run --merge-reports --coverage --project unit --reporter=dot
 
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -213,7 +273,6 @@ jobs:
           keep_files: true
 
   npm-e2e:
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -221,6 +280,8 @@ jobs:
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
 
       - name: Build release artifacts
         run: npm run build
@@ -235,9 +296,21 @@ jobs:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npx vitest run --project e2e
 
-      # install.sh bootstrap matrix (clean Ubuntu/Alpine + no-sudo node:22). It
-      # lives in its own `install-e2e` vitest project, so it stays out of the
-      # gateway/agent/CLI e2e jobs; this is the single job meant to pay its
-      # ~6-7 min Docker/network cost. Self-skips if Docker is unreachable.
+  # install.sh bootstrap matrix (clean Ubuntu/Alpine + no-sudo node:22). It
+  # lives in its own `install-e2e` vitest project, so it stays out of the
+  # gateway/agent/CLI e2e jobs; this is the single job meant to pay its
+  # Docker/network cost. It installs the published CLI, so it needs no build.
+  # Self-skips if Docker is unreachable.
+  install-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
+
+      - name: Setup Node.js workspace
+        uses: ./.github/actions/setup-node-workspace
+        with:
+          verify-signatures: 'false'
+
       - name: Installer bootstrap e2e (Docker)
         run: npm run test:install-e2e
