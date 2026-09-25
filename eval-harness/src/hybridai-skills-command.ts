@@ -1,29 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { GatewayCommandResult } from '../gateway/gateway-types.js';
-import { resolveInstallPath } from '../infra/install-root.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
-import { logger } from '../logger.js';
-import { deleteSessionData, isDatabaseInitialized } from '../memory/db.js';
-import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
-import { parseSessionKey } from '../session/session-key.js';
-import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../skills/skill-manifest.js';
-import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
-import type { ToolExecution } from '../types/execution.js';
-import { isRecord } from '../utils/type-guards.js';
-import {
-  joinSections,
-  renderKeyValueSection,
-  resolveHarnessVersion,
-} from './eval-command.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
   type EvalProfile,
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
-} from './eval-profile.js';
+} from '../../src/evals/eval-profile.js';
+import type { GatewayCommandResult } from '../../src/gateway/gateway-types.js';
+import { resolveInstallPath } from '../../src/infra/install-root.js';
+import { agentWorkspaceDir } from '../../src/infra/ipc.js';
+import { logger } from '../../src/logger.js';
+import {
+  deleteSessionData,
+  isDatabaseInitialized,
+} from '../../src/memory/db.js';
+import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
+import { parseSessionKey } from '../../src/session/session-key.js';
+import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../../src/skills/skill-manifest.js';
+import {
+  resolveObservedSkillName,
+  type Skill,
+} from '../../src/skills/skills.js';
+import type { ToolExecution } from '../../src/types/execution.js';
+import { isRecord } from '../../src/utils/type-guards.js';
+import {
+  joinSections,
+  renderKeyValueSection,
+  resolveHarnessVersion,
+} from './eval-command.js';
 
 export type HybridaiSkillFixtureMode = 'implicit' | 'explicit';
 export type HybridaiSkillFixtureKind = 'try-it' | 'conversation';
@@ -522,10 +528,10 @@ function handleSetup(dataDir: string): GatewayCommandResult {
       ...topSkills,
       '',
       'Next:',
-      '- `/eval hybridai-skills list` to inspect fixtures.',
-      '- `/eval hybridai-skills run --dry-run` to validate without calling the model.',
-      '- `/eval hybridai-skills run --skill <name> --max 3` to run a small live sample.',
-      '- `/eval hybridai-skills run` to run every fixture live (use `--max N` to cap).',
+      '- `npm run eval -- hybridai-skills list` to inspect fixtures.',
+      '- `npm run eval -- hybridai-skills run --dry-run` to validate without calling the model.',
+      '- `npm run eval -- hybridai-skills run --skill <name> --max 3` to run a small live sample.',
+      '- `npm run eval -- hybridai-skills run` to run every fixture live (use `--max N` to cap).',
     ].join('\n'),
   );
 }
@@ -535,7 +541,7 @@ function handleList(dataDir: string, rawArgs: string[]): GatewayCommandResult {
   if (!set) {
     return errorResult(
       'hybridai-skills list',
-      'No fixtures on disk. Run `/eval hybridai-skills setup` first.',
+      'No fixtures on disk. Run `npm run eval -- hybridai-skills setup` first.',
     );
   }
   const parsed = parseRunFlags(rawArgs);
@@ -584,7 +590,7 @@ async function handleRun(params: {
   if (!set) {
     return errorResult(
       'hybridai-skills run',
-      'No fixtures on disk. Run `/eval hybridai-skills setup` first.',
+      'No fixtures on disk. Run `npm run eval -- hybridai-skills setup` first.',
     );
   }
   const parsed = parseRunFlags(params.args);
@@ -697,7 +703,7 @@ function handleResults(dataDir: string): GatewayCommandResult {
   if (!fs.existsSync(runPath)) {
     return errorResult(
       'hybridai-skills Results',
-      'No prior run on disk. Run `/eval hybridai-skills run` first.',
+      'No prior run on disk. Run `npm run eval -- hybridai-skills run` first.',
     );
   }
   const summary = JSON.parse(
@@ -1906,17 +1912,17 @@ function renderHybridaiSkillsUsage(
     'Evaluate documented skill-trigger prompts against HybridClaw.',
     '',
     'Usage:',
-    '- `/eval hybridai-skills setup`',
-    '- `/eval hybridai-skills list [--skill <name>] [--kind try-it|conversation] [--max N]`',
-    '- `/eval hybridai-skills run [--dry-run|--live] [--skill <name>] [--kind try-it|conversation] [--max N] [--explicit] [--model <name>[,<name>]] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
-    '- `/eval hybridai-skills results`',
+    '- `npm run eval -- hybridai-skills setup`',
+    '- `npm run eval -- hybridai-skills list [--skill <name>] [--kind try-it|conversation] [--max N]`',
+    '- `npm run eval -- hybridai-skills run [--dry-run|--live] [--skill <name>] [--kind try-it|conversation] [--max N] [--explicit] [--model <name>[,<name>]] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `npm run eval -- hybridai-skills results`',
     '',
     'What it does:',
     '- `setup` harvests the "Try it yourself" prompts from `docs/content/guides/skills/*.md` into a JSONL fixture set.',
     '- `run --dry-run` validates fixtures without calling the model (checks explicit-name references and skill existence).',
     '- `run` (default `--live`, runs all matching fixtures unless `--max N` is set) posts each fixture to the local HybridClaw OpenAI endpoint and grades from the session audit trace when available.',
     '- `run --explicit` prefixes each prompt with `/<skill>` so the model is forced to invoke the named skill (useful for isolating skill-execution failures from skill-trigger failures).',
-    '- `run` defaults to a fresh temporary agent workspace per fixture unless you pass `--current-agent` or already selected a workspace mode explicitly at the `/eval` level.',
+    '- `run` defaults to a fresh temporary agent workspace per fixture unless you pass `--current-agent` or already selected a workspace mode explicitly at the `npm run eval` level.',
     '- Repeat `--model` or use a comma-separated list to compare multiple models in one run.',
     '',
     `Fixtures path: ${fixturesPath}${installed ? ' (present)' : ' (missing — run setup)'}`,

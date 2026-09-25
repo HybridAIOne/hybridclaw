@@ -50,7 +50,6 @@
         "playwright": "1.62.1",
         "qrcode-terminal": "0.12.0",
         "sanitize-html": "2.17.7",
-        "stemmer": "2.0.1",
         "ws": "8.21.3",
         "xlsx-populate": "1.21.0",
         "yaml": "2.9.0",
@@ -71,6 +70,7 @@
         "@types/yazl": "3.3.1",
         "@vitest/coverage-v8": "4.1.11",
         "husky": "9.1.7",
+        "stemmer": "2.0.1",
         "tsx": "4.23.13",
         "typescript": "5.9.3",
         "vitest": "4.1.11"
@@ -14011,6 +14011,7 @@
       "version": "2.0.1",
       "resolved": "https://registry.npmjs.org/stemmer/-/stemmer-2.0.1.tgz",
       "integrity": "sha512-bkWvSX2JR4nSZFfs113kd4C6X13bBBrg4fBKv2pVdzpdQI2LA5pZcWzTFNdkYsiUNl13E4EzymSRjZ0D55jBYg==",
+      "dev": true,
       "license": "MIT",
       "bin": {
         "stemmer": "cli.js"

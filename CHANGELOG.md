@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+
+- **Eval harness moved out of the product build**: The benchmark and eval
+  harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
+  skill-activation suites, about 13.8K lines) moved from `src/evals/` to the
+  unshipped `eval-harness/` workspace. Released installs no longer include
+  `hybridclaw eval`, `/eval`, or the internal `__eval-*` CLI entries; run
+  `npm run eval -- <suite> ...` from a source checkout instead. The
+  gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
+  stay in core. `stemmer` is now a dev dependency.
+
 ### Added
 
 - **Competitor monitoring community skill**: Added a packaged

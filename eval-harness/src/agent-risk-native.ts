@@ -7,8 +7,8 @@ import {
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,
   OWASP_LLM_TOP_10_2025,
-} from '../evolution/harness-risk-taxonomy.js';
-import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
+} from '../../src/evolution/harness-risk-taxonomy.js';
+import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
 import { normalizeOpenAIBaseUrl } from './openai-url.js';
 
 export type AgentRiskScenarioId =

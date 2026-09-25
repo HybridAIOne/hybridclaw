@@ -2,27 +2,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MAX_CONCURRENT_CONTAINERS } from '../config/config.js';
-import { isContainerMaxConcurrentExplicit } from '../config/runtime-config.js';
-import {
-  NIST_AI_RMF_CORE_FUNCTIONS,
-  NIST_GAI_PROFILE_RISKS,
-  OWASP_LLM_TOP_10_2025,
-} from '../evolution/harness-risk-taxonomy.js';
-import type { GatewayCommandResult } from '../gateway/gateway-types.js';
-import { resolveInstallRoot } from '../infra/install-root.js';
-import { logger } from '../logger.js';
-import {
-  enqueueProactiveMessage,
-  isDatabaseInitialized,
-} from '../memory/db.js';
-import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
-import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
-import {
-  parseNonNegativeInteger,
-  parsePositiveInteger,
-} from '../utils/number-normalization.js';
-import { AGENT_RISK_RESULT_SCHEMA_VERSION } from './agent-risk-native.js';
+import { MAX_CONCURRENT_CONTAINERS } from '../../src/config/config.js';
+import { isContainerMaxConcurrentExplicit } from '../../src/config/runtime-config.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
@@ -30,7 +11,26 @@ import {
   type EvalProfile,
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
-} from './eval-profile.js';
+} from '../../src/evals/eval-profile.js';
+import {
+  NIST_AI_RMF_CORE_FUNCTIONS,
+  NIST_GAI_PROFILE_RISKS,
+  OWASP_LLM_TOP_10_2025,
+} from '../../src/evolution/harness-risk-taxonomy.js';
+import type { GatewayCommandResult } from '../../src/gateway/gateway-types.js';
+import { resolveInstallRoot } from '../../src/infra/install-root.js';
+import { logger } from '../../src/logger.js';
+import {
+  enqueueProactiveMessage,
+  isDatabaseInitialized,
+} from '../../src/memory/db.js';
+import { normalizeMemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
+import { normalizeMemoryRecallBackend } from '../../src/memory/semantic-recall.js';
+import {
+  parseNonNegativeInteger,
+  parsePositiveInteger,
+} from '../../src/utils/number-normalization.js';
+import { AGENT_RISK_RESULT_SCHEMA_VERSION } from './agent-risk-native.js';
 import {
   handleHybridaiSkillsCommand,
   isHybridaiSkillsAlias,
@@ -376,7 +376,7 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     ],
     notes: [
       'This step evaluates a predictions JSONL; produce patches with your HybridClaw-driven harness first.',
-      '`/eval ...` injects the OpenAI-compatible HybridClaw endpoint for any predictor step you run through this helper.',
+      '`npm run eval -- ...` injects the OpenAI-compatible HybridClaw endpoint for any predictor step you run through this helper.',
     ],
   },
   {
@@ -390,21 +390,21 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
       'network access during `setup` to download `locomo10.json`',
     ],
     starter: [
-      '/eval locomo setup',
-      '/eval locomo run --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20',
-      '/eval locomo run --mode retrieval --matrix --budget 4000',
-      '/eval locomo run --mode retrieval --matrix backend --budget 4000',
-      '/eval locomo run --mode retrieval --matrix rerank --budget 4000',
-      '/eval locomo run --mode retrieval --matrix tokenizer --budget 4000',
-      '/eval locomo run --mode retrieval --matrix embedding --budget 4000',
+      'npm run eval -- locomo setup',
+      'npm run eval -- locomo run --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20',
+      'npm run eval -- locomo run --mode retrieval --matrix --budget 4000',
+      'npm run eval -- locomo run --mode retrieval --matrix backend --budget 4000',
+      'npm run eval -- locomo run --mode retrieval --matrix rerank --budget 4000',
+      'npm run eval -- locomo run --mode retrieval --matrix tokenizer --budget 4000',
+      'npm run eval -- locomo run --mode retrieval --matrix embedding --budget 4000',
     ],
     notes: [
       'The default `qa` mode generates LoCoMo answers through HybridClaw’s local OpenAI-compatible gateway and scores the model outputs directly.',
@@ -426,8 +426,8 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     aliases: ['terminal-bench', 'terminal-bench-2', 'terminalbench'],
     prereqs: ['Python', 'Docker', '`pip install datasets`'],
     starter: [
-      '/eval terminal-bench-2.0 setup',
-      '/eval terminal-bench-2.0 run --num-tasks 10',
+      'npm run eval -- terminal-bench-2.0 setup',
+      'npm run eval -- terminal-bench-2.0 run --num-tasks 10',
     ],
     notes: [
       'This native runner exercises HybridClaw’s own tool loop instead of Harbor Terminus2.',
@@ -442,9 +442,9 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     aliases: ['judge', 'judge-eval', 'tracejudge'],
     prereqs: ['Node.js 22', 'configured judge model when running `--live`'],
     starter: [
-      '/eval trace-judge run',
-      '/eval trace-judge run --live --model <judge-model>',
-      '/eval trace-judge run --criterion risk',
+      'npm run eval -- trace-judge run',
+      'npm run eval -- trace-judge run --live --model <judge-model>',
+      'npm run eval -- trace-judge run --criterion risk',
     ],
     notes: [
       'The default offline mode is deterministic and suitable for CI gating of the judge prompt, parser, metrics, and dataset integrity.',
@@ -460,11 +460,11 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     aliases: ['risk', 'llm-risk', 'genai-risk'],
     prereqs: ['Running HybridClaw gateway', 'configured local eval token'],
     starter: [
-      '/eval agent-risk run',
-      '/eval agent-risk run --scenario data-privacy',
-      '/eval agent-risk run --scenario supply-chain-vetting',
-      '/eval agent-risk run --scenario poisoned-retrieval',
-      '/eval agent-risk run --scenario unbounded-consumption',
+      'npm run eval -- agent-risk run',
+      'npm run eval -- agent-risk run --scenario data-privacy',
+      'npm run eval -- agent-risk run --scenario supply-chain-vetting',
+      'npm run eval -- agent-risk run --scenario poisoned-retrieval',
+      'npm run eval -- agent-risk run --scenario unbounded-consumption',
     ],
     notes: [
       'Runs synthetic canary scenarios through the local OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI 600-1 GAI risk, and OWASP LLM Top 10 2025 item.',
@@ -612,11 +612,11 @@ function renderUnimplementedSuite(
     ...describeEvalProfile(env.profile).map((entry) => `- ${entry}`),
     '',
     'Implemented suites today:',
-    '- `/eval locomo ...`',
-    '- `/eval trace-judge ...`',
-    '- `/eval agent-risk ...`',
-    '- `/eval terminal-bench-2.0 ...`',
-    '- `/eval tau2 ...`',
+    '- `npm run eval -- locomo ...`',
+    '- `npm run eval -- trace-judge ...`',
+    '- `npm run eval -- agent-risk ...`',
+    '- `npm run eval -- terminal-bench-2.0 ...`',
+    '- `npm run eval -- tau2 ...`',
   ].join('\n');
 }
 
@@ -625,16 +625,16 @@ function renderUsage(env: EvalEnvironment): string {
     "Local eval helper for HybridClaw's OpenAI-compatible gateway.",
     '',
     'Usage:',
-    '- `/eval list`',
-    '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
-    '- `/eval locomo [setup|run|status|stop|results|logs]`',
-    '- `/eval trace-judge [run|status|stop|results|logs]`',
-    '- `/eval agent-risk [run|status|stop|results|logs]`',
-    '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
-    '- `/eval tau2 [setup|run|status|stop|results]`',
-    '- `/eval hybridai-skills [setup|list|run|results]`',
-    '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
-    '- `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
+    '- `npm run eval -- list`',
+    '- `npm run eval -- env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `npm run eval -- locomo [setup|run|status|stop|results|logs]`',
+    '- `npm run eval -- trace-judge [run|status|stop|results|logs]`',
+    '- `npm run eval -- agent-risk [run|status|stop|results|logs]`',
+    '- `npm run eval -- terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
+    '- `npm run eval -- tau2 [setup|run|status|stop|results]`',
+    '- `npm run eval -- hybridai-skills [setup|list|run|results]`',
+    '- `npm run eval -- <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
+    '- `npm run eval -- [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
     '',
     `Base URL: ${env.baseUrl}`,
     `Base model: ${env.baseModel}`,
@@ -824,14 +824,14 @@ export function resolveHarnessVersion(): string {
 function renderEnv(env: EvalEnvironment): string {
   return [
     `OPENAI_BASE_URL=${env.baseUrl}`,
-    'OPENAI_API_KEY=<injected automatically by `/eval <shell command...>`>',
+    'OPENAI_API_KEY=<injected automatically by `npm run eval -- <shell command...>`>',
     `HYBRIDCLAW_EVAL_MODEL=${env.model}`,
     `Base model: ${env.baseModel}`,
     `Auth: ${describeAuthMode(env)}`,
     '',
     ...describeEvalProfile(env.profile),
     '',
-    'Use `/eval <shell command...>` to launch a detached benchmark command with those variables in scope.',
+    'Use `npm run eval -- <shell command...>` to launch a detached benchmark command with those variables in scope.',
   ].join('\n');
 }
 
@@ -862,29 +862,29 @@ function renderRecipe(
     ...suite.notes.map((entry) => `- ${entry}`),
     '',
     'Managed commands:',
-    `- \`/eval ${suite.id} setup\``,
+    `- \`npm run eval -- ${suite.id} setup\``,
     `- \`${getManagedSuiteRunExample(suite)}\``,
-    `- \`/eval ${suite.id} status\``,
-    `- \`/eval ${suite.id} stop\``,
-    `- \`/eval ${suite.id} results\``,
-    `- \`/eval ${suite.id} logs\``,
+    `- \`npm run eval -- ${suite.id} status\``,
+    `- \`npm run eval -- ${suite.id} stop\``,
+    `- \`npm run eval -- ${suite.id} results\``,
+    `- \`npm run eval -- ${suite.id} logs\``,
     '',
-    'Launch the starter or your own command with `/eval <shell command...>`.',
+    'Launch the starter or your own command with `npm run eval -- <shell command...>`.',
   ].join('\n');
 }
 
 function getManagedSuiteRunExample(suite: EvalSuiteDefinition): string {
   switch (suite.id) {
     case 'locomo':
-      return '/eval locomo run --budget 4000 --max-questions 20';
+      return 'npm run eval -- locomo run --budget 4000 --max-questions 20';
     case 'trace-judge':
-      return '/eval trace-judge run';
+      return 'npm run eval -- trace-judge run';
     case 'agent-risk':
-      return '/eval agent-risk run';
+      return 'npm run eval -- agent-risk run';
     case 'terminal-bench-2.0':
-      return '/eval terminal-bench-2.0 run --num-tasks 10';
+      return 'npm run eval -- terminal-bench-2.0 run --num-tasks 10';
     default:
-      return `/eval ${suite.id} run`;
+      return `npm run eval -- ${suite.id} run`;
   }
 }
 
@@ -894,11 +894,11 @@ function renderTau2Usage(env: EvalEnvironment, dataDir: string): string {
     'Managed tau2 benchmark helper for HybridClaw.',
     '',
     'Usage:',
-    '- `/eval tau2 setup`',
-    '- `/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10`',
-    '- `/eval tau2 status`',
-    '- `/eval tau2 stop`',
-    '- `/eval tau2 results`',
+    '- `npm run eval -- tau2 setup`',
+    '- `npm run eval -- tau2 run --domain telecom --num-trials 1 --num-tasks 10`',
+    '- `npm run eval -- tau2 status`',
+    '- `npm run eval -- tau2 stop`',
+    '- `npm run eval -- tau2 results`',
     '',
     `Install dir: ${installDir}`,
     `OPENAI_BASE_URL=${env.baseUrl}`,
@@ -1154,19 +1154,19 @@ function getManagedSuiteNextStep(
 ): string {
   switch (suite.id) {
     case 'locomo': {
-      return '/eval locomo run --budget 4000 --max-questions 20';
+      return 'npm run eval -- locomo run --budget 4000 --max-questions 20';
     }
     case 'trace-judge': {
-      return '/eval trace-judge run';
+      return 'npm run eval -- trace-judge run';
     }
     case 'agent-risk': {
-      return '/eval agent-risk run';
+      return 'npm run eval -- agent-risk run';
     }
     case 'terminal-bench-2.0': {
-      return `/eval terminal-bench-2.0 run --num-tasks 10`;
+      return `npm run eval -- terminal-bench-2.0 run --num-tasks 10`;
     }
     default:
-      return `/eval ${suite.id}`;
+      return `npm run eval -- ${suite.id}`;
   }
 }
 
@@ -1187,29 +1187,23 @@ export function buildInternalEvalCommand(
 }
 
 function resolveInternalEvalLauncherCommandArgs(): string[] {
-  const installRoot = resolveInstallRoot();
-  const sourceCliPath = path.join(installRoot, 'src', 'cli.ts');
+  const harnessCliPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    'cli.ts',
+  );
   const tsxCliPath = path.join(
-    installRoot,
+    resolveInstallRoot(),
     'node_modules',
     'tsx',
     'dist',
     'cli.mjs',
   );
-  const distCliPath = path.join(installRoot, 'dist', 'cli.js');
-
-  if (fs.existsSync(sourceCliPath) && fs.existsSync(tsxCliPath)) {
-    return [process.execPath, tsxCliPath, sourceCliPath];
+  if (!fs.existsSync(tsxCliPath)) {
+    throw new Error(
+      `The eval harness runs from a source checkout; tsx was not found at ${tsxCliPath}. Run \`npm install\` first.`,
+    );
   }
-  if (fs.existsSync(distCliPath)) {
-    return [process.execPath, distCliPath];
-  }
-
-  const cliEntry = process.argv[1]?.trim();
-  if (!cliEntry) {
-    throw new Error('Unable to resolve the HybridClaw CLI entry point.');
-  }
-  return [process.execPath, path.resolve(cliEntry)];
+  return [process.execPath, tsxCliPath, harnessCliPath];
 }
 
 function getTerminalBenchDatasetHelperPath(dataDir: string): string {
@@ -2997,7 +2991,7 @@ function buildTau2ExitNotification(meta: EvalRunMeta): string | null {
       `tau2 setup completed successfully.`,
       '',
       `Run ID: ${meta.runId}`,
-      'Next: `/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10`',
+      'Next: `npm run eval -- tau2 run --domain telecom --num-trials 1 --num-tasks 10`',
     ].join('\n');
   }
   if (meta.operation === 'setup') {
@@ -3007,7 +3001,7 @@ function buildTau2ExitNotification(meta: EvalRunMeta): string | null {
       '',
       `Run ID: ${meta.runId}`,
       ...(reason ? [`Reason: ${reason}`] : []),
-      'Use `/eval tau2 results` for the setup logs.',
+      'Use `npm run eval -- tau2 results` for the setup logs.',
     ].join('\n');
   }
 
@@ -3026,7 +3020,7 @@ function buildTau2ExitNotification(meta: EvalRunMeta): string | null {
         : progressSummary
           ? [`Progress: ${progressSummary}`]
           : []),
-      'Use `/eval tau2 results` for the run logs.',
+      'Use `npm run eval -- tau2 results` for the run logs.',
     ].join('\n');
   }
 
@@ -3047,7 +3041,7 @@ function buildTau2ExitNotification(meta: EvalRunMeta): string | null {
           ? [`Progress: ${progressSummary}`]
           : []),
       ...(reason ? [`Reason: ${reason}`] : []),
-      'Use `/eval tau2 results` for the run logs.',
+      'Use `npm run eval -- tau2 results` for the run logs.',
     ].join('\n');
   }
 
@@ -3083,7 +3077,7 @@ function buildManagedSuiteSetupExitNotification(
       '',
       `Run ID: ${meta.runId}`,
       ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`/eval ${suite.id} logs\` for the setup logs.`,
+      `Use \`npm run eval -- ${suite.id} logs\` for the setup logs.`,
     ].join('\n');
   }
   if (meta.operation === 'run') {
@@ -3093,8 +3087,8 @@ function buildManagedSuiteSetupExitNotification(
         `${suite.title} run completed.`,
         '',
         `Run ID: ${meta.runId}`,
-        `Use \`/eval ${suite.id} results\` for the summary.`,
-        `Use \`/eval ${suite.id} logs\` for the run logs.`,
+        `Use \`npm run eval -- ${suite.id} results\` for the summary.`,
+        `Use \`npm run eval -- ${suite.id} logs\` for the run logs.`,
       ].join('\n');
     }
     return [
@@ -3102,8 +3096,8 @@ function buildManagedSuiteSetupExitNotification(
       '',
       `Run ID: ${meta.runId}`,
       ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`/eval ${suite.id} results\` for the summary.`,
-      `Use \`/eval ${suite.id} logs\` for the run logs.`,
+      `Use \`npm run eval -- ${suite.id} results\` for the summary.`,
+      `Use \`npm run eval -- ${suite.id} logs\` for the run logs.`,
     ].join('\n');
   }
   return null;
@@ -3473,7 +3467,7 @@ function renderTau2Status(dataDir: string): string {
         ]
       : []),
     ...(setupFailure ? [`Setup failure: ${setupFailure}`] : []),
-    ...(!installed ? ['Run `/eval tau2 setup` first.'] : []),
+    ...(!installed ? ['Run `npm run eval -- tau2 setup` first.'] : []),
   ].join('\n');
 }
 
@@ -3484,7 +3478,7 @@ function renderTau2Results(dataDir: string): GatewayCommandResult {
   if (!latestTau2Job) {
     return errorResult(
       'tau2 Results',
-      'No tau2 job found. Start with `/eval tau2 setup`, then `/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10`.',
+      'No tau2 job found. Start with `npm run eval -- tau2 setup`, then `npm run eval -- tau2 run --domain telecom --num-trials 1 --num-tasks 10`.',
     );
   }
 
@@ -3551,8 +3545,8 @@ async function handleTau2Setup(params: {
         `Run ID: ${activeSetup.runId}`,
         `PID: ${activeSetup.pid ?? 'unknown'}`,
         'A detached tau2 setup is already running.',
-        'Use `/eval tau2 status` to check state.',
-        'Use `/eval tau2 results` to inspect setup logs.',
+        'Use `npm run eval -- tau2 status` to check state.',
+        'Use `npm run eval -- tau2 results` to inspect setup logs.',
       ].join('\n'),
     );
   }
@@ -3571,8 +3565,8 @@ async function handleTau2Setup(params: {
     footerLines: [
       'Detached setup job started.',
       `Setup strategy: ${setupSpec.strategy === 'uv' ? 'uv-managed Python 3.12 venv with tau2 CLI smoke test' : 'system python venv'}.`,
-      'Use `/eval tau2 status` to check whether setup has finished.',
-      'Use `/eval tau2 results` to inspect setup logs.',
+      'Use `npm run eval -- tau2 status` to check whether setup has finished.',
+      'Use `npm run eval -- tau2 results` to inspect setup logs.',
     ],
     earlyExitCheckMs: EVAL_EARLY_EXIT_CHECK_MS,
   });
@@ -3593,16 +3587,16 @@ async function handleTau2Run(params: {
         'tau2 Setup Running',
         [
           'tau2 setup is still running.',
-          'Wait for `/eval tau2 status` to show setup finished, then run tau2 again.',
-          'Use `/eval tau2 results` to inspect the setup logs.',
+          'Wait for `npm run eval -- tau2 status` to show setup finished, then run tau2 again.',
+          'Use `npm run eval -- tau2 results` to inspect the setup logs.',
         ].join('\n'),
       );
     }
     return errorResult(
       'tau2 Setup Required',
       latestSetup
-        ? 'tau2 is not installed. The last setup job did not complete successfully. Check `/eval tau2 results`, then rerun `/eval tau2 setup`.'
-        : 'tau2 is not installed yet. Run `/eval tau2 setup` first.',
+        ? 'tau2 is not installed. The last setup job did not complete successfully. Check `npm run eval -- tau2 results`, then rerun `npm run eval -- tau2 setup`.'
+        : 'tau2 is not installed yet. Run `npm run eval -- tau2 setup` first.',
     );
   }
   const prepared = prepareEvalRun(['tau2', 'run', ...params.args]);
@@ -3623,7 +3617,7 @@ async function handleTau2Run(params: {
     operation: 'run',
     title: 'tau2 Run Started',
     footerLines: [
-      'Use `/eval tau2 status` and `/eval tau2 results` to follow this run.',
+      'Use `npm run eval -- tau2 status` and `npm run eval -- tau2 results` to follow this run.',
     ],
   });
 }
@@ -3974,7 +3968,7 @@ function renderManagedSuiteStatus(
         ]
       : []),
     ...(setupFailure ? [`Setup failure: ${setupFailure}`] : []),
-    ...(!installed ? [`Run \`/eval ${suite.id} setup\` first.`] : []),
+    ...(!installed ? [`Run \`npm run eval -- ${suite.id} setup\` first.`] : []),
   ].join('\n');
 }
 
@@ -3994,7 +3988,7 @@ function renderManagedSuiteResults(
   if (!latestJob) {
     return errorResult(
       `${suite.title} Results`,
-      `No ${suite.title} setup job found. Start with \`/eval ${suite.id} setup\`.`,
+      `No ${suite.title} setup job found. Start with \`npm run eval -- ${suite.id} setup\`.`,
     );
   }
 
@@ -4499,7 +4493,7 @@ function renderManagedSuiteLogs(
   if (!latestJob) {
     return errorResult(
       `${suite.title} Logs`,
-      `No ${suite.title} setup job found. Start with \`/eval ${suite.id} setup\`.`,
+      `No ${suite.title} setup job found. Start with \`npm run eval -- ${suite.id} setup\`.`,
     );
   }
 
@@ -4535,7 +4529,7 @@ async function handleManagedSuiteSetup(params: {
       `${params.suite.title} Setup`,
       [
         'No setup is required for the packaged trace-judge dataset.',
-        'Run `/eval trace-judge run` for the deterministic gate or `/eval trace-judge run --live --model <judge-model>` for a live judge measurement.',
+        'Run `npm run eval -- trace-judge run` for the deterministic gate or `npm run eval -- trace-judge run --live --model <judge-model>` for a live judge measurement.',
       ].join('\n'),
     );
   }
@@ -4544,7 +4538,7 @@ async function handleManagedSuiteSetup(params: {
       `${params.suite.title} Setup`,
       [
         'No setup is required for the packaged agent-risk scenarios.',
-        'Run `/eval agent-risk run` to execute the NIST/OWASP canary gate against the local OpenAI-compatible gateway.',
+        'Run `npm run eval -- agent-risk run` to execute the NIST/OWASP canary gate against the local OpenAI-compatible gateway.',
       ].join('\n'),
     );
   }
@@ -4569,8 +4563,8 @@ async function handleManagedSuiteSetup(params: {
         `Run ID: ${activeSetup.runId}`,
         `PID: ${activeSetup.pid ?? 'unknown'}`,
         'A detached setup job is already running.',
-        `Use \`/eval ${params.suite.id} status\` to check state.`,
-        `Use \`/eval ${params.suite.id} results\` to inspect setup logs.`,
+        `Use \`npm run eval -- ${params.suite.id} status\` to check state.`,
+        `Use \`npm run eval -- ${params.suite.id} results\` to inspect setup logs.`,
       ].join('\n'),
     );
   }
@@ -4592,9 +4586,9 @@ async function handleManagedSuiteSetup(params: {
     footerLines: [
       'Detached setup job started.',
       `Setup strategy: ${managed.strategyDescription}.`,
-      `Use \`/eval ${params.suite.id} status\` to check whether setup has finished.`,
-      `Use \`/eval ${params.suite.id} results\` for the summary.`,
-      `Use \`/eval ${params.suite.id} logs\` to inspect setup logs.`,
+      `Use \`npm run eval -- ${params.suite.id} status\` to check whether setup has finished.`,
+      `Use \`npm run eval -- ${params.suite.id} results\` for the summary.`,
+      `Use \`npm run eval -- ${params.suite.id} logs\` to inspect setup logs.`,
     ],
     earlyExitCheckMs: EVAL_EARLY_EXIT_CHECK_MS,
     dataDirForNotifications: params.dataDir,
@@ -4613,7 +4607,7 @@ async function handleManagedSuiteRun(params: {
   if (!isManagedSuiteInstalled(params.suite, params.dataDir)) {
     return errorResult(
       `${params.suite.title} Setup Required`,
-      `Run \`/eval ${params.suite.id} setup\` first.`,
+      `Run \`npm run eval -- ${params.suite.id} setup\` first.`,
     );
   }
   if (
@@ -4662,8 +4656,8 @@ async function handleManagedSuiteRun(params: {
     operation: 'run',
     title: `${params.suite.title} Run Started`,
     footerLines: [
-      `Use \`/eval ${params.suite.id} status\` and \`/eval ${params.suite.id} results\` to follow this run.`,
-      `Use \`/eval ${params.suite.id} logs\` for tailed stdout/stderr.`,
+      `Use \`npm run eval -- ${params.suite.id} status\` and \`npm run eval -- ${params.suite.id} results\` to follow this run.`,
+      `Use \`npm run eval -- ${params.suite.id} logs\` for tailed stdout/stderr.`,
     ],
     dataDirForNotifications: params.dataDir,
   });
@@ -4747,11 +4741,11 @@ async function handleManagedSuiteCommand(params: {
         `${params.suite.title} is not implemented yet.`,
         '',
         'Implemented suites today:',
-        '- `/eval locomo ...`',
-        '- `/eval trace-judge ...`',
-        '- `/eval agent-risk ...`',
-        '- `/eval terminal-bench-2.0 ...`',
-        '- `/eval tau2 ...`',
+        '- `npm run eval -- locomo ...`',
+        '- `npm run eval -- trace-judge ...`',
+        '- `npm run eval -- agent-risk ...`',
+        '- `npm run eval -- terminal-bench-2.0 ...`',
+        '- `npm run eval -- tau2 ...`',
       ].join('\n'),
     );
   }
@@ -4973,7 +4967,7 @@ function parseEvalAction(
       commandArgs: [],
       workspaceModeExplicit,
       error:
-        'Use `/eval <shell command...>` instead of `/eval run <shell command...>`.',
+        'Use `npm run eval -- <shell command...>` instead of `npm run eval -- run <shell command...>`.',
     };
   }
 
@@ -5110,7 +5104,7 @@ export async function handleEvalCommand(
           `Unknown eval suite: \`${probableSuite}\`.`,
           `Did you mean \`${suggestedSuite.id}\`?`,
           '',
-          `Try \`/eval ${suggestedSuite.id}\` or \`/eval ${suggestedSuite.id} ${probableSubcommand || 'run'} ...\`.`,
+          `Try \`npm run eval -- ${suggestedSuite.id}\` or \`npm run eval -- ${suggestedSuite.id} ${probableSubcommand || 'run'} ...\`.`,
         ].join('\n'),
       );
     }
@@ -5118,7 +5112,7 @@ export async function handleEvalCommand(
     if (!prepared.command) {
       return errorResult(
         'Usage',
-        'Usage: `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
+        'Usage: `npm run eval -- [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
       );
     }
     return await startDetachedEvalRun({
