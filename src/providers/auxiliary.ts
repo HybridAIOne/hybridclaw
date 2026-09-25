@@ -1594,6 +1594,9 @@ async function callAuxiliaryTextProviderWithLogging(
       messages,
       options,
     );
+    if (!response.content.trim()) {
+      throw new Error(`${params.task} returned an empty response.`);
+    }
     finishRoutingTraceAttempt({
       model: traceModel,
       attempt: routingAttempt,
@@ -1738,14 +1741,10 @@ export async function callAuxiliaryModel(
     Array.isArray(params.messages) ? params.messages : [],
     options,
   );
-  const content = response.content.trim();
-  if (!content) {
-    throw new Error(`${params.task} returned an empty response.`);
-  }
   return {
     provider: context.provider,
     model: context.model,
-    content,
+    content: response.content.trim(),
     ...(response.usage ? { usage: response.usage } : {}),
   };
 }
