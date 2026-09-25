@@ -1,3 +1,4 @@
+import { SILENT_REPLY_TOKEN } from '../../agent/silent-reply.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import { normalizeNativeAgentAddressingText } from '../agent-addressing.js';
@@ -54,6 +55,22 @@ export function hasLooseBotMention(
   }
 
   return false;
+}
+
+/**
+ * Context for a guild message that reached the agent although nobody mentioned
+ * it or replied to it (free mode). The agent may answer with only the silent
+ * reply token, which the Discord delivery path drops.
+ */
+export function buildOptionalReplyContext(): string {
+  return [
+    '[Reply policy]',
+    '- You were not mentioned or replied to; you are reading this channel on your own.',
+    '- Reply only when you add something useful: an answer, a correction, or information someone asked for. Announcements, status updates, acknowledgements and conversations between other people usually need no reply from you.',
+    `- If no reply is needed, respond with ONLY: ${SILENT_REPLY_TOKEN}`,
+    '',
+    '',
+  ].join('\n');
 }
 
 export function isAddressedToChannel(content: string): boolean {

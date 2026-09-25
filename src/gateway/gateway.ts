@@ -1591,6 +1591,7 @@ async function startDiscordIntegration(): Promise<boolean> {
                   content,
                   media,
                   source: 'discord',
+                  allowSilentReply: context.replyOptional,
                   onTextDelta: (delta) => {
                     const filteredDelta = streamFilter.push(delta);
                     if (!filteredDelta) return;
