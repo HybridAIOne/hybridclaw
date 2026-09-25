@@ -126,9 +126,11 @@
   one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
   narrated yellow without a prompt. Promotion now requires every deletion
   target (rm/unlink/`git rm` operands and the starting points of
-  `find -delete` or `find -exec rm`) to be such a path inside the workspace;
-  `xargs rm`, variables, `~`, `..`, and `rm -…` hidden in another command's
-  arguments make the deletion a plain `bash:delete`.
+  `find -delete` or `find -exec rm`), resolved through any `cd` in the same
+  command, to be such a path inside the workspace or scratch space;
+  `xargs rm`, variables, `~`, a `..` or `cd` that leaves the workspace, and
+  `rm -…` hidden in another command's arguments make the deletion a plain
+  `bash:delete`.
 - **The workspace fence catches relative writes that climb out**: The bash
   fence only checked absolute paths, so `echo x > ../out.txt`,
   `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and

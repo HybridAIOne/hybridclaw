@@ -37,6 +37,7 @@ import {
   deletionTargets,
   optionWriteTargets,
   runsProgramOption,
+  scriptCommands,
   shellCommandsRun,
   writeTargets,
 } from './bash-commands.js';
@@ -1207,23 +1208,26 @@ function buildBashInspectionSurface(command: string): string {
     .join(' ; ');
 }
 
-// A target a promotable cache cleanup may delete: a node_modules, dist, build,
-// coverage, or .cache path segment that stays in the workspace or scratch
-// space. `..`, `~`, and variables make the real target unknown.
+// A resolved deletion target a promotable cache cleanup may name: a
+// node_modules, dist, build, coverage, or .cache segment below the workspace
+// or scratch root. A target that climbs out with `..` or sits anywhere else,
+// even under a directory named `build`, is not.
 function isCacheDeletionTarget(target: string): boolean {
-  if (/^~|\$/.test(target)) return false;
-  const segments = target.split('/');
-  if (segments.includes('..')) return false;
-  if (
-    target.startsWith('/') &&
-    !isWorkspacePath(target) &&
-    !isScratchPath(target)
-  ) {
+  let below = target;
+  if (target.startsWith('/')) {
+    const root = [
+      WORKSPACE_ROOT_DISPLAY,
+      WORKSPACE_ROOT_ACTUAL,
+      ...SCRATCH_ROOTS,
+    ].find((candidate) => isWithinResolvedRoot(target, candidate));
+    if (!root) return false;
+    below = path.relative(path.resolve(root), path.resolve(target));
+  } else if (/^\.\.(?:\/|$)/.test(target)) {
     return false;
   }
-  return segments.some((segment) =>
-    CACHE_PATH_SEGMENTS.has(segment.toLowerCase()),
-  );
+  return below
+    .split(/[\\/]/)
+    .some((segment) => CACHE_PATH_SEGMENTS.has(segment.toLowerCase()));
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -3532,10 +3536,10 @@ export class TrustedAgentApprovalRuntime {
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
-    // segment; these checks need the commands bash actually runs.
-    const shellScript = stripHereDocBodies(command);
-    const commandsRun = shellCommandsRun(shellScript);
-    const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
+    // segment; these checks need the commands bash actually runs, parsed once.
+    const shellCommands = scriptCommands(stripHereDocBodies(command));
+    const commandsRun = shellCommandsRun(shellCommands);
+    const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
     );
     // Pinned rules match pathHints only; relative operands join them when
@@ -3575,7 +3579,7 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const targets = writeTargets(shellScript);
+      const targets = writeTargets(shellCommands);
       const absoluteTargets = targets.filter((target) =>
         target.startsWith('/'),
       );
@@ -3611,7 +3615,7 @@ export class TrustedAgentApprovalRuntime {
       // Promotable only when every target is cache or build output: a cache
       // word anywhere in the line let `rm -rf src && npm run build` ride on
       // one approved `rm -rf node_modules`.
-      const targets = deletionTargets(shellScript);
+      const targets = deletionTargets(shellCommands);
       const promotable =
         targets !== null &&
         targets.length > 0 &&
@@ -3762,8 +3766,10 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    // Green also needs every command the script runs to be read-only: the
-    // first segment alone let `ls; tar czf - . | base64` run unnarrated.
+    // Green needs both checks: every command the script runs is read-only (the
+    // first segment alone let `ls; tar czf - . | base64` run unnarrated), and
+    // the surface's first segment still matches, so forms such as `(ls)` or a
+    // quoted command name stay yellow as before.
     const everyCommandReadOnly = commandsRun.every((words) => {
       const text = words.join(' ');
       return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
