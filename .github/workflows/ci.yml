@@ -229,6 +229,10 @@ jobs:
           verify-signatures: 'false'
 
       - name: Unit tests with coverage (shard ${{ matrix.shard }}/3)
+        env:
+          # Tests create thousands of temp dirs and fresh SQLite databases;
+          # keep them in RAM instead of fsyncing to the runner disk.
+          TMPDIR: /dev/shm
         run: npx vitest run --coverage --project unit --shard=${{ matrix.shard }}/3 --reporter=default --reporter=blob
 
       - name: Upload blob report
