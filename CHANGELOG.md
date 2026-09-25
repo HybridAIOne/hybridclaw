@@ -9,6 +9,11 @@
   one cron task per watched competitor, diffs each run against a workspace
   snapshot, and appends a fenced `watch` JSON block to the daily memory note,
   which the Sales Companion iOS app reads through cloud memory.
+- **Agent budget hard stop**: An agent that reaches 100% of its monthly
+  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
+  full-auto) until the next billing month or until the cap is raised. The
+  refusal pauses the agent's active goal, disables full-auto for the session,
+  and records a `budget.hard_stop` audit event.
 
 ### Fixed
 

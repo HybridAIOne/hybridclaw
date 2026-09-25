@@ -149,6 +149,7 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
+import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
@@ -1147,6 +1148,22 @@ async function handleGatewayMessageInner(
       session,
       reason: 'user-message',
       verdict: 'preempted',
+    });
+  }
+  const budgetHardStopError = enforceAgentBudgetHardStop({
+    session,
+    runId,
+    agentId,
+    source,
+  });
+  if (budgetHardStopError) {
+    activeGatewayRequest.release();
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      agentId,
+      error: budgetHardStopError,
     });
   }
   const autoApproveTools = req.autoApproveTools === true;
