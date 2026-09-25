@@ -1762,6 +1762,7 @@ export interface GatewayAdminSkill {
   requires: {
     bins: string[];
     env: string[];
+    nodeModules: string[];
   };
   tags: string[];
   relatedSkills: string[];

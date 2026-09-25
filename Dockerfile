@@ -106,6 +106,7 @@ COPY --link --from=builder /app/node_modules/ node_modules/
 
 # Production deps — container agent
 COPY --link --from=builder /app/container/package*.json container/
+COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=builder /app/container/node_modules/ container/node_modules/
 
 # Gateway compiled output + console SPA

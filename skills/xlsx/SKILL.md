@@ -6,6 +6,11 @@ disable-model-invocation: false
 requires:
   bins:
     - node
+  node_modules:
+    - xlsx
+    - xlsx-populate
+    - csv-parse
+    - iconv-lite
 metadata:
   hybridclaw:
     category: office

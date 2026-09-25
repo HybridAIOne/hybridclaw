@@ -3,6 +3,12 @@ name: office
 description: Internal shared OOXML helper scripts for DOCX, XLSX, and PPTX unpacking, validation, and repacking. Not a user-facing skill.
 user-invocable: false
 disable-model-invocation: true
+requires:
+  bins:
+    - node
+  node_modules:
+    - jszip
+    - linkedom
 metadata:
   hybridclaw:
     category: office
