@@ -30,6 +30,8 @@ const COMMAND_PREFIX_WORDS = new Set([
   'while',
 ]);
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const REDIRECT_RE = /^(?:\d+|&)?[<>]/;
+const BARE_REDIRECT_RE = /^(?:\d+|&)?[<>]+&?$/;
 const XARGS_VALUE_FLAGS = new Set([
   '-E',
   '-I',
@@ -215,6 +217,32 @@ export function commandProgram(words: string[]): {
     program: path.posix.basename(words[start] ?? '').toLowerCase(),
     args: words.slice(start + 1),
   };
+}
+
+// Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
+// the next word as its target.
+export function redirectWidth(word: string): number {
+  if (!REDIRECT_RE.test(word)) return 0;
+  return BARE_REDIRECT_RE.test(word) ? 2 : 1;
+}
+
+// find's starting points: the words before its first expression token, past
+// the -H/-L/-P/-O/-D options. None means the current directory.
+export function findStartingPoints(args: string[]): {
+  roots: string[];
+  expressionStart: number;
+} {
+  let index = 0;
+  while (index < args.length && /^-(?:[HLP]|O\d*|D)$/.test(args[index])) {
+    index += args[index] === '-D' ? 2 : 1;
+  }
+  const roots: string[] = [];
+  for (; index < args.length && !/^[-(!),]/.test(args[index]); index += 1) {
+    const width = redirectWidth(args[index]);
+    if (width > 0) index += width - 1;
+    else roots.push(args[index]);
+  }
+  return { roots, expressionStart: index };
 }
 
 // The command xargs runs on each batch of input lines; `echo` when none.

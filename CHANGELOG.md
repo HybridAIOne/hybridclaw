@@ -62,6 +62,15 @@
   find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
   absolute target outside the workspace hits the workspace fence. Plain
   `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
+- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
+  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
+  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
+  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
+  narrated yellow without a prompt. Promotion now requires every deletion
+  target (rm/unlink/`git rm` operands and the starting points of
+  `find -delete` or `find -exec rm`) to be such a path inside the workspace;
+  `xargs rm`, variables, `~`, `..`, and `rm -…` hidden in another command's
+  arguments make the deletion a plain `bash:delete`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

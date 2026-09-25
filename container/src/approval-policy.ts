@@ -34,7 +34,13 @@ import {
 import {
   commandProgram,
   FIND_EXEC_ACTIONS,
+  findStartingPoints,
+  MAX_NESTED_SCRIPT_DEPTH,
+  nestedScript,
+  redirectWidth,
   shellCommandsRun,
+  splitShellCommands,
+  xargsCommandWords,
 } from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
@@ -440,6 +446,13 @@ const READ_ONLY_PDF_SCRIPT_RE =
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
 const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
+const CACHE_PATH_SEGMENTS = new Set([
+  '.cache',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+]);
 const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
@@ -1199,12 +1212,12 @@ function buildBashInspectionSurface(command: string): string {
 }
 
 // git's global options come before the subcommand; -C and -c take a value.
-function gitSubcommand(args: string[]): string | undefined {
+function gitSubcommandIndex(args: string[]): number {
   let index = 0;
   while (index < args.length && args[index].startsWith('-')) {
     index += /^-[Cc]$/.test(args[index]) ? 2 : 1;
   }
-  return args[index];
+  return index;
 }
 
 // rm and unlink delete their operands, `find -delete` what it matches, and
@@ -1216,8 +1229,109 @@ function deletesFiles(words: string[]): boolean {
   if (program === 'find') return args.includes('-delete');
   return (
     program === 'git' &&
-    gitSubcommand(args) === 'rm' &&
+    args[gitSubcommandIndex(args)] === 'rm' &&
     !args.includes('--cached')
+  );
+}
+
+// The paths a deleting command names: words that are neither options (until
+// `--`) nor redirections.
+function deletionOperands(args: string[]): string[] {
+  const operands: string[] = [];
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const width = redirectWidth(arg);
+    if (width > 0) {
+      index += width - 1;
+    } else if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+    } else if (optionsEnded || !arg.startsWith('-')) {
+      operands.push(arg);
+    }
+  }
+  return operands;
+}
+
+// What one command deletes: rm/unlink/`git rm` operands, and the starting
+// points of `find -delete` or of a `find -exec` that deletes. null when the
+// targets are unknown: `xargs rm` reads them from stdin, and the DELETE_RE
+// fallback only sees `rm -…` somewhere in the text.
+function commandDeletionTargets(
+  words: string[],
+  depth: number,
+): string[] | null {
+  const { program, args } = commandProgram(words);
+  if (program === 'rm' || program === 'unlink') {
+    const operands = deletionOperands(args);
+    return operands.length > 0 ? operands : null;
+  }
+  if (program === 'git' && deletesFiles(words)) {
+    if (args.some((arg) => arg.startsWith('--pathspec-from-file'))) {
+      return null;
+    }
+    const pathspecs = deletionOperands(
+      args.slice(gitSubcommandIndex(args) + 1),
+    );
+    return pathspecs.length > 0 ? pathspecs : null;
+  }
+  if (program === 'find') {
+    const { roots, expressionStart } = findStartingPoints(args);
+    const targets: string[] = [];
+    let deletes = args.includes('-delete');
+    for (let index = expressionStart; index < args.length; index += 1) {
+      if (!FIND_EXEC_ACTIONS.has(args[index])) continue;
+      let end = index + 1;
+      while (end < args.length && !/^[;+]$/.test(args[end])) end += 1;
+      const execTargets = commandDeletionTargets(
+        args.slice(index + 1, end),
+        depth,
+      );
+      if (execTargets === null) return null;
+      if (execTargets.length > 0) deletes = true;
+      // `{}` stands for each file find reaches under its starting points.
+      targets.push(...execTargets.filter((target) => target !== '{}'));
+      index = end;
+    }
+    if (deletes) targets.push(...(roots.length > 0 ? roots : ['.']));
+    return targets;
+  }
+  if (program === 'xargs') {
+    const inner = commandDeletionTargets(xargsCommandWords(args), depth);
+    return inner === null || inner.length > 0 ? null : [];
+  }
+  const nested =
+    depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
+  if (nested !== null) return deletionTargets(nested, depth + 1);
+  return DELETE_RE.test(words.join(' ')) ? null : [];
+}
+
+function deletionTargets(script: string, depth = 0): string[] | null {
+  const targets: string[] = [];
+  for (const { words } of splitShellCommands(script)) {
+    const found = commandDeletionTargets(words, depth);
+    if (found === null) return null;
+    targets.push(...found);
+  }
+  return targets;
+}
+
+// A target a promotable cache cleanup may delete: a node_modules, dist, build,
+// coverage, or .cache path segment that stays in the workspace or scratch
+// space. `..`, `~`, and variables make the real target unknown.
+function isCacheDeletionTarget(target: string): boolean {
+  if (/^~|\$/.test(target)) return false;
+  const segments = target.split('/');
+  if (segments.includes('..')) return false;
+  if (
+    target.startsWith('/') &&
+    !isWorkspacePath(target) &&
+    !isScratchPath(target)
+  ) {
+    return false;
+  }
+  return segments.some((segment) =>
+    CACHE_PATH_SEGMENTS.has(segment.toLowerCase()),
   );
 }
 
@@ -3685,9 +3799,14 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (deletes) {
-      const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
-        lower,
-      );
+      // Promotable only when every target is cache or build output: a cache
+      // word anywhere in the line let `rm -rf src && npm run build` ride on
+      // one approved `rm -rf node_modules`.
+      const targets = deletionTargets(shellScript);
+      const promotable =
+        targets !== null &&
+        targets.length > 0 &&
+        targets.every(isCacheDeletionTarget);
       return {
         tier: 'red',
         actionKey: promotable ? 'bash:delete-cache' : 'bash:delete',

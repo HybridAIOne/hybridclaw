@@ -9,8 +9,10 @@ import path from 'node:path';
 import {
   commandProgram,
   FIND_EXEC_ACTIONS,
+  findStartingPoints,
   MAX_NESTED_SCRIPT_DEPTH,
   nestedScript,
+  redirectWidth,
   splitShellCommands,
   xargsCommandWords,
 } from './bash-commands.js';
@@ -45,8 +47,6 @@ const NAME_ONLY_PROGRAMS = new Set([
   'wc',
 ]);
 const URL_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-const REDIRECT_RE = /^(?:\d+|&)?[<>]/;
-const BARE_REDIRECT_RE = /^(?:\d+|&)?[<>]+&?$/;
 const GLOB_CHAR_RE = /[*?[]/;
 const EXCLUDE_ASSIGNMENT_RE = /^--exclude(?:-dir)?=/;
 const EXCLUDE_OPTIONS = new Set(['--exclude', '--exclude-dir']);
@@ -131,13 +131,6 @@ interface ProgramScan {
 
 // '' is the starting directory (the workspace); null is unknown (`cd -`).
 type Cwd = string | null;
-
-// Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
-// the next word as its target.
-function redirectWidth(word: string): number {
-  if (!REDIRECT_RE.test(word)) return 0;
-  return BARE_REDIRECT_RE.test(word) ? 2 : 1;
-}
 
 function splitLongOption(arg: string): [string, string | undefined] {
   const equals = arg.indexOf('=');
@@ -379,16 +372,7 @@ function scanRipgrep(args: string[]): ProgramScan {
 // every -name/-iname test must pass, so one test that rejects a name keeps
 // the action off it.
 function scanFind(args: string[]): ProgramScan {
-  let index = 0;
-  while (index < args.length && /^-(?:[HLP]|O\d*|D)$/.test(args[index])) {
-    index += args[index] === '-D' ? 2 : 1;
-  }
-  const roots: string[] = [];
-  for (; index < args.length && !/^[-(!),]/.test(args[index]); index += 1) {
-    const width = redirectWidth(args[index]);
-    if (width > 0) index += width - 1;
-    else roots.push(args[index]);
-  }
+  const { roots, expressionStart } = findStartingPoints(args);
   const tests: Array<{
     glob: string;
     caseInsensitive: boolean;
@@ -396,7 +380,7 @@ function scanFind(args: string[]): ProgramScan {
   }> = [];
   let disjunction = false;
   let reads = false;
-  for (; index < args.length; index += 1) {
+  for (let index = expressionStart; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '-o' || arg === '-or' || arg === ',') {
       disjunction = true;

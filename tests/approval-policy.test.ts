@@ -1148,11 +1148,64 @@ autonomy:
     'rm build/out.js',
     "find dist -name '*.map' -delete",
     'rm -rf node_modules',
+    'rm -rf dist build',
+    'rm -rf ./dist/',
+    'rm -r /workspace/node_modules',
+    'rm -rf build/*',
+    "find dist -name '*.map' -exec rm {} +",
+    'rm -rf node_modules && npm install',
+    'rm -rf node_modules 2>/dev/null',
+    'git rm -r dist',
+    "bash -c 'rm -rf build'",
   ])('cache and build deletions stay promotable: %j', (command) => {
     const evaluation = evaluateBash(command);
 
     expect(evaluation.actionKey).toBe('bash:delete-cache');
     expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    'rm -rf src && npm run build',
+    'rm -rf src; ls dist',
+    'rm notes.txt # rebuild',
+    'rm -rf build src',
+    'rm -rf node_modules/../src',
+    'rm -rf $DIR/node_modules',
+    'rm -rf ~/.cache',
+    'rm -rf ../build',
+    "find . -name node_modules -prune -exec rm -rf {} +",
+    'find build | xargs rm -rf',
+    'docker exec box rm -rf node_modules',
+  ])('deletions with any non-cache or unknown target are not promotable: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:delete');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    ['rm -rf src && npm run build', 'bash:delete', 'required'],
+    ['rm -rf src; ls dist', 'bash:delete', 'required'],
+    ['rm notes.txt # rebuild', 'bash:delete', 'required'],
+    ['rm -rf dist build', 'bash:delete-cache', 'promoted'],
+  ])('after one approved cache deletion, %j is %s (%s)', (command, actionKey, decision) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const evaluate = (bash: string) =>
+      runtime.evaluateToolCall({
+        toolName: 'bash',
+        argsJson: JSON.stringify({ command: bash }),
+        latestUserPrompt: 'Clean up the build output',
+      });
+
+    expect(evaluate('rm -rf node_modules').decision).toBe('required');
+    runtime.handleApprovalResponse([userMessage('yes')]);
+    expect(evaluate('rm -rf node_modules').decision).toBe('approved_once');
+
+    const evaluation = evaluate(command);
+    expect(evaluation.actionKey).toBe(actionKey);
+    expect(evaluation.decision).toBe(decision);
   });
 
   test('flagless deletions outside the workspace hit the workspace fence', () => {
