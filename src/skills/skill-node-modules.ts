@@ -9,15 +9,15 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { hasResolvableNodeModule } from '../utils/node-modules.js';
 
 const AGENT_PACKAGE_MANIFESTS = [
-  ['container', 'package.json'],
-  ['container', 'tools', 'package.json'],
+  '../../container/package.json',
+  '../../container/tools/package.json',
 ] as const;
 
 function agentPackageNames(): Set<string> {
   const names = new Set<string>();
-  for (const segments of AGENT_PACKAGE_MANIFESTS) {
+  for (const relativePath of AGENT_PACKAGE_MANIFESTS) {
     const manifest = JSON.parse(
-      fs.readFileSync(resolveInstallPath(...segments), 'utf8'),
+      fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8'),
     ) as { dependencies?: Record<string, string> };
     for (const name of Object.keys(manifest.dependencies ?? {})) {
       names.add(name);
@@ -26,7 +26,7 @@ function agentPackageNames(): Set<string> {
   return names;
 }
 
-const containerPackages = agentPackageNames();
+let containerPackages: Set<string> | null = null;
 
 function packageNameOf(specifier: string): string | null {
   const parts = specifier.trim().split('/');
@@ -47,5 +47,7 @@ export function hasAgentNodeModule(
     return hasResolvableNodeModule(specifier, { cwd: resolveInstallPath() });
   }
   const packageName = packageNameOf(specifier);
-  return packageName !== null && containerPackages.has(packageName);
+  if (packageName === null) return false;
+  containerPackages ??= agentPackageNames();
+  return containerPackages.has(packageName);
 }
