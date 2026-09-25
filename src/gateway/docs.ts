@@ -2514,6 +2514,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
 
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);
   if (!relativePath) return false;
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const wantsMarkdown = pathname.endsWith('.md');
 
   try {
