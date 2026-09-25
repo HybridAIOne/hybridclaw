@@ -24,6 +24,15 @@ through the per-turn dynamic context block, some are injected through memory
 recall, and some remain storage-only until a later consolidation or recall
 step.
 
+New sessions inherit their agent's `enableRag` setting. Existing session
+settings remain session-specific; creating a session does not replace an
+agent-level choice with the global default.
+
+Tool history preserves `is_error` on failed and unexecuted calls, including
+Anthropic `tool_result` error flags. OpenAI-shaped providers convey failures
+through result text. Pending approvals and policy denials are not counted in
+channel tools-used footers because those tools have not executed.
+
 ## At A Glance
 
 ```text

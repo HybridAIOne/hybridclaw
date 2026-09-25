@@ -2,7 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Empty auxiliary model replies use the fallback chain**: Session titles and
+  other auxiliary tasks try the next eligible model when a provider returns
+  blank text, and record the empty attempt as a failure.
+
+## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
+
 ### Added
+
+- **Unified model routing**: Configure shared capability tiers, Auto, Privacy,
+  Speed, and Cost modes, execution privacy boundaries, and optional live and
+  comparison classifiers. Shadow comparisons cannot change the executing model.
+  Opt-in chat details show route decisions, retries, timing, tokens, and costs.
+  Web chat supports immediate `/escalate <prompt>` and retains successful
+  escalations for the configured sticky window.
+- **HybridAI browser and device sign-in**: Onboarding and `auth login hybridai`
+  support OAuth with automatic token refresh and revocation on logout. Headless
+  shells use device codes when supported; `--api-key` retains explicit key setup.
+- **Teams user assignments and usage**: Assign observed Teams users to agents
+  from the Channels page and inspect each user's messages, sessions, tokens,
+  estimated cost, and last activity. Agent histories remain separate.
+- **Qwen thinking effort**: Web chat offers Model default, Off, Low, Medium,
+  and XHigh for HybridAI Qwen3.8 27B. Unsupported models receive no override.
+- **Agentic TPM**: A bundled project-coordination skill and portable `.claw`
+  package track evidence-backed commitments, dependencies, decisions, and risks.
+- **Skill library requirements**: Skills can declare `requires.node_modules`;
+  missing libraries appear as `node_module:<name>` and make the skill ineligible.
+- **Deferred MCP discovery**: Opt-in `tools.mcpToolMode: "deferred"`, with a
+  per-agent override, exposes MCP tools through `tool_catalog` on remote models
+  while retaining the existing permission, approval, and audit checks.
+- **Readable oversized tool results**: Truncated results point to a full text
+  file in `.tool-results/<session>/` that the agent can read during the same turn.
 
 - **Competitor monitoring community skill**: Added a packaged
   `competitor-monitoring` skill (`official/competitor-monitoring`) that keeps
@@ -12,9 +44,39 @@
 
 ### Fixed
 
-- **Empty auxiliary model replies use the fallback chain**: Session titles and
-  other auxiliary tasks try the next eligible model when a provider returns
-  blank text, and record the empty attempt as a failure.
+- **Discord announcements respect mention rules**: `@here` and `@everyone`
+  alone do not count as addressing the bot or trigger mention-only reactions.
+  Direct bot mentions, bot-role mentions, and reply pings still count.
+- **Office tools work in both runtime images**: Gateway and agent images install
+  Node and Python tool libraries from shared, locked manifests, including the
+  presentation and PDF libraries needed by host-sandbox cloud deployments.
+- **Skill installers respect the host**: Dependency recipes are selected by OS,
+  architecture, and installer availability. Existing binaries are skipped and
+  missing prerequisites are reported before execution; gog supports Linux Go
+  installation alongside macOS Homebrew.
+- **Disabled routing controls reflect saved state**: Routing-dependent controls
+  and chat visibility are disabled while automatic routing is off, preserving
+  the saved visibility preference for re-enablement.
+- **Model selectors identify the serving provider**: Provider logos reflect the
+  route serving a model rather than its model-family name.
+- **Admin RBAC fails closed**: Scoped sessions need the matching actions for
+  MCP OAuth and A2A outbox routes; unmapped admin routes deny scoped callers.
+- **Silent scheduled runs stay silent**: Agent runs that already handled delivery
+  skip the scheduler's delivery callback while retaining history and audit data.
+- **Web cron management works across chats**: An agent can list, update, and
+  remove its tasks from another web chat without moving their execution session
+  or delivery target. Messaging-channel tasks retain their original scope.
+- **New sessions inherit agent RAG settings**: An agent's `enableRag` setting
+  applies when creating a session instead of falling back to a different default.
+- **Chat equations render as math**: Inline and display LaTeX render in web chat;
+  code spans and fenced code remain literal.
+- **Tool failures retain error status**: Stored tool history preserves error
+  markers, including Anthropic `is_error` blocks. Pending and denied tool calls
+  are excluded from the tools-used footer.
+- **Cache usage and pricing are visible**: Usage summaries include cache reads,
+  cache writes, and hit rates across console, chat commands, and session context.
+  Cost estimates distinguish provider cache accounting and known cache prices.
+
 - **Installer no longer downloads the unused CUDA runtime**: `install.sh`
   sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
   installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw
@@ -123,7 +185,19 @@
 - **Cron tasks can be updated in place**: the `cron` tool gains an `update`
   action that patches an existing task's schedule, channel, or prompt by
   taskId, so schedule changes no longer leave duplicate tasks behind.
+
 ### Changed
+
+- **Dependencies refreshed with a seven-day release-age gate**: Compatible
+  updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
+  tooling, and Python PDF libraries. Exact pins, lockfiles, shrinkwraps,
+  dependency-policy hashes, and license notices remain synchronized. Newer
+  releases inside the age window and Node-24-only agent-browser updates are
+  held back.
+
+- **Contributor rules favor lean changes**: `AGENTS.md` defines single-source
+  facts, core/plugin boundaries, file-size limits, and module contracts;
+  `CLAUDE.md` imports the canonical instructions.
 
 - **Recall snippets are labeled as chat recall**: The prompt block is titled
   `### Chat Recall` and states that entries are recalled chat excerpts, not
