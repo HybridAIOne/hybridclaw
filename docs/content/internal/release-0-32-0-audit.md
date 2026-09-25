@@ -71,7 +71,7 @@ recorded in the changelog.
   requested dependency refresh described below.
 - No `compat: remove after vX.Y` implementation markers were found, so no
   compatibility code was removed.
-- README's latest-release link remains v0.31.1 until v0.32.0 is published.
+- README's latest-release link targets v0.32.0 for the authorized release.
 - No runtime logic, security policy, or running services were changed.
   Dependency manifests and locks were refreshed. This preparation is delivered
   through a pull request; tagging and release publication remain separate.
@@ -161,3 +161,11 @@ Next: review the preparation PR and baseline test failures, recheck merges
 since the audit snapshot, then merge, update README's latest-release link, tag,
 and publish when release execution is requested. No gateway restart or global
 CLI relink was performed.
+
+## CI Follow-up
+
+The first PR CI run passed lint, security scans, and agent/gateway Docker
+preflight jobs. The integration suite found that dots in this audit's filename
+were rejected by the docs route. Renaming it to `release-0-32-0-audit.md` keeps
+the existing route validation and allows the page to render. The existing
+all-documents integration test covers this fix.
