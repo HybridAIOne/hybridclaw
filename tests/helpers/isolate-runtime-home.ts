@@ -21,7 +21,6 @@ const isolatedHome = fs.mkdtempSync(
 process.env.HOME = isolatedHome;
 process.env.USERPROFILE = isolatedHome;
 delete process.env.HYBRIDCLAW_DATA_DIR;
-process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
 
 afterAll(() => {
   fs.rmSync(isolatedHome, { recursive: true, force: true });
