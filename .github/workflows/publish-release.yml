@@ -307,31 +307,6 @@ jobs:
       - name: Use npm 11
         run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
 
-      - name: Install dependencies
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
-        run: |
-          npm ci --ignore-scripts
-          npm --prefix container ci --ignore-scripts
-          npm --prefix container/tools ci --ignore-scripts --omit=dev
-
-      - name: Verify npm registry signatures
-        run: npm run audit:signatures
-
-      - name: Build and verify pack contents
-        run: npm run prepack
-
-      - name: Generate SBOMs (CycloneDX + SPDX)
-        run: npm run sbom
-
-      - name: Upload SBOMs
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: sbom-${{ needs.validate.outputs.tag }}
-          path: sbom/
-          if-no-files-found: error
-          retention-days: 90
-
       - name: Check npm package version
         id: npm-version
         shell: bash
@@ -339,15 +314,17 @@ jobs:
           set -euo pipefail
 
           VERSION="$(node -p "require('./package.json').version")"
+          PACKAGE="$(node -p "require('./package.json').name")"
           set +e
-          VIEW_OUTPUT="$(npm view "@hybridaione/hybridclaw@${VERSION}" version --json 2>&1)"
+          VIEW_OUTPUT="$(npm view "${PACKAGE}@${VERSION}" version --json 2>&1)"
           VIEW_STATUS=$?
           set -e
 
+          echo "package=${PACKAGE}" >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           if [[ "${VIEW_STATUS}" -eq 0 ]]; then
             echo "exists=true" >> "${GITHUB_OUTPUT}"
-            echo "@hybridaione/hybridclaw@${VERSION} is already published; skipping npm publish."
+            echo "${PACKAGE}@${VERSION} is already published; skipping npm publish."
             exit 0
           fi
 
@@ -359,13 +336,88 @@ jobs:
           echo "${VIEW_OUTPUT}" >&2
           exit "${VIEW_STATUS}"
 
-      - name: Publish to npm
+      - name: Install dependencies
+        if: steps.npm-version.outputs.exists != 'true'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix container ci --ignore-scripts
+          npm --prefix container/tools ci --ignore-scripts --omit=dev
+
+      - name: Verify npm registry signatures
+        if: steps.npm-version.outputs.exists != 'true'
+        run: npm run audit:signatures
+
+      - name: Build and verify pack contents
+        id: pack
         if: steps.npm-version.outputs.exists != 'true'
         run: |
-          VERSION="${{ steps.npm-version.outputs.version }}"
+          npm run prepack
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/npm-pack.json"
+          FILENAME="$(node -p "require(process.env.RUNNER_TEMP + '/npm-pack.json')[0].filename")"
+          echo "tarball=${RUNNER_TEMP}/${FILENAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOMs (CycloneDX + SPDX)
+        if: steps.npm-version.outputs.exists != 'true'
+        run: npm run sbom
+
+      - name: Upload SBOMs
+        if: steps.npm-version.outputs.exists != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-${{ needs.validate.outputs.tag }}
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish to npm and wait for availability
+        if: steps.npm-version.outputs.exists != 'true'
+        env:
+          VERSION: ${{ steps.npm-version.outputs.version }}
+          PACKAGE: ${{ steps.npm-version.outputs.package }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        shell: bash
+        run: |
+          set -euo pipefail
           if [[ "$VERSION" == *-* ]]; then
             NPM_TAG="next"
           else
             NPM_TAG="latest"
           fi
-          npm publish --access public --tag "$NPM_TAG" --provenance
+          # prepack already built and verified this tarball; do not rebuild it.
+          if PUBLISH_OUTPUT="$(npm publish "$TARBALL" --ignore-scripts --access public --tag "$NPM_TAG" --provenance 2>&1)"; then
+            echo "$PUBLISH_OUTPUT"
+          else
+            PUBLISH_STATUS=$?
+            echo "$PUBLISH_OUTPUT" >&2
+            # A retry can see E404 while npm scans an earlier successful upload.
+            # Recheck these CLI error strings when changing the npm pin above;
+            # the staged-version wording also comes from the registry.
+            if [[ "$PUBLISH_OUTPUT" == *"E409"* && "$PUBLISH_OUTPUT" == *"previously staged version \"$VERSION\""* ]]; then
+              echo "${PACKAGE}@${VERSION} is already staged; waiting for availability."
+            else
+              exit "$PUBLISH_STATUS"
+            fi
+          fi
+
+          # ~30 minutes plus requests (Codex, 2026-09-25): v0.32.0 took ~17 minutes.
+          # Keep the wait bounded; a held package may require maintainer review.
+          for attempt in {1..60}; do
+            if VIEW_OUTPUT="$(npm view "${PACKAGE}@${VERSION}" version --json --fetch-retries=0 --fetch-timeout=15000 2>&1)"; then
+              echo "${PACKAGE}@${VERSION} is available on npm."
+              exit 0
+            else
+              VIEW_STATUS=$?
+              if [[ "$VIEW_OUTPUT" != *"E404"* ]]; then
+                echo "$VIEW_OUTPUT" >&2
+                exit "$VIEW_STATUS"
+              fi
+            fi
+            if [[ "$attempt" -lt 60 ]]; then
+              echo "Waiting for npm to expose ${PACKAGE}@${VERSION} (attempt ${attempt}/60)."
+              sleep 30
+            fi
+          done
+          echo "::error::npm accepted ${PACKAGE}@${VERSION}, but it is still unavailable. Check npm's scan/staging status before retrying; do not change the release version."
+          exit 1
