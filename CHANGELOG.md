@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- npm releases build and verify the package once, publish the resulting tarball,
+  skip dependency installation for already-public versions, and wait for npm's
+  registry scan to finish after an accepted or previously staged upload.
+
 ### Fixed
 
 - **Document delivery**: Reports, lists, and data files an agent writes are
