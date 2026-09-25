@@ -83,6 +83,7 @@ import {
 } from './delivery.js';
 import type { HumanDelayConfig } from './human-delay.js';
 import {
+  buildOptionalReplyContext as buildOptionalReplyContextInbound,
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   type DiscordForwardedMessageLike,
   type DiscordGuildMessageMode,
@@ -172,6 +173,11 @@ export interface MessageRunContext {
   stream: DiscordStreamManager;
   mentionLookup: MentionLookup;
   emitLifecyclePhase: (phase: LifecyclePhase) => void;
+  /**
+   * Nobody in the batch addressed the bot directly, so the agent may choose
+   * not to reply. The content then carries the reply policy block.
+   */
+  replyOptional: boolean;
   sendApprovalNotification?: (params: {
     approval: Pick<
       GatewayChatApprovalEvent,
@@ -1842,7 +1848,11 @@ export async function initDiscord(
       inboundHistory.entries,
       rememberedParticipants,
     );
-    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${channelInfoContext}${replyContext}${inboundHistory.context}${attachmentContext.context}${participantContext}${batchedContent}`;
+    const replyOptional = !items.some((item) => item.wasExplicitlyAddressed);
+    const replyPolicyContext = replyOptional
+      ? buildOptionalReplyContextInbound()
+      : '';
+    const combinedContent = `${feedbackNote ? `[Reaction feedback]\n${feedbackNote}\n\n` : ''}${channelInfoContext}${replyContext}${inboundHistory.context}${attachmentContext.context}${participantContext}${replyPolicyContext}${batchedContent}`;
     const selectiveSilence = shouldSelectivelySilence({
       sourceItem,
       inboundHistory: inboundHistory.entries,
@@ -1977,6 +1987,7 @@ export async function initDiscord(
           stream,
           mentionLookup,
           emitLifecyclePhase,
+          replyOptional,
           sendApprovalNotification: async ({
             approval,
             presentation,

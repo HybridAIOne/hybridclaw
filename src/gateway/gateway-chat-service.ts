@@ -2879,13 +2879,16 @@ async function handleGatewayMessageInner(
         ? `${agentResultText}\n\n${sideEffectNotice}`
         : agentResultText);
     const unnormalizedResultText = rawResultText;
-    const normalizedResult = normalizeSilentMessageSendReply({
-      status: 'success',
-      result: unnormalizedResultText,
-      toolsUsed: output.toolsUsed || [],
-      outputPresentation: output.outputPresentation,
-      toolExecutions,
-    });
+    const normalizedResult = normalizeSilentMessageSendReply(
+      {
+        status: 'success',
+        result: unnormalizedResultText,
+        toolsUsed: output.toolsUsed || [],
+        outputPresentation: output.outputPresentation,
+        toolExecutions,
+      },
+      { allowSilentReply: req.allowSilentReply },
+    );
     let resultText = String(normalizedResult.result || unnormalizedResultText);
     if (pluginManager?.hasOutputGuards()) {
       try {
