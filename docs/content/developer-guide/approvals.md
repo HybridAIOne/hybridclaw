@@ -109,13 +109,13 @@ Two important transitions:
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
-| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag` | Write side effects inside the workspace |
+| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached` | Write side effects inside the workspace |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
-| Deletion | Red | `delete`, `rm`, `find -delete` | Destructive; cache/build deletions may be promotable |
+| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive; cache/build deletions may be promotable. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |

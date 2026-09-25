@@ -31,11 +31,8 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
-import {
-  findBashPinnedReach,
-  splitShellCommands,
-  xargsCommandWords,
-} from './bash-pinned-reach.js';
+import { commandProgram, shellCommandsRun } from './bash-commands.js';
+import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -422,20 +419,22 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b|\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b|\bwget\b[^\n|]*\|\s*(sh|bash|zsh)\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
-const DELETE_RE = /\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
+// Text fallback beside deletesFiles(): catches `rm -…` inside another
+// command's arguments, such as `docker exec box rm -rf /data`. `git rm` is left
+// to deletesFiles(), since `git rm --cached` keeps the files.
+const DELETE_RE = /(?<!\bgit\s+)\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const WRITE_INTENT_RE =
   /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
-  /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag)\b/i;
+  /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
 const UNKNOWN_SCRIPT_RE =
   /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
-const FIND_EXEC_ACTION_RE = /^-(?:exec|execdir|ok|okdir)$/;
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
@@ -1193,32 +1192,27 @@ function buildBashInspectionSurface(command: string): string {
     .join(' ; ');
 }
 
-// A simple command as text, plus the commands it runs for each input: what
-// `find -exec` runs per file, and xargs as the command it batches lines into.
-function commandTexts(words: string[]): string[] {
-  const program = words[0]?.toLowerCase();
-  if (program === 'xargs') {
-    return commandTexts(xargsCommandWords(words.slice(1)));
+// git's global options come before the subcommand; -C and -c take a value.
+function gitSubcommand(args: string[]): string | undefined {
+  let index = 0;
+  while (index < args.length && args[index].startsWith('-')) {
+    index += /^-[Cc]$/.test(args[index]) ? 2 : 1;
   }
-  const texts = [words.join(' ')];
-  if (program !== 'find') return texts;
-  for (let index = 1; index < words.length; index += 1) {
-    if (!FIND_EXEC_ACTION_RE.test(words[index])) continue;
-    const end = words.findIndex(
-      (word, at) => at > index && (word === ';' || word === '+'),
-    );
-    const stop = end < 0 ? words.length : end;
-    texts.push(...commandTexts(words.slice(index + 1, stop)));
-    index = stop;
-  }
-  return texts;
+  return args[index];
 }
 
-// Every command a script runs, as text: pipeline stages, later lines,
-// background jobs, `$(...)` and backtick contents, and `find -exec` or xargs
-// commands. splitCommandSegments() sees only the first of these.
-function shellCommandTexts(script: string): string[] {
-  return splitShellCommands(script).flatMap(({ words }) => commandTexts(words));
+// rm and unlink delete their operands, `find -delete` what it matches, and
+// `git rm` its paths unless --cached keeps them on disk. rmdir stays out: it
+// only removes empty directories.
+function deletesFiles(words: string[]): boolean {
+  const { program, args } = commandProgram(words);
+  if (program === 'rm' || program === 'unlink') return true;
+  if (program === 'find') return args.includes('-delete');
+  return (
+    program === 'git' &&
+    gitSubcommand(args) === 'rm' &&
+    !args.includes('--cached')
+  );
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -3574,6 +3568,7 @@ export class TrustedAgentApprovalRuntime {
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
     // segment; these checks need the commands bash actually runs.
     const shellScript = stripHereDocBodies(command);
+    const commandsRun = shellCommandsRun(shellScript);
     const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
       this.namesPinnedPath(candidate),
     );
@@ -3587,9 +3582,11 @@ export class TrustedAgentApprovalRuntime {
       ]),
     ];
     const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
+    const deletes =
+      DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
-      DELETE_RE.test(inspectionSurface) ||
+      deletes ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
 
@@ -3636,7 +3633,7 @@ export class TrustedAgentApprovalRuntime {
       }
     }
 
-    if (DELETE_RE.test(inspectionSurface)) {
+    if (deletes) {
       const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
         lower,
       );
@@ -3784,10 +3781,10 @@ export class TrustedAgentApprovalRuntime {
 
     // Green also needs every command the script runs to be read-only: the
     // first segment alone let `ls; tar czf - . | base64` run unnarrated.
-    const everyCommandReadOnly = shellCommandTexts(shellScript).every(
-      (text) =>
-        READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text),
-    );
+    const everyCommandReadOnly = commandsRun.every((words) => {
+      const text = words.join(' ');
+      return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
+    });
 
     if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {

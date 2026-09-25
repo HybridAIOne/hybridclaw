@@ -1,11 +1,19 @@
 /**
- * Bash command analysis for the approval policy: the simple commands a script
- * runs (`splitShellCommands`), operands that name a pinned path, and recursive
- * reads (`grep -r`, `find -exec`, `find | xargs`) that reach `.env*`, `/etc`,
- * or `~/.ssh` unnamed. Static: variables, interpreter scripts, and an earlier
- * call's `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
+ * Pinned-path reach of one bash command: operands that name a pinned path
+ * (relative, `~`, or a dotfile glob) and recursive reads (`grep -r`,
+ * `find -exec`, `find | xargs`) that reach `.env*`, `/etc`, or `~/.ssh` without
+ * naming them. Static: variables, interpreter scripts, and an earlier call's
+ * `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
+import {
+  commandProgram,
+  FIND_EXEC_ACTIONS,
+  MAX_NESTED_SCRIPT_DEPTH,
+  nestedScript,
+  splitShellCommands,
+  xargsCommandWords,
+} from './bash-commands.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
 import { expandUserPath } from './runtime-paths.js';
 
@@ -36,30 +44,6 @@ const NAME_ONLY_PROGRAMS = new Set([
   'stat',
   'wc',
 ]);
-// Words before the program itself: keywords and wrappers such as `env -i`.
-const COMMAND_PREFIX_WORDS = new Set([
-  '!',
-  '{',
-  'builtin',
-  'command',
-  'do',
-  'doas',
-  'elif',
-  'else',
-  'env',
-  'exec',
-  'if',
-  'nice',
-  'nohup',
-  'stdbuf',
-  'sudo',
-  'then',
-  'time',
-  'timeout',
-  'until',
-  'while',
-]);
-const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const URL_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 const REDIRECT_RE = /^(?:\d+|&)?[<>]/;
 const BARE_REDIRECT_RE = /^(?:\d+|&)?[<>]+&?$/;
@@ -75,7 +59,6 @@ const FIND_PATH_TESTS = new Set([
   '-path',
   '-wholename',
 ]);
-const FIND_EXEC_ACTIONS = new Set(['-exec', '-execdir', '-ok', '-okdir']);
 const GREP_VALUE_FLAGS = 'ABCDdefm';
 const GREP_VALUE_OPTIONS = new Set([
   '--after-context',
@@ -131,24 +114,6 @@ const RG_VALUE_OPTIONS = new Set([
   '--type-clear',
   '--type-not',
 ]);
-const XARGS_VALUE_FLAGS = new Set([
-  '-E',
-  '-I',
-  '-L',
-  '-P',
-  '-a',
-  '-d',
-  '-n',
-  '-s',
-]);
-const SHELL_PROGRAMS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
-const MAX_NESTED_SCRIPT_DEPTH = 3;
-
-interface ShellCommand {
-  words: string[];
-  // Reads the previous command's output through `|`.
-  piped: boolean;
-}
 
 // The files a walk lets through, by base name and by where it starts.
 interface Walk {
@@ -167,160 +132,11 @@ interface ProgramScan {
 // '' is the starting directory (the workspace); null is unknown (`cd -`).
 type Cwd = string | null;
 
-interface SubstitutionFrame {
-  words: string[];
-  word: string;
-  quote: '"' | null;
-  closer: ')' | '`';
-  depth: number;
-  piped: boolean;
-}
-
-// Splits a command into simple commands the way bash reads it: quotes group,
-// an unquoted `\x` is `x`, `$(...)` and backticks are commands of their own,
-// and `;`, `|`, `&`, `(`, `)`, and newlines separate (`2>&1` keeps its `&`).
-export function splitShellCommands(input: string): ShellCommand[] {
-  const commands: ShellCommand[] = [];
-  const frames: SubstitutionFrame[] = [];
-  let words: string[] = [];
-  let word = '';
-  let inWord = false;
-  let quote: "'" | '"' | null = null;
-  let depth = 0;
-  let piped = false;
-
-  const endWord = () => {
-    if (inWord) words.push(word);
-    word = '';
-    inWord = false;
-  };
-  const endCommand = (pipeNext = false) => {
-    endWord();
-    if (words.length > 0) {
-      commands.push({ words, piped });
-      piped = pipeNext;
-    } else if (pipeNext) {
-      piped = true;
-    }
-    words = [];
-  };
-  const openSubstitution = (closer: ')' | '`', outerQuote: '"' | null) => {
-    frames.push({ words, word, quote: outerQuote, closer, depth, piped });
-    words = [];
-    word = '';
-    inWord = false;
-    quote = null;
-    depth = 0;
-    piped = false;
-  };
-  const closeSubstitution = () => {
-    endCommand();
-    const frame = frames.pop() as SubstitutionFrame;
-    words = frame.words;
-    word = `${frame.word}$()`;
-    inWord = true;
-    quote = frame.quote;
-    depth = frame.depth;
-    piped = frame.piped;
-  };
-
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index];
-    const next = input[index + 1];
-    if (quote === "'") {
-      if (char === "'") quote = null;
-      else word += char;
-      continue;
-    }
-    if (char === '`' && frames.at(-1)?.closer === '`') {
-      closeSubstitution();
-      continue;
-    }
-    if (quote === '"') {
-      if (char === '"') {
-        quote = null;
-      } else if (
-        char === '\\' &&
-        next !== undefined &&
-        '$`"\\'.includes(next)
-      ) {
-        word += next;
-        index += 1;
-      } else if (char === '$' && next === '(') {
-        openSubstitution(')', '"');
-        index += 1;
-      } else if (char === '`') {
-        openSubstitution('`', '"');
-      } else {
-        word += char;
-      }
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      inWord = true;
-    } else if (char === '\\') {
-      if (next !== undefined && next !== '\n') {
-        word += next;
-        inWord = true;
-      }
-      index += 1;
-    } else if (char === '#' && !inWord) {
-      while (index + 1 < input.length && input[index + 1] !== '\n') index += 1;
-    } else if (char === '$' && next === '(') {
-      openSubstitution(')', null);
-      index += 1;
-    } else if (char === '`') {
-      openSubstitution('`', null);
-    } else if (char === ')' && depth === 0 && frames.at(-1)?.closer === ')') {
-      closeSubstitution();
-    } else if (char === '(' || char === ')') {
-      depth = Math.max(0, depth + (char === '(' ? 1 : -1));
-      endCommand();
-    } else if (char === '|') {
-      if (next === '|') index += 1;
-      else if (next === '&') index += 1;
-      endCommand(next !== '|');
-    } else if (
-      char === ';' ||
-      char === '\n' ||
-      (char === '&' &&
-        input[index - 1] !== '>' &&
-        input[index - 1] !== '<' &&
-        next !== '>')
-    ) {
-      if (char === '&' && next === '&') index += 1;
-      endCommand();
-    } else if (/\s/.test(char)) {
-      endWord();
-    } else {
-      word += char;
-      inWord = true;
-    }
-  }
-  while (frames.length > 0) closeSubstitution();
-  endCommand();
-  return commands;
-}
-
 // Words a redirection spans: `>out` and `2>&1` are one, a bare `>` also takes
 // the next word as its target.
 function redirectWidth(word: string): number {
   if (!REDIRECT_RE.test(word)) return 0;
   return BARE_REDIRECT_RE.test(word) ? 2 : 1;
-}
-
-function programIndex(words: string[]): number {
-  let index = 0;
-  let wrapped = false;
-  for (; index < words.length; index += 1) {
-    const word = words[index];
-    if (COMMAND_PREFIX_WORDS.has(word)) wrapped = true;
-    else if (!ASSIGNMENT_RE.test(word) && !(wrapped && /^[-\d]/.test(word))) {
-      break;
-    }
-  }
-  return index;
 }
 
 function splitLongOption(arg: string): [string, string | undefined] {
@@ -638,15 +454,6 @@ function scanLs(args: string[]): ProgramScan {
   };
 }
 
-// The command xargs runs on each batch of input lines; `echo` when none.
-export function xargsCommandWords(args: string[]): string[] {
-  let index = 0;
-  while (index < args.length && args[index].startsWith('-')) {
-    index += XARGS_VALUE_FLAGS.has(args[index]) ? 2 : 1;
-  }
-  return index < args.length ? args.slice(index) : ['echo'];
-}
-
 function scanXargs(args: string[]): ProgramScan {
   const program = path.posix.basename(xargsCommandWords(args)[0]);
   return {
@@ -815,14 +622,6 @@ function walkReaches(walk: Walk, cwd: Cwd): string[] {
   return reaches;
 }
 
-// Shell code a command runs itself: `bash -c '...'` or `eval ...`.
-function nestedScript(program: string, args: string[]): string | null {
-  if (program === 'eval') return args.join(' ');
-  if (!SHELL_PROGRAMS.has(program)) return null;
-  const flagAt = args.findIndex((arg) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg));
-  return flagAt >= 0 ? (args[flagAt + 1] ?? null) : null;
-}
-
 interface ScanState {
   namesPinnedPath: (candidate: string) => boolean;
   namedPaths: Set<string>;
@@ -840,9 +639,7 @@ function scanScript(
   let listing: Walk | null = null;
 
   for (const { words, piped } of splitShellCommands(script)) {
-    const start = programIndex(words);
-    const program = path.posix.basename(words[start] ?? '');
-    const args = words.slice(start + 1);
+    const { start, program, args } = commandProgram(words);
     const scan = scanProgram(program, args);
     const nonPath = new Set(scan.nonPathArgs.map((index) => index + start + 1));
 

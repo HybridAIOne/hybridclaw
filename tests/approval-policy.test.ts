@@ -1121,6 +1121,64 @@ autonomy:
     }
   });
 
+  test.each([
+    'rm notes.txt',
+    'rm notes.txt draft.md',
+    'unlink notes.txt',
+    "find . -name '*.log' -exec rm {} +",
+    "find . -name '*.log' -execdir rm {} \\;",
+    "find . -name '*.log' | xargs rm",
+    "find . -name '*.log' -print0 | xargs -0 rm",
+    'ls; rm notes.txt',
+    'timeout 5 rm notes.txt',
+    '\\rm notes.txt',
+    "bash -c 'rm notes.txt'",
+    'git rm notes.txt',
+    'git -C sub rm notes.txt',
+  ])('bash deletions without an rm flag are red: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:delete');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    'rm -rf build',
+    'rm build/out.js',
+    "find dist -name '*.map' -delete",
+    'rm -rf node_modules',
+  ])('cache and build deletions stay promotable: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:delete-cache');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test('flagless deletions outside the workspace hit the workspace fence', () => {
+    expect(evaluateBash('rm /opt/data/notes.txt').actionKey).toBe(
+      'bash:workspace-fence',
+    );
+  });
+
+  test.each([
+    ['git rm --cached notes.txt', 'bash:write-op', 'yellow'],
+    ['git rm -r --cached .', 'bash:write-op', 'yellow'],
+    // rmdir only removes empty directories.
+    ['rmdir empty-dir', 'bash:other', 'yellow'],
+    ['npm run format', 'bash:other', 'yellow'],
+    ['terraform plan', 'bash:other', 'yellow'],
+    ['echo "rm notes.txt"', 'bash:other', 'yellow'],
+    ['command -v rm', 'bash:other', 'yellow'],
+    ['pnpm rm lodash', 'bash:other', 'yellow'],
+    ['grep -n rmdir src/app.ts', 'bash:read-only', 'green'],
+  ])('commands that only mention rm are not deletions: %j', (command, actionKey, tier) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe(actionKey);
+    expect(evaluation.baseTier).toBe(tier);
+  });
+
   test('message read-only actions are green', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -1419,7 +1477,6 @@ approval:
     "cat <<'EOF' | python3\nprint(1)\nEOF",
     "find . -name '*.py' -exec python3 {} \\;",
     "find . -name '*.py' | xargs python3",
-    "find . -name '*.log' | xargs rm",
     'node skills/pdf/scripts/extract_pdf_text.mjs doc.pdf; python3 x.py',
   ])('a read-only first command does not make the rest green: %j', (command) => {
     const evaluation = evaluateBash(command);

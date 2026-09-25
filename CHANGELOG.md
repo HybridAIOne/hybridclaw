@@ -45,6 +45,15 @@
   Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
   while `git log | head`, `ls -la | grep foo`, and
   `find . -name '*.ts' | wc -l` stay green.
+- **Deletions without an `rm` flag need approval**: bash deletion detection
+  required a flag after `rm`, so `rm notes.txt` ran yellow and
+  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
+  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
+  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
+  (cache and build targets stay promotable `bash:delete-cache`), and a
+  flagless `rm` outside the workspace hits the workspace fence.
+  `git rm --cached`, which keeps the files, is now a yellow git write instead of
+  a deletion; `rmdir` stays yellow because it only removes empty directories.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
