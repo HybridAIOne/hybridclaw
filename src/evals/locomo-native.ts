@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import { initDatabase } from '../memory/db.js';
-import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
+import {
+  getEmbeddingProviderRegistration,
+  normalizeMemoryEmbeddingProviderKind,
+} from '../memory/embeddings.js';
 import { memoryService } from '../memory/memory-service.js';
 import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
+import { ensurePluginManagerInitialized } from '../plugins/plugin-manager.js';
 import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
 import { buildSessionKey } from '../session/session-key.js';
 import type { Session } from '../types/session.js';
@@ -623,6 +626,15 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
   }
 
   const runtime = readGatewayRuntime();
+  // Embedding providers other than `hashed` are plugin-supplied, and this CLI
+  // process does not load plugins otherwise.
+  if (
+    options.mode === 'retrieval' &&
+    (options.retrievalEmbeddingProvider !== 'hashed' ||
+      (options.matrix && options.matrixSweep === 'embedding'))
+  ) {
+    await ensurePluginManagerInitialized();
+  }
   const allSamples = loadSamples(datasetPath);
   const selectedSamples =
     options.numSamples && options.numSamples > 0
@@ -1270,7 +1282,7 @@ function resolveLocomoRetrievalEmbeddingModel(
   if (embeddingProvider !== 'transformers') {
     return null;
   }
-  return String(getRuntimeConfig().memory.embedding.model || '').trim() || null;
+  return getEmbeddingProviderRegistration(embeddingProvider)?.model || null;
 }
 
 function resolveLocomoRunEmbeddingModel(params: {

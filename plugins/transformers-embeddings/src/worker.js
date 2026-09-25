@@ -1,60 +1,23 @@
-import { type MessagePort, parentPort, workerData } from 'node:worker_threads';
-
+// Worker thread for provider.js: owns the Transformers.js pipeline and answers
+// one request at a time, waking the blocked caller through the shared control
+// word after every status and result message.
+import { parentPort, workerData } from 'node:worker_threads';
 import { env, pipeline } from '@huggingface/transformers';
 
-interface WorkerBootstrapData {
-  model: string;
-  revision: string;
-  dtype: 'fp32' | 'q8' | 'q4';
-  cacheDir: string;
-  control: SharedArrayBuffer;
-  port: MessagePort;
-}
-
-interface TransformersWorkerRequest {
-  requestId: number;
-  kind: 'embed' | 'warmup';
-  text?: string;
-}
-
-interface TransformersWorkerStatus {
-  type: 'status';
-  stage: string;
-  requestId: number | null;
-  detail: string | null;
-}
-
-const { model, revision, dtype, cacheDir, control, port } =
-  workerData as WorkerBootstrapData;
+const { model, revision, dtype, cacheDir, control, port } = workerData;
 const controlState = new Int32Array(control);
-
-type FeatureExtractor = (
-  text: string,
-  options: {
-    pooling: 'mean';
-    normalize: true;
-  },
-) => Promise<{ data: ArrayLike<number> }>;
-
-let extractorPromise: Promise<FeatureExtractor> | null = null;
-
+let extractorPromise = null;
 if (!parentPort) {
   throw new Error('Transformers embedding worker requires a parent port.');
 }
-
 env.cacheDir = cacheDir;
 env.allowLocalModels = true;
 env.allowRemoteModels = true;
-
 emitStatus('worker-started', null, `model=${model} dtype=${dtype}`);
-
-parentPort.on('message', (message: TransformersWorkerRequest) => {
+parentPort.on('message', (message) => {
   void handleRequest(message);
 });
-
-async function handleRequest(
-  message: TransformersWorkerRequest,
-): Promise<void> {
+async function handleRequest(message) {
   try {
     emitStatus(message.kind, message.requestId, buildRequestDetail(message));
     const extractor = await getExtractor();
@@ -90,7 +53,6 @@ async function handleRequest(
     Atomics.notify(controlState, 0);
   }
 }
-
 async function getExtractor() {
   if (!extractorPromise) {
     emitStatus(
@@ -98,17 +60,7 @@ async function getExtractor() {
       null,
       `model=${model} revision=${revision} dtype=${dtype}`,
     );
-    const createPipeline = pipeline as unknown as (
-      task: 'feature-extraction',
-      model: string,
-      options: {
-        revision: string;
-        dtype: 'fp32' | 'q8' | 'q4';
-        cache_dir: string;
-        device: 'cpu';
-      },
-    ) => Promise<FeatureExtractor>;
-    extractorPromise = createPipeline('feature-extraction', model, {
+    extractorPromise = pipeline('feature-extraction', model, {
       revision,
       dtype,
       cache_dir: cacheDir,
@@ -124,13 +76,8 @@ async function getExtractor() {
   }
   return extractorPromise;
 }
-
-function emitStatus(
-  stage: string,
-  requestId: number | null,
-  detail: string | null,
-): void {
-  const payload: TransformersWorkerStatus = {
+function emitStatus(stage, requestId, detail) {
+  const payload = {
     type: 'status',
     stage,
     requestId,
@@ -140,17 +87,11 @@ function emitStatus(
   notifyControl();
   writeTransformersWorkerLog(stage, requestId, detail);
 }
-
-function notifyControl(): void {
+function notifyControl() {
   Atomics.store(controlState, 0, 1);
   Atomics.notify(controlState, 0);
 }
-
-function writeTransformersWorkerLog(
-  stage: string,
-  requestId: number | null,
-  detail: string | null,
-): void {
+function writeTransformersWorkerLog(stage, requestId, detail) {
   if (
     (stage === 'embed' || stage === 'embed-completed') &&
     !shouldLogEmbeddingRequestMilestone(requestId)
@@ -163,12 +104,10 @@ function writeTransformersWorkerLog(
     `[transformers-embedding] ${new Date().toISOString()} stage=${stage}${requestPart}${detailPart}\n`,
   );
 }
-
-function shouldLogEmbeddingRequestMilestone(requestId: number | null): boolean {
+function shouldLogEmbeddingRequestMilestone(requestId) {
   return requestId === 1 || (requestId != null && requestId % 100 === 0);
 }
-
-function buildRequestDetail(message: TransformersWorkerRequest): string | null {
+function buildRequestDetail(message) {
   if (message.kind === 'warmup') {
     return `model=${model} revision=${revision} dtype=${dtype}`;
   }

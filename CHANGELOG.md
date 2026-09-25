@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Local embeddings move to the `transformers-embeddings` plugin**: The
+  Transformers.js embedding provider and its ONNX runtime (about 380 MB,
+  including sharp's LGPL libvips binaries) leave the core install. Install it
+  with `hybridclaw plugin install transformers-embeddings`; the default
+  `hashed` provider is unchanged. `memory.embedding` keeps only `provider`,
+  and non-default `memory.embedding.model`, `revision`, and `dtype` values
+  migrate once into the plugin's config (schema v39). A configured provider id
+  that no plugin registers now fails with an install hint. Plugins can supply
+  their own provider through `api.registerEmbeddingProvider`.
 - **Sandbox image drops the Mermaid parser**: `diagram_validate` and the
   Mermaid path of `diagram_create`/`diagram_update` check the diagram header
   and bracket balance instead of loading the `mermaid` package, which the

@@ -1,0 +1,17 @@
+{
+  "name": "hybridclaw-plugin-transformers-embeddings",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw memory embedding provider backed by local Transformers.js models",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  },
+  "overrides": {
+    "sharp": "0.35.4",
+    "tar": "7.5.22"
+  }
+}

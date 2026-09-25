@@ -1667,28 +1667,10 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 0.1,
     },
     {
-      path: 'memory.embedding.dtype',
-      section: 'memory',
-      kind: 'string',
-      defaultValue: 'q8',
-    },
-    {
-      path: 'memory.embedding.model',
-      section: 'memory',
-      kind: 'string',
-      defaultValue: 'onnx-community/embeddinggemma-300m-ONNX',
-    },
-    {
       path: 'memory.embedding.provider',
       section: 'memory',
       kind: 'string',
       defaultValue: 'hashed',
-    },
-    {
-      path: 'memory.embedding.revision',
-      section: 'memory',
-      kind: 'string',
-      defaultValue: '75a84c732f1884df76bec365346230e32f582c82',
     },
     {
       path: 'memory.queryMode',
@@ -2857,7 +2839,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 38,
+      defaultValue: 39,
     },
     {
       path: 'voice.allowFrom',

@@ -1,148 +1,69 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+/**
+ * Blocking Transformers.js embedding provider for HybridClaw built-in memory.
+ *
+ * Semantic memory embeds synchronously, so each request is posted to a worker
+ * thread (worker.js) and the caller parks on a SharedArrayBuffer until the
+ * worker answers or the request times out. There is no fallback to another
+ * provider: a failed request throws.
+ */
 import {
   MessageChannel,
-  type MessagePort,
   receiveMessageOnPort,
   Worker,
 } from 'node:worker_threads';
 
-import { logger } from '../logger.js';
-import type {
-  MemoryEmbeddingDtype,
-  MemoryEmbeddingInputKind,
-} from './embeddings.js';
-import type { EmbeddingProvider } from './memory-service.js';
-
 const WORKER_POLL_INTERVAL_MS = 50;
 const WORKER_REQUEST_TIMEOUT_MS = 120_000;
-
-interface TransformersWorkerRequest {
-  requestId: number;
-  kind: 'embed' | 'warmup';
-  text?: string;
-}
-
-interface TransformersWorkerSuccess {
-  requestId: number;
-  ok: true;
-  embedding: number[] | null;
-}
-
-interface TransformersWorkerFailure {
-  requestId: number;
-  ok: false;
-  error: string;
-}
-
-interface TransformersWorkerStatus {
-  type: 'status';
-  stage: string;
-  requestId: number | null;
-  detail: string | null;
-}
-
-type TransformersWorkerResponse =
-  | TransformersWorkerSuccess
-  | TransformersWorkerFailure
-  | TransformersWorkerStatus;
-
-export interface BlockingEmbeddingRuntime {
-  embed(text: string): number[] | null;
-  warmup?(): void;
-  dispose?(): void;
-}
-
-export interface TransformersJsEmbeddingProviderOptions {
-  model: string;
-  revision: string;
-  dtype: MemoryEmbeddingDtype;
-  cacheDir: string;
-}
-
-interface WorkerBootstrapData extends TransformersJsEmbeddingProviderOptions {
-  control: SharedArrayBuffer;
-  port: MessagePort;
-}
-
-interface WorkerStatusSnapshot {
-  stage: string;
-  requestId: number | null;
-  detail: string | null;
-  at: string;
-}
-
-const transformersEmbeddingLogger =
-  'child' in logger && typeof logger.child === 'function'
-    ? logger.child({
-        component: 'transformers-embedding',
-      })
-    : logger;
-
-export class TransformersJsEmbeddingProvider implements EmbeddingProvider {
-  private readonly runtime: BlockingEmbeddingRuntime;
-  private readonly model: string;
-
-  constructor(
-    options: TransformersJsEmbeddingProviderOptions,
-    runtime?: BlockingEmbeddingRuntime,
-  ) {
+export class TransformersJsEmbeddingProvider {
+  runtime;
+  model;
+  constructor(options, runtime) {
     this.model = options.model;
     this.runtime =
       runtime || new PollingWorkerTransformersEmbeddingRuntime(options);
   }
-
-  embedQuery(text: string): number[] | null {
+  embedQuery(text) {
     const normalized = text.trim();
     if (!normalized) return null;
     return this.runtime.embed(
       buildTransformersEmbeddingInput(normalized, 'query', this.model),
     );
   }
-
-  embedDocument(text: string): number[] | null {
+  embedDocument(text) {
     const normalized = text.trim();
     if (!normalized) return null;
     return this.runtime.embed(
       buildTransformersEmbeddingInput(normalized, 'document', this.model),
     );
   }
-
-  warmup(): void {
+  warmup() {
     this.runtime.warmup?.();
   }
-
-  dispose(): void {
+  dispose() {
     this.runtime.dispose?.();
   }
 }
-
-class PollingWorkerTransformersEmbeddingRuntime
-  implements BlockingEmbeddingRuntime
-{
-  private readonly options: TransformersJsEmbeddingProviderOptions;
-  private readonly pollIntervalMs: number;
-  private readonly timeoutMs: number;
-
-  private worker: Worker | null = null;
-  private port: MessagePort | null = null;
-  private control: Int32Array | null = null;
-  private nextRequestId = 1;
-  private lastStatus: WorkerStatusSnapshot | null = null;
-  private lastWorkerError: Error | null = null;
-  private lastWorkerExitCode: number | null = null;
-  private shuttingDown = false;
-
-  constructor(options: TransformersJsEmbeddingProviderOptions) {
+class PollingWorkerTransformersEmbeddingRuntime {
+  options;
+  pollIntervalMs;
+  timeoutMs;
+  worker = null;
+  port = null;
+  control = null;
+  nextRequestId = 1;
+  lastStatus = null;
+  lastWorkerError = null;
+  lastWorkerExitCode = null;
+  shuttingDown = false;
+  constructor(options) {
     this.options = options;
     this.pollIntervalMs = WORKER_POLL_INTERVAL_MS;
     this.timeoutMs = WORKER_REQUEST_TIMEOUT_MS;
   }
-
-  warmup(): void {
+  warmup() {
     const requestId = this.nextRequestId;
     this.nextRequestId += 1;
-    transformersEmbeddingLogger.info(
+    this.options.logger.info(
       {
         requestId,
         model: this.options.model,
@@ -162,7 +83,7 @@ class PollingWorkerTransformersEmbeddingRuntime
         textLength: null,
       },
     });
-    transformersEmbeddingLogger.info(
+    this.options.logger.info(
       {
         requestId,
         model: this.options.model,
@@ -170,15 +91,13 @@ class PollingWorkerTransformersEmbeddingRuntime
       'Transformers.js embedding warmup completed',
     );
   }
-
-  embed(text: string): number[] | null {
+  embed(text) {
     const normalized = text.trim();
     if (!normalized) return null;
     const requestId = this.nextRequestId;
     this.nextRequestId += 1;
-
     if (shouldLogEmbeddingRequestMilestone(requestId)) {
-      transformersEmbeddingLogger.info(
+      this.options.logger.info(
         {
           requestId,
           model: this.options.model,
@@ -187,7 +106,6 @@ class PollingWorkerTransformersEmbeddingRuntime
         'Transformers.js embedding request started',
       );
     }
-
     const embedding = this.sendRequest({
       requestId,
       request: {
@@ -200,9 +118,8 @@ class PollingWorkerTransformersEmbeddingRuntime
         textLength: normalized.length,
       },
     });
-
     if (shouldLogEmbeddingRequestMilestone(requestId)) {
-      transformersEmbeddingLogger.info(
+      this.options.logger.info(
         {
           requestId,
           model: this.options.model,
@@ -213,8 +130,7 @@ class PollingWorkerTransformersEmbeddingRuntime
     }
     return embedding;
   }
-
-  dispose(): void {
+  dispose() {
     this.shuttingDown = true;
     this.port?.close();
     this.port = null;
@@ -225,12 +141,7 @@ class PollingWorkerTransformersEmbeddingRuntime
     this.lastWorkerError = null;
     this.lastWorkerExitCode = null;
   }
-
-  private ensureWorker(): {
-    worker: Worker;
-    port: MessagePort;
-    control: Int32Array;
-  } {
+  ensureWorker() {
     if (this.worker && this.port && this.control) {
       return {
         worker: this.worker,
@@ -238,12 +149,11 @@ class PollingWorkerTransformersEmbeddingRuntime
         control: this.control,
       };
     }
-
     const controlBuffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
     const control = new Int32Array(controlBuffer);
     const { port1, port2 } = new MessageChannel();
     this.shuttingDown = false;
-    transformersEmbeddingLogger.info(
+    this.options.logger.info(
       {
         model: this.options.model,
         revision: this.options.revision,
@@ -252,23 +162,26 @@ class PollingWorkerTransformersEmbeddingRuntime
       },
       'Starting Transformers.js embedding worker',
     );
-    const worker = new Worker(buildWorkerModuleUrl(), {
+    const worker = new Worker(this.options.workerUrl, {
       workerData: {
-        ...this.options,
+        model: this.options.model,
+        revision: this.options.revision,
+        dtype: this.options.dtype,
+        cacheDir: this.options.cacheDir,
         control: controlBuffer,
         port: port2,
-      } satisfies WorkerBootstrapData,
+      },
       transferList: [port2],
     });
     worker.on('online', () => {
-      transformersEmbeddingLogger.info(
+      this.options.logger.info(
         { model: this.options.model },
         'Transformers.js embedding worker is online',
       );
     });
     worker.on('error', (error) => {
       this.lastWorkerError = error;
-      transformersEmbeddingLogger.error(
+      this.options.logger.error(
         { err: error, model: this.options.model },
         'Transformers.js embedding worker error',
       );
@@ -283,12 +196,12 @@ class PollingWorkerTransformersEmbeddingRuntime
       }
       this.lastWorkerExitCode = code;
       if (code === 0) {
-        transformersEmbeddingLogger.info(
+        this.options.logger.info(
           { model: this.options.model, exitCode: code },
           'Transformers.js embedding worker exited',
         );
       } else {
-        transformersEmbeddingLogger.error(
+        this.options.logger.error(
           { model: this.options.model, exitCode: code },
           'Transformers.js embedding worker exited unexpectedly',
         );
@@ -298,33 +211,21 @@ class PollingWorkerTransformersEmbeddingRuntime
         Atomics.notify(this.control, 0);
       }
     });
-
     this.worker = worker;
     this.port = port1;
     this.control = control;
     this.lastWorkerError = null;
     this.lastWorkerExitCode = null;
-
     return {
       worker,
       port: port1,
       control,
     };
   }
-
-  private sendRequest(params: {
-    requestId: number;
-    request: TransformersWorkerRequest;
-    detailForError: {
-      requestKind: 'embed' | 'warmup';
-      textLength: number | null;
-    };
-  }): number[] | null {
+  sendRequest(params) {
     const { worker, port, control } = this.ensureWorker();
-
     Atomics.store(control, 0, 0);
     worker.postMessage(params.request);
-
     const deadline = Date.now() + this.timeoutMs;
     while (Date.now() <= deadline) {
       if (this.lastWorkerError) {
@@ -341,9 +242,8 @@ class PollingWorkerTransformersEmbeddingRuntime
           `Transformers.js embedding worker exited with code ${exitCode} for ${this.options.model}. Check eval logs for [transformers-embedding] diagnostics.`,
         );
       }
-
       const packet = receiveMessageOnPort(port);
-      const message = packet?.message as TransformersWorkerResponse | undefined;
+      const message = packet?.message;
       if (message && isWorkerStatusMessage(message)) {
         this.recordWorkerStatus(message);
         continue;
@@ -358,12 +258,10 @@ class PollingWorkerTransformersEmbeddingRuntime
         }
         return message.embedding;
       }
-
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) break;
       Atomics.wait(control, 0, 0, Math.min(this.pollIntervalMs, remainingMs));
     }
-
     throw new Error(
       formatTransformersEmbeddingTimeoutMessage({
         timeoutMs: this.timeoutMs,
@@ -375,8 +273,7 @@ class PollingWorkerTransformersEmbeddingRuntime
       }),
     );
   }
-
-  private recordWorkerStatus(message: TransformersWorkerStatus): void {
+  recordWorkerStatus(message) {
     this.lastStatus = {
       stage: message.stage,
       requestId: message.requestId,
@@ -399,28 +296,22 @@ class PollingWorkerTransformersEmbeddingRuntime
       ((message.stage === 'embed' || message.stage === 'embed-completed') &&
         shouldLogEmbeddingRequestMilestone(message.requestId))
     ) {
-      transformersEmbeddingLogger.info(
+      this.options.logger.info(
         logPayload,
         'Transformers.js embedding worker status',
       );
       return;
     }
-    transformersEmbeddingLogger.debug(
+    this.options.logger.debug(
       logPayload,
       'Transformers.js embedding worker status',
     );
   }
 }
-
-function shouldLogEmbeddingRequestMilestone(
-  requestId: number | null | undefined,
-): boolean {
+function shouldLogEmbeddingRequestMilestone(requestId) {
   return requestId === 1 || (requestId != null && requestId % 100 === 0);
 }
-
-function isWorkerStatusMessage(
-  value: TransformersWorkerResponse,
-): value is TransformersWorkerStatus {
+function isWorkerStatusMessage(value) {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -428,15 +319,7 @@ function isWorkerStatusMessage(
     value.type === 'status'
   );
 }
-
-function formatTransformersEmbeddingTimeoutMessage(params: {
-  timeoutMs: number;
-  model: string;
-  requestId: number;
-  requestKind: 'embed' | 'warmup';
-  textLength: number | null;
-  lastStatus: WorkerStatusSnapshot | null;
-}): string {
+function formatTransformersEmbeddingTimeoutMessage(params) {
   const lastStatus = params.lastStatus
     ? ` Last worker status: ${params.lastStatus.stage}${
         params.lastStatus.requestId != null
@@ -450,12 +333,7 @@ function formatTransformersEmbeddingTimeoutMessage(params: {
       : `request ${params.requestId}, ${params.textLength || 0} chars`;
   return `Transformers.js embedding request timed out after ${params.timeoutMs}ms for model ${params.model} (${requestDescription}).${lastStatus} Check eval logs for [transformers-embedding] diagnostics.`;
 }
-
-function buildTransformersEmbeddingInput(
-  text: string,
-  kind: MemoryEmbeddingInputKind,
-  model: string,
-): string {
+function buildTransformersEmbeddingInput(text, kind, model) {
   if (!isEmbeddingGemmaModel(model)) {
     return text;
   }
@@ -464,21 +342,6 @@ function buildTransformersEmbeddingInput(
   }
   return `title: none | text: ${text}`;
 }
-
-function isEmbeddingGemmaModel(model: string): boolean {
+function isEmbeddingGemmaModel(model) {
   return model.toLowerCase().includes('embeddinggemma');
-}
-
-function isSourceTsWorker(): boolean {
-  return path.extname(fileURLToPath(import.meta.url)) === '.ts';
-}
-
-function buildWorkerModuleUrl(): URL {
-  if (isSourceTsWorker()) {
-    return new URL(
-      './transformers-embedding-worker-bootstrap.mjs',
-      import.meta.url,
-    );
-  }
-  return new URL('./transformers-embedding-worker.js', import.meta.url);
 }

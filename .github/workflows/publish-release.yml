@@ -308,8 +308,6 @@ jobs:
         run: npm install --global npm@11.10.0 --ignore-scripts --no-audit --fund=false
 
       - name: Install dependencies
-        env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           npm ci --ignore-scripts
           npm --prefix container ci --ignore-scripts

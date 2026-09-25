@@ -23,6 +23,7 @@ hybridclaw plugin install ./plugins/honcho-memory
 hybridclaw plugin install ./plugins/mem0-memory
 hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
+hybridclaw plugin install ./plugins/transformers-embeddings
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install @scope/hybridclaw-plugin-example
@@ -107,6 +108,9 @@ or change one top-level `plugins.list[].config` key without editing
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
+- `transformers-embeddings` registers the `transformers` embedding provider
+  for built-in semantic memory, running a local Transformers.js (ONNX) model
+  in a worker thread; select it with `memory.embedding.provider`
 - `output-guard` registers `post_receive` middleware that checks final
   responses against configured policy guidance, banned phrases or regexes,
   required phrases, and optional classifier/rewriter models. It can flag,
@@ -284,6 +288,7 @@ surfaces through `HybridClawPluginApi`.
 Currently wired runtime surfaces:
 
 - memory layers
+- memory embedding providers (`registerEmbeddingProvider`)
 - prompt hooks
 - classifier middleware with `pre_send` and `post_receive` hooks
 - plugin tools

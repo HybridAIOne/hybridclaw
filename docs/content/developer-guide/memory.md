@@ -425,10 +425,7 @@ message includes a `## History Window` note with the omitted turn count.
 | prompt recall default | `5` memories | normal prompt assembly asks for up to five semantic matches |
 | prompt recall hard cap | `12` memories | `buildPromptMemoryContext()` clamps prompt injection to at most `memory.semanticPromptHardCap` memories |
 | low-level recall hard cap | `50` memories | lower-level semantic recall API maximum for non-prompt callers |
-| embedding provider | `hashed` | `memory.embedding.provider` selects the semantic vector source: the built-in hashed fallback or a local Transformers.js model |
-| Transformers.js model | configured model id | `memory.embedding.model` controls the Hugging Face model id when the Transformers.js provider is enabled |
-| Transformers.js revision | `75a84c732f1884df76bec365346230e32f582c82` | `memory.embedding.revision` pins the exact Hugging Face model revision downloaded on first use |
-| Transformers.js dtype | `q8` | `memory.embedding.dtype` selects the local ONNX quantization variant (`fp32`, `q8`, or `q4`) |
+| embedding provider | `hashed` | `memory.embedding.provider` selects the semantic vector source: the built-in `hashed` provider, or an id registered by a plugin such as `transformers` |
 | query prep mode | `no-stopwords` | `memory.queryMode` can keep the raw query or strip common stopwords before recall |
 | recall backend | `hybrid` | `memory.backend` selects cosine retrieval, full-text BM25 retrieval, or a hybrid fusion of both |
 | rerank mode | `bm25` | `memory.rerank` can BM25-rerank the chosen candidate set before the final prompt slice |
@@ -438,11 +435,26 @@ message includes a `## History Window` note with the omitted turn count.
 | semantic stale threshold | `7` days | only memories not accessed for at least seven days are decayed |
 | semantic decay floor | `0.1` | nightly decay never pushes confidence below this floor |
 
-If you enable `memory.embedding.provider = "transformers"`, the first cosine
-query will download and cache the configured ONNX model under
-`~/.hybridclaw/cache/transformers`. Gated Hugging Face models follow the
-standard `HF_TOKEN` / `HF_ACCESS_TOKEN` environment variables supported by
-Transformers.js.
+Local model embeddings ship as the `transformers-embeddings` plugin, so the
+ONNX runtime is only installed where it is used:
+
+```bash
+hybridclaw plugin install transformers-embeddings
+hybridclaw config set memory.embedding.provider transformers
+```
+
+The plugin config holds `model`, `revision` (pinned so vectors stay
+comparable), `dtype` (`fp32`, `q8`, or `q4`), and an optional `cacheDir`. The
+first cosine query downloads the model into `~/.hybridclaw/cache/transformers`.
+Gated Hugging Face models follow the standard `HF_TOKEN` / `HF_ACCESS_TOKEN`
+environment variables supported by Transformers.js. A provider id that no
+plugin registers fails memory writes and recall with an install hint; it never
+falls back to `hashed`, because vectors from different providers are not
+comparable.
+
+Plugins supply a provider with `api.registerEmbeddingProvider({ id, model,
+create })`, where `create()` returns an object with synchronous
+`embedQuery(text)` and `embedDocument(text)` methods.
 
 ### Session Summary Decay
 

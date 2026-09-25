@@ -656,10 +656,7 @@
     "consolidationLanguage": "en",
     "semanticPromptHardCap": 12,
     "embedding": {
-      "provider": "hashed",
-      "model": "onnx-community/embeddinggemma-300m-ONNX",
-      "revision": "75a84c732f1884df76bec365346230e32f582c82",
-      "dtype": "q8"
+      "provider": "hashed"
     },
     "queryMode": "no-stopwords",
     "backend": "hybrid",

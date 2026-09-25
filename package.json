@@ -44,6 +44,7 @@
     "plugins/line/",
     "plugins/vonage-voice/",
     "plugins/tier-router/",
+    "plugins/transformers-embeddings/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",
@@ -121,7 +122,6 @@
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",
-    "@huggingface/transformers": "3.8.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@ngrok/ngrok": "1.7.0",
     "@opentelemetry/api": "1.9.1",
@@ -207,7 +207,6 @@
       "brace-expansion": "5.0.9",
       "ua-parser-js": "1.0.41"
     },
-    "sharp": "0.35.4",
     "shell-quote": "1.10.0",
     "tar": "7.5.22",
     "tmp": "0.2.7"

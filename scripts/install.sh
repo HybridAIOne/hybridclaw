@@ -164,7 +164,7 @@ detect_platform() {
     arm64|aarch64) PLATFORM_ARCH="arm64" ;;
     armv7l)
       PLATFORM_ARCH="armv7l"
-      warn "32-bit ARM has limited support: browser automation and local transformers embeddings are unavailable."
+      warn "32-bit ARM has limited support: browser automation is unavailable."
       ;;
     *) die "unsupported architecture: $arch" ;;
   esac
@@ -528,9 +528,9 @@ install_cli() {
     info "[dry-run] would run: npm install -g --no-audit --no-fund ${spec}"
     return 0
   fi
-  # onnxruntime-node's postinstall otherwise downloads its CUDA build from
-  # GitHub on Linux x64; HybridClaw runs embeddings on CPU, and a stalled
-  # download hangs the install with no output.
+  # compat: remove after v0.33 — releases up to v0.31 bundle onnxruntime-node,
+  # whose postinstall downloads its CUDA build from GitHub on Linux x64 and can
+  # hang the install with no output. `--version` can still install them.
   export ONNXRUNTIME_NODE_INSTALL_CUDA="${ONNXRUNTIME_NODE_INSTALL_CUDA:-skip}"
   if ! npm install -g --no-audit --no-fund "$spec"; then
     err "Global npm install failed. Common causes:"

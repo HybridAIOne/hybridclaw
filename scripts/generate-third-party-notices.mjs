@@ -32,7 +32,10 @@ const checkMode = process.argv.includes('--check');
 // Install-on-demand plugins whose dependency closures are fetched only when a
 // user explicitly enables them. They are not part of the distributed core
 // dependency tree, so they stay out of the core notices file.
-const CORE_EXCLUDED_COMPONENTS = new Set(['plugins/line']);
+const CORE_EXCLUDED_COMPONENTS = new Set([
+  'plugins/line',
+  'plugins/transformers-embeddings',
+]);
 
 function fail(message) {
   console.error(`third-party-notices: ${message}`);

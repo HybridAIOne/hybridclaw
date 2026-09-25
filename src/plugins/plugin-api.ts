@@ -14,6 +14,7 @@ import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getRecentMessages, getSessionById } from '../memory/db.js';
+import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
@@ -133,6 +134,9 @@ export function createPluginApi(params: {
     runtime,
     registerMemoryLayer(layer: MemoryLayerPlugin): void {
       params.manager.registerMemoryLayer(params.pluginId, layer);
+    },
+    registerEmbeddingProvider(provider: EmbeddingProviderRegistration): void {
+      params.manager.registerEmbeddingProvider(params.pluginId, provider);
     },
     registerProvider(provider: AIProvider): void {
       params.manager.registerProvider(params.pluginId, provider);

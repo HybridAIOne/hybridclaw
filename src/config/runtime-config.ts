@@ -66,16 +66,9 @@ import {
 } from '../channels/slack-webhook/target.js';
 import { assertMlxEndpoint } from '../inference/mlx-endpoint.js';
 import { supportsMcpOAuth } from '../mcp/server-config.js';
-import type {
-  MemoryEmbeddingDtype,
-  MemoryEmbeddingProviderKind,
-} from '../memory/embeddings.js';
 import {
   DEFAULT_MEMORY_EMBEDDING_PROVIDER,
-  DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
-  DEFAULT_MEMORY_TRANSFORMERS_MODEL,
-  DEFAULT_MEMORY_TRANSFORMERS_REVISION,
-  normalizeMemoryEmbeddingDtype,
+  type MemoryEmbeddingProviderKind,
   normalizeMemoryEmbeddingProviderKind,
 } from '../memory/embeddings.js';
 import type {
@@ -153,6 +146,7 @@ import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
 } from './local-model-validation.js';
+import { migrateMemoryEmbeddingToPlugin } from './runtime-config-migrations.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -181,7 +175,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 38;
+export const CONFIG_VERSION = 39;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -1360,9 +1354,6 @@ export interface RuntimeConfig {
     semanticPromptHardCap: number;
     embedding: {
       provider: MemoryEmbeddingProviderKind;
-      model: string;
-      revision: string;
-      dtype: MemoryEmbeddingDtype;
     };
     queryMode: MemoryQueryMode;
     backend: MemoryRecallBackend;
@@ -2204,9 +2195,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     semanticPromptHardCap: 12,
     embedding: {
       provider: DEFAULT_MEMORY_EMBEDDING_PROVIDER,
-      model: DEFAULT_MEMORY_TRANSFORMERS_MODEL,
-      revision: DEFAULT_MEMORY_TRANSFORMERS_REVISION,
-      dtype: DEFAULT_MEMORY_TRANSFORMERS_DTYPE,
     },
     queryMode: 'no-stopwords',
     backend: 'hybrid',
@@ -7348,7 +7336,11 @@ function normalizeRuntimeConfig(
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawSkillsRecord = rawSkills as Record<string, unknown>;
-  const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
+  const rawPlugins = migrateMemoryEmbeddingToPlugin(
+    isRecord(raw.memory) ? raw.memory : {},
+    isRecord(raw.plugins) ? raw.plugins : {},
+    sourceVersion,
+  );
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
@@ -8926,28 +8918,6 @@ function normalizeRuntimeConfig(
             { allowEmpty: false },
           ),
           DEFAULT_RUNTIME_CONFIG.memory.embedding.provider,
-        ),
-        model: normalizeString(
-          isRecord(rawMemory.embedding) ? rawMemory.embedding.model : undefined,
-          DEFAULT_RUNTIME_CONFIG.memory.embedding.model,
-          { allowEmpty: false },
-        ),
-        revision: normalizeString(
-          isRecord(rawMemory.embedding)
-            ? rawMemory.embedding.revision
-            : undefined,
-          DEFAULT_RUNTIME_CONFIG.memory.embedding.revision,
-          { allowEmpty: false },
-        ),
-        dtype: normalizeMemoryEmbeddingDtype(
-          normalizeString(
-            isRecord(rawMemory.embedding)
-              ? rawMemory.embedding.dtype
-              : undefined,
-            DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
-            { allowEmpty: false },
-          ),
-          DEFAULT_RUNTIME_CONFIG.memory.embedding.dtype,
         ),
       },
       queryMode:

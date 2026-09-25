@@ -217,10 +217,9 @@ saved revision history directly.
   memory cleanup, prompt-time semantic recall limits, and live semantic
   retrieval behavior (`memory.backend` accepts `cosine`, `full-text`, or
   `hybrid`, while `memory.tokenizer` accepts `unicode61`, `porter`, or
-  `trigram`; `memory.embedding.provider` accepts `hashed` or
-  `transformers`, with the Transformers.js provider configured by
-  `memory.embedding.model`, `memory.embedding.revision`, and
-  `memory.embedding.dtype`); `0`
+  `trigram`; `memory.embedding.provider` accepts `hashed` or an id a
+  plugin registers, such as `transformers` from the
+  `transformers-embeddings` plugin, which holds its own model settings); `0`
   disables scheduled runs, `24` matches `dream on`, and `dream now` triggers
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh

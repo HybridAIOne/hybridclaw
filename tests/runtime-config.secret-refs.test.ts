@@ -155,12 +155,7 @@ describe('runtime config secret refs', () => {
     writeRawRuntimeConfig(homeDir, (config) => {
       const memory = config.memory as Record<string, unknown>;
       memory.semanticPromptHardCap = 27;
-      memory.embedding = {
-        provider: 'transformers',
-        model: 'onnx-community/embeddinggemma-300m-ONNX',
-        revision: '75a84c732f1884df76bec365346230e32f582c82',
-        dtype: 'q4',
-      };
+      memory.embedding = { provider: 'transformers' };
       memory.queryMode = 'no-stopwords';
       memory.backend = 'full-text';
       memory.rerank = 'bm25';
@@ -175,19 +170,56 @@ describe('runtime config secret refs', () => {
     expect(runtimeConfig.getRuntimeConfig().memory.embedding.provider).toBe(
       'transformers',
     );
-    expect(runtimeConfig.getRuntimeConfig().memory.embedding.model).toBe(
-      'onnx-community/embeddinggemma-300m-ONNX',
-    );
-    expect(runtimeConfig.getRuntimeConfig().memory.embedding.revision).toBe(
-      '75a84c732f1884df76bec365346230e32f582c82',
-    );
-    expect(runtimeConfig.getRuntimeConfig().memory.embedding.dtype).toBe('q4');
     expect(runtimeConfig.getRuntimeConfig().memory.queryMode).toBe(
       'no-stopwords',
     );
     expect(runtimeConfig.getRuntimeConfig().memory.backend).toBe('full-text');
     expect(runtimeConfig.getRuntimeConfig().memory.rerank).toBe('bm25');
     expect(runtimeConfig.getRuntimeConfig().memory.tokenizer).toBe('porter');
+  });
+
+  test.each([
+    [
+      'moves non-default legacy embedding settings into the plugin entry',
+      { model: 'Xenova/all-MiniLM-L6-v2', dtype: 'q4' },
+      [],
+      { model: 'Xenova/all-MiniLM-L6-v2', dtype: 'q4' },
+    ],
+    [
+      'keeps values already set on the plugin entry',
+      { model: 'Xenova/all-MiniLM-L6-v2' },
+      [{ id: 'transformers-embeddings', config: { model: 'custom/model' } }],
+      { model: 'custom/model' },
+    ],
+    [
+      'skips legacy defaults',
+      {
+        model: 'onnx-community/embeddinggemma-300m-ONNX',
+        revision: '75a84c732f1884df76bec365346230e32f582c82',
+        dtype: 'q8',
+      },
+      [],
+      null,
+    ],
+  ])('v38 config migration %s', async (_name, legacy, pluginList, expected) => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      config.version = 38;
+      (config.memory as Record<string, unknown>).embedding = {
+        provider: 'transformers',
+        ...legacy,
+      };
+      config.plugins = { list: pluginList };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const config = runtimeConfig.getRuntimeConfig();
+    const entry = config.plugins.list.find(
+      (item) => item.id === 'transformers-embeddings',
+    );
+
+    expect(config.memory.embedding).toEqual({ provider: 'transformers' });
+    expect(entry?.config ?? null).toEqual(expected);
   });
 
   test('resolves stored secret refs for targeted config fields', async () => {

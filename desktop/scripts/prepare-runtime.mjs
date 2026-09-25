@@ -152,8 +152,7 @@ export async function shouldIncludePackage(
   }
 }
 
-/** Packages excluded from the runtime bundle (browser-only / unused). */
-const EXCLUDED_PACKAGES = new Set(['onnxruntime-web']);
+/** Scopes excluded from the runtime bundle (type-only). */
 const EXCLUDED_SCOPES = new Set(['@types']);
 
 /**
@@ -186,21 +185,7 @@ function isDirectPackageChild(src, packagePath) {
   return path.dirname(src) === packagePath;
 }
 
-function shouldCopyOnnxRuntimeEntry(src, packagePath, target) {
-  const relativePath = path.relative(packagePath, src);
-  if (!relativePath) return true;
-
-  const parts = relativePath.split(path.sep);
-  if (parts[0] !== 'bin' || parts[1] !== 'napi-v3') return true;
-
-  if (parts.length <= 2) return true;
-  if (parts[2] !== target.platform) return false;
-
-  if (parts.length === 3) return true;
-  return parts[3] === target.arch;
-}
-
-export function shouldCopyEntry(src, packagePath, target = runtimeTarget) {
+export function shouldCopyEntry(src, packagePath) {
   const base = path.basename(src);
   if (STRIPPED_FILE_SUFFIXES.some((suffix) => base.endsWith(suffix))) {
     return false;
@@ -211,9 +196,6 @@ export function shouldCopyEntry(src, packagePath, target = runtimeTarget) {
     if (isDirectPackageChild(src, packagePath)) {
       return false;
     }
-  }
-  if (getPackageName(packagePath) === 'onnxruntime-node') {
-    return shouldCopyOnnxRuntimeEntry(src, packagePath, target);
   }
   return true;
 }
@@ -227,7 +209,7 @@ function getPackageName(packagePath) {
 export function isExcludedPackage(packagePath) {
   const fullName = getPackageName(packagePath);
   const scope = fullName.startsWith('@') ? fullName.split('/')[0] : '';
-  return EXCLUDED_PACKAGES.has(fullName) || EXCLUDED_SCOPES.has(scope);
+  return EXCLUDED_SCOPES.has(scope);
 }
 
 async function copyPackageDir(sourceDir, targetDir, packagePath) {

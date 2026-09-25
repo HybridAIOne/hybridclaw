@@ -71,7 +71,9 @@ import {
   type SemanticRecallFilter,
 } from './db.js';
 import {
-  getDefaultMemoryEmbeddingCacheDir,
+  type EmbeddingProvider,
+  type EmbeddingProviderRegistration,
+  getEmbeddingProviderRegistration,
   type MemoryEmbeddingProviderKind,
   normalizeMemoryEmbeddingProviderKind,
 } from './embeddings.js';
@@ -87,7 +89,6 @@ import {
   normalizeMemoryRecallBackend,
   prepareMemoryRecallQuery,
 } from './semantic-recall.js';
-import { TransformersJsEmbeddingProvider } from './transformers-embedding-provider.js';
 
 export interface CompactionCandidate {
   cutoffId: number;
@@ -240,14 +241,6 @@ export interface MemoryServiceConfig {
   summaryMinConfidence: number;
   summaryDiscardThreshold: number;
   embeddingDimensions: number;
-}
-
-export interface EmbeddingProvider {
-  embed?(text: string): number[] | null;
-  embedQuery?(text: string): number[] | null;
-  embedDocument?(text: string): number[] | null;
-  warmup?(): void;
-  dispose?(): void;
 }
 
 export interface StoreTurnParams {
@@ -466,7 +459,8 @@ export class MemoryService {
     string,
     Promise<CompactionResult>
   >();
-  private runtimeEmbeddingProviderKey: string | null = null;
+  private runtimeEmbeddingRegistration: EmbeddingProviderRegistration | null =
+    null;
   private runtimeEmbeddingProvider: EmbeddingProvider | null = null;
 
   constructor(
@@ -1007,34 +1001,35 @@ export class MemoryService {
       return this.defaultEmbeddingProvider;
     }
 
-    const runtimeEmbedding = getRuntimeConfig().memory.embedding;
+    const configuredKind = getRuntimeConfig().memory.embedding.provider;
     const providerKind = normalizeMemoryEmbeddingProviderKind(
-      embeddingProvider ?? runtimeEmbedding.provider,
-      runtimeEmbedding.provider,
+      embeddingProvider ?? configuredKind,
+      configuredKind,
     );
-    if (providerKind !== 'transformers') {
+    if (providerKind === 'hashed') {
       this.runtimeEmbeddingProvider?.dispose?.();
       this.runtimeEmbeddingProvider = null;
-      this.runtimeEmbeddingProviderKey = null;
+      this.runtimeEmbeddingRegistration = null;
       return this.defaultEmbeddingProvider;
     }
 
-    const providerKey = JSON.stringify(runtimeEmbedding);
+    const registration = getEmbeddingProviderRegistration(providerKind);
+    if (!registration) {
+      throw new Error(
+        `Memory embedding provider "${providerKind}" is not registered. Install and enable the plugin that provides it (for "transformers": hybridclaw plugin install transformers-embeddings), or set memory.embedding.provider to "hashed".`,
+      );
+    }
+    // Identity check: a plugin reload re-registers, which must rebuild the provider.
     if (
-      this.runtimeEmbeddingProviderKey === providerKey &&
+      this.runtimeEmbeddingRegistration === registration &&
       this.runtimeEmbeddingProvider
     ) {
       return this.runtimeEmbeddingProvider;
     }
 
     this.runtimeEmbeddingProvider?.dispose?.();
-    this.runtimeEmbeddingProvider = new TransformersJsEmbeddingProvider({
-      model: runtimeEmbedding.model,
-      revision: runtimeEmbedding.revision,
-      dtype: runtimeEmbedding.dtype,
-      cacheDir: getDefaultMemoryEmbeddingCacheDir(),
-    });
-    this.runtimeEmbeddingProviderKey = providerKey;
+    this.runtimeEmbeddingProvider = registration.create();
+    this.runtimeEmbeddingRegistration = registration;
     return this.runtimeEmbeddingProvider;
   }
 
