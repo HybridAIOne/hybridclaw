@@ -9,14 +9,14 @@ import {
 
 const INSTRUCTION_SPECS = [
   {
-    path: 'SECURITY.md',
-    sourceRelativePath: 'SECURITY.md',
-  },
-  {
     path: 'TRUST_MODEL.md',
     sourceRelativePath: 'TRUST_MODEL.md',
   },
 ] as const;
+
+// compat: remove after v0.33 — SECURITY.md was a runtime copy until the safety
+// prompt hook stopped reading it; sync deletes the stale copy on old installs.
+const RETIRED_INSTRUCTION_FILES = ['SECURITY.md'] as const;
 
 export const INSTRUCTION_FILES = INSTRUCTION_SPECS.map((spec) => spec.path);
 export const INSTRUCTION_RUNTIME_DIR = path.join(
@@ -101,6 +101,9 @@ export function syncRuntimeInstructionCopies(): InstructionSyncResult {
     const runtimePath = resolveRuntimeInstructionPath(spec.path);
     fs.copyFileSync(sourcePath, runtimePath);
     files[spec.path] = sha256File(runtimePath);
+  }
+  for (const relPath of RETIRED_INSTRUCTION_FILES) {
+    fs.rmSync(path.join(INSTRUCTION_RUNTIME_DIR, relPath), { force: true });
   }
 
   return {

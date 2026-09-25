@@ -12,6 +12,10 @@
 
 ### Fixed
 
+- **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
+  only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
+  `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
+  from older installs.
 - **Installer no longer downloads the unused CUDA runtime**: `install.sh`
   sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
   installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw
