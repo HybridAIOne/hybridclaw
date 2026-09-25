@@ -14,7 +14,7 @@ const INSTRUCTION_SPECS = [
   },
 ] as const;
 
-// compat: remove after v0.33 — SECURITY.md was a runtime copy until the safety
+// compat: remove after v0.34 — SECURITY.md was a runtime copy until the safety
 // prompt hook stopped reading it; sync deletes the stale copy on old installs.
 const RETIRED_INSTRUCTION_FILES = ['SECURITY.md'] as const;
 
