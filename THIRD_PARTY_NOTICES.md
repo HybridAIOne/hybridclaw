@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-738 production dependencies.
+739 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -157,6 +157,7 @@ texts ship inside the respective packages.
 | @opentelemetry/sdk-trace-base | 2.10.0 | Apache-2.0 |
 | @opentelemetry/sdk-trace-node | 2.10.0 | Apache-2.0 |
 | @opentelemetry/semantic-conventions | 1.43.0 | Apache-2.0 |
+| @pdf-lib/fontkit | 1.1.1 | MIT |
 | @pdf-lib/standard-fonts | 1.0.0 | MIT |
 | @pdf-lib/upng | 1.0.1 | MIT |
 | @pinojs/redact | 0.4.0 | MIT |
@@ -760,7 +761,7 @@ texts ship inside the respective packages.
 
 ## hybridclaw-agent (`container/npm-shrinkwrap.json`)
 
-270 production dependencies.
+271 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -797,6 +798,7 @@ texts ship inside the respective packages.
 | @napi-rs/canvas-win32-arm64-msvc | 1.0.9 | MIT |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT |
 | @napi-rs/canvas-win32-x64-msvc | 1.0.9 | MIT |
+| @pdf-lib/fontkit | 1.1.1 | MIT |
 | @pdf-lib/standard-fonts | 1.0.0 | MIT |
 | @pdf-lib/upng | 1.0.1 | MIT |
 | @types/d3 | 7.4.3 | MIT |
@@ -17058,6 +17060,7 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | @ngrok/ngrok-win32-arm64-msvc | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-win32-ia32-msvc | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-win32-x64-msvc | 1.7.0 | MIT | platform-specific optional dependency |
+| @pdf-lib/fontkit | 1.1.1 | MIT | no license file bundled with the package |
 | @sapphire/async-queue | 1.5.5 | MIT | no license file bundled with the package |
 | @sapphire/snowflake | 3.5.5 | MIT | no license file bundled with the package |
 | @sentry/server-utils | 10.75.0 | MIT | no license file bundled with the package |
