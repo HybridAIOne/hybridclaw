@@ -18,6 +18,21 @@ Use it when you want to:
 - publish a starter agent package
 - generate agent packages from scripts without reverse-engineering the runtime
 
+## Agentic TPM Example
+
+The repository includes `agent-packages/agentic-tpm.claw`, a portable agent for
+project commitments, dependencies, decisions, risks, and bounded follow-ups.
+From a source checkout:
+
+```bash
+hybridclaw agent inspect ./agent-packages/agentic-tpm.claw
+hybridclaw agent install ./agent-packages/agentic-tpm.claw --id agentic-tpm
+```
+
+Its deterministic builder is `agent-packages/agentic-tpm/build.py`; the canonical
+bundled skill is `skills/agentic-tpm/`, also available with `/skill agentic-tpm`.
+The package contains no credentials, live project data, or active schedules.
+
 ## CLI
 
 ```bash
