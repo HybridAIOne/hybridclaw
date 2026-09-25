@@ -23,7 +23,9 @@ import {
 const FETCH_PROGRAMS = new Set(['curl', 'wget']);
 // Interpreters, with the options whose value is the program text or a module
 // (so neither a file operand nor stdin runs) and the options that take some
-// other value; shells also run stdin under `-s` (`sh -s -- args`).
+// other value; shells also run stdin under `-s` (`sh -s -- args`). Letters
+// cluster (`bash -eo pipefail`, `python3 -Bc`, `perl -ne`), and a value-taking
+// letter ends its cluster, so these match it as the cluster's last letter.
 const INTERPRETERS: Array<{
   program: RegExp;
   inline?: RegExp;
@@ -33,20 +35,20 @@ const INTERPRETERS: Array<{
   {
     program: /^(?:bash|dash|ksh|sh|zsh)$/,
     inline: /^-[a-zA-Z]*c[a-zA-Z]*$/,
-    value: /^[-+]o$/,
+    value: /^[-+][a-zA-Z]*o$/,
     stdin: /^-[a-zA-Z]*s/,
   },
   {
     program: /^python\d*(?:\.\d+)?$/,
-    inline: /^-[cm]$/,
-    value: /^-[WX]$/,
+    inline: /^-[a-zA-Z]*[cm]$/,
+    value: /^-[a-zA-Z]*[WX]$/,
   },
   {
     program: /^(?:node|nodejs)$/,
     inline: /^(?:-[ep]|--eval|--print)$/,
     value: /^(?:-r|--require|--import)$/,
   },
-  { program: /^(?:perl|ruby)$/, inline: /^-[eE]$/ },
+  { program: /^(?:perl|ruby)$/, inline: /^-[a-zA-Z]*[eE]$/ },
   { program: /^php$/, inline: /^-r$/ },
   { program: /^(?:source|\.)$/ },
 ];
