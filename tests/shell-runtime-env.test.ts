@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import type { ServerResponse } from 'node:http';
+import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -166,3 +167,50 @@ test('Docker exec passes token names in argv and values only in its environment'
   expect(args).not.toContain('test-key');
   expect(options).toMatchObject({ env: { GOG_ACCESS_TOKEN: 'test-key' } });
 });
+
+test.each([false, true])(
+  'shell metacharacters in workspace and temporary paths stay literal (persistent=%s)',
+  async (persistent) => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    vi.mocked(spawnSync).mockImplementation(actual.spawnSync);
+    const root = makeTemp();
+    const workspace = path.join(
+      root,
+      `workspace ' " $(printf injected); space`,
+    );
+    const temp = path.join(root, `temp ' " $(printf injected); space`);
+    fs.mkdirSync(workspace);
+    fs.writeFileSync(path.join(workspace, 'marker'), 'ok');
+    fs.mkdirSync(temp);
+    vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspace);
+    vi.stubEnv('TMPDIR', temp);
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', '');
+    const tools = await import('../container/src/tools.js');
+    tools.setPersistentBashStateEnabled(persistent);
+    try {
+      for (let turn = 0; turn < 2; turn++) {
+        const command = 'cat marker';
+        const output = await tools.executeTool(
+          'bash',
+          JSON.stringify({ command }),
+        );
+        expect(output.trim()).toBe('ok');
+        const [executable, args, options] = vi
+          .mocked(spawnSync)
+          .mock.calls.at(-1)!;
+        expect(executable).toBe('bash');
+        expect(args![1]).not.toContain(workspace);
+        expect(args![1]).not.toContain(temp);
+        expect(options).toMatchObject({
+          cwd: workspace,
+          input: `${command}\0`,
+        });
+      }
+    } finally {
+      tools.resetPersistentBashSessions();
+    }
+  },
+);

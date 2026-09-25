@@ -32,9 +32,16 @@ export function runBashProcess(
   ).trim();
   if (gatewayUrl) env.HYBRIDCLAW_GATEWAY_URL = gatewayUrl;
   if (gatewayToken) env.HYBRIDCLAW_GATEWAY_TOKEN = gatewayToken;
-  const command = TASK_SANDBOX_FS_ENABLED ? 'docker' : 'bash';
-  const commandArgs = TASK_SANDBOX_FS_ENABLED
-    ? [
+  const options = {
+    input: `${params.command}\0`,
+    timeout: params.timeoutMs,
+    encoding: 'utf-8' as const,
+    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+  };
+  if (TASK_SANDBOX_FS_ENABLED) {
+    return spawnSync(
+      'docker',
+      [
         'exec',
         '-i',
         '-w',
@@ -43,17 +50,13 @@ export function runBashProcess(
         BASH_DOCKER_CONTAINER,
         'bash',
         ...args,
-      ]
-    : args;
-  return spawnSync(command, commandArgs, {
-    input: `${params.command}\0`,
-    timeout: params.timeoutMs,
-    encoding: 'utf-8',
-    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    ...(!TASK_SANDBOX_FS_ENABLED ? { cwd: WORKSPACE_ROOT } : {}),
-    env: {
-      ...(TASK_SANDBOX_FS_ENABLED ? process.env : env),
-      ...params.runtimeEnv,
-    },
+      ],
+      { ...options, env: { ...process.env, ...params.runtimeEnv } },
+    );
+  }
+  return spawnSync('bash', args, {
+    ...options,
+    cwd: WORKSPACE_ROOT,
+    env: { ...env, ...params.runtimeEnv },
   });
 }
