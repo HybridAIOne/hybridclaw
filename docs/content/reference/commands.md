@@ -42,7 +42,7 @@ hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
 hybridclaw browser-pool doctor
-hybridclaw gateway concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
+hybridclaw gateway concierge [info]
 hybridclaw update [status|--check] [--yes]
 hybridclaw help
 ```
@@ -592,6 +592,13 @@ created in messaging channels remain scoped to their original session.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
 tasks that never ran are retained.
 
+Use the `cron` tool's `update` action with the existing `taskId` to change a
+schedule, prompt, or delivery channel without creating a duplicate. Updating a
+task from another web chat preserves its original execution session and delivery
+target unless explicitly changed. If a scheduled agent returns the internal
+`__MESSAGE_SEND_HANDLED__` sentinel, the scheduler skips its delivery callback
+while retaining the run in history and audit records.
+
 ## In Session
 
 - `/help` shows the same canonical slash-command list in TUI and embedded web
@@ -626,7 +633,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/channel-policy <open|allowlist|disabled>` | chat channels | Set the guild/workspace channel policy |
 | `/clear` | local and chat channels | Clear the visible session transcript |
 | `/compact` | local and chat channels | Compact older session history into memory |
-| `/concierge [info|on|off|model|profile]` | local and chat channels | Inspect or configure concierge routing |
+| `/concierge [info]` | local and chat channels | Inspect routing; configure it in Models → Routing |
 | `/config [check|reload|get|set]` | local TUI/web | Inspect, reload, or edit runtime config |
 | `/context` | local TUI/web | Show context-window usage and compaction headroom |
 | `/dream [status|on|off|now]` | local TUI/web | Configure or run memory consolidation |
