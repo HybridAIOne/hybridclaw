@@ -1150,12 +1150,19 @@ async function handleGatewayMessageInner(
       verdict: 'preempted',
     });
   }
-  const budgetHardStopError = enforceAgentBudgetHardStop({
-    session,
-    runId,
-    agentId,
-    source,
-  });
+  // Before the session rebind below, so a refused turn skips the reset work.
+  let budgetHardStopError: string | null;
+  try {
+    budgetHardStopError = enforceAgentBudgetHardStop({
+      session,
+      runId,
+      agentId,
+      source,
+    });
+  } catch (error) {
+    activeGatewayRequest.release();
+    throw error;
+  }
   if (budgetHardStopError) {
     activeGatewayRequest.release();
     return attachSessionIdentity({
