@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type {
   RoutingTrace,
@@ -87,3 +87,172 @@ describe('routing tags', () => {
     expect(screen.queryByText('30 tokens')).toBeNull();
   });
 });
+
+it.each([true, false])(
+  'shows whether a JEV recommendation was applied (%s)',
+  (applied) => {
+    render(
+      <RoutingTags
+        trace={{
+          ...trace(),
+          mode: 'concierge',
+          evaluation: {
+            version: 1,
+            provider: 'jev',
+            mode: 'active',
+            status: 'evaluated',
+            reason: 'capability-recommendation',
+            model: 'jev-test',
+            durationMs: 20,
+            inputTokens: 10,
+            outputTokens: 5,
+            costUsd: null,
+            distributions: null,
+            recommendedTier: 'advanced',
+            applied,
+          },
+        }}
+      />,
+    );
+    const summary = screen.getByLabelText('Routing and usage details');
+    expect(summary.textContent).toContain(
+      applied ? 'jev-test → advanced' : 'Fallback → economy',
+    );
+    expect(summary.textContent).not.toContain('Cost');
+  },
+);
+
+it('shows small classifier costs and known partial totals', () => {
+  render(
+    <RoutingTags
+      trace={trace([
+        {
+          ...attempt,
+          id: 1,
+          kind: 'auxiliary',
+          model: 'jev/jev-latest',
+          costUsd: 0.000036918,
+        },
+        { ...attempt, id: 2, costUsd: null },
+      ])}
+    />,
+  );
+  expect(screen.getByText('Known $0.00003692 · partial')).not.toBeNull();
+  expect(screen.getAllByText(/Est. \$0.00003692/).length).toBeGreaterThan(0);
+});
+
+it('shows the live and shadow decisions with separate classifier costs', () => {
+  const evaluation = {
+    version: 1 as const,
+    provider: 'rules',
+    mode: 'active' as const,
+    status: 'evaluated' as const,
+    reason: 'configured-tier',
+    model: 'rule-based',
+    durationMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    distributions: null,
+    recommendedTier: 'economy',
+    applied: true,
+  };
+  render(
+    <RoutingTags
+      trace={{
+        ...trace(),
+        evaluation,
+        shadowEvaluation: {
+          ...evaluation,
+          provider: 'jev',
+          model: 'jev-test',
+          mode: 'shadow',
+          recommendedTier: 'advanced',
+          applied: false,
+          costUsd: 0.0000042,
+        },
+      }}
+    />,
+  );
+  const summary = screen.getByLabelText('Routing and usage details');
+  expect(summary.textContent).toContain('Rules → economy');
+  expect(summary.textContent).not.toContain('JEV');
+  expect(summary.textContent).not.toContain('$');
+  expect(
+    within(
+      screen.getByRole('table', { name: 'Routing decisions', hidden: true }),
+    ).getByText('jev-test'),
+  ).not.toBeNull();
+});
+
+it('keeps probability distributions out of chat and shows relevant privacy restrictions', () => {
+  const score = (choice: string) => ({
+    choice,
+    confidence: 0.92,
+    probabilities: { [choice]: 1 },
+  });
+  render(
+    <RoutingTags
+      trace={{
+        ...trace(),
+        shadowEvaluation: {
+          version: 1,
+          provider: 'jev',
+          mode: 'shadow',
+          status: 'evaluated',
+          model: 'jev-test',
+          reason: 'auto · basic · balanced · local only',
+          recommendedTier: 'economy',
+          selectedModel: 'local-model',
+          applied: false,
+          durationMs: 500,
+          inputTokens: 100,
+          outputTokens: 40,
+          costUsd: 0.0000042,
+          distributions: {
+            tier: score('economy'),
+          },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText('92% confidence')).not.toBeNull();
+  expect(screen.getByText('Privacy: local models only')).not.toBeNull();
+  expect(screen.queryByText('Scores')).toBeNull();
+  expect(screen.queryByText(/Personal data/)).toBeNull();
+  expect(screen.queryByText(/unspecified/)).toBeNull();
+});
+
+it.each([
+  {
+    inputTokens: 266,
+    outputTokens: 991,
+    totalTokens: 76338,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 75081,
+    expected: 75347,
+  },
+  {
+    inputTokens: 1000,
+    outputTokens: 100,
+    totalTokens: 1100,
+    cacheReadTokens: 800,
+    cacheWriteTokens: null,
+    expected: 1000,
+  },
+])(
+  'shows normalized total input without double-counting cache ($expected)',
+  ({ expected, ...usage }) => {
+    render(<RoutingTags trace={trace([{ ...attempt, ...usage }])} />);
+    const label = screen.getByText('Total input');
+    expect(label.nextElementSibling?.textContent).toBe(
+      expected.toLocaleString(),
+    );
+    expect(label.parentElement?.textContent).toContain(
+      `Cache read: ${usage.cacheReadTokens.toLocaleString()}`,
+    );
+    expect(label.parentElement?.textContent).toContain(
+      `Cache write: ${usage.cacheWriteTokens === null ? 'Not reported' : usage.cacheWriteTokens.toLocaleString()}`,
+    );
+  },
+);

@@ -62,8 +62,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # route working too.
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
-RUN python3 -m pip install --break-system-packages \
-      openpyxl==3.1.5
+# Agent tool libraries: one lockfile-backed manifest shared with the standalone
+# agent image (container/tools). Cloud host-sandbox deployments execute skills
+# in this image, so it carries the same set. Agent-written scripts resolve them
+# via NODE_PATH.
+ENV NPM_CONFIG_LOGS_MAX=0
+COPY container/tools/ /opt/hybridclaw-tools/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --break-system-packages --require-hashes \
+      -r /opt/hybridclaw-tools/requirements.txt
+RUN --mount=type=cache,target=/root/.npm \
+    cd /opt/hybridclaw-tools \
+    && npm ci --ignore-scripts --omit=dev --no-audit --fund=false \
+    && rm -f node_modules/.package-lock.json
 
 RUN if [ "${TARGETARCH}" = "amd64" ]; then \
       curl -fsSL \
@@ -92,10 +103,10 @@ WORKDIR /app
 COPY --link --from=builder /app/package*.json ./
 COPY --link --from=builder /app/console/package*.json console/
 COPY --link --from=builder /app/node_modules/ node_modules/
-RUN ln -s /app/node_modules/@e965/xlsx /app/node_modules/xlsx
 
 # Production deps — container agent
 COPY --link --from=builder /app/container/package*.json container/
+COPY --link container/tools/package.json container/tools/package.json
 COPY --link --from=builder /app/container/node_modules/ container/node_modules/
 
 # Gateway compiled output + console SPA
@@ -120,7 +131,7 @@ COPY --link SECURITY.md TRUST_MODEL.md ./
 EXPOSE 9090
 
 ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
-ENV NODE_PATH=/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules
+ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/app/node_modules:/app/container/node_modules
 # Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data

@@ -29,22 +29,6 @@ test('registers plugin as a slash/text command', async () => {
             kind: 'subcommand',
             name: 'info',
           }),
-          expect.objectContaining({
-            kind: 'subcommand',
-            name: 'on',
-          }),
-          expect.objectContaining({
-            kind: 'subcommand',
-            name: 'off',
-          }),
-          expect.objectContaining({
-            kind: 'subcommand',
-            name: 'model',
-          }),
-          expect.objectContaining({
-            kind: 'subcommand',
-            name: 'profile',
-          }),
         ]),
       }),
       expect.objectContaining({
@@ -724,29 +708,9 @@ test('registers speech as a local slash/text command', async () => {
   ).toEqual(['speech', 'voice', 'cedar']);
 });
 
-test('parses /concierge profile into gateway args', async () => {
-  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
-    await importCommandRegistry();
-  expect(
-    parseCanonicalSlashCommandArgs({
-      commandName: 'concierge',
-      getString: (name) =>
-        name === 'profile'
-          ? 'no_hurry'
-          : name === 'model'
-            ? 'ollama/qwen3:latest'
-            : null,
-      getSubcommand: () => 'profile',
-    }),
-  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
-  expect(
-    mapCanonicalCommandToGatewayArgs([
-      'concierge',
-      'profile',
-      'no_hurry',
-      'ollama/qwen3:latest',
-    ]),
-  ).toEqual(['concierge', 'profile', 'no_hurry', 'ollama/qwen3:latest']);
+test('concierge command opens unified routing info', async () => {
+ const {parseCanonicalSlashCommandArgs}=await importCommandRegistry();
+ expect(parseCanonicalSlashCommandArgs({commandName:'concierge',getSubcommand:()=> 'info',getString:()=>null})).toEqual(['concierge','info']);
 });
 
 test('parses /plugin list into gateway args', async () => {

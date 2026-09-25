@@ -286,7 +286,7 @@ test('available model catalog merges the current default model with discovered l
 
   expect(choices).toEqual(
     expect.arrayContaining([
-      { name: 'hybridai/gpt-5.6-luna', value: 'hybridai/gpt-5.6-luna' },
+      { name: 'hybridai/gpt-6-luna', value: 'hybridai/gpt-6-luna' },
       {
         name: 'lmstudio/qwen/qwen3.5-9b',
         value: 'lmstudio/qwen/qwen3.5-9b',
@@ -304,7 +304,7 @@ test('available model catalog merges the current default model with discovered l
     catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b').zone,
   ).toBe('local');
   expect(catalog.getAvailableModelList('hybridai')).toContain(
-    'hybridai/gpt-5.6-luna',
+    'hybridai/gpt-6-luna',
   );
 });
 
@@ -476,9 +476,9 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   });
   expect(
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small').zone,
-  ).toBe('region');
+  ).toBe('eu-provider');
   expect(catalog.getModelCatalogMetadata('mistral/mistral-small').zone).toBe(
-    'cloud',
+    'eu-provider',
   );
 });
 
@@ -1441,4 +1441,15 @@ test('vision fallback ignores OpenRouter models with image output only', async (
   expect(catalog.findVisionCapableModel('openrouter/acme/text-to-image')).toBe(
     'openrouter/zeus/vision-chat',
   );
+});
+
+test('prices direct JEV input and free output without guessing future model rates', async () => {
+  const homeDir = makeTempHome();
+  try {
+    writeRuntimeConfig(homeDir);
+    const { catalog } = await importFreshCatalog(homeDir);
+    expect(catalog.getModelCatalogMetadata('jev/jev-latest').pricingUsdPerToken).toEqual({ input: 0.042 / 1_000_000, output: 0, cacheRead: null, cacheWrite: null });
+    expect(catalog.getModelCatalogMetadata('jev/jev-1.13.0').pricingUsdPerToken).toEqual({ input: 0.042 / 1_000_000, output: 0, cacheRead: null, cacheWrite: null });
+    expect(catalog.getModelCatalogMetadata('jev/jev-future').pricingUsdPerToken).toEqual({ input: null, output: null, cacheRead: null, cacheWrite: null });
+  } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
 });

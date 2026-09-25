@@ -2,8 +2,8 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import net from 'node:net';
 import { URL } from 'node:url';
+import { isPrivateNetworkAddress } from '../../../container/shared/private-network.js';
 import {
   getConfigSnapshot,
   IMESSAGE_ALLOW_PRIVATE_NETWORK,
@@ -37,44 +37,6 @@ const MAX_WEBHOOK_BYTES = 1_000_000;
 const WEBHOOK_RATE_LIMIT = 120;
 const webhookRateLimiter = new SlidingWindowRateLimiter(60_000);
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().split('%')[0];
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice('::ffff:'.length);
-    return net.isIP(mapped) === 4 ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-function isPrivateIp(ip: string): boolean {
-  const version = net.isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return false;
-}
-
 function isPrivateHostLabel(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
   if (!normalized) return true;
@@ -85,7 +47,7 @@ function isPrivateHostLabel(hostname: string): boolean {
   ) {
     return true;
   }
-  return net.isIP(normalized) > 0 ? isPrivateIp(normalized) : false;
+  return isPrivateNetworkAddress(normalized);
 }
 
 async function assertSafeBlueBubblesBaseUrl(rawUrl: string): Promise<URL> {
@@ -100,12 +62,17 @@ async function assertSafeBlueBubblesBaseUrl(rawUrl: string): Promise<URL> {
     throw new Error('BlueBubbles server URL must use http or https.');
   }
   if (!IMESSAGE_ALLOW_PRIVATE_NETWORK) {
-    const hostname = parsed.hostname.trim().toLowerCase();
+    // URL.hostname keeps IPv6 literals bracketed; unbracket them so they are
+    // classified below instead of failing the DNS lookup.
+    const hostname = parsed.hostname
+      .trim()
+      .toLowerCase()
+      .replace(/^\[(.*)\]$/u, '$1');
     if (isPrivateHostLabel(hostname)) {
       throw new Error(`Blocked BlueBubbles server URL host: ${hostname}`);
     }
     const resolved = await lookup(hostname, { all: true, verbatim: true });
-    if (resolved.some((entry) => isPrivateIp(entry.address))) {
+    if (resolved.some((entry) => isPrivateNetworkAddress(entry.address))) {
       throw new Error(`Blocked BlueBubbles server URL host: ${hostname}`);
     }
   }

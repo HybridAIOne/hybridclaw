@@ -222,6 +222,11 @@ function applyAgentConfigFieldUpdates(
       throw new Error('`enableRag` must be a boolean or null.');
     }
   }
+  if (Object.hasOwn(updates, 'extends')) {
+    const parentId = normalizeOptionalStringField('extends', updates.extends);
+    if (parentId) next.extends = parentId;
+    else delete next.extends;
+  }
   if (Object.hasOwn(updates, 'role')) {
     const role = normalizeOptionalStringField('role', updates.role);
     if (role) next.role = role;

@@ -1,48 +1,14 @@
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
-
-function isPrivateIpv4(ip) {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip) {
-  const lower = ip.toLowerCase().split('%')[0];
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice('::ffff:'.length);
-    return net.isIP(mapped) === 4 ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-export function isPrivateBrowserIp(ip) {
-  const version = net.isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return false;
-}
+import { isPrivateNetworkAddress } from './private-network.js';
 
 export async function isPrivateBrowserHost(hostname) {
+  // URL.hostname keeps IPv6 literals bracketed; unbracket them so they are
+  // classified below instead of falling through to a DNS lookup.
   const host = String(hostname || '')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/u, '$1');
   if (!host) return true;
   if (
     host === 'localhost' ||
@@ -51,11 +17,11 @@ export async function isPrivateBrowserHost(hostname) {
   ) {
     return true;
   }
-  if (net.isIP(host) > 0) return isPrivateBrowserIp(host);
+  if (net.isIP(host) > 0) return isPrivateNetworkAddress(host);
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
     if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateBrowserIp(entry.address));
+    return resolved.some((entry) => isPrivateNetworkAddress(entry.address));
   } catch {
     return false;
   }

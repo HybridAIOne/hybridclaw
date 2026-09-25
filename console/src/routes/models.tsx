@@ -18,8 +18,6 @@ import {
   type ProviderEntry,
   ProviderHealth,
 } from '../components/provider-health';
-import { RoutingConfiguration } from '../components/routing-configuration';
-import { RoutingVisibility } from '../components/routing-visibility';
 import { useToast } from '../components/toast';
 import { PageHeader, SortableHeader, useSortableRows } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -283,9 +281,6 @@ export function ModelsPage() {
           )}
         </CardContent>
       </Card>
-
-      <RoutingConfiguration models={modelsQuery.data?.models ?? []} />
-      <RoutingVisibility />
 
       <div className="two-column-grid">
         <ProviderHealth

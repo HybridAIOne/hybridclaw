@@ -10,13 +10,18 @@ The default container sandbox already includes the main office tooling. These
 installs matter primarily for `--sandbox=host` workflows or when you want the
 same capabilities on your local machine.
 
-Packaged Linux runtimes include the spreadsheet-inspection baseline: Python 3,
-pip, `openpyxl`, `unzip`, `file`, `@e965/xlsx` (available through the compatible
-`xlsx` module name), and `xlsx-populate`. The standalone agent image also
-includes Poppler, QPDF, and Pandoc; its full default target adds LibreOffice.
-The gateway Docker image used for cloud host-sandbox execution carries the same
-Python and XLSX baseline, so spreadsheet tasks do not depend on packages left
-behind in the build stage.
+Packaged Linux runtimes share one lockfile-backed tool manifest, declared in
+`container/tools/` (`package.json` plus `package-lock.json` for Node,
+`requirements.in` plus the hashed `requirements.txt` for Python) and
+installed into `/opt/hybridclaw-tools` by both the standalone agent image and
+the gateway image: Python 3, pip, `openpyxl`, `pypdf`, `pdfplumber`,
+`pdf2image`, `reportlab`, `pillow`, plus the Node libraries `docx`,
+`pptxgenjs`, `csv-parse`, `iconv-lite`, `@e965/xlsx` (available through the
+compatible `xlsx` module name), and `xlsx-populate`, alongside `unzip` and
+`file`. The gateway Docker image is what cloud host-sandbox execution runs
+skills in, so it carries the same inventory rather than a subset of it. The
+standalone agent image additionally includes Poppler, QPDF, and Pandoc; its
+full default target adds LibreOffice.
 
 What they unlock:
 
@@ -49,11 +54,12 @@ sudo dnf install -y libreoffice poppler-utils pandoc
 
 ## Verify Availability
 
-Inside a packaged Docker runtime, verify the spreadsheet baseline with:
+Inside a packaged Docker runtime, verify the shared inventory with:
 
 ```bash
-python3 -c 'import openpyxl; print(openpyxl.__version__)'
+python3 -c 'import openpyxl, reportlab; print(openpyxl.__version__)'
 node -e "console.log(require('xlsx').version)"
+node -e "require('pptxgenjs'); console.log('pptxgenjs ok')"
 ```
 
 Verify optional host-side conversion tools with:

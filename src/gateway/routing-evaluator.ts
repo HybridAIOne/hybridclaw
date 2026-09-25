@@ -1,0 +1,101 @@
+/**
+ * Bridges opt-in evaluation to runtime settings and per-turn accounting.
+ * Public samples or explicit live/comparison model selection grant disclosure; local denials
+ * apply before credentials or transport are accessed. It returns
+ * evidence only; the chat runtime decides whether an existing route may change.
+ */
+
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import {
+  evaluateRouting,
+  evaluatorDisclosureReason,
+} from '../routing/evaluator.js';
+import { createJevClassifier } from '../routing/jev-adapter.js';
+import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import { estimateModelUsageCostUsd } from '../usage/model-cost.js';
+import {
+  finishRoutingTraceAttempt,
+  startRoutingTraceAttempt,
+} from '../usage/routing-trace.js';
+export async function evaluateConfiguredRouting(input: {
+  text: string;
+  hasPrivateContext?: boolean;
+  signal?: AbortSignal;
+  playground?: boolean;
+  concierge?: boolean;
+  comparison?: boolean;
+  evaluatorModel?: string;
+  publicSample?: boolean;
+}) {
+  const routing = getRuntimeConfig().routing;
+  const config = input.concierge
+    ? {
+        ...routing.evaluator,
+        mode: 'active' as const,
+        model: input.evaluatorModel ?? routing.concierge.model.slice(4),
+      }
+    : input.playground || input.comparison
+      ? {
+          ...routing.evaluator,
+          model: input.evaluatorModel ?? routing.evaluator.model,
+          mode: 'shadow' as const,
+        }
+      : routing.evaluator;
+  const approved =
+    routing.maximumZone === 'cloud' &&
+    (input.concierge
+      ? routing.enabled && routing.concierge.model.startsWith('jev/')
+      : input.comparison
+        ? routing.enabled &&
+          routing.concierge.comparisonModel === `jev/${config.model}`
+        : input.playground
+          ? input.publicSample === true
+          : config.publicPrompts.includes(input.text.trim()));
+  const eligible =
+    config.mode !== 'off' && !evaluatorDisclosureReason({ ...input, approved });
+  const key = eligible
+    ? readStoredRuntimeSecret('JEV_API_KEY') || process.env.JEV_API_KEY?.trim()
+    : undefined;
+  const model = `jev/${config.model}`;
+  const attempt =
+    eligible && key
+      ? startRoutingTraceAttempt(model, 'auxiliary', 'typed-routing-evaluator')
+      : undefined;
+  const result = await evaluateRouting({
+    ...input,
+    config,
+    approved,
+    tiers: routing.tiers,
+    classifier: key ? createJevClassifier(key) : undefined,
+  });
+  if (result.inputTokens !== null && result.outputTokens !== null) {
+    result.costUsd = estimateModelUsageCostUsd({
+      model: `jev/${result.model}`,
+      promptTokens: result.inputTokens,
+      completionTokens: result.outputTokens,
+    });
+  }
+  if (attempt)
+    finishRoutingTraceAttempt({
+      attempt,
+      model,
+      // A valid answer can be rejected by the confidence policy without a call failure.
+      status: result.distributions !== null ? 'success' : 'error',
+      durationMs: result.durationMs,
+      costUsd: result.costUsd ?? undefined,
+      costSource: 'estimated',
+      inputTokens: result.inputTokens ?? undefined,
+      outputTokens: result.outputTokens ?? undefined,
+      totalTokens:
+        result.inputTokens !== null && result.outputTokens !== null
+          ? result.inputTokens + result.outputTokens
+          : undefined,
+    });
+  return result;
+}
+
+export function isJevAvailable(): boolean {
+  return Boolean(
+    readStoredRuntimeSecret('JEV_API_KEY') || process.env.JEV_API_KEY?.trim(),
+  );
+}

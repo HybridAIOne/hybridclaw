@@ -279,6 +279,56 @@ test('managed browser guard pins DNS and rejects private targets even when tenan
   expect(upstreamRequests).toBe(0);
 });
 
+test('managed browser guard rejects CONNECT to an IPv4-mapped IPv6 loopback literal when tenant policy allows any host', async () => {
+  const root = makeTempRoot();
+  let upstreamConnections = 0;
+  const upstream = net.createServer((socket) => {
+    upstreamConnections += 1;
+    socket.end();
+  });
+  const upstreamPort = await listen(upstream);
+  const policyPath = path.join(root, 'tenants.yaml');
+  fs.writeFileSync(
+    policyPath,
+    [
+      'tenants:',
+      '  tenant-a:',
+      '    network:',
+      '      default: deny',
+      '      rules:',
+      '        - action: allow',
+      '          host: "*"',
+      `          port: ${upstreamPort}`,
+      '          methods: ["*"]',
+      '          paths: ["/**"]',
+      '          agent: "*"',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  delete process.env.BROWSER_ALLOW_PRIVATE_NETWORK;
+
+  const { createGuardProxyServer } = await import(
+    '../infra/managed-browser/guard-proxy.js'
+  );
+  const proxy = createGuardProxyServer({
+    policyPath,
+    fixedContext: { tenantId: 'tenant-a', agentId: 'agent-a' },
+  });
+  const proxyPort = await listen(proxy);
+
+  const response = await sendConnect(
+    proxyPort,
+    `[::ffff:7f00:1]:${upstreamPort}`,
+  );
+  await new Promise<void>((resolve) => proxy.close(() => resolve()));
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+
+  expect(response).toContain('HTTP/1.1 403 Forbidden');
+  expect(response).toContain('target resolution denied');
+  expect(upstreamConnections).toBe(0);
+});
+
 test('managed browser guard forwards to a policy-approved pinned private address only when explicitly enabled', async () => {
   const root = makeTempRoot();
   const upstream = http.createServer((_req, res) => {

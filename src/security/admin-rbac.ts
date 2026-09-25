@@ -2,6 +2,8 @@
  * Admin routes require named capabilities from this catalog; role expansion
  * never authenticates a request. HTTP authentication and local-host restrictions
  * remain the gateway's responsibility, outside these authorization mappings.
+ * The gateway denies an admin route left unmapped here to every scoped caller
+ * without a `*` claim, so each new admin route needs an entry.
  */
 export const ADMIN_SECRET_RBAC_ACTIONS = [
   'secret.list_metadata',
@@ -506,6 +508,14 @@ export function resolveAdminRbacAction(
     if (method === 'DELETE') return 'admin.scheduler.delete';
     return null;
   }
+  if (pathname === '/api/admin/msteams/users') {
+    if (method === 'GET') return 'admin.channels.read';
+    if (method === 'PUT') return 'admin.channels.write';
+    return null;
+  }
+  if (pathname === '/api/admin/msteams/users/personal-agent') {
+    return method === 'POST' ? 'admin.agents.write' : null;
+  }
   if (pathname === '/api/admin/channels') {
     return actionForReadWriteDelete(
       method,
@@ -528,6 +538,19 @@ export function resolveAdminRbacAction(
       'admin.mcp.write',
       'admin.mcp.delete',
     );
+  }
+  if (pathname === '/api/admin/mcp/oauth/status' && method === 'GET') {
+    return 'admin.mcp.read';
+  }
+  // 2026-09-23, admin route RBAC gap fix: MCP OAuth tokens belong to the server
+  // entry like its headers, so connect/disconnect need MCP write, not the
+  // `secret.*` actions that gate gateway-wide connector credentials.
+  if (
+    (pathname === '/api/admin/mcp/oauth/start' ||
+      pathname === '/api/admin/mcp/oauth/logout') &&
+    method === 'POST'
+  ) {
+    return 'admin.mcp.write';
   }
   if (pathname === '/api/admin/connectors') {
     return method === 'GET' ? 'admin.connectors.read' : null;
@@ -565,7 +588,11 @@ export function resolveAdminRbacAction(
   ) {
     return 'admin.webhook_targets.write';
   }
-  if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
+  if (
+    (pathname === '/api/admin/a2a/inbox' ||
+      pathname === '/api/admin/a2a/outbox/status') &&
+    method === 'GET'
+  ) {
     return 'admin.a2a.read';
   }
   if (pathname === '/api/admin/a2a/local-mode' && method === 'PUT') {

@@ -26,7 +26,10 @@ browser tab only and deletes any legacy `localStorage` copy. Live admin event
 streams do not put bearer tokens in query strings.
 
 The route-level action catalog and role bundle source of truth is
-[`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts).
+[`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts). An admin
+route with no action mapping there is denied to scoped sessions and scoped API
+tokens unless they hold the `*` wildcard, so every new admin route needs an
+entry.
 
 ## Role Bundles
 
@@ -42,6 +45,17 @@ can still issue narrower sessions by using explicit `actions` or `scope` claims.
 | `admin.security_manager` | Security owner | `admin.viewer` plus runtime secret metadata/write/unset, policy writes/deletes, output guard writes/previews, skills write/unblock/upload | Terminal streams, gateway lifecycle |
 | `admin.terminal_operator` | Break-glass runtime maintainer | Terminal start, stop, stream, overview read, jobs read | General admin mutations, secrets, policy, config |
 | `admin.full` | Break-glass administrator | Entire admin action catalog | Nothing |
+
+Connector credential changes are secret mutations. Saving the HybridAI API key
+and starting a connector OAuth flow require `secret.overwrite`, and logging a
+connector out requires `secret.unset`. Only `admin.security_manager` and
+`admin.full` include them, or `admin:owner` and `admin:secret-manager` among
+the [ISO role bundles](./iso27001/access-control-matrix.md). Viewing connector
+status and running a connector test need only `admin.connectors.read`. The
+console Connectors page shows Connect, Rotate key, Reconnect, and Disconnect
+only to callers holding the matching action; other callers keep Test and, for
+connected GitHub and Microsoft 365, the Manage link to HybridAI, which applies
+its own permissions.
 
 ## Session Claim Examples
 

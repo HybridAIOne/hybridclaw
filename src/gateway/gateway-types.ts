@@ -214,6 +214,8 @@ export interface GatewayChatRequestBody {
 }
 
 export interface GatewayChatRequest {
+  /** Tenant captured by the authenticated Teams transport, never supplied by HTTP chat clients. */
+  msteamsTenantId?: string;
   appBuild?: boolean;
   appCategory?: string | null;
   appKind?: 'web' | 'live';
@@ -270,6 +272,8 @@ export interface GatewayMediaUploadResult {
 }
 
 export interface GatewayCommandRequest {
+  /** Tenant captured by the authenticated Teams transport, never HTTP input. */
+  msteamsTenantId?: string;
   sessionId: string;
   sessionMode?: 'new' | 'resume';
   guildId: string | null;
@@ -1347,6 +1351,7 @@ export interface GatewayAdminAgentProxyConfig {
 export interface GatewayAdminAgent {
   id: string;
   archived: boolean;
+  extends: string | null;
   name: string | null;
   emptyChatHeader: string | null;
   model: string | null;
@@ -1422,7 +1427,7 @@ export type { GatewayModelProviderKey } from './model-provider-keys.js';
 export interface GatewayAdminModelCatalogEntry {
   id: string;
   provider: GatewayModelProviderKey;
-  zone: 'local' | 'hai' | 'region' | 'cloud';
+  zone: 'local' | 'hai' | 'eu-provider' | 'region' | 'cloud';
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'mlx' | null;
   contextWindow: number | null;
@@ -1757,6 +1762,7 @@ export interface GatewayAdminSkill {
   requires: {
     bins: string[];
     env: string[];
+    nodeModules: string[];
   };
   tags: string[];
   relatedSkills: string[];

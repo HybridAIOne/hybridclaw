@@ -437,11 +437,14 @@ describe('image_generate tool', () => {
     expect(result.output).toContain('remote reference image URL is blocked');
   });
 
-  test('rejects provider image URLs that target private hosts', async () => {
+  test.each([
+    'https://127.0.0.1/private.png',
+    'https://[::ffff:127.0.0.1]/private.png',
+  ])('rejects provider image URL %s that targets a private host', async (url) => {
     const fetchMock = vi.fn(async () => {
       return new Response(
         JSON.stringify({
-          data: [{ url: 'https://127.0.0.1/private.png' }],
+          data: [{ url }],
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );

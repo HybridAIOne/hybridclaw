@@ -22,15 +22,29 @@ metadata:
     install:
       - id: gog
         kind: brew
-        formula: steipete/tap/gogcli
+        os: ["darwin"]
+        formula: openclaw/tap/gogcli
         bins: ["gog"]
         label: Install gog CLI (brew)
+      - id: gog
+        kind: go
+        os: ["linux"]
+        # 2026-09-24 (installer implementation): pin the verified upstream release; image provisioning is separate.
+        module: github.com/openclaw/gogcli/cmd/gog@v0.41.0
+        bins: ["gog"]
+        label: Install gog CLI (Go)
 ---
 # gog
 
 Use `gog` for Gmail/Calendar/Drive/Contacts/Sheets/Docs. Requires OAuth setup.
 
 ## Setup (once)
+
+`/skill install gog gog` selects Homebrew on macOS or Go on Linux. Linux
+requires a Go toolchain supported by the pinned gog release and its install
+location (`GOBIN`, or `GOPATH/bin`, normally `~/go/bin`) on the gateway's
+`PATH`. For cloud deployments, provision gog in the runtime image. Host
+installation does not install binaries inside separate agent containers.
 
 ```bash
 hybridclaw skill install gog gog

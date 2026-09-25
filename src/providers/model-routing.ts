@@ -1,17 +1,40 @@
-export const MODEL_ROUTING_ZONES = ['local', 'hai', 'region', 'cloud'] as const;
+/**
+ * Capability tiers share names while modes own their model assignments.
+ * Ladder resolution enforces ordering and zone boundaries, not classifier decisions.
+ */
+// Operator decision (2026-09-22): jurisdiction and hosting are separate privacy levels.
+// Region denotes EU hosting; cloud denotes World, including unknown locations.
+export const MODEL_ROUTING_ZONES = [
+  'local',
+  'hai',
+  'eu-provider',
+  'region',
+  'cloud',
+] as const;
 
 export type ModelRoutingZone = (typeof MODEL_ROUTING_ZONES)[number];
+
+export type RoutingMode = 'auto' | 'privacy' | 'speed' | 'cost';
 
 export interface ModelRoutingTier {
   name: string;
   models: string[];
+  modelsByMode?: Partial<Record<RoutingMode, string[]>>;
 }
 
 export interface ModelRoutingConfig {
   enabled: boolean;
+  mode?: RoutingMode;
   tiers: ModelRoutingTier[];
   defaultStart: string;
   escalationStickyTurns: number;
+}
+
+export function routingTierModels(
+  tier: ModelRoutingTier,
+  mode: RoutingMode = 'auto',
+): string[] {
+  return tier.modelsByMode?.[mode] ?? tier.models;
 }
 
 export interface ResolveLadderContext {
@@ -56,6 +79,37 @@ export function normalizeModelRoutingZone(value: unknown): ModelRoutingZone {
   return MODEL_ROUTING_ZONES.includes(normalized as ModelRoutingZone)
     ? (normalized as ModelRoutingZone)
     : 'cloud';
+}
+
+/** Deployment classification applies to the transport route, not model authorship. */
+export function configuredRemoteRoutingZone(
+  model: string,
+): ModelRoutingZone | null {
+  const id = model.trim().toLowerCase();
+  // Operator decision (2026-09-22): OpenAI/Anthropic through HybridAI use EU hosting.
+  // Direct services remain World; this does not certify a provider's residency claims.
+  if (/^(openrouter|anthropic|openai|openai-codex|codex|xai)\//.test(id))
+    return 'cloud';
+  // Operator deployment classification: direct and HybridAI Mistral are EU providers.
+  if (
+    id.startsWith('mistral/') ||
+    /^hybridai\/(?:mistral|mistralai)\//.test(id)
+  )
+    return 'eu-provider';
+  const hybrid = id.startsWith('hybridai/')
+    ? id.slice('hybridai/'.length)
+    : !id.includes('/')
+      ? id
+      : '';
+  if (/^(openai\/|anthropic\/|gpt-|claude-|o[134](?:-|$))/.test(hybrid))
+    return 'region';
+  // Operator clarification (2026-09-22): HybridAI routes never belong to World.
+  // Qwen/Gemma are HAI-hosted; other proxied routes use the EU-hosting boundary.
+  if (id.startsWith('hybridai/')) {
+    if (/(?:^|[/ -])(?:qwen|gemma)/.test(hybrid)) return 'hai';
+    return 'region';
+  }
+  return null;
 }
 
 export function modelRoutingZoneAllows(
@@ -144,7 +198,7 @@ export function resolveLadder(
     .map(
       (tier, sourceIndex): ResolvedModelRoutingTier => ({
         name: tier.name,
-        models: tier.models.filter((model) =>
+        models: routingTierModels(tier, config.mode).filter((model) =>
           modelRoutingZoneAllows(maximumZone, context.modelZones?.[model]),
         ),
         sourceIndex,

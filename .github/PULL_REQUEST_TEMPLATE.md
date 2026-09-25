@@ -7,6 +7,15 @@ Describe the change in 2-5 bullets:
 - What changed:
 - What did not change:
 
+## Size
+
+See `AGENTS.md` §3 and §12.
+
+- Net production lines (without tests, docs, lockfiles): +X / −Y
+- Lines added to files over 1,000 lines:
+- Copies of a list, map, or type removed or added:
+- Feature growing core by more than ~500 lines? Why it isn't a plugin:
+
 ## Change Type
 
 - [ ] Bug fix

@@ -21,7 +21,7 @@ import {
   xargsCommandWords,
 } from './bash-commands.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
-import { expandUserPath } from './runtime-paths.js';
+import { expandUserPath, WORKSPACE_ROOT } from './runtime-paths.js';
 
 export interface BashPinnedReach {
   // Pinned paths the command names, as written or resolved against its `cd`.
@@ -272,7 +272,7 @@ function scanGrep(args: string[]): ProgramScan {
           valueAt = index;
         }
         if (flag === 'e' || flag === 'f') patternGiven = true;
-        if (flag === 'e' && valueAt >= 0) nonPathArgs.push(valueAt);
+        if (flag === 'e') nonPathArgs.push(attached ? index : valueAt);
         if (flag === 'd' && (attached || args[valueAt]) === 'recurse') {
           recursive = true;
         }
@@ -346,7 +346,7 @@ function scanRipgrep(args: string[]): ProgramScan {
         }
         const value = attached || args[valueAt];
         if (flag === 'e' || flag === 'f') patternGiven = true;
-        if (flag === 'e' && valueAt >= 0) nonPathArgs.push(valueAt);
+        if (flag === 'e') nonPathArgs.push(attached ? index : valueAt);
         if (flag === 'g' && value)
           globs.push({ glob: value, caseInsensitive: false });
         break;
@@ -458,7 +458,13 @@ function scanPrintedText(args: string[]): ProgramScan {
   return { nonPathArgs, walk: null, reads: false };
 }
 
-function scanProgram(program: string, args: string[]): ProgramScan {
+// `pipesOut`: the command's output feeds the next command, so text an echo
+// prints can become a path (`echo .env | xargs cat`).
+function scanProgram(
+  program: string,
+  args: string[],
+  pipesOut: boolean,
+): ProgramScan {
   switch (program) {
     case 'grep':
     case 'egrep':
@@ -474,7 +480,8 @@ function scanProgram(program: string, args: string[]): ProgramScan {
       return scanXargs(args);
     case 'echo':
     case 'printf':
-      return scanPrintedText(args);
+      if (!pipesOut) return scanPrintedText(args);
+      return { nonPathArgs: [], walk: null, reads: false };
     default:
       return { nonPathArgs: [], walk: null, reads: false };
   }
@@ -494,8 +501,11 @@ function isExclusionValue(words: string[], index: number): boolean {
 // A word can carry several paths: `<.env`, `--env-file=.env`, `HEAD:.env`,
 // curl's `@.env`, `{.env,x}`. A leading `!` marks an exclusion, not a read.
 function candidatePaths(word: string): string[] {
+  if (/^file:\/\//i.test(word)) return candidatePaths(word.slice(7));
   if (URL_RE.test(word)) return [];
   const pieces = new Set([word, ...word.split(/[<>=:@,{}]+/)]);
+  // A short option can carry its value attached: `curl -T.env`.
+  if (/^-[A-Za-z]./.test(word)) pieces.add(word.slice(2));
   return [...pieces]
     .filter((piece) => piece && !/^[!-]/.test(piece))
     .map((piece) => piece.replace(HOME_VARIABLE_RE, '~'));
@@ -567,8 +577,13 @@ function pinnedMatches(
   namesPinnedPath: (candidate: string) => boolean,
 ): string[] {
   const forms = [candidate];
-  const resolved = cwd ? resolvePath(candidate, cwd) : null;
+  const resolved = resolvePath(candidate, cwd);
   if (resolved && resolved !== candidate) forms.push(resolved);
+  // Bash starts in the workspace root, so `../../etc/passwd` can land on an
+  // absolute pinned path.
+  if (resolved && /^\.\.(?:\/|$)/.test(resolved)) {
+    forms.push(path.posix.join(WORKSPACE_ROOT.replace(/\\/g, '/'), resolved));
+  }
   return forms.flatMap((form) =>
     namesPinnedPath(form) ? [form] : globReachedPatterns(form),
   );
@@ -613,9 +628,11 @@ function scanScript(
   // The file list flowing through the current pipe, for xargs.
   let listing: Walk | null = null;
 
-  for (const { words, piped } of splitShellCommands(script)) {
+  const commands = splitShellCommands(script);
+  for (const [position, { words, piped }] of commands.entries()) {
     const { start, program, args } = commandProgram(words);
-    const scan = scanProgram(program, args);
+    const pipesOut = commands[position + 1]?.piped === true;
+    const scan = scanProgram(program, args, pipesOut);
     const nonPath = new Set(scan.nonPathArgs.map((index) => index + start + 1));
 
     for (let index = 0; index < words.length; index += 1) {

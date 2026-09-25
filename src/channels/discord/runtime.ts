@@ -86,6 +86,7 @@ import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   type DiscordForwardedMessageLike,
   type DiscordGuildMessageMode,
+  hasDirectBotMention as hasDirectBotMentionInbound,
   hasDiscordMessageContentChanged,
   hasLooseBotMention as hasLooseBotMentionInbound,
   hasPrefixInvocation as hasPrefixInvocationInbound,
@@ -254,25 +255,6 @@ const conversationExchangeByKey = new Map<
   string,
   { count: number; lastAtMs: number }
 >();
-
-function parseConciergeChoiceCustomId(
-  customId: string,
-): { profile: string; sessionId: string; userId: string } | null {
-  const match = customId.match(
-    /^concierge:(asap|balanced|no_hurry):(\d{16,22}):(.+)$/,
-  );
-  if (!match) return null;
-  const [, profile, userId, encodedSessionId] = match;
-  try {
-    return {
-      profile,
-      userId,
-      sessionId: decodeURIComponent(encodedSessionId),
-    };
-  } catch {
-    return null;
-  }
-}
 
 function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
   discordPresenceCache.set(userId, data);
@@ -876,7 +858,7 @@ function describeInboundMessage(msg: DiscordMessage): InboundDiscordMessage {
     hasAttachments: collectMessageAttachments(msg).length > 0,
     hasPrefixInvocation: hasPrefixed,
     hasCommandInvocation: hasPrefixed || hasSlash,
-    hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
+    hasBotMention: hasDirectBotMentionInbound(msg.mentions, client.user),
     isReplyToBot: Boolean(
       client.user && msg.mentions.repliedUser?.id === client.user.id,
     ),
@@ -962,8 +944,8 @@ function shouldApplyAckReaction(
   if (scope === 'off') return false;
   if (scope === 'all') return true;
   if (scope === 'direct') return !msg.guild;
-  if (!msg.guild || !client.user) return false;
-  return msg.mentions.has(client.user);
+  if (!msg.guild) return false;
+  return hasDirectBotMentionInbound(msg.mentions, client.user);
 }
 
 function isRateLimitExempt(msg: DiscordMessage): boolean {
@@ -1610,156 +1592,6 @@ export async function initDiscord(
   });
 
   client.on('interactionCreate', async (interaction) => {
-    if (
-      interaction.isButton() &&
-      interaction.customId.startsWith('concierge:')
-    ) {
-      const interactionVisibility = interaction.guildId
-        ? { flags: 'Ephemeral' as const }
-        : {};
-      const parsed = parseConciergeChoiceCustomId(interaction.customId);
-      if (!parsed) {
-        await interaction.reply({
-          content: 'Invalid button.',
-          ...interactionVisibility,
-        });
-        return;
-      }
-      if (interaction.user.id !== parsed.userId) {
-        await interaction.reply({
-          content: 'Only the requesting user can respond.',
-          ...interactionVisibility,
-        });
-        return;
-      }
-      const sourceMessage = interaction.message as DiscordMessage;
-      const guildId = interaction.guildId ?? null;
-      const channelId = interaction.channelId;
-      const behavior = resolveChannelBehavior(sourceMessage);
-      const mentionLookup = buildMentionLookup(
-        [sourceMessage],
-        [],
-        guildId ? participantMemoryByChannel.get(channelId) : undefined,
-      );
-      const abortController = new AbortController();
-      const typingController = createTypingController(
-        sourceMessage,
-        behavior.typingMode,
-      );
-      typingController.setPhase('received');
-      const lifecycleController =
-        client.user && DISCORD_LIFECYCLE_REACTIONS.enabled
-          ? new LifecycleReactionController({
-              message: sourceMessage,
-              withRetry: withDiscordRetry,
-              botUserId: client.user.id,
-              config: {
-                enabled: DISCORD_LIFECYCLE_REACTIONS.enabled,
-                removeOnComplete: DISCORD_LIFECYCLE_REACTIONS.removeOnComplete,
-                phases: DISCORD_LIFECYCLE_REACTIONS.phases,
-              },
-            })
-          : null;
-      lifecycleController?.setPhase('queued');
-      const emitLifecyclePhase = (phase: LifecyclePhase): void => {
-        if (phase === 'queued') {
-          typingController.setPhase('received');
-        } else if (phase === 'thinking') {
-          typingController.setPhase('thinking');
-        } else if (phase === 'toolUse') {
-          typingController.setPhase('toolUse');
-        } else if (phase === 'streaming') {
-          typingController.setPhase('streaming');
-        } else {
-          typingController.setPhase('done');
-        }
-        lifecycleController?.setPhase(phase);
-      };
-      const stream = new DiscordStreamManager(sourceMessage, {
-        onFirstMessage: () => emitLifecyclePhase('streaming'),
-        humanDelay: behavior.humanDelay,
-      });
-
-      await interaction.deferUpdate();
-      await disableApprovalButtons(sourceMessage).catch(() => {});
-
-      try {
-        const showMode = normalizeSessionShowMode(
-          getSessionById(parsed.sessionId)?.show_mode,
-        );
-        if (sessionShowModeShowsThinking(showMode)) {
-          emitLifecyclePhase('thinking');
-        }
-        await messageHandler(
-          parsed.sessionId,
-          guildId,
-          channelId,
-          interaction.user.id,
-          interaction.user.username,
-          parsed.profile,
-          [],
-          async (text, files, components) => {
-            await sendChunkedReply(
-              sourceMessage,
-              text,
-              files,
-              components,
-              mentionLookup,
-              behavior.humanDelay,
-            );
-          },
-          {
-            sourceMessage,
-            batchedMessages: [],
-            abortSignal: abortController.signal,
-            stream,
-            mentionLookup,
-            emitLifecyclePhase,
-            sendApprovalNotification: async ({
-              approval,
-              presentation,
-              userId,
-            }) => {
-              const row = buildApprovalActionRow(approval.approvalId);
-              const visibleText = getApprovalVisibleText(
-                approval,
-                presentation,
-              );
-              const components = presentation.showButtons ? [row] : [];
-              const sent = await withDiscordRetry('approval-notification', () =>
-                sourceMessage.reply({
-                  content: visibleText
-                    ? `<@${userId}> ${visibleText}`
-                    : `<@${userId}>`,
-                  ...(components.length > 0 ? { components } : {}),
-                }),
-              );
-              if (!presentation.showButtons) {
-                return null;
-              }
-              return {
-                disableButtons: () => disableApprovalButtons(sent),
-              };
-            },
-          },
-        );
-        emitLifecyclePhase('done');
-      } catch (error) {
-        emitLifecyclePhase('error');
-        const detail = error instanceof Error ? error.message : String(error);
-        logger.error(
-          { error, guildId, channelId, userId: interaction.user.id },
-          'Discord concierge button failed',
-        );
-        await sourceMessage.reply({
-          content: formatError('Gateway Error', detail),
-        });
-      } finally {
-        typingController.stop();
-      }
-      return;
-    }
-
     if (interaction.isButton() && interaction.customId.startsWith('reset:')) {
       const interactionVisibility = interaction.guildId
         ? { flags: 'Ephemeral' as const }

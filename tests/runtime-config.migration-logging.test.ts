@@ -153,9 +153,9 @@ describe('runtime config migration logging', () => {
       ) as RuntimeConfig;
 
       expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
-        'gpt-5.6-luna',
+        'gpt-6-luna',
       );
-      expect(stored.hybridai.defaultModel).toBe('gpt-5.6-luna');
+      expect(stored.hybridai.defaultModel).toBe('gpt-6-luna');
       expect(stored.version).toBe(runtimeConfig.CONFIG_VERSION);
     },
   );

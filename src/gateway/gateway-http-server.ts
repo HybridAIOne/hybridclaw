@@ -426,6 +426,11 @@ import {
   validateMSTeamsTabIdToken,
 } from './msteams-tab.js';
 import {
+  createAdminMSTeamsPersonalAgent,
+  getAdminMSTeamsUsers,
+  updateAdminMSTeamsUser,
+} from './msteams-users.js';
+import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleCompletionRetrieve,
   handleOpenAICompatibleModelList,
@@ -444,6 +449,11 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
+import { compareRouting } from './routing-comparison.js';
+import {
+  evaluateConfiguredRouting,
+  isJevAvailable,
+} from './routing-evaluator.js';
 import { runScheduledTaskToolAction } from './scheduled-task-tool-service.js';
 import {
   detectCliSecretSetCommand,
@@ -2419,8 +2429,19 @@ function resolveAdminSecretAuditContext(
   };
 }
 
-function shouldDeferAdminRbacToHandler(action: AdminRbacAction): boolean {
-  return action.startsWith('secret.');
+// Path-scoped on purpose: only the /api/admin/secrets handlers check their
+// secret.* action themselves, so denied mutations reach the secret audit
+// trail. A secret.* action mapped onto any other route (the connector
+// credential routes) is enforced at the gate like every other action.
+function shouldDeferAdminRbacToHandler(
+  pathname: string,
+  action: AdminRbacAction,
+): boolean {
+  return (
+    action.startsWith('secret.') &&
+    (pathname === '/api/admin/secrets' ||
+      pathname.startsWith('/api/admin/secrets/'))
+  );
 }
 
 function isAdminRouteActionAllowed(
@@ -2475,13 +2496,21 @@ function enforceAdminRouteRbac(
       sendJson(res, 403, { error: 'Forbidden.' });
       return false;
     }
-    if (shouldDeferAdminRbacToHandler(action)) return true;
+    if (shouldDeferAdminRbacToHandler(pathname, action)) return true;
     if (isAdminRouteActionAllowed(authContext, action)) return true;
     sendJson(res, 403, { error: 'Forbidden.' });
     return false;
   }
   if (!isAdminPath(pathname)) return true;
-  if (!action || shouldDeferAdminRbacToHandler(action)) return true;
+  if (!action) {
+    // Deny by default: an admin route the resolver does not map stays closed
+    // to scoped sessions; unscoped sessions are full admins by design.
+    const claims = collectAdminActionClaims(authContext.payload);
+    if (!claims || claims.has('*')) return true;
+    sendJson(res, 403, { error: 'Forbidden.' });
+    return false;
+  }
+  if (shouldDeferAdminRbacToHandler(pathname, action)) return true;
   if (isAdminRouteActionAllowed(authContext, action)) return true;
   sendJson(res, 403, { error: 'Forbidden.' });
   return false;
@@ -5035,10 +5064,12 @@ type ApiAdminAgentPayloadBody = {
   delegates_to?: unknown;
   peers?: unknown;
   workspace?: unknown;
+  extends?: unknown;
 };
 
 type ApiAdminAgentPayload = {
   id?: string;
+  extends?: string | null;
   name?: string;
   model?: string;
   skills?: string[] | null;
@@ -5221,6 +5252,12 @@ async function readApiAdminAgentPayload(
   );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
+    extends:
+      typeof body.extends === 'string'
+        ? body.extends
+        : body.extends === null
+          ? null
+          : undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
     model: typeof body.model === 'string' ? body.model : undefined,
     skills: normalizeApiAdminAgentSkills(body.skills),
@@ -5268,6 +5305,7 @@ async function handleApiAdminAgentCollectionResource(
         200,
         createGatewayAdminAgent({
           id: payload.id || '',
+          extends: payload.extends,
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
@@ -5308,6 +5346,7 @@ async function handleApiAdminAgentResource(
         res,
         200,
         updateGatewayAdminAgent(normalizedAgentId, {
+          extends: payload.extends,
           name: payload.name,
           model: payload.model,
           skills: payload.skills,
@@ -6328,15 +6367,17 @@ async function handleApiAdminConnectors(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
   const pathname = url.pathname;
   if (pathname === '/api/admin/connectors' && req.method === 'GET') {
     sendJson(
       res,
       200,
-      await getGatewayAdminConnectorsWithPlatformState(
-        resolveRequestOrigin(req),
-      ),
+      await getGatewayAdminConnectorsWithPlatformState({
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -6349,7 +6390,10 @@ async function handleApiAdminConnectors(
     sendJson(
       res,
       200,
-      saveGatewayAdminHybridAIConnectorApiKey(body, resolveRequestOrigin(req)),
+      saveGatewayAdminHybridAIConnectorApiKey(body, {
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -6375,7 +6419,10 @@ async function handleApiAdminConnectors(
     sendJson(
       res,
       200,
-      logoutGatewayAdminConnector(body, resolveRequestOrigin(req)),
+      logoutGatewayAdminConnector(body, {
+        requestBaseUrl: resolveRequestOrigin(req),
+        authPayload: authContext.payload,
+      }),
     );
     return;
   }
@@ -10936,6 +10983,70 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminModels(req, res);
             return;
           }
+          if (pathname === '/api/admin/routing/compare' && method === 'POST') {
+            const body = (await readJsonBody(req)) as {
+              text?: unknown;
+              publicSample?: unknown;
+              model?: unknown;
+            };
+            if (
+              !body ||
+              typeof body.text !== 'string' ||
+              !body.text.trim() ||
+              body.text.length > 4000 ||
+              typeof body.publicSample !== 'boolean' ||
+              typeof body.model !== 'string' ||
+              !/^[a-zA-Z0-9_./:~-]{1,200}$/.test(body.model) ||
+              body.model.startsWith('jev/')
+            ) {
+              sendJson(res, 400, {
+                error:
+                  'Provide a sample, public confirmation, and a chat model.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await compareRouting({
+                text: body.text,
+                publicSample: body.publicSample,
+                model: body.model,
+              }),
+            );
+            return;
+          }
+          if (pathname === '/api/admin/routing/status' && method === 'GET') {
+            sendJson(res, 200, { jevAvailable: isJevAvailable() });
+            return;
+          }
+          if (pathname === '/api/admin/routing/evaluate' && method === 'POST') {
+            const body = (await readJsonBody(req)) as {
+              text?: unknown;
+              publicSample?: unknown;
+            };
+            if (
+              !body ||
+              typeof body.text !== 'string' ||
+              body.text.length > 4000 ||
+              typeof body.publicSample !== 'boolean'
+            ) {
+              sendJson(res, 400, {
+                error: 'Provide text (up to 4000 characters) and publicSample.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await evaluateConfiguredRouting({
+                text: body.text,
+                playground: true,
+                publicSample: body.publicSample,
+              }),
+            );
+            return;
+          }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
             return;
@@ -10977,6 +11088,47 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminChannels(req, res, url);
             return;
           }
+          if (pathname === '/api/admin/msteams/users/personal-agent') {
+            if (method !== 'POST') {
+              sendMethodNotAllowed(res);
+              return;
+            }
+            try {
+              const result = createAdminMSTeamsPersonalAgent(
+                await readJsonBody(req),
+              );
+              sendJson(
+                res,
+                result.status,
+                result.error
+                  ? { error: result.error }
+                  : { agentId: result.agentId, ...getAdminMSTeamsUsers() },
+              );
+            } catch (error) {
+              sendJson(res, 400, {
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Personal agent creation failed.',
+              });
+            }
+            return;
+          }
+          if (pathname === '/api/admin/msteams/users') {
+            if (method === 'GET') {
+              sendJson(res, 200, getAdminMSTeamsUsers());
+            } else if (method === 'PUT') {
+              const result = updateAdminMSTeamsUser(await readJsonBody(req));
+              sendJson(
+                res,
+                result.status,
+                result.error ? { error: result.error } : getAdminMSTeamsUsers(),
+              );
+            } else {
+              sendMethodNotAllowed(res);
+            }
+            return;
+          }
           if (pathname === '/api/admin/msteams/tab-manifest') {
             await handleApiAdminMSTeamsTabManifest(req, res);
             return;
@@ -10999,7 +11151,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/admin/connectors/test' ||
             pathname === '/api/admin/connectors/logout'
           ) {
-            await handleApiAdminConnectors(req, res, url);
+            await handleApiAdminConnectors(req, res, url, authContext);
             return;
           }
           if (

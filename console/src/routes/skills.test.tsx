@@ -128,7 +128,7 @@ function makeSkill(overrides: Partial<AdminSkill> = {}): AdminSkill {
     always: false,
     capabilities: [],
     supportedChannels: ['discord', 'tui'],
-    requires: { bins: [], env: [] },
+    requires: { bins: [], env: [], nodeModules: [] },
     tags: [],
     relatedSkills: [],
     install: [],
@@ -377,7 +377,7 @@ describe('SkillsPage', () => {
             },
           ],
           capabilities: ['document-processing'],
-          requires: { bins: ['node'], env: ['PDF_HOST'] },
+          requires: { bins: ['node'], env: ['PDF_HOST'], nodeModules: [] },
           tags: ['office'],
           relatedSkills: ['docx'],
           docs: {

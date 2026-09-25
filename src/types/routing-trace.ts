@@ -2,6 +2,10 @@
  * Per-response routing evidence contains metadata only, never prompt content.
  * Unlike the routing policy, this record describes execution and grants no authority.
  */
+import {
+  isTypedRoutingEvaluation,
+  type TypedRoutingEvaluation,
+} from '../routing/evaluator-contract.js';
 export interface RoutingTraceAttempt {
   id: number;
   kind: 'execution' | 'auxiliary';
@@ -22,6 +26,8 @@ export interface RoutingTraceAttempt {
 }
 
 export interface RoutingTrace {
+  evaluation?: TypedRoutingEvaluation;
+  shadowEvaluation?: TypedRoutingEvaluation;
   version: 1;
   status: 'running' | 'complete' | 'error';
   mode: 'direct' | 'concierge' | 'tiered';
@@ -40,6 +46,16 @@ export function parseRoutingTrace(raw: string | null): RoutingTrace | null {
       !Number.isFinite(value.durationMs) ||
       value.durationMs < 0 ||
       !Array.isArray(value.attempts)
+    )
+      return null;
+    if (
+      value.evaluation !== undefined &&
+      !isTypedRoutingEvaluation(value.evaluation)
+    )
+      return null;
+    if (
+      value.shadowEvaluation !== undefined &&
+      !isTypedRoutingEvaluation(value.shadowEvaluation)
     )
       return null;
     for (const attempt of value.attempts) {

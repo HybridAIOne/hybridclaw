@@ -1,0 +1,20 @@
+{
+  "name": "@hybridaione/hybridclaw-runtime-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node libraries the bundled skills reference from agent-written scripts. Installed into every image that executes agent tools (container/Dockerfile and Dockerfile) and exposed through NODE_PATH.",
+  "license": "MIT",
+  "dependencies": {
+    "@e965/xlsx": "0.20.3",
+    "csv-parse": "7.0.2",
+    "docx": "9.7.1",
+    "iconv-lite": "0.7.3",
+    "image-size": "file:./stubs/image-size",
+    "pptxgenjs": "4.0.1",
+    "xlsx": "npm:@e965/xlsx@0.20.3",
+    "xlsx-populate": "1.21.0"
+  },
+  "overrides": {
+    "image-size": "$image-size"
+  }
+}

@@ -372,7 +372,7 @@
   },
   "hybridai": {
     "baseUrl": "https://hybridai.one",
-    "defaultModel": "gpt-5.6-luna",
+    "defaultModel": "gpt-6-luna",
     "onboardingModel": "",
     "defaultChatbotId": "",
     "maxTokens": 4096,
@@ -623,6 +623,13 @@
     }
   },
   "routing": {
+    "evaluator": {
+      "mode": "off",
+      "model": "jev-latest",
+      "timeoutMs": 1500,
+      "minConfidence": 0.8,
+      "publicPrompts": []
+    },
     "showRoutingInfo": false,
     "enabled": false,
     "tiers": [],

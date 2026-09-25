@@ -121,7 +121,7 @@ Two important transitions:
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Targets behind a variable or an unknown `cd` are not resolved |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
@@ -132,9 +132,12 @@ output reports how many files were skipped. Paths added under
 
 `bash` commands get the pinned check for every operand, not only absolute
 paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
-paths, redirects (`cat < .env`), option values (`--env-file=.env`), git
-revisions (`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs
-that bash expands to a pinned name (`cat .e*`). A recursive read that can reach
+paths, `../` escapes resolved from the workspace root, redirects
+(`cat < .env`), option values (`--env-file=.env`), git revisions
+(`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs that bash
+expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
+(unless piped into another command) and `grep`/`rg` patterns are not paths.
+A recursive read that can reach
 pinned files without naming them is pinned red on every run
 (`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
 walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is

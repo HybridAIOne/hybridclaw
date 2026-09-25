@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { DATA_DIR } from '../config/config.js';
+import { DATA_DIR, getResolvedSandboxMode } from '../config/config.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
@@ -40,7 +40,13 @@ import {
   SKILL_MANIFEST_CREDENTIAL_KINDS,
   type SkillManifest,
 } from './skill-manifest.js';
+import { hasAgentNodeModule } from './skill-node-modules.js';
 import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
+import {
+  normalizeInstallSpecs,
+  parseInstallSpecList,
+  type SkillInstallSpec,
+} from './skills-install-spec.js';
 
 export type {
   SkillManifestConfigVariable,
@@ -48,6 +54,10 @@ export type {
   SkillManifestDeclaredCredential,
   SkillManifestSecretRef,
 } from './skill-manifest.js';
+export type {
+  SkillInstallKind,
+  SkillInstallSpec,
+} from './skills-install-spec.js';
 export { SKILL_MANIFEST_CREDENTIAL_KINDS };
 
 export type SkillSource =
@@ -60,25 +70,16 @@ export type SkillSource =
   | 'community'
   | 'workspace';
 
-export type SkillInstallKind =
-  | 'brew'
-  | 'uv'
-  | 'npm'
-  | 'node'
-  | 'go'
-  | 'download';
-
-export interface SkillInstallSpec {
-  id?: string;
-  kind: SkillInstallKind;
-  label?: string;
-  bins?: string[];
-  formula?: string;
-  package?: string;
-  module?: string;
-  url?: string;
-  path?: string;
-  chmod?: string;
+/**
+ * Runtime prerequisites a skill declares in its frontmatter `requires:` block.
+ * `bins` are executables on PATH, `env` are environment variables, and
+ * `nodeModules` (frontmatter key `node_modules`) are bare module specifiers an
+ * agent-written script must be able to `require()` from the workspace.
+ */
+export interface SkillRequirements {
+  bins: string[];
+  env: string[];
+  nodeModules: string[];
 }
 
 /**
@@ -94,10 +95,7 @@ interface SkillCandidate {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
-  requires: {
-    bins: string[];
-    env: string[];
-  };
+  requires: SkillRequirements;
   metadata: {
     hybridclaw: {
       shortDescription?: string;
@@ -297,44 +295,6 @@ function tryParseJsonArray(raw: string): unknown[] | null {
   }
 }
 
-function normalizeInstallSpecs(raw: unknown): SkillInstallSpec[] {
-  if (!Array.isArray(raw)) return [];
-
-  const specs: SkillInstallSpec[] = [];
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue;
-    const kindRaw =
-      typeof entry.kind === 'string' ? entry.kind.trim().toLowerCase() : '';
-    if (
-      kindRaw !== 'brew' &&
-      kindRaw !== 'uv' &&
-      kindRaw !== 'npm' &&
-      kindRaw !== 'node' &&
-      kindRaw !== 'go' &&
-      kindRaw !== 'download'
-    ) {
-      continue;
-    }
-
-    specs.push({
-      id: typeof entry.id === 'string' ? entry.id.trim() : undefined,
-      kind: kindRaw,
-      label: typeof entry.label === 'string' ? entry.label.trim() : undefined,
-      bins: normalizeStringList(entry.bins),
-      formula:
-        typeof entry.formula === 'string' ? entry.formula.trim() : undefined,
-      package:
-        typeof entry.package === 'string' ? entry.package.trim() : undefined,
-      module:
-        typeof entry.module === 'string' ? entry.module.trim() : undefined,
-      url: typeof entry.url === 'string' ? entry.url.trim() : undefined,
-      path: typeof entry.path === 'string' ? entry.path.trim() : undefined,
-      chmod: typeof entry.chmod === 'string' ? entry.chmod.trim() : undefined,
-    });
-  }
-  return specs;
-}
-
 function tryParseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = stripQuotes(raw.trim());
   if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('[')))
@@ -444,40 +404,6 @@ function parseSectionStringList(
   return values;
 }
 
-function parseSectionObjectList(
-  section: FrontmatterSection | undefined,
-): Record<string, string>[] {
-  if (!section) return [];
-  const values: Record<string, string>[] = [];
-  let current: Record<string, string> | null = null;
-
-  for (const line of section.children) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const itemMatch = trimmed.match(/^-\s*(.*)$/);
-    if (itemMatch) {
-      if (current && Object.keys(current).length > 0) values.push(current);
-      current = {};
-      const remainder = (itemMatch[1] || '').trim();
-      if (!remainder) continue;
-      const inlineMatch = remainder.match(/^([\w-]+):\s*(.*)$/);
-      if (inlineMatch) {
-        current[inlineMatch[1]] = stripQuotes((inlineMatch[2] || '').trim());
-      }
-      continue;
-    }
-
-    const fieldMatch = trimmed.match(/^([\w-]+):\s*(.*)$/);
-    if (!fieldMatch) continue;
-    if (!current) current = {};
-    current[fieldMatch[1]] = stripQuotes((fieldMatch[2] || '').trim());
-  }
-
-  if (current && Object.keys(current).length > 0) values.push(current);
-  return values;
-}
-
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
@@ -548,25 +474,45 @@ function normalizeCompatibleMetadata(raw: Record<string, unknown>): {
         ...normalizeStringList(record.relatedSkills),
       ]),
     ),
-    install: mergeUniqueInstallSpecs([normalizeInstallSpecs(record.install)]),
+    install: mergeUniqueInstallSpecs([
+      normalizeInstallSpecs(record.install, normalizeStringList),
+    ]),
   };
 }
 
-function parseRequiresFromMetadataRecord(raw: Record<string, unknown>): {
-  bins: string[];
-  env: string[];
-} {
+function emptyRequirements(): SkillRequirements {
+  return { bins: [], env: [], nodeModules: [] };
+}
+
+function hasAnyRequirement(requires: SkillRequirements): boolean {
+  return (
+    requires.bins.length > 0 ||
+    requires.env.length > 0 ||
+    requires.nodeModules.length > 0
+  );
+}
+
+function parseRequiresRecord(
+  record: Record<string, unknown>,
+): SkillRequirements {
+  return {
+    bins: normalizeStringList(record.bins),
+    env: normalizeStringList(record.env),
+    nodeModules: normalizeStringList(record.node_modules),
+  };
+}
+
+function parseRequiresFromMetadataRecord(
+  raw: Record<string, unknown>,
+): SkillRequirements {
   const record = resolveCompatibleMetadataRecord(raw);
   if (!Object.hasOwn(record, 'requires')) {
-    return { bins: [], env: [] };
+    return emptyRequirements();
   }
   if (!isRecord(record.requires)) {
-    return { bins: [], env: [] };
+    return emptyRequirements();
   }
-  return {
-    bins: normalizeStringList(record.requires.bins),
-    env: normalizeStringList(record.requires.env),
-  };
+  return parseRequiresRecord(record.requires);
 }
 
 function resolveTopLevelSectionLookup(
@@ -615,13 +561,13 @@ function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
   };
 }
 
-function parseRequiresSection(sectionFields: Map<string, FrontmatterSection>): {
-  bins: string[];
-  env: string[];
-} {
+function parseRequiresSection(
+  sectionFields: Map<string, FrontmatterSection>,
+): SkillRequirements {
   return {
     bins: parseSectionStringList(sectionFields.get('bins')),
     env: parseSectionStringList(sectionFields.get('env')),
+    nodeModules: parseSectionStringList(sectionFields.get('node_modules')),
   };
 }
 
@@ -646,23 +592,17 @@ function warnMalformedRequiresDeclaration(
 function parseRequiresFromFrontmatter(
   frontmatter: FrontmatterParseResult,
   skillFilePath: string,
-): {
-  bins: string[];
-  env: string[];
-} {
+): SkillRequirements {
   const directRequiresLookup = resolveTopLevelSectionLookup(
     frontmatter,
     'requires',
   );
   if (directRequiresLookup.inlineObject) {
-    return {
-      bins: normalizeStringList(directRequiresLookup.inlineObject.bins),
-      env: normalizeStringList(directRequiresLookup.inlineObject.env),
-    };
+    return parseRequiresRecord(directRequiresLookup.inlineObject);
   }
 
   let requires = parseRequiresSection(directRequiresLookup.sectionFields);
-  if (requires.bins.length > 0 || requires.env.length > 0) {
+  if (hasAnyRequirement(requires)) {
     return requires;
   }
   if (
@@ -676,8 +616,7 @@ function parseRequiresFromFrontmatter(
   if (metadataLookup.inlineObject) {
     const parsed = parseRequiresFromMetadataRecord(metadataLookup.inlineObject);
     if (
-      parsed.bins.length === 0 &&
-      parsed.env.length === 0 &&
+      !hasAnyRequirement(parsed) &&
       Object.hasOwn(
         resolveCompatibleMetadataRecord(metadataLookup.inlineObject),
         'requires',
@@ -692,8 +631,7 @@ function parseRequiresFromFrontmatter(
       metadataLookup.compatibleInlineObject,
     );
     if (
-      parsed.bins.length === 0 &&
-      parsed.env.length === 0 &&
+      !hasAnyRequirement(parsed) &&
       Object.hasOwn(metadataLookup.compatibleInlineObject, 'requires')
     ) {
       warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
@@ -705,15 +643,12 @@ function parseRequiresFromFrontmatter(
   if (!nestedRequires) return requires;
   const nestedRequiresInlineObject = tryParseJsonObject(nestedRequires.inline);
   if (nestedRequiresInlineObject) {
-    return {
-      bins: normalizeStringList(nestedRequiresInlineObject.bins),
-      env: normalizeStringList(nestedRequiresInlineObject.env),
-    };
+    return parseRequiresRecord(nestedRequiresInlineObject);
   }
   requires = parseRequiresSection(
     parseSectionChildren(nestedRequires.children),
   );
-  if (requires.bins.length === 0 && requires.env.length === 0) {
+  if (!hasAnyRequirement(requires)) {
     warnMalformedRequiresDeclaration(skillFilePath, 'metadata.requires');
   }
   return requires;
@@ -767,7 +702,9 @@ function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
       ]),
     ),
     install: normalizeInstallSpecs(
-      installInlineJson ?? parseSectionObjectList(installSection),
+      installInlineJson ??
+        parseInstallSpecList(installSection?.children.join('\n') || ''),
+      normalizeStringList,
     ),
   };
 }
@@ -817,21 +754,22 @@ export function hasBinary(binName: string): boolean {
   return hasExecutableCommand(binName);
 }
 
-function checkEligibility(skill: {
-  requires?: {
-    bins?: string[];
-    env?: string[];
-  };
-}): {
+function checkEligibility(skill: { requires?: Partial<SkillRequirements> }): {
   available: boolean;
   missing: string[];
 } {
   const missing: string[] = [];
+  const sandboxMode = getResolvedSandboxMode();
   for (const bin of skill.requires?.bins ?? []) {
     if (!hasBinary(bin)) missing.push(`bin:${bin}`);
   }
   for (const envVar of skill.requires?.env ?? []) {
     if (!process.env[envVar]) missing.push(`env:${envVar}`);
+  }
+  for (const specifier of skill.requires?.nodeModules ?? []) {
+    if (!hasAgentNodeModule(specifier, sandboxMode)) {
+      missing.push(`node_module:${specifier}`);
+    }
   }
   return { available: missing.length === 0, missing };
 }

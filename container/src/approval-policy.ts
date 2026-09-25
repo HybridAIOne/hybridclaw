@@ -262,6 +262,7 @@ export interface ToolCallContext {
   stakesScore?: StakesScore;
   stakesMiddlewareDecision?: StakesMiddlewareResult['decision'];
   anomaly?: BehaviorAnomalyScore;
+  anomalyElevated?: boolean;
   outOfBoundByAutonomy: boolean;
   escalationTarget?: EscalationTarget;
   helpers: ToolCallContextHelpers;
@@ -390,12 +391,14 @@ const SCRATCH_ROOTS = Array.from(
       .map((value) => path.resolve(value)),
   ),
 );
-// Args naming the files a read-only lookup touches. Pinned path rules only
-// match pathHints, so a lookup that reports none reads `.env*` unprompted.
-const LOOKUP_PATH_ARG_KEYS = new Map<string, readonly string[]>([
+// Args naming the local files a tool reads. Pinned path rules only match
+// pathHints, so a tool that reports none reads `.env*` unprompted.
+const PATH_ARG_KEYS = new Map<string, readonly string[]>([
   ['read', ['path']],
   ['glob', ['pattern']],
   ['grep', ['path', 'include']],
+  // Every key the upload executor reads, not only the schema's path/files.
+  ['browser_upload', ['path', 'file', 'files', 'paths']],
 ]);
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {
@@ -713,12 +716,13 @@ function isRootBootstrapPath(rawPath: string): boolean {
   return relativePath === 'BOOTSTRAP.md';
 }
 
-function lookupPathHints(
+function pathArgHints(
   lowerTool: string,
   args: Record<string, unknown>,
 ): string[] {
-  return (LOOKUP_PATH_ARG_KEYS.get(lowerTool) || [])
-    .map((key) => normalizeText(args[key]))
+  return (PATH_ARG_KEYS.get(lowerTool) || [])
+    .flatMap((key) => (Array.isArray(args[key]) ? args[key] : [args[key]]))
+    .map((value) => normalizeText(value))
     .filter(Boolean);
 }
 
@@ -1631,7 +1635,7 @@ function buildEvaluation(
     intent: classified.intent,
     consequenceIfDenied:
       overrides.consequenceIfDenied || classified.consequenceIfDenied,
-    reason: overrides.reason || classified.reason,
+    reason: overrides.reason || approvalReason(context, classified),
     commandPreview: classified.commandPreview,
     pinned: pinnedByPolicy,
     ...(context.anomaly ? { anomaly: context.anomaly } : {}),
@@ -1728,8 +1732,24 @@ function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
   }
 }
 
+// `baseTier` keeps base-red and pinned calls on the red path even if a later
+// rule lowers `tier`; `tier` adds calls the anomaly reranker elevated to red.
 function isRedRuleActive(context: ToolCallContext): boolean {
-  return requireBaseTier(context) === 'red' && context.decision === 'auto';
+  return (
+    (requireBaseTier(context) === 'red' || context.tier === 'red') &&
+    context.decision === 'auto'
+  );
+}
+
+// Keep the classifier's reason and add the anomaly score, so approval prompts
+// and audit events say why an elevated call's tier rose.
+function approvalReason(
+  context: ToolCallContext,
+  classified: ClassifiedAction,
+): string {
+  return context.anomalyElevated && context.anomaly
+    ? `${classified.reason}; ${context.anomaly.reason}`
+    : classified.reason;
 }
 
 function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
@@ -1821,15 +1841,10 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   anomaly_reranker(context) {
-    const classified = requireClassified(context);
     const currentTier = context.tier || requireBaseTier(context);
     const anomaly = context.helpers.scoreBehaviorAnomaly({
       toolName: context.params.toolName,
       args: context.args,
-      actionKey: classified.actionKey,
-      pathHints: classified.pathHints,
-      hostHints: classified.hostHints,
-      writeIntent: classified.writeIntent,
       now: context.params.now,
     });
     context.anomaly = anomaly;
@@ -1841,6 +1856,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     ) {
       const elevatedTier = elevateApprovalTier(currentTier);
       context.tier = elevatedTier;
+      context.anomalyElevated = true;
       context.decision = 'auto';
     }
     return nextRule();
@@ -1995,7 +2011,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       argsJson: context.params.argsJson,
       intent: classified.intent,
       consequenceIfDenied: classified.consequenceIfDenied,
-      reason: classified.reason,
+      reason: approvalReason(context, classified),
       commandPreview: classified.commandPreview,
       originalPrompt: context.params.latestUserPrompt,
       pinned: requirePinned(context),
@@ -2860,7 +2876,7 @@ export class TrustedAgentApprovalRuntime {
         'I will continue without browser/vision interaction.',
       reason: 'this action interacts with external runtime state',
       commandPreview: normalizePreview(JSON.stringify(args)),
-      pathHints: [],
+      pathHints: pathArgHints(toolName.toLowerCase(), args),
       hostHints: [],
       writeIntent: false,
       promotableRed: false,
@@ -2889,7 +2905,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without this lookup.',
         reason: 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: lookupPathHints(lowerTool, args),
+        pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
         writeIntent: false,
         promotableRed: false,
@@ -3522,8 +3538,8 @@ export class TrustedAgentApprovalRuntime {
     const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
       this.namesPinnedPath(candidate),
     );
-    // Relative operands join pathHints only when they name a pinned path, so
-    // stakes and anomaly inputs stay unchanged for every other command.
+    // Pinned rules match pathHints only; relative operands join them when
+    // they name a pinned path.
     const pathHints = [
       ...new Set([
         ...absPaths,
@@ -3668,7 +3684,7 @@ export class TrustedAgentApprovalRuntime {
             'I will keep the task local and avoid that host.',
           commandPreview: normalizePreview(command),
         }),
-        // Keeps uploads such as `curl -T .env` under the pinned path check.
+        // `curl -T .env https://...` uploads a local file.
         pathHints,
       };
     }

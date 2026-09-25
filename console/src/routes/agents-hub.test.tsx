@@ -42,6 +42,7 @@ function makeAgent(id: string, name: string, archived = false): AdminAgent {
     chatbotId: null,
     enableRag: null,
     role: null,
+    extends: null,
     reportsTo: null,
     delegatesTo: null,
     peers: null,

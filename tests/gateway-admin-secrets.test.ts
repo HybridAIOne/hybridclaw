@@ -94,6 +94,7 @@ describe('gateway admin secrets metadata', () => {
       length: null,
       fingerprint: null,
     });
+    expect(response.secrets.find((entry) => entry.name === 'JEV_API_KEY')).toMatchObject({ name: 'JEV_API_KEY', state: 'unset' });
     expect(unsetEntry?.created_at).toBeNull();
     expect(unsetEntry?.last_rotated_at).toBeNull();
     expect(JSON.stringify(response)).not.toContain('super-secret-value');

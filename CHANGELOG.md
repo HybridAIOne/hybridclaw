@@ -12,6 +12,54 @@
 
 ### Fixed
 
+- **Installer no longer downloads the unused CUDA runtime**: `install.sh`
+  sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
+  installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw
+  never uses and which could hang the install with no output.
+- **SSRF guards block IPv6 spellings of private hosts**: Browser navigation,
+  the managed-browser guard proxy, and remote `audio_transcribe` fetches now
+  reject IPv6 literals such as `http://[::ffff:169.254.169.254]/` (cloud
+  metadata), `[::ffff:127.0.0.1]`, `[::1]`, and `[fd00:ec2::254]`. The URL
+  parser rewrites IPv4-mapped hosts to hex (`::ffff:a9fe:a9fe`), which these
+  guards did not decode, and the browser guard sent every bracketed IPv6
+  literal to a DNS lookup whose failure let it through. The container SSRF
+  guards share one private-range table that also covers IPv4-compatible and
+  NAT64 (`64:ff9b::/96`) forms, plus the IETF protocol-assignment block
+  `192.0.0.0/24`, which holds Oracle Cloud Classic's metadata service at
+  `192.0.0.192`.
+- **Gateway SSRF checks share the container range table**: The outbound
+  `http_request` proxy now rejects DNS answers in the hex IPv4-mapped form
+  (`::ffff:7f00:1`), which its dotted-only check let through, and
+  IPv4-compatible or NAT64 answers that embed a private address. It classifies
+  bracketed IPv6 literals itself instead of relying on their DNS lookup to
+  fail, so public ones such as `https://[2606:4700:4700::1111]/` work. It still
+  blocks `198.18.0.0/15`, which the shared table leaves open for fake-IP TUN
+  proxies. Discord CDN downloads and the iMessage BlueBubbles server URL check
+  use the same table, and BlueBubbles classifies bracketed IPv6 server URLs
+  the same way.
+- **`http_request` rechecks DNS when it connects**: The gateway proxy checked a
+  hostname's DNS answers before sending, but fetch then resolved the name
+  again, so a rebinding domain (public on the first lookup, `127.0.0.1` or
+  `169.254.169.254` on the second) could reach loopback or cloud metadata with
+  injected secrets. Every connection now resolves through the same
+  private-range check, including pinned and self-signed TLS requests. Private
+  hosts that workspace network policy allows still connect.
+- **Competitor monitoring no longer copies its example**: The skill's
+  example watchlist and result block used a real company with plausible
+  numbers, and an agent wrote that example into its daily note, so the app
+  showed a made-up finding. The examples are now `<…>` templates with an
+  explicit rule to write only real targets and this run's findings.
+- **Anomaly reranker recognizes an agent's routine calls**: Live tool calls are
+  scored with behavior tuples built from the tool name and arguments, the same
+  facts the model trains on. Scoring used to mix in approval-classifier action
+  keys and path/host hints, so routine `glob`, `grep`, read-only `bash`, web,
+  `memory`, and MCP calls never matched the agent's own history and were
+  elevated a tier once the agent had 50 approved trajectories.
+- **Anomaly elevation to red requires approval**: A yellow tool call that the
+  anomaly reranker elevates to red goes through the red approval rules and
+  asks for approval, and the prompt names the anomaly score. The elevated call
+  previously skipped both the red rules and the yellow implicit notice, so an
+  unusual call ran with less oversight than a normal one.
 - **Pinned paths gate file lookups**: `read`, `glob`, and `grep` calls that
   target a pinned path (`.env*`, `~/.ssh/**`, `/etc/**`, or an
   `approval.pinned_red` path) now require explicit approval; reading
@@ -26,16 +74,26 @@
   them, much like ripgrep skipping hidden and ignored files; the output says
   how many files were skipped, and naming them (for example
   `include: ".env*"`) searches them after explicit approval.
-- **Shell reads of pinned files need approval**: `bash` commands get the pinned
-  check for relative, `~`, `$HOME`, redirect, and glob operands, so
-  `cat .env`, `head config/.env.local`, `cat ~/.ssh/id_rsa`, `cat .e*`, and
-  `curl -T .env …` require explicit approval; only absolute paths were checked
-  before, and these ran green. Recursive reads that can reach pinned files
-  without naming them (`grep -r`, `rg --hidden`, `find -exec`, `find | xargs`)
-  now require approval on every run unless they exclude `.env*`
-  (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`,
-  `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..` always do. The
-  bash tool description points agents to the grep tool and the exclusion.
+- **Pinned paths gate shell commands and browser uploads**: `bash` commands
+  that name a pinned path with a relative, `~/`, or `$HOME/` spelling, as an
+  operand or redirect target, now require explicit approval, as do
+  `browser_upload` calls whose `path` or `files` are pinned. `cat .env.local`
+  and `cat ~/.ssh/id_rsa` previously ran green, and uploading `.env.local` to
+  a web page ran without a prompt. Text a lone `echo` prints and `grep`
+  patterns are not treated as paths.
+- **Workspace fence sees quoted paths**: `mkdir`, `touch`, `chmod`, `chown`,
+  `cp`, and `mv` targets outside the workspace now require approval when
+  quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
+  write while the unquoted spelling was fenced.
+- **Recursive shell reads of pinned files need approval**: Recursive reads
+  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
+  `find -exec`, `find | xargs`) now require approval on every run unless they
+  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
+  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
+  always do. Shell commands also match pinned paths through dotfile globs
+  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
+  command. The bash tool description points agents to the grep tool and the
+  exclusion.
 - **A read-only first command no longer makes a whole bash line green**: Only
   the first segment was checked, so `ls ; tar czf - . | base64`,
   `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
@@ -80,6 +138,20 @@
   resolved from the workspace root through any `cd` in the same command, and
   those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
   paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
+- **Connector credential changes require secret permissions**: Saving the
+  HybridAI API key and starting a connector OAuth flow require
+  `secret.overwrite`, and logging a connector out requires `secret.unset`, for
+  scoped admin sessions and scoped API tokens alike. The admin route gate left
+  every `secret.*` action to the route handler, and the connector handler never
+  checked it. `admin.integrations_manager`, `admin.config_manager`, and
+  `admin:operator` now get 403 on these routes unless they also hold the secret
+  actions.
+- **Connectors page shows only the credential controls a caller can use**:
+  `GET /api/admin/connectors` returns the caller's allowed connector credential
+  actions, and the admin console leaves out Connect, Rotate key, Reconnect, and
+  Disconnect unless the caller holds the matching `secret.overwrite` or
+  `secret.unset` action, instead of showing them and failing with "Forbidden."
+  after the click. Test stays available with `admin.connectors.read`.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly
@@ -123,6 +195,10 @@
   engine, so both produce the structured summary, archive the transcript, and
   keep the same retained slice. The separate JSONL compaction export is gone;
   the transcript archive is the record of compacted history.
+- **HybridAI default model is GPT-6 Luna**: New configs default to
+  `gpt-6-luna` instead of `gpt-5.6-luna`, and the premium-access error now
+  names it as the non-premium model. Existing configs keep the default model
+  they already have.
 
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 

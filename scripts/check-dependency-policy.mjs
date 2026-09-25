@@ -156,8 +156,9 @@ function isPinnedExternalSpec(spec) {
     return true;
   }
   return (
-    /^npm:[^@]+@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.test(trimmed) ||
-    /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(trimmed)
+    /^npm:(?:@[^/@]+\/)?[^/@]+@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.test(
+      trimmed,
+    ) || /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(trimmed)
   );
 }
 

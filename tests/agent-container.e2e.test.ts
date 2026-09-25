@@ -5,6 +5,11 @@ import {
   removeContainer,
   startContainer,
 } from './helpers/docker-test-setup.js';
+import {
+  pythonImportName,
+  readRuntimeToolInventory,
+  RUNTIME_TOOLS_TARGET,
+} from './helpers/runtime-tools-inventory.js';
 
 /**
  * Uses a single long-lived container with `docker exec` instead of spawning
@@ -79,34 +84,39 @@ describe.skipIf(!DOCKER_E2E)(
       expect(hasCommand(cmd)).toBe(true);
     });
 
-    // ── Python packages ─────────────────────────────────────────────────
+    // ── Python packages (shared runtime tool inventory) ────────────────
 
-    const pythonPackages = [
-      'pypdf',
-      'pdfplumber',
-      'pdf2image',
-      'reportlab',
-      'PIL',
-    ];
+    const inventory = readRuntimeToolInventory();
 
-    test.each(pythonPackages)('python package %s is importable', (pkg) => {
-      const result = exec(`python3 -c "import ${pkg}; print('ok')"`);
-      expect(result).toBe('ok');
-    });
+    test.each([...inventory.pip.keys()])(
+      'python package %s is importable',
+      (pkg) => {
+        const result = exec(
+          `python3 -c "import ${pythonImportName(pkg)}; print('ok')"`,
+        );
+        expect(result).toBe('ok');
+      },
+    );
 
-    // ── Global npm packages ─────────────────────────────────────────────
+    // ── Global npm packages (shared runtime tool inventory) ────────────
 
-    const npmPackages = [
-      'docx',
-      'pptxgenjs',
-      'csv-parse',
-      'iconv-lite',
-      'xlsx-populate',
-    ];
+    test.each([...inventory.npm.keys()])(
+      'npm package %s is requireable',
+      (pkg) => {
+        const result = exec(`node -e "require('${pkg}'); console.log('ok')"`);
+        expect(result).toBe('ok');
+      },
+    );
 
-    test.each(npmPackages)('npm package %s is requireable', (pkg) => {
-      const result = exec(`node -e "require('${pkg}'); console.log('ok')"`);
-      expect(result).toBe('ok');
+    test('image-size resolves to the dependency-free stub', () => {
+      const result = exec(
+        `node -e "console.log(require('image-size/package.json').version)"`,
+      );
+      expect(result).toBe('0.0.0-stub');
+      const nested = exec(
+        `sh -c "test ! -e ${RUNTIME_TOOLS_TARGET}/node_modules/pptxgenjs/node_modules/image-size && echo absent"`,
+      );
+      expect(nested).toBe('absent');
     });
 
     // ── Browser automation ──────────────────────────────────────────────

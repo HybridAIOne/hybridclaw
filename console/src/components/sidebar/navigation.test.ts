@@ -39,7 +39,10 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       },
       {
         label: 'Models',
-        items: [{ to: '/admin/models', label: 'Providers' }],
+        items: [
+          { to: '/admin/models', label: 'Providers' },
+          { to: '/admin/model-routing', label: 'Routing' },
+        ],
       },
       {
         label: 'Security',
@@ -65,6 +68,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         items: [
           { to: '/admin/harness-evolution', label: 'Harness Evolution' },
           { to: '/admin/distill', label: 'Distill' },
+          { to: '/admin/routing-evaluator', label: 'Routing Evaluator' },
           { to: '/admin/local-models', label: 'Local Models' },
         ],
       },
@@ -81,7 +85,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(18);
+    ).toHaveLength(19);
   });
 
   it('uses network-oriented icons for network policy and Agent2Agent', () => {

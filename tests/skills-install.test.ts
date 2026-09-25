@@ -90,6 +90,12 @@ describe('skill install metadata', () => {
   });
 
   test('resolves a declared install option by id', async () => {
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return { ...actual, hasBinary: (bin: string) => bin === 'brew' };
+    });
     const { resolveSkillInstallSelection } = await import(
       '../src/skills/skills-install.ts'
     );
@@ -137,6 +143,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: ['openhue'],
       env: [],
+      nodeModules: [],
     });
     // openclaw input is normalized into the hybridclaw-shaped output metadata.
     expect(skill?.metadata.hybridclaw.install).toEqual([
@@ -184,6 +191,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: ['openhue'],
       env: [],
+      nodeModules: [],
     });
     expect(skill?.metadata.hybridclaw.install).toEqual([
       {
@@ -239,6 +247,7 @@ describe('skill install metadata', () => {
     expect(skill?.requires).toEqual({
       bins: [],
       env: [],
+      nodeModules: [],
     });
     expect(logger.warn).toHaveBeenCalledWith(
       {
@@ -544,7 +553,10 @@ describe('skill install metadata', () => {
       >('../src/skills/skills.ts');
       return {
         ...actual,
-        hasBinary: () => true,
+        hasBinary: (bin: string) =>
+          bin === 'npm' ||
+          (bin === 'first-tool' && spawnMock.mock.calls.length >= 1) ||
+          (bin === 'second-tool' && spawnMock.mock.calls.length >= 2),
         loadSkillCatalog: () => [
           {
             name: 'setup-demo',
@@ -553,7 +565,7 @@ describe('skill install metadata', () => {
             userInvocable: true,
             disableModelInvocation: false,
             always: false,
-            requires: { bins: [], env: [] },
+            requires: { bins: [], env: [], nodeModules: [] },
             metadata: {
               hybridclaw: {
                 tags: [],
@@ -592,7 +604,7 @@ describe('skill install metadata', () => {
 
     expect(result.ok).toBe(true);
     expect(result.message).toBe(
-      'Set up setup-demo: installed first-tool, second-tool',
+      'Set up setup-demo: processed first-tool, second-tool',
     );
     expect(result.stdout).toContain('[first-tool]\ninstalled first');
     expect(result.stdout).toContain('[second-tool]\ninstalled second');
