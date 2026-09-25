@@ -41,24 +41,56 @@ test('docs escape stored and reflected markup while preserving raw Markdown as d
   }));
   const { serveDocs } = await import('../src/gateway/docs.js');
 
+  function expectUnhandledResponsesUntouched(): void {
+    for (const route of [
+      '/unrelated',
+      '/docs/missing',
+      '/docs/missing.md',
+      '/docs/missing?search=test',
+      '/docs/missing.md?search=test',
+    ]) {
+      const res = new ServerResponse(new IncomingMessage(new Socket()));
+      res.setHeader('X-Existing', 'preserved');
+      const headers = res.getHeaders();
+      const end = vi.spyOn(res, 'end').mockReturnValue(res);
+      expect(serveDocs(new URL(route, 'http://localhost'), res)).toBe(false);
+      expect(res.getHeaders()).toEqual(headers);
+      expect(res.headersSent).toBe(false);
+      expect(end).not.toHaveBeenCalled();
+    }
+  }
+
+  expectUnhandledResponsesUntouched();
   // Repeat the HTML route to cover both the cold and cached render paths.
   for (const route of [
     '/docs',
     '/docs',
     `/docs?search=${encodeURIComponent(payload)}`,
     '/docs/README.md',
+    `/docs/README.md?search=${encodeURIComponent(payload)}`,
   ]) {
     const res = new ServerResponse(new IncomingMessage(new Socket()));
+    const writeHead = vi.spyOn(res, 'writeHead');
     const end = vi.spyOn(res, 'end').mockReturnValue(res);
     expect(serveDocs(new URL(route, 'http://localhost'), res)).toBe(true);
     expect(res.statusCode, String(end.mock.calls[0][0])).toBe(200);
-    expect(res.getHeader('X-Content-Type-Options')).toBe('nosniff');
+    expect(writeHead).toHaveBeenCalledWith(
+      200,
+      expect.objectContaining({ 'X-Content-Type-Options': 'nosniff' }),
+    );
     const body = String(end.mock.calls[0][0]);
-    if (route.endsWith('.md')) {
-      expect(res.getHeader('Content-Type')).toBe(
-        'text/markdown; charset=utf-8',
+    if (new URL(route, 'http://localhost').pathname.endsWith('.md')) {
+      expect(writeHead).toHaveBeenCalledWith(
+        200,
+        expect.objectContaining({
+          'Content-Type': 'text/markdown; charset=utf-8',
+        }),
       );
-      expect(body).toBe(source);
+      if (route.includes('?')) {
+        expect(body).toContain(payload);
+      } else {
+        expect(body).toBe(source);
+      }
     } else {
       expect(body).not.toContain('<script id="injected">');
       expect(body).not.toContain('<img src=x');
@@ -72,4 +104,5 @@ test('docs escape stored and reflected markup while preserving raw Markdown as d
       expect(JSON.parse(embedded?.[1] || 'null')).toContain(payload);
     }
   }
+  expectUnhandledResponsesUntouched();
 });

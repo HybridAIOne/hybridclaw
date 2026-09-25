@@ -2514,7 +2514,6 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
 
   const relativePath = normalizeDevelopmentDocRelativePath(pathname);
   if (!relativePath) return false;
-  res.setHeader('X-Content-Type-Options', 'nosniff');
   const wantsMarkdown = pathname.endsWith('.md');
 
   try {
@@ -2527,6 +2526,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
         res.writeHead(200, {
           'Cache-Control': 'no-cache',
           'Content-Type': 'text/markdown; charset=utf-8',
+          'X-Content-Type-Options': 'nosniff',
         });
         res.end(searchPage.source);
         return true;
@@ -2539,6 +2539,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
       res.writeHead(200, {
         'Cache-Control': 'no-cache',
         'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
       });
       res.end(html);
       return true;
@@ -2551,6 +2552,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
       res.writeHead(200, {
         'Cache-Control': 'no-cache',
         'Content-Type': 'text/markdown; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
       });
       res.end(fs.readFileSync(candidate, 'utf8'));
       return true;
@@ -2565,6 +2567,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
       res.writeHead(200, {
         'Cache-Control': 'no-cache',
         'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
       });
       res.end(html);
       return true;
@@ -2578,6 +2581,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
     res.writeHead(200, {
       'Cache-Control': 'no-cache',
       'Content-Type': 'text/html; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(html);
     return true;
@@ -2586,6 +2590,7 @@ export function serveDocs(url: URL, res: ServerResponse): boolean {
     res.writeHead(500, {
       'Cache-Control': 'no-cache',
       'Content-Type': 'text/html; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(renderDevelopmentDocsErrorPage(message));
     return true;

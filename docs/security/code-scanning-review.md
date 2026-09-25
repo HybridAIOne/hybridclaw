@@ -2,8 +2,10 @@
 
 Reviewed all ten open GitHub CodeQL alerts against checkout
 `26f564eaefae7c1d44faf1ffed11022aa68591e6`, the commit recorded in each alert.
-All ten are false positives; each dismissal records its specific justification
-in GitHub. No scanning rules were disabled.
+All ten were classified as false positives at review time. This is a dated
+review snapshot; the [GitHub alert records](https://github.com/HybridAIOne/hybridclaw/security/code-scanning)
+are authoritative for current state and dismissal justifications. No scanning
+rules were disabled.
 
 | Alert | Evidence |
 | --- | --- |
@@ -22,14 +24,15 @@ in GitHub. No scanning rules were disabled.
 
 Docs responses gain `X-Content-Type-Options: nosniff` to prevent content-type
 sniffing, including raw Markdown responses. This is defense in depth; it does
-not replace escaping or sanitization. The only production change is one line
-in `src/gateway/docs.ts` (an existing file over 1,000 lines); no fact lists or
+not replace escaping or sanitization. The only production change is six header
+entries in `src/gateway/docs.ts` (an existing file over 1,000 lines); no fact lists or
 security mechanisms were duplicated. Authentication, hashing algorithms,
 approval policies and command execution behavior remain unchanged.
 
 New tests exercise stored and reflected script markup, unsafe Markdown links,
 embedded JSON script termination, cold/cached rendering, raw Markdown content
-type, and shell metacharacters in the environment-derived temporary directory.
+type, untouched responses for unhandled routes (with and without cached docs),
+and shell metacharacters in the environment-derived temporary directory.
 The shell test uses real Bash execution and checks that injected commands do
 not create files.
 
