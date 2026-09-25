@@ -54,6 +54,14 @@
   flagless `rm` outside the workspace hits the workspace fence.
   `git rm --cached`, which keeps the files, is now a yellow git write instead of
   a deletion; `rmdir` stays yellow because it only removes empty directories.
+- **Read-only commands that run programs or write files leave the green
+  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
+  `git diff --output=FILE`, `git log --output=../out.txt`, and
+  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
+  and `--hostname-bin` are now red script execution; git's `--output` and
+  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
+  absolute target outside the workspace hits the workspace fence. Plain
+  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

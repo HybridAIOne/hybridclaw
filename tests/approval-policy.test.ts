@@ -1507,6 +1507,53 @@ approval:
     expect(evaluation.decision).toBe('auto');
   });
 
+  test.each([
+    'rg --pre python3 KEY src',
+    'rg --pre=pdftotext KEY docs',
+    'rg --hostname-bin=hostname-tool KEY',
+    'ls && rg --pre python3 KEY .',
+  ])('ripgrep options that run a program are script execution: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:script');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    ['git diff --output=notes.txt', 'bash:write-op'],
+    ['git log -p --output=../out.txt', 'bash:write-op'],
+    ['git show HEAD --output notes.txt', 'bash:write-op'],
+    ["find . -name '*.ts' -fprint list.txt", 'bash:write-op'],
+    ['find . -fprint0 list.bin', 'bash:write-op'],
+    ["find . -fprintf list.txt '%p\\n'", 'bash:write-op'],
+    ['git log --output=/tmp/out.txt', 'bash:write-op'],
+    ['git log --output=/opt/data/out.txt', 'bash:workspace-fence'],
+    ['find . -fls /opt/data/list.txt', 'bash:workspace-fence'],
+  ])('read-only commands that write through an option are writes: %j', (command, actionKey) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe(actionKey);
+    expect(evaluation.tier).not.toBe('green');
+  });
+
+  test.each([
+    'rg KEY',
+    "rg --pre-glob '*.pdf' KEY",
+    'rg -- --pre KEY',
+    'git diff --stat',
+    'git diff --output-indicator-new=+ HEAD',
+    'git diff -- --output=notes.txt',
+    "find . -name '*.ts'",
+    "find . -name '*.ts' -print",
+  ])('read-only commands without exec or write options stay green: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:read-only');
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+  });
+
   test('sensitive paths stay pinned red and require explicit approval', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

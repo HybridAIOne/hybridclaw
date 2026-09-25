@@ -31,7 +31,11 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
-import { commandProgram, shellCommandsRun } from './bash-commands.js';
+import {
+  commandProgram,
+  FIND_EXEC_ACTIONS,
+  shellCommandsRun,
+} from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   type BehaviorAnomalyInput,
@@ -435,6 +439,8 @@ const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
+const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
@@ -1213,6 +1219,45 @@ function deletesFiles(words: string[]): boolean {
     gitSubcommand(args) === 'rm' &&
     !args.includes('--cached')
   );
+}
+
+// ripgrep runs `--pre` and `--hostname-bin` values as programs: `rg --pre
+// python3 KEY` executes python3 on every file it searches.
+function runsProgramOption(words: string[]): boolean {
+  const { program, args } = commandProgram(words);
+  if (program !== 'rg') return false;
+  const optionsEnd = args.indexOf('--');
+  return args
+    .slice(0, optionsEnd < 0 ? args.length : optionsEnd)
+    .some((arg) => RG_PROGRAM_OPTION_RE.test(arg));
+}
+
+// Files a command writes through an option instead of a redirect: git's
+// `--output FILE` and find's -fprint/-fprint0/-fprintf/-fls actions.
+function optionWriteTargets(words: string[]): string[] {
+  const { program, args } = commandProgram(words);
+  if (program !== 'git' && program !== 'find') return [];
+  const targets: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (program === 'git') {
+      if (arg === '--') break;
+      if (arg.startsWith('--output=')) {
+        targets.push(arg.slice('--output='.length));
+      } else if (arg === '--output') {
+        targets.push(args[index + 1] ?? '');
+        index += 1;
+      }
+    } else if (FIND_EXEC_ACTIONS.has(arg)) {
+      while (index + 1 < args.length && !/^[;+]$/.test(args[index + 1])) {
+        index += 1;
+      }
+    } else if (FIND_WRITE_ACTIONS.has(arg)) {
+      targets.push(args[index + 1] ?? '');
+      index += 1;
+    }
+  }
+  return targets;
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -3581,12 +3626,18 @@ export class TrustedAgentApprovalRuntime {
         ...(pinnedReach.walk?.reaches || []),
       ]),
     ];
-    const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
+    const optionWrites = commandsRun.flatMap(optionWriteTargets);
+    const likelyWritePaths = [
+      ...extractLikelyWritePaths(inspectionSurface),
+      // Like redirect targets, only absolute paths reach the workspace fence.
+      ...optionWrites.filter((target) => target.startsWith('/')),
+    ];
     const deletes =
       DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
       deletes ||
+      optionWrites.length > 0 ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
 
@@ -3652,7 +3703,10 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (UNKNOWN_SCRIPT_RE.test(inspectionSurface)) {
+    if (
+      UNKNOWN_SCRIPT_RE.test(inspectionSurface) ||
+      commandsRun.some(runsProgramOption)
+    ) {
       return {
         tier: 'red',
         actionKey: 'bash:script',
@@ -3762,7 +3816,8 @@ export class TrustedAgentApprovalRuntime {
 
     if (
       GIT_WRITE_RE.test(inspectionSurface) ||
-      WRITE_INTENT_RE.test(inspectionSurface)
+      WRITE_INTENT_RE.test(inspectionSurface) ||
+      optionWrites.length > 0
     ) {
       return {
         tier: 'yellow',
