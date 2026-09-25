@@ -178,8 +178,6 @@ describe('Codex app-server runtime helpers', () => {
     expect(names).toContain('web_extract');
     expect(names).toContain('web_search');
     expect(names).toContain('vision_analyze');
-    expect(names).toContain('image_generate');
-    expect(names).toContain('audio_transcribe');
     expect(names).toContain('skill_lookup');
     expect(names).toContain('voice_status');
     expect(names).not.toContain('tts_status');
@@ -516,7 +514,6 @@ describe('Codex app-server runtime helpers', () => {
         tavilySearchDepth: 'basic',
         braveApiKey: 'secret-web-key',
       },
-      providerCredentials: { openai: { apiKey: 'secret-provider-key' } },
     });
     const fileContext = JSON.stringify(payloads.fileContext);
     const secretContext = JSON.stringify(payloads.secretContext);
@@ -528,7 +525,6 @@ describe('Codex app-server runtime helpers', () => {
     expect(fileContext).not.toContain('secret-gateway-token');
     expect(fileContext).not.toContain('Authorization');
     expect(fileContext).not.toContain('secret-web-key');
-    expect(fileContext).not.toContain('secret-provider-key');
     expect(secretContext).toContain('secret-api-key');
     expect(secretContext).toContain('secret-gateway-token');
     expect(secretContext).toContain('secret-web-key');

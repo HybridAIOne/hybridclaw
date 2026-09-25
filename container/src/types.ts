@@ -203,26 +203,6 @@ export interface ScheduledTaskInput {
 export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
-export interface ProviderCredential {
-  apiKey?: string;
-  baseUrl?: string;
-  audioModel?: string;
-  imageModel?: string;
-  videoModel?: string;
-}
-
-export interface ProviderCredentials {
-  speechToText?: {
-    defaultProvider?: string;
-  };
-  openai?: ProviderCredential;
-  gemini?: ProviderCredential;
-  xai?: ProviderCredential;
-  bfl?: ProviderCredential;
-  deepgram?: ProviderCredential;
-  assemblyai?: ProviderCredential;
-}
-
 export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 
 export interface AddressEnvelope {
@@ -295,7 +275,6 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
-  providerCredentials?: ProviderCredentials;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;

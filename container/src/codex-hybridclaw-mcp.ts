@@ -16,7 +16,6 @@ import {
   setGatewayContext,
   setMediaContext,
   setModelContext,
-  setProviderCredentials,
   setTaskModelPolicies,
   setWebSearchConfig,
   TOOL_DEFINITIONS,
@@ -28,8 +27,6 @@ const CALLBACK_TOOL_NAMES = new Set([
   'web_extract',
   'web_search',
   'vision_analyze',
-  'image_generate',
-  'audio_transcribe',
 ]);
 
 interface McpToolDefinition {
@@ -151,7 +148,6 @@ function applyContext(context: CodexMcpContext | null): void {
   setTaskModelPolicies(context.taskModels);
   setMediaContext(context.media);
   setWebSearchConfig(context.webSearch);
-  setProviderCredentials(context.providerCredentials);
 }
 
 function buildMcpTool(tool: ToolDefinition): McpToolDefinition {

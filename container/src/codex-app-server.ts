@@ -71,7 +71,6 @@ interface RunCodexAppServerTurnParams {
   taskModels?: ContainerInput['taskModels'];
   media?: ContainerInput['media'];
   webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
   streamTextDeltas?: boolean;
   onTextDelta?: (delta: string) => void;
   onActivity?: () => void;
@@ -415,7 +414,6 @@ export function buildCodexMcpContextPayloads(
     | 'taskModels'
     | 'media'
     | 'webSearch'
-    | 'providerCredentials'
   >,
 ): CodexMcpContextPayloads {
   const { fileWebSearch, secretWebSearch } = splitWebSearchConfig(
@@ -443,7 +441,6 @@ export function buildCodexMcpContextPayloads(
       gatewayBaseUrl: params.gatewayBaseUrl,
       gatewayApiToken: params.gatewayApiToken,
       webSearch: secretWebSearch,
-      providerCredentials: params.providerCredentials,
     }) satisfies CodexMcpContext,
   };
 }

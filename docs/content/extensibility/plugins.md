@@ -24,6 +24,7 @@ hybridclaw plugin install ./plugins/mem0-memory
 hybridclaw plugin install ./plugins/mempalace-memory
 hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/transformers-embeddings
+hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install @scope/hybridclaw-plugin-example
@@ -108,6 +109,10 @@ or change one top-level `plugins.list[].config` key without editing
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
+- `media-tools` provides `image_generate`, `video_generate`, and
+  `audio_transcribe`. Provider calls run in the gateway with keys from the
+  secret store (or the session model's credentials), so no provider key enters
+  the sandbox. Reference media and outputs go through `api.media`
 - `transformers-embeddings` registers the `transformers` embedding provider
   for built-in semantic memory, running a local Transformers.js (ONNX) model
   in a worker thread; select it with `memory.embedding.provider`
@@ -301,6 +306,26 @@ Currently wired runtime surfaces:
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
+
+### Tools that read or write media
+
+Plugin tool handlers receive `context.media`, the attachments of the turn that
+called the tool as the sandbox saw them. `api.media` resolves the rest without
+giving the plugin new reach:
+
+- `resolveInputPath(sessionId, path, media)` maps a sandbox path under
+  `/workspace`, `/discord-media-cache` (current turn only), or
+  `/uploaded-media-cache` to the host file through the same allowed-roots check
+  the gateway uses for inbound audio, or returns `null`.
+- `fetchRemote(url, { maxBytes, timeoutMs, discordCdnOnly })` is an HTTPS GET
+  whose every DNS answer must be public.
+- `getSessionModelCredentials(sessionId)` returns the session model's provider,
+  base URL, key, and headers, for tools that fall back to them.
+- Outputs go under `api.getSessionInfo(sessionId).workspaceRoot` and are
+  reported to the agent under `api.media.workspaceDisplayRoot`.
+
+Plugin tool calls from the sandbox wait up to 20 minutes for a result, so
+long-running provider jobs such as video generation fit in one call.
 
 ### Channel transport plugins
 

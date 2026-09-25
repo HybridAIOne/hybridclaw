@@ -30,6 +30,10 @@ export type {
 export type { AIProvider } from '../providers/types.js';
 export type { StoredMessage } from '../types/session.js';
 export type {
+  PluginMediaHost,
+  PluginSessionModelCredentials,
+} from './plugin-media-host.js';
+export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,
   LoadedPlugin,

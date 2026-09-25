@@ -18,5 +18,4 @@ export interface CodexMcpContext {
   taskModels?: ContainerInput['taskModels'];
   media?: ContainerInput['media'];
   webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
 }

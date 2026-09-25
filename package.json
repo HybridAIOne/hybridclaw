@@ -41,6 +41,7 @@
     "docs/",
     "infra/managed-browser/",
     "plugins/concierge-router/",
+    "plugins/media-tools/",
     "plugins/line/",
     "plugins/vonage-voice/",
     "plugins/tier-router/",

@@ -25,6 +25,7 @@ import {
   writePluginConfigValue,
 } from './plugin-config.js';
 import type { PluginManager } from './plugin-manager.js';
+import { createPluginMediaHost } from './plugin-media-host.js';
 import {
   createPluginRealtimeVoiceSession,
   isPluginRealtimeVoiceAvailable,
@@ -132,6 +133,12 @@ export function createPluginApi(params: {
     },
     logger: pluginLogger,
     runtime,
+    media: createPluginMediaHost({
+      resolveAgentId: resolvePluginSessionAgentId,
+      resolveWorkspaceRoot: (sessionId) =>
+        params.manager.getSessionWorkspaceRoot(sessionId) ||
+        agentWorkspaceDir(resolvePluginSessionAgentId(sessionId)),
+    }),
     registerMemoryLayer(layer: MemoryLayerPlugin): void {
       params.manager.registerMemoryLayer(params.pluginId, layer);
     },

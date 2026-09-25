@@ -134,7 +134,6 @@ import {
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
-  setProviderCredentials,
   setScheduledTasks,
   setScheduleSideEffectsEnabled,
   setSessionContext,
@@ -1009,7 +1008,6 @@ interface ProcessRequestParams {
   mcpServers?: ContainerInput['mcpServers'];
   media?: ContainerInput['media'];
   webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
   localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
@@ -1038,7 +1036,6 @@ function inputRuntimeContext(
   | 'mcpServers'
   | 'media'
   | 'webSearch'
-  | 'providerCredentials'
 > {
   return {
     gatewayBaseUrl: input.gatewayBaseUrl,
@@ -1047,7 +1044,6 @@ function inputRuntimeContext(
     mcpServers: input.mcpServers,
     media: input.media,
     webSearch: input.webSearch,
-    providerCredentials: input.providerCredentials,
   };
 }
 
@@ -1096,7 +1092,6 @@ async function processRequestInner(
     mcpServers,
     media,
     webSearch,
-    providerCredentials,
     tools: availableTools,
     localStarterTools,
     localToolMode,
@@ -1229,7 +1224,6 @@ async function processRequestInner(
       taskModels,
       media,
       webSearch,
-      providerCredentials,
       streamTextDeltas,
       onTextDelta: emitStreamDelta,
       onActivity: emitStreamActivity,
@@ -2233,7 +2227,6 @@ async function main(): Promise<void> {
     firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
-  setProviderCredentials(firstInput.providerCredentials);
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
   const firstVisionMessages = await injectNativeVisionContent({
@@ -2444,7 +2437,6 @@ async function main(): Promise<void> {
       input.modelBehavior,
       input.debugModelResponses === true,
     );
-    setProviderCredentials(input.providerCredentials);
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
     const visionPreparedMessages = await injectNativeVisionContent({

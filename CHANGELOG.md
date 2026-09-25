@@ -4,6 +4,16 @@
 
 ### Changed
 
+- **Media tools move to the `media-tools` plugin; provider keys leave the
+  sandbox**: `image_generate`, `video_generate`, and `audio_transcribe` run in
+  the gateway as the `media-tools` plugin (`hybridclaw plugin install
+  media-tools`), with the same names, arguments, and approval tiers. The
+  sandbox no longer receives OpenAI, Gemini, xAI, Black Forest Labs, Deepgram,
+  or AssemblyAI keys. Plugins gain `api.media` (session media reads through the
+  gateway's allowed-roots check, SSRF-guarded HTTPS fetch, session model
+  credentials) and `context.media` on tool calls, and sandbox plugin-tool calls
+  wait up to 20 minutes. The audio tool's result no longer carries `cost_usd`;
+  usage accounting still estimates it.
 - **Local embeddings move to the `transformers-embeddings` plugin**: The
   Transformers.js embedding provider and its ONNX runtime (about 380 MB,
   including sharp's LGPL libvips binaries) leave the core install. Install it

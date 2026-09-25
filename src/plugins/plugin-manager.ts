@@ -46,6 +46,7 @@ import {
 } from '../memory/embeddings.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
@@ -259,6 +260,7 @@ export interface ExecutePluginToolParams {
   args: Record<string, unknown>;
   sessionId: string;
   channelId: string;
+  media?: MediaContextItem[];
 }
 
 export interface PluginManagerOptions {
@@ -2513,6 +2515,7 @@ export class PluginManager {
       channelId: params.channelId,
       pluginId: entry.pluginId,
       logger: entry.logger,
+      media: params.media ?? [],
     };
     try {
       const result = normalizeToolResult(

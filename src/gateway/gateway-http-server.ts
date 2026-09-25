@@ -344,6 +344,7 @@ import {
   getGatewayStatus,
   handleGatewayCommand,
   logoutGatewayAdminMcpOAuth,
+  normalizeMediaContextItems,
   previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
@@ -1779,6 +1780,7 @@ type ApiPluginToolRequestBody = {
   args?: unknown;
   sessionId?: unknown;
   channelId?: unknown;
+  media?: unknown;
 };
 
 type ApiChatMobileQrRequestBody = {
@@ -4088,6 +4090,7 @@ async function handleApiPluginTool(
         typeof body.sessionId === 'string' ? body.sessionId : undefined,
       channelId:
         typeof body.channelId === 'string' ? body.channelId : undefined,
+      media: normalizeMediaContextItems(body.media),
     });
     sendJson(res, 200, { ok: true, result });
   } catch (error) {

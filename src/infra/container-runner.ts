@@ -79,7 +79,6 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderCredentials } from '../providers/provider-credentials.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -1234,7 +1233,6 @@ async function runContainerInner(
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,
     },
     webSearch: webSearchRuntime,
-    providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
   };
@@ -1251,7 +1249,6 @@ async function runContainerInner(
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
-    providerCredentials: input.providerCredentials,
     runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,

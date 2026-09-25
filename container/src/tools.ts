@@ -27,7 +27,6 @@ import {
   isValidTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
-import { runAudioTranscribe } from './audio-transcribe.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -42,7 +41,10 @@ import {
   runDiagramTool,
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
-import { runImageGenerate } from './image-generation.js';
+import {
+  type GatewayJsonResponse,
+  postGatewayJson,
+} from './gateway-json-post.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
@@ -78,14 +80,12 @@ import {
   type DelegationTaskSpec,
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
-  type ProviderCredentials,
   TASK_MODEL_KEYS,
   type TaskModelKey,
   type TaskModelPolicies,
   type ToolDefinition,
   type ToolRunResult,
 } from './types.js';
-import { runVideoGenerate } from './video-generation.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 const DENY_PATTERNS: RegExp[] = [
@@ -317,7 +317,6 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
 let currentModelDebugResponses = false;
-let currentProviderCredentials: ProviderCredentials = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -1036,13 +1035,6 @@ export function setModelContext(
   );
 }
 
-export function setProviderCredentials(
-  credentials?: ProviderCredentials,
-): void {
-  if (!credentials) return;
-  currentProviderCredentials = { ...credentials };
-}
-
 export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
   currentTaskModelPolicies = cloneTaskModelPolicies(taskModels);
   setBrowserTaskModelPolicies(currentTaskModelPolicies);
@@ -1486,6 +1478,10 @@ async function callGatewaySchedulerTask(
   return parsed;
 }
 
+// 20 min (owner call, 2026-09-25): above the 15 min video-generation poll
+// window, the longest plugin tool the gateway ships.
+const PLUGIN_TOOL_TIMEOUT_MS = 20 * 60_000;
+
 async function callGatewayPluginTool(
   name: string,
   args: Record<string, unknown>,
@@ -1504,18 +1500,20 @@ async function callGatewayPluginTool(
     headers.Authorization = `Bearer ${gatewayApiToken}`;
   }
 
-  let response: Response;
+  let response: GatewayJsonResponse;
   try {
-    response = await fetch(url, {
-      method: 'POST',
+    response = await postGatewayJson(
+      url,
       headers,
-      body: JSON.stringify({
+      {
         toolName: name,
         args,
         sessionId: currentSessionId,
         channelId: gatewayChannelId,
-      }),
-    });
+        media: currentMediaContext,
+      },
+      PLUGIN_TOOL_TIMEOUT_MS,
+    );
   } catch (err) {
     return failTool(
       `Error: plugin tool request failed: ${
@@ -1524,7 +1522,7 @@ async function callGatewayPluginTool(
     );
   }
 
-  const rawText = await response.text();
+  const rawText = response.text;
   let parsed: Record<string, unknown> | null = null;
   try {
     const maybe = JSON.parse(rawText) as unknown;
@@ -3852,59 +3850,6 @@ async function executeToolInternal(
       return await runVisionAnalyze(args, auxiliaryRuntimeContext, name);
     }
 
-    case 'image_generate': {
-      try {
-        return await runImageGenerate(args, {
-          provider: currentModelProvider,
-          baseUrl: currentModelBaseUrl,
-          apiKey: currentModelApiKey,
-          model: currentModelName,
-          requestHeaders: currentModelHeaders,
-          media: currentMediaContext,
-          providerCredentials: currentProviderCredentials,
-        });
-      } catch (err) {
-        return failTool(
-          `Error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
-    case 'audio_transcribe': {
-      try {
-        return await runAudioTranscribe(args, {
-          provider: currentModelProvider,
-          baseUrl: currentModelBaseUrl,
-          apiKey: currentModelApiKey,
-          model: currentModelName,
-          requestHeaders: currentModelHeaders,
-          media: currentMediaContext,
-          providerCredentials: currentProviderCredentials,
-        });
-      } catch (err) {
-        return failTool(
-          `Error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
-    case 'video_generate': {
-      try {
-        return await runVideoGenerate(args, {
-          provider: currentModelProvider,
-          baseUrl: currentModelBaseUrl,
-          apiKey: currentModelApiKey,
-          model: currentModelName,
-          requestHeaders: currentModelHeaders,
-          providerCredentials: currentProviderCredentials,
-        });
-      } catch (err) {
-        return failTool(
-          `Error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
     case 'diagram_create': {
       try {
         return await runDiagramTool(
@@ -5067,170 +5012,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['image_url', 'question'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'image_generate',
-      description:
-        'Generate or edit deliverable images with a configured image provider. Use action="list" to inspect provider readiness. Do not use for image analysis; use vision_analyze for that.',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['list'],
-            description:
-              'Use "list" to show configured image generation providers instead of generating.',
-          },
-          prompt: {
-            type: 'string',
-            description: 'Image generation or editing prompt.',
-          },
-          image: {
-            type: ['string', 'array'],
-            description:
-              'Optional reference image path or list of paths from /workspace, /discord-media-cache, /uploaded-media-cache, or a Discord CDN HTTPS URL.',
-            items: { type: 'string' },
-          },
-          images: {
-            type: 'array',
-            description:
-              'Optional reference image paths from /workspace, /discord-media-cache, /uploaded-media-cache, or Discord CDN HTTPS URLs.',
-            items: { type: 'string' },
-          },
-          aspectRatio: {
-            type: 'string',
-            description:
-              'Optional aspect ratio such as 1:1, 3:2, 2:3, landscape, portrait, or square.',
-          },
-          quality: {
-            type: 'string',
-            description:
-              'Optional quality hint. Unsupported provider values are reported as warnings.',
-          },
-          size: {
-            type: 'string',
-            description:
-              'Optional provider size or resolution such as 1024x1024.',
-          },
-          resolution: {
-            type: 'string',
-            description: 'Alias for size.',
-          },
-          count: {
-            type: 'number',
-            description: 'Number of images to generate, capped at 4.',
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'audio_transcribe',
-      description:
-        'Transcribe an audio attachment, local audio file, or HTTPS audio URL with a configured speech-to-text provider. Use action="list" to inspect provider readiness.',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['list', 'detect-language'],
-            description:
-              'Use "list" to show configured speech-to-text providers, or "detect-language" to identify the dominant spoken language.',
-          },
-          provider: {
-            type: 'string',
-            description:
-              'Optional provider override: auto, openai, whisper, deepgram, or assemblyai.',
-          },
-          audio: {
-            type: 'string',
-            description:
-              'Audio path, attachment filename/ref, or HTTPS URL. If omitted, exactly one current audio attachment is used.',
-          },
-          audio_url: {
-            type: 'string',
-            description: 'Alias for audio when passing an HTTPS audio URL.',
-          },
-          path: {
-            type: 'string',
-            description: 'Alias for audio when passing a local audio path.',
-          },
-          language: {
-            type: 'string',
-            description:
-              'Optional ISO language hint. Omit for provider language detection.',
-          },
-          prompt: {
-            type: 'string',
-            description:
-              'Optional transcription prompt/context for names, terms, or style.',
-          },
-          timestamps: {
-            type: 'string',
-            enum: ['segment', 'word', 'none'],
-            description:
-              'Timestamp granularity. Segment is the default; word requests word-level timestamps when the provider supports them.',
-          },
-          diarization: {
-            type: 'boolean',
-            description:
-              'Request speaker labels when supported by the selected provider.',
-          },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'video_generate',
-      description:
-        'Generate deliverable videos with a configured video provider. Supports OpenAI Sora and Google Veo. Use action="list" to inspect provider readiness.',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['list'],
-            description:
-              'Use "list" to show configured video generation providers instead of generating.',
-          },
-          prompt: {
-            type: 'string',
-            description: 'Video generation prompt.',
-          },
-          aspectRatio: {
-            type: 'string',
-            description:
-              'Optional aspect ratio such as 16:9, 9:16, landscape, or portrait.',
-          },
-          resolution: {
-            type: 'string',
-            description:
-              'Optional provider resolution or size, such as 720x1280, 1280x720, 720p, 1080p, or 4k.',
-          },
-          size: {
-            type: 'string',
-            description: 'Alias for resolution.',
-          },
-          durationSeconds: {
-            type: 'number',
-            description: 'Optional duration in seconds when supported.',
-          },
-          duration: {
-            type: 'number',
-            description: 'Alias for durationSeconds.',
-          },
-        },
-        required: [],
       },
     },
   },
