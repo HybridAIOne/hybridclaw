@@ -344,6 +344,27 @@ metadata:
 ---
 ```
 
+Entries sharing an explicit `id` are alternative recipes for one dependency.
+Optional `os` and `arch` arrays use Node.js names (`darwin`, `linux`, `x64`,
+`arm64`). Omitted constraints allow every platform; empty or malformed arrays
+allow none. Selection uses declaration order, choosing the first compatible
+recipe whose installer is available (or whose declared binaries already exist).
+Setup processes each dependency id once, including separate dependencies.
+Install failures stop execution without trying another alternative.
+
+For example, a dependency can declare `id: gog`, `kind: brew`, `os: [darwin]`
+and another entry with `id: gog`, `kind: go`, `os: [linux]`. Both are addressed
+by `/skill install gog gog`. A missing prerequisite produces an actionable error
+before spawning an installer. Existing declared binaries on the gateway PATH
+are skipped; this checks presence, not version compatibility. `uv` retains its
+Homebrew bootstrap when Homebrew is available.
+
+Installers run on the gateway host. They do not install into separate agent
+containers or automatically translate Homebrew formulas into apt packages.
+Provision cloud dependencies in the image that executes the tools. Go recipes
+require an appropriate Go toolchain and its output directory (`GOBIN`, or
+`GOPATH/bin`, normally `~/go/bin`) on the gateway PATH.
+
 Operator surfaces:
 
 - `hybridclaw skill list` and `/skill list` show declared dependency ids

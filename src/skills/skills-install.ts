@@ -1,3 +1,9 @@
+/**
+ * Dependency installation selects one compatible recipe per dependency id.
+ * Unlike skill discovery, this changes host dependencies, never agent containers.
+ * Missing prerequisites fail before execution; failed installers are not retried
+ * with another recipe after they may have partially changed the host.
+ */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -92,8 +98,9 @@ function assertSafeInstallerValue(
 function resolveBrewExecutable(): string | null {
   if (hasBinary('brew')) return 'brew';
 
+  if (process.platform !== 'darwin') return null;
   for (const candidate of ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']) {
-    if (fs.existsSync(candidate)) return candidate;
+    if (hasBinary(candidate)) return candidate;
   }
 
   return null;
@@ -173,15 +180,42 @@ export function resolveSkillInstallSelection(params: {
     };
   }
 
-  const matched = installSpecs.find(
+  const candidates = installSpecs.filter(
     (spec, index) => resolveSkillInstallId(spec, index) === normalizedInstallId,
   );
-  if (!matched) {
+  if (candidates.length === 0) {
     const availableIds = installSpecs
       .map((spec, index) => resolveSkillInstallId(spec, index))
       .join(', ');
     return {
       error: `Install id "${normalizedInstallId}" not found for "${skill.name}". Available ids: ${availableIds}`,
+    };
+  }
+
+  const compatible = candidates.filter(
+    (spec) =>
+      (!spec.os || spec.os.includes(process.platform)) &&
+      (!spec.arch || spec.arch.includes(process.arch)),
+  );
+  if (compatible.length === 0) {
+    return {
+      error: `No compatible installer for "${skill.name}" (${normalizedInstallId}) on ${process.platform}/${process.arch}. Declare an os/arch-compatible recipe or provision the dependency in the runtime image.`,
+    };
+  }
+  const matched = compatible.find(
+    (spec) =>
+      ((spec.bins?.length ?? 0) > 0 &&
+        validateInstalledBins(spec).length === 0) ||
+      installerAvailable(spec),
+  );
+  if (!matched) {
+    const required = [
+      ...new Set(
+        compatible.map((spec) => (spec.kind === 'node' ? 'npm' : spec.kind)),
+      ),
+    ].join(', ');
+    return {
+      error: `No available installer for "${skill.name}" (${normalizedInstallId}) on ${process.platform}/${process.arch}. Install a prerequisite (${required}) on the gateway PATH, or provision the dependency in the runtime image.`,
     };
   }
 
@@ -192,10 +226,20 @@ export function resolveSkillInstallSelection(params: {
   };
 }
 
+function installerAvailable(spec: SkillInstallSpec): boolean {
+  if (spec.kind === 'download') return true;
+  if (spec.kind === 'brew') return resolveBrewExecutable() !== null;
+  if (spec.kind === 'uv')
+    return hasBinary('uv') || resolveBrewExecutable() !== null;
+  return hasBinary(spec.kind === 'node' ? 'npm' : spec.kind);
+}
+
 function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
   switch (spec.kind) {
     case 'brew':
-      return spec.formula ? ['brew', 'install', spec.formula] : null;
+      return spec.formula
+        ? [resolveBrewExecutable() || 'brew', 'install', spec.formula]
+        : null;
     case 'uv':
       return spec.package ? ['uv', 'tool', 'install', spec.package] : null;
     case 'npm':
@@ -409,6 +453,15 @@ export async function installSkillDependency(params: {
     });
   }
 
+  if (
+    (selection.spec.bins?.length ?? 0) > 0 &&
+    validateInstalledBins(selection.spec).length === 0
+  ) {
+    return createInstallSuccess({
+      message: `Already installed ${selection.skill.name} dependency ${selection.installId}`,
+    });
+  }
+
   if (selection.spec.kind === 'download') {
     const result = await runDownloadInstall(selection.spec);
     if (!result.ok) return result;
@@ -486,8 +539,8 @@ export async function setupSkillDependencies(params: {
   const completed: string[] = [];
   const stdout: string[] = [];
   const stderr: string[] = [];
-  for (const [index, spec] of installSpecs.entries()) {
-    const installId = resolveSkillInstallId(spec, index);
+  const installIds = [...new Set(installSpecs.map(resolveSkillInstallId))];
+  for (const installId of installIds) {
     const result = await installSkillDependency({
       skillName: skill.name,
       installId,
@@ -512,7 +565,7 @@ export async function setupSkillDependencies(params: {
   }
 
   return createInstallSuccess({
-    message: `Set up ${skill.name}: installed ${completed.join(', ')}`,
+    message: `Set up ${skill.name}: processed ${completed.join(', ')}`,
     stdout: stdout.join('\n\n'),
     stderr: stderr.join('\n\n'),
   });

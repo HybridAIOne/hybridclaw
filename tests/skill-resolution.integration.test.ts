@@ -174,8 +174,20 @@ describe('skill resolution integration', () => {
     expect(installsBySkill.get('gh-issues')).toEqual([
       { id: 'gh', kind: 'brew', bins: ['gh'] },
     ]);
+    expect(
+      catalog.find((skill) => skill.name === 'gog')?.metadata.hybridclaw
+        .install,
+    ).toMatchObject([
+      { id: 'gog', os: ['darwin'] },
+      {
+        id: 'gog',
+        os: ['linux'],
+        module: 'github.com/openclaw/gogcli/cmd/gog@v0.41.0',
+      },
+    ]);
     expect(installsBySkill.get('gog')).toEqual([
       { id: 'gog', kind: 'brew', bins: ['gog'] },
+      { id: 'gog', kind: 'go', bins: ['gog'] },
     ]);
     expect(installsBySkill.get('gws')).toEqual([
       { id: 'gws', kind: 'npm', bins: ['gws'] },
