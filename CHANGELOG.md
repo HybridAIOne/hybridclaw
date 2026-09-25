@@ -2,7 +2,91 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Recursive shell reads of pinned files need approval**: Recursive reads
+  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
+  `find -exec`, `find | xargs`) now require approval on every run unless they
+  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
+  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
+  always do. Shell commands also match pinned paths through dotfile globs
+  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
+  command. The bash tool description points agents to the grep tool and the
+  exclusion.
+- **A read-only first command no longer makes a whole bash line green**: Only
+  the first segment was checked, so `ls ; tar czf - . | base64`,
+  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
+  Every command the line runs must now be read-only, including pipeline
+  stages, later lines, background jobs, `$(...)` and backtick contents, and
+  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
+  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
+  while `git log | head`, `ls -la | grep foo`, and
+  `find . -name '*.ts' | wc -l` stay green.
+- **Deletions without an `rm` flag need approval**: bash deletion detection
+  required a flag after `rm`, so `rm notes.txt` ran yellow and
+  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
+  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
+  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
+  (cache and build targets stay promotable `bash:delete-cache`), and a
+  flagless `rm` outside the workspace hits the workspace fence.
+  `git rm --cached`, which keeps the files, is now a yellow git write instead of
+  a deletion; `rmdir` stays yellow because it only removes empty directories.
+- **Read-only commands that run programs or write files leave the green
+  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
+  `git diff --output=FILE`, `git log --output=../out.txt`, and
+  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
+  and `--hostname-bin` are now red script execution; git's `--output` and
+  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
+  absolute target outside the workspace hits the workspace fence. Plain
+  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
+- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
+  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
+  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
+  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
+  narrated yellow without a prompt. Promotion now requires every deletion
+  target (rm/unlink/`git rm` operands and the starting points of
+  `find -delete` or `find -exec rm`), resolved through any `cd` in the same
+  command, to be such a path inside the workspace or scratch space;
+  `xargs rm`, variables, `~`, a `..` or `cd` that leaves the workspace, and
+  `rm -…` hidden in another command's arguments make the deletion a plain
+  `bash:delete`.
+- **The workspace fence catches relative writes that climb out**: The bash
+  fence only checked absolute paths, so `echo x > ../out.txt`,
+  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
+  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
+  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
+  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
+  resolved from the workspace root through any `cd` in the same command, and
+  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
+  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
+
+## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
+
 ### Added
+
+- **Unified model routing**: Configure shared capability tiers, Auto, Privacy,
+  Speed, and Cost modes, execution privacy boundaries, and optional live and
+  comparison classifiers. Shadow comparisons cannot change the executing model.
+  Opt-in chat details show route decisions, retries, timing, tokens, and costs.
+  Web chat supports immediate `/escalate <prompt>` and retains successful
+  escalations for the configured sticky window.
+- **HybridAI browser and device sign-in**: Onboarding and `auth login hybridai`
+  support OAuth with automatic token refresh and revocation on logout. Headless
+  shells use device codes when supported; `--api-key` retains explicit key setup.
+- **Teams user assignments and usage**: Assign observed Teams users to agents
+  from the Channels page and inspect each user's messages, sessions, tokens,
+  estimated cost, and last activity. Agent histories remain separate.
+- **Qwen thinking effort**: Web chat offers Model default, Off, Low, Medium,
+  and XHigh for HybridAI Qwen3.8 27B. Unsupported models receive no override.
+- **Agentic TPM**: A bundled project-coordination skill and portable `.claw`
+  package track evidence-backed commitments, dependencies, decisions, and risks.
+- **Skill library requirements**: Skills can declare `requires.node_modules`;
+  missing libraries appear as `node_module:<name>` and make the skill ineligible.
+- **Deferred MCP discovery**: Opt-in `tools.mcpToolMode: "deferred"`, with a
+  per-agent override, exposes MCP tools through `tool_catalog` on remote models
+  while retaining the existing permission, approval, and audit checks.
+- **Readable oversized tool results**: Truncated results point to a full text
+  file in `.tool-results/<session>/` that the agent can read during the same turn.
 
 - **Competitor monitoring community skill**: Added a packaged
   `competitor-monitoring` skill (`official/competitor-monitoring`) that keeps
@@ -11,6 +95,39 @@
   which the Sales Companion iOS app reads through cloud memory.
 
 ### Fixed
+
+- **Discord announcements respect mention rules**: `@here` and `@everyone`
+  alone do not count as addressing the bot or trigger mention-only reactions.
+  Direct bot mentions, bot-role mentions, and reply pings still count.
+- **Office tools work in both runtime images**: Gateway and agent images install
+  Node and Python tool libraries from shared, locked manifests, including the
+  presentation and PDF libraries needed by host-sandbox cloud deployments.
+- **Skill installers respect the host**: Dependency recipes are selected by OS,
+  architecture, and installer availability. Existing binaries are skipped and
+  missing prerequisites are reported before execution; gog supports Linux Go
+  installation alongside macOS Homebrew.
+- **Disabled routing controls reflect saved state**: Routing-dependent controls
+  and chat visibility are disabled while automatic routing is off, preserving
+  the saved visibility preference for re-enablement.
+- **Model selectors identify the serving provider**: Provider logos reflect the
+  route serving a model rather than its model-family name.
+- **Admin RBAC fails closed**: Scoped sessions need the matching actions for
+  MCP OAuth and A2A outbox routes; unmapped admin routes deny scoped callers.
+- **Silent scheduled runs stay silent**: Agent runs that already handled delivery
+  skip the scheduler's delivery callback while retaining history and audit data.
+- **Web cron management works across chats**: An agent can list, update, and
+  remove its tasks from another web chat without moving their execution session
+  or delivery target. Messaging-channel tasks retain their original scope.
+- **New sessions inherit agent RAG settings**: An agent's `enableRag` setting
+  applies when creating a session instead of falling back to a different default.
+- **Chat equations render as math**: Inline and display LaTeX render in web chat;
+  code spans and fenced code remain literal.
+- **Tool failures retain error status**: Stored tool history preserves error
+  markers, including Anthropic `is_error` blocks. Pending and denied tool calls
+  are excluded from the tools-used footer.
+- **Cache usage and pricing are visible**: Usage summaries include cache reads,
+  cache writes, and hit rates across console, chat commands, and session context.
+  Cost estimates distinguish provider cache accounting and known cache prices.
 
 - **Installer no longer downloads the unused CUDA runtime**: `install.sh`
   sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
@@ -85,61 +202,6 @@
   `cp`, and `mv` targets outside the workspace now require approval when
   quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
   write while the unquoted spelling was fenced.
-- **Recursive shell reads of pinned files need approval**: Recursive reads
-  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
-  `find -exec`, `find | xargs`) now require approval on every run unless they
-  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
-  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
-  always do. Shell commands also match pinned paths through dotfile globs
-  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
-  command. The bash tool description points agents to the grep tool and the
-  exclusion.
-- **A read-only first command no longer makes a whole bash line green**: Only
-  the first segment was checked, so `ls ; tar czf - . | base64`,
-  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
-  Every command the line runs must now be read-only, including pipeline
-  stages, later lines, background jobs, `$(...)` and backtick contents, and
-  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
-  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
-  while `git log | head`, `ls -la | grep foo`, and
-  `find . -name '*.ts' | wc -l` stay green.
-- **Deletions without an `rm` flag need approval**: bash deletion detection
-  required a flag after `rm`, so `rm notes.txt` ran yellow and
-  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
-  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
-  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
-  (cache and build targets stay promotable `bash:delete-cache`), and a
-  flagless `rm` outside the workspace hits the workspace fence.
-  `git rm --cached`, which keeps the files, is now a yellow git write instead of
-  a deletion; `rmdir` stays yellow because it only removes empty directories.
-- **Read-only commands that run programs or write files leave the green
-  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
-  `git diff --output=FILE`, `git log --output=../out.txt`, and
-  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
-  and `--hostname-bin` are now red script execution; git's `--output` and
-  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
-  absolute target outside the workspace hits the workspace fence. Plain
-  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
-- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
-  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
-  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
-  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
-  narrated yellow without a prompt. Promotion now requires every deletion
-  target (rm/unlink/`git rm` operands and the starting points of
-  `find -delete` or `find -exec rm`), resolved through any `cd` in the same
-  command, to be such a path inside the workspace or scratch space;
-  `xargs rm`, variables, `~`, a `..` or `cd` that leaves the workspace, and
-  `rm -…` hidden in another command's arguments make the deletion a plain
-  `bash:delete`.
-- **The workspace fence catches relative writes that climb out**: The bash
-  fence only checked absolute paths, so `echo x > ../out.txt`,
-  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
-  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
-  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
-  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
-  resolved from the workspace root through any `cd` in the same command, and
-  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
-  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
 - **Connector credential changes require secret permissions**: Saving the
   HybridAI API key and starting a connector OAuth flow require
   `secret.overwrite`, and logging a connector out requires `secret.unset`, for
@@ -175,7 +237,19 @@
 - **Cron tasks can be updated in place**: the `cron` tool gains an `update`
   action that patches an existing task's schedule, channel, or prompt by
   taskId, so schedule changes no longer leave duplicate tasks behind.
+
 ### Changed
+
+- **Dependencies refreshed with a seven-day release-age gate**: Compatible
+  updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
+  tooling, and Python PDF libraries. Exact pins, lockfiles, shrinkwraps,
+  dependency-policy hashes, and license notices remain synchronized. Newer
+  releases inside the age window and Node-24-only agent-browser updates are
+  held back.
+
+- **Contributor rules favor lean changes**: `AGENTS.md` defines single-source
+  facts, core/plugin boundaries, file-size limits, and module contracts;
+  `CLAUDE.md` imports the canonical instructions.
 
 - **Recall snippets are labeled as chat recall**: The prompt block is titled
   `### Chat Recall` and states that entries are recalled chat excerpts, not
