@@ -7,6 +7,7 @@ import { RoutingTags } from './routing-tags';
  */
 
 import {
+  type MouseEvent,
   memo,
   type ReactNode,
   startTransition,
@@ -32,6 +33,10 @@ import { A2ADeliveryChip } from './a2a-delivery-chip';
 import { findAgentMentions } from './agent-mention-display';
 import { ApprovalCard } from './approval-card';
 import type { ApprovalItemState } from './approval-lifecycle';
+import {
+  artifactIndexFromHref,
+  linkMarkdownToArtifacts,
+} from './artifact-links';
 import css from './chat-page.module.css';
 import type { ChatUiMessage } from './chat-ui-message';
 import {
@@ -223,6 +228,22 @@ function buildPreviewBlob(blob: Blob, mimeType: string): Blob {
   return new Blob([blob], { type: normalizedMimeType });
 }
 
+function saveObjectUrl(objectUrl: string, filename: string): void {
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  link.rel = 'noopener noreferrer';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function saveBlob(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  saveObjectUrl(objectUrl, filename);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
 function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const { artifact, token } = props;
   const previewUrlRef = useRef<string | null>(null);
@@ -281,19 +302,10 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
 
     setDownloading(true);
     try {
-      const objectUrl =
-        previewUrl ??
-        URL.createObjectURL(await fetchArtifactBlob(token, artifact.path));
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = artifact.filename ?? 'artifact';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      if (!previewUrl) {
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      if (previewUrl) {
+        saveObjectUrl(previewUrl, artifactName);
+      } else {
+        saveBlob(await fetchArtifactBlob(token, artifact.path), artifactName);
       }
     } catch {
       // Auth failures still dispatch globally via fetchArtifactBlob.
@@ -455,11 +467,27 @@ export const MessageBlock = memo(function MessageBlock(props: {
       isDraft ||
       msg.role === 'command' ||
       (isApproval && !shouldRenderApprovalCard));
+  const markdownContent = useMemo(
+    () => linkMarkdownToArtifacts(msg.content, msg.artifacts),
+    [msg.content, msg.artifacts],
+  );
   const renderedHtml = useRenderedMarkdown(
-    msg.content,
+    markdownContent,
     isMarkdownMessage,
     props.isStreaming,
   );
+  const handleArtifactLinkClick = (event: MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as Element).closest('a');
+    const index = artifactIndexFromHref(anchor?.getAttribute('href') ?? null);
+    const artifact = index === null ? undefined : msg.artifacts?.[index];
+    if (!artifact?.path) return;
+    event.preventDefault();
+    void fetchArtifactBlob(token, artifact.path)
+      .then((blob) => saveBlob(blob, artifact.filename ?? 'artifact'))
+      .catch(() => {
+        // Auth failures still dispatch globally via fetchArtifactBlob.
+      });
+  };
   const markdownRef = useCodeCopyButtons();
   const presentation = msg.assistantPresentation;
   const displayName = presentation?.displayName ?? 'Assistant';
@@ -569,9 +597,12 @@ export const MessageBlock = memo(function MessageBlock(props: {
             />
           ) : isMarkdownMessage ? (
             <>
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: delegates clicks from the rendered anchors, which already handle Enter. */}
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: same click delegation for artifact links inside sanitized markdown. */}
               <div
                 ref={markdownRef}
                 className={css.markdownContent}
+                onClick={handleArtifactLinkClick}
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />

@@ -551,6 +551,7 @@ function buildSafetyHook(context: PromptHookContext): string {
         : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.',
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'For final user-visible deliverables such as PDFs, images, videos, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
+    'To return a file you wrote, name it in the final reply by its workspace-relative path (for example `reports/prospects.md`); the runtime attaches it. Never use `sandbox:` or absolute host paths in links.',
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',

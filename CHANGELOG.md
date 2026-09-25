@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Document delivery**: Reports, lists, and data files an agent writes are
+  attached to its reply when the reply names them, including links with
+  `sandbox:` or host workspace paths. Web chat links to an attached file
+  download it.
+- **Paginated pages in `web_fetch`**: Results name the next page when the
+  page links to one, and pages that only load a script from a Cloudflare CDN
+  are no longer reported as bot-blocked.
+
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
 ### Added
