@@ -110,12 +110,6 @@ export function syncRuntimeInstructionCopies(): InstructionSyncResult {
   };
 }
 
-export function readRuntimeInstructionFile(relPath: InstructionPath): string {
-  ensureRuntimeInstructionCopies();
-  const runtimePath = resolveRuntimeInstructionPath(relPath);
-  return fs.readFileSync(runtimePath, 'utf-8').trim();
-}
-
 export function verifyInstructionIntegrity(): InstructionIntegrityResult {
   ensureRuntimeInstructionCopies();
 

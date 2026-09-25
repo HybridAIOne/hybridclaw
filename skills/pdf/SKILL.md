@@ -8,6 +8,7 @@ requires:
     - node
   node_modules:
     - pdf-lib
+    - "@pdf-lib/fontkit"
     - pdfjs-dist
 metadata:
   hybridclaw:
@@ -53,7 +54,7 @@ If the user asks for one of those, state that it is outside the bundled Node wor
 - Use the bundled scripts in `skills/pdf/scripts/` first.
 - For PDFs outside the workspace, keep the original absolute path when invoking the Node scripts from `bash`.
 - For folder discovery outside the workspace, use `bash` with `find`. Do not use `glob`, ad-hoc Python file discovery, or browser tools.
-- Use a **linear** workflow. Stop as soon as one step succeeds.
+- Use a **linear** workflow. For extraction, stop once the returned text is usable.
 - Use workspace-relative output paths for final PDFs you expect HybridClaw to keep, return, or attach.
 - Use `/tmp` only for temporary output when page images or other scratch intermediates are needed.
 - For ordinary extraction tasks, do not probe `pdfinfo`, `pdftotext`, `pdftoppm`, `mdls`, `strings`, `qlmanage`, or browser tools.
@@ -116,10 +117,23 @@ node skills/pdf/scripts/create_pdf.mjs output.pdf --image-path logo.png --text "
 ```
 
 For creation tasks ("make a PDF", "create a PDF with X"), always use this bundled
-script or the recipe from [reference.md](./reference.md). Never call `drawText()`
-without passing an embedded `font` — omitting it produces a blank/corrupt page.
+script. Read [reference.md](./reference.md) only for custom layouts or operations
+the helper does not support.
 The bundled script wraps long lines, respects explicit `\n` line breaks, and
-adds pages automatically when content exceeds the first page.
+adds pages automatically when content exceeds the first page. For characters
+outside the standard PDF encoding, it embeds the bundled Liberation Sans font
+(including Cyrillic and Greek) automatically, for both title and body. No system
+font discovery or custom script is needed for these alphabets.
+For other scripts, supply a suitable local TTF/OTF with `--font-path font.ttf`;
+the helper checks glyph coverage before writing the PDF.
+
+After creation, extract the output once and check the requested content is intact:
+`node skills/pdf/scripts/extract_pdf_text.mjs output.pdf --json`.
+For custom layouts, render and inspect the pages as well. A successful command
+only proves that a file was written. Preserve the requested script and content;
+never replace unsupported characters with transliterations or omit a requested
+column to make generation succeed. If no suitable font is available, report the
+specific limitation instead of delivering an incomplete substitute as finished.
 Use a workspace-relative `output.pdf` path for the final deliverable. Reserve
 `/tmp/...` paths for scratch files that do not need to persist after the run.
 
