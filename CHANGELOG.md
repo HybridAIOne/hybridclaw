@@ -71,6 +71,15 @@
   `find -delete` or `find -exec rm`) to be such a path inside the workspace;
   `xargs rm`, variables, `~`, `..`, and `rm -…` hidden in another command's
   arguments make the deletion a plain `bash:delete`.
+- **The workspace fence catches relative writes that climb out**: The bash
+  fence only checked absolute paths, so `echo x > ../out.txt`,
+  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
+  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
+  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
+  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
+  resolved from the workspace root through any `cd` in the same command, and
+  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
+  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

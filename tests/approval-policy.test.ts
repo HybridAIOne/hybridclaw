@@ -1575,7 +1575,7 @@ approval:
 
   test.each([
     ['git diff --output=notes.txt', 'bash:write-op'],
-    ['git log -p --output=../out.txt', 'bash:write-op'],
+    ['git log -p --output=../out.txt', 'bash:workspace-fence'],
     ['git show HEAD --output notes.txt', 'bash:write-op'],
     ["find . -name '*.ts' -fprint list.txt", 'bash:write-op'],
     ['find . -fprint0 list.bin', 'bash:write-op'],
@@ -2593,6 +2593,53 @@ browser:
     });
 
     expect(evaluation.baseTier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+  });
+
+  test.each([
+    'echo x > ../out.txt',
+    'echo x>../out.txt',
+    'echo x > a/../../out.txt',
+    'echo x | tee a.txt ../b.txt',
+    'cp notes.txt ../out.txt',
+    'cp -t ../backup notes.txt',
+    'mv notes.txt ../out.txt',
+    'mkdir ../scratch',
+    'touch ../out.txt',
+    'chmod 644 ../out.txt',
+    'echo x > a && gcc -o ../bin main.c',
+    'find . -fprint ../list.txt',
+    'cd .. && echo x > out.txt',
+    'cd sub && echo x > ../../out.txt',
+    "bash -c 'echo x > ../out.txt'",
+    "find . -name '*.log' | xargs -I{} cp {} ../backup/",
+    "find . -name '*.log' -exec cp {} ../backup/ \\;",
+    "cat <<'EOF' > ../out.txt\nhello\nEOF",
+    'echo x > ~/out.txt',
+    'echo x > $HOME/out.txt',
+    'echo x > /opt/data/out.txt',
+  ])('writes that land outside the workspace hit the fence: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    'echo x > notes.txt',
+    'echo x > sub/../notes.txt',
+    'cd sub && echo x > ../notes.txt',
+    'cd /tmp && echo x > out.txt',
+    'echo x > /tmp/out.txt',
+    // A quoted `>` is text, not a redirect.
+    'echo "a > /opt/data/y" > /workspace/log.txt',
+    // Variables and an unknown `cd` stay unresolved.
+    'echo x > "$OUT"',
+    'cd "$DIR" && echo x > out.txt',
+  ])('writes inside the workspace or to unknown paths are not fenced: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:write-op');
     expect(evaluation.decision).toBe('implicit');
   });
 

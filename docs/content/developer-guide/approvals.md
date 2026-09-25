@@ -121,7 +121,7 @@ Two important transitions:
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, or writes of `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Targets behind a variable or an unknown `cd` are not resolved |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips

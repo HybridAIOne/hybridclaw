@@ -1,10 +1,12 @@
 /**
- * Which commands a bash script runs: simple commands split the way bash reads
- * them, plus what `xargs`, `find -exec`, `sh -c`, and `eval` run. Static:
- * variables and substitution results stay unexpanded. NOT a policy: the
- * approval policy and bash-pinned-reach.ts decide what the commands mean.
+ * What a bash script does, read statically: the commands it runs (including
+ * what `xargs`, `find -exec`, `sh -c`, and `eval` run), the paths they write
+ * or delete, and the directory each runs in after `cd`. Variables and
+ * substitution results stay unknown. NOT a policy: the approval policy and
+ * bash-pinned-reach.ts decide what needs approval.
  */
 import path from 'node:path';
+import { expandUserPath } from './runtime-paths.js';
 
 // Words before the program itself: keywords and wrappers such as `env -i`.
 const COMMAND_PREFIX_WORDS = new Set([
@@ -50,6 +52,15 @@ export const FIND_EXEC_ACTIONS = new Set([
   '-okdir',
 ]);
 export const MAX_NESTED_SCRIPT_DEPTH = 3;
+// Text fallback beside deletesFiles(): catches `rm -…` inside another
+// command's arguments, such as `docker exec box rm -rf /data`. `git rm` is left
+// to deletesFiles(), since `git rm --cached` keeps the files.
+export const DELETE_RE =
+  /(?<!\bgit\s+)\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
+const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
+const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
+// Programs that write every path operand they are given.
+const OPERAND_WRITERS = new Set(['chmod', 'chown', 'mkdir', 'tee', 'touch']);
 
 interface ShellCommand {
   words: string[];
@@ -184,6 +195,15 @@ export function splitShellCommands(input: string): ShellCommand[] {
     } else if (/\s/.test(char)) {
       endWord();
     } else {
+      // `<` and `>` end a word unless it is a descriptor prefix (`2>`, `&>`)
+      // or more operator (`>>`), so `echo x>out` redirects like bash does.
+      if (
+        (char === '<' || char === '>') &&
+        inWord &&
+        !/^(?:\d+|&)?[<>&]*$/.test(word)
+      ) {
+        endWord();
+      }
       word += char;
       inWord = true;
     }
@@ -262,6 +282,20 @@ export function nestedScript(program: string, args: string[]): string | null {
   return flagAt >= 0 ? (args[flagAt + 1] ?? null) : null;
 }
 
+// The commands find's -exec, -execdir, -ok, and -okdir actions run, each up
+// to its `;` or `+`.
+function findExecCommands(args: string[]): string[][] {
+  const commands: string[][] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (!FIND_EXEC_ACTIONS.has(args[index])) continue;
+    let end = index + 1;
+    while (end < args.length && !/^[;+]$/.test(args[end])) end += 1;
+    commands.push(args.slice(index + 1, end));
+    index = end;
+  }
+  return commands;
+}
+
 function commandsRun(words: string[], depth: number): string[][] {
   const { start, program, args } = commandProgram(words);
   if (program === 'xargs') {
@@ -272,12 +306,8 @@ function commandsRun(words: string[], depth: number): string[][] {
   }
   const commands = [words];
   if (program === 'find') {
-    for (let index = 0; index < args.length; index += 1) {
-      if (!FIND_EXEC_ACTIONS.has(args[index])) continue;
-      let end = index + 1;
-      while (end < args.length && !/^[;+]$/.test(args[end])) end += 1;
-      commands.push(...commandsRun(args.slice(index + 1, end), depth));
-      index = end;
+    for (const exec of findExecCommands(args)) {
+      commands.push(...commandsRun(exec, depth));
     }
   }
   const nested =
@@ -293,4 +323,249 @@ export function shellCommandsRun(script: string, depth = 0): string[][] {
   return splitShellCommands(script).flatMap(({ words }) =>
     commandsRun(words, depth),
   );
+}
+
+// '' is the starting directory (the workspace); null is unknown (`cd -`).
+export type Cwd = string | null;
+
+// `$HOME/x` and `${HOME}/x` name the same path as `~/x`.
+export const HOME_VARIABLE_RE = /^\$(?:HOME|\{HOME\})(?=\/|$)/;
+
+// null when the path is unknown: after `cd -`, or through another variable or
+// a command substitution the classifier cannot expand. Relative results stay
+// relative to the starting directory.
+export function resolvePath(value: string, cwd: Cwd): string | null {
+  const withHome = value.replace(HOME_VARIABLE_RE, '~');
+  if (withHome.includes('$')) return null;
+  const expanded = expandUserPath(withHome).replace(/\\/g, '/');
+  if (path.posix.isAbsolute(expanded)) return path.posix.normalize(expanded);
+  if (cwd === null) return null;
+  return path.posix.normalize(path.posix.join(cwd, expanded));
+}
+
+// The directory a command leaves the script in: `cd`/`pushd` move it (bare
+// `cd` goes home), `cd -` and `popd` make it unknown.
+export function directoryAfter(cwd: Cwd, program: string, args: string[]): Cwd {
+  if (program === 'popd') return null;
+  if (program !== 'cd' && program !== 'pushd') return cwd;
+  const target = args.find((arg) => arg === '-' || !arg.startsWith('-'));
+  return target === '-' ? null : resolvePath(target ?? '~', cwd);
+}
+
+// A command's operands: words that are neither options (until `--`) nor
+// redirections.
+function commandOperands(args: string[]): string[] {
+  const operands: string[] = [];
+  let optionsEnded = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const width = redirectWidth(arg);
+    if (width > 0) {
+      index += width - 1;
+    } else if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+    } else if (optionsEnded || !arg.startsWith('-')) {
+      operands.push(arg);
+    }
+  }
+  return operands;
+}
+
+// git's global options come before the subcommand; -C and -c take a value.
+function gitSubcommandIndex(args: string[]): number {
+  let index = 0;
+  while (index < args.length && args[index].startsWith('-')) {
+    index += /^-[Cc]$/.test(args[index]) ? 2 : 1;
+  }
+  return index;
+}
+
+// rm and unlink delete their operands, `find -delete` what it matches, and
+// `git rm` its paths unless --cached keeps them on disk. rmdir stays out: it
+// only removes empty directories.
+export function deletesFiles(words: string[]): boolean {
+  const { program, args } = commandProgram(words);
+  if (program === 'rm' || program === 'unlink') return true;
+  if (program === 'find') return args.includes('-delete');
+  return (
+    program === 'git' &&
+    args[gitSubcommandIndex(args)] === 'rm' &&
+    !args.includes('--cached')
+  );
+}
+
+// What one command deletes: rm/unlink/`git rm` operands, and the starting
+// points of `find -delete` or of a `find -exec` that deletes. null when the
+// targets are unknown: `xargs rm` reads them from stdin, and the DELETE_RE
+// fallback only sees `rm -…` somewhere in the text.
+function commandDeletionTargets(
+  words: string[],
+  depth: number,
+): string[] | null {
+  const { program, args } = commandProgram(words);
+  if (program === 'rm' || program === 'unlink') {
+    const operands = commandOperands(args);
+    return operands.length > 0 ? operands : null;
+  }
+  if (program === 'git' && deletesFiles(words)) {
+    if (args.some((arg) => arg.startsWith('--pathspec-from-file'))) {
+      return null;
+    }
+    const pathspecs = commandOperands(args.slice(gitSubcommandIndex(args) + 1));
+    return pathspecs.length > 0 ? pathspecs : null;
+  }
+  if (program === 'find') {
+    const { roots } = findStartingPoints(args);
+    const targets: string[] = [];
+    let deletes = args.includes('-delete');
+    for (const exec of findExecCommands(args)) {
+      const execTargets = commandDeletionTargets(exec, depth);
+      if (execTargets === null) return null;
+      if (execTargets.length > 0) deletes = true;
+      // `{}` stands for each file find reaches under its starting points.
+      targets.push(...execTargets.filter((target) => target !== '{}'));
+    }
+    if (deletes) targets.push(...(roots.length > 0 ? roots : ['.']));
+    return targets;
+  }
+  if (program === 'xargs') {
+    const inner = commandDeletionTargets(xargsCommandWords(args), depth);
+    return inner === null || inner.length > 0 ? null : [];
+  }
+  const nested =
+    depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
+  if (nested !== null) return deletionTargets(nested, depth + 1);
+  return DELETE_RE.test(words.join(' ')) ? null : [];
+}
+
+export function deletionTargets(script: string, depth = 0): string[] | null {
+  const targets: string[] = [];
+  for (const { words } of splitShellCommands(script)) {
+    const found = commandDeletionTargets(words, depth);
+    if (found === null) return null;
+    targets.push(...found);
+  }
+  return targets;
+}
+
+// ripgrep runs `--pre` and `--hostname-bin` values as programs: `rg --pre
+// python3 KEY` executes python3 on every file it searches.
+export function runsProgramOption(words: string[]): boolean {
+  const { program, args } = commandProgram(words);
+  if (program !== 'rg') return false;
+  const optionsEnd = args.indexOf('--');
+  return args
+    .slice(0, optionsEnd < 0 ? args.length : optionsEnd)
+    .some((arg) => RG_PROGRAM_OPTION_RE.test(arg));
+}
+
+// Files a command writes through an option instead of a redirect: git's
+// `--output FILE` and find's -fprint/-fprint0/-fprintf/-fls actions.
+export function optionWriteTargets(words: string[]): string[] {
+  const { program, args } = commandProgram(words);
+  if (program !== 'git' && program !== 'find') return [];
+  const targets: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (program === 'git') {
+      if (arg === '--') break;
+      if (arg.startsWith('--output=')) {
+        targets.push(arg.slice('--output='.length));
+      } else if (arg === '--output') {
+        targets.push(args[index + 1] ?? '');
+        index += 1;
+      }
+    } else if (FIND_EXEC_ACTIONS.has(arg)) {
+      while (index + 1 < args.length && !/^[;+]$/.test(args[index + 1])) {
+        index += 1;
+      }
+    } else if (FIND_WRITE_ACTIONS.has(arg)) {
+      targets.push(args[index + 1] ?? '');
+      index += 1;
+    }
+  }
+  return targets;
+}
+
+// Files an output redirection writes: `>f`, `>> f`, `2>f`, `&>f`, `>& f`.
+// `>&2` and `2>&1` duplicate a descriptor instead.
+function redirectTargets(words: string[]): string[] {
+  const targets: string[] = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const match = /^(?:\d+|&)?>(>|&)?(.*)$/.exec(words[index]);
+    if (!match) continue;
+    let target = match[2];
+    if (!target) {
+      index += 1;
+      target = words[index] ?? '';
+    }
+    if (match[1] === '&' && /^(?:\d+|-)$/.test(target)) continue;
+    targets.push(target);
+  }
+  return targets;
+}
+
+// cp and mv write into `-t DIR` when given, else into their last operand.
+function copyDestination(args: string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '-t' || arg === '--target-directory') return args[index + 1];
+    if (arg.startsWith('--target-directory=')) {
+      return arg.slice('--target-directory='.length);
+    }
+    if (/^-t./.test(arg)) return arg.slice(2);
+  }
+  return commandOperands(args).at(-1);
+}
+
+// What one command writes, as written: redirect targets, `-o`/`--out` values,
+// option writes, the operands of tee/mkdir/touch/chmod/chown, cp/mv
+// destinations, and what xargs or `find -exec` runs.
+function commandWriteTargets(words: string[]): string[] {
+  const { program, args } = commandProgram(words);
+  const targets = [...redirectTargets(words), ...optionWriteTargets(words)];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index + 1];
+    if (/^(?:-o|--out)$/.test(args[index]) && !value?.startsWith('-')) {
+      targets.push(value ?? '');
+    }
+  }
+  if (OPERAND_WRITERS.has(program)) targets.push(...commandOperands(args));
+  if (program === 'cp' || program === 'mv') {
+    targets.push(copyDestination(args) ?? '');
+  }
+  if (program === 'xargs') {
+    targets.push(...commandWriteTargets(xargsCommandWords(args)));
+  }
+  if (program === 'find') {
+    for (const exec of findExecCommands(args)) {
+      targets.push(...commandWriteTargets(exec));
+    }
+  }
+  return targets.filter(Boolean);
+}
+
+// Every path a script writes, resolved against the directory each command
+// runs in (bash starts in the workspace, and `cd` moves it). Relative results
+// stay relative to that start, so `../out.txt` climbs out; targets behind a
+// variable or an unknown `cd` are left out.
+export function writeTargets(
+  script: string,
+  startCwd: Cwd = '',
+  depth = 0,
+): string[] {
+  const targets: string[] = [];
+  let cwd = startCwd;
+  for (const { words } of splitShellCommands(script)) {
+    const { program, args } = commandProgram(words);
+    for (const target of commandWriteTargets(words)) {
+      const resolved = resolvePath(target, cwd);
+      if (resolved !== null) targets.push(resolved);
+    }
+    const nested =
+      depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
+    if (nested !== null) targets.push(...writeTargets(nested, cwd, depth + 1));
+    cwd = directoryAfter(cwd, program, args);
+  }
+  return targets;
 }

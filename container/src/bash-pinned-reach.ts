@@ -7,12 +7,16 @@
  */
 import path from 'node:path';
 import {
+  type Cwd,
   commandProgram,
+  directoryAfter,
   FIND_EXEC_ACTIONS,
   findStartingPoints,
+  HOME_VARIABLE_RE,
   MAX_NESTED_SCRIPT_DEPTH,
   nestedScript,
   redirectWidth,
+  resolvePath,
   splitShellCommands,
   xargsCommandWords,
 } from './bash-commands.js';
@@ -128,9 +132,6 @@ interface ProgramScan {
   // Whether the program reads the contents of the files it reaches.
   reads: boolean;
 }
-
-// '' is the starting directory (the workspace); null is unknown (`cd -`).
-type Cwd = string | null;
 
 function splitLongOption(arg: string): [string, string | undefined] {
   const equals = arg.indexOf('=');
@@ -497,17 +498,7 @@ function candidatePaths(word: string): string[] {
   const pieces = new Set([word, ...word.split(/[<>=:@,{}]+/)]);
   return [...pieces]
     .filter((piece) => piece && !/^[!-]/.test(piece))
-    .map((piece) => piece.replace(/^\$(?:HOME|\{HOME\})(?=\/|$)/, '~'));
-}
-
-// null when the directory is unknown: after `cd -`, or through a variable or
-// command substitution the classifier cannot expand.
-function resolvePath(value: string, cwd: Cwd): string | null {
-  if (value.includes('$')) return null;
-  const expanded = expandUserPath(value).replace(/\\/g, '/');
-  if (path.posix.isAbsolute(expanded)) return path.posix.normalize(expanded);
-  if (cwd === null) return null;
-  return path.posix.normalize(path.posix.join(cwd, expanded));
+    .map((piece) => piece.replace(HOME_VARIABLE_RE, '~'));
 }
 
 // Absolute hard patterns name directories (`/etc/**`); a walk rooted at one
@@ -652,13 +643,7 @@ function scanScript(
     const nested =
       depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
     if (nested) scanScript(state, nested, cwd, depth + 1);
-
-    if (program === 'cd' || program === 'pushd') {
-      const target = args.find((arg) => arg === '-' || !arg.startsWith('-'));
-      cwd = target === '-' ? null : resolvePath(target ?? '~', cwd);
-    } else if (program === 'popd') {
-      cwd = null;
-    }
+    cwd = directoryAfter(cwd, program, args);
   }
 }
 

@@ -32,15 +32,13 @@ import {
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import {
-  commandProgram,
-  FIND_EXEC_ACTIONS,
-  findStartingPoints,
-  MAX_NESTED_SCRIPT_DEPTH,
-  nestedScript,
-  redirectWidth,
+  DELETE_RE,
+  deletesFiles,
+  deletionTargets,
+  optionWriteTargets,
+  runsProgramOption,
   shellCommandsRun,
-  splitShellCommands,
-  xargsCommandWords,
+  writeTargets,
 } from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
@@ -429,10 +427,6 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b|\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b|\bwget\b[^\n|]*\|\s*(sh|bash|zsh)\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
-// Text fallback beside deletesFiles(): catches `rm -…` inside another
-// command's arguments, such as `docker exec box rm -rf /data`. `git rm` is left
-// to deletesFiles(), since `git rm --cached` keeps the files.
-const DELETE_RE = /(?<!\bgit\s+)\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const WRITE_INTENT_RE =
   /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
@@ -445,7 +439,6 @@ const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
-const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
 const CACHE_PATH_SEGMENTS = new Set([
   '.cache',
   'build',
@@ -453,7 +446,6 @@ const CACHE_PATH_SEGMENTS = new Set([
   'dist',
   'node_modules',
 ]);
-const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
@@ -1211,111 +1203,6 @@ function buildBashInspectionSurface(command: string): string {
     .join(' ; ');
 }
 
-// git's global options come before the subcommand; -C and -c take a value.
-function gitSubcommandIndex(args: string[]): number {
-  let index = 0;
-  while (index < args.length && args[index].startsWith('-')) {
-    index += /^-[Cc]$/.test(args[index]) ? 2 : 1;
-  }
-  return index;
-}
-
-// rm and unlink delete their operands, `find -delete` what it matches, and
-// `git rm` its paths unless --cached keeps them on disk. rmdir stays out: it
-// only removes empty directories.
-function deletesFiles(words: string[]): boolean {
-  const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') return true;
-  if (program === 'find') return args.includes('-delete');
-  return (
-    program === 'git' &&
-    args[gitSubcommandIndex(args)] === 'rm' &&
-    !args.includes('--cached')
-  );
-}
-
-// The paths a deleting command names: words that are neither options (until
-// `--`) nor redirections.
-function deletionOperands(args: string[]): string[] {
-  const operands: string[] = [];
-  let optionsEnded = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    const width = redirectWidth(arg);
-    if (width > 0) {
-      index += width - 1;
-    } else if (!optionsEnded && arg === '--') {
-      optionsEnded = true;
-    } else if (optionsEnded || !arg.startsWith('-')) {
-      operands.push(arg);
-    }
-  }
-  return operands;
-}
-
-// What one command deletes: rm/unlink/`git rm` operands, and the starting
-// points of `find -delete` or of a `find -exec` that deletes. null when the
-// targets are unknown: `xargs rm` reads them from stdin, and the DELETE_RE
-// fallback only sees `rm -…` somewhere in the text.
-function commandDeletionTargets(
-  words: string[],
-  depth: number,
-): string[] | null {
-  const { program, args } = commandProgram(words);
-  if (program === 'rm' || program === 'unlink') {
-    const operands = deletionOperands(args);
-    return operands.length > 0 ? operands : null;
-  }
-  if (program === 'git' && deletesFiles(words)) {
-    if (args.some((arg) => arg.startsWith('--pathspec-from-file'))) {
-      return null;
-    }
-    const pathspecs = deletionOperands(
-      args.slice(gitSubcommandIndex(args) + 1),
-    );
-    return pathspecs.length > 0 ? pathspecs : null;
-  }
-  if (program === 'find') {
-    const { roots, expressionStart } = findStartingPoints(args);
-    const targets: string[] = [];
-    let deletes = args.includes('-delete');
-    for (let index = expressionStart; index < args.length; index += 1) {
-      if (!FIND_EXEC_ACTIONS.has(args[index])) continue;
-      let end = index + 1;
-      while (end < args.length && !/^[;+]$/.test(args[end])) end += 1;
-      const execTargets = commandDeletionTargets(
-        args.slice(index + 1, end),
-        depth,
-      );
-      if (execTargets === null) return null;
-      if (execTargets.length > 0) deletes = true;
-      // `{}` stands for each file find reaches under its starting points.
-      targets.push(...execTargets.filter((target) => target !== '{}'));
-      index = end;
-    }
-    if (deletes) targets.push(...(roots.length > 0 ? roots : ['.']));
-    return targets;
-  }
-  if (program === 'xargs') {
-    const inner = commandDeletionTargets(xargsCommandWords(args), depth);
-    return inner === null || inner.length > 0 ? null : [];
-  }
-  const nested =
-    depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
-  if (nested !== null) return deletionTargets(nested, depth + 1);
-  return DELETE_RE.test(words.join(' ')) ? null : [];
-}
-
-function deletionTargets(script: string, depth = 0): string[] | null {
-  const targets: string[] = [];
-  for (const { words } of splitShellCommands(script)) {
-    const found = commandDeletionTargets(words, depth);
-    if (found === null) return null;
-    targets.push(...found);
-  }
-  return targets;
-}
-
 // A target a promotable cache cleanup may delete: a node_modules, dist, build,
 // coverage, or .cache path segment that stays in the workspace or scratch
 // space. `..`, `~`, and variables make the real target unknown.
@@ -1333,45 +1220,6 @@ function isCacheDeletionTarget(target: string): boolean {
   return segments.some((segment) =>
     CACHE_PATH_SEGMENTS.has(segment.toLowerCase()),
   );
-}
-
-// ripgrep runs `--pre` and `--hostname-bin` values as programs: `rg --pre
-// python3 KEY` executes python3 on every file it searches.
-function runsProgramOption(words: string[]): boolean {
-  const { program, args } = commandProgram(words);
-  if (program !== 'rg') return false;
-  const optionsEnd = args.indexOf('--');
-  return args
-    .slice(0, optionsEnd < 0 ? args.length : optionsEnd)
-    .some((arg) => RG_PROGRAM_OPTION_RE.test(arg));
-}
-
-// Files a command writes through an option instead of a redirect: git's
-// `--output FILE` and find's -fprint/-fprint0/-fprintf/-fls actions.
-function optionWriteTargets(words: string[]): string[] {
-  const { program, args } = commandProgram(words);
-  if (program !== 'git' && program !== 'find') return [];
-  const targets: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (program === 'git') {
-      if (arg === '--') break;
-      if (arg.startsWith('--output=')) {
-        targets.push(arg.slice('--output='.length));
-      } else if (arg === '--output') {
-        targets.push(args[index + 1] ?? '');
-        index += 1;
-      }
-    } else if (FIND_EXEC_ACTIONS.has(arg)) {
-      while (index + 1 < args.length && !/^[;+]$/.test(args[index + 1])) {
-        index += 1;
-      }
-    } else if (FIND_WRITE_ACTIONS.has(arg)) {
-      targets.push(args[index + 1] ?? '');
-      index += 1;
-    }
-  }
-  return targets;
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -1418,63 +1266,6 @@ function splitCommandSegments(command: string): string[] {
 
   if (current.trim()) segments.push(current.trim());
   return segments;
-}
-
-function unquotePathToken(rawValue: string): string {
-  const trimmed = rawValue.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function pushAbsolutePath(
-  output: Set<string>,
-  rawValue: string | undefined,
-): void {
-  const candidate = unquotePathToken(String(rawValue || ''));
-  if (!candidate.startsWith('/')) return;
-  output.add(candidate);
-}
-
-function extractLikelyWritePaths(command: string): string[] {
-  const paths = new Set<string>();
-  const segments = splitCommandSegments(command);
-
-  for (const segment of segments) {
-    const segmentAbsPaths = extractAbsolutePaths(segment);
-    for (const match of segment.matchAll(
-      /(?:^|\s)(?:--out|-o)\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-    for (const match of segment.matchAll(
-      /(?:^|[^>])>>?\s*("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-    for (const match of segment.matchAll(
-      /(?:^|\s)tee(?:\s+-a)?\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-
-    if (/^\s*(mkdir|touch|chmod|chown)\b/i.test(segment)) {
-      for (const candidate of segmentAbsPaths) {
-        paths.add(candidate);
-      }
-    }
-
-    if (/^\s*(cp|mv)\b/i.test(segment)) {
-      const destination = segmentAbsPaths.at(-1);
-      if (destination) paths.add(destination);
-    }
-  }
-
-  return [...paths];
 }
 
 function isWithinResolvedRoot(candidate: string, root: string): boolean {
@@ -3741,11 +3532,6 @@ export class TrustedAgentApprovalRuntime {
       ]),
     ];
     const optionWrites = commandsRun.flatMap(optionWriteTargets);
-    const likelyWritePaths = [
-      ...extractLikelyWritePaths(inspectionSurface),
-      // Like redirect targets, only absolute paths reach the workspace fence.
-      ...optionWrites.filter((target) => target.startsWith('/')),
-    ];
     const deletes =
       DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
@@ -3773,13 +3559,20 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const workspaceFencePaths =
-        likelyWritePaths.length > 0 ? likelyWritePaths : absPaths;
-      const outsideWorkspace = workspaceFencePaths.find(
+      const targets = writeTargets(shellScript);
+      const absoluteTargets = targets.filter((target) =>
+        target.startsWith('/'),
+      );
+      const outsideWorkspace = [
+        ...(absoluteTargets.length > 0 ? absoluteTargets : absPaths),
+        // Bash starts in the workspace root, so `../x` lands outside it.
+        ...targets.filter((target) => /^\.\.(?:\/|$)/.test(target)),
+      ].find(
         (entry) =>
-          !isWorkspacePath(entry) &&
-          !entry.startsWith('/dev/null') &&
-          !isScratchPath(entry),
+          !entry.startsWith('/') ||
+          (!isWorkspacePath(entry) &&
+            !entry.startsWith('/dev/null') &&
+            !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
         return {
