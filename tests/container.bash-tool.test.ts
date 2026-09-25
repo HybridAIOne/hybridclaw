@@ -78,6 +78,28 @@ describe.sequential('container bash tool persistence', () => {
     expect(second).toBe('nested');
   });
 
+  test('treats shell metacharacters in the environment temp path as literal arguments', async () => {
+    const { executeTool } = await createBashTestRuntime();
+    const tempRoot = path.join(
+      workspaceRoot,
+      '$(touch injected); `touch also-injected`',
+    );
+    fs.mkdirSync(tempRoot);
+    vi.stubEnv('TMPDIR', tempRoot);
+
+    expect(await executeTool('bash', bashCommand('printf safe'))).toBe('safe');
+    expect(await executeTool('bash', bashCommand('printf still-safe'))).toBe(
+      'still-safe',
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, 'injected'))).toBe(false);
+    expect(fs.existsSync(path.join(workspaceRoot, 'also-injected'))).toBe(false);
+    const args = vi.mocked(spawnSync).mock.calls.find(
+      ([file]) => file === 'bash',
+    )?.[1];
+    expect(args?.[1]).not.toContain(tempRoot);
+    expect(args?.[3]).toContain(tempRoot);
+  });
+
   test('persists exported environment variables across bash calls', async () => {
     const { executeTool } = await createBashTestRuntime({
       sessionId: `bash-session-env-${Date.now()}`,

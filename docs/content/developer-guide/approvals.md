@@ -196,6 +196,22 @@ Examples:
 - `hybridclaw policy preset add github`
 - `hybridclaw policy default allow`
 
+### Private Addresses And DNS Rebinding
+
+Browser navigation, the managed-browser guard proxy, and remote audio fetches
+reject private IPv6 literals and IPv4-mapped, IPv4-compatible, or NAT64 addresses
+that embed private IPv4 destinations. The shared private-range table includes
+`192.0.0.0/24`, which contains a cloud metadata endpoint.
+
+The gateway `http_request` proxy also checks DNS answers when opening each
+connection, including pinned and self-signed TLS connections, to prevent a host
+from switching to loopback or metadata addresses after its initial check.
+Private destinations explicitly allowed by workspace network policy retain
+that access. Public bracketed IPv6 addresses are classified directly. The
+gateway additionally blocks `198.18.0.0/15`; container guards leave that range
+available for fake-IP TUN proxies. Discord CDN downloads and iMessage
+BlueBubbles URL validation use the shared address classification as well.
+
 ## Browser Stealth Policy
 
 Camofox stealth mode is host-allowlisted separately from normal browser
