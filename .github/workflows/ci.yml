@@ -51,6 +51,10 @@ jobs:
 
       - name: Build ${{ matrix.name }} image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        env:
+          # Must match docker-build.yml: BuildKit stamps WORKDIR/COPY with it,
+          # so a different value misses main's cache from the first WORKDIR on.
+          SOURCE_DATE_EPOCH: '1704067200'
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
