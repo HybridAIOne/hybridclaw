@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **Running downloaded code needs explicit approval**: Bash commands that run
+  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
+  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
+  red `bash:fetched-code` approval that full-auto never grants, closing the
+  two-step route around the `curl | sh` block. Files curl and wget save also
+  count as writes for the workspace fence.
 - **Installer no longer downloads the unused CUDA runtime**: `install.sh`
   sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
   installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw

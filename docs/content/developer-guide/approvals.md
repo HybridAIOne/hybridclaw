@@ -47,9 +47,9 @@ In practice, approvals cover:
 - Shell execution, mainly `bash`. Read-only commands such as `ls`, `cat`, `rg`,
   `git status`, and `git diff` are usually green. Normal mutating commands such
   as `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, and
-  dependency installs are usually yellow. Deletion, unknown scripts, critical
-  shell patterns such as `sudo` or `curl | sh`, host-app control, and writes
-  outside the workspace fence are red.
+  dependency installs are usually yellow. Deletion, unknown scripts, running
+  code that `curl` or `wget` fetched, critical shell patterns such as `sudo`,
+  host-app control, and writes outside the workspace fence are red.
 - Most runtime tools. Read/search tools are green. `write`, `edit`, and
   `memory` are yellow. `delete` is red. `delegate` is green because it is
   internal orchestration; the delegated agent's child tool calls are still
@@ -118,7 +118,8 @@ Two important transitions:
 | Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace; `xargs rm`, variables, `~`, and `..` targets never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
-| Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
+| Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
+| Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
 | Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
