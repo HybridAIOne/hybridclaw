@@ -52,6 +52,7 @@ describe('gateway docs HTTP integration', () => {
     const res = await fetch(`${baseUrl}/docs`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     const html = await res.text();
     expect(html).toContain('Getting Started');
     expect(html).toContain('<h1 id="hybridclaw-docs">HybridClaw Docs');
@@ -93,6 +94,7 @@ describe('gateway docs HTTP integration', () => {
     expect(res.status).toBe(200);
     const contentType = res.headers.get('content-type') || '';
     expect(contentType).toContain('text/markdown');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     const body = await res.text();
     // The raw markdown should contain frontmatter or heading text.
     expect(body).toContain('Getting Started');
