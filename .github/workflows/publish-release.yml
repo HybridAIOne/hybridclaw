@@ -392,7 +392,11 @@ jobs:
             PUBLISH_STATUS=$?
             echo "$PUBLISH_OUTPUT" >&2
             # A retry can see E404 while npm scans an earlier successful upload.
-            if [[ "$PUBLISH_OUTPUT" != *"E409"* || "$PUBLISH_OUTPUT" != *"previously staged version \"$VERSION\""* ]]; then
+            # Recheck these CLI error strings when changing the npm pin above;
+            # the staged-version wording also comes from the registry.
+            if [[ "$PUBLISH_OUTPUT" == *"E409"* && "$PUBLISH_OUTPUT" == *"previously staged version \"$VERSION\""* ]]; then
+              echo "${PACKAGE}@${VERSION} is already staged; waiting for availability."
+            else
               exit "$PUBLISH_STATUS"
             fi
           fi
