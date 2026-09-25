@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **Sandbox image drops the Mermaid parser**: `diagram_validate` and the
+  Mermaid path of `diagram_create`/`diagram_update` check the diagram header
+  and bracket balance instead of loading the `mermaid` package, which the
+  sandbox used only to parse (about 131 MB with its d3, cytoscape, and katex
+  closure). Rendering is unchanged: `mmdc` when installed, otherwise the
+  source-backed SVG fallback.
+
 ### Added
 
 - **Competitor monitoring community skill**: Added a packaged

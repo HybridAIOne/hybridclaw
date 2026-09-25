@@ -221,64 +221,27 @@ describe('diagram tools', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.valid).toBe(false);
-    expect(parsed.errors.join('\n')).toContain(
-      'Mermaid parser rejected source',
-    );
+    expect(parsed.errors).toHaveLength(1);
     expect(parsed.suggested_fix).toContain('flowchart TD');
   });
 
-  test('Mermaid parser catches syntax errors beyond structural checks', async () => {
+  test.each([
+    ['flowchart', "flowchart TD\n  A[User's page] --> B>Flag]"],
+    ['er', 'erDiagram\n  USER ||--o{ ORDER : places'],
+    ['mindmap', 'mindmap\n  root))Bang((\n    child'],
+    ['sequence', 'sequenceDiagram\n  Alice->>Bob: retry (1 of 3'],
+    ['gantt', 'gantt\n  title Plan\n  section A\n  Task (draft :a1, 2026-01-01, 3d'],
+  ])('accepts free-text brackets and apostrophes in %s source', async (type, source) => {
     const { executeToolWithMetadata } = await loadTools();
 
     const result = await executeToolWithMetadata(
       'diagram_validate',
-      JSON.stringify({
-        source: 'flowchart TD\n  A -->',
-        type: 'flowchart',
-        format: 'mermaid',
-      }),
+      JSON.stringify({ source, type, format: 'mermaid' }),
     );
-    const parsed = JSON.parse(result.output) as {
-      valid: boolean;
-      errors: string[];
-    };
+    const parsed = JSON.parse(result.output) as { valid: boolean };
 
     expect(result.isError).toBe(false);
-    expect(parsed.valid).toBe(false);
-    expect(parsed.errors.join('\n')).toContain(
-      'Mermaid parser rejected source',
-    );
-  });
-
-  test('Mermaid validation does not leave browser globals behind', async () => {
-    const hadWindow = Object.hasOwn(globalThis, 'window');
-    const hadDocument = Object.hasOwn(globalThis, 'document');
-    const hadDOMPurify = Object.hasOwn(globalThis, 'DOMPurify');
-    const previousWindow = (globalThis as { window?: unknown }).window;
-    const previousDocument = (globalThis as { document?: unknown }).document;
-    const previousDOMPurify = (globalThis as { DOMPurify?: unknown }).DOMPurify;
-    const { executeToolWithMetadata } = await loadTools();
-
-    const result = await executeToolWithMetadata(
-      'diagram_validate',
-      JSON.stringify({
-        source: 'flowchart TD\n  A --> B',
-        type: 'flowchart',
-        format: 'mermaid',
-      }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(Object.hasOwn(globalThis, 'window')).toBe(hadWindow);
-    expect(Object.hasOwn(globalThis, 'document')).toBe(hadDocument);
-    expect(Object.hasOwn(globalThis, 'DOMPurify')).toBe(hadDOMPurify);
-    expect((globalThis as { window?: unknown }).window).toBe(previousWindow);
-    expect((globalThis as { document?: unknown }).document).toBe(
-      previousDocument,
-    );
-    expect((globalThis as { DOMPurify?: unknown }).DOMPurify).toBe(
-      previousDOMPurify,
-    );
+    expect(parsed.valid).toBe(true);
   });
 
   test('accepts CRLF fenced source and escaped quotes during validation', async () => {
