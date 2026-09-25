@@ -559,7 +559,7 @@ function buildBashToolDescription(): string {
   const sessionBehavior = persistentBashStateEnabled
     ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
     : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
-  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
+  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Search file contents with the grep tool: shell \`grep -r\`, \`rg --hidden\`, \`find -exec\`, and \`find | xargs\` wait for user approval on every run unless they exclude .env* files (for example \`grep -r --exclude='.env*'\`).`;
 }
 
 export function setPersistentBashStateEnabled(enabled: boolean): void {

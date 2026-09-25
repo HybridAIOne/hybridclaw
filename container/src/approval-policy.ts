@@ -31,6 +31,7 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
+import { findBashPinnedReach } from './bash-pinned-reach.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -3537,6 +3538,20 @@ export class TrustedAgentApprovalRuntime {
       (host) => !httpHostSet.has(host) && !this.seenNetworkHosts.has(host),
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
+    // The inspection surface turns pipes into `;`, which hides `find | xargs`.
+    const pinnedReach = findBashPinnedReach(
+      stripHereDocBodies(command),
+      (candidate) => this.namesPinnedPath(candidate),
+    );
+    // Relative operands join pathHints only when they name a pinned path, so
+    // stakes and anomaly inputs stay unchanged for every other command.
+    const pathHints = [
+      ...new Set([
+        ...absPaths,
+        ...pinnedReach.namedPaths,
+        ...(pinnedReach.walk?.reaches || []),
+      ]),
+    ];
     const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
@@ -3553,7 +3568,7 @@ export class TrustedAgentApprovalRuntime {
           'I will not execute that command and will propose a safer alternative.',
         reason: 'the command is high-risk or security-sensitive',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3578,7 +3593,7 @@ export class TrustedAgentApprovalRuntime {
           consequenceIfDenied: 'writes outside the workspace will be skipped.',
           reason: 'workspace fence blocks writes outside /workspace',
           commandPreview: normalizePreview(command),
-          pathHints: absPaths,
+          pathHints,
           hostHints: hosts,
           writeIntent,
           promotableRed: false,
@@ -3598,7 +3613,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without deleting files.',
         reason: 'the command deletes files',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: promotable,
@@ -3614,7 +3629,29 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will avoid executing unknown scripts.',
         reason: 'script execution is treated as high risk',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    // Pinned red on every run (owner call, 2026-09-24): a walk that can read
+    // .env* without naming it gets the same per-call approval as `read .env`;
+    // session-trustable red was rejected and sandbox masking deferred.
+    // Excluding .env* or using the grep tool keeps the usual tier.
+    if (pinnedReach.walk) {
+      const { program, reaches } = pinnedReach.walk;
+      return {
+        tier: 'red',
+        actionKey: 'bash:recursive-read',
+        intent: `run recursive read \`${normalizePreview(command)}\``,
+        consequenceIfDenied:
+          'I will exclude pinned files or search with the grep tool instead.',
+        reason: `\`${program}\` can read pinned files (${reaches.join(', ')}) without naming them`,
+        commandPreview: normalizePreview(command),
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3623,15 +3660,20 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (httpTargets.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
-      return this.classifyNetworkTargets({
-        targets: httpTargets.map((target) => ({
-          ...target,
-          method: inferBashHttpMethod(command),
-        })),
-        intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
-        consequenceIfDenied: 'I will keep the task local and avoid that host.',
-        commandPreview: normalizePreview(command),
-      });
+      return {
+        ...this.classifyNetworkTargets({
+          targets: httpTargets.map((target) => ({
+            ...target,
+            method: inferBashHttpMethod(command),
+          })),
+          intent: `contact ${normalizeHostScope(httpTargets[0]?.host || 'unknown-host')}`,
+          consequenceIfDenied:
+            'I will keep the task local and avoid that host.',
+          commandPreview: normalizePreview(command),
+        }),
+        // Keeps uploads such as `curl -T .env` under the pinned path check.
+        pathHints,
+      };
     }
 
     if (unseenHosts.length > 0 && NETWORK_COMMAND_RE.test(inspectionSurface)) {
@@ -3642,7 +3684,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will keep the task local and avoid that host.',
         reason: 'the command reaches a new network host',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: true,
@@ -3663,7 +3705,7 @@ export class TrustedAgentApprovalRuntime {
           'I will avoid controlling host applications and keep the task read-only.',
         reason: 'this command controls host GUI or application state',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent,
         promotableRed: false,
@@ -3679,7 +3721,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'dependency installation will be skipped.',
         reason: 'this changes the local dependency state',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: false,
@@ -3698,7 +3740,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without mutating the workspace.',
         reason: 'this command has write side effects',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: true,
         promotableRed: false,
@@ -3714,7 +3756,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without that check.',
         reason: 'this command is read-only',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: false,
         promotableRed: false,
@@ -3730,7 +3772,7 @@ export class TrustedAgentApprovalRuntime {
         consequenceIfDenied: 'I will continue without that PDF check.',
         reason: 'this command only reads PDF content',
         commandPreview: normalizePreview(command),
-        pathHints: absPaths,
+        pathHints,
         hostHints: hosts,
         writeIntent: false,
         promotableRed: false,
@@ -3745,12 +3787,23 @@ export class TrustedAgentApprovalRuntime {
       consequenceIfDenied: 'I will continue without running that command.',
       reason: 'this command may change local state',
       commandPreview: normalizePreview(command),
-      pathHints: absPaths,
+      pathHints,
       hostHints: hosts,
       writeIntent,
       promotableRed: false,
       stickyYellow: false,
     };
+  }
+
+  private namesPinnedPath(candidate: string): boolean {
+    return (
+      matchesHardPinnedPath(candidate) ||
+      this.loadedPolicy.pinnedRed.some((rule) =>
+        (rule.paths || []).some((pattern) =>
+          matchesPathPattern(candidate, pattern),
+        ),
+      )
+    );
   }
 
   private isPinnedRed(input: {

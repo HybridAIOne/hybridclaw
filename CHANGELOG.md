@@ -26,6 +26,16 @@
   them, much like ripgrep skipping hidden and ignored files; the output says
   how many files were skipped, and naming them (for example
   `include: ".env*"`) searches them after explicit approval.
+- **Shell reads of pinned files need approval**: `bash` commands get the pinned
+  check for relative, `~`, `$HOME`, redirect, and glob operands, so
+  `cat .env`, `head config/.env.local`, `cat ~/.ssh/id_rsa`, `cat .e*`, and
+  `curl -T .env …` require explicit approval; only absolute paths were checked
+  before, and these ran green. Recursive reads that can reach pinned files
+  without naming them (`grep -r`, `rg --hidden`, `find -exec`, `find | xargs`)
+  now require approval on every run unless they exclude `.env*`
+  (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`,
+  `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..` always do. The
+  bash tool description points agents to the grep tool and the exclusion.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

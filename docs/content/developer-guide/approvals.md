@@ -117,6 +117,7 @@ Two important transitions:
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
 | Deletion | Red | `delete`, `rm`, `find -delete` | Destructive; cache/build deletions may be promotable |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
+| Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find | xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh` | Treated as high risk |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
@@ -128,6 +129,20 @@ files matching the built-in pinned paths (`.env*`, `~/.ssh/**`, `/etc/**`)
 unless `path` or `include` names a pinned path, which makes the call red. The
 output reports how many files were skipped. Paths added under
 `approval.pinned_red` gate explicit arguments only; walks do not skip them.
+
+`bash` commands get the pinned check for every operand, not only absolute
+paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
+paths, redirects (`cat < .env`), option values (`--env-file=.env`), git
+revisions (`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs
+that bash expands to a pinned name (`cat .e*`). A recursive read that can reach
+pinned files without naming them is pinned red on every run
+(`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
+walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is
+always pinned: excluding file names cannot keep it out of `/etc` or `~/.ssh`.
+Like the `grep` tool, walks consider only the built-in pinned paths. The check
+is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
+an earlier bash call are not resolved; it stops accidental shell reads of
+pinned files rather than replacing a sandbox.
 
 ## Network Policy
 
