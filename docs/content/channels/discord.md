@@ -50,6 +50,14 @@ Local config equivalent:
 /config set discord.prefix "!claw"
 ```
 
+## What Counts As Addressing The Bot
+
+A direct bot mention, a mention of the bot's role, or a reply ping counts as
+addressing the bot. Channel-wide `@here` and `@everyone` announcements alone do
+not. In mention mode they do not trigger a reply; in free mode they follow the
+normal reply heuristics. Mention-scoped acknowledgement reactions use the same
+rule.
+
 ## Optional: Reply In Threads
 
 Set `discord.replyStyle` to `"thread"` to start a public thread from each
