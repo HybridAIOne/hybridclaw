@@ -86,6 +86,7 @@ import {
   buildSessionIdFromContext as buildSessionIdFromContextInbound,
   type DiscordForwardedMessageLike,
   type DiscordGuildMessageMode,
+  hasDirectBotMention as hasDirectBotMentionInbound,
   hasDiscordMessageContentChanged,
   hasLooseBotMention as hasLooseBotMentionInbound,
   hasPrefixInvocation as hasPrefixInvocationInbound,
@@ -857,7 +858,7 @@ function describeInboundMessage(msg: DiscordMessage): InboundDiscordMessage {
     hasAttachments: collectMessageAttachments(msg).length > 0,
     hasPrefixInvocation: hasPrefixed,
     hasCommandInvocation: hasPrefixed || hasSlash,
-    hasBotMention: Boolean(client.user && msg.mentions.has(client.user)),
+    hasBotMention: hasDirectBotMentionInbound(msg.mentions, client.user),
     isReplyToBot: Boolean(
       client.user && msg.mentions.repliedUser?.id === client.user.id,
     ),
@@ -943,8 +944,8 @@ function shouldApplyAckReaction(
   if (scope === 'off') return false;
   if (scope === 'all') return true;
   if (scope === 'direct') return !msg.guild;
-  if (!msg.guild || !client.user) return false;
-  return msg.mentions.has(client.user);
+  if (!msg.guild) return false;
+  return hasDirectBotMentionInbound(msg.mentions, client.user);
 }
 
 function isRateLimitExempt(msg: DiscordMessage): boolean {

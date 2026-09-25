@@ -1,8 +1,10 @@
+import { type APIUser, Client, MessageMentions } from 'discord.js';
 import { expect, test } from 'vitest';
 
 import { buildResponseText } from '../src/channels/discord/delivery.js';
 import {
   cleanIncomingContent,
+  hasDirectBotMention,
   hasDiscordMessageContentChanged,
   hasLooseBotMention,
   isAddressedToChannel,
@@ -263,6 +265,114 @@ test('isTrigger commands-only allows slash-text agent commands', () => {
     hasBotMention: false,
   });
   expect(shouldTrigger).toBe(true);
+});
+
+const BOT_USER: APIUser = {
+  id: '111111111111111111',
+  username: 'hybridclaw',
+  discriminator: '0',
+  global_name: null,
+  avatar: null,
+  bot: true,
+};
+const OTHER_USER: APIUser = {
+  id: '222222222222222222',
+  username: 'alice',
+  discriminator: '0',
+  global_name: null,
+  avatar: null,
+};
+
+// Real discord.js mention objects, so the test pins the library's semantics
+// (its `has()` counts @everyone/@here as mentioning every user by default).
+function createMentions(params: {
+  client: Client;
+  users?: APIUser[];
+  everyone?: boolean;
+}): MessageMentions {
+  const message = { client: params.client, guild: null, content: '' };
+  return Reflect.construct(MessageMentions, [
+    message,
+    params.users ?? [],
+    [],
+    params.everyone ?? false,
+  ]);
+}
+
+function createBotClient() {
+  const client = new Client({ intents: [] });
+  // Constructing a mention of the bot caches its User on the client.
+  createMentions({ client, users: [BOT_USER] });
+  const botUser = client.users.cache.get(BOT_USER.id);
+  if (!botUser) throw new Error('bot user was not cached');
+  return { client, botUser };
+}
+
+test('hasDirectBotMention counts a direct mention of the bot', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({ client, users: [BOT_USER] });
+  expect(hasDirectBotMention(mentions, botUser)).toBe(true);
+});
+
+test('hasDirectBotMention ignores @everyone and @here', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({ client, everyone: true });
+  // discord.js alone would treat this as a mention of the bot.
+  expect(mentions.has(botUser)).toBe(true);
+  expect(hasDirectBotMention(mentions, botUser)).toBe(false);
+});
+
+test('hasDirectBotMention still counts the bot when named next to @here', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({
+    client,
+    users: [BOT_USER],
+    everyone: true,
+  });
+  expect(hasDirectBotMention(mentions, botUser)).toBe(true);
+});
+
+test('hasDirectBotMention ignores mentions of other users', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({ client, users: [OTHER_USER] });
+  expect(hasDirectBotMention(mentions, botUser)).toBe(false);
+});
+
+test('hasDirectBotMention is false before the bot user is known', () => {
+  const { client } = createBotClient();
+  const mentions = createMentions({ client, everyone: true });
+  expect(hasDirectBotMention(mentions, null)).toBe(false);
+});
+
+test('mention mode does not trigger on an @here announcement', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({ client, everyone: true });
+  const shouldTrigger = isTrigger({
+    content: '@here Ich starte dann mal das Update',
+    isDm: false,
+    commandsOnly: false,
+    guildMessageMode: 'mention',
+    prefix: '!claw',
+    botMentionRegex: null,
+    hasBotMention: hasDirectBotMention(mentions, botUser),
+  });
+  expect(shouldTrigger).toBe(false);
+});
+
+test('free mode does not reply to an @here status update', () => {
+  const { client, botUser } = createBotClient();
+  const mentions = createMentions({ client, everyone: true });
+  const content = '@here Ich starte dann mal das Update';
+  const shouldReply = shouldReplyInFreeMode({
+    guildMessageMode: 'free',
+    content,
+    hasBotMention: hasDirectBotMention(mentions, botUser),
+    isAddressedToChannel: isAddressedToChannel(content),
+    hasPrefixInvocation: false,
+    isReplyToBot: false,
+    hasAttachments: false,
+  });
+  expect(shouldReply).toBe(false);
 });
 
 test('free-mode skips non-bot user mentions', () => {

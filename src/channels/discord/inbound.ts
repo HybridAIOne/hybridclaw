@@ -1,3 +1,4 @@
+import type { MessageMentions, UserResolvable } from 'discord.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
 import { normalizeNativeAgentAddressingText } from '../agent-addressing.js';
@@ -54,6 +55,21 @@ export function hasLooseBotMention(
   }
 
   return false;
+}
+
+/**
+ * Whether a message mentions the bot itself: a user mention, a mention of one
+ * of its roles, or a reply ping. `@everyone` and `@here` do not count, because
+ * discord.js reports them as mentioning every user by default. A channel-wide
+ * announcement should go through the normal channel rules, not be treated as
+ * a message addressed to the bot.
+ */
+export function hasDirectBotMention(
+  mentions: Pick<MessageMentions, 'has'>,
+  botUser: UserResolvable | null,
+): boolean {
+  if (!botUser) return false;
+  return mentions.has(botUser, { ignoreEveryone: true });
 }
 
 export function isAddressedToChannel(content: string): boolean {
