@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { DATA_DIR } from '../config/config.js';
+import { DATA_DIR, getResolvedSandboxMode } from '../config/config.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
@@ -30,7 +30,6 @@ import {
 } from '../policy/skill-policy.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
-import { hasResolvableNodeModule } from '../utils/node-modules.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -41,6 +40,7 @@ import {
   SKILL_MANIFEST_CREDENTIAL_KINDS,
   type SkillManifest,
 } from './skill-manifest.js';
+import { hasAgentNodeModule } from './skill-node-modules.js';
 import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
 import {
   normalizeInstallSpecs,
@@ -759,6 +759,7 @@ function checkEligibility(skill: { requires?: Partial<SkillRequirements> }): {
   missing: string[];
 } {
   const missing: string[] = [];
+  const sandboxMode = getResolvedSandboxMode();
   for (const bin of skill.requires?.bins ?? []) {
     if (!hasBinary(bin)) missing.push(`bin:${bin}`);
   }
@@ -766,7 +767,7 @@ function checkEligibility(skill: { requires?: Partial<SkillRequirements> }): {
     if (!process.env[envVar]) missing.push(`env:${envVar}`);
   }
   for (const specifier of skill.requires?.nodeModules ?? []) {
-    if (!hasResolvableNodeModule(specifier)) {
+    if (!hasAgentNodeModule(specifier, sandboxMode)) {
       missing.push(`node_module:${specifier}`);
     }
   }

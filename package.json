@@ -47,6 +47,7 @@
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",
+    "container/tools/package.json",
     "container/package-lock.json",
     "container/npm-shrinkwrap.json",
     "container/tsconfig.json",

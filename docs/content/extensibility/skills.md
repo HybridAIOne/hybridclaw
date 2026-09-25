@@ -84,7 +84,9 @@ File access still passes through the normal read tool's policy and sandbox.
   `env:API_KEY`, `node_module:pptxgenjs`) instead of being offered to the
   model. Bundled skills may only require modules that the packaged runtime
   images ship (`container/tools/package.json` or `container/package.json`);
-  a test enforces that.
+  a test enforces that. Container mode checks package names against those
+  agent-image manifests; host mode resolves modules from the installed
+  HybridClaw package. Custom container images are not inspected.
 - installer metadata lives under `metadata.hybridclaw.install:`
 - production package metadata lives under `manifest:` or
   `metadata.hybridclaw.manifest:` and declares `id`, `version`,

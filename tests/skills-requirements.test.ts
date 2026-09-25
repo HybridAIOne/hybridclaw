@@ -126,6 +126,33 @@ describe('skill node_modules requirements', () => {
     expect(skill?.available).toBe(true);
   });
 
+  test('does not offer gateway-only modules to container agents', async () => {
+    const { setSandboxModeOverride } = await import('../src/config/config.ts');
+    setSandboxModeOverride('container');
+    try {
+      await writeSkill('gateway-only-module', [
+        'requires:',
+        '  node_modules:',
+        '    - discord.js',
+      ]);
+      const skill = await findSkill('gateway-only-module');
+      expect(skill?.available).toBe(false);
+      expect(skill?.missing).toEqual(['node_module:discord.js']);
+    } finally {
+      setSandboxModeOverride(null);
+    }
+  });
+
+  test('checks each agent runtime against its own dependencies', async () => {
+    const { hasAgentNodeModule } = await import(
+      '../src/skills/skill-node-modules.ts'
+    );
+    expect(hasAgentNodeModule('discord.js', 'container')).toBe(false);
+    expect(hasAgentNodeModule('discord.js', 'host')).toBe(true);
+    expect(hasAgentNodeModule('pptxgenjs', 'container')).toBe(true);
+    expect(hasAgentNodeModule('pptxgenjs/../missing', 'container')).toBe(false);
+  });
+
   test('rejects relative and absolute specifiers', async () => {
     const { hasResolvableNodeModule } = await import(
       '../src/utils/node-modules.ts'
