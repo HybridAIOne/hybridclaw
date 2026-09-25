@@ -165,14 +165,22 @@ saved revision history directly.
   models dominated on both known price and time, then balances normalized cost
   and time equally. These are estimates: execution times include the work done
   by a turn, and token rates do not predict the final request bill.
-- `routing.localOnly` is a hard constraint independent of mode. It blocks cloud
-  classifiers and excludes remote execution models. Existing Privacy settings
-  without an explicit constraint default to local-only. Admin saves validate
-  model references across all mode assignments and reject changes that leave
-  the selected mode without a permitted execution path.
-- Speed measurements use the latest 20 successful executions per model in the
-  current gateway process. Classifier calls and failed executions are excluded.
-  Without measurements, Speed and Auto use configured order and report that
+- `routing.maximumZone` sets the execution privacy boundary: `local`, `hai`,
+  `eu-provider`, `region` (EU hosting), or `cloud` (World, the default). Configure
+  it in **Models → Routing** alongside mode-specific assignments. Optional live
+  and comparison models are stored in `routing.concierge.model` and
+  `routing.concierge.comparisonModel`. An empty value disables that classifier;
+  adding a credential alone does not enable it. Comparison decisions do not
+  change execution. `routing.showRoutingInfo` controls chat detail visibility
+  and defaults to `false`; hiding it preserves stored accounting.
+- The `local` maximum zone excludes remote execution models and cloud
+  classifiers. Mode preferences cannot broaden the execution privacy boundary.
+  Admin saves validate model references across mode assignments and reject
+  changes that leave the selected mode without a permitted execution path.
+- Speed measurements use the latest 20 successful tool-free executions per
+  model in the current gateway process. Classifier calls and failed executions
+  are excluded. With incomplete timing coverage, Speed and Auto use configured
+  order and report that
   fallback in routing details. Restarting the gateway clears these samples.
 - `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
   Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the

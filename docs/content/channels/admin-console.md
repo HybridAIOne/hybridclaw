@@ -48,6 +48,32 @@ surface such as Channels, Providers, Automation, or Output Guard manages it.
 The Settings page also supports section and text filters and protects unsaved
 changes before navigation.
 
+## Routing, Thinking Effort, And Usage
+
+Open **Models → Routing** (`/admin/model-routing`) to configure shared capability
+tiers, model assignments for Auto, Privacy, Speed, and Cost, a privacy boundary,
+and optional live and comparison classifiers. Comparison classification records
+an alternative decision without changing the executing model. Classifiers are
+opt-in; adding a credential alone does not enable one. See
+[Model Selection](../reference/model-selection.md) for execution rules.
+
+When automatic routing is off, its dependent controls and **Show routing
+information in chat** are disabled. The saved visibility preference is retained.
+When enabled, chat routing tags expand to show decisions, attempts, timing,
+usage, and reported or estimated costs. Hiding tags does not stop accounting.
+The model picker uses the serving provider's logo, including for models served
+through another provider.
+
+The chat composer exposes **Thinking effort** only for HybridAI Qwen3.8 27B:
+Model default, Off, Low, Medium, or XHigh. Model default sends no override;
+unsupported models do not expose the control or receive the override.
+
+Dashboard and Activity usage views, model rollups, the chat context popover,
+and `/usage` show cache reads, writes, and hit rates when providers report them.
+Input totals include cached input once; cache hits are not extra input tokens.
+Cost estimates use known cache prices and provider-specific accounting. Missing
+prices remain unknown, and estimates can differ from the provider's bill.
+
 ## What The Admin Console Can Do
 
 - `/admin/channels` shows each transport as `active`, `configured`, or
