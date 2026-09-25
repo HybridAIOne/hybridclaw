@@ -36,6 +36,15 @@
   (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`,
   `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..` always do. The
   bash tool description points agents to the grep tool and the exclusion.
+- **A read-only first command no longer makes a whole bash line green**: Only
+  the first segment was checked, so `ls ; tar czf - . | base64`,
+  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
+  Every command the line runs must now be read-only, including pipeline
+  stages, later lines, background jobs, `$(...)` and backtick contents, and
+  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
+  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
+  while `git log | head`, `ls -la | grep foo`, and
+  `find . -name '*.ts' | wc -l` stay green.
 - **Codex requests reuse their prompt cache**: Requests to the Codex Responses
   API now carry a `prompt_cache_key` derived from the session id, so every call
   in a conversation routes to the same cache instead of relying on a randomly

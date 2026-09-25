@@ -31,7 +31,11 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
-import { findBashPinnedReach } from './bash-pinned-reach.js';
+import {
+  findBashPinnedReach,
+  splitShellCommands,
+  xargsCommandWords,
+} from './bash-pinned-reach.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -431,6 +435,7 @@ const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+const FIND_EXEC_ACTION_RE = /^-(?:exec|execdir|ok|okdir)$/;
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
@@ -1186,6 +1191,34 @@ function buildBashInspectionSurface(command: string): string {
   return splitCommandSegments(stripped)
     .map((segment) => sanitizeInterpreterInlineScripts(segment))
     .join(' ; ');
+}
+
+// A simple command as text, plus the commands it runs for each input: what
+// `find -exec` runs per file, and xargs as the command it batches lines into.
+function commandTexts(words: string[]): string[] {
+  const program = words[0]?.toLowerCase();
+  if (program === 'xargs') {
+    return commandTexts(xargsCommandWords(words.slice(1)));
+  }
+  const texts = [words.join(' ')];
+  if (program !== 'find') return texts;
+  for (let index = 1; index < words.length; index += 1) {
+    if (!FIND_EXEC_ACTION_RE.test(words[index])) continue;
+    const end = words.findIndex(
+      (word, at) => at > index && (word === ';' || word === '+'),
+    );
+    const stop = end < 0 ? words.length : end;
+    texts.push(...commandTexts(words.slice(index + 1, stop)));
+    index = stop;
+  }
+  return texts;
+}
+
+// Every command a script runs, as text: pipeline stages, later lines,
+// background jobs, `$(...)` and backtick contents, and `find -exec` or xargs
+// commands. splitCommandSegments() sees only the first of these.
+function shellCommandTexts(script: string): string[] {
+  return splitShellCommands(script).flatMap(({ words }) => commandTexts(words));
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -3538,10 +3571,11 @@ export class TrustedAgentApprovalRuntime {
       (host) => !httpHostSet.has(host) && !this.seenNetworkHosts.has(host),
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
-    // The inspection surface turns pipes into `;`, which hides `find | xargs`.
-    const pinnedReach = findBashPinnedReach(
-      stripHereDocBodies(command),
-      (candidate) => this.namesPinnedPath(candidate),
+    // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
+    // segment; these checks need the commands bash actually runs.
+    const shellScript = stripHereDocBodies(command);
+    const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
+      this.namesPinnedPath(candidate),
     );
     // Relative operands join pathHints only when they name a pinned path, so
     // stakes and anomaly inputs stay unchanged for every other command.
@@ -3748,7 +3782,14 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_BASH_RE.test(inspectionSurface)) {
+    // Green also needs every command the script runs to be read-only: the
+    // first segment alone let `ls; tar czf - . | base64` run unnarrated.
+    const everyCommandReadOnly = shellCommandTexts(shellScript).every(
+      (text) =>
+        READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text),
+    );
+
+    if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {
         tier: 'green',
         actionKey: 'bash:read-only',
@@ -3764,7 +3805,10 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_PDF_SCRIPT_RE.test(inspectionSurface)) {
+    if (
+      everyCommandReadOnly &&
+      READ_ONLY_PDF_SCRIPT_RE.test(inspectionSurface)
+    ) {
       return {
         tier: 'green',
         actionKey: 'bash:pdf-read-only',

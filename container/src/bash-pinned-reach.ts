@@ -1,9 +1,9 @@
 /**
- * Pinned-path reach of one bash command: operands that name a pinned path
- * (relative, `~`, or a dotfile glob) and recursive reads (`grep -r`,
- * `find -exec`, `find | xargs`) that reach `.env*`, `/etc`, or `~/.ssh` without
- * naming them. Static: variables, interpreter scripts, and an earlier call's
- * `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
+ * Bash command analysis for the approval policy: the simple commands a script
+ * runs (`splitShellCommands`), operands that name a pinned path, and recursive
+ * reads (`grep -r`, `find -exec`, `find | xargs`) that reach `.env*`, `/etc`,
+ * or `~/.ssh` unnamed. Static: variables, interpreter scripts, and an earlier
+ * call's `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
@@ -179,7 +179,7 @@ interface SubstitutionFrame {
 // Splits a command into simple commands the way bash reads it: quotes group,
 // an unquoted `\x` is `x`, `$(...)` and backticks are commands of their own,
 // and `;`, `|`, `&`, `(`, `)`, and newlines separate (`2>&1` keeps its `&`).
-function splitCommands(input: string): ShellCommand[] {
+export function splitShellCommands(input: string): ShellCommand[] {
   const commands: ShellCommand[] = [];
   const frames: SubstitutionFrame[] = [];
   let words: string[] = [];
@@ -638,12 +638,17 @@ function scanLs(args: string[]): ProgramScan {
   };
 }
 
-function scanXargs(args: string[]): ProgramScan {
+// The command xargs runs on each batch of input lines; `echo` when none.
+export function xargsCommandWords(args: string[]): string[] {
   let index = 0;
   while (index < args.length && args[index].startsWith('-')) {
     index += XARGS_VALUE_FLAGS.has(args[index]) ? 2 : 1;
   }
-  const program = path.posix.basename(args[index] ?? 'echo');
+  return index < args.length ? args.slice(index) : ['echo'];
+}
+
+function scanXargs(args: string[]): ProgramScan {
+  const program = path.posix.basename(xargsCommandWords(args)[0]);
   return {
     nonPathArgs: [],
     walk: null,
@@ -834,7 +839,7 @@ function scanScript(
   // The file list flowing through the current pipe, for xargs.
   let listing: Walk | null = null;
 
-  for (const { words, piped } of splitCommands(script)) {
+  for (const { words, piped } of splitShellCommands(script)) {
     const start = programIndex(words);
     const program = path.posix.basename(words[start] ?? '');
     const args = words.slice(start + 1);

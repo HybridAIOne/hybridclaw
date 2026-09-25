@@ -1406,6 +1406,50 @@ approval:
     expect(evaluation.actionKey).toBe('bash:pdf-read-only');
   });
 
+  test.each([
+    'ls ; tar czf - . | base64',
+    'ls; python3 -c "print(1)"',
+    'cat x | sort',
+    'cat package.json | jq .',
+    'ls\npython3 x.py',
+    'ls & python3 x.py',
+    'ls $(python3 x.py)',
+    'ls `python3 x.py`',
+    'cat <(python3 x.py)',
+    "cat <<'EOF' | python3\nprint(1)\nEOF",
+    "find . -name '*.py' -exec python3 {} \\;",
+    "find . -name '*.py' | xargs python3",
+    "find . -name '*.log' | xargs rm",
+    'node skills/pdf/scripts/extract_pdf_text.mjs doc.pdf; python3 x.py',
+  ])('a read-only first command does not make the rest green: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:other');
+    expect(evaluation.baseTier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+  });
+
+  test.each([
+    ['git log --oneline | head -20', 'bash:read-only'],
+    ['ls -la | grep foo', 'bash:read-only'],
+    ["find . -name '*.ts' | wc -l", 'bash:read-only'],
+    ['git status && git diff --stat', 'bash:read-only'],
+    ["cat $(find . -name '*.md')", 'bash:read-only'],
+    ["find . -name '*.ts' -exec grep -l TODO {} +", 'bash:read-only'],
+    ["find . -name '*.ts' | xargs -I{} grep -l TODO {}", 'bash:read-only'],
+    ['ls # ; python3 x.py', 'bash:read-only'],
+    [
+      'node skills/pdf/scripts/extract_pdf_text.mjs doc.pdf | head -50',
+      'bash:pdf-read-only',
+    ],
+  ])('commands made only of read-only parts stay green: %j', (command, actionKey) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe(actionKey);
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+  });
+
   test('sensitive paths stay pinned red and require explicit approval', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

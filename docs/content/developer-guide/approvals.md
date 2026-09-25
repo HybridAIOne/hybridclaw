@@ -105,7 +105,7 @@ Two important transitions:
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
-| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
+| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
@@ -117,7 +117,7 @@ Two important transitions:
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
 | Deletion | Red | `delete`, `rm`, `find -delete` | Destructive; cache/build deletions may be promotable |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
-| Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find | xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
+| Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh` | Treated as high risk |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
