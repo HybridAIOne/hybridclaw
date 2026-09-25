@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-738 production dependencies.
+737 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -45,7 +45,6 @@ texts ship inside the respective packages.
 | @discordjs/rest | 2.6.3 | Apache-2.0 |
 | @discordjs/util | 1.2.0 | Apache-2.0 |
 | @discordjs/ws | 1.2.3 | Apache-2.0 |
-| @e965/xlsx | 0.20.3 | Apache-2.0 |
 | @emnapi/runtime | 1.11.3 | MIT |
 | @grpc/grpc-js | 1.14.4 | Apache-2.0 |
 | @grpc/proto-loader | 0.8.1 | Apache-2.0 |
