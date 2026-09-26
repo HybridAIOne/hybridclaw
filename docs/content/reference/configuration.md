@@ -498,6 +498,9 @@ instead of per-channel temp directories.
   `/uploaded-media-cache/...`.
 - The shared cache is pruned automatically, so these paths are meant for
   short-lived inbound media handling rather than permanent storage.
+- Later turns of the same session list the eight most recent earlier
+  attachments with their paths; once cleanup has pruned a file, the agent is
+  told it is no longer available instead of receiving its old path.
 
 ## Audio Transcription Notes
 
