@@ -14,6 +14,9 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **Atomic agent output files**: The agent runtime publishes `output.json` and
+  `health-output.json` by renaming a finished temporary file, so readers never
+  see an empty or half-written result.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

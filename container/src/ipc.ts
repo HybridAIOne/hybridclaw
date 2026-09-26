@@ -1,6 +1,14 @@
+/**
+ * Container end of the file-based IPC with the gateway (`src/infra/ipc.ts`).
+ *
+ * Output files appear whole: a poller sees no file or complete JSON, never a
+ * half-written one. Input files carry no such guarantee, so the input reader
+ * treats unparseable JSON as not yet written and polls again.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { writeMemoryFileAtomic } from '../shared/memory-file.js';
 import { IPC_DIR } from './runtime-paths.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
 
@@ -59,9 +67,9 @@ export async function waitForInput(
 }
 
 export function writeOutput(output: ContainerOutput): void {
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+  writeMemoryFileAtomic(OUTPUT_PATH, JSON.stringify(output, null, 2));
 }
 
 export function writeHealthOutput(output: ContainerOutput): void {
-  fs.writeFileSync(HEALTH_OUTPUT_PATH, JSON.stringify(output, null, 2));
+  writeMemoryFileAtomic(HEALTH_OUTPUT_PATH, JSON.stringify(output, null, 2));
 }
