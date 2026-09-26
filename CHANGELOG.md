@@ -8,6 +8,13 @@
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
 
+### Fixed
+
+- **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
+  only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
+  `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
+  from older installs.
+
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
 ### Added
