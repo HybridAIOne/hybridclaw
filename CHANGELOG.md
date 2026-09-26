@@ -2,8 +2,41 @@
 
 ## Unreleased
 
+### Added
+
+- **Agent budget hard stop**: An agent that reaches 100% of its monthly
+  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
+  full-auto) until the next billing month or until the cap is raised. The
+  refusal pauses the agent's active goal, disables full-auto for the session,
+  and records a `budget.hard_stop` audit event.
+
 ### Changed
 
+- **Media tools move to the `media-tools` plugin; provider keys leave the
+  sandbox**: `image_generate`, `video_generate`, and `audio_transcribe` run in
+  the gateway as the `media-tools` plugin (`hybridclaw plugin install
+  media-tools`), with the same names, arguments, and approval tiers. The
+  sandbox no longer receives OpenAI, Gemini, xAI, Black Forest Labs, Deepgram,
+  or AssemblyAI keys. Plugins gain `api.media` (session media reads through the
+  gateway's allowed-roots check, SSRF-guarded HTTPS fetch, session model
+  credentials) and `context.media` on tool calls, and sandbox plugin-tool calls
+  wait up to 20 minutes. The audio tool's result no longer carries `cost_usd`;
+  usage accounting still estimates it.
+- **Local embeddings move to the `transformers-embeddings` plugin**: The
+  Transformers.js embedding provider and its ONNX runtime (about 380 MB,
+  including sharp's LGPL libvips binaries) leave the core install. Install it
+  with `hybridclaw plugin install transformers-embeddings`; the default
+  `hashed` provider is unchanged. `memory.embedding` keeps only `provider`,
+  and non-default `memory.embedding.model`, `revision`, and `dtype` values
+  migrate once into the plugin's config (schema v39). A configured provider id
+  that no plugin registers now fails with an install hint. Plugins can supply
+  their own provider through `api.registerEmbeddingProvider`.
+- **Sandbox image drops the Mermaid parser**: `diagram_validate` and the
+  Mermaid path of `diagram_create`/`diagram_update` check the diagram header
+  and bracket balance instead of loading the `mermaid` package, which the
+  sandbox used only to parse (about 131 MB with its d3, cytoscape, and katex
+  closure). Rendering is unchanged: `mmdc` when installed, otherwise the
+  source-backed SVG fallback.
 - **Eval harness moved out of the product build**: The benchmark and eval
   harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
   skill-activation suites, about 13.8K lines) moved from `src/evals/` to the
@@ -12,9 +45,25 @@
   `npm run eval -- <suite> ...` from a source checkout instead. The
   gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
   stay in core. `stemmer` is now a dev dependency.
-- npm releases build and verify the package once, publish the resulting tarball,
-  skip dependency installation for already-public versions, and wait for npm's
-  registry scan to finish after an accepted or previously staged upload.
+- **npm publishing**: npm releases build and verify the package once, publish
+  the resulting tarball, skip dependency installation for already-public
+  versions, and wait for npm's registry scan to finish after an accepted or
+  previously staged upload.
+- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
+  runtime images get it from `container/tools`) and the redundant `impit` pin
+  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
+  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
+  the gateway HTTP proxy imports, is declared directly.
+
+### Removed
+
+- **Codex app-server turn runtime**: `codex.turnRuntime` (and its
+  `codex.runtime` alias) and the `app-server` loop are gone. It ran only in
+  host sandbox mode with a separately installed `codex` CLI, and the console
+  could not select it. `openai-codex/*` models run in the standard HybridClaw
+  loop; existing `codex.turnRuntime` settings are dropped when the config is
+  next written. `model.usage` audit events no longer carry `runtime` or
+  `codexRuntime`, and `/status` no longer prints a `Runtime:` field.
 
 ### Fixed
 
@@ -25,10 +74,23 @@
   native image or audio parts, a turn that already used a tool is not re-sent
   without the media. A re-sent first request keeps its HybridAI correlation
   headers.
-- **Stopped turns and delegations**: A stopped turn never starts the
-  delegations it queued, and its stored history now says so. The next turn's
+- **macOS browser control window isolation**: The `mac-cua` browser provider
+  opens a dedicated browser window instead of taking over an existing one, so
+  it no longer drives the tab holding the web chat.
+- **Empty auxiliary model replies use the fallback chain**: Session titles and
+  other auxiliary tasks try the next eligible model when a provider returns
+  blank text, and record the empty attempt as a failure.
+- **Warm-pool refill failures**: A turn that finished keeps its reply, tool
+  calls, and queued delegations when refilling the warm process pool
+  afterwards fails, for example on a full disk or a spawn error, instead of
+  being recorded as a failed turn. The refill failure is logged as a warning
+  and retried on the next turn.
+- **Failed turns and delegations**: A turn that ends in an error without
+  starting its delegations now says so in its stored history. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was
-  started instead of repeating "Delegation accepted".
+  started instead of repeating "Delegation accepted". This covers stops, which
+  never start the delegations they queued, and timeouts, agent crashes and
+  runner errors, whose queued delegations never reach the gateway.
 - **Document delivery**: Reports, lists, and data files an agent writes are
   attached to its reply when the reply names them, including links with
   `sandbox:` or host workspace paths. Web chat links to an attached file
@@ -40,6 +102,17 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **MCP tool annotations respected**: Approvals follow what a server says a
+  tool does; only hints it leaves out are still guessed from the name.
+  Read-only tools run without approval, so an `execute_sql` that only runs
+  SELECTs no longer waits for a yes on every call, which a voice caller could
+  never give. Tools marked destructive need approval, tools marked additive
+  are announced, and additive tools marked open-world are announced on every
+  call. A tool that says it writes is never waved through as a lookup because
+  of its name. After a failed call the server is still reconnected, but the
+  call is only sent again when the tool is read-only or idempotent, so a lost
+  response no longer sends the same mail twice. The tool's `title` names it
+  in approval prompts.
 - **Attachments in follow-up turns**: The agent now sees the local path of a
   file uploaded earlier in the session, including after an interrupted turn,
   instead of only its filename. A file removed by media cleanup is reported as
@@ -50,6 +123,71 @@
 - **Atomic agent output files**: The agent runtime publishes `output.json` and
   `health-output.json` by renaming a finished temporary file, so readers never
   see an empty or half-written result.
+- **Recursive shell reads of pinned files need approval**: Recursive reads
+  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
+  `find -exec`, `find | xargs`) now require approval on every run unless they
+  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
+  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
+  always do. Shell commands also match pinned paths through dotfile globs
+  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
+  command. The bash tool description points agents to the grep tool and the
+  exclusion.
+- **A read-only first command no longer makes a whole bash line green**: Only
+  the first segment was checked, so `ls ; tar czf - . | base64`,
+  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
+  Every command the line runs must now be read-only, including pipeline
+  stages, later lines, background jobs, `$(...)` and backtick contents, and
+  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
+  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
+  while `git log | head`, `ls -la | grep foo`, and
+  `find . -name '*.ts' | wc -l` stay green.
+- **Deletions without an `rm` flag need approval**: bash deletion detection
+  required a flag after `rm`, so `rm notes.txt` ran yellow and
+  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
+  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
+  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
+  (cache and build targets stay promotable `bash:delete-cache`), and a
+  flagless `rm` outside the workspace hits the workspace fence.
+  `git rm --cached`, which keeps the files, is now a yellow git write instead of
+  a deletion; `rmdir` stays yellow because it only removes empty directories.
+- **Read-only commands that run programs or write files leave the green
+  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
+  `git diff --output=FILE`, `git log --output=../out.txt`, and
+  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
+  and `--hostname-bin` are now red script execution; git's `--output` and
+  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
+  absolute target outside the workspace hits the workspace fence. Plain
+  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
+- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
+  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
+  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
+  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
+  narrated yellow without a prompt. Promotion now requires every deletion
+  target (rm/unlink/`git rm` operands and the starting points of
+  `find -delete` or `find -exec rm`), resolved through any `cd` in the same
+  command, to be such a path inside the workspace or scratch space;
+  `xargs rm`, variables, `~`, a `..` or `cd` that leaves the workspace, and
+  `rm -…` hidden in another command's arguments make the deletion a plain
+  `bash:delete`.
+- **The workspace fence catches relative writes that climb out**: The bash
+  fence only checked absolute paths, so `echo x > ../out.txt`,
+  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
+  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
+  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
+  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
+  resolved from the workspace root through any `cd` in the same command, and
+  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
+  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
+- **Running downloaded code needs explicit approval**: Bash commands that run
+  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
+  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
+  red `bash:fetched-code` approval that full-auto never grants, closing the
+  two-step route around the `curl | sh` block. Files curl and wget save also
+  count as writes for the workspace fence.
+- **Routed turns keep their tool calls**: With model routing enabled, an
+  attempt that fails after running a tool is no longer retried on a fallback
+  model, the same rung, or a higher tier, which could repeat its effects. The
+  failed turn lists the tool calls that ran, as unrouted turns do.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
@@ -78,26 +216,50 @@
   while retaining the existing permission, approval, and audit checks.
 - **Readable oversized tool results**: Truncated results point to a full text
   file in `.tool-results/<session>/` that the agent can read during the same turn.
-
 - **Competitor monitoring community skill**: Added a packaged
   `competitor-monitoring` skill (`official/competitor-monitoring`) that keeps
   one cron task per watched competitor, diffs each run against a workspace
   snapshot, and appends a fenced `watch` JSON block to the daily memory note,
   which the Sales Companion iOS app reads through cloud memory.
-- **Agent budget hard stop**: An agent that reaches 100% of its monthly
-  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
-  full-auto) until the next billing month or until the cap is raised. The
-  refusal pauses the agent's active goal, disables full-auto for the session,
-  and records a `budget.hard_stop` audit event.
+
+### Changed
+
+- **Dependencies refreshed with a seven-day release-age gate**: Compatible
+  updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
+  tooling, and Python PDF libraries. Exact pins, lockfiles, shrinkwraps,
+  dependency-policy hashes, and license notices remain synchronized. Newer
+  releases inside the age window and Node-24-only agent-browser updates are
+  held back.
+- **Contributor rules favor lean changes**: `AGENTS.md` defines single-source
+  facts, core/plugin boundaries, file-size limits, and module contracts;
+  `CLAUDE.md` imports the canonical instructions.
+- **Recall snippets are labeled as chat recall**: The prompt block is titled
+  `### Chat Recall` and states that entries are recalled chat excerpts, not
+  saved memory files. Per-turn memories whose turn is still in the verbatim
+  prompt history are skipped, and compaction summary rows are skipped while the
+  session summary is injected, so recall no longer duplicates visible context.
+- **Prompt history and compaction share one token budget**: The prompt carries
+  the newest whole turns that fit a budget derived from the model's context
+  window, clipped by `sessionCompaction.tokenBudget`. Compaction is triggered
+  by the same budget, so stored turns are either sent verbatim or already
+  summarized. The fixed 40-message and 24,000-character history window is gone.
+- **Omitted history is announced**: When turns still have to be dropped, the
+  dynamic context message carries a `## History Window` note with the omitted
+  turn count instead of silently cutting the conversation.
+- **Post-compaction retention is turn-aligned and token-bounded**: The retained
+  slice starts at a user turn and stays within half the history budget, so
+  compaction runs about once per half budget of new turns.
+- **One compaction engine**: Automatic compaction and `/compact` run the same
+  engine, so both produce the structured summary, archive the transcript, and
+  keep the same retained slice. The separate JSONL compaction export is gone;
+  the transcript archive is the record of compacted history.
+- **HybridAI default model is GPT-6 Luna**: New configs default to
+  `gpt-6-luna` instead of `gpt-5.6-luna`, and the premium-access error now
+  names it as the non-premium model. Existing configs keep the default model
+  they already have.
 
 ### Fixed
 
-- **Running downloaded code needs explicit approval**: Bash commands that run
-  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
-  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
-  red `bash:fetched-code` approval that full-auto never grants, closing the
-  two-step route around the `curl | sh` block. Files curl and wget save also
-  count as writes for the workspace fence.
 - **Discord announcements respect mention rules**: `@here` and `@everyone`
   alone do not count as addressing the bot or trigger mention-only reactions.
   Direct bot mentions, bot-role mentions, and reply pings still count.
@@ -130,7 +292,6 @@
 - **Cache usage and pricing are visible**: Usage summaries include cache reads,
   cache writes, and hit rates across console, chat commands, and session context.
   Cost estimates distinguish provider cache accounting and known cache prices.
-
 - **Installer no longer downloads the unused CUDA runtime**: `install.sh`
   sets `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` (unless already set) so Linux x64
   installs skip onnxruntime-node's CUDA download from GitHub, which HybridClaw
@@ -204,59 +365,6 @@
   `cp`, and `mv` targets outside the workspace now require approval when
   quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
   write while the unquoted spelling was fenced.
-- **Recursive shell reads of pinned files need approval**: Recursive reads
-  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
-  `find -exec`, `find | xargs`) now require approval on every run unless they
-  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
-  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
-  always do. Shell commands also match pinned paths through dotfile globs
-  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
-  command. The bash tool description points agents to the grep tool and the
-  exclusion.
-- **A read-only first command no longer makes a whole bash line green**: Only
-  the first segment was checked, so `ls ; tar czf - . | base64`,
-  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
-  Every command the line runs must now be read-only, including pipeline
-  stages, later lines, background jobs, `$(...)` and backtick contents, and
-  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
-  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
-  while `git log | head`, `ls -la | grep foo`, and
-  `find . -name '*.ts' | wc -l` stay green.
-- **Deletions without an `rm` flag need approval**: bash deletion detection
-  required a flag after `rm`, so `rm notes.txt` ran yellow and
-  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
-  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
-  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
-  (cache and build targets stay promotable `bash:delete-cache`), and a
-  flagless `rm` outside the workspace hits the workspace fence.
-  `git rm --cached`, which keeps the files, is now a yellow git write instead of
-  a deletion; `rmdir` stays yellow because it only removes empty directories.
-- **Read-only commands that run programs or write files leave the green
-  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
-  `git diff --output=FILE`, `git log --output=../out.txt`, and
-  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
-  and `--hostname-bin` are now red script execution; git's `--output` and
-  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
-  absolute target outside the workspace hits the workspace fence. Plain
-  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
-- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
-  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
-  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
-  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
-  narrated yellow without a prompt. Promotion now requires every deletion
-  target (rm/unlink/`git rm` operands and the starting points of
-  `find -delete` or `find -exec rm`) to be such a path inside the workspace;
-  `xargs rm`, variables, `~`, `..`, and `rm -…` hidden in another command's
-  arguments make the deletion a plain `bash:delete`.
-- **The workspace fence catches relative writes that climb out**: The bash
-  fence only checked absolute paths, so `echo x > ../out.txt`,
-  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
-  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
-  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
-  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
-  resolved from the workspace root through any `cd` in the same command, and
-  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
-  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
 - **Connector credential changes require secret permissions**: Saving the
   HybridAI API key and starting a connector OAuth flow require
   `secret.overwrite`, and logging a connector out requires `secret.unset`, for
@@ -293,50 +401,6 @@
   action that patches an existing task's schedule, channel, or prompt by
   taskId, so schedule changes no longer leave duplicate tasks behind.
 
-### Changed
-
-- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
-  runtime images get it from `container/tools`) and the redundant `impit` pin
-  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
-  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
-  the gateway HTTP proxy imports, is declared directly.
-
-- **Dependencies refreshed with a seven-day release-age gate**: Compatible
-  updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
-  tooling, and Python PDF libraries. Exact pins, lockfiles, shrinkwraps,
-  dependency-policy hashes, and license notices remain synchronized. Newer
-  releases inside the age window and Node-24-only agent-browser updates are
-  held back.
-
-- **Contributor rules favor lean changes**: `AGENTS.md` defines single-source
-  facts, core/plugin boundaries, file-size limits, and module contracts;
-  `CLAUDE.md` imports the canonical instructions.
-
-- **Recall snippets are labeled as chat recall**: The prompt block is titled
-  `### Chat Recall` and states that entries are recalled chat excerpts, not
-  saved memory files. Per-turn memories whose turn is still in the verbatim
-  prompt history are skipped, and compaction summary rows are skipped while the
-  session summary is injected, so recall no longer duplicates visible context.
-- **Prompt history and compaction share one token budget**: The prompt carries
-  the newest whole turns that fit a budget derived from the model's context
-  window, clipped by `sessionCompaction.tokenBudget`. Compaction is triggered
-  by the same budget, so stored turns are either sent verbatim or already
-  summarized. The fixed 40-message and 24,000-character history window is gone.
-- **Omitted history is announced**: When turns still have to be dropped, the
-  dynamic context message carries a `## History Window` note with the omitted
-  turn count instead of silently cutting the conversation.
-- **Post-compaction retention is turn-aligned and token-bounded**: The retained
-  slice starts at a user turn and stays within half the history budget, so
-  compaction runs about once per half budget of new turns.
-- **One compaction engine**: Automatic compaction and `/compact` run the same
-  engine, so both produce the structured summary, archive the transcript, and
-  keep the same retained slice. The separate JSONL compaction export is gone;
-  the transcript archive is the record of compacted history.
-- **HybridAI default model is GPT-6 Luna**: New configs default to
-  `gpt-6-luna` instead of `gpt-5.6-luna`, and the premium-access error now
-  names it as the non-premium model. Existing configs keep the default model
-  they already have.
-
 ## [0.31.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.31.1) - 2026-09-21
 
 ### Added
@@ -361,7 +425,6 @@
   avoid duplicate fetches. Failed downloads are reported to the model.
 - **Documentation code examples render correctly**: Code examples avoid
   double-escaping HTML entities.
-
 - **Tailscale discovery on macOS**: The tunnel provider uses the installed
   Tailscale app's CLI when `tailscale` is absent from the gateway's PATH,
   including installations exposed through an interactive shell alias.
@@ -640,6 +703,12 @@
   quotation, expense, report, and bank-plan requests default `voucherStatus` to
   the documented `any` wildcard when `--status` is omitted, avoiding an HTTP
   400 response from the Lexware API.
+- **The console view switcher highlights the page you are on**: its Agents
+  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
+  lit up Admin instead. It now links straight to the agents page, and the
+  switcher no longer lets the router mark Admin as a second current page on
+  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
+  `/agents` are rewritten when the config loads.
 
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 
@@ -652,12 +721,6 @@
 
 ### Fixed
 
-- **The console view switcher highlights the page you are on**: its Agents
-  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
-  lit up Admin instead. It now links straight to the agents page, and the
-  switcher no longer lets the router mark Admin as a second current page on
-  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
-  `/agents` are rewritten when the config loads.
 - **Premium-model errors now point at the current free model**: The guidance
   shown when a HybridAI request is rejected for premium-model access names
   `gpt-5.6-luna` — the model available without a paid plan or credits — instead
@@ -1008,44 +1071,6 @@
 
 ## [0.28.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.3) - 2026-07-22
 
-### Fixed
-
-- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
-  gateway parsed upstream cache reads and writes internally but dropped them
-  when building the response, so clients could not tell a cold cache from a
-  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
-  (and `cache_creation_input_tokens` when the provider reports cache writes),
-  emitted only when the provider actually reported cache usage — a missing
-  field means "not reported" while an explicit `0` means "no cache hit". The
-  tool-aware passthrough path previously hard-coded cache usage to zero and now
-  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
-  Anthropic-style (`cache_read_input_tokens`) spellings.
-
-- **Cloud and Docker sandbox tool execution**: The gateway host-sandbox image
-  and standalone agent image include Python, pip, `openpyxl`, `unzip`, `file`,
-  and compatible XLSX libraries with resolvable Node module paths, restoring
-  spreadsheet inspection and manipulation in cloud deployments. Prompts that
-  mention versions or commands such as `python3 --version` also reach the agent
-  instead of being intercepted by the former HybridClaw-version shortcut.
-- **Admin console reliability**: Tab bars keep a stable, pinned layout with
-  contextual controls in the tab row; provider health appears only on the
-  Providers page with readable rows; generated settings replace build-host
-  home directories with portable `~/` paths; and redundant owned settings no
-  longer appear as editable duplicates.
-- **Agent archive migration**: Existing databases whose schema version `52`
-  came from the parallel agent-sharing migration still add the archived-agent
-  column through a collision-free version `53` migration.
-- **Install-on-demand channel plugins**: The Channels page offers to install a
-  missing WhatsApp transport, package-name resolution finds locally installed
-  plugins, and the generalized channel-plugin path preserves setup and doctor
-  behavior after the transport is removed from core.
-- **Release metadata walks**: Dependency-policy, SBOM, and third-party-notice
-  generators skip every dot-directory, preventing auxiliary Git worktrees from
-  being scanned as duplicate or partially updated package trees.
-- **Bundled tier-router packaging**: npm and gateway Docker artifacts include
-  the deterministic tier-router plugin required when `routing.enabled` is set,
-  and the release check now fails if any of its runtime files are missing.
-
 ### Added
 
 - **A2A end-to-end transport encryption**: Paired HybridClaw gateways exchange
@@ -1135,6 +1160,43 @@
   fingerprint is treated as Linux and receives Linux fonts, WebGL strings, and
   environment variables. Camofox stealth is degraded for macOS fingerprints
   until `determineUAOS` is patched.
+
+### Fixed
+
+- **Prompt-cache usage is now visible through the OpenAI-compatible API**: the
+  gateway parsed upstream cache reads and writes internally but dropped them
+  when building the response, so clients could not tell a cold cache from a
+  fully cached prompt. `usage` now carries `prompt_tokens_details.cached_tokens`
+  (and `cache_creation_input_tokens` when the provider reports cache writes),
+  emitted only when the provider actually reported cache usage — a missing
+  field means "not reported" while an explicit `0` means "no cache hit". The
+  tool-aware passthrough path previously hard-coded cache usage to zero and now
+  reads both OpenAI-style (`prompt_tokens_details.cached_tokens`) and
+  Anthropic-style (`cache_read_input_tokens`) spellings.
+- **Cloud and Docker sandbox tool execution**: The gateway host-sandbox image
+  and standalone agent image include Python, pip, `openpyxl`, `unzip`, `file`,
+  and compatible XLSX libraries with resolvable Node module paths, restoring
+  spreadsheet inspection and manipulation in cloud deployments. Prompts that
+  mention versions or commands such as `python3 --version` also reach the agent
+  instead of being intercepted by the former HybridClaw-version shortcut.
+- **Admin console reliability**: Tab bars keep a stable, pinned layout with
+  contextual controls in the tab row; provider health appears only on the
+  Providers page with readable rows; generated settings replace build-host
+  home directories with portable `~/` paths; and redundant owned settings no
+  longer appear as editable duplicates.
+- **Agent archive migration**: Existing databases whose schema version `52`
+  came from the parallel agent-sharing migration still add the archived-agent
+  column through a collision-free version `53` migration.
+- **Install-on-demand channel plugins**: The Channels page offers to install a
+  missing WhatsApp transport, package-name resolution finds locally installed
+  plugins, and the generalized channel-plugin path preserves setup and doctor
+  behavior after the transport is removed from core.
+- **Release metadata walks**: Dependency-policy, SBOM, and third-party-notice
+  generators skip every dot-directory, preventing auxiliary Git worktrees from
+  being scanned as duplicate or partially updated package trees.
+- **Bundled tier-router packaging**: npm and gateway Docker artifacts include
+  the deterministic tier-router plugin required when `routing.enabled` is set,
+  and the release check now fails if any of its runtime files are missing.
 
 ## [0.28.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.28.2) - 2026-07-17
 
@@ -1589,6 +1651,12 @@
 
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
+### Changed
+
+- **Desktop packaging**: Desktop build commands rebuild the app before
+  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
+  and strip non-runtime dependency files from packaged desktop bundles.
+
 ### Fixed
 
 - **Cloud chat write authentication**: Cookie-authenticated browser writes now
@@ -1597,12 +1665,6 @@
   TLS-terminating proxy.
 
 ## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
-
-### Changed
-
-- **Desktop packaging**: Desktop build commands rebuild the app before
-  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
-  and strip non-runtime dependency files from packaged desktop bundles.
 
 ### Fixed
 
@@ -3307,10 +3369,6 @@
 - **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
   that run immediately, retry up to `maxRetries`, preserve review state, and
   surface richer delivery output across the gateway and admin scheduler UI.
-- **Mem0 memory plugin**: Added a bundled `mem0-memory` plugin so local
-  HybridClaw installs can mirror turns into Mem0 cloud memory, inject
-  prompt-time Mem0 recall, expose `mem0_*` tools, and mirror explicit native
-  memory writes back into Mem0.
 
 ### Changed
 
@@ -3372,15 +3430,9 @@
 - **Telegram config reload behavior**: Running gateways now restart the
   Telegram integration automatically when `telegram.*` config changes land, so
   most setup edits apply within a few seconds without a full gateway restart.
-- **Per-agent skill allowlists**: Agent `skills` settings now narrow the
-  globally enabled skill set, while omitting `skills` keeps the existing
-  globally enabled scope for backward compatibility.
 
 ### Fixed
 
-- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
-  reported by a reachable gateway, avoiding unnecessary container rebuild
-  checks when the running gateway is already in host mode and vice versa.
 - **HybridAI auxiliary model prefixes**: Auxiliary-model routing now strips the
   leading provider prefix correctly so HybridAI requests do not fail when the
   configured model name already carries a provider namespace.
@@ -4588,8 +4640,6 @@
 - **Discord trigger enforcement**: Guild message handling now applies channel mode + group policy before normal trigger checks, while still allowing prefixed commands in disabled channels.
 - **Activation/status labeling**: Runtime status output now reflects `disabled`/`allowlist`/mixed free-channel activation modes instead of only legacy mention/all-messages labels.
 
-### Fixed
-
 ## [0.2.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.2)
 
 ### Added
@@ -4628,9 +4678,6 @@
 - **Container gateway auth context**: Container input now carries gateway base URL/token and maps loopback hosts to `host.docker.internal` for in-container API reachability.
 - **Gateway token fallback**: Runtime now generates an internal gateway API token when no explicit token is configured, while preserving env/config overrides.
 
-### Fixed
-
-
 ## [0.2.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.2.0)
 
 ### Added
@@ -4650,8 +4697,6 @@
 - **Runtime self-awareness hook**: Prompt assembly now always injects runtime metadata (`version`, UTC date, model/default model, chatbot/channel/guild IDs, node/OS/host/workspace) and keeps it active in `minimal` mode.
 - **Discord runtime controls**: Added and hot-wired `discord.{guildMembersIntent,presenceIntent,respondToAllMessages,commandsOnly,commandUserId}` config behavior for intent selection, trigger policy, and command-user authorization.
 - **Gateway status reporting**: `status` command output now includes the running HybridClaw version line.
-
-### Fixed
 
 ## [0.1.24](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.24)
 
@@ -4709,8 +4754,6 @@
 - **Web tool routing guidance**: Tool descriptions and runtime prompt guidance now include explicit `web_fetch` vs browser decision rules, concrete SPA/auth/app categories, and quantified cost asymmetry.
 - **web_fetch escalation signaling**: `web_fetch` now emits structured escalation hints (`javascript_required`, `spa_shell_only`, `empty_extraction`, `boilerplate_only`, `bot_blocked`) and surfaces them in tool output for browser fallback routing.
 - **Browser extraction steering**: `browser_navigate` responses now include text preview metadata and explicit next-step hints (`browser_snapshot` with `mode="full"`), and docs/prompts now clarify that `browser_pdf` is export-only (not text extraction).
-
-### Fixed
 
 ## [0.1.21](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.21)
 
@@ -4782,8 +4825,6 @@
 - **Policy document split**: Moved onboarding acceptance policy to `TRUST_MODEL.md` and repurposed `SECURITY.md` for technical agent/runtime security guidelines.
 - **Runtime safety prompt source**: Runtime safety guardrails now include the `SECURITY.md` document content directly in the system prompt.
 
-### Fixed
-
 ## [0.1.17](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.17)
 
 ### Added
@@ -4829,19 +4870,11 @@
 
 ## [0.1.15](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.15)
 
-### Added
-
-### Changed
-
 ### Fixed
 
 - **Program creation workflow enforcement**: Implementation requests now enforce file-first behavior (write/edit on disk before response), disallow shell-based file authoring shortcuts (`heredoc`, `echo` redirects, `sed`, `awk`), and require explicit run/offer-run behavior after file changes.
 
 ## [0.1.14](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.14)
-
-### Added
-
-### Changed
 
 ### Fixed
 
@@ -4849,14 +4882,10 @@
 
 ## [0.1.13](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.13)
 
-### Added
-
 ### Changed
 
 - **Release/version sync**: Bumped package and container versions to `0.1.13` after `0.1.12` npm publication.
 - **Docs alignment**: Kept README/changelog aligned with the `config.json` runtime + `.env` secrets model.
-
-### Fixed
 
 ## [0.1.12](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.12)
 
@@ -4878,19 +4907,11 @@
 
 ## [0.1.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.11)
 
-### Added
-
-### Changed
-
 ### Fixed
 
 - **Missing API key startup crash**: Import-time `HYBRIDAI_API_KEY` validation was moved to runtime access so `hybridclaw tui` now prints onboarding guidance instead of a stack trace when credentials are missing.
 
 ## [0.1.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.10)
-
-### Added
-
-### Changed
 
 ### Fixed
 
@@ -4898,14 +4919,10 @@
 
 ## [0.1.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.9)
 
-### Added
-
 ### Changed
 
 - **Scoped npm install docs**: Updated docs install snippets and copy button text to use `npm install -g @hybridaione/hybridclaw`.
 - **Postinstall setup flow**: Root `postinstall` now installs container dependencies and conditionally builds when source files are present.
-
-### Fixed
 
 ## [0.1.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.8)
 
@@ -5006,6 +5023,7 @@
 - **CLI and scripts**: Updated command descriptions and npm scripts so `gateway` is the primary runtime (`dev`/`start` now launch gateway).
 - **Gateway HTTP server role**: `src/health.ts` now serves health, API routes, and static web assets.
 - **Configuration and docs**: Added gateway-related env vars (`HEALTH_HOST`, `WEB_API_TOKEN`, `GATEWAY_BASE_URL`, `GATEWAY_API_TOKEN`) and updated `.env.example`/`README.md`.
+- **Container runtime toolchain**: Agent container image now includes `python3`, `pip`, and `uv` in addition to existing `git`, `node`, and `npm` tooling
 
 ### Fixed
 
@@ -5026,7 +5044,6 @@
 - **Prompt context assembly**: Discord, TUI, and heartbeat sessions now inject persisted `session_summary` context into the system prompt alongside bootstrap files and skills
 - **Compaction execution model**: Discord and TUI now run compaction in the background after sending the assistant reply, preserving responsive UX
 - **Configuration surface**: Added new `.env` knobs for compaction and pre-compaction flush thresholds/limits (`SESSION_COMPACTION_*`, `PRE_COMPACTION_MEMORY_FLUSH_*`)
-- **Container runtime toolchain**: Agent container image now includes `python3`, `pip`, and `uv` in addition to existing `git`, `node`, and `npm` tooling
 
 ## [0.1.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.1)
 

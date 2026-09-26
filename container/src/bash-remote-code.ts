@@ -11,13 +11,12 @@
  */
 import {
   type Cwd,
-  commandProgram,
   commandWriteTargets,
-  directoryAfter,
   MAX_NESTED_SCRIPT_DEPTH,
   redirectWidth,
   resolvePath,
-  splitShellCommands,
+  type ScriptCommand,
+  scriptCommands,
 } from './bash-commands.js';
 
 const FETCH_PROGRAMS = new Set(['curl', 'wget']);
@@ -62,8 +61,12 @@ type CodeSource =
   | { stdin: true }
   | { substituted: true };
 
-function codeSource(words: string[]): CodeSource | null {
-  const { start, program, args } = commandProgram(words);
+function codeSource({
+  words,
+  start,
+  program,
+  args,
+}: ScriptCommand): CodeSource | null {
   if (program === 'eval') return { inline: args.join(' ') };
   const interpreter = INTERPRETERS.find((entry) => entry.program.test(program));
   if (!interpreter) {
@@ -103,19 +106,16 @@ function codeSource(words: string[]): CodeSource | null {
 }
 
 export function findFetchedCode(
-  script: string,
+  commands: ScriptCommand[],
   savedBefore: ReadonlySet<string>,
-  startCwd: Cwd = '',
   depth = 0,
 ): { saved: string[]; runs: boolean } {
-  const commands = splitShellCommands(script);
   const saved: string[] = [];
   let runs = false;
-  let cwd = startCwd;
   // Whether the current pipeline carries fetched bytes: a fetch, or a command
   // naming a saved file (`cat install.sh | sh`).
   let pipelineFetched = false;
-  const isSaved = (word: string): boolean => {
+  const isSaved = (word: string, cwd: Cwd): boolean => {
     const resolved = resolvePath(word, cwd);
     return (
       resolved !== null &&
@@ -123,20 +123,23 @@ export function findFetchedCode(
     );
   };
   // Whether a substitution result can hold fetched bytes; `$(…)` bodies are
-  // commands of their own, so this looks at the whole script.
+  // commands of their own, so this looks at the whole script from where it
+  // starts.
+  const startCwd = commands[0]?.cwd ?? '';
   const substitutesFetched = commands.some(
-    ({ words }) =>
-      FETCH_PROGRAMS.has(commandProgram(words).program) || words.some(isSaved),
+    ({ words, program }) =>
+      FETCH_PROGRAMS.has(program) ||
+      words.some((word) => isSaved(word, startCwd)),
   );
-  for (const { words, piped } of commands) {
-    const { program, args } = commandProgram(words);
+  for (const command of commands) {
+    const { words, program, args, piped, cwd } = command;
     if (FETCH_PROGRAMS.has(program)) {
       for (const target of commandWriteTargets(words)) {
         const resolved = resolvePath(target, cwd);
         if (resolved !== null) saved.push(resolved);
       }
     }
-    const source = codeSource(words);
+    const source = codeSource(command);
     if (!source) {
       // Not running code.
     } else if ('inline' in source) {
@@ -144,9 +147,8 @@ export function findFetchedCode(
         runs ||= substitutesFetched;
       } else if (depth < MAX_NESTED_SCRIPT_DEPTH) {
         const nested = findFetchedCode(
-          source.inline,
+          scriptCommands(source.inline, cwd),
           new Set([...savedBefore, ...saved]),
-          cwd,
           depth + 1,
         );
         saved.push(...nested.saved);
@@ -157,13 +159,12 @@ export function findFetchedCode(
     } else if ('stdin' in source) {
       runs ||= piped && pipelineFetched;
     } else {
-      runs ||= isSaved(source.file);
+      runs ||= isSaved(source.file, cwd);
     }
     pipelineFetched =
       (piped && pipelineFetched) ||
       FETCH_PROGRAMS.has(program) ||
-      args.some(isSaved);
-    cwd = directoryAfter(cwd, program, args);
+      args.some((arg) => isSaved(arg, cwd));
   }
   return { saved, runs };
 }

@@ -1,0 +1,39 @@
+id: transformers-embeddings
+name: Transformers.js Embeddings
+version: 0.1.0
+kind: memory
+description: Local Transformers.js (ONNX) embeddings for built-in semantic memory. Select with memory.embedding.provider = transformers.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    model:
+      type: string
+      minLength: 1
+      default: onnx-community/embeddinggemma-300m-ONNX
+    revision:
+      type: string
+      minLength: 1
+      default: 75a84c732f1884df76bec365346230e32f582c82
+    dtype:
+      type: string
+      enum: [fp32, q8, q4]
+      default: q8
+    cacheDir:
+      type: string
+      minLength: 1
+configUiHints:
+  model:
+    label: Model
+    help: Hugging Face model id of an ONNX feature-extraction model.
+  revision:
+    label: Revision
+    help: Pinned model commit, so embeddings stay comparable across restarts.
+  dtype:
+    label: Quantization
+  cacheDir:
+    label: Model cache directory
+    help: Defaults to ~/.hybridclaw/cache/transformers.

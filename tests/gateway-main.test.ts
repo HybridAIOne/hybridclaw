@@ -2161,6 +2161,41 @@ describe('gateway bootstrap', () => {
     expect(stream.fail).not.toHaveBeenCalled();
   });
 
+  test('lets the gateway keep a silent reply when a Discord reply is optional', async () => {
+    const state = await importFreshGatewayMain();
+    const stream = {
+      append: vi.fn(async () => {}),
+      discard: vi.fn(async () => {}),
+      fail: vi.fn(async () => {}),
+      finalize: vi.fn(async () => {}),
+    };
+    const context = {
+      abortSignal: new AbortController().signal,
+      batchedMessages: [],
+      emitLifecyclePhase: vi.fn(),
+      mentionLookup: { byAlias: new Map() },
+      replyOptional: true,
+      sourceMessage: {},
+      stream,
+    };
+
+    await state.messageHandler?.(
+      'session',
+      'guild',
+      '123456789012345678',
+      'user',
+      'alice',
+      '@everyone the update is running',
+      [],
+      vi.fn(async () => {}),
+      context,
+    );
+
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'discord', allowSilentReply: true }),
+    );
+  });
+
   test('replies directly when a Discord chat result includes components', async () => {
     const state = await importFreshGatewayMain();
     state.handleGatewayMessage.mockResolvedValue({

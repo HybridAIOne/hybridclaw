@@ -37,6 +37,7 @@ import {
   deletionTargets,
   optionWriteTargets,
   runsProgramOption,
+  scriptCommands,
   shellCommandsRun,
   writeTargets,
 } from './bash-commands.js';
@@ -49,6 +50,7 @@ import {
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
+import type { McpToolBehavior } from './mcp/types.js';
 import {
   matchesHardPinnedPath,
   matchesPathPattern,
@@ -335,6 +337,10 @@ export type ApprovalRule = (context: ToolCallContext) => ApprovalRuleResult;
 export type ApprovalRuleHookEmitter = (
   event: ApprovalRuleHookEvent,
 ) => void | Promise<void>;
+
+export type McpToolBehaviorResolver = (
+  toolName: string,
+) => McpToolBehavior | undefined;
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
@@ -1208,23 +1214,26 @@ function buildBashInspectionSurface(command: string): string {
     .join(' ; ');
 }
 
-// A target a promotable cache cleanup may delete: a node_modules, dist, build,
-// coverage, or .cache path segment that stays in the workspace or scratch
-// space. `..`, `~`, and variables make the real target unknown.
+// A resolved deletion target a promotable cache cleanup may name: a
+// node_modules, dist, build, coverage, or .cache segment below the workspace
+// or scratch root. A target that climbs out with `..` or sits anywhere else,
+// even under a directory named `build`, is not.
 function isCacheDeletionTarget(target: string): boolean {
-  if (/^~|\$/.test(target)) return false;
-  const segments = target.split('/');
-  if (segments.includes('..')) return false;
-  if (
-    target.startsWith('/') &&
-    !isWorkspacePath(target) &&
-    !isScratchPath(target)
-  ) {
+  let below = target;
+  if (target.startsWith('/')) {
+    const root = [
+      WORKSPACE_ROOT_DISPLAY,
+      WORKSPACE_ROOT_ACTUAL,
+      ...SCRATCH_ROOTS,
+    ].find((candidate) => isWithinResolvedRoot(target, candidate));
+    if (!root) return false;
+    below = path.relative(path.resolve(root), path.resolve(target));
+  } else if (/^\.\.(?:\/|$)/.test(target)) {
     return false;
   }
-  return segments.some((segment) =>
-    CACHE_PATH_SEGMENTS.has(segment.toLowerCase()),
-  );
+  return below
+    .split(/[\\/]/)
+    .some((segment) => CACHE_PATH_SEGMENTS.has(segment.toLowerCase()));
 }
 
 function splitCommandSegments(command: string): string[] {
@@ -2148,6 +2157,7 @@ export class TrustedAgentApprovalRuntime {
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
+  private mcpToolBehaviorResolver: McpToolBehaviorResolver | null = null;
 
   constructor(
     policyPath = POLICY_PATH,
@@ -2184,6 +2194,10 @@ export class TrustedAgentApprovalRuntime {
     emitter: ApprovalRuleHookEmitter | null | undefined,
   ): void {
     this.approvalRuleHookEmitter = emitter || null;
+  }
+
+  setMcpToolBehaviorResolver(resolver: McpToolBehaviorResolver | null): void {
+    this.mcpToolBehaviorResolver = resolver;
   }
 
   private runStakesMiddleware(
@@ -3427,9 +3441,11 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.includes('__')) {
-      const kind = classifyMcpTool(lowerTool);
+      const behavior = this.mcpToolBehaviorResolver?.(toolName);
+      const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
+      const annotations = behavior?.annotations;
       const [serverName, rawToolName] = lowerTool.split('__', 2);
-      const toolLabel = rawToolName || lowerTool;
+      const toolLabel = annotations?.title || rawToolName || lowerTool;
       const actionKey = `mcp:${serverName || 'server'}:${kind}`;
 
       if (kind === 'read' || kind === 'search' || kind === 'fetch') {
@@ -3438,7 +3454,9 @@ export class TrustedAgentApprovalRuntime {
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
           consequenceIfDenied: 'I will continue without this MCP lookup.',
-          reason: 'this MCP tool appears read-only',
+          reason: annotations?.readOnlyHint
+            ? 'the MCP server marks this tool read-only'
+            : 'this MCP tool appears read-only',
           commandPreview: normalizePreview(JSON.stringify(args)),
           pathHints: [],
           hostHints: [],
@@ -3449,16 +3467,19 @@ export class TrustedAgentApprovalRuntime {
       }
 
       if (kind === 'delete' || kind === 'execute') {
+        const marked = annotations?.destructiveHint === true;
         return {
           tier: 'red',
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied:
-            kind === 'delete'
+          consequenceIfDenied: marked
+            ? 'I will continue without making that change.'
+            : kind === 'delete'
               ? 'I will continue without deleting anything.'
               : 'I will continue without executing that action.',
-          reason:
-            kind === 'delete'
+          reason: marked
+            ? 'the MCP server marks this tool destructive'
+            : kind === 'delete'
               ? 'this MCP tool appears destructive'
               : 'this MCP tool appears to execute commands or external actions',
           commandPreview: normalizePreview(JSON.stringify(args)),
@@ -3484,7 +3505,9 @@ export class TrustedAgentApprovalRuntime {
         hostHints: [],
         writeIntent: kind === 'edit',
         promotableRed: false,
-        stickyYellow: false,
+        // A write that reaches outside (mail, a PR comment) is narrated every
+        // time instead of going quiet after its first run.
+        stickyYellow: annotations?.openWorldHint === true,
       };
     }
 
@@ -3535,10 +3558,10 @@ export class TrustedAgentApprovalRuntime {
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
-    // segment; these checks need the commands bash actually runs.
-    const shellScript = stripHereDocBodies(command);
-    const commandsRun = shellCommandsRun(shellScript);
-    const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
+    // segment; these checks need the commands bash actually runs, parsed once.
+    const shellCommands = scriptCommands(stripHereDocBodies(command));
+    const commandsRun = shellCommandsRun(shellCommands);
+    const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
     );
     // Pinned rules match pathHints only; relative operands join them when
@@ -3550,7 +3573,7 @@ export class TrustedAgentApprovalRuntime {
         ...(pinnedReach.walk?.reaches || []),
       ]),
     ];
-    const fetchedCode = findFetchedCode(shellScript, this.fetchedFiles);
+    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
     // Recorded before the decision: a partial or failed download still leaves
     // a file, and a denied one only costs a later prompt.
     for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
@@ -3603,7 +3626,7 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const targets = writeTargets(shellScript);
+      const targets = writeTargets(shellCommands);
       const absoluteTargets = targets.filter((target) =>
         target.startsWith('/'),
       );
@@ -3639,7 +3662,7 @@ export class TrustedAgentApprovalRuntime {
       // Promotable only when every target is cache or build output: a cache
       // word anywhere in the line let `rm -rf src && npm run build` ride on
       // one approved `rm -rf node_modules`.
-      const targets = deletionTargets(shellScript);
+      const targets = deletionTargets(shellCommands);
       const promotable =
         targets !== null &&
         targets.length > 0 &&
@@ -3790,8 +3813,10 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    // Green also needs every command the script runs to be read-only: the
-    // first segment alone let `ls; tar czf - . | base64` run unnarrated.
+    // Green needs both checks: every command the script runs is read-only (the
+    // first segment alone let `ls; tar czf - . | base64` run unnarrated), and
+    // the surface's first segment still matches, so forms such as `(ls)` or a
+    // quoted command name stay yellow as before.
     const everyCommandReadOnly = commandsRun.every((words) => {
       const text = words.join(' ');
       return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);

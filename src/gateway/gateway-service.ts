@@ -670,7 +670,10 @@ import {
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
-import { interruptedDelegationsNote } from './interrupted-delegations.js';
+import {
+  interruptedDelegationsNote,
+  withDelegationsNotStarted,
+} from './interrupted-delegations.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -1357,16 +1360,6 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
-
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -1397,8 +1390,6 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
-        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
-        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -4210,7 +4201,6 @@ export function buildErrorTurnPlaceholder(params: {
   error: string;
   tools: ErrorTurnToolRecord[];
   delegationAcknowledgement?: string | null;
-  interrupted?: boolean;
 }): string {
   const lines = [
     `[This turn ended with an error before a reply was produced: ${params.error}]`,
@@ -4229,8 +4219,7 @@ export function buildErrorTurnPlaceholder(params: {
   }
   const ack = params.delegationAcknowledgement?.trim();
   if (ack) lines.push(`Delegations were still started: ${ack}`);
-  const notStarted =
-    params.interrupted && interruptedDelegationsNote(params.tools);
+  const notStarted = !ack && interruptedDelegationsNote(params.tools);
   if (notStarted) lines.push(notStarted);
   return lines.join('\n');
 }
@@ -4248,9 +4237,8 @@ export function recordErrorTurn(opts: {
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
+  /** Present iff delegations were started; without it the turn says none were. */
   delegationAcknowledgement?: string | null;
-  /** The turn was interrupted and its delegations dropped, never started. */
-  interrupted?: boolean;
   replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
@@ -4260,8 +4248,10 @@ export function recordErrorTurn(opts: {
     error: opts.error,
     tools: opts.tools,
     delegationAcknowledgement: opts.delegationAcknowledgement,
-    interrupted: opts.interrupted,
   });
+  const history = opts.delegationAcknowledgement?.trim()
+    ? opts
+    : withDelegationsNotStarted(opts);
   const storedTurn =
     opts.replaceBuiltInMemory === true
       ? {
@@ -4280,7 +4270,7 @@ export function recordErrorTurn(opts: {
             role: 'assistant',
             content: placeholder,
             agentId: opts.agentId,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -4296,7 +4286,7 @@ export function recordErrorTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: placeholder,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
@@ -4345,7 +4335,7 @@ export function recordErrorTurn(opts: {
     userId: 'assistant',
     username: null,
     content: placeholder,
-    toolHistory: opts.toolHistory,
+    toolHistory: history.toolHistory,
   });
   return storedTurn;
 }
@@ -9723,8 +9713,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model,
-        runtime: resolveTurnRuntimeAuditLabel(model, output),
-        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -14439,11 +14427,6 @@ export async function handleGatewayCommand(
               : 'n/a';
         const sandboxMode = status.sandbox?.mode || 'container';
         const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
-        const turnRuntimeLabel =
-          resolveModelProvider(sessionModel) === 'openai-codex' &&
-          getRuntimeConfig().codex.turnRuntime === 'app-server'
-            ? 'codex'
-            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -14494,7 +14477,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,

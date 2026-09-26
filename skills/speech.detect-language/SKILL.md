@@ -1,6 +1,6 @@
 ---
 name: speech.detect-language
-description: Detect the dominant spoken language in an audio clip with the native audio_transcribe tool.
+description: Detect the dominant spoken language in an audio clip with the audio_transcribe tool.
 user-invocable: true
 requires:
   bins:
@@ -46,9 +46,12 @@ metadata:
 
 # Speech Detect Language
 
-Use the native `audio_transcribe` tool with `action: "detect-language"` when
+Use the `audio_transcribe` tool with `action: "detect-language"` when
 the user asks what language is spoken in an audio clip or when a later
 transcription workflow needs a routing decision.
+
+The tool comes from the `media-tools` plugin. If it is not in your tool list,
+tell the user to enable it with `hybridclaw plugin install media-tools`.
 
 Pass `audio` as a current attachment filename/ref, `/workspace` path,
 `/discord-media-cache` path, `/uploaded-media-cache` path, or HTTPS media URL.
