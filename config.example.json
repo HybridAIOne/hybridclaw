@@ -380,8 +380,7 @@
     "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {
-    "baseUrl": "https://chatgpt.com/backend-api/codex",
-    "turnRuntime": "hybridclaw"
+    "baseUrl": "https://chatgpt.com/backend-api/codex"
   },
   "openai": {
     "enabled": false,

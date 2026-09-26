@@ -174,11 +174,7 @@ saved revision history directly.
   current gateway process. Classifier calls and failed executions are excluded.
   Without measurements, Speed and Auto use configured order and report that
   fallback in routing details. Restarting the gateway clears these samples.
-- `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
-  Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
-  standard HybridClaw tool loop or `app-server` for the native Codex app-server
-  turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
-  compatibility alias; new config should use `codex.turnRuntime`.
+- `codex.baseUrl` and `codex.models` for first-class Codex provider behavior.
 - `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
   OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
   encrypted runtime secret store and select models with the `openai/` prefix.

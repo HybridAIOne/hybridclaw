@@ -27,7 +27,6 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
-  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -55,7 +54,6 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
 import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
@@ -214,7 +212,6 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
-  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -988,9 +985,6 @@ async function runHostProcessInner(
     withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
   );
   const existingEntry = pool.get(sessionId);
-  const selectedCodexRuntime =
-    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
-  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
 
   const input: ContainerInput = {
     sessionId,
@@ -1015,7 +1009,6 @@ async function runHostProcessInner(
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
-    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1077,7 +1070,6 @@ async function runHostProcessInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
-    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -1134,7 +1126,6 @@ async function runHostProcessInner(
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
   entry.workerSignature = workerSignature;
-  entry.codexRuntime = input.codexRuntime;
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;

@@ -1,7 +1,6 @@
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -72,7 +71,6 @@ export interface ContainerInput {
   browserAllowPrivateNetwork?: boolean;
   model: string;
   addressEnvelope?: AddressEnvelope;
-  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
@@ -108,7 +106,6 @@ export interface ContainerOutput {
   result: string | null;
   toolsUsed: string[];
   outputPresentation?: OutputPresentationMetadata;
-  codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];

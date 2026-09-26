@@ -459,7 +459,7 @@ import {
 } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
-import type { ContainerOutput, MediaContextItem } from '../types/container.js';
+import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   ToolExecution,
@@ -1357,16 +1357,6 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
-
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -1397,8 +1387,6 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
-        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
-        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -9710,8 +9698,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model,
-        runtime: resolveTurnRuntimeAuditLabel(model, output),
-        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -14421,11 +14407,6 @@ export async function handleGatewayCommand(
               : 'n/a';
         const sandboxMode = status.sandbox?.mode || 'container';
         const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
-        const turnRuntimeLabel =
-          resolveModelProvider(sessionModel) === 'openai-codex' &&
-          getRuntimeConfig().codex.turnRuntime === 'app-server'
-            ? 'codex'
-            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -14476,7 +14457,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,

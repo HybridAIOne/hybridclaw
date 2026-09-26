@@ -242,16 +242,6 @@ import { classifyRouting } from './unified-routing.js';
 // plugin replaces built-in compaction; the token budget bounds the prompt.
 const HISTORY_FETCH_LIMIT = 500;
 
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
-
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
   skillName: string | null;
@@ -2496,8 +2486,6 @@ async function handleGatewayMessageInner(
           type: 'model.usage',
           provider,
           model,
-          runtime: resolveTurnRuntimeAuditLabel(model, output),
-          codexRuntime: output.codexRuntime || null,
           durationMs: Date.now() - startedAt,
           toolCallCount: toolExecutions.length,
           ...usagePayload,
@@ -2562,11 +2550,6 @@ async function handleGatewayMessageInner(
             type: 'model.usage',
             provider: resolveModelProvider(attempt.model),
             model: attempt.model,
-            runtime: resolveTurnRuntimeAuditLabel(
-              attempt.model,
-              attempt.output,
-            ),
-            codexRuntime: attempt.output.codexRuntime || null,
             durationMs: attempt.durationMs,
             toolCallCount: attemptToolExecutions.length,
             routeTier: attempt.tier,

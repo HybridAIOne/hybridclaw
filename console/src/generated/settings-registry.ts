@@ -677,18 +677,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       ],
     },
     {
-      path: 'codex.runtime',
-      section: 'codex',
-      kind: 'string',
-      defaultValue: 'hybridclaw',
-    },
-    {
-      path: 'codex.turnRuntime',
-      section: 'codex',
-      kind: 'string',
-      defaultValue: 'hybridclaw',
-    },
-    {
       path: 'container.binds',
       section: 'container',
       kind: 'list',

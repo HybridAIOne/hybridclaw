@@ -160,58 +160,6 @@ Audit output records `route.escalated` events and adds the route tier, reason,
 and escalation state to each model-usage attempt. Enabling routing activates
 the bundled `tier-router` middleware automatically.
 
-## Codex Turn Runtime
-
-`codex.turnRuntime` controls how turns run when the selected model starts with
-`openai-codex/`.
-
-- `hybridclaw` is the default. HybridClaw calls the Codex model through its
-  existing provider path and keeps the standard HybridClaw tool loop.
-- `app-server` starts the native `codex app-server` runtime for Codex turns and
-  projects Codex shell, patch, plan, sandbox, approval, and callback-MCP events
-  back into HybridClaw transcripts and audit records.
-
-HybridClaw still owns gateway routing, sessions, memory, approvals, audit,
-channels, and the outer worker sandbox. `/status` reports those concerns
-separately: `Runtime: codex` alongside `Sandbox: host` means the turn loop is
-the Codex app-server runtime while the outer HybridClaw worker is running in
-host sandbox mode.
-
-Enable the Codex turn runtime from inside HybridClaw:
-
-```text
-/config set codex.turnRuntime app-server
-/config reload
-/status
-```
-
-Or set it from a shell before starting the gateway:
-
-```bash
-hybridclaw auth status codex
-codex app-server --help
-hybridclaw config set codex.turnRuntime app-server
-hybridclaw gateway restart --foreground --sandbox=host
-```
-
-The selected model must use the `openai-codex/` prefix, the `codex` CLI must be
-installed and expose `codex app-server`, and Codex auth must be configured with
-`hybridclaw auth login codex` or an existing valid Codex OAuth file.
-
-Runtime selection is baked into active worker sessions. After changing
-`codex.turnRuntime`, start a fresh session or restart idle workers before using
-`/status` to verify the switch.
-
-Audit records expose the runtime used by each turn. Codex app-server turns
-write `model.usage` rows with `"runtime":"codex"` and
-`"codexRuntime":"app-server"`, and projected Codex tools use names such as
-`codex.command`, `codex.patch`, `codex.plan`, and `codex.sandbox`. Standard
-HybridClaw-loop turns write `"runtime":"hybridclaw"` and normal tool names such
-as `bash`, `write`, or `delete`.
-
-`codex.runtime` remains accepted as a backward-compatible alias. New config and
-docs should use `codex.turnRuntime`.
-
 ## Allowed Model Lists
 
 - `openai.models` controls the configured direct OpenAI API model list shown
@@ -250,9 +198,8 @@ docs should use `codex.turnRuntime`.
   Responses API with `OPENAI_API_KEY`; this direct API-key provider is separate
   from the Codex OAuth provider
 - when the selected model starts with `openai-codex/`, HybridClaw resolves
-  OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`;
-  Codex turns use the HybridClaw loop by default, or the native Codex app-server
-  loop when `codex.turnRuntime` is set to `app-server`
+  OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`
+  and runs the turn in the standard HybridClaw tool loop
 - when the selected model starts with `anthropic/`, HybridClaw resolves
   credentials through `ANTHROPIC_API_KEY` or the configured Claude CLI method
 - when the selected model starts with `openrouter/`, HybridClaw resolves

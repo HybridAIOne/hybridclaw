@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Removed
+
+- **Codex app-server turn runtime**: `codex.turnRuntime` (and its
+  `codex.runtime` alias) and the `app-server` loop are gone. It ran only in
+  host sandbox mode with a separately installed `codex` CLI, and the console
+  could not select it. `openai-codex/*` models run in the standard HybridClaw
+  loop; existing `codex.turnRuntime` settings are dropped when the config is
+  next written. `model.usage` audit events no longer carry `runtime` or
+  `codexRuntime`, and `/status` no longer prints a `Runtime:` field.
+
 ### Changed
 
 - **Media tools move to the `media-tools` plugin; provider keys leave the

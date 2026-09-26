@@ -309,7 +309,6 @@ export const SCHEDULER_BOARD_STATUSES = [
 export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
 const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
-export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 export type RuntimeWebSearchProvider =
   | 'auto'
   | 'brave'
@@ -1214,8 +1213,6 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
-    runtime: CodexTurnRuntime;
-    turnRuntime: CodexTurnRuntime;
     models: string[];
   };
   openai: {
@@ -1945,8 +1942,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
-    runtime: 'hybridclaw',
-    turnRuntime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   openai: {
@@ -3386,20 +3381,6 @@ function normalizeCodexModelArray(
     return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
-}
-
-export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
-}
-
-function normalizeCodexTurnRuntimeConfig(rawCodex: Record<string, unknown>) {
-  if (Object.hasOwn(rawCodex, 'turnRuntime')) {
-    return normalizeCodexTurnRuntime(rawCodex.turnRuntime);
-  }
-  return normalizeCodexTurnRuntime(rawCodex.runtime);
 }
 
 function normalizePathForCompare(value: string): string {
@@ -8247,8 +8228,6 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
-      runtime: normalizeCodexTurnRuntimeConfig(rawCodex),
-      turnRuntime: normalizeCodexTurnRuntimeConfig(rawCodex),
       models: codexModelList,
     },
     openai: {

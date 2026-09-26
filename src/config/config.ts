@@ -464,7 +464,6 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
-export let CODEX_RUNTIME: RuntimeConfig['codex']['runtime'] = 'hybridclaw';
 export let OPENAI_ENABLED = false;
 export let OPENAI_BASE_URL = 'https://api.openai.com/v1';
 export let ANTHROPIC_ENABLED = false;
@@ -1051,7 +1050,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
-  CODEX_RUNTIME = config.codex.turnRuntime;
   OPENAI_ENABLED = config.openai.enabled;
   OPENAI_BASE_URL = config.openai.baseUrl;
   ANTHROPIC_ENABLED = config.anthropic.enabled;
