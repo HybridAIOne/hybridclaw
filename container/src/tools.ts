@@ -42,6 +42,8 @@ import {
   runDiagramTool,
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
+import { emitRuntimeEvent } from './extensions.js';
+import { expandFileReferences, FileReferenceError } from './file-reference.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
@@ -2935,12 +2937,30 @@ async function executeToolInternal(
       `Error: tool arguments were malformed JSON (${detail}). Retry with a valid JSON object; for very large file contents, split the work into smaller write/edit calls.`,
     );
   }
-  const args =
+  const parsedToolArgs =
     parsedArgs && typeof parsedArgs === 'object'
       ? // biome-ignore lint/suspicious/noExplicitAny: args is passed through a wide range of tool handlers that each narrow property types at the use site; a single shared Record<string, unknown> would require narrowing at every call site.
         (parsedArgs as Record<string, any>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
+
+  let args = parsedToolArgs;
+  try {
+    const expanded = expandFileReferences(parsedToolArgs);
+    args = expanded.args;
+    for (const expansion of expanded.expansions) {
+      await emitRuntimeEvent({
+        event: 'file_reference_expanded',
+        toolName: name,
+        path: expansion.path,
+        bytes: expansion.bytes,
+      });
+    }
+  } catch (err) {
+    if (err instanceof FileReferenceError)
+      return failTool(`Error: ${err.message}`);
+    throw err;
+  }
 
   if (mcpClientManager?.isKnownTool(name)) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -4783,7 +4803,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           bodyBase64: {
             type: 'string',
             description:
-              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads.',
+              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads. Prefer `<file-base64:path>` over an inline payload so the bytes never pass through the model context.',
           },
           json: {
             type: 'object',

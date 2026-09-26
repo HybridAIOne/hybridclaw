@@ -14,6 +14,7 @@ type RuntimeEventName =
   | 'mcp_server_disconnected'
   | 'mcp_server_error'
   | 'mcp_tool_call'
+  | 'file_reference_expanded'
   | 'turn_end';
 
 interface RuntimeEventPayload {
