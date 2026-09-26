@@ -52,6 +52,7 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
@@ -1360,6 +1361,7 @@ export async function runGatewayPluginTool(params: {
   args: Record<string, unknown>;
   sessionId?: string;
   channelId?: string;
+  media?: MediaContextItem[];
 }): Promise<string> {
   const pluginManager = await ensurePluginManagerInitialized();
   return pluginManager.executeTool({
@@ -1367,5 +1369,6 @@ export async function runGatewayPluginTool(params: {
     args: params.args,
     sessionId: String(params.sessionId || '').trim(),
     channelId: String(params.channelId || '').trim(),
+    media: params.media,
   });
 }

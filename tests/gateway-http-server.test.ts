@@ -2752,6 +2752,8 @@ async function importFreshHealth(options?: {
     GatewayRequestError,
   }));
   vi.doMock('../src/gateway/gateway-service.js', () => ({
+    normalizeMediaContextItems: (raw: unknown) =>
+      Array.isArray(raw) ? raw : [],
     approveGatewayAdminA2APairingRequest,
     createGatewayAdminAgent,
     createGatewayAdminSkill,
@@ -14431,6 +14433,7 @@ describe('gateway HTTP server', () => {
       args: { question: 'What do you know?' },
       sessionId: 'session-plugin-api',
       channelId: 'web',
+      media: [],
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({

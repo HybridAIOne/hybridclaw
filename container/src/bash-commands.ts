@@ -312,17 +312,20 @@ function commandsRun(words: string[], depth: number): string[][] {
   }
   const nested =
     depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
-  if (nested) commands.push(...shellCommandsRun(nested, depth + 1));
+  if (nested) {
+    commands.push(...shellCommandsRun(scriptCommands(nested), depth + 1));
+  }
   return commands;
 }
 
 // Every command a script runs, as words: each simple command, with xargs
 // replaced by the command it runs (wrappers stay), plus what `find -exec`,
-// `sh -c`, and `eval` run. `script` should have heredoc bodies removed.
-export function shellCommandsRun(script: string, depth = 0): string[][] {
-  return splitShellCommands(script).flatMap(({ words }) =>
-    commandsRun(words, depth),
-  );
+// `sh -c`, and `eval` run.
+export function shellCommandsRun(
+  commands: ScriptCommand[],
+  depth = 0,
+): string[][] {
+  return commands.flatMap(({ words }) => commandsRun(words, depth));
 }
 
 // '' is the starting directory (the workspace); null is unknown (`cd -`).
@@ -350,6 +353,36 @@ export function directoryAfter(cwd: Cwd, program: string, args: string[]): Cwd {
   if (program !== 'cd' && program !== 'pushd') return cwd;
   const target = args.find((arg) => arg === '-' || !arg.startsWith('-'));
   return target === '-' ? null : resolvePath(target ?? '~', cwd);
+}
+
+export interface ScriptCommand {
+  words: string[];
+  start: number;
+  program: string;
+  args: string[];
+  // Reads the previous command's output through `|`.
+  piped: boolean;
+  // Its output feeds the next command.
+  pipesOut: boolean;
+  // The directory it runs in.
+  cwd: Cwd;
+}
+
+// A script parsed once for every check: each simple command with its program
+// and the directory it runs in. `script` should have heredoc bodies removed.
+export function scriptCommands(
+  script: string,
+  startCwd: Cwd = '',
+): ScriptCommand[] {
+  const commands = splitShellCommands(script);
+  let cwd = startCwd;
+  return commands.map(({ words, piped }, position) => {
+    const { start, program, args } = commandProgram(words);
+    const pipesOut = commands[position + 1]?.piped === true;
+    const command = { words, start, program, args, piped, pipesOut, cwd };
+    cwd = directoryAfter(cwd, program, args);
+    return command;
+  });
 }
 
 // A command's operands: words that are neither options (until `--`) nor
@@ -394,54 +427,77 @@ export function deletesFiles(words: string[]): boolean {
   );
 }
 
-// What one command deletes: rm/unlink/`git rm` operands, and the starting
-// points of `find -delete` or of a `find -exec` that deletes. null when the
-// targets are unknown: `xargs rm` reads them from stdin, and the DELETE_RE
-// fallback only sees `rm -…` somewhere in the text.
+// Paths resolved against `cwd`; `{}` stands for each file find reaches under
+// its starting points. null when a variable or an unknown `cd` hides one.
+function resolveTargets(targets: string[], cwd: Cwd): string[] | null {
+  const resolved: string[] = [];
+  for (const target of targets) {
+    if (target === '{}') continue;
+    const resolvedTarget = resolvePath(target, cwd);
+    if (resolvedTarget === null) return null;
+    resolved.push(resolvedTarget);
+  }
+  return resolved;
+}
+
+// What one command deletes, resolved against the directory it runs in:
+// rm/unlink/`git rm` operands, and the starting points of `find -delete` or
+// of a `find -exec` that deletes. null when the targets are unknown: `xargs
+// rm` reads them from stdin, a variable or unknown `cd` hides them, and the
+// DELETE_RE fallback only sees `rm -…` somewhere in the text.
 function commandDeletionTargets(
   words: string[],
+  cwd: Cwd,
   depth: number,
 ): string[] | null {
   const { program, args } = commandProgram(words);
   if (program === 'rm' || program === 'unlink') {
     const operands = commandOperands(args);
-    return operands.length > 0 ? operands : null;
+    return operands.length > 0 ? resolveTargets(operands, cwd) : null;
   }
   if (program === 'git' && deletesFiles(words)) {
     if (args.some((arg) => arg.startsWith('--pathspec-from-file'))) {
       return null;
     }
     const pathspecs = commandOperands(args.slice(gitSubcommandIndex(args) + 1));
-    return pathspecs.length > 0 ? pathspecs : null;
+    return pathspecs.length > 0 ? resolveTargets(pathspecs, cwd) : null;
   }
   if (program === 'find') {
-    const { roots } = findStartingPoints(args);
     const targets: string[] = [];
     let deletes = args.includes('-delete');
     for (const exec of findExecCommands(args)) {
-      const execTargets = commandDeletionTargets(exec, depth);
+      const execTargets = commandDeletionTargets(exec, cwd, depth);
       if (execTargets === null) return null;
-      if (execTargets.length > 0) deletes = true;
-      // `{}` stands for each file find reaches under its starting points.
-      targets.push(...execTargets.filter((target) => target !== '{}'));
+      if (execTargets.length > 0 || deletesFiles(exec)) deletes = true;
+      targets.push(...execTargets);
     }
-    if (deletes) targets.push(...(roots.length > 0 ? roots : ['.']));
-    return targets;
+    if (!deletes) return targets;
+    const { roots } = findStartingPoints(args);
+    const resolvedRoots = resolveTargets(roots.length > 0 ? roots : ['.'], cwd);
+    return resolvedRoots === null ? null : [...targets, ...resolvedRoots];
   }
   if (program === 'xargs') {
-    const inner = commandDeletionTargets(xargsCommandWords(args), depth);
-    return inner === null || inner.length > 0 ? null : [];
+    const inner = xargsCommandWords(args);
+    const innerTargets = commandDeletionTargets(inner, cwd, depth);
+    const deletes =
+      innerTargets === null || innerTargets.length > 0 || deletesFiles(inner);
+    return deletes ? null : [];
   }
   const nested =
     depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
-  if (nested !== null) return deletionTargets(nested, depth + 1);
+  if (nested !== null) {
+    return deletionTargets(scriptCommands(nested, cwd), depth + 1);
+  }
   return DELETE_RE.test(words.join(' ')) ? null : [];
 }
 
-export function deletionTargets(script: string, depth = 0): string[] | null {
+export function deletionTargets(
+  commands: ScriptCommand[],
+  depth = 0,
+): string[] | null {
   const targets: string[] = [];
-  for (const { words } of splitShellCommands(script)) {
-    const found = commandDeletionTargets(words, depth);
+  for (const { words, cwd } of commands) {
+    const found = commandDeletionTargets(words, cwd, depth);
     if (found === null) return null;
     targets.push(...found);
   }
@@ -619,23 +675,18 @@ export function commandWriteTargets(words: string[]): string[] {
 // runs in (bash starts in the workspace, and `cd` moves it). Relative results
 // stay relative to that start, so `../out.txt` climbs out; targets behind a
 // variable or an unknown `cd` are left out.
-export function writeTargets(
-  script: string,
-  startCwd: Cwd = '',
-  depth = 0,
-): string[] {
+export function writeTargets(commands: ScriptCommand[], depth = 0): string[] {
   const targets: string[] = [];
-  let cwd = startCwd;
-  for (const { words } of splitShellCommands(script)) {
-    const { program, args } = commandProgram(words);
+  for (const { words, program, args, cwd } of commands) {
     for (const target of commandWriteTargets(words)) {
       const resolved = resolvePath(target, cwd);
       if (resolved !== null) targets.push(resolved);
     }
     const nested =
       depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
-    if (nested !== null) targets.push(...writeTargets(nested, cwd, depth + 1));
-    cwd = directoryAfter(cwd, program, args);
+    if (nested !== null) {
+      targets.push(...writeTargets(scriptCommands(nested, cwd), depth + 1));
+    }
   }
   return targets;
 }

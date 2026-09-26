@@ -5,6 +5,7 @@
  * tool lists remain the permission boundary enforced by the worker.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,7 +25,6 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
-  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -52,7 +52,6 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { logger } from '../logger.js';
 import { withAutoHybridAIConnectorsMcpServer } from '../mcp/hybridai-connectors.js';
@@ -60,7 +59,6 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderCredentials } from '../providers/provider-credentials.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -212,7 +210,6 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
-  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -978,13 +975,12 @@ async function runHostProcessInner(
     withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
   );
   const existingEntry = pool.get(sessionId);
-  const selectedCodexRuntime =
-    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
-  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
+  const requestId = randomUUID();
 
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    requestId,
     agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
@@ -1005,7 +1001,6 @@ async function runHostProcessInner(
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
-    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1059,7 +1054,6 @@ async function runHostProcessInner(
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,
     },
     webSearch: webSearchRuntime,
-    providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
   };
@@ -1067,7 +1061,6 @@ async function runHostProcessInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
-    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -1076,7 +1069,6 @@ async function runHostProcessInner(
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
-    providerCredentials: input.providerCredentials,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,
@@ -1125,7 +1117,6 @@ async function runHostProcessInner(
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
   entry.workerSignature = workerSignature;
-  entry.codexRuntime = input.codexRuntime;
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;
@@ -1170,6 +1161,7 @@ async function runHostProcessInner(
 
     const output = await readOutput(
       entry.ipcSessionId,
+      requestId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,
@@ -1211,12 +1203,17 @@ async function runHostProcessInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
-      maintainWarmHostPool({
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        bashProxy: params.bashProxy,
-      });
+      // Best-effort: a failed refill must not discard the finished turn.
+      try {
+        maintainWarmHostPool({
+          agentId,
+          workspacePathOverride: params.workspacePathOverride,
+          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+          bashProxy: params.bashProxy,
+        });
+      } catch (err) {
+        logger.warn({ agentId, err }, 'Warm host agent process refill failed');
+      }
     }
     return output;
   } finally {

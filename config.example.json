@@ -380,8 +380,7 @@
     "models": ["gpt-4.1-mini", "gpt-5-nano", "gpt-5"]
   },
   "codex": {
-    "baseUrl": "https://chatgpt.com/backend-api/codex",
-    "turnRuntime": "hybridclaw"
+    "baseUrl": "https://chatgpt.com/backend-api/codex"
   },
   "openai": {
     "enabled": false,
@@ -656,10 +655,7 @@
     "consolidationLanguage": "en",
     "semanticPromptHardCap": 12,
     "embedding": {
-      "provider": "hashed",
-      "model": "onnx-community/embeddinggemma-300m-ONNX",
-      "revision": "75a84c732f1884df76bec365346230e32f582c82",
-      "dtype": "q8"
+      "provider": "hashed"
     },
     "queryMode": "no-stopwords",
     "backend": "hybrid",

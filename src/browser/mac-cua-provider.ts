@@ -19,6 +19,7 @@ import {
   unsafeEscapeSecretHandle,
 } from '../security/secret-handles.js';
 import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
+import { sleep } from '../utils/sleep.js';
 import { normalizeScrollDelta } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
@@ -185,6 +186,8 @@ const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+option+shift+q',
 ]);
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
+const NEW_WINDOW_TIMEOUT_MS = 5_000;
+const NEW_WINDOW_POLL_MS = 150;
 const CUA_MCP_CLIENT_INFO = {
   name: 'hybridclaw-mac-cua',
   version: process.env.npm_package_version || '0.0.0',
@@ -510,7 +513,7 @@ function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
   };
 }
 
-class StdioMacCuaDriver implements MacCuaDriver {
+export class StdioMacCuaDriver implements MacCuaDriver {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
   private startPromise: Promise<void> | null = null;
@@ -529,9 +532,10 @@ class StdioMacCuaDriver implements MacCuaDriver {
     bundleId: string;
     backgroundSafe: true;
   }): Promise<{ sessionId: string; windowId?: string | number }> {
-    const existing = await this.findExistingBrowserWindow(params.bundleId);
+    // Never adopt a window the operator already has open: it may hold the
+    // HybridClaw chat itself or unrelated work. Open a dedicated one instead.
     const record =
-      existing ||
+      (await this.openWindowInRunningBrowser(params.bundleId)) ||
       (await this.callToolRecord('launch_app', {
         bundle_id: params.bundleId,
         urls: ['about:blank'],
@@ -843,7 +847,7 @@ class StdioMacCuaDriver implements MacCuaDriver {
     throw new Error('mac-cua query target was not resolved to AX or point.');
   }
 
-  private async findExistingBrowserWindow(
+  private async openWindowInRunningBrowser(
     bundleId: string,
   ): Promise<Record<string, unknown> | null> {
     const apps = await this.callToolRecord('list_apps', {});
@@ -859,12 +863,57 @@ class StdioMacCuaDriver implements MacCuaDriver {
       : null;
     const pid = normalizePositiveInteger(app?.pid);
     if (pid === null) return null;
+    const before = await this.listWindowIds(pid);
+    const anchorWindowId = before.values().next().value;
+    // A running browser without windows gets one from launch_app's URL open.
+    if (anchorWindowId === undefined) return null;
+    // Passing an existing window_id lets the menu key equivalent reach the
+    // backgrounded app; Cmd+N itself opens a new window without touching it.
+    await this.callTool('hotkey', {
+      pid,
+      window_id: anchorWindowId,
+      keys: ['cmd', 'n'],
+    });
+    const deadline = Date.now() + NEW_WINDOW_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(NEW_WINDOW_POLL_MS);
+      const after = await this.listWindowRecords(pid);
+      const fresh = after.filter((entry) => {
+        const id = normalizePositiveInteger(entry.window_id);
+        return id !== null && !before.has(id);
+      });
+      const windowId = normalizeWindowId(fresh);
+      if (windowId !== null) return { pid, window_id: windowId };
+    }
+    throw new Error(
+      `mac-cua driver could not open a dedicated ${bundleId} window; refusing to control an existing browser window.`,
+    );
+  }
+
+  private async listWindowRecords(
+    pid: number,
+  ): Promise<Record<string, unknown>[]> {
     const windows = await this.callToolRecord('list_windows', {
       pid,
       on_screen_only: false,
     });
-    const windowId = normalizeWindowId(windows.windows);
-    return windowId === null ? null : { pid, window_id: windowId };
+    return Array.isArray(windows.windows)
+      ? windows.windows.filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            !Array.isArray(entry),
+        )
+      : [];
+  }
+
+  private async listWindowIds(pid: number): Promise<Set<number>> {
+    const ids = new Set<number>();
+    for (const entry of await this.listWindowRecords(pid)) {
+      const id = normalizePositiveInteger(entry.window_id);
+      if (id !== null) ids.add(id);
+    }
+    return ids;
   }
 
   private async callToolRecord(

@@ -1,6 +1,6 @@
 ---
 name: image-generation
-description: Generate or edit raster images with the native image_generate tool.
+description: Generate or edit raster images with the image_generate tool.
 metadata:
   hybridclaw:
     category: media
@@ -14,8 +14,11 @@ user-invocable: true
 
 # Image Generation
 
-Use the native `image_generate` tool when the user asks you to create, generate,
+Use the `image_generate` tool when the user asks you to create, generate,
 render, edit, restyle, or make a deliverable raster image.
+
+The tool comes from the `media-tools` plugin. If it is not in your tool list,
+tell the user to enable it with `hybridclaw plugin install media-tools`.
 
 Do not use `image_generate` to inspect or describe an existing image. Use
 `vision_analyze` for image understanding.

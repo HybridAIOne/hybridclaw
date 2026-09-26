@@ -27,8 +27,8 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
 } from './uploaded-media-cache.js';
 
-const WORKSPACE_ROOT_DISPLAY = '/workspace';
-const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
+export const WORKSPACE_ROOT_DISPLAY = '/workspace';
+export const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
 );

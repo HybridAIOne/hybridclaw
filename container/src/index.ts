@@ -19,10 +19,6 @@ import {
   outputPresentationForAssistantSegment,
   statusOutputPresentation,
 } from './chat-segments.js';
-import {
-  resumePendingCodexAppServerApproval,
-  runCodexAppServerTurn,
-} from './codex-app-server.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -134,7 +130,6 @@ import {
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
-  setProviderCredentials,
   setScheduledTasks,
   setScheduleSideEffectsEnabled,
   setSessionContext,
@@ -205,7 +200,7 @@ let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
 let shutdownPromise: Promise<never> | null = null;
-let requestInFlight = false;
+let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
 
@@ -325,7 +320,7 @@ async function shutdownAgentProcess(
       console.error('[hybridclaw-agent] MCP shutdown failed:', error);
     });
     if (finalOutput) {
-      writeOutput(finalOutput);
+      writeOutput(finalOutput, inFlightInput?.requestId);
     }
     process.exit(exitCode);
   })();
@@ -333,8 +328,9 @@ async function shutdownAgentProcess(
 }
 
 function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
-  if (!requestInFlight) return;
-  requestInFlight = false;
+  const input = inFlightInput;
+  if (!input) return;
+  inFlightInput = null;
   try {
     writeOutput(
       buildInterruptedShutdownOutput(
@@ -342,6 +338,7 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
         getPendingSideEffects(),
         activeTurnToolHistory,
       ),
+      input.requestId,
     );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
@@ -1003,7 +1000,6 @@ interface ProcessRequestParams {
   baseUrl: string;
   provider: ContainerInput['provider'];
   providerMethod?: string;
-  codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
   modelBehavior?: ContainerInput['modelBehavior'];
@@ -1013,13 +1009,6 @@ interface ProcessRequestParams {
   chatbotId: string;
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
-  gatewayBaseUrl?: string;
-  gatewayApiToken?: string;
-  configuredDiscordChannels?: string[];
-  mcpServers?: ContainerInput['mcpServers'];
-  media?: ContainerInput['media'];
-  webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
   localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
@@ -1036,29 +1025,6 @@ interface ProcessRequestParams {
   ralphMaxIterationsOverride?: number | null;
   escalationTarget?: EscalationTarget;
   approvedToolCall?: ApprovalPrelude['approvedToolCall'];
-}
-
-function inputRuntimeContext(
-  input: ContainerInput,
-): Pick<
-  ProcessRequestParams,
-  | 'gatewayBaseUrl'
-  | 'gatewayApiToken'
-  | 'configuredDiscordChannels'
-  | 'mcpServers'
-  | 'media'
-  | 'webSearch'
-  | 'providerCredentials'
-> {
-  return {
-    gatewayBaseUrl: input.gatewayBaseUrl,
-    gatewayApiToken: input.gatewayApiToken,
-    configuredDiscordChannels: input.configuredDiscordChannels,
-    mcpServers: input.mcpServers,
-    media: input.media,
-    webSearch: input.webSearch,
-    providerCredentials: input.providerCredentials,
-  };
 }
 
 async function processRequest(
@@ -1095,7 +1061,6 @@ async function processRequestInner(
     baseUrl,
     provider,
     providerMethod,
-    codexRuntime,
     isLocal,
     contextWindow,
     modelBehavior,
@@ -1105,13 +1070,6 @@ async function processRequestInner(
     chatbotId,
     enableRag,
     requestHeaders,
-    gatewayBaseUrl,
-    gatewayApiToken,
-    configuredDiscordChannels,
-    mcpServers,
-    media,
-    webSearch,
-    providerCredentials,
     tools: availableTools,
     localStarterTools,
     localToolMode,
@@ -1204,59 +1162,6 @@ async function processRequestInner(
     tools,
   });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
-
-  if (provider === 'openai-codex' && codexRuntime === 'app-server') {
-    const resumed = await resumePendingCodexAppServerApproval({
-      sessionId,
-      messages: history,
-      streamTextDeltas,
-      onTextDelta: emitStreamDelta,
-      onActivity: emitStreamActivity,
-    });
-    if (resumed) {
-      resumed.codexRuntime = 'app-server';
-      await emitRuntimeEvent({
-        event: 'turn_end',
-        status: resumed.status,
-        toolsUsed: resumed.toolsUsed,
-      });
-      return resumed;
-    }
-    const output = await runCodexAppServerTurn({
-      sessionId,
-      messages: history,
-      model,
-      cwd: WORKSPACE_ROOT,
-      apiKey,
-      baseUrl,
-      provider,
-      providerMethod,
-      chatbotId,
-      requestHeaders,
-      maxTokens,
-      modelBehavior,
-      debugModelResponses,
-      gatewayBaseUrl,
-      gatewayApiToken,
-      channelId,
-      configuredDiscordChannels,
-      mcpServers,
-      taskModels,
-      media,
-      webSearch,
-      providerCredentials,
-      streamTextDeltas,
-      onTextDelta: emitStreamDelta,
-      onActivity: emitStreamActivity,
-    });
-    output.codexRuntime = 'app-server';
-    await emitRuntimeEvent({
-      event: 'turn_end',
-      status: output.status,
-      toolsUsed: output.toolsUsed,
-    });
-    return output;
-  }
 
   const resolveToolApproval = createToolApprovalResolver({
     latestUserPrompt: effectiveUserPrompt,
@@ -2094,7 +1999,6 @@ async function processRequestInner(
       : statusOutputPresentation(true),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
-    codexRuntime,
     tokenUsage: finalizeTokenUsage(tokenUsage),
     effectiveUserPrompt,
   };
@@ -2173,7 +2077,7 @@ async function main(): Promise<void> {
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
   const firstInput: ContainerInput = JSON.parse(stdinData);
-  requestInFlight = true;
+  inFlightInput = firstInput;
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
@@ -2224,7 +2128,6 @@ async function main(): Promise<void> {
     firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
-  setProviderCredentials(firstInput.providerCredentials);
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
   const firstVisionMessages = await injectNativeVisionContent({
@@ -2268,7 +2171,6 @@ async function main(): Promise<void> {
       baseUrl: firstInput.baseUrl,
       provider: firstInput.provider,
       providerMethod: firstInput.providerMethod,
-      codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
       modelBehavior: firstInput.modelBehavior,
@@ -2278,7 +2180,6 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: firstRequestHeaders,
-      ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
       localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
@@ -2316,7 +2217,6 @@ async function main(): Promise<void> {
         baseUrl: firstInput.baseUrl,
         provider: firstInput.provider,
         providerMethod: firstInput.providerMethod,
-        codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
         modelBehavior: firstInput.modelBehavior,
@@ -2326,7 +2226,6 @@ async function main(): Promise<void> {
         chatbotId: firstInput.chatbotId,
         enableRag: firstInput.enableRag,
         requestHeaders: firstInput.requestHeaders,
-        ...inputRuntimeContext(firstInput),
         tools: resolveTools(firstInput),
         localToolMode: firstInput.localToolMode,
         localStarterTools: firstInput.localStarterTools,
@@ -2350,8 +2249,8 @@ async function main(): Promise<void> {
   }
 
   firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput);
-  requestInFlight = false;
+  writeOutput(firstOutput, firstInput.requestId);
+  inFlightInput = null;
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2378,7 +2277,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    requestInFlight = true;
+    inFlightInput = input;
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2435,7 +2334,6 @@ async function main(): Promise<void> {
       input.modelBehavior,
       input.debugModelResponses === true,
     );
-    setProviderCredentials(input.providerCredentials);
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
     const visionPreparedMessages = await injectNativeVisionContent({
@@ -2471,8 +2369,8 @@ async function main(): Promise<void> {
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
       immediate.sideEffects = getPendingSideEffects();
-      writeOutput(immediate);
-      requestInFlight = false;
+      writeOutput(immediate, input.requestId);
+      inFlightInput = null;
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2485,7 +2383,6 @@ async function main(): Promise<void> {
       baseUrl: input.baseUrl,
       provider: input.provider,
       providerMethod: input.providerMethod,
-      codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
       modelBehavior: input.modelBehavior,
@@ -2495,7 +2392,6 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
-      ...inputRuntimeContext(input),
       tools: resolveTools(input),
       localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
@@ -2532,7 +2428,6 @@ async function main(): Promise<void> {
         baseUrl: input.baseUrl,
         provider: input.provider,
         providerMethod: input.providerMethod,
-        codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
         modelBehavior: input.modelBehavior,
@@ -2542,7 +2437,6 @@ async function main(): Promise<void> {
         chatbotId: input.chatbotId,
         enableRag: input.enableRag,
         requestHeaders,
-        ...inputRuntimeContext(input),
         tools: resolveTools(input),
         localToolMode: input.localToolMode,
         localStarterTools: input.localStarterTools,
@@ -2563,8 +2457,8 @@ async function main(): Promise<void> {
     }
 
     output.sideEffects = getPendingSideEffects();
-    writeOutput(output);
-    requestInFlight = false;
+    writeOutput(output, input.requestId);
+    inFlightInput = null;
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

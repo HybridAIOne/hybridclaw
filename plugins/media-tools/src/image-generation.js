@@ -1,83 +1,17 @@
-import { randomUUID } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
-import net from 'node:net';
 import path from 'node:path';
-import { isPrivateNetworkAddress } from '../shared/private-network.js';
-import { isSafeDiscordCdnUrl } from './discord-cdn.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
-import { ProviderRequestError } from './providers/shared.js';
 import {
-  DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-  resolveMediaPath,
-  resolveWorkspacePath,
-  WORKSPACE_ROOT,
-  WORKSPACE_ROOT_DISPLAY,
-} from './runtime-paths.js';
-import type { MediaContextItem, ProviderCredentials } from './types.js';
-
-type ImageGenerationProviderId = 'openai' | 'gemini' | 'xai' | 'bfl';
-
-export interface ImageGenerationRuntimeContext {
-  provider: RuntimeProvider;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-  media: MediaContextItem[];
-  providerCredentials?: ProviderCredentials;
-}
-
-interface ImageReference {
-  buffer: Buffer;
-  mimeType: string;
-  source: string;
-}
-
-interface ProviderCandidate {
-  id: ImageGenerationProviderId;
-  label: string;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-}
-
-interface NormalizedImageGenerationRequest {
-  prompt: string;
-  count: number;
-  size: string | null;
-  aspectRatio: string | null;
-  quality: string | null;
-  references: ImageReference[];
-  warnings: string[];
-}
-
-interface GeneratedImageBuffer {
-  buffer: Buffer;
-  mimeType: string;
-  revisedPrompt?: string;
-  metadata?: Record<string, unknown>;
-}
-
-interface MediaGenerationUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-  total_tokens?: number;
-  output_image_tokens?: number;
-  generated_images?: number;
-  cost_usd?: number;
-  cost_credits?: number;
-  input_megapixels?: number;
-  output_megapixels?: number;
-  estimated?: boolean;
-}
-
-interface ImageGenerationResult {
-  images: GeneratedImageBuffer[];
-  usage?: MediaGenerationUsage;
-}
+  isRecord,
+  normalizeBaseUrl,
+  ProviderRequestError,
+  readCredentialValue,
+  readStringValue,
+  sanitizeProviderError,
+  sleep,
+  stripProviderPrefix,
+  uniqueFilename,
+  writeWorkspaceFile,
+} from './shared.js';
 
 const OUTPUT_DIR = '.generated-images';
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -96,18 +30,7 @@ const DEFAULT_XAI_IMAGE_MODEL = 'grok-imagine-image-quality';
 const DEFAULT_BFL_IMAGE_MODEL = 'flux-2-pro-preview';
 const BFL_POLL_INTERVAL_MS = 1_000;
 const BFL_POLL_TIMEOUT_MS = 10 * 60_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readStringValue(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function readStringListValue(value: unknown): string[] {
+function readStringListValue(value) {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed ? [trimmed] : [];
@@ -115,10 +38,9 @@ function readStringListValue(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((entry) => readStringValue(entry))
-    .filter((entry): entry is string => Boolean(entry));
+    .filter((entry) => Boolean(entry));
 }
-
-function readCount(value: unknown, warnings: string[]): number {
+function readCount(value, warnings) {
   const raw =
     typeof value === 'number'
       ? value
@@ -138,8 +60,7 @@ function readCount(value: unknown, warnings: string[]): number {
   }
   return rounded;
 }
-
-function normalizeAspectRatio(value: unknown): string | null {
+function normalizeAspectRatio(value) {
   const raw = readStringValue(value);
   if (!raw) return null;
   const compact = raw.toLowerCase().replace(/\s+/g, '');
@@ -149,8 +70,7 @@ function normalizeAspectRatio(value: unknown): string | null {
   if (compact === 'portrait') return '2:3';
   return raw;
 }
-
-function sizeFromAspectRatio(aspectRatio: string | null): string | null {
+function sizeFromAspectRatio(aspectRatio) {
   if (!aspectRatio) return null;
   const match = aspectRatio.match(/^(\d+):(\d+)$/);
   if (!match) return null;
@@ -163,8 +83,7 @@ function sizeFromAspectRatio(aspectRatio: string | null): string | null {
   if (Math.abs(ratio - 1) < 0.1) return '1024x1024';
   return ratio > 1 ? '1536x1024' : '1024x1536';
 }
-
-function normalizeSize(args: Record<string, unknown>, warnings: string[]) {
+function normalizeSize(args, warnings) {
   const direct =
     readStringValue(args.size) || readStringValue(args.resolution) || null;
   const aspectRatio = normalizeAspectRatio(
@@ -179,11 +98,7 @@ function normalizeSize(args: Record<string, unknown>, warnings: string[]) {
   }
   return { size: derived, aspectRatio };
 }
-
-function inferImageMimeType(
-  filePath: string,
-  fallback?: string | null,
-): string {
+function inferImageMimeType(filePath, fallback) {
   const normalizedFallback = String(fallback || '')
     .trim()
     .toLowerCase();
@@ -194,204 +109,86 @@ function inferImageMimeType(
   if (ext === '.gif') return 'image/gif';
   return 'image/png';
 }
-
-function extensionFromMimeType(mimeType: string): string {
+function extensionFromMimeType(mimeType) {
   const normalized = mimeType.toLowerCase();
   if (normalized === 'image/jpeg') return '.jpg';
   if (normalized === 'image/webp') return '.webp';
   if (normalized === 'image/gif') return '.gif';
   return '.png';
 }
-
-function normalizeHostname(hostname: string): string {
-  const normalized = hostname.trim().toLowerCase();
-  if (normalized.startsWith('[') && normalized.endsWith(']')) {
-    return normalized.slice(1, -1);
-  }
-  return normalized;
-}
-
-async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(rawUrl);
-  } catch {
-    throw new Error('provider image URL is invalid');
-  }
-  if (parsedUrl.protocol !== 'https:') {
-    throw new Error('provider image URL must use https');
-  }
-  if (parsedUrl.username || parsedUrl.password) {
-    throw new Error('provider image URL must not include credentials');
-  }
-
-  const host = normalizeHostname(parsedUrl.hostname);
-  if (
-    !host ||
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local')
-  ) {
+async function readLocalReferenceImage(rawPath, context) {
+  const hostPath = await context.resolveInputPath(rawPath);
+  if (!hostPath) {
     throw new Error(
-      `provider image URL blocked: private or loopback host (${host})`,
+      `reference image must be a readable file under ${context.workspaceDisplayRoot}, /discord-media-cache (current turn only), or /uploaded-media-cache: ${rawPath}`,
     );
   }
-  if (net.isIP(host) > 0) {
-    if (isPrivateNetworkAddress(host)) {
-      throw new Error(
-        `provider image URL blocked: private or loopback host (${host})`,
-      );
-    }
-    return parsedUrl;
-  }
-
-  try {
-    const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) {
-      throw new Error(
-        `provider image URL blocked: DNS lookup failed (${host})`,
-      );
-    }
-    if (resolved.some((entry) => isPrivateNetworkAddress(entry.address))) {
-      throw new Error(
-        `provider image URL blocked: private or loopback host (${host})`,
-      );
-    }
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith('provider image URL blocked:')
-    ) {
-      throw error;
-    }
-    throw new Error(`provider image URL blocked: DNS lookup failed (${host})`);
-  }
-
-  return parsedUrl;
-}
-
-function normalizeLocalReferencePath(rawPath: string): string | null {
-  return resolveWorkspacePath(rawPath) || resolveMediaPath(rawPath);
-}
-
-function knownMediaPathSet(media: MediaContextItem[]): Set<string> {
-  const paths = new Set<string>();
-  for (const item of media) {
-    const rawPath = typeof item.path === 'string' ? item.path.trim() : '';
-    if (!rawPath) continue;
-    const normalized = normalizeLocalReferencePath(rawPath);
-    if (normalized) paths.add(normalized);
-  }
-  return paths;
-}
-
-async function readLocalReferenceImage(
-  rawPath: string,
-  media: MediaContextItem[],
-): Promise<ImageReference> {
-  const normalizedPath = normalizeLocalReferencePath(rawPath);
-  if (!normalizedPath) {
-    throw new Error(
-      `reference image path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or /uploaded-media-cache`,
-    );
-  }
-
-  if (normalizedPath.startsWith(`${DISCORD_MEDIA_CACHE_ROOT}/`)) {
-    const knownPaths = knownMediaPathSet(media);
-    if (knownPaths.size > 0 && !knownPaths.has(normalizedPath)) {
-      throw new Error('reference image is not part of current media context');
-    }
-  }
-
-  const stat = fs.statSync(normalizedPath, { throwIfNoEntry: false });
-  if (!stat) throw new Error(`reference image not found: ${normalizedPath}`);
-  if (!stat.isFile()) {
-    throw new Error(`reference image path is not a file: ${normalizedPath}`);
-  }
-  if (stat.size <= 0)
-    throw new Error(`reference image is empty: ${normalizedPath}`);
+  const stat = fs.statSync(hostPath, { throwIfNoEntry: false });
+  if (!stat || !stat.isFile())
+    throw new Error(`reference image not found: ${rawPath}`);
+  if (stat.size <= 0) throw new Error(`reference image is empty: ${rawPath}`);
   if (stat.size > MAX_REFERENCE_IMAGE_BYTES) {
     throw new Error(
       `reference image exceeds max size (${MAX_REFERENCE_IMAGE_BYTES} bytes)`,
     );
   }
-  const mimeType = inferImageMimeType(normalizedPath);
+  const mimeType = inferImageMimeType(hostPath);
   if (!mimeType.startsWith('image/')) {
     throw new Error(`unsupported reference image type: ${mimeType}`);
   }
   return {
-    buffer: fs.readFileSync(normalizedPath),
+    buffer: fs.readFileSync(hostPath),
     mimeType,
-    source: normalizedPath,
+    source: rawPath,
   };
 }
-
-async function readRemoteReferenceImage(
-  rawUrl: string,
-): Promise<ImageReference> {
-  if (!isSafeDiscordCdnUrl(rawUrl)) {
+async function readRemoteReferenceImage(rawUrl, context) {
+  let result;
+  try {
+    result = await context.fetchRemote(rawUrl, {
+      discordCdnOnly: true,
+      maxBytes: MAX_REFERENCE_IMAGE_BYTES,
+      timeoutMs: FETCH_TIMEOUT_MS,
+    });
+  } catch (error) {
     throw new Error(
-      'remote reference image URL is blocked (only Discord CDN HTTPS URLs are allowed)',
+      `remote reference image download failed (only Discord CDN HTTPS URLs are allowed): ${sanitizeProviderError(error)}`,
     );
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(rawUrl, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`reference image download failed (${response.status})`);
-    }
-    const mimeType = String(response.headers.get('content-type') || '')
-      .split(';')[0]
-      .trim()
-      .toLowerCase();
-    if (!mimeType.startsWith('image/')) {
-      throw new Error(
-        `remote reference is not an image (${mimeType || 'unknown'})`,
-      );
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length > MAX_REFERENCE_IMAGE_BYTES) {
-      throw new Error(
-        `reference image exceeds max size (${MAX_REFERENCE_IMAGE_BYTES} bytes)`,
-      );
-    }
-    return { buffer, mimeType, source: rawUrl };
-  } finally {
-    clearTimeout(timer);
+  const mimeType = String(result.contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(
+      `remote reference is not an image (${mimeType || 'unknown'})`,
+    );
   }
+  return { buffer: result.body, mimeType, source: rawUrl };
 }
-
-async function loadReferenceImages(
-  args: Record<string, unknown>,
-  media: MediaContextItem[],
-): Promise<ImageReference[]> {
+async function loadReferenceImages(args, context) {
   const refs = [
     ...readStringListValue(args.images),
     ...readStringListValue(args.image),
   ];
-  const out: ImageReference[] = [];
+  const out = [];
   for (const ref of refs) {
     out.push(
       /^https?:\/\//i.test(ref)
-        ? await readRemoteReferenceImage(ref)
-        : await readLocalReferenceImage(ref, media),
+        ? await readRemoteReferenceImage(ref, context)
+        : await readLocalReferenceImage(ref, context),
     );
   }
   return out;
 }
-
-async function normalizeRequest(
-  args: Record<string, unknown>,
-  context: ImageGenerationRuntimeContext,
-): Promise<NormalizedImageGenerationRequest> {
-  const warnings: string[] = [];
+async function normalizeRequest(args, context) {
+  const warnings = [];
   const prompt = readStringValue(args.prompt);
   if (!prompt) throw new Error('prompt is required');
   const count = readCount(args.count, warnings);
   const { size, aspectRatio } = normalizeSize(args, warnings);
   const quality = readStringValue(args.quality)?.toLowerCase() || null;
-  const references = await loadReferenceImages(args, context.media);
+  const references = await loadReferenceImages(args, context);
   return {
     prompt,
     count,
@@ -400,41 +197,16 @@ async function normalizeRequest(
     quality,
     references,
     warnings,
+    fetchRemote: context.fetchRemote,
   };
 }
-
-function normalizeBaseUrl(value: string, fallback: string): string {
-  const trimmed = String(value || '').trim() || fallback;
-  return trimmed.replace(/\/+$/, '');
-}
-
-function stripProviderPrefix(model: string, provider: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = `${provider}/`;
-  if (trimmed.toLowerCase().startsWith(prefix)) {
-    return trimmed.slice(prefix.length).trim();
-  }
-  return trimmed;
-}
-
-function hasImageModelHint(model: string): boolean {
+function hasImageModelHint(model) {
   return /image|gpt-image|nano-banana|flux/i.test(model);
 }
-
-function readCredentialValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function providerCredentials(
-  context: ImageGenerationRuntimeContext,
-  provider: ImageGenerationProviderId,
-) {
+function providerCredentials(context, provider) {
   return context.providerCredentials?.[provider] || {};
 }
-
-function candidateFromCurrentContext(
-  context: ImageGenerationRuntimeContext,
-): ProviderCandidate | null {
+function candidateFromCurrentContext(context) {
   if (!context.apiKey) return null;
   if (context.provider === 'openai-codex') {
     const model = stripProviderPrefix(context.model, 'openai-codex');
@@ -471,12 +243,9 @@ function candidateFromCurrentContext(
   }
   return null;
 }
-
-function buildProviderCandidates(
-  context: ImageGenerationRuntimeContext,
-): ProviderCandidate[] {
-  const candidates: ProviderCandidate[] = [];
-  const configured: ProviderCandidate[] = [];
+function buildProviderCandidates(context) {
+  const candidates = [];
+  const configured = [];
   const openaiConfig = providerCredentials(context, 'openai');
   const openaiKey = readCredentialValue(openaiConfig.apiKey);
   if (openaiKey) {
@@ -493,7 +262,6 @@ function buildProviderCandidates(
         DEFAULT_OPENAI_IMAGE_MODEL,
     });
   }
-
   const geminiConfig = providerCredentials(context, 'gemini');
   const geminiKey = readCredentialValue(geminiConfig.apiKey);
   if (geminiKey) {
@@ -510,7 +278,6 @@ function buildProviderCandidates(
         DEFAULT_GEMINI_IMAGE_MODEL,
     });
   }
-
   const xaiConfig = providerCredentials(context, 'xai');
   const xaiKey = readCredentialValue(xaiConfig.apiKey);
   if (xaiKey) {
@@ -526,7 +293,6 @@ function buildProviderCandidates(
         readCredentialValue(xaiConfig.imageModel) || DEFAULT_XAI_IMAGE_MODEL,
     });
   }
-
   const bflConfig = providerCredentials(context, 'bfl');
   const bflKey = readCredentialValue(bflConfig.apiKey);
   if (bflKey) {
@@ -542,18 +308,13 @@ function buildProviderCandidates(
         readCredentialValue(bflConfig.imageModel) || DEFAULT_BFL_IMAGE_MODEL,
     });
   }
-
   const current = candidateFromCurrentContext(context);
   if (current && !configured.some((entry) => entry.id === current.id))
     candidates.push(current);
   candidates.push(...configured);
-
   return candidates;
 }
-
-export function listImageGenerationProviders(
-  context: ImageGenerationRuntimeContext,
-): Record<string, unknown> {
+export function listImageGenerationProviders(context) {
   const candidates = buildProviderCandidates(context);
   const ready = new Set(candidates.map((entry) => entry.id));
   const active = candidateFromCurrentContext(context)?.id || null;
@@ -603,11 +364,7 @@ export function listImageGenerationProviders(
     configured_count: providers.filter((entry) => entry.ready).length,
   };
 }
-
-async function fetchJson(
-  url: string,
-  init: RequestInit,
-): Promise<Record<string, unknown>> {
+async function fetchJson(url, init) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
   try {
@@ -615,7 +372,7 @@ async function fetchJson(
     const rawText = await response.text();
     if (!response.ok) throw new ProviderRequestError(response.status, rawText);
     try {
-      const parsed = JSON.parse(rawText) as unknown;
+      const parsed = JSON.parse(rawText);
       if (isRecord(parsed)) return parsed;
     } catch {
       // Fall through to structured error below.
@@ -632,22 +389,20 @@ async function fetchJson(
     clearTimeout(timer);
   }
 }
-
-function authJsonHeaders(candidate: ProviderCandidate): Record<string, string> {
+function authJsonHeaders(candidate) {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${candidate.apiKey}`,
     ...(candidate.requestHeaders || {}),
   };
 }
-
-function findBase64Images(value: unknown): string[] {
+function findBase64Images(value) {
   if (typeof value === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
     return value.length > 200 ? [value] : [];
   }
   if (!value || typeof value !== 'object') return [];
   if (Array.isArray(value)) return value.flatMap(findBase64Images);
-  const record = value as Record<string, unknown>;
+  const record = value;
   const direct =
     readStringValue(record.b64_json) ||
     readStringValue(record.b64Json) ||
@@ -660,8 +415,7 @@ function findBase64Images(value: unknown): string[] {
       .flatMap(([, entry]) => findBase64Images(entry)),
   ];
 }
-
-function readRevisedPrompt(value: unknown): string | undefined {
+function readRevisedPrompt(value) {
   if (!isRecord(value)) return undefined;
   if (typeof value.revised_prompt === 'string') return value.revised_prompt;
   if (typeof value.revisedPrompt === 'string') return value.revisedPrompt;
@@ -673,100 +427,25 @@ function readRevisedPrompt(value: unknown): string | undefined {
   }
   return undefined;
 }
-
-async function fetchProviderImageUrl(rawUrl: string): Promise<Buffer> {
-  const safeUrl = await assertPublicHttpsProviderImageUrl(rawUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(safeUrl, {
-      redirect: 'manual',
-      signal: controller.signal,
-    });
-    if (response.status >= 300 && response.status < 400) {
-      throw new Error('provider image redirects are blocked');
-    }
-    if (!response.ok) {
-      throw new Error(`provider image download failed (${response.status})`);
-    }
-    return await readLimitedImageResponseBuffer(response);
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(
-        `provider image download timed out after ${FETCH_TIMEOUT_MS}ms`,
-      );
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function readLimitedImageResponseBuffer(
-  response: Response,
-): Promise<Buffer> {
-  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+async function fetchProviderImageUrl(request, rawUrl) {
+  const result = await request.fetchRemote(rawUrl, {
+    maxBytes: MAX_GENERATED_IMAGE_BYTES,
+    timeoutMs: FETCH_TIMEOUT_MS,
+  });
+  const contentType = String(result.contentType || '').toLowerCase();
   if (contentType && !contentType.startsWith('image/')) {
     throw new Error(`provider image URL is not an image (${contentType})`);
   }
-
-  const contentLength = Number.parseInt(
-    response.headers.get('content-length') || '',
-    10,
-  );
-  if (
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_GENERATED_IMAGE_BYTES
-  ) {
-    throw new Error(
-      `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
-    );
-  }
-
-  const body = response.body;
-  if (body && typeof body === 'object' && 'getReader' in body) {
-    const reader = (body as ReadableStream<Uint8Array>).getReader();
-    const chunks: Uint8Array[] = [];
-    let bytesRead = 0;
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (!value || value.byteLength === 0) continue;
-        bytesRead += value.byteLength;
-        if (bytesRead > MAX_GENERATED_IMAGE_BYTES) {
-          throw new Error(
-            `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
-          );
-        }
-        chunks.push(value);
-      }
-    } finally {
-      if (bytesRead > MAX_GENERATED_IMAGE_BYTES) {
-        try {
-          await reader.cancel();
-        } catch {
-          // Ignore cancellation failures after enforcing the byte cap.
-        }
-      }
-    }
-    return Buffer.concat(chunks, bytesRead);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  assertGeneratedImageSize(buffer);
-  return buffer;
+  return result.body;
 }
-
-function assertGeneratedImageSize(buffer: Buffer): void {
+function assertGeneratedImageSize(buffer) {
   if (buffer.length > MAX_GENERATED_IMAGE_BYTES) {
     throw new Error(
       `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
     );
   }
 }
-
-function decodeGeneratedImageBase64(value: string): Buffer {
+function decodeGeneratedImageBase64(value) {
   const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
   const estimatedBytes = Math.floor((value.length * 3) / 4) - padding;
   if (estimatedBytes > MAX_GENERATED_IMAGE_BYTES) {
@@ -778,8 +457,7 @@ function decodeGeneratedImageBase64(value: string): Buffer {
   assertGeneratedImageSize(buffer);
   return buffer;
 }
-
-function readUsageNumber(value: unknown): number | undefined {
+function readUsageNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return Math.floor(value);
   }
@@ -789,8 +467,7 @@ function readUsageNumber(value: unknown): number | undefined {
   }
   return undefined;
 }
-
-function readUsageCostUsd(value: unknown): number | undefined {
+function readUsageCostUsd(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return value;
   }
@@ -800,10 +477,7 @@ function readUsageCostUsd(value: unknown): number | undefined {
   }
   return undefined;
 }
-
-function parseProviderUsage(
-  payload: Record<string, unknown>,
-): MediaGenerationUsage | undefined {
+function parseProviderUsage(payload) {
   const usage = isRecord(payload.usage) ? payload.usage : null;
   if (!usage) return undefined;
   const inputTokens = readUsageNumber(
@@ -849,10 +523,7 @@ function parseProviderUsage(
     ...(costUsd != null ? { cost_usd: costUsd } : {}),
   };
 }
-
-function parseGeminiUsage(
-  payload: Record<string, unknown>,
-): MediaGenerationUsage | undefined {
+function parseGeminiUsage(payload) {
   const usage = isRecord(payload.usageMetadata) ? payload.usageMetadata : null;
   if (!usage) return undefined;
   const inputTokens = readUsageNumber(
@@ -873,11 +544,11 @@ function parseGeminiUsage(
     ...(totalTokens != null ? { total_tokens: totalTokens } : {}),
   };
 }
-
 async function parseOpenAIStyleImageResponse(
-  payload: Record<string, unknown>,
+  payload,
+  request,
   mimeType = 'image/png',
-): Promise<ImageGenerationResult> {
+) {
   const base64Images = findBase64Images(payload);
   const revisedPrompt = readRevisedPrompt(payload);
   const usage = parseProviderUsage(payload);
@@ -891,15 +562,14 @@ async function parseOpenAIStyleImageResponse(
       ...(usage ? { usage } : {}),
     };
   }
-
   const data = Array.isArray(payload.data) ? payload.data : [];
-  const urlImages: GeneratedImageBuffer[] = [];
+  const urlImages = [];
   for (const entry of data) {
     if (!isRecord(entry)) continue;
     const url = readStringValue(entry.url);
     if (!url) continue;
     urlImages.push({
-      buffer: await fetchProviderImageUrl(url),
+      buffer: await fetchProviderImageUrl(request, url),
       mimeType,
       ...(typeof entry.revised_prompt === 'string'
         ? { revisedPrompt: entry.revised_prompt }
@@ -912,8 +582,7 @@ async function parseOpenAIStyleImageResponse(
   }
   throw new Error('provider response did not include generated image data');
 }
-
-function buildImageInputContent(request: NormalizedImageGenerationRequest) {
+function buildImageInputContent(request) {
   return [
     { type: 'input_text', text: request.prompt },
     ...request.references.map((ref) => ({
@@ -922,12 +591,8 @@ function buildImageInputContent(request: NormalizedImageGenerationRequest) {
     })),
   ];
 }
-
-async function generateWithOpenAIResponses(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
-  const tool: Record<string, unknown> = { type: 'image_generation' };
+async function generateWithOpenAIResponses(candidate, request) {
+  const tool = { type: 'image_generation' };
   if (request.size) tool.size = request.size;
   if (request.quality) tool.quality = request.quality;
   const payload = await fetchJson(`${candidate.baseUrl}/responses`, {
@@ -939,14 +604,10 @@ async function generateWithOpenAIResponses(
       tools: [tool],
     }),
   });
-  return parseOpenAIStyleImageResponse(payload);
+  return parseOpenAIStyleImageResponse(payload, request);
 }
-
-async function generateWithOpenAIImages(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
-  const body: Record<string, unknown> = {
+async function generateWithOpenAIImages(candidate, request) {
+  const body = {
     model: candidate.model,
     prompt: request.prompt,
     n: request.count,
@@ -958,14 +619,10 @@ async function generateWithOpenAIImages(
     headers: authJsonHeaders(candidate),
     body: JSON.stringify(body),
   });
-  return parseOpenAIStyleImageResponse(payload);
+  return parseOpenAIStyleImageResponse(payload, request);
 }
-
-async function generateWithXai(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
-  const body: Record<string, unknown> = {
+async function generateWithXai(candidate, request) {
+  const body = {
     model: candidate.model,
     prompt: request.prompt,
     n: request.count,
@@ -977,16 +634,12 @@ async function generateWithXai(
     headers: authJsonHeaders(candidate),
     body: JSON.stringify(body),
   });
-  return parseOpenAIStyleImageResponse(payload);
+  return parseOpenAIStyleImageResponse(payload, request);
 }
-
-async function generateWithGemini(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
+async function generateWithGemini(candidate, request) {
   const baseUrl = candidate.baseUrl.replace(/\/openai$/i, '');
   const endpoint = `${baseUrl}/models/${encodeURIComponent(candidate.model)}:generateContent?key=${encodeURIComponent(candidate.apiKey)}`;
-  const parts: Record<string, unknown>[] = [{ text: request.prompt }];
+  const parts = [{ text: request.prompt }];
   for (const ref of request.references) {
     parts.push({
       inlineData: {
@@ -1008,8 +661,7 @@ async function generateWithGemini(
       },
     }),
   });
-
-  const images: GeneratedImageBuffer[] = [];
+  const images = [];
   const candidates = Array.isArray(payload.candidates)
     ? payload.candidates
     : [];
@@ -1049,15 +701,7 @@ async function generateWithGemini(
   }
   throw new Error('Gemini response did not include generated image data');
 }
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function sizeToBflDimensions(size: string | null): {
-  width?: number;
-  height?: number;
-} {
+function sizeToBflDimensions(size) {
   const match = String(size || '').match(/^(\d+)x(\d+)$/i);
   if (!match) return {};
   const width = Number(match[1]);
@@ -1065,27 +709,18 @@ function sizeToBflDimensions(size: string | null): {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
   return { width, height };
 }
-
-async function fetchBflJson(
-  url: string,
-  apiKey: string,
-  init: RequestInit = {},
-): Promise<Record<string, unknown>> {
+async function fetchBflJson(url, apiKey, init = {}) {
   return fetchJson(url, {
     ...init,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'x-key': apiKey,
-      ...((init.headers as Record<string, string> | undefined) || {}),
+      ...(init.headers || {}),
     },
   });
 }
-
-async function pollBflImageResult(
-  pollingUrl: string,
-  apiKey: string,
-): Promise<string> {
+async function pollBflImageResult(pollingUrl, apiKey) {
   const deadline = Date.now() + BFL_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const payload = await fetchBflJson(pollingUrl, apiKey, { method: 'GET' });
@@ -1104,12 +739,8 @@ async function pollBflImageResult(
   }
   throw new Error(`BFL generation timed out after ${BFL_POLL_TIMEOUT_MS}ms`);
 }
-
-async function generateWithBfl(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
-  const body: Record<string, unknown> = {
+async function generateWithBfl(candidate, request) {
+  const body = {
     prompt: request.prompt,
     output_format: 'png',
     ...sizeToBflDimensions(request.size),
@@ -1136,7 +767,7 @@ async function generateWithBfl(
   return {
     images: [
       {
-        buffer: await fetchProviderImageUrl(sampleUrl),
+        buffer: await fetchProviderImageUrl(request, sampleUrl),
         mimeType: 'image/png',
         metadata: {
           request_id: readStringValue(start.id) || undefined,
@@ -1157,11 +788,7 @@ async function generateWithBfl(
     },
   };
 }
-
-async function generateWithCandidate(
-  candidate: ProviderCandidate,
-  request: NormalizedImageGenerationRequest,
-): Promise<ImageGenerationResult> {
+async function generateWithCandidate(candidate, request) {
   if (candidate.id === 'bfl') return generateWithBfl(candidate, request);
   if (candidate.id === 'gemini') return generateWithGemini(candidate, request);
   if (candidate.id === 'xai') return generateWithXai(candidate, request);
@@ -1170,20 +797,20 @@ async function generateWithCandidate(
   }
   return generateWithOpenAIImages(candidate, request);
 }
-
-function persistImages(
-  images: GeneratedImageBuffer[],
-  provider: ProviderCandidate,
-): Array<Record<string, unknown>> {
+function persistImages(context, images, provider) {
   validateGeneratedImageSizes(images);
-  const outputRoot = path.join(WORKSPACE_ROOT, OUTPUT_DIR);
-  fs.mkdirSync(outputRoot, { recursive: true });
   return images.map((image, index) => {
-    const ext = extensionFromMimeType(image.mimeType);
-    const filename = `image-${Date.now()}-${index + 1}-${randomUUID().slice(0, 8)}${ext}`;
-    const hostPath = path.join(outputRoot, filename);
-    fs.writeFileSync(hostPath, image.buffer);
-    const displayPath = `${WORKSPACE_ROOT_DISPLAY}/${OUTPUT_DIR}/${filename}`;
+    const filename = uniqueFilename(
+      'image',
+      index,
+      extensionFromMimeType(image.mimeType),
+    );
+    const { displayPath } = writeWorkspaceFile(
+      context,
+      OUTPUT_DIR,
+      filename,
+      image.buffer,
+    );
     return {
       path: displayPath,
       filename,
@@ -1196,8 +823,7 @@ function persistImages(
     };
   });
 }
-
-function validateGeneratedImageSizes(images: GeneratedImageBuffer[]): void {
+function validateGeneratedImageSizes(images) {
   let totalBytes = 0;
   for (const image of images) {
     assertGeneratedImageSize(image.buffer);
@@ -1209,31 +835,17 @@ function validateGeneratedImageSizes(images: GeneratedImageBuffer[]): void {
     }
   }
 }
-
-function buildImageUsage(
-  usage: MediaGenerationUsage | undefined,
-  generatedImages: number,
-): MediaGenerationUsage {
+function buildImageUsage(usage, generatedImages) {
   return {
     ...(usage || {}),
     generated_images: generatedImages,
   };
 }
-
-function sanitizeProviderError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-export async function runImageGenerate(
-  args: Record<string, unknown>,
-  context: ImageGenerationRuntimeContext,
-): Promise<string> {
+export async function runImageGenerate(args, context) {
   const action = readStringValue(args.action)?.toLowerCase();
   if (action === 'list') {
     return JSON.stringify(listImageGenerationProviders(context), null, 2);
   }
-
   const request = await normalizeRequest(args, context);
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
@@ -1241,9 +853,8 @@ export async function runImageGenerate(
       'image_generate is not configured: store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex/gemini/xai model.',
     );
   }
-
-  const attempts: Array<Record<string, unknown>> = [];
-  const errors: string[] = [];
+  const attempts = [];
+  const errors = [];
   for (const candidate of candidates) {
     try {
       const providerWarnings = [...request.warnings];
@@ -1280,9 +891,9 @@ export async function runImageGenerate(
           );
         }
       }
-
       const generation = await generateWithCandidate(candidate, request);
       const persisted = persistImages(
+        context,
         generation.images.slice(0, request.count),
         candidate,
       );
@@ -1322,7 +933,6 @@ export async function runImageGenerate(
       });
     }
   }
-
   throw new Error(
     `all image generation providers failed: ${errors.join(' | ')}`,
   );

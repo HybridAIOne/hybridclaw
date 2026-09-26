@@ -1,3 +1,6 @@
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 describe.sequential('container plugin tool dispatch', () => {
@@ -18,14 +21,41 @@ describe.sequential('container plugin tool dispatch', () => {
       setGatewayContext,
       setPluginTools,
       getPluginToolDefinitions,
+      setMediaContext,
     } = await import('../container/src/tools.js');
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => JSON.stringify({ ok: true, result: 'plugin-result' }),
+    const requests: Array<{
+      url: string | undefined;
+      headers: http.IncomingHttpHeaders;
+      body: string;
+    }> = [];
+    // A real server: plugin tool calls bypass fetch so long tools outlive
+    // fetch's 300s header timeout.
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requests.push({ url: req.url, headers: req.headers, body });
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true, result: 'plugin-result' }));
+      });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    const media = [
+      {
+        path: '/discord-media-cache/voice.ogg',
+        url: 'https://cdn.discordapp.com/voice.ogg',
+        originalUrl: 'https://cdn.discordapp.com/voice.ogg',
+        mimeType: 'audio/ogg',
+        sizeBytes: 12,
+        filename: 'voice.ogg',
+      },
+    ];
+    setMediaContext(media);
 
-    setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+    setGatewayContext(`http://127.0.0.1:${port}`, 'token-123', 'web', []);
     setPluginTools([
       {
         name: 'memory_lookup',
@@ -51,22 +81,22 @@ describe.sequential('container plugin tool dispatch', () => {
       JSON.stringify({ question: 'hello?' }),
     );
 
+    await new Promise((resolve) => server.close(resolve));
+    setMediaContext(undefined);
+
     expect(result).toBe('plugin-result');
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:9000/api/plugin/tool',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token-123',
-          'Content-Type': 'application/json',
-        }),
-        body: JSON.stringify({
-          toolName: 'memory_lookup',
-          args: { question: 'hello?' },
-          sessionId: '',
-          channelId: 'web',
-        }),
-      }),
-    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('/api/plugin/tool');
+    expect(requests[0]?.headers).toMatchObject({
+      authorization: 'Bearer token-123',
+      'content-type': 'application/json',
+    });
+    expect(JSON.parse(requests[0]?.body || '{}')).toEqual({
+      toolName: 'memory_lookup',
+      args: { question: 'hello?' },
+      sessionId: '',
+      channelId: 'web',
+      media,
+    });
   });
 });

@@ -8,8 +8,6 @@ import {
   shouldIncludePackage,
 } from './prepare-runtime.mjs';
 
-const target = { platform: 'darwin', arch: 'arm64' };
-
 describe('prepare-runtime package filtering', () => {
   test('excludes type-only packages from the runtime bundle', () => {
     expect(
@@ -72,52 +70,5 @@ describe('prepare-runtime package filtering', () => {
     expect(
       shouldCopyEntry(path.join(packagePath, 'dist', 'index.js'), packagePath),
     ).toBe(true);
-  });
-
-  test('keeps only the target onnxruntime-node native binaries', () => {
-    const packagePath = path.join('/repo', 'node_modules', 'onnxruntime-node');
-
-    expect(
-      shouldCopyEntry(
-        path.join(
-          packagePath,
-          'bin',
-          'napi-v3',
-          'darwin',
-          'arm64',
-          'onnxruntime_binding.node',
-        ),
-        packagePath,
-        target,
-      ),
-    ).toBe(true);
-    expect(
-      shouldCopyEntry(
-        path.join(
-          packagePath,
-          'bin',
-          'napi-v3',
-          'darwin',
-          'x64',
-          'onnxruntime_binding.node',
-        ),
-        packagePath,
-        target,
-      ),
-    ).toBe(false);
-    expect(
-      shouldCopyEntry(
-        path.join(
-          packagePath,
-          'bin',
-          'napi-v3',
-          'linux',
-          'arm64',
-          'onnxruntime_binding.node',
-        ),
-        packagePath,
-        target,
-      ),
-    ).toBe(false);
   });
 });

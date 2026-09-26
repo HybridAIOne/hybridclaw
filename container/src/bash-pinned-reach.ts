@@ -8,8 +8,6 @@
 import path from 'node:path';
 import {
   type Cwd,
-  commandProgram,
-  directoryAfter,
   FIND_EXEC_ACTIONS,
   findStartingPoints,
   HOME_VARIABLE_RE,
@@ -17,7 +15,8 @@ import {
   nestedScript,
   redirectWidth,
   resolvePath,
-  splitShellCommands,
+  type ScriptCommand,
+  scriptCommands,
   xargsCommandWords,
 } from './bash-commands.js';
 import { HARD_PINNED_PATH_PATTERNS } from './pinned-paths.js';
@@ -620,18 +619,14 @@ interface ScanState {
 
 function scanScript(
   state: ScanState,
-  script: string,
-  startCwd: Cwd,
+  commands: ScriptCommand[],
   depth: number,
 ): void {
-  let cwd = startCwd;
   // The file list flowing through the current pipe, for xargs.
   let listing: Walk | null = null;
 
-  const commands = splitShellCommands(script);
-  for (const [position, { words, piped }] of commands.entries()) {
-    const { start, program, args } = commandProgram(words);
-    const pipesOut = commands[position + 1]?.piped === true;
+  for (const command of commands) {
+    const { words, start, program, args, piped, pipesOut, cwd } = command;
     const scan = scanProgram(program, args, pipesOut);
     const nonPath = new Set(scan.nonPathArgs.map((index) => index + start + 1));
 
@@ -659,14 +654,12 @@ function scanScript(
 
     const nested =
       depth < MAX_NESTED_SCRIPT_DEPTH ? nestedScript(program, args) : null;
-    if (nested) scanScript(state, nested, cwd, depth + 1);
-    cwd = directoryAfter(cwd, program, args);
+    if (nested) scanScript(state, scriptCommands(nested, cwd), depth + 1);
   }
 }
 
-// `command` should have heredoc bodies removed; pipes and quotes must remain.
 export function findBashPinnedReach(
-  command: string,
+  commands: ScriptCommand[],
   namesPinnedPath: (candidate: string) => boolean,
 ): BashPinnedReach {
   const state: ScanState = {
@@ -674,6 +667,6 @@ export function findBashPinnedReach(
     namedPaths: new Set(),
     walk: null,
   };
-  scanScript(state, command, '', 0);
+  scanScript(state, commands, 0);
   return { namedPaths: [...state.namedPaths], walk: state.walk };
 }

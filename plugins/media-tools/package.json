@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-media-tools",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw image, video, and audio transcription tools that run in the gateway",
+  "engines": {
+    "node": "22.x"
+  }
+}
