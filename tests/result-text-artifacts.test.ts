@@ -253,7 +253,7 @@ describe('generated media artifact recovery', () => {
         recoverGeneratedMediaArtifactsFromResultText({
           workspacePath,
           toolExecutions: [writeCall(documentPath)],
-          resultText: 'Die Liste steht in **prospects.md**.',
+          resultText: 'Die Liste steht in prospects.md.',
         }),
       ).toEqual([
         {
@@ -274,6 +274,16 @@ describe('generated media artifact recovery', () => {
         name: 'the reply names only a longer filename',
         written: 'list.csv',
         text: 'See checklist.csv.',
+      },
+      {
+        name: 'the reply names only a longer extension',
+        written: 'list.md',
+        text: 'The list.mdx export and list.md5 checksum are ready.',
+      },
+      {
+        name: 'the reply names only a backup copy',
+        written: 'list.md',
+        text: 'Restored from list.md.bak.',
       },
       {
         name: 'it is a bootstrap file',

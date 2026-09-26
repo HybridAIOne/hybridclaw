@@ -320,6 +320,56 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('downloads the attached artifact when its local link in the reply is clicked', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['# list'], { type: 'text/markdown' }),
+    );
+    renderMarkdownMock.mockImplementation(
+      (content) =>
+        `<p>${content.replace(/\[([^\]]+)]\(([^)]+)\)/g, '<a href="$2">$1</a>')}</p>`,
+    );
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    render(
+      <MessageBlock
+        message={makeMessage(
+          [
+            {
+              path: '/ws/list.md',
+              filename: 'list.md',
+              mimeType: 'text/markdown',
+            },
+          ],
+          { content: 'Hier ist die [Liste](sandbox:/ws/list.md).' },
+        )}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const link = screen.getByText('Liste');
+    expect(link.getAttribute('href')).toBe('#artifact-0');
+    fireEvent.click(link);
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+    expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/ws/list.md',
+    );
+    const saved = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+    expect(saved.download).toBe('list.md');
+    clickSpy.mockRestore();
+  });
+
   it('renders artifact-only assistant turns without an empty text bubble', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
       new Blob(['image-bytes'], { type: 'image/png' }),

@@ -29,6 +29,26 @@ describe('linkMarkdownToArtifacts', () => {
     expect(linkMarkdownToArtifacts(markdown, artifacts)).toBe(markdown);
   });
 
+  it.each([
+    ['a fenced block', '```md\n[Liste](list.md)\n```'],
+    ['inline code', 'Write `[Liste](list.md)` to link it.'],
+  ])('leaves links inside %s untouched', (_name, markdown) => {
+    expect(linkMarkdownToArtifacts(markdown, artifacts)).toBe(markdown);
+  });
+
+  it('picks the artifact whose path the link names when filenames collide', () => {
+    const sameName = [
+      { filename: 'report.md', path: '/ws/drafts/report.md' },
+      { filename: 'report.md', path: '/ws/final/report.md' },
+    ];
+    expect(
+      linkMarkdownToArtifacts('[r](/workspace/final/report.md)', sameName),
+    ).toBe('[r](#artifact-1)');
+    expect(linkMarkdownToArtifacts('[r](report.md)', sameName)).toBe(
+      '[r](#artifact-0)',
+    );
+  });
+
   it('leaves text untouched without artifacts', () => {
     expect(linkMarkdownToArtifacts('[a](list.md)', undefined)).toBe(
       '[a](list.md)',

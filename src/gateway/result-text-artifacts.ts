@@ -144,8 +144,12 @@ function resolveWrittenDeliverable(
 
 function textNamesFile(textVariants: string[], filename: string): boolean {
   const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // A bare `list.md` must not match inside `checklist.md`.
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}._-])${escaped}`, 'u');
+  // `list.md` must not match inside `checklist.md`, `list.mdx`, or
+  // `list.md.bak`; a trailing sentence period still counts.
+  const pattern = new RegExp(
+    `(?<![\\p{L}\\p{N}._-])${escaped}(?!\\.?[\\p{L}\\p{N}_-])`,
+    'u',
+  );
   return textVariants.some((variant) => pattern.test(variant));
 }
 
