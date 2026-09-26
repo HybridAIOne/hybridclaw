@@ -48,7 +48,7 @@ import {
   type BehaviorAnomalyScore,
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
-import { classifyMcpTool } from './mcp/tool-classifier.js';
+import { classifyMcpTool, type ToolKind } from './mcp/tool-classifier.js';
 import {
   matchesHardPinnedPath,
   matchesPathPattern,
@@ -335,6 +335,8 @@ export type ApprovalRule = (context: ToolCallContext) => ApprovalRuleResult;
 export type ApprovalRuleHookEmitter = (
   event: ApprovalRuleHookEvent,
 ) => void | Promise<void>;
+
+export type McpToolKindResolver = (toolName: string) => ToolKind | undefined;
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
@@ -2148,6 +2150,7 @@ export class TrustedAgentApprovalRuntime {
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
+  private mcpToolKindResolver: McpToolKindResolver | null = null;
 
   constructor(
     policyPath = POLICY_PATH,
@@ -2184,6 +2187,10 @@ export class TrustedAgentApprovalRuntime {
     emitter: ApprovalRuleHookEmitter | null | undefined,
   ): void {
     this.approvalRuleHookEmitter = emitter || null;
+  }
+
+  setMcpToolKindResolver(resolver: McpToolKindResolver | null): void {
+    this.mcpToolKindResolver = resolver;
   }
 
   private runStakesMiddleware(
@@ -3427,7 +3434,8 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.includes('__')) {
-      const kind = classifyMcpTool(lowerTool);
+      const kind =
+        this.mcpToolKindResolver?.(toolName) ?? classifyMcpTool(lowerTool);
       const [serverName, rawToolName] = lowerTool.split('__', 2);
       const toolLabel = rawToolName || lowerTool;
       const actionKey = `mcp:${serverName || 'server'}:${kind}`;

@@ -286,6 +286,9 @@ async function syncMcpConfig(
     mcpClientManager = new McpClientManager();
     mcpConfigWatcher = new McpConfigWatcher(mcpClientManager);
     setMcpClientManager(mcpClientManager);
+    approvalRuntime.setMcpToolKindResolver((name) =>
+      mcpClientManager?.getToolKind(name),
+    );
   }
   await mcpConfigWatcher?.applyConfig(nextServers);
 }
@@ -294,6 +297,7 @@ async function shutdownMcp(): Promise<void> {
   mcpConfigWatcher?.stop();
   mcpConfigWatcher = null;
   setMcpClientManager(null);
+  approvalRuntime.setMcpToolKindResolver(null);
   if (mcpClientManager) {
     await mcpClientManager.shutdown();
   }

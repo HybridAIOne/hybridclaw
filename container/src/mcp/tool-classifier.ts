@@ -59,7 +59,13 @@ function matchesHint(name: string, hints: readonly string[]): boolean {
   return hints.some((hint) => name.includes(hint));
 }
 
-export function classifyMcpTool(toolName: string): ToolKind {
+export function classifyMcpTool(
+  toolName: string,
+  annotations?: { readOnlyHint?: boolean },
+): ToolKind {
+  // The server's own hint beats guessing from the name ("execute_sql" may
+  // only ever run SELECTs).
+  if (annotations?.readOnlyHint === true) return 'read';
   const lower = toolName
     .toLowerCase()
     .split('__')

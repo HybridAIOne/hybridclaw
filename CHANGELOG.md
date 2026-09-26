@@ -14,6 +14,10 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **MCP read-only hints respected**: Tools a server marks `readOnlyHint` run
+  without approval, whatever their name. Before, a read-only tool such as
+  `execute_sql` was treated as a command runner and held for approval on
+  every call, which a voice caller could never grant.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

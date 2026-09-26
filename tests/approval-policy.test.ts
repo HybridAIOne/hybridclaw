@@ -22,6 +22,7 @@ import {
   BehaviorAnomalyReranker,
   buildBehaviorTuple,
 } from '../container/src/behavior-anomaly.js';
+import { classifyMcpTool } from '../container/src/mcp/tool-classifier.js';
 import {
   HARD_PINNED_PATH_PATTERNS,
   matchesHardPinnedPath,
@@ -1724,6 +1725,26 @@ approval:
     expect(evaluation.tier).toBe('red');
     expect(evaluation.decision).toBe('required');
     expect(evaluation.actionKey).toBe('mcp:runner:execute');
+  });
+
+  test('MCP tools the server marks read-only are green despite an execute-like name', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setMcpToolKindResolver((name) =>
+      name === 'warehouse__execute_sql'
+        ? classifyMcpTool('execute_sql', { readOnlyHint: true })
+        : undefined,
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'warehouse__execute_sql',
+      argsJson: JSON.stringify({ sql: 'SELECT 1' }),
+      latestUserPrompt: 'Who are my top customers?',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.actionKey).toBe('mcp:warehouse:read');
   });
 
   test('read-only bundled PDF extraction commands are green', () => {

@@ -18,7 +18,7 @@ import {
 
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
-import { classifyMcpTool } from './tool-classifier.js';
+import { classifyMcpTool, type ToolKind } from './tool-classifier.js';
 import type {
   McpClientHandle,
   McpServerConfig,
@@ -35,6 +35,7 @@ const MCP_CLIENT_INFO = {
 interface ToolIndexEntry {
   serverName: string;
   toolName: string;
+  kind: ToolKind;
 }
 
 interface ListToolsResult {
@@ -171,6 +172,10 @@ export class McpClientManager {
 
   isKnownTool(name: string): boolean {
     return this.toolIndex.has(name);
+  }
+
+  getToolKind(name: string): ToolKind | undefined {
+    return this.toolIndex.get(name)?.kind;
   }
 
   hasServer(name: string): boolean {
@@ -418,7 +423,7 @@ export class McpClientManager {
         name: namespacedName,
         description,
         inputSchema: rawSchema,
-        kind: classifyMcpTool(tool.name),
+        kind: classifyMcpTool(tool.name, tool.annotations),
       };
     });
   }
@@ -509,6 +514,7 @@ export class McpClientManager {
         this.toolIndex.set(tool.name, {
           serverName: handle.serverName,
           toolName: tool.originalName,
+          kind: tool.kind,
         });
       }
     }
