@@ -1,6 +1,18 @@
+/**
+ * Gateway side of the file-based agent IPC. `readOutput` returns only the
+ * reply to the request id it is given, so a stopped agent's late reply (its
+ * own request's file) is never read as a later request's. Reply naming is
+ * shared with the agent via `container/shared/ipc-output-files.js`.
+ * NOT process lifecycle: the runners decide which process receives an input.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  ipcOutputFileName,
+  isIpcOutputFileName,
+  LEGACY_IPC_OUTPUT_FILE,
+} from '../../container/shared/ipc-output-files.js';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -198,6 +210,7 @@ function normalizePositiveTimeoutMs(
 
 export async function readOutput(
   sessionId: string,
+  requestId: string,
   timeoutMs: number | null | undefined,
   opts?: {
     signal?: AbortSignal;
@@ -206,12 +219,22 @@ export async function readOutput(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  return readOutputFile(sessionId, 'output.json', timeoutMs, opts);
+  return readOutputFile(
+    sessionId,
+    [
+      ipcOutputFileName(requestId),
+      // compat: remove after v0.34 — agent images built before request ids
+      // reply in output.json.
+      LEGACY_IPC_OUTPUT_FILE,
+    ],
+    timeoutMs,
+    opts,
+  );
 }
 
 async function readOutputFile(
   sessionId: string,
-  filename: string,
+  filenames: readonly string[],
   timeoutMs: number | null | undefined,
   opts?: {
     signal?: AbortSignal;
@@ -220,7 +243,9 @@ async function readOutputFile(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  const outputPath = ipcFilePath(sessionId, filename);
+  const outputPaths = filenames.map((filename) =>
+    ipcFilePath(sessionId, filename),
+  );
   const signal = opts?.signal;
   const activity = opts?.activity;
 
@@ -265,7 +290,8 @@ async function readOutputFile(
     if (now >= idleDeadline) break;
     if (signal?.aborted) return interruptedOutput();
 
-    if (fs.existsSync(outputPath)) {
+    for (const outputPath of outputPaths) {
+      if (!fs.existsSync(outputPath)) continue;
       const stat = fs.statSync(outputPath);
       if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
         fs.unlinkSync(outputPath);
@@ -328,18 +354,23 @@ export function readHealthOutput(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  return readOutputFile(sessionId, 'health-output.json', timeoutMs, opts);
+  return readOutputFile(sessionId, ['health-output.json'], timeoutMs, opts);
 }
 
 /**
- * Clean up IPC files for a session.
+ * Clean up a session's request IPC files, including replies that stopped
+ * agents wrote after their request ended.
  */
 export function cleanupIpc(sessionId: string): void {
   const dir = ipcDir(sessionId);
-  for (const file of ['input.json', 'output.json', 'history.json']) {
-    const filePath = path.join(dir, file);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir)) {
+    if (
+      file === 'input.json' ||
+      file === 'history.json' ||
+      isIpcOutputFileName(file)
+    ) {
+      fs.rmSync(path.join(dir, file), { force: true });
     }
   }
 }

@@ -10,6 +10,7 @@
  * capability pinned to its selected model. This is not a general network proxy.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
@@ -1155,10 +1156,12 @@ async function runContainerInner(
   const selectedCodexRuntime =
     modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
   const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
+  const requestId = randomUUID();
 
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    requestId,
     agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
@@ -1335,6 +1338,9 @@ async function runContainerInner(
       'Interrupt requested, stopping container',
     );
     stopContainer(entry.containerName);
+    // `docker stop` keeps the `docker run` client alive until the container
+    // exits; drop the entry so the next turn cannot reuse a dying container.
+    removePoolEntry(entry);
   };
   if (abortSignal) {
     abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -1355,6 +1361,7 @@ async function runContainerInner(
 
     const output = await readOutput(
       entry.ipcSessionId,
+      requestId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,

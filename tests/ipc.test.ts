@@ -4,10 +4,27 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+
 const ORIGINAL_HOME = process.env.HOME;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-ipc-'));
+}
+
+function ipcDirOf(homeDir: string, sessionId: string): string {
+  return path.join(homeDir, '.hybridclaw', 'data', 'sessions', sessionId, 'ipc');
+}
+
+function writeReply(
+  dir: string,
+  requestId: string | undefined,
+  output: Record<string, unknown>,
+): void {
+  fs.writeFileSync(
+    path.join(dir, ipcOutputFileName(requestId)),
+    JSON.stringify(output),
+  );
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -144,7 +161,9 @@ test('readOutput enforces a hard deadline despite repeated activity', async () =
   const activity = createActivityTracker();
   const interval = setInterval(() => activity.notify(), 50);
 
-  const outputPromise = readOutput('session-1', 100, { activity });
+  const outputPromise = readOutput('session-1', 'request-1', 100, {
+    activity,
+  });
 
   await vi.advanceTimersByTimeAsync(400);
   clearInterval(interval);
@@ -168,28 +187,16 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
   const { ensureSessionDirs, readOutput } = await import('../src/infra/ipc.ts');
 
   ensureSessionDirs('session-1');
-  const outputPath = path.join(
-    homeDir,
-    '.hybridclaw',
-    'data',
-    'sessions',
-    'session-1',
-    'ipc',
-    'output.json',
-  );
 
   setTimeout(() => {
-    fs.writeFileSync(
-      outputPath,
-      JSON.stringify({
-        status: 'success',
-        result: 'ok',
-        toolsUsed: [],
-      }),
-    );
+    writeReply(ipcDirOf(homeDir, 'session-1'), 'request-1', {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+    });
   }, 500);
 
-  const outputPromise = readOutput('session-1', null, {
+  const outputPromise = readOutput('session-1', 'request-1', null, {
     maxWallClockMs: null,
   });
 
@@ -216,29 +223,135 @@ test('readOutput outlives a silence longer than the inactivity window while acti
   );
 
   ensureSessionDirs('session-1');
-  const outputPath = path.join(
-    homeDir,
-    '.hybridclaw',
-    'data',
-    'sessions',
-    'session-1',
-    'ipc',
-    'output.json',
-  );
   const activity = createActivityTracker();
   const heartbeat = setInterval(() => activity.notify(), 50);
   setTimeout(() => {
     clearInterval(heartbeat);
-    fs.writeFileSync(
-      outputPath,
-      JSON.stringify({ status: 'success', result: 'ok', toolsUsed: [] }),
-    );
+    writeReply(ipcDirOf(homeDir, 'session-1'), 'request-1', {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+    });
   }, 300);
 
-  const outputPromise = readOutput('session-1', 100, { activity });
+  const outputPromise = readOutput('session-1', 'request-1', 100, {
+    activity,
+  });
   await vi.advanceTimersByTimeAsync(360);
 
   await expect(outputPromise).resolves.toEqual(
     expect.objectContaining({ status: 'success', result: 'ok' }),
+  );
+});
+
+const LATE_INTERRUPTED_REPLY = {
+  status: 'error',
+  result: null,
+  toolsUsed: [],
+  error:
+    'Request interrupted: the agent process received SIGTERM before producing a final response.',
+  sideEffects: {
+    delegations: [{ action: 'delegate', mode: 'single', prompt: 'stale' }],
+  },
+};
+
+test.each([
+  { when: 'while it is still waiting', steps: ['late', 'wait', 'own'] },
+  { when: 'after its own reply landed', steps: ['own', 'late'] },
+] as const)('readOutput ignores an earlier request that answers late $when', async ({
+  steps,
+}) => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { cleanupIpc, ensureSessionDirs, readOutput } = await import(
+    '../src/infra/ipc.ts'
+  );
+
+  ensureSessionDirs('session-1');
+  cleanupIpc('session-1');
+  const dir = ipcDirOf(homeDir, 'session-1');
+  let settled = false;
+  const outputPromise = readOutput('session-1', 'request-b', 1_000).finally(
+    () => {
+      settled = true;
+    },
+  );
+
+  for (const step of steps) {
+    if (step === 'late') writeReply(dir, 'request-a', LATE_INTERRUPTED_REPLY);
+    if (step === 'own') {
+      writeReply(dir, 'request-b', {
+        status: 'success',
+        result: 'reply b',
+        toolsUsed: [],
+      });
+    }
+    if (step === 'wait') {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(settled).toBe(false);
+    }
+  }
+  await vi.advanceTimersByTimeAsync(300);
+
+  const output = await outputPromise;
+  expect(output).toEqual({
+    status: 'success',
+    result: 'reply b',
+    toolsUsed: [],
+  });
+});
+
+test('cleanupIpc removes request files and late replies but keeps other IPC files', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { cleanupIpc, ensureSessionDirs } = await import('../src/infra/ipc.ts');
+
+  ensureSessionDirs('session-1');
+  const dir = ipcDirOf(homeDir, 'session-1');
+  const kept = ['health-input.json', 'health-output.json', 'mlx-0f.request'];
+  for (const file of [
+    'input.json',
+    'history.json',
+    'output.json',
+    ipcOutputFileName('request-a'),
+    ...kept,
+  ]) {
+    fs.writeFileSync(path.join(dir, file), '{}');
+  }
+
+  cleanupIpc('session-1');
+
+  expect(fs.readdirSync(dir).sort()).toEqual([...kept].sort());
+});
+
+// compat: remove after v0.34 — agent images built before request ids reply
+// in output.json.
+test('readOutput accepts the reply of an agent image that predates request ids', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { ensureSessionDirs, readOutput } = await import('../src/infra/ipc.ts');
+
+  ensureSessionDirs('session-1');
+  writeReply(ipcDirOf(homeDir, 'session-1'), undefined, {
+    status: 'success',
+    result: 'legacy reply',
+    toolsUsed: [],
+  });
+
+  const outputPromise = readOutput('session-1', 'request-1', 1_000);
+  await vi.advanceTimersByTimeAsync(50);
+
+  await expect(outputPromise).resolves.toEqual(
+    expect.objectContaining({ status: 'success', result: 'legacy reply' }),
   );
 });

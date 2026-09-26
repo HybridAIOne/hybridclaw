@@ -474,6 +474,23 @@ This is particularly important for local models that may take 30+ seconds
 per iteration and easily exceed a fixed 5-minute wall clock over multiple
 tool-call rounds.
 
+## Request-Scoped Agent Replies
+
+Every executor request carries a random `requestId`. The agent writes its
+reply to `output-<requestId>.json` in the session IPC directory (naming in
+`container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
+only:
+
+- A stopped agent can still answer after its request ended: its SIGTERM
+  handler reports the interrupted turn together with any delegations it had
+  queued. That late reply lands in the stopped request's own file, which no
+  later request reads; the next request's `cleanupIpc()` deletes it.
+- An interrupted container leaves the pool immediately, so the next turn starts
+  a fresh container instead of reusing one that `docker stop` is still shutting
+  down.
+- Requests without an id reply in `output.json`; the gateway also accepts that
+  file from agent images built before request ids.
+
 ## Session Reset Workflow
 
 Gateway `reset [yes|no]`, TUI `/reset`, and Discord `/reset` share the same

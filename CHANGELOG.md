@@ -10,6 +10,12 @@
 
 ### Fixed
 
+- **Stale replies after an interrupt**: A turn started right after a stop,
+  full-auto preemption, Discord message edit, or client disconnect no longer
+  receives the stopped turn's late shutdown reply, which failed the new turn
+  and started the stopped turn's queued delegations. Each agent request now
+  replies in its own IPC file, and an interrupted container is no longer
+  reused while it shuts down.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
