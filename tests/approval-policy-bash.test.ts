@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import { PINNED_NAME_SAMPLES } from '../container/src/bash-pinned-reach.js';
 import {
@@ -9,7 +9,7 @@ import {
   matchesPathPattern,
 } from '../container/src/pinned-paths.js';
 import type { ChatMessage } from '../container/src/types.js';
-import { useTempDir } from './test-utils.ts';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const MISSING_POLICY = '/tmp/hybridclaw-missing-policy.yaml';
 
@@ -27,6 +27,13 @@ function evaluateBash(command: string, policyPath = MISSING_POLICY) {
 
 describe('bash command classification', () => {
   const makeTempDir = useTempDir('hybridclaw-policy-');
+  useCleanMocks({ unstubAllEnvs: true });
+
+  // `~` must sit outside the workspace and scratch space, as a real home
+  // does; the suite-wide isolated HOME lives under os.tmpdir(), a scratch root.
+  beforeEach(() => {
+    vi.stubEnv('HOME', '/home/tester');
+  });
 
   function writeTempPolicy(raw: string): string {
     const policyPath = path.join(makeTempDir(), 'policy.yaml');
