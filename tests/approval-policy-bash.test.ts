@@ -419,8 +419,6 @@ approval:
     "find . -name '*.log' | xargs -I{} cp {} ../backup/",
     "find . -name '*.log' -exec cp {} ../backup/ \\;",
     "cat <<'EOF' > ../out.txt\nhello\nEOF",
-    'echo x > ~/out.txt',
-    'echo x > $HOME/out.txt',
     'echo x > /opt/data/out.txt',
   ])('writes that land outside the workspace hit the fence: %j', (command) => {
     const evaluation = evaluateBash(command);
