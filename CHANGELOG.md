@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Agent budget hard stop**: An agent that reaches 100% of its monthly
+  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
+  full-auto) until the next billing month or until the cap is raised. The
+  refusal pauses the agent's active goal, disables full-auto for the session,
+  and records a `budget.hard_stop` audit event.
+
 ### Removed
 
 - **Codex app-server turn runtime**: `codex.turnRuntime` (and its
@@ -59,6 +67,11 @@
 - npm releases build and verify the package once, publish the resulting tarball,
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
+- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
+  runtime images get it from `container/tools`) and the redundant `impit` pin
+  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
+  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
+  the gateway HTTP proxy imports, is declared directly.
 
 ### Fixed
 
@@ -195,11 +208,6 @@
   one cron task per watched competitor, diffs each run against a workspace
   snapshot, and appends a fenced `watch` JSON block to the daily memory note,
   which the Sales Companion iOS app reads through cloud memory.
-- **Agent budget hard stop**: An agent that reaches 100% of its monthly
-  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
-  full-auto) until the next billing month or until the cap is raised. The
-  refusal pauses the agent's active goal, disables full-auto for the session,
-  and records a `budget.hard_stop` audit event.
 
 ### Fixed
 
@@ -346,12 +354,6 @@
   taskId, so schedule changes no longer leave duplicate tasks behind.
 
 ### Changed
-
-- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
-  runtime images get it from `container/tools`) and the redundant `impit` pin
-  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
-  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
-  the gateway HTTP proxy imports, is declared directly.
 
 - **Dependencies refreshed with a seven-day release-age gate**: Compatible
   updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
