@@ -67,6 +67,12 @@
 
 ### Fixed
 
+- **Turns right after an interrupt**: A turn started right after a stop,
+  full-auto preemption, Discord message edit, or client disconnect no longer
+  reuses the container that is still shutting down, which failed the turn. It
+  also never receives the stopped turn's late shutdown reply, which failed the
+  turn and started the stopped turn's queued delegations: each agent request
+  now replies in its own IPC file.
 - **macOS browser control window isolation**: The `mac-cua` browser provider
   opens a dedicated browser window instead of taking over an existing one, so
   it no longer drives the tab holding the web chat.
@@ -113,9 +119,9 @@
 - **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
   calls that already ran, with their arguments and results, for the next turn.
   A call still running at the stop is marked as having an unknown outcome.
-- **Atomic agent output files**: The agent runtime publishes `output.json` and
-  `health-output.json` by renaming a finished temporary file, so readers never
-  see an empty or half-written result.
+- **Atomic agent output files**: The agent runtime publishes its reply and
+  `health-output.json` files by renaming a finished temporary file, so readers
+  never see an empty or half-written result.
 - **Recursive shell reads of pinned files need approval**: Recursive reads
   that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
   `find -exec`, `find | xargs`) now require approval on every run unless they
