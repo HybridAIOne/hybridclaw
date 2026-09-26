@@ -71,6 +71,13 @@
   runner hands `docker run` the gateway token through the Docker CLI's
   environment instead of its argument list, and gateway logs leave out the
   arguments of a failed child process.
+- **Retries that repeated tool side effects**: A delegated task that fails
+  with a transient-looking error after it already ran a tool (a shell command,
+  a file write, an email, a `delegate` call) reports the failure instead of
+  starting over and running those tools again. Likewise, when a model rejects
+  native image or audio parts, a turn that already used a tool is not re-sent
+  without the media. A re-sent first request keeps its HybridAI correlation
+  headers.
 - **Turns right after an interrupt**: A turn started right after a stop,
   full-auto preemption, Discord message edit, or client disconnect no longer
   reuses the container that is still shutting down, which failed the turn. It

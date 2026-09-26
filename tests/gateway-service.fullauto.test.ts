@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
+import type { ToolProgressEvent } from '../src/types/execution.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
@@ -829,4 +830,96 @@ test('watchdog interrupts stalled full-auto turns and retries after recovery del
   expect(listQueuedProactiveMessages(10).map((entry) => entry.text)).toContain(
     'recovered reply',
   );
+});
+
+test('a transient full-auto retry is a fresh turn that sees the tools the failed turn ran', async () => {
+  vi.useFakeTimers();
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  // A host-built crash output: no toolExecutions, and "532ms" reads as a 5xx,
+  // so classifyGatewayError calls it transient.
+  const crash =
+    'Container exited before producing output (exit code 1). [tool] write result (532ms): wrote notes.txt';
+  runAgentMock
+    .mockImplementationOnce(
+      async (params: { onToolProgress?: (event: ToolProgressEvent) => void }) => {
+        params.onToolProgress?.({
+          sessionId: 'session-fullauto-retry',
+          toolName: 'write',
+          phase: 'start',
+          preview: 'notes.txt',
+        });
+        params.onToolProgress?.({
+          sessionId: 'session-fullauto-retry',
+          toolName: 'write',
+          phase: 'finish',
+          durationMs: 532,
+          preview: 'wrote notes.txt',
+        });
+        return { status: 'error', result: null, toolsUsed: [], error: crash };
+      },
+    )
+    .mockResolvedValue({
+      status: 'success',
+      result: 'notes were already written',
+      toolsUsed: [],
+      toolExecutions: [],
+    });
+
+  const { PROACTIVE_AUTO_RETRY_BASE_DELAY_MS } = await import(
+    '../src/config/config.ts'
+  );
+  const { initDatabase, updateSessionChatbot } = await import(
+    '../src/memory/db.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { buildErrorTurnPlaceholder, handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { initGatewayService } = await import(
+    '../src/gateway/gateway-plugin-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  await initGatewayService();
+
+  const sessionId = 'session-fullauto-retry';
+  memoryService.getOrCreateSession(sessionId, null, 'tui');
+  updateSessionChatbot(sessionId, 'bot-1');
+
+  await handleGatewayCommand({
+    sessionId,
+    guildId: null,
+    channelId: 'tui',
+    userId: 'tui-user',
+    username: 'user',
+    args: ['fullauto', 'keep', 'the', 'notes', 'current'],
+  });
+
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(PROACTIVE_AUTO_RETRY_BASE_DELAY_MS);
+  expect(runAgentMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+  const [failedTurn, retryTurn] = runAgentMock.mock.calls.map(
+    ([params]) =>
+      (params as { messages: Array<{ role: string; content: unknown }> })
+        .messages,
+  );
+  // The retry replays nothing: it is a new turn whose history holds the failed
+  // turn's stored placeholder, which names the tool whose effects may remain.
+  expect(retryTurn).toContainEqual(
+    expect.objectContaining({
+      role: 'assistant',
+      content: buildErrorTurnPlaceholder({
+        error: crash,
+        tools: [
+          { name: 'write', outcome: 'completed', preview: 'wrote notes.txt' },
+        ],
+      }),
+    }),
+  );
+  expect(retryTurn.at(-1)).toEqual(failedTurn.at(-1));
 });
