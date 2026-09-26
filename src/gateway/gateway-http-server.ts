@@ -13,6 +13,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import * as yazl from 'yazl';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
+import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import {
   EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
   EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
@@ -375,6 +376,7 @@ import {
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
+import { handleApiShellEnv } from './gateway-shell-env.js';
 import type {
   GatewayAdminA2APairingDecisionRequest,
   GatewayAdminA2APairingStartRequest,
@@ -11533,6 +11535,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiSchedulerTask(req, res);
+            return;
+          }
+          if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {
+            await handleApiShellEnv(res, hasGatewayApiAuth(req));
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {
