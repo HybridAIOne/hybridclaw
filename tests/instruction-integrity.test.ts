@@ -72,6 +72,10 @@ describe('instruction integrity', () => {
     fs.mkdirSync(instructions.INSTRUCTION_RUNTIME_DIR, { recursive: true });
     fs.writeFileSync(stalePath, 'stale\n', 'utf-8');
 
+    // Startup seeding must not delete files; cleanup runs only on explicit sync.
+    instructions.ensureRuntimeInstructionCopies();
+    expect(fs.existsSync(stalePath)).toBe(true);
+
     const synced = instructions.syncRuntimeInstructionCopies();
 
     expect(fs.existsSync(stalePath)).toBe(false);
