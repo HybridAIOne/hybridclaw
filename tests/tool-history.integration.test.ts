@@ -7,7 +7,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import type { ChatMessage } from '../src/types/api.js';
-import type { ContainerOutput } from '../src/types/container.js';
+import type {
+  ContainerInput,
+  ContainerOutput,
+} from '../src/types/container.js';
 
 let root: string;
 let db: typeof import('../src/memory/db.js');
@@ -101,6 +104,7 @@ async function runFreshWorker(
   sessionId: string,
   messages: ChatMessage[],
   baseUrl: string,
+  overrides: Partial<ContainerInput> = {},
 ): Promise<ContainerOutput> {
   const ipcDir = fs.mkdtempSync(path.join(root, 'ipc-'));
   const child = spawn(
@@ -140,6 +144,7 @@ async function runFreshWorker(
       allowedTools: ['read'],
       skipContainerSystemPrompt: true,
       contextWindow: 128_000,
+      ...overrides,
     }) + '\n',
   );
   try {
@@ -297,6 +302,98 @@ test('a fresh worker uses the previous turn’s stored result without calling th
     expect(search.results[0].snippets.join('\n')).toContain(
       'Inventory count: 42',
     );
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}, 60_000);
+
+test('a file reference reaches the outbound request but never the recorded call', async () => {
+  // Approval, the before/after hooks, and tool history all see the call the
+  // model wrote; only dispatch sees the bytes. Pin that from the outside.
+  const session = memory.getOrCreateSession(
+    'file-reference',
+    null,
+    'test-channel',
+  );
+  const logo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00, 0x01]);
+  const encoded = logo.toString('base64');
+  fs.writeFileSync(path.join(workspace, 'logo.png'), logo);
+  const modelRequests: ChatMessage[][] = [];
+  const gatewayRequests: Array<{ json?: { content?: string } }> = [];
+  const server = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += String(chunk);
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/http/request') {
+      gatewayRequests.push(JSON.parse(body));
+      res.end(JSON.stringify({ ok: true, status: 201, body: '{}' }));
+      return;
+    }
+    const messages = JSON.parse(body).messages as ChatMessage[];
+    modelRequests.push(messages);
+    const answered = messages.some((message) => message.role === 'tool');
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: answered
+              ? { role: 'assistant', content: 'Committed the logo.' }
+              : {
+                  role: 'assistant',
+                  content: 'Committing the logo.',
+                  tool_calls: [
+                    {
+                      id: 'logo-put',
+                      type: 'function',
+                      function: {
+                        name: 'http_request',
+                        arguments: JSON.stringify({
+                          url: 'https://api.github.com/repos/user_a/site/contents/logo.png',
+                          method: 'PUT',
+                          json: {
+                            message: 'chore: add logo',
+                            content: '<file-base64:logo.png>',
+                          },
+                        }),
+                      },
+                    },
+                  ],
+                },
+            finish_reason: answered ? 'stop' : 'tool_calls',
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string')
+    throw new Error('Missing test server address');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const output = await runFreshWorker(
+      session.id,
+      [{ role: 'user', content: 'Commit the logo' }],
+      baseUrl,
+      {
+        allowedTools: ['http_request'],
+        gatewayBaseUrl: baseUrl,
+        gatewayApiToken: 'test-token',
+        fullAutoEnabled: true,
+      },
+    );
+
+    expect(output.status).toBe('success');
+    expect(gatewayRequests).toHaveLength(1);
+    expect(gatewayRequests[0].json?.content).toBe(encoded);
+    for (const recorded of [output.toolHistory, modelRequests[1]]) {
+      const text = JSON.stringify(recorded);
+      expect(text).toContain('<file-base64:logo.png>');
+      expect(text).toContain(`sent logo.png (${logo.length} bytes)`);
+      expect(text).not.toContain(encoded);
+    }
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

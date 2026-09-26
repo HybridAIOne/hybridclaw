@@ -49,6 +49,11 @@ import {
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import {
+  appendFileReferenceReceipt,
+  type FileReferenceExpansion,
+  prepareToolArguments,
+} from './file-reference.js';
+import {
   type GatewayJsonResponse,
   postGatewayJson,
 } from './gateway-json-post.js';
@@ -2869,6 +2874,7 @@ async function processWebExtractWithAuxiliary(params: {
 async function executeToolInternal(
   name: string,
   argsJson: string,
+  sentFiles: FileReferenceExpansion[],
 ): Promise<string> {
   let parsedArgs: unknown;
   try {
@@ -2879,12 +2885,22 @@ async function executeToolInternal(
       `Error: tool arguments were malformed JSON (${detail}). Retry with a valid JSON object; for very large file contents, split the work into smaller write/edit calls.`,
     );
   }
-  const args =
+  const parsedToolArgs =
     parsedArgs && typeof parsedArgs === 'object'
       ? // biome-ignore lint/suspicious/noExplicitAny: args is passed through a wide range of tool handlers that each narrow property types at the use site; a single shared Record<string, unknown> would require narrowing at every call site.
         (parsedArgs as Record<string, any>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
+
+  const prepared = prepareToolArguments(name, parsedToolArgs, {
+    acceptsFileReferences:
+      name === 'http_request' ||
+      Boolean(mcpClientManager?.isKnownTool(name)) ||
+      Boolean(getPluginToolDefinition(name)),
+  });
+  if ('error' in prepared) return failTool(`Error: ${prepared.error}`);
+  const args = prepared.args;
+  sentFiles.push(...prepared.expansions);
 
   if (mcpClientManager?.isKnownTool(name)) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -4110,9 +4126,11 @@ export async function executeToolWithMetadata(
   name: string,
   argsJson: string,
 ): Promise<ToolRunResult> {
+  const sentFiles: FileReferenceExpansion[] = [];
   try {
+    const output = await executeToolInternal(name, argsJson, sentFiles);
     return {
-      output: await executeToolInternal(name, argsJson),
+      output: appendFileReferenceReceipt(output, sentFiles),
       isError: false,
     };
   } catch (err) {
@@ -4683,7 +4701,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           bodyBase64: {
             type: 'string',
             description:
-              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads.',
+              'Optional base64-encoded binary request body. Use this for multipart file uploads or other non-text payloads. Prefer `<file-base64:path>` over an inline payload so the bytes never pass through the model context.',
           },
           json: {
             type: 'object',

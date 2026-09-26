@@ -2,7 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Docker launch passes the gateway token by environment**: The container
+  runner hands `docker run` the gateway token through the Docker CLI's
+  environment instead of its argument list, and gateway logs leave out the
+  arguments of a failed child process.
+
+## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
+
 ### Added
+
+- **Binary uploads without copying bytes through the model**: MCP tools,
+  plugin tools, and `http_request` accept `<file-base64:path>` as a complete
+  argument value for workspace or uploaded-media files up to 8 MiB. Expansion
+  happens after approval and reports the file size sent. Other tools reject
+  the placeholder; oversized or abbreviated hand-pasted base64 is rejected.
+- **Optional Discord replies**: When nobody in a message batch mentions or
+  replies to the bot, the agent may choose silence without posting a fallback
+  response. Directly addressed messages retain the normal reply behavior.
 
 - **Agent budget hard stop**: An agent that reaches 100% of its monthly
   `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
@@ -45,6 +63,11 @@
   `npm run eval -- <suite> ...` from a source checkout instead. The
   gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
   stay in core. `stemmer` is now a dev dependency.
+- **Test isolation**: Unit and integration tests use isolated runtime homes,
+  home-path assertions are deterministic, and Discord webhook tests settle
+  deferred imports before resetting modules.
+- **CI throughput**: Unit tests run in shards, slow PR jobs run in parallel,
+  and Docker preflight builds reuse authenticated image caches from main.
 - **npm publishing**: npm releases build and verify the package once, publish
   the resulting tarball, skip dependency installation for already-public
   versions, and wait for npm's registry scan to finish after an accepted or
@@ -67,10 +90,15 @@
 
 ### Fixed
 
-- **Docker launch passes the gateway token by environment**: The container
-  runner hands `docker run` the gateway token through the Docker CLI's
-  environment instead of its argument list, and gateway logs leave out the
-  arguments of a failed child process.
+- **Unicode PDF generation**: The PDF helper embeds Unicode fonts to preserve
+  Cyrillic text and reuses custom fonts across titles and body text.
+- **Lazy Google shell authentication**: Google OAuth refresh runs when a shell
+  command executes instead of delaying every agent turn, including turns that
+  never use Google tooling.
+- **Docs response hardening**: Gateway documentation responses include
+  `X-Content-Type-Options: nosniff`; routes the docs handler does not serve
+  retain their own headers.
+
 - **Retries that repeated tool side effects**: A delegated task that fails
   with a transient-looking error after it already ran a tool (a shell command,
   a file write, an email, a `delegate` call) reports the failure instead of
@@ -108,6 +136,9 @@
 - **Paginated pages in `web_fetch`**: Results name the next page when the
   page links to one, and pages that only load a script from a Cloudflare CDN
   are no longer reported as bot-blocked.
+- **Model-facing safety instructions**: Core safety guardrails are included
+  directly in the safety prompt instead of injecting the full security
+  reference document.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
