@@ -481,10 +481,11 @@ reply to `output-<requestId>.json` in the session IPC directory (naming in
 `container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
 only:
 
-- A stopped agent can still answer after its request ended: its SIGTERM
-  handler reports the interrupted turn together with any delegations it had
-  queued. That late reply lands in the stopped request's own file, which no
-  later request reads; the next request's `cleanupIpc()` deletes it.
+- A stopped agent's SIGTERM handler still answers its in-flight request, with
+  the tool calls that ran and any delegations it had queued. The interrupted
+  read waits up to 2 s for that reply and keeps only its tool history. A reply
+  that lands later stays in the stopped request's own file, which no later
+  request reads; the next request's `cleanupIpc()` deletes it.
 - An interrupted container leaves the pool immediately, so the next turn starts
   a fresh container instead of reusing one that `docker stop` is still shutting
   down.
