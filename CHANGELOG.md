@@ -181,6 +181,12 @@
   attempt that fails after running a tool is no longer retried on a fallback
   model, the same rung, or a higher tier, which could repeat its effects. The
   failed turn lists the tool calls that ran, as unrouted turns do.
+- **Work after an interrupt**: A stopped agent no longer keeps working while it
+  shuts down, which can take seconds with open browser sessions or MCP
+  servers. It starts no further model call, approval, or tool call, sends no
+  reply after the interrupted one, and leaves the session's next message to the
+  agent that replaces it instead of answering that message itself or leaving
+  it unanswered until the timeout.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

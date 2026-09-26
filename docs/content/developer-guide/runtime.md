@@ -456,6 +456,23 @@ Container-side adaptations for local models:
   JSON tool calls from smaller models are parsed, repaired, and normalized
   into the standard OpenAI tool-call format.
 
+## Agent Shutdown
+
+When the gateway stops an agent process, for example to interrupt a turn, the
+agent receives `SIGTERM` (through `docker stop` in container mode). It writes
+the interrupted reply for its in-flight request at once, keeping the tool calls
+that already ran, and then closes its browser sessions and MCP servers, which
+can take seconds. From the signal on, the agent starts nothing new:
+
+- no model call, tool approval, tool run, or later reply; a model or tool
+  result still in flight when the signal arrives is dropped
+- no `input.json` or `health-input.json` is consumed, because the replacement
+  agent that the runner starts for the next turn can share the session's IPC
+  directory
+
+Each of these entry points checks the latch in
+`container/src/shutdown-latch.ts`; a new entry point must check it too.
+
 ## Activity-Based Agent Timeout
 
 The IPC read timeout (default `CONTAINER_TIMEOUT = 300_000 ms`) now supports

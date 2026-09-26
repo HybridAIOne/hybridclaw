@@ -45,3 +45,29 @@ test.each([
     expect(fs.readdirSync(ipcDir)).toEqual([name]);
   },
 );
+
+test.each([
+  'input.json',
+  'health-input.json',
+])('once shutdown starts, waitForInput leaves %s for the replacement agent', async (name) => {
+  const ipcDir = makeTempDir();
+  vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
+  const { waitForInput } = await import('../container/src/ipc.js');
+  const { startShutdown } = await import('../container/src/shutdown-latch.js');
+  const writeInput = () =>
+    fs.writeFileSync(
+      path.join(ipcDir, name),
+      JSON.stringify({ sessionId: 'session-a', messages: [] }),
+    );
+  writeInput();
+  await expect(waitForInput(1_000)).resolves.toMatchObject({
+    sessionId: 'session-a',
+  });
+
+  const waiting = waitForInput(5_000);
+  void startShutdown(() => new Promise<never>(() => {}));
+  writeInput();
+
+  await expect(waiting).resolves.toBeNull();
+  expect(fs.readdirSync(ipcDir)).toEqual([name]);
+});

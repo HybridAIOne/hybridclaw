@@ -60,6 +60,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
   advanceStalledTurnCount,
@@ -199,7 +200,6 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
-let shutdownPromise: Promise<never> | null = null;
 let requestInFlight = false;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
@@ -301,16 +301,12 @@ async function shutdownMcp(): Promise<void> {
   mcpClientManager = null;
 }
 
-async function shutdownAgentProcess(
+function shutdownAgentProcess(
   exitCode: number,
   reason: string,
   finalOutput?: ContainerOutput,
 ): Promise<never> {
-  if (shutdownPromise) {
-    return shutdownPromise;
-  }
-
-  shutdownPromise = (async () => {
+  return startShutdown(async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
     resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
@@ -323,8 +319,15 @@ async function shutdownAgentProcess(
       writeOutput(finalOutput);
     }
     process.exit(exitCode);
-  })();
-  return shutdownPromise;
+  });
+}
+
+/** Parks once shutdown starts: the signal handler's reply stays the only one. */
+async function replyToRequest(output: ContainerOutput): Promise<void> {
+  await haltIfShuttingDown();
+  output.sideEffects = getPendingSideEffects();
+  writeOutput(output);
+  requestInFlight = false;
 }
 
 function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
@@ -713,6 +716,8 @@ async function executePreparedToolCall(
   }
 
   const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  // Last await before the tool runs: a stop in the delay or hooks cancels it.
+  await haltIfShuttingDown();
   const loopGuard = blockedReason
     ? { stuck: false as const }
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
@@ -848,6 +853,7 @@ async function callHybridAIWithRetry(params: {
   let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
+    await haltIfShuttingDown();
     attempt += 1;
     const attemptStartedAt = Date.now();
     let firstTextDeltaMs: number | null = null;
@@ -1323,6 +1329,7 @@ async function processRequestInner(
         history,
         contextWindowTokens: contextWindow,
         summarize: async (summaryMessages, summaryMaxTokens) => {
+          await haltIfShuttingDown();
           tokenUsage.modelCalls += 1;
           tokenUsage.estimatedPromptTokens +=
             estimateMessageTokens(summaryMessages);
@@ -2098,6 +2105,7 @@ async function main(): Promise<void> {
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
+  await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   requestInFlight = true;
   applyRuntimeEnv(firstInput.runtimeEnv);
@@ -2270,9 +2278,7 @@ async function main(): Promise<void> {
     }
   }
 
-  firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput);
-  requestInFlight = false;
+  await replyToRequest(firstOutput);
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2283,7 +2289,7 @@ async function main(): Promise<void> {
     const input = await waitForInput(Math.max(0, idleDeadlineAt - Date.now()));
 
     if (!input) {
-      console.error('[hybridclaw-agent] idle timeout, exiting');
+      // Idle timeout; if shutdown already started, this joins it.
       await shutdownAgentProcess(0, 'idle timeout');
       return;
     }
@@ -2390,9 +2396,7 @@ async function main(): Promise<void> {
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      immediate.sideEffects = getPendingSideEffects();
-      writeOutput(immediate);
-      requestInFlight = false;
+      await replyToRequest(immediate);
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2478,9 +2482,7 @@ async function main(): Promise<void> {
       });
     }
 
-    output.sideEffects = getPendingSideEffects();
-    writeOutput(output);
-    requestInFlight = false;
+    await replyToRequest(output);
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

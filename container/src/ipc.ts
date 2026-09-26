@@ -4,12 +4,17 @@
  * Output files appear whole: a poller sees no file or complete JSON, never a
  * half-written one. Input files carry no such guarantee, so the input reader
  * treats unparseable JSON as not yet written and polls again.
+ *
+ * The IPC directory can outlive this process: the session's replacement agent
+ * may share it while this one shuts down, so once shutdown starts this agent
+ * consumes no input file and leaves it for the replacement.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { writeMemoryFileAtomic } from '../shared/memory-file.js';
 import { IPC_DIR } from './runtime-paths.js';
+import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
 
 const INPUT_PATH = path.join(IPC_DIR, 'input.json');
@@ -35,7 +40,9 @@ function readInputFile(inputPath: string): ContainerInput | null {
 }
 
 /**
- * Poll for input.json. Returns null if idle timeout expires.
+ * Poll for input.json. Returns null once the idle timeout expires or shutdown
+ * starts. The shutdown check and the reads after it run in one synchronous
+ * step, so no shutdown can start between them.
  */
 export async function waitForInput(
   idleTimeoutMs: number,
@@ -43,7 +50,7 @@ export async function waitForInput(
   const deadline = Date.now() + idleTimeoutMs;
   let pollInterval = MIN_INPUT_POLL_INTERVAL_MS;
 
-  while (Date.now() < deadline) {
+  while (!isShuttingDown() && Date.now() < deadline) {
     if (fs.existsSync(HEALTH_INPUT_PATH)) {
       const input = readInputFile(HEALTH_INPUT_PATH);
       if (input) return input;
@@ -63,7 +70,7 @@ export async function waitForInput(
     );
   }
 
-  return null; // Idle timeout
+  return null; // Idle timeout or shutdown
 }
 
 export function writeOutput(output: ContainerOutput): void {
