@@ -1,10 +1,10 @@
-import type { MemoryEmbeddingProviderKind } from '../memory/embeddings.js';
+import type { MemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
 import type {
   MemoryQueryMode,
   MemoryRecallBackend,
   MemoryRecallRerank,
   MemoryRecallTokenizer,
-} from '../memory/semantic-recall.js';
+} from '../../src/memory/semantic-recall.js';
 
 export type LocomoAgentMode = 'conversation-fresh' | 'current-agent';
 export type LocomoRetrievalPolicy = 'prompt-capped' | 'budget-only';

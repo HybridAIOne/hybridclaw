@@ -23,13 +23,6 @@ hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway memory inspect [sessionId]
 hybridclaw gateway reset [yes|no]
-hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]
-hybridclaw eval locomo [setup|run|status|stop|results|logs]
-hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
-hybridclaw eval agent-risk [run|status|stop|results|logs]
-hybridclaw eval tau2 [setup|run|status|stop|results]
-hybridclaw eval hybridai-skills [setup|list|run|results]
-hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
 hybridclaw --resume <sessionId>
@@ -102,102 +95,6 @@ hybridclaw token revoke <token-id>
   `admin.tokens.create`, and `admin.tokens.revoke`
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
-
-## Local Eval Workflows
-
-`hybridclaw eval` and local `/eval` commands point benchmark harnesses at
-HybridClaw's loopback OpenAI-compatible API.
-
-```bash
-hybridclaw eval list
-hybridclaw eval env
-hybridclaw eval locomo setup
-hybridclaw eval locomo run --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-query raw --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-backend full-text --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-backend hybrid --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-rerank bm25 --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer porter --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-tokenizer trigram --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --retrieval-embedding transformers --budget 4000 --max-questions 20
-hybridclaw eval locomo run --mode retrieval --matrix --budget 4000
-hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
-hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
-hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
-hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
-hybridclaw eval trace-judge run
-hybridclaw eval agent-risk run
-hybridclaw eval agent-risk run --scenario data-privacy
-hybridclaw eval trace-judge run --live --model "$HYBRIDCLAW_EVAL_MODEL"
-hybridclaw eval trace-judge run --criterion risk
-hybridclaw eval tau2 setup
-hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
-hybridclaw eval terminal-bench-2.0 setup
-hybridclaw eval terminal-bench-2.0 run --num-tasks 10
-hybridclaw eval hybridai-skills setup
-hybridclaw eval hybridai-skills list --skill code-review
-hybridclaw eval hybridai-skills run --dry-run
-hybridclaw eval hybridai-skills run --max 3
-hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
-hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
-```
-
-- local-only surface from CLI, TUI, or embedded web chat; it is not intended for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `trace-judge`, `agent-risk`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
-- `agent-risk` runs synthetic canary scenarios through the local
-  OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI
-  600-1 GAI risk, and OWASP LLM Top 10 2025 item. It is automated eval
-  coverage, not a formal compliance attestation.
-- `trace-judge` evaluates the judge against a packaged 150-example labeled dataset of `(trace, criteria, expected verdict)` records across `risk`, `leak`, `brand-voice`, `tool-use`, and `task-completion` criteria. Results include macro precision, recall, and F1 per criterion type plus the overall gate status. The default `run` uses a deterministic offline judge fixture that parses the prepared judge prompt and returns JSON through the same judge result parser used by live mode; `run --live --model <judge-model>` measures the actual configured judge model.
-- CI runs `npm run eval:trace-judge:gate` after build to block prompt-preparation, parser, metric, and dataset regressions without live secrets. PR runs execute `npm run eval:trace-judge:gate:live` when both `HYBRIDAI_API_KEY` and `HYBRIDAI_CHATBOT_ID` are available; otherwise they are explicitly harness-only. Pushes to `main` require both live credentials and fail before promotion when either secret is missing. With those secrets present, CI runs `npm run eval:trace-judge:gate:live` against the configured judge model (`HYBRIDCLAW_TRACE_JUDGE_EVAL_MODEL`, or `hybridai/gpt-4.1-mini` by default) and blocks promotion when judge precision, recall, or F1 regresses below the configured threshold.
-- add a new judge criterion by adding examples to `src/evals/trace-judge-eval-dataset.ts` with a stable `criterionType`, clear criteria text, representative traces for `pass`, `partial`, and `fail`, and then running `npm run eval:trace-judge:gate` after `npm run build`. Keep each criterion balanced enough that precision, recall, and F1 are meaningful.
-- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
-  `docs/content/guides/skills/*.md` into a fixture set, then grades
-  whether each prompt activates its documented skill. `setup` writes the
-  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
-  without calling the model, and `run` (default `--live`, `--max 3`) posts
-  each prompt to the local OpenAI endpoint and grades the tool trace with
-  the same `resolveObservedSkillName` oracle the gateway uses
-- filter `hybridai-skills` runs with `--skill <name>`, `--kind
-  try-it|conversation`, and `--max N`; results land at
-  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
-  shown via `/eval hybridai-skills results`
-- `hybridai-skills run --explicit` rewrites each prompt to start with
-  `/<skill>` to force invocation, and live summaries show the observed skill,
-  whether artifacts were produced, and counted tool-call totals per fixture
-- eval-profiled loopback requests auto-approve tools and return
-  execution-session plus artifact-count headers so detached and profiled eval
-  runs can finish unattended while still being easy to correlate later
-- `locomo --mode qa` runs a native HybridClaw QA harness against the official
-  LoCoMo conversations, generates answers through the local OpenAI-compatible
-  gateway, and scores those answers with LoCoMo-style question metrics
-- `locomo --mode retrieval` skips model generation, ingests each conversation
-  into an isolated native memory session, and scores evidence hit-rate from
-  recalled semantic memories
-- `locomo --mode retrieval --matrix` runs the default retrieval sweep across
-  backend, rerank, and tokenizer combinations and renders one comparison table
-- `locomo --mode retrieval --matrix backend|rerank|tokenizer|embedding` runs a
-  single-dimension sweep and keeps the other retrieval settings at their
-  defaults
-- retrieval-mode knobs are benchmark-only: `--retrieval-query
-  raw|no-stopwords`, `--retrieval-backend cosine|full-text|hybrid`,
-  `--retrieval-rerank none|bm25` (default: `bm25`),
-  `--retrieval-tokenizer unicode61|porter|trigram`, and
-  `--retrieval-embedding hashed|transformers`
-- `locomo --num-samples` limits conversation records; use `--max-questions`
-  for quick smoke tests over a small question slice
-- by default, `locomo --mode qa` creates one fresh template-seeded agent
-  workspace per conversation sample; use `--current-agent` to reuse the current
-  agent workspace
-- `swebench-verified`, `agentbench`, and `gaia` currently print starter
-  recipes and setup guidance rather than a native managed runner
-- outside suite-specific overrides, the default eval mode keeps the current
-  agent workspace but opens a fresh OpenAI-compatible session per request
-- `--fresh-agent` uses a temporary template-seeded agent workspace for each
-  eval request
-- detached run logs and summaries are stored under
-  `~/.hybridclaw/data/evals/`
 
 ## Harness Evolution Workflows
 
@@ -741,7 +638,6 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/context` | local TUI/web | Show context-window usage and compaction headroom |
 | `/dream [status|on|off|now]` | local TUI/web | Configure or run memory consolidation |
 | `/env [list|set|show|unset]` | local TUI/web | Manage plaintext runtime env values for agents and helpers |
-| `/eval [list|env|<suite>|<command...>]` | local TUI/web | Run local eval helpers or detached benchmark commands |
 | `/escalate` | local and chat channels | Start the next unpinned agent turn one configured routing tier higher |
 | `/export session [sessionId]` | local and chat channels | Export a session snapshot |
 | `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
@@ -841,9 +737,6 @@ gateway refuses further turns for it and pauses its active goal with the reason
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs
-- local TUI and web chat expose `/eval ...`, mirroring the CLI eval helper and
-  surfacing progress for managed runs such as `tau2` and
-  `terminal-bench-2.0`
 - TUI and chat surfaces use `/agent`, `/agent install`, `/model`, `/mcp`,
   `/plugin`, `/skill`, `/compact`, `/reset`, `/plugin enable`,
   `/plugin disable`, `/plugin install`, `/plugin reinstall`, `/plugin reload`,

@@ -145,15 +145,18 @@ async function runFreshWorker(
   try {
     const outputPath = path.join(ipcDir, 'output.json');
     const deadline = Date.now() + 20_000;
-    while (
-      !fs.existsSync(outputPath) &&
-      Date.now() < deadline &&
-      child.exitCode === null
-    )
+    while (Date.now() < deadline) {
+      // Missing and unparseable both mean not ready yet, as in readOutput
+      // (src/infra/ipc.ts).
+      try {
+        return JSON.parse(
+          fs.readFileSync(outputPath, 'utf8'),
+        ) as ContainerOutput;
+      } catch {}
+      if (child.exitCode !== null) break;
       await delay(25);
-    if (!fs.existsSync(outputPath))
-      throw new Error(`Worker produced no IPC output: ${stderr}`);
-    return JSON.parse(fs.readFileSync(outputPath, 'utf8')) as ContainerOutput;
+    }
+    throw new Error(`Worker produced no IPC output: ${stderr}`);
   } finally {
     child.kill('SIGTERM');
     await exited;

@@ -7,7 +7,7 @@ import {
   type JudgeTraceModelCallResponse,
   type JudgeTraceVerdict,
   judgeTrace,
-} from './trace-judge.js';
+} from '../../src/evals/trace-judge.js';
 import {
   TRACE_JUDGE_EVAL_CRITERION_TYPES,
   TRACE_JUDGE_EVAL_DATASET,
