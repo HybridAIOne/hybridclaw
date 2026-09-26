@@ -28,6 +28,9 @@
 - **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
   calls that already ran, with their arguments and results, for the next turn.
   A call still running at the stop is marked as having an unknown outcome.
+- **Atomic agent output files**: The agent runtime publishes `output.json` and
+  `health-output.json` by renaming a finished temporary file, so readers never
+  see an empty or half-written result.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
