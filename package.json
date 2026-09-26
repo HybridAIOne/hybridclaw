@@ -120,7 +120,6 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
-    "@e965/xlsx": "0.20.3",
     "@huggingface/transformers": "3.8.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@ngrok/ngrok": "1.7.0",
@@ -143,7 +142,6 @@
     "docx": "9.7.1",
     "iconv-lite": "0.7.3",
     "imapflow": "1.7.8",
-    "impit": "0.14.5",
     "jose": "6.2.12",
     "mailparser": "3.9.28",
     "marked": "17.0.6",
@@ -157,6 +155,7 @@
     "qrcode-terminal": "0.12.0",
     "sanitize-html": "2.17.7",
     "stemmer": "2.0.1",
+    "undici": "6.28.1",
     "ws": "8.21.3",
     "xlsx-populate": "1.21.0",
     "yaml": "2.9.1",

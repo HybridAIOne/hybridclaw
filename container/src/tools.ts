@@ -21,13 +21,20 @@ import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
 } from '../shared/msteams-session-ids.js';
-import { buildSanitizedEnv } from '../shared/sensitive-env.js';
+import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
 import { runAudioTranscribe } from './audio-transcribe.js';
+import {
+  BASH_DOCKER_CONTAINER,
+  BASH_DOCKER_CWD,
+  BASH_EXEC_MAX_BUFFER_BYTES,
+  runBashProcess,
+  TASK_SANDBOX_FS_ENABLED,
+} from './bash-process.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -64,6 +71,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -444,13 +452,6 @@ type PersistentBashSession = {
   defaultCwd: string;
   initialized: boolean;
 };
-const BASH_DOCKER_CONTAINER = String(
-  process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
-).trim();
-const BASH_DOCKER_CWD = String(
-  process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
-).trim();
-const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
 let persistentBashSession: PersistentBashSession | null = null;
 const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
 // 2026-09-10, Codex CI review: keep command contents out of process argv.
@@ -471,7 +472,7 @@ mkdir -p -- "$__hybridclaw_session_dir" || exit 125
 chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
 __hybridclaw_write_snapshot() {
   {
-    export -p
+    export -p | grep -vE '^declare -x (${SHELL_RUNTIME_ENV_NAMES.join('|')})(=|$)'
     alias -p
     echo 'shopt -s expand_aliases'
     echo 'set +e'
@@ -559,7 +560,7 @@ function buildBashToolDescription(): string {
   const sessionBehavior = persistentBashStateEnabled
     ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
     : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
-  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
+  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Search file contents with the grep tool: shell \`grep -r\`, \`rg --hidden\`, \`find -exec\`, and \`find | xargs\` wait for user approval on every run unless they exclude .env* files (for example \`grep -r --exclude='.env*'\`).`;
 }
 
 export function setPersistentBashStateEnabled(enabled: boolean): void {
@@ -609,69 +610,16 @@ function buildPersistentBashWrapperArgs(
 function runPersistentBash(params: {
   command: string;
   timeoutMs: number;
+  runtimeEnv: Record<string, string>;
 }): string {
   const session = getPersistentBashSession();
   const wrapperArgs = buildPersistentBashWrapperArgs(session);
-  const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(wrapperArgs, params.timeoutMs, params.command)
-    : runHostBash(wrapperArgs, params.timeoutMs, params.command);
+  const result = runBashProcess(wrapperArgs, params);
   if (result.error === undefined || result.status !== null) {
     session.initialized = true;
   }
 
   return formatBashExecutionResult(result, params.timeoutMs);
-}
-
-function runDockerExecBash(
-  args: string[],
-  timeoutMs: number,
-  command: string,
-): SpawnSyncReturns<string> {
-  return spawnSync(
-    'docker',
-    [
-      'exec',
-      '-i',
-      '-w',
-      BASH_DOCKER_CWD || '/app',
-      BASH_DOCKER_CONTAINER,
-      'bash',
-      ...args,
-    ],
-    {
-      input: `${command}\0`,
-      timeout: timeoutMs,
-      encoding: 'utf-8',
-      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-      env: { ...process.env },
-    },
-  );
-}
-
-function buildBashRuntimeEnv(): Record<string, string> {
-  const env = buildSanitizedEnv(process.env);
-  const gatewayUrl = String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim();
-  const gatewayToken = String(
-    process.env.HYBRIDCLAW_GATEWAY_TOKEN || '',
-  ).trim();
-  if (gatewayUrl) env.HYBRIDCLAW_GATEWAY_URL = gatewayUrl;
-  if (gatewayToken) env.HYBRIDCLAW_GATEWAY_TOKEN = gatewayToken;
-  return env;
-}
-
-function runHostBash(
-  args: string[],
-  timeoutMs: number,
-  command: string,
-): SpawnSyncReturns<string> {
-  return spawnSync('bash', args, {
-    input: `${command}\0`,
-    timeout: timeoutMs,
-    encoding: 'utf-8',
-    cwd: WORKSPACE_ROOT,
-    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    env: buildBashRuntimeEnv(),
-  });
 }
 
 function formatBashExecutionResult(
@@ -705,11 +653,10 @@ function formatBashExecutionResult(
 function runStatelessBash(params: {
   command: string;
   timeoutMs: number;
+  runtimeEnv: Record<string, string>;
 }): string {
   const args = ['-lc', STATELESS_BASH_WRAPPER_SCRIPT];
-  const result = TASK_SANDBOX_FS_ENABLED
-    ? runDockerExecBash(args, params.timeoutMs, params.command)
-    : runHostBash(args, params.timeoutMs, params.command);
+  const result = runBashProcess(args, params);
   return formatBashExecutionResult(result, params.timeoutMs);
 }
 
@@ -2170,7 +2117,6 @@ const BASH_MAX_OUTPUT_BYTES = 128 * 1024;
 const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
 const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
 const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
-const BASH_EXEC_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 const READ_MAX_LINES = 2000;
 const READ_MAX_BYTES = 50 * 1024;
 type ReadTruncationResult = {
@@ -3203,6 +3149,10 @@ async function executeToolInternal(
       return runBash({
         command: args.command,
         timeoutMs,
+        runtimeEnv: await resolveShellRuntimeEnv(
+          gatewayBaseUrl,
+          gatewayApiToken,
+        ),
       });
     }
 
