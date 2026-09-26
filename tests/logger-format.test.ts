@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { Writable } from 'node:stream';
 
 import pino from 'pino';
@@ -99,5 +100,26 @@ describe('logger formatting', () => {
     expect(line).toContain('"code":23');
     expect(line).not.toContain('INDEX_SIZE_ERR');
     expect(line).not.toContain('DATA_CLONE_ERR');
+  });
+
+  it('drops the child argv that Node attaches to spawn errors', async () => {
+    const spawnError = await new Promise<Error>((resolve) => {
+      spawn('hybridclaw-missing-binary', [
+        '-e',
+        'HYBRIDCLAW_GATEWAY_TOKEN=token-sentinel',
+      ]).once('error', resolve);
+    });
+
+    const lines = renderLogLines((logger) => {
+      logger.fatal({ err: spawnError }, 'Uncaught exception');
+      logger.error({ error: spawnError }, 'Container error');
+      logger.error(spawnError);
+    });
+
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(line).toContain('"syscall":"spawn hybridclaw-missing-binary"');
+      expect(line).not.toContain('token-sentinel');
+    }
   });
 });
