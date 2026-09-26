@@ -17,6 +17,10 @@
 - **Paginated pages in `web_fetch`**: Results name the next page when the
   page links to one, and pages that only load a script from a Cloudflare CDN
   are no longer reported as bot-blocked.
+- **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
+  only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
+  `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
+  from older installs.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
