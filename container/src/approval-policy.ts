@@ -42,6 +42,7 @@ import {
   writeTargets,
 } from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
+import { findFetchedCode } from './bash-remote-code.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -429,7 +430,7 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 };
 
 const CRITICAL_BASH_RE =
-  /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b|\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b|\bwget\b[^\n|]*\|\s*(sh|bash|zsh)\b/i;
+  /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
 const WRITE_INTENT_RE =
   /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
@@ -2142,6 +2143,8 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  // Files curl/wget calls saved this session; running one is fetched code.
+  private readonly fetchedFiles = new Set<string>();
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
@@ -3551,6 +3554,10 @@ export class TrustedAgentApprovalRuntime {
         ...(pinnedReach.walk?.reaches || []),
       ]),
     ];
+    const fetchedCode = findFetchedCode(shellCommands, this.fetchedFiles);
+    // Recorded before the decision: a partial or failed download still leaves
+    // a file, and a denied one only costs a later prompt.
+    for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
     const optionWrites = commandsRun.flatMap(optionWriteTargets);
     const deletes =
       DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
@@ -3560,6 +3567,27 @@ export class TrustedAgentApprovalRuntime {
       optionWrites.length > 0 ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
+
+    // Explicit approval even under full-auto (owner call, 2026-09-25): the
+    // two-step `curl -o f` then `sh f` route around the `curl | sh` block was
+    // auto-approved as bash:script. Human-granted trust still applies.
+    if (fetchedCode.runs) {
+      return {
+        tier: 'red',
+        actionKey: 'bash:fetched-code',
+        intent: `run code fetched from the network (\`${normalizePreview(command)}\`)`,
+        consequenceIfDenied:
+          'I will not run downloaded code and will ask how to proceed.',
+        reason: 'the command runs code that curl or wget fetched',
+        commandPreview: normalizePreview(command),
+        pathHints,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+        explicitApprovalRequired: true,
+      };
+    }
 
     if (CRITICAL_BASH_RE.test(command) || FORCE_PUSH_RE.test(command)) {
       return {

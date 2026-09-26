@@ -515,10 +515,80 @@ export function runsProgramOption(words: string[]): boolean {
     .some((arg) => RG_PROGRAM_OPTION_RE.test(arg));
 }
 
+// The name a download takes from its URL: the last path segment, or
+// index.html (wget's choice) when there is none.
+function remoteFileName(url: string): string {
+  const urlPath = url
+    .replace(/^[a-z]+:\/\/[^/?#]*/i, '')
+    .replace(/[?#].*$/, '');
+  return urlPath && !urlPath.endsWith('/')
+    ? path.posix.basename(urlPath)
+    : 'index.html';
+}
+
+// Files curl or wget save: curl's `-o`/`--output` (also as the last letter of
+// `-fsSLo`), `-O` naming the file after the URL, and `--output-dir`; wget's
+// `-O`/`--output-document`, else the URL's name under `-P`. `-` is stdout.
+function fetchWriteTargets(program: string, args: string[]): string[] {
+  const named: string[] = [];
+  let remoteName = program === 'wget';
+  let directory = '';
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const long = /^--([a-z-]+)(?:=(.*))?$/.exec(arg);
+    let option: 'save' | 'directory' | 'remote-name' | null = null;
+    let value: string | undefined;
+    if (long) {
+      if (long[1] === 'output' || long[1] === 'output-document') {
+        option = 'save';
+      } else if (long[1] === 'output-dir' || long[1] === 'directory-prefix') {
+        option = 'directory';
+      } else if (/^remote-name(?:-all)?$/.test(long[1])) {
+        option = 'remote-name';
+      }
+      value = long[2];
+    } else if (/^-[a-zA-Z]/.test(arg)) {
+      // A value-taking letter ends a cluster; its value is the rest or the
+      // next word.
+      const letters = arg.slice(1);
+      const at = letters.search(program === 'curl' ? /[oO]/ : /[OP]/);
+      if (at >= 0) {
+        option =
+          letters[at] === 'P'
+            ? 'directory'
+            : letters[at] === (program === 'curl' ? 'o' : 'O')
+              ? 'save'
+              : 'remote-name';
+        value = letters.slice(at + 1) || undefined;
+      }
+    }
+    if (option === 'remote-name') {
+      remoteName = true;
+    } else if (option) {
+      if (value === undefined) {
+        index += 1;
+        value = args[index] ?? '';
+      }
+      if (option === 'save') named.push(value);
+      else directory = value;
+    }
+  }
+  const urls = args.filter((arg) => /^(?:https?|ftps?):\/\//i.test(arg));
+  const saved =
+    named.length > 0 ? named : remoteName ? urls.map(remoteFileName) : [];
+  return saved
+    .filter((file) => file && file !== '-')
+    .map((file) => (directory ? path.posix.join(directory, file) : file));
+}
+
 // Files a command writes through an option instead of a redirect: git's
-// `--output FILE` and find's -fprint/-fprint0/-fprintf/-fls actions.
+// `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
+// curl and wget save.
 export function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
+  if (program === 'curl' || program === 'wget') {
+    return fetchWriteTargets(program, args);
+  }
   if (program !== 'git' && program !== 'find') return [];
   const targets: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -577,7 +647,7 @@ function copyDestination(args: string[]): string | undefined {
 // What one command writes, as written: redirect targets, `-o`/`--out` values,
 // option writes, the operands of tee/mkdir/touch/chmod/chown, cp/mv
 // destinations, and what xargs or `find -exec` runs.
-function commandWriteTargets(words: string[]): string[] {
+export function commandWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   const targets = [...redirectTargets(words), ...optionWriteTargets(words)];
   for (let index = 0; index < args.length; index += 1) {
@@ -598,7 +668,7 @@ function commandWriteTargets(words: string[]): string[] {
       targets.push(...commandWriteTargets(exec));
     }
   }
-  return targets.filter(Boolean);
+  return [...new Set(targets.filter(Boolean))];
 }
 
 // Every path a script writes, resolved against the directory each command

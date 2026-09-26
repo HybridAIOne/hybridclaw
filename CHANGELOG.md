@@ -69,6 +69,12 @@
   resolved from the workspace root through any `cd` in the same command, and
   those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
   paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
+- **Running downloaded code needs explicit approval**: Bash commands that run
+  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
+  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
+  red `bash:fetched-code` approval that full-auto never grants, closing the
+  two-step route around the `curl | sh` block. Files curl and wget save also
+  count as writes for the workspace fence.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
