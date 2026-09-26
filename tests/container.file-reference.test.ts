@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
-const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
+const makeTempDir = useTempDir('hybridclaw-file-reference-');
+useCleanMocks({
+  restoreAllMocks: true,
+  unstubAllEnvs: true,
+  unstubAllGlobals: true,
+});
 
 let workspaceRoot = '';
 
@@ -14,6 +18,14 @@ let workspaceRoot = '';
 const BINARY_BYTES = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0x01,
 ]);
+
+// Deterministic bytes whose base64 mixes digits and both letter cases, as any
+// real encoded file does.
+function encodedPayload(minChars: number): string {
+  const bytes = Buffer.alloc(Math.ceil((minChars * 3) / 4) + 3);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = (i * 37 + 11) % 256;
+  return bytes.toString('base64');
+}
 
 async function loadFileReference() {
   vi.resetModules();
@@ -25,27 +37,38 @@ async function loadTools() {
   return import('../container/src/tools.js');
 }
 
-beforeEach(() => {
-  workspaceRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-file-reference-'),
-  );
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
-  process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
-});
+// `http_request` is the built-in that sends its arguments out of the sandbox,
+// so it stands in for MCP and plugin tools here: the gateway call is the
+// outbound request whose body must carry the bytes.
+async function loadHttpRequestTool() {
+  const tools = await loadTools();
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    text: async () =>
+      JSON.stringify({ ok: true, status: 201, body: '{"content":{}}' }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  tools.setGatewayContext('http://127.0.0.1:9000', 'test-token', 'web', []);
+  return { ...tools, fetchMock };
+}
 
-afterEach(() => {
-  if (workspaceRoot) fs.rmSync(workspaceRoot, { recursive: true, force: true });
-  if (ORIGINAL_WORKSPACE_ROOT === undefined) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = ORIGINAL_WORKSPACE_ROOT;
-  }
-  if (ORIGINAL_WORKSPACE_DISPLAY_ROOT === undefined) {
-    delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-  } else {
-    process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
-      ORIGINAL_WORKSPACE_DISPLAY_ROOT;
-  }
+function sentJson(fetchMock: ReturnType<typeof vi.fn>) {
+  const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+  return JSON.parse(init.body).json as Record<string, unknown>;
+}
+
+function contentsApiCall(content: string): string {
+  return JSON.stringify({
+    url: 'https://api.github.com/repos/user_a/site/contents/public/logo.png',
+    method: 'PUT',
+    json: { message: 'chore: add logo', content },
+  });
+}
+
+beforeEach(() => {
+  workspaceRoot = makeTempDir();
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/workspace');
 });
 
 describe('expandFileReferences', () => {
@@ -212,9 +235,19 @@ describe('assertNoPastedBinaryPayload', () => {
 
     expect(() =>
       assertNoPastedBinaryPayload({
-        content: `${'A'.repeat(40)}...${'B'.repeat(40)}`,
+        content: 'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8x…ABJRU5ErkJggg==',
       }),
     ).toThrow(/abbreviated base64/);
+  });
+
+  test.each([
+    ['an abbreviated commit hash', 'e45bdf4b1c3a5f2e9d8c7b6a5f4e3d2c...'],
+    ['a compare range of plain names', 'develop...release/candidateVersion'],
+    ['a long run of one letter', 'x'.repeat(24_000)],
+  ])('allows %s', async (_label, value) => {
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() => assertNoPastedBinaryPayload({ value })).not.toThrow();
   });
 
   test('rejects an oversized inline payload', async () => {
@@ -223,7 +256,7 @@ describe('assertNoPastedBinaryPayload', () => {
 
     expect(() =>
       assertNoPastedBinaryPayload({
-        content_base64: 'A'.repeat(INLINE_BASE64_MAX_CHARS + 1),
+        content_base64: encodedPayload(INLINE_BASE64_MAX_CHARS + 1),
       }),
     ).toThrow(/inline base64 payload/);
   });
@@ -235,7 +268,7 @@ describe('assertNoPastedBinaryPayload', () => {
     expect(() =>
       assertNoPastedBinaryPayload({
         json: {
-          image: `data:image/png;base64,${'A'.repeat(INLINE_BASE64_MAX_CHARS + 1)}`,
+          image: `data:image/png;base64,${encodedPayload(INLINE_BASE64_MAX_CHARS + 1)}`,
         },
       }),
     ).toThrow(/inline base64 payload/);
@@ -244,8 +277,9 @@ describe('assertNoPastedBinaryPayload', () => {
   test('rejects a line-wrapped oversized payload', async () => {
     const { assertNoPastedBinaryPayload, INLINE_BASE64_MAX_CHARS } =
       await loadFileReference();
-    const wrapped = ('A'.repeat(76) + '\n').repeat(
-      Math.ceil((INLINE_BASE64_MAX_CHARS + 1) / 76),
+    const wrapped = encodedPayload(INLINE_BASE64_MAX_CHARS + 1).replace(
+      /.{76}/g,
+      '$&\n',
     );
 
     expect(() => assertNoPastedBinaryPayload({ body: wrapped })).toThrow(
@@ -293,23 +327,19 @@ describe('assertNoPastedBinaryPayload', () => {
 });
 
 describe('tool dispatch', () => {
-  test('expands references before the tool runs', async () => {
+  test('sends the referenced bytes and reports what it sent', async () => {
     fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), BINARY_BYTES);
-    const { executeTool } = await loadTools();
+    const { executeTool, fetchMock } = await loadHttpRequestTool();
 
-    await executeTool(
-      'write',
-      JSON.stringify({
-        path: 'encoded.txt',
-        contents: '<file-base64:logo.png>',
-      }),
+    const output = await executeTool(
+      'http_request',
+      contentsApiCall('<file-base64:logo.png>'),
     );
 
-    const written = fs.readFileSync(
-      path.join(workspaceRoot, 'encoded.txt'),
-      'utf8',
+    expect(sentJson(fetchMock).content).toBe(BINARY_BYTES.toString('base64'));
+    expect(output).toContain(
+      `[file-base64: sent logo.png (${BINARY_BYTES.length} bytes)]`,
     );
-    expect(written).toBe(BINARY_BYTES.toString('base64'));
   });
 
   test('does not apply the inline payload guard to its own expansion', async () => {
@@ -319,21 +349,40 @@ describe('tool dispatch', () => {
     const payload = Buffer.alloc(92321);
     for (let i = 0; i < payload.length; i += 1) payload[i] = i % 256;
     fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), payload);
-    const { executeTool } = await loadTools();
+    const { executeTool, fetchMock } = await loadHttpRequestTool();
 
-    await executeTool(
+    await executeTool('http_request', contentsApiCall('<file-base64:logo.png>'));
+
+    expect(sentJson(fetchMock).content).toBe(payload.toString('base64'));
+  });
+
+  test('adds no receipt when the call fails', async () => {
+    fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), BINARY_BYTES);
+    const { executeToolWithMetadata, fetchMock } = await loadHttpRequestTool();
+    fetchMock.mockRejectedValue(new Error('connection refused'));
+
+    const result = await executeToolWithMetadata(
+      'http_request',
+      contentsApiCall('<file-base64:logo.png>'),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).not.toContain('[file-base64:');
+  });
+
+  test('rejects a reference in a tool that keeps its arguments local', async () => {
+    // Expanding here would only write base64 text into the file.
+    fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), BINARY_BYTES);
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
       'write',
-      JSON.stringify({
-        path: 'encoded.txt',
-        contents: '<file-base64:logo.png>',
-      }),
+      JSON.stringify({ path: 'copy.png', contents: '<file-base64:logo.png>' }),
     );
 
-    const written = fs.readFileSync(
-      path.join(workspaceRoot, 'encoded.txt'),
-      'utf8',
-    );
-    expect(written).toBe(payload.toString('base64'));
+    expect(result.isError).toBe(true);
+    expect(result.output).toMatch(/does not expand/);
+    expect(fs.existsSync(path.join(workspaceRoot, 'copy.png'))).toBe(false);
   });
 
   test('reports a pasted payload as a tool error', async () => {
@@ -352,14 +401,14 @@ describe('tool dispatch', () => {
   });
 
   test('reports an unresolvable reference as a tool error', async () => {
-    const { executeTool } = await loadTools();
+    const { executeTool, fetchMock } = await loadHttpRequestTool();
 
     const output = await executeTool(
-      'write',
-      JSON.stringify({ path: 'out.txt', contents: '<file-base64:missing.png>' }),
+      'http_request',
+      contentsApiCall('<file-base64:missing.png>'),
     );
 
     expect(output).toMatch(/not found/);
-    expect(fs.existsSync(path.join(workspaceRoot, 'out.txt'))).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -48,11 +48,10 @@ import {
   runDiagramTool,
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
-import { emitRuntimeEvent } from './extensions.js';
 import {
-  assertNoPastedBinaryPayload,
-  expandFileReferences,
-  FileReferenceError,
+  appendFileReferenceReceipt,
+  type FileReferenceExpansion,
+  prepareToolArguments,
 } from './file-reference.js';
 import {
   type GatewayJsonResponse,
@@ -2875,6 +2874,7 @@ async function processWebExtractWithAuxiliary(params: {
 async function executeToolInternal(
   name: string,
   argsJson: string,
+  sentFiles: FileReferenceExpansion[],
 ): Promise<string> {
   let parsedArgs: unknown;
   try {
@@ -2892,24 +2892,15 @@ async function executeToolInternal(
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
-  let args = parsedToolArgs;
-  try {
-    assertNoPastedBinaryPayload(parsedToolArgs);
-    const expanded = expandFileReferences(parsedToolArgs);
-    args = expanded.args;
-    for (const expansion of expanded.expansions) {
-      await emitRuntimeEvent({
-        event: 'file_reference_expanded',
-        toolName: name,
-        path: expansion.path,
-        bytes: expansion.bytes,
-      });
-    }
-  } catch (err) {
-    if (err instanceof FileReferenceError)
-      return failTool(`Error: ${err.message}`);
-    throw err;
-  }
+  const prepared = prepareToolArguments(name, parsedToolArgs, {
+    acceptsFileReferences:
+      name === 'http_request' ||
+      Boolean(mcpClientManager?.isKnownTool(name)) ||
+      Boolean(getPluginToolDefinition(name)),
+  });
+  if ('error' in prepared) return failTool(`Error: ${prepared.error}`);
+  const args = prepared.args;
+  sentFiles.push(...prepared.expansions);
 
   if (mcpClientManager?.isKnownTool(name)) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -4135,9 +4126,11 @@ export async function executeToolWithMetadata(
   name: string,
   argsJson: string,
 ): Promise<ToolRunResult> {
+  const sentFiles: FileReferenceExpansion[] = [];
   try {
+    const output = await executeToolInternal(name, argsJson, sentFiles);
     return {
-      output: await executeToolInternal(name, argsJson),
+      output: appendFileReferenceReceipt(output, sentFiles),
       isError: false,
     };
   } catch (err) {
