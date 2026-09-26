@@ -27,6 +27,11 @@
   delegations it queued, and its stored history now says so. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was
   started instead of repeating "Delegation accepted".
+- **Gateway survives file-descriptor exhaustion**: When the gateway runs out
+  of file descriptors (EMFILE/ENFILE), a process it cannot start fails only
+  the operation that needed it instead of crashing the gateway. This covers
+  container and host agent processes, Docker image checks, skill dependency
+  installers, harness-evolution eval commands, and `cloudflared`.
 - **Document delivery**: Reports, lists, and data files an agent writes are
   attached to its reply when the reply names them, including links with
   `sandbox:` or host workspace paths. Web chat links to an attached file

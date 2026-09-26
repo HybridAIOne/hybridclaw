@@ -46,8 +46,9 @@ type CloudflaredProcessOptions = {
 };
 
 export interface CloudflaredProcess {
-  stderr: NodeJS.ReadableStream;
-  stdout: NodeJS.ReadableStream;
+  // Undefined when spawn fails with EMFILE/ENFILE; 'error' reports it.
+  stderr?: NodeJS.ReadableStream;
+  stdout?: NodeJS.ReadableStream;
   kill(signal?: NodeJS.Signals): boolean;
   off(event: 'error', listener: (error: Error) => void): this;
   off(
@@ -425,8 +426,8 @@ export class CloudflareTunnelProvider implements TunnelProvider {
         clearTimeout(timer);
         process.off('error', onError);
         process.off('exit', onExit);
-        process.stdout.off('data', onData);
-        process.stderr.off('data', onData);
+        process.stdout?.off('data', onData);
+        process.stderr?.off('data', onData);
       };
       const resolveReady = (): void => {
         if (settled) return;
@@ -469,9 +470,9 @@ export class CloudflareTunnelProvider implements TunnelProvider {
       }, this.startupTimeoutMs);
       timer.unref();
 
-      process.stdout.on('data', onData);
-      process.stderr.on('data', onData);
       process.once('error', onError);
+      process.stdout?.on('data', onData);
+      process.stderr?.on('data', onData);
       process.once('exit', onExit);
     });
   }
