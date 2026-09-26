@@ -1199,12 +1199,17 @@ async function runHostProcessInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
-      maintainWarmHostPool({
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        bashProxy: params.bashProxy,
-      });
+      // Best-effort: a failed refill must not discard the finished turn.
+      try {
+        maintainWarmHostPool({
+          agentId,
+          workspacePathOverride: params.workspacePathOverride,
+          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+          bashProxy: params.bashProxy,
+        });
+      } catch (err) {
+        logger.warn({ agentId, err }, 'Warm host agent process refill failed');
+      }
     }
     return output;
   } finally {
