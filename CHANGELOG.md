@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
+  only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
+  `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
+  from older installs.
 - **Recursive shell reads of pinned files need approval**: Recursive reads
   that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
   `find -exec`, `find | xargs`) now require approval on every run unless they

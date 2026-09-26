@@ -33,31 +33,54 @@ describe('instruction integrity', () => {
       path.join(homeDir, '.hybridclaw', 'instructions'),
     );
 
-    const securityPath =
-      instructions.resolveRuntimeInstructionPath('SECURITY.md');
     const trustModelPath =
       instructions.resolveRuntimeInstructionPath('TRUST_MODEL.md');
-    expect(fs.existsSync(securityPath)).toBe(true);
     expect(fs.existsSync(trustModelPath)).toBe(true);
+    expect(instructions.INSTRUCTION_FILES).toEqual(['TRUST_MODEL.md']);
 
-    fs.writeFileSync(securityPath, 'tampered\n', 'utf-8');
+    fs.writeFileSync(trustModelPath, 'tampered\n', 'utf-8');
 
     const drifted = instructions.verifyInstructionIntegrity();
     expect(drifted.ok).toBe(false);
     expect(drifted.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: 'SECURITY.md',
+          path: 'TRUST_MODEL.md',
           status: 'modified',
         }),
       ]),
     );
 
     const synced = instructions.syncRuntimeInstructionCopies();
-    expect(synced.files['SECURITY.md']).toBeTruthy();
+    expect(synced.files['TRUST_MODEL.md']).toBeTruthy();
 
     const restored = instructions.verifyInstructionIntegrity();
     expect(restored.ok).toBe(true);
+  });
+
+  test('sync deletes the retired runtime SECURITY.md copy', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    vi.stubEnv('HOME', homeDir);
+
+    const instructions = await import(
+      '../src/security/instruction-integrity.js'
+    );
+    const stalePath = path.join(
+      instructions.INSTRUCTION_RUNTIME_DIR,
+      'SECURITY.md',
+    );
+    fs.mkdirSync(instructions.INSTRUCTION_RUNTIME_DIR, { recursive: true });
+    fs.writeFileSync(stalePath, 'stale\n', 'utf-8');
+
+    // Startup seeding must not delete files; cleanup runs only on explicit sync.
+    instructions.ensureRuntimeInstructionCopies();
+    expect(fs.existsSync(stalePath)).toBe(true);
+
+    const synced = instructions.syncRuntimeInstructionCopies();
+
+    expect(fs.existsSync(stalePath)).toBe(false);
+    expect(Object.keys(synced.files)).toEqual(['TRUST_MODEL.md']);
+    expect(instructions.verifyInstructionIntegrity().ok).toBe(true);
   });
 
   test('workspace bootstrap templates resolve from install root instead of cwd', async () => {
