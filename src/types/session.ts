@@ -49,6 +49,8 @@ export interface StoredMessage {
   activityTrace?: ActivityTrace;
   routingTrace?: RoutingTrace;
   tool_history_json?: string | null;
+  /** Attachment paths of a user turn; read with `parseMessageMedia`. */
+  media_json?: string | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
   created_at: string;
