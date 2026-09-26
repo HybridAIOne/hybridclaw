@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
+import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type { ContainerOutput } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -12,7 +13,7 @@ useCleanMocks({
 });
 
 test.each([
-  ['writeOutput', 'output.json'],
+  ['writeOutput', ipcOutputFileName('request-1')],
   ['writeHealthOutput', 'health-output.json'],
 ] as const)(
   '%s never shows a poller a half-written %s',
@@ -38,7 +39,8 @@ test.each([
       toolsUsed: [],
     };
 
-    ipc[writer](output);
+    if (writer === 'writeOutput') ipc.writeOutput(output, 'request-1');
+    else ipc.writeHealthOutput(output);
 
     expect(polled).toEqual([null]);
     expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual(output);

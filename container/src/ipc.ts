@@ -2,8 +2,10 @@
  * Container end of the file-based IPC with the gateway (`src/infra/ipc.ts`).
  *
  * Output files appear whole: a poller sees no file or complete JSON, never a
- * half-written one. Input files carry no such guarantee, so the input reader
- * treats unparseable JSON as not yet written and polls again.
+ * half-written one. Each request's reply goes to its own file, so a late reply
+ * never lands where a later request reads. Input files carry no such
+ * guarantee, so the input reader treats unparseable JSON as not yet written
+ * and polls again.
  *
  * The IPC directory can outlive this process: the session's replacement agent
  * may share it while this one shuts down, so once shutdown starts this agent
@@ -12,13 +14,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { ipcOutputFileName } from '../shared/ipc-output-files.js';
 import { writeMemoryFileAtomic } from '../shared/memory-file.js';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
 
 const INPUT_PATH = path.join(IPC_DIR, 'input.json');
-const OUTPUT_PATH = path.join(IPC_DIR, 'output.json');
 const HEALTH_INPUT_PATH = path.join(IPC_DIR, 'health-input.json');
 const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
 const MIN_INPUT_POLL_INTERVAL_MS = 5;
@@ -73,8 +75,14 @@ export async function waitForInput(
   return null; // Idle timeout or shutdown
 }
 
-export function writeOutput(output: ContainerOutput): void {
-  writeMemoryFileAtomic(OUTPUT_PATH, JSON.stringify(output, null, 2));
+export function writeOutput(
+  output: ContainerOutput,
+  requestId: string | undefined,
+): void {
+  writeMemoryFileAtomic(
+    path.join(IPC_DIR, ipcOutputFileName(requestId)),
+    JSON.stringify(output, null, 2),
+  );
 }
 
 export function writeHealthOutput(output: ContainerOutput): void {

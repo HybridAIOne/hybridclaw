@@ -200,7 +200,7 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
-let requestInFlight = false;
+let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
 
@@ -316,23 +316,27 @@ function shutdownAgentProcess(
       console.error('[hybridclaw-agent] MCP shutdown failed:', error);
     });
     if (finalOutput) {
-      writeOutput(finalOutput);
+      writeOutput(finalOutput, inFlightInput?.requestId);
     }
     process.exit(exitCode);
   });
 }
 
 /** Parks once shutdown starts: the signal handler's reply stays the only one. */
-async function replyToRequest(output: ContainerOutput): Promise<void> {
+async function replyToRequest(
+  input: ContainerInput,
+  output: ContainerOutput,
+): Promise<void> {
   await haltIfShuttingDown();
   output.sideEffects = getPendingSideEffects();
-  writeOutput(output);
-  requestInFlight = false;
+  writeOutput(output, input.requestId);
+  inFlightInput = null;
 }
 
 function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
-  if (!requestInFlight) return;
-  requestInFlight = false;
+  const input = inFlightInput;
+  if (!input) return;
+  inFlightInput = null;
   try {
     writeOutput(
       buildInterruptedShutdownOutput(
@@ -340,6 +344,7 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
         getPendingSideEffects(),
         activeTurnToolHistory,
       ),
+      input.requestId,
     );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
@@ -2107,7 +2112,7 @@ async function main(): Promise<void> {
   const stdinData = await readStdinLine();
   await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
-  requestInFlight = true;
+  inFlightInput = firstInput;
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
@@ -2278,7 +2283,7 @@ async function main(): Promise<void> {
     }
   }
 
-  await replyToRequest(firstOutput);
+  await replyToRequest(firstInput, firstOutput);
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2305,7 +2310,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    requestInFlight = true;
+    inFlightInput = input;
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2396,7 +2401,7 @@ async function main(): Promise<void> {
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      await replyToRequest(immediate);
+      await replyToRequest(input, immediate);
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2482,7 +2487,7 @@ async function main(): Promise<void> {
       });
     }
 
-    await replyToRequest(output);
+    await replyToRequest(input, output);
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

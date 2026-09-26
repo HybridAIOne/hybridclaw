@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -101,8 +102,9 @@ async function startAgent(
   const exited = new Promise<number>((resolve) =>
     child.once('exit', () => resolve(Date.now())),
   );
-  const request = (content: string): ContainerInput => ({
+  const request = (requestId: string, content: string): ContainerInput => ({
     sessionId: 'session-shutdown-ipc',
+    requestId,
     messages: [{ role: 'user', content }],
     apiKey: 'test-key',
     baseUrl: `http://127.0.0.1:${address.port}`,
@@ -126,15 +128,14 @@ async function startAgent(
     ),
   });
   const ipcFile = (name: string) => path.join(ipc, name);
-  // Reads and removes the reply, as the gateway does.
-  const takeReply = async (): Promise<ContainerOutput> => {
+  // Reads and removes a request's reply file, as the gateway does.
+  const takeReply = async (requestId: string): Promise<ContainerOutput> => {
+    const replyPath = ipcFile(ipcOutputFileName(requestId));
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      if (fs.existsSync(ipcFile('output.json'))) {
-        const output = JSON.parse(
-          fs.readFileSync(ipcFile('output.json'), 'utf8'),
-        );
-        fs.unlinkSync(ipcFile('output.json'));
+      if (fs.existsSync(replyPath)) {
+        const output = JSON.parse(fs.readFileSync(replyPath, 'utf8'));
+        fs.unlinkSync(replyPath);
         return output;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -167,20 +168,22 @@ test('a stopping agent leaves new input in the IPC dir for its replacement', asy
     role: 'assistant',
     content: `answer to ${messages.at(-1)?.content}`,
   }));
-  agent.child.stdin?.write(`${JSON.stringify(agent.request('first'))}\n`);
-  await expect(agent.takeReply()).resolves.toMatchObject({
+  agent.child.stdin?.write(
+    `${JSON.stringify(agent.request('request-1', 'first'))}\n`,
+  );
+  await expect(agent.takeReply('request-1')).resolves.toMatchObject({
     result: 'answer to first',
   });
 
   await agent.stopAgent();
   fs.writeFileSync(
     agent.ipcFile('input.json'),
-    JSON.stringify(agent.request('meant for the replacement')),
+    JSON.stringify(agent.request('request-2', 'meant for the replacement')),
   );
   fs.writeFileSync(
     agent.ipcFile('health-input.json'),
     JSON.stringify({
-      ...agent.request('probe'),
+      ...agent.request('probe-1', 'probe'),
       healthCheck: { nonce: 'probe-1' },
     }),
   );
@@ -231,13 +234,16 @@ test.each([
     await modelCallReleased;
     return message;
   });
-  agent.child.stdin?.write(`${JSON.stringify(agent.request('go'))}\n`);
+  agent.child.stdin?.write(
+    `${JSON.stringify(agent.request('request-1', 'go'))}\n`,
+  );
   await vi.waitFor(() => expect(agent.modelCalls).toHaveLength(1), {
     timeout: 10_000,
   });
 
   await agent.stopAgent();
-  await expect(agent.takeReply()).resolves.toMatchObject({
+  // The one reply, in the stopped request's own reply file.
+  await expect(agent.takeReply('request-1')).resolves.toMatchObject({
     status: 'error',
     error: expect.stringContaining('received SIGTERM'),
   });
@@ -246,7 +252,7 @@ test.each([
   releaseModelCall();
   fs.writeFileSync(
     agent.ipcFile('input.json'),
-    JSON.stringify(agent.request('meant for the replacement')),
+    JSON.stringify(agent.request('request-2', 'meant for the replacement')),
   );
   const writtenAt = Date.now();
 
@@ -273,14 +279,18 @@ test('a stop during the implicit approval delay cancels the tool', async () => {
     path.join(agent.dir, '.hybridclaw', 'policy.yaml'),
     'approval:\n  implicit_delay_enabled: true\n',
   );
-  agent.child.stdin?.write(`${JSON.stringify(agent.request('go'))}\n`);
+  agent.child.stdin?.write(
+    `${JSON.stringify(agent.request('request-1', 'go'))}\n`,
+  );
   // Logged as the delay starts; without the delay the tool would run now.
   await vi.waitFor(() => expect(agent.stderr()).toContain('[tool] write'), {
     timeout: 10_000,
   });
 
   await agent.stopAgent();
-  await expect(agent.takeReply()).resolves.toMatchObject({ status: 'error' });
+  await expect(agent.takeReply('request-1')).resolves.toMatchObject({
+    status: 'error',
+  });
   const stoppedAt = Date.now();
 
   expect((await agent.exited) - stoppedAt).toBeGreaterThan(5_000);

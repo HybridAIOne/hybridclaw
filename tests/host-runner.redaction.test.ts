@@ -1040,6 +1040,7 @@ test('HostExecutor surfaces missing packaged runtime dependencies as immediate e
   const readOutput = vi.fn(
     async (
       _sessionId: string,
+      _requestId: string,
       _timeoutMs: number,
       opts?: {
         terminalError?: () => string | null;
@@ -1214,6 +1215,7 @@ test('HostExecutor forwards maxWallClockMs to the IPC output reader', async () =
 
   expect(readOutput).toHaveBeenCalledWith(
     'session-max-wall-clock',
+    expect.any(String),
     expect.any(Number),
     expect.objectContaining({
       maxWallClockMs: 3_600_000,
@@ -1300,6 +1302,7 @@ test('HostExecutor forwards disabled inactivity timeout to the IPC output reader
 
   expect(readOutput).toHaveBeenCalledWith(
     'session-no-inactivity-timeout',
+    expect.any(String),
     null,
     expect.any(Object),
   );
@@ -1316,6 +1319,7 @@ test('HostExecutor treats heartbeat lines as activity without evicting stderr co
   const readOutput = vi.fn(
     async (
       _sessionId: string,
+      _requestId: string,
       _timeoutMs: number,
       opts?: {
         activity?: { lastActivityMs: number; notify: () => void };

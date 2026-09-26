@@ -5,6 +5,7 @@
  * tool lists remain the permission boundary enforced by the worker.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -974,10 +975,12 @@ async function runHostProcessInner(
     withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
   );
   const existingEntry = pool.get(sessionId);
+  const requestId = randomUUID();
 
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    requestId,
     agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
@@ -1158,6 +1161,7 @@ async function runHostProcessInner(
 
     const output = await readOutput(
       entry.ipcSessionId,
+      requestId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,

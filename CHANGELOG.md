@@ -67,6 +67,18 @@
 
 ### Fixed
 
+- **Turns right after an interrupt**: A turn started right after a stop,
+  full-auto preemption, Discord message edit, or client disconnect no longer
+  reuses the container that is still shutting down, which failed the turn. It
+  also never receives the stopped turn's late shutdown reply, which failed the
+  turn and started the stopped turn's queued delegations: each agent request
+  now replies in its own IPC file.
+- **Work after an interrupt**: A stopped agent no longer keeps working while it
+  shuts down, which can take seconds with open browser sessions or MCP
+  servers. It starts no further model call, approval, or tool call, sends no
+  reply after the interrupted one, and leaves the session's next message to the
+  agent that replaces it instead of answering that message itself or leaving
+  it unanswered until the timeout.
 - **macOS browser control window isolation**: The `mac-cua` browser provider
   opens a dedicated browser window instead of taking over an existing one, so
   it no longer drives the tab holding the web chat.
@@ -113,9 +125,9 @@
 - **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
   calls that already ran, with their arguments and results, for the next turn.
   A call still running at the stop is marked as having an unknown outcome.
-- **Atomic agent output files**: The agent runtime publishes `output.json` and
-  `health-output.json` by renaming a finished temporary file, so readers never
-  see an empty or half-written result.
+- **Atomic agent output files**: The agent runtime publishes its reply and
+  `health-output.json` files by renaming a finished temporary file, so readers
+  never see an empty or half-written result.
 - **Recursive shell reads of pinned files need approval**: Recursive reads
   that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
   `find -exec`, `find | xargs`) now require approval on every run unless they
@@ -181,12 +193,6 @@
   attempt that fails after running a tool is no longer retried on a fallback
   model, the same rung, or a higher tier, which could repeat its effects. The
   failed turn lists the tool calls that ran, as unrouted turns do.
-- **Work after an interrupt**: A stopped agent no longer keeps working while it
-  shuts down, which can take seconds with open browser sessions or MCP
-  servers. It starts no further model call, approval, or tool call, sends no
-  reply after the interrupted one, and leaves the session's next message to the
-  agent that replaces it instead of answering that message itself or leaving
-  it unanswered until the timeout.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
