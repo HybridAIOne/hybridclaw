@@ -746,6 +746,17 @@ function getOrSpawnHostProcess(
     },
   };
 
+  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
+  // without stdio and emits 'error' next tick, fatal if nobody listens.
+  proc.on('error', (err) => {
+    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    removePoolEntry(entry);
+    logger.error({ sessionId, error: err }, 'Host agent process error');
+  });
+  if (!proc.stderr) {
+    throw new Error('stdio pipes not created (out of file descriptors)');
+  }
+
   proc.stderr.on('data', (data) => {
     entry.stderrBuffer += data.toString('utf-8');
     const lines = entry.stderrBuffer.split('\n');
@@ -834,12 +845,6 @@ function getOrSpawnHostProcess(
     });
     removePoolEntry(entry);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
-  });
-
-  proc.on('error', (err) => {
-    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    removePoolEntry(entry);
-    logger.error({ sessionId, error: err }, 'Host agent process error');
   });
 
   proc.stdin?.on('error', (err) => {

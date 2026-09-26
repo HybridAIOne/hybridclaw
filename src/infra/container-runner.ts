@@ -905,6 +905,17 @@ function getOrSpawnContainer(
     },
   };
 
+  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
+  // without stdio and emits 'error' next tick, fatal if nobody listens.
+  proc.on('error', (err) => {
+    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    removePoolEntry(entry);
+    logger.error({ sessionId, containerName, error: err }, 'Container error');
+  });
+  if (!proc.stderr) {
+    throw new Error('stdio pipes not created (out of file descriptors)');
+  }
+
   proc.stderr.on('data', (data) => {
     entry.stderrBuffer += data.toString('utf-8');
     const lines = entry.stderrBuffer.split('\n');
@@ -997,12 +1008,6 @@ function getOrSpawnContainer(
     });
     removePoolEntry(entry);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
-  });
-
-  proc.on('error', (err) => {
-    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    removePoolEntry(entry);
-    logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
 
   if (entry.warm) {
