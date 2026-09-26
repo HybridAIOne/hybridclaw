@@ -60,7 +60,6 @@ async function runEvalCommand(args: string[]): Promise<void> {
   const runtime = resolveAgentForRequest({ session });
   const result = await handleEvalCommand({
     args,
-    channelId: 'cli',
     dataDir: config.DATA_DIR,
     gatewayBaseUrl: config.GATEWAY_CLIENT_BASE_URL,
     webApiToken: config.WEB_API_TOKEN,

@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   buildDefaultEvalProfile,
-  describeEvalProfile,
   type EvalProfile,
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
@@ -26,6 +25,7 @@ import {
 import type { ToolExecution } from '../../src/types/execution.js';
 import { isRecord } from '../../src/utils/type-guards.js';
 import {
+  describeEvalProfile,
   joinSections,
   renderKeyValueSection,
   resolveHarnessVersion,

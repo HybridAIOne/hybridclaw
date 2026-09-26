@@ -6,7 +6,6 @@ import { MAX_CONCURRENT_CONTAINERS } from '../../src/config/config.js';
 import { isContainerMaxConcurrentExplicit } from '../../src/config/runtime-config.js';
 import {
   buildDefaultEvalProfile,
-  describeEvalProfile,
   EVAL_MODEL_PROFILE_MARKER,
   type EvalProfile,
   encodeEvalProfileModel,
@@ -20,12 +19,9 @@ import {
 import type { GatewayCommandResult } from '../../src/gateway/gateway-types.js';
 import { resolveInstallRoot } from '../../src/infra/install-root.js';
 import { logger } from '../../src/logger.js';
-import {
-  enqueueProactiveMessage,
-  isDatabaseInitialized,
-} from '../../src/memory/db.js';
 import { normalizeMemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
 import { normalizeMemoryRecallBackend } from '../../src/memory/semantic-recall.js';
+import { normalizeTrimmedString } from '../../src/utils/normalized-strings.js';
 import {
   parseNonNegativeInteger,
   parsePositiveInteger,
@@ -105,7 +101,6 @@ export interface HandleEvalCommandParams {
   gatewayApiToken: string;
   effectiveModel: string;
   effectiveAgentId?: string;
-  channelId?: string;
 }
 
 interface EvalProgressSpec {
@@ -343,9 +338,7 @@ interface AgentRiskNativeSummary {
   };
 }
 
-const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
-const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
 const EVAL_EARLY_EXIT_CHECK_MS = 1500;
 const TAU2_REPO_URL = 'https://github.com/sierra-research/tau2-bench';
 const TAU2_INSTALL_DIRNAME = 'tau2-bench';
@@ -908,7 +901,6 @@ function renderTau2Usage(env: EvalEnvironment, dataDir: string): string {
     'Defaults:',
     '- Missing `--agent-llm` defaults to `$HYBRIDCLAW_EVAL_MODEL`.',
     '- Missing `--user-llm` defaults to `$HYBRIDCLAW_EVAL_MODEL`.',
-    '- TUI and web sessions receive proactive ASCII progress bars when `--num-tasks` is set.',
   ].join('\n');
 }
 
@@ -1146,28 +1138,6 @@ function getManagedSuiteSetupCommand(
     strategy: 'system-python',
     command: fallbackCommand,
   };
-}
-
-function getManagedSuiteNextStep(
-  suite: EvalSuiteDefinition,
-  _dataDir: string,
-): string {
-  switch (suite.id) {
-    case 'locomo': {
-      return 'npm run eval -- locomo run --budget 4000 --max-questions 20';
-    }
-    case 'trace-judge': {
-      return 'npm run eval -- trace-judge run';
-    }
-    case 'agent-risk': {
-      return 'npm run eval -- agent-risk run';
-    }
-    case 'terminal-bench-2.0': {
-      return `npm run eval -- terminal-bench-2.0 run --num-tasks 10`;
-    }
-    default:
-      return `npm run eval -- ${suite.id}`;
-  }
 }
 
 export function buildInternalEvalCommand(
@@ -2857,42 +2827,6 @@ function clampProgress(value: number, total: number | null): number {
   return Math.max(0, Math.floor(value));
 }
 
-function extractTau2CompletedTasks(params: {
-  stdoutText: string;
-  stderrText: string;
-  total: number | null;
-}): number {
-  const haystacks = [params.stdoutText, params.stderrText];
-  let maxCompleted = 0;
-
-  const updateMax = (value: number): void => {
-    maxCompleted = Math.max(maxCompleted, clampProgress(value, params.total));
-  };
-
-  for (const haystack of haystacks) {
-    if (!haystack) continue;
-
-    for (const match of haystack.matchAll(
-      /\btask\s+(\d+)\s*(?:\/|of)\s*(\d+)\b/gi,
-    )) {
-      const current = parsePositiveInteger(match[1] || null);
-      const total = parsePositiveInteger(match[2] || null);
-      if (!current) continue;
-      if (params.total && total && total !== params.total) continue;
-      updateMax(current);
-    }
-
-    for (const match of haystack.matchAll(
-      /\b(?:running|starting|processing|completed|finished)\s+task\s+(\d+)\b/gi,
-    )) {
-      const current = parsePositiveInteger(match[1] || null);
-      if (current) updateMax(current);
-    }
-  }
-
-  return maxCompleted;
-}
-
 function isProcessRunning(pid: number | null): boolean {
   if (!pid || pid <= 0) return false;
   try {
@@ -2940,173 +2874,6 @@ function formatLocomoEvaluationProgressValue(
   );
 }
 
-function formatProgressMessage(params: {
-  runId: string;
-  label: string;
-  completed: number;
-  total: number;
-  unit: string;
-  status?: 'running' | 'exited';
-}): string {
-  const statusPrefix = params.status === 'exited' ? 'finished' : 'progress';
-  return `Eval ${statusPrefix} ${params.runId}: ${params.label} ${formatProgressBar(
-    params.completed,
-    params.total,
-  )} ${params.completed}/${params.total} ${params.unit}`;
-}
-
-function enqueueEvalProgressMessage(
-  channelId: string | undefined,
-  text: string,
-): void {
-  const normalizedChannelId = String(channelId || '').trim();
-  if (!normalizedChannelId || !text.trim() || !isDatabaseInitialized()) return;
-  enqueueProactiveMessage(
-    normalizedChannelId,
-    text.trim(),
-    'eval',
-    MAX_QUEUED_EVAL_MESSAGES,
-  );
-}
-
-function supportsQueuedEvalProgress(channelId: string | undefined): boolean {
-  const normalizedChannelId = String(channelId || '')
-    .trim()
-    .toLowerCase();
-  return normalizedChannelId === 'tui' || normalizedChannelId === 'web';
-}
-
-function buildTau2ExitNotification(meta: EvalRunMeta): string | null {
-  if (meta.suiteId !== 'tau2') return null;
-  const status = readRunMetaStatus(meta);
-  if (status !== 'exited') return null;
-  const failed =
-    (meta.exitCode ?? 0) !== 0 ||
-    (typeof meta.exitSignal === 'string' && meta.exitSignal.length > 0);
-  const progressSummary = formatRunProgress(meta);
-  const summary = readTau2RunSummary(meta);
-
-  if (meta.operation === 'setup' && !failed) {
-    return [
-      `tau2 setup completed successfully.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      'Next: `npm run eval -- tau2 run --domain telecom --num-trials 1 --num-tasks 10`',
-    ].join('\n');
-  }
-  if (meta.operation === 'setup') {
-    const reason = describeRunFailureReason(meta);
-    return [
-      `tau2 setup failed.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      ...(reason ? [`Reason: ${reason}`] : []),
-      'Use `npm run eval -- tau2 results` for the setup logs.',
-    ].join('\n');
-  }
-
-  if (meta.operation === 'run' && !failed) {
-    return [
-      `tau2 run completed.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      ...(summary ? [formatTau2SuccessLine(summary)] : []),
-      ...(summary ? [formatTau2DbMatchLine(summary)] : []),
-      ...(summary
-        ? (() => {
-            const conversationLine = formatTau2ConversationLine(summary);
-            return conversationLine ? [conversationLine] : [];
-          })()
-        : progressSummary
-          ? [`Progress: ${progressSummary}`]
-          : []),
-      'Use `npm run eval -- tau2 results` for the run logs.',
-    ].join('\n');
-  }
-
-  if (meta.operation === 'run') {
-    const reason = describeRunFailureReason(meta);
-    return [
-      `tau2 run failed.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      ...(summary ? [formatTau2SuccessLine(summary)] : []),
-      ...(summary ? [formatTau2DbMatchLine(summary)] : []),
-      ...(summary
-        ? (() => {
-            const conversationLine = formatTau2ConversationLine(summary);
-            return conversationLine ? [conversationLine] : [];
-          })()
-        : progressSummary
-          ? [`Progress: ${progressSummary}`]
-          : []),
-      ...(reason ? [`Reason: ${reason}`] : []),
-      'Use `npm run eval -- tau2 results` for the run logs.',
-    ].join('\n');
-  }
-
-  return null;
-}
-
-function buildManagedSuiteSetupExitNotification(
-  meta: EvalRunMeta,
-  dataDir: string,
-): string | null {
-  if (meta.suiteId === 'tau2' || !meta.suiteId) {
-    return null;
-  }
-  const suite = findSuite(meta.suiteId);
-  const managed = suite ? getManagedSuiteSetup(suite) : null;
-  if (!suite || !managed || readRunMetaStatus(meta) !== 'exited') return null;
-  const failed =
-    (meta.exitCode ?? 0) !== 0 ||
-    (typeof meta.exitSignal === 'string' && meta.exitSignal.length > 0);
-  if (meta.operation === 'setup') {
-    if (!failed) {
-      return [
-        `${suite.title} setup completed successfully.`,
-        '',
-        `Run ID: ${meta.runId}`,
-        `Install dir: ${getManagedSuiteInstallDir(suite, dataDir)}`,
-        `Next: \`${getManagedSuiteNextStep(suite, dataDir)}\``,
-      ].join('\n');
-    }
-    const reason = describeRunFailureReason(meta);
-    return [
-      `${suite.title} setup failed.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`npm run eval -- ${suite.id} logs\` for the setup logs.`,
-    ].join('\n');
-  }
-  if (meta.operation === 'run') {
-    const reason = describeRunFailureReason(meta);
-    if (!failed) {
-      return [
-        `${suite.title} run completed.`,
-        '',
-        `Run ID: ${meta.runId}`,
-        `Use \`npm run eval -- ${suite.id} results\` for the summary.`,
-        `Use \`npm run eval -- ${suite.id} logs\` for the run logs.`,
-      ].join('\n');
-    }
-    return [
-      `${suite.title} run failed.`,
-      '',
-      `Run ID: ${meta.runId}`,
-      ...(reason ? [`Reason: ${reason}`] : []),
-      `Use \`npm run eval -- ${suite.id} results\` for the summary.`,
-      `Use \`npm run eval -- ${suite.id} logs\` for the run logs.`,
-    ].join('\n');
-  }
-  return null;
-}
-
-function shouldEmitExitProgressMessage(progress: EvalProgressSpec): boolean {
-  return progress.kind !== 'tau2';
-}
-
 function writeRunMeta(metaPath: string, meta: EvalRunMeta): void {
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
 }
@@ -3140,103 +2907,11 @@ async function waitForImmediateExit(
   });
 }
 
-function startEvalProgressTracker(params: {
-  channelId?: string;
-  runId: string;
-  pid: number | null;
-  metaPath: string;
-  stdoutPath: string;
-  stderrPath: string;
-  progress: EvalProgressSpec | null;
-}): void {
-  const progress = params.progress;
-  if (
-    !progress?.total ||
-    progress.total <= 0 ||
-    !supportsQueuedEvalProgress(params.channelId)
-  ) {
-    return;
-  }
-  const total = progress.total;
-
-  let lastReportedCompleted = -1;
-
-  const report = (completed: number, status: 'running' | 'exited'): void => {
-    const normalizedCompleted = clampProgress(completed, progress.total);
-    if (status === 'running' && normalizedCompleted <= lastReportedCompleted) {
-      return;
-    }
-    lastReportedCompleted = Math.max(
-      lastReportedCompleted,
-      normalizedCompleted,
-    );
-    enqueueEvalProgressMessage(
-      params.channelId,
-      formatProgressMessage({
-        runId: params.runId,
-        label: progress.label,
-        completed: normalizedCompleted,
-        total,
-        unit: progress.unit,
-        status,
-      }),
-    );
-  };
-
-  const updateMeta = (
-    completed: number,
-    status: 'running' | 'exited',
-  ): void => {
-    try {
-      const raw = fs.readFileSync(params.metaPath, 'utf-8');
-      const meta = JSON.parse(raw) as EvalRunMeta;
-      meta.progress = {
-        kind: progress.kind,
-        label: progress.label,
-        unit: progress.unit,
-        total,
-        completed: clampProgress(completed, total),
-        status,
-        updatedAt: new Date().toISOString(),
-      };
-      writeRunMeta(params.metaPath, meta);
-    } catch {
-      // best effort only
-    }
-  };
-
-  const poll = (): void => {
-    const stdoutText = readLogFileText(params.stdoutPath);
-    const stderrText = readLogFileText(params.stderrPath);
-    const completed = extractTau2CompletedTasks({
-      stdoutText,
-      stderrText,
-      total,
-    });
-    const running = isProcessRunning(params.pid);
-    updateMeta(completed, running ? 'running' : 'exited');
-    if (running) {
-      report(completed, 'running');
-    } else if (shouldEmitExitProgressMessage(progress)) {
-      report(completed, 'exited');
-    }
-    if (!running) {
-      clearInterval(interval);
-    }
-  };
-
-  report(0, 'running');
-  updateMeta(0, 'running');
-  const interval = setInterval(poll, EVAL_PROGRESS_POLL_INTERVAL_MS);
-  interval.unref();
-}
-
 export async function startDetachedEvalRun(params: {
   command: string;
   commandArgs: string[];
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
   cwd?: string;
   suiteId?: string;
   operation?: string;
@@ -3244,7 +2919,6 @@ export async function startDetachedEvalRun(params: {
   title?: string;
   footerLines?: string[];
   earlyExitCheckMs?: number;
-  dataDirForNotifications?: string;
 }): Promise<GatewayCommandResult> {
   const prepared = prepareEvalRun(params.commandArgs);
   const { runId, runDir, stdoutPath, stderrPath, metaPath } =
@@ -3322,34 +2996,11 @@ export async function startDetachedEvalRun(params: {
             nextMeta.progress.updatedAt = new Date().toISOString();
           }
           writeRunMeta(metaPath, nextMeta);
-          if (supportsQueuedEvalProgress(params.channelId)) {
-            const notification =
-              buildTau2ExitNotification(nextMeta) ||
-              (params.dataDirForNotifications
-                ? buildManagedSuiteSetupExitNotification(
-                    nextMeta,
-                    params.dataDirForNotifications,
-                  )
-                : null);
-            if (notification) {
-              enqueueEvalProgressMessage(params.channelId, notification);
-            }
-          }
         } catch {
           // best effort only
         }
       });
     }
-    startEvalProgressTracker({
-      channelId: params.channelId,
-      runId,
-      pid: child.pid ?? null,
-      metaPath,
-      stdoutPath,
-      stderrPath,
-      progress: prepared.progress,
-    });
-
     const immediateExit = await waitForImmediateExit(
       child,
       params.earlyExitCheckMs ?? 0,
@@ -3396,12 +3047,6 @@ export async function startDetachedEvalRun(params: {
         `Model: ${params.env.model}`,
         `Base model: ${params.env.baseModel}`,
         `Auth: ${describeAuthMode(params.env)}`,
-        ...(prepared.progress?.total &&
-        supportsQueuedEvalProgress(params.channelId)
-          ? [
-              `Progress: proactive ${prepared.progress.label} bar queued to local ${params.channelId} channel (${prepared.progress.total} ${prepared.progress.unit})`,
-            ]
-          : []),
         ...describeEvalProfile(params.env.profile),
         ...(params.footerLines || []),
       ].join('\n'),
@@ -3532,7 +3177,6 @@ function renderTau2Results(dataDir: string): GatewayCommandResult {
 async function handleTau2Setup(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
 }): Promise<GatewayCommandResult> {
   const activeSetup = findLatestEvalRun(
     params.dataDir,
@@ -3557,7 +3201,6 @@ async function handleTau2Setup(params: {
     displayCommand: 'tau2 setup',
     dataDir: params.dataDir,
     env: params.env,
-    channelId: params.channelId,
     cwd: getEvalBaseDir(params.dataDir),
     suiteId: 'tau2',
     operation: 'setup',
@@ -3575,7 +3218,6 @@ async function handleTau2Setup(params: {
 async function handleTau2Run(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
   args: string[];
 }): Promise<GatewayCommandResult> {
   if (!isTau2Installed(params.dataDir)) {
@@ -3611,7 +3253,6 @@ async function handleTau2Run(params: {
     displayCommand: prepared.command,
     dataDir: params.dataDir,
     env: params.env,
-    channelId: params.channelId,
     cwd: getTau2InstallDir(params.dataDir),
     suiteId: 'tau2',
     operation: 'run',
@@ -4522,7 +4163,6 @@ async function handleManagedSuiteSetup(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
 }): Promise<GatewayCommandResult> {
   if (params.suite.id === 'trace-judge') {
     return infoResult(
@@ -4578,7 +4218,6 @@ async function handleManagedSuiteSetup(params: {
     displayCommand: `${params.suite.id} setup`,
     dataDir: params.dataDir,
     env: params.env,
-    channelId: params.channelId,
     cwd: getEvalBaseDir(params.dataDir),
     suiteId: params.suite.id,
     operation: 'setup',
@@ -4591,7 +4230,6 @@ async function handleManagedSuiteSetup(params: {
       `Use \`npm run eval -- ${params.suite.id} logs\` to inspect setup logs.`,
     ],
     earlyExitCheckMs: EVAL_EARLY_EXIT_CHECK_MS,
-    dataDirForNotifications: params.dataDir,
   });
 }
 
@@ -4600,7 +4238,6 @@ async function handleManagedSuiteRun(params: {
   dataDir: string;
   env: EvalEnvironment;
   effectiveAgentId?: string;
-  channelId?: string;
   args: string[];
   workspaceModeExplicit: boolean;
 }): Promise<GatewayCommandResult> {
@@ -4650,7 +4287,6 @@ async function handleManagedSuiteRun(params: {
     displayCommand: prepared.displayCommand,
     dataDir: params.dataDir,
     env: params.env,
-    channelId: params.channelId,
     cwd: prepared.cwd,
     suiteId: params.suite.id,
     operation: 'run',
@@ -4659,7 +4295,6 @@ async function handleManagedSuiteRun(params: {
       `Use \`npm run eval -- ${params.suite.id} status\` and \`npm run eval -- ${params.suite.id} results\` to follow this run.`,
       `Use \`npm run eval -- ${params.suite.id} logs\` for tailed stdout/stderr.`,
     ],
-    dataDirForNotifications: params.dataDir,
   });
 }
 
@@ -4720,7 +4355,6 @@ async function handleManagedSuiteCommand(params: {
   dataDir: string;
   env: EvalEnvironment;
   effectiveAgentId?: string;
-  channelId?: string;
   subcommand?: string;
   args?: string[];
   workspaceModeExplicit: boolean;
@@ -4764,7 +4398,6 @@ async function handleManagedSuiteCommand(params: {
         dataDir: params.dataDir,
         env: params.env,
         effectiveAgentId: params.effectiveAgentId,
-        channelId: params.channelId,
         args: params.args || [],
         workspaceModeExplicit: params.workspaceModeExplicit,
       });
@@ -4794,7 +4427,6 @@ async function handleManagedSuiteCommand(params: {
 async function handleTau2Command(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
   subcommand?: string;
   args: string[];
 }): Promise<GatewayCommandResult> {
@@ -5042,7 +4674,6 @@ export async function handleEvalCommand(
     return await handleTau2Command({
       dataDir: params.dataDir,
       env,
-      channelId: params.channelId,
       subcommand: 'help',
       args: [],
     });
@@ -5053,7 +4684,6 @@ export async function handleEvalCommand(
       return await handleTau2Command({
         dataDir: params.dataDir,
         env,
-        channelId: params.channelId,
         subcommand: parsed.commandArgs[1],
         args: parsed.commandArgs.slice(2),
       });
@@ -5078,7 +4708,6 @@ export async function handleEvalCommand(
           dataDir: params.dataDir,
           env,
           effectiveAgentId: params.effectiveAgentId,
-          channelId: params.channelId,
           subcommand: managedSubcommand,
           args: parsed.commandArgs.slice(2),
           workspaceModeExplicit: parsed.workspaceModeExplicit,
@@ -5120,7 +4749,6 @@ export async function handleEvalCommand(
       commandArgs: prepared.commandArgs,
       dataDir: params.dataDir,
       env,
-      channelId: params.channelId,
     });
   }
 
@@ -5142,8 +4770,37 @@ export async function handleEvalCommand(
     dataDir: params.dataDir,
     env,
     effectiveAgentId: params.effectiveAgentId,
-    channelId: params.channelId,
     subcommand: 'help',
     workspaceModeExplicit: parsed.workspaceModeExplicit,
   });
+}
+
+export function describeEvalProfile(profile: EvalProfile): string[] {
+  const normalizedAgentId = normalizeTrimmedString(profile.agentId);
+  const setup =
+    profile.workspaceMode === 'fresh-agent'
+      ? 'fresh temporary agent workspace'
+      : normalizedAgentId
+        ? `current agent workspace (${normalizedAgentId})`
+        : 'current agent workspace';
+  return [
+    `Agent setup: ${setup}`,
+    'Session state: fresh transient OpenAI-compatible session per request',
+    `System prompt: ${profile.ablateSystemPrompt ? 'ablated' : 'enabled'}`,
+    `Prompt include: ${
+      profile.includePromptParts.length > 0
+        ? profile.includePromptParts.join(', ')
+        : 'default'
+    }`,
+    `Prompt omit: ${
+      profile.omitPromptParts.length > 0
+        ? profile.omitPromptParts.join(', ')
+        : 'none'
+    }`,
+    `Workspace MEMORY.md: ${
+      profile.workspaceMode === 'fresh-agent'
+        ? 'fresh template file'
+        : 'current agent file'
+    }`,
+  ];
 }
