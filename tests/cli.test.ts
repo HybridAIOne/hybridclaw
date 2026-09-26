@@ -1212,7 +1212,6 @@ async function importFreshCli(options?: {
     syncedAt: '2026-07-02T00:00:00.000Z',
     runtimeRoot: '/tmp/.hybridclaw/instructions',
     files: {
-      'SECURITY.md': 'security-hash',
       'TRUST_MODEL.md': 'trust-model-hash',
     },
   };
@@ -5371,9 +5370,9 @@ describe('CLI hybridai commands', () => {
       runtimeRoot: '/tmp/.hybridclaw/instructions',
       files: [
         {
-          path: 'SECURITY.md',
-          sourcePath: '/repo/SECURITY.md',
-          runtimePath: '/tmp/.hybridclaw/instructions/SECURITY.md',
+          path: 'TRUST_MODEL.md',
+          sourcePath: '/repo/TRUST_MODEL.md',
+          runtimePath: '/tmp/.hybridclaw/instructions/TRUST_MODEL.md',
           expectedHash: 'expected-hash',
           actualHash: 'actual-hash',
           status: 'modified',

@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
+  only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
+  `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
+  from older installs.
 - **Attachments in follow-up turns**: The agent now sees the local path of a
   file uploaded earlier in the session, including after an interrupted turn,
   instead of only its filename. A file removed by media cleanup is reported as

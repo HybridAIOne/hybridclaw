@@ -379,13 +379,13 @@ Useful maintainer commands:
 
 Instruction runtime copies:
 
-- files: `~/.hybridclaw/instructions/SECURITY.md`,
-  `~/.hybridclaw/instructions/TRUST_MODEL.md`
-- source of truth: installed package files `SECURITY.md` and `TRUST_MODEL.md`
+- file: `~/.hybridclaw/instructions/TRUST_MODEL.md` (read by onboarding for
+  trust-model acceptance)
+- source of truth: installed package file `TRUST_MODEL.md`
 - `hybridclaw audit instructions` fails when runtime copies drift from installed
   sources
 - `hybridclaw audit instructions --sync` restores runtime copies from installed
-  sources
+  sources and removes the retired `~/.hybridclaw/instructions/SECURITY.md`
 - `hybridclaw tui` performs this check before startup
 
 ## Observability Push Internals
