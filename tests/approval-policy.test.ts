@@ -2907,6 +2907,9 @@ browser:
     'echo x > $HOME/out.txt',
     'echo x > /opt/data/out.txt',
   ])('writes that land outside the workspace hit the fence: %j', (command) => {
+    // The test setup points HOME into os.tmpdir(), a scratch root; a real
+    // agent HOME is not scratch, so `~/x` must reach the fence.
+    vi.stubEnv('HOME', '/home/agent');
     const evaluation = evaluateBash(command);
 
     expect(evaluation.actionKey).toBe('bash:workspace-fence');
