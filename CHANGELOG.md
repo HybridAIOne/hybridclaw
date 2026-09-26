@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **macOS browser control window isolation**: The `mac-cua` browser provider
+  opens a dedicated browser window instead of taking over an existing one, so
+  it no longer drives the tab holding the web chat.
 - **Empty auxiliary model replies use the fallback chain**: Session titles and
   other auxiliary tasks try the next eligible model when a provider returns
   blank text, and record the empty attempt as a failure.
