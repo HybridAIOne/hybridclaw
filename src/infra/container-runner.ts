@@ -788,7 +788,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${GATEWAY_API_TOKEN || ''}`,
+    'HYBRIDCLAW_GATEWAY_TOKEN',
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -874,6 +874,9 @@ function getOrSpawnContainer(
   );
 
   const proc = spawn('docker', args, {
+    // Docker fills the valueless `-e HYBRIDCLAW_GATEWAY_TOKEN` from this env,
+    // which keeps the token out of argv.
+    env: { ...process.env, HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 

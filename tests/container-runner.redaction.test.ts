@@ -43,6 +43,7 @@ function makeFakeChildProcess() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.doUnmock('node:child_process');
   vi.doUnmock('../src/infra/ipc.js');
   vi.doUnmock('../src/providers/factory.js');
@@ -587,6 +588,8 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   process.env.GATEWAY_API_TOKEN = 'gateway-secret';
+  // A gateway started from an agent shell inherits a stale token var.
+  vi.stubEnv('HYBRIDCLAW_GATEWAY_TOKEN', 'inherited-token');
   vi.resetModules();
 
   const spawn = vi.fn(() => makeFakeChildProcess() as never);
@@ -661,13 +664,20 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
     channelId: 'tui',
   });
 
-  const runArgs = spawn.mock.calls.find(
+  const runCall = spawn.mock.calls.find(
     (call) => call[0] === 'docker' && Array.isArray(call[1]),
-  )?.[1] as string[] | undefined;
+  );
+  const runArgs = runCall?.[1] as string[] | undefined;
+  const runEnv = (runCall?.[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env;
   expect(runArgs).toContain(
     'HYBRIDCLAW_GATEWAY_URL=http://host.docker.internal:9090',
   );
-  expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN=gateway-secret');
+  // The token rides in the docker CLI's env; argv shows up in `ps`.
+  expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN');
+  expect(runArgs?.filter((arg) => arg.includes('gateway-secret'))).toEqual([]);
+  expect(runEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe('gateway-secret');
+  // docker itself still needs the gateway's PATH, DOCKER_HOST, and so on.
+  expect(runEnv?.PATH).toBe(process.env.PATH);
   expect(runArgs).toContain(`TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 });
 
