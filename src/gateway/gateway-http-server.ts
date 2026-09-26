@@ -11,7 +11,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
-import { v5 as uuidv5 } from 'uuid';
 import * as yazl from 'yazl';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import {
@@ -199,6 +198,7 @@ import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
+import { uuidV5 } from '../utils/uuid-v5.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -8213,7 +8213,7 @@ function buildTeamsAppManifest(params: {
       'https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json',
     manifestVersion: '1.19',
     version: '1.0.0',
-    id: uuidv5(params.publication.id, TEAMS_MANIFEST_UUID_NAMESPACE),
+    id: uuidV5(params.publication.id, TEAMS_MANIFEST_UUID_NAMESPACE),
     developer: buildTeamsDeveloper(params.origin),
     name: {
       short: shortName,
@@ -8251,7 +8251,7 @@ function buildTeamsOrgManifest(params: {
       'https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json',
     manifestVersion: '1.19',
     version: '1.0.0',
-    id: uuidv5(`${params.origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
+    id: uuidV5(`${params.origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
     developer: buildTeamsDeveloper(params.origin),
     name: {
       short: 'HybridClaw',
@@ -10004,7 +10004,7 @@ function handleApiAdminMSTeamsTabStatus(
       APP_PUBLICATION_OIDC_CALLBACK_PATH,
       origin,
     ).toString(),
-    orgAppId: uuidv5(`${origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
+    orgAppId: uuidV5(`${origin}:teams-org-app`, TEAMS_MANIFEST_UUID_NAMESPACE),
     orgAppEntityId: TEAMS_APP_ENTITY_ID,
     scope: TEAMS_TAB_SCOPE,
     teamsClientIds: {

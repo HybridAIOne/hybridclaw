@@ -263,6 +263,12 @@
 
 ### Changed
 
+- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
+  runtime images get it from `container/tools`) and the redundant `impit` pin
+  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
+  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
+  the gateway HTTP proxy imports, is declared directly.
+
 - **Dependencies refreshed with a seven-day release-age gate**: Compatible
   updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,
   tooling, and Python PDF libraries. Exact pins, lockfiles, shrinkwraps,
