@@ -52,11 +52,7 @@ interface PackageInfo {
   version: string | null;
 }
 
-const REVIEWED_NATIVE_REBUILD_PACKAGES = [
-  'better-sqlite3',
-  'node-pty',
-  'onnxruntime-node',
-];
+const REVIEWED_NATIVE_REBUILD_PACKAGES = ['better-sqlite3', 'node-pty'];
 
 function readPackageInfo(packageJsonPath: string): PackageInfo {
   try {
@@ -455,7 +451,6 @@ function buildRebuildEnv(env = process.env): NodeJS.ProcessEnv {
   delete nextEnv.npm_lifecycle_event;
   delete nextEnv.npm_lifecycle_script;
   delete nextEnv.npm_prefix;
-  nextEnv.ONNXRUNTIME_NODE_INSTALL_CUDA = 'skip';
   for (const key of Object.keys(nextEnv)) {
     if (key.startsWith('npm_package_')) {
       delete nextEnv[key];

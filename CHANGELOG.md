@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Removed
+
+- **Codex app-server turn runtime**: `codex.turnRuntime` (and its
+  `codex.runtime` alias) and the `app-server` loop are gone. It ran only in
+  host sandbox mode with a separately installed `codex` CLI, and the console
+  could not select it. `openai-codex/*` models run in the standard HybridClaw
+  loop; existing `codex.turnRuntime` settings are dropped when the config is
+  next written. `model.usage` audit events no longer carry `runtime` or
+  `codexRuntime`, and `/status` no longer prints a `Runtime:` field.
+
 ### Fixed
 
 - **macOS browser control window isolation**: The `mac-cua` browser provider
@@ -10,8 +20,34 @@
 - **Empty auxiliary model replies use the fallback chain**: Session titles and
   other auxiliary tasks try the next eligible model when a provider returns
   blank text, and record the empty attempt as a failure.
+
 ### Changed
 
+- **Media tools move to the `media-tools` plugin; provider keys leave the
+  sandbox**: `image_generate`, `video_generate`, and `audio_transcribe` run in
+  the gateway as the `media-tools` plugin (`hybridclaw plugin install
+  media-tools`), with the same names, arguments, and approval tiers. The
+  sandbox no longer receives OpenAI, Gemini, xAI, Black Forest Labs, Deepgram,
+  or AssemblyAI keys. Plugins gain `api.media` (session media reads through the
+  gateway's allowed-roots check, SSRF-guarded HTTPS fetch, session model
+  credentials) and `context.media` on tool calls, and sandbox plugin-tool calls
+  wait up to 20 minutes. The audio tool's result no longer carries `cost_usd`;
+  usage accounting still estimates it.
+- **Local embeddings move to the `transformers-embeddings` plugin**: The
+  Transformers.js embedding provider and its ONNX runtime (about 380 MB,
+  including sharp's LGPL libvips binaries) leave the core install. Install it
+  with `hybridclaw plugin install transformers-embeddings`; the default
+  `hashed` provider is unchanged. `memory.embedding` keeps only `provider`,
+  and non-default `memory.embedding.model`, `revision`, and `dtype` values
+  migrate once into the plugin's config (schema v39). A configured provider id
+  that no plugin registers now fails with an install hint. Plugins can supply
+  their own provider through `api.registerEmbeddingProvider`.
+- **Sandbox image drops the Mermaid parser**: `diagram_validate` and the
+  Mermaid path of `diagram_create`/`diagram_update` check the diagram header
+  and bracket balance instead of loading the `mermaid` package, which the
+  sandbox used only to parse (about 131 MB with its d3, cytoscape, and katex
+  closure). Rendering is unchanged: `mmdc` when installed, otherwise the
+  source-backed SVG fallback.
 - **Eval harness moved out of the product build**: The benchmark and eval
   harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
   skill-activation suites, about 13.8K lines) moved from `src/evals/` to the

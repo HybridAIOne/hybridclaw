@@ -1,6 +1,6 @@
 ---
 name: speech.transcribe
-description: Transcribe audio with the native audio_transcribe tool, including provider override, diarization, timestamps, language detection, and transcript artifacts.
+description: Transcribe audio with the audio_transcribe tool, including provider override, diarization, timestamps, language detection, and transcript artifacts.
 user-invocable: true
 requires:
   bins:
@@ -66,8 +66,11 @@ metadata:
 
 # Speech Transcribe
 
-Use the native `audio_transcribe` tool when the user asks to transcribe,
+Use the `audio_transcribe` tool when the user asks to transcribe,
 caption, diarize, timestamp, or identify speakers in an audio or video clip.
+
+The tool comes from the `media-tools` plugin. If it is not in your tool list,
+tell the user to enable it with `hybridclaw plugin install media-tools`.
 
 ## Workflow
 
@@ -87,7 +90,7 @@ caption, diarize, timestamp, or identify speakers in an audio or video clip.
 7. Return the structured result fields that matter: transcript text, provider,
    detected language, duration, cost, warnings, and artifact paths.
 
-The native tool owns provider credentials, provider fallback, output schema,
+The tool owns provider credentials, provider fallback, output schema,
 long-audio chunking for local and remote OpenAI uploads when `ffmpeg`/`ffprobe`
 are available, transcript artifact persistence, and usage-cost accounting.
 

@@ -203,28 +203,6 @@ export interface ScheduledTaskInput {
 export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
-export interface ProviderCredential {
-  apiKey?: string;
-  baseUrl?: string;
-  audioModel?: string;
-  imageModel?: string;
-  videoModel?: string;
-}
-
-export interface ProviderCredentials {
-  speechToText?: {
-    defaultProvider?: string;
-  };
-  openai?: ProviderCredential;
-  gemini?: ProviderCredential;
-  xai?: ProviderCredential;
-  bfl?: ProviderCredential;
-  deepgram?: ProviderCredential;
-  assemblyai?: ProviderCredential;
-}
-
-export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
-
 export interface AddressEnvelope {
   to: string | string[];
   from?: string | null;
@@ -269,7 +247,6 @@ export interface ContainerInput {
   browserAllowPrivateNetwork?: boolean;
   model: string;
   addressEnvelope?: AddressEnvelope;
-  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
@@ -295,7 +272,6 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
-  providerCredentials?: ProviderCredentials;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;
@@ -459,7 +435,6 @@ export interface ContainerOutput {
   result: string | null;
   toolsUsed: string[];
   outputPresentation?: OutputPresentationMetadata;
-  codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
