@@ -49,6 +49,7 @@ import {
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
+import type { McpToolBehavior } from './mcp/types.js';
 import {
   matchesHardPinnedPath,
   matchesPathPattern,
@@ -335,6 +336,10 @@ export type ApprovalRule = (context: ToolCallContext) => ApprovalRuleResult;
 export type ApprovalRuleHookEmitter = (
   event: ApprovalRuleHookEvent,
 ) => void | Promise<void>;
+
+export type McpToolBehaviorResolver = (
+  toolName: string,
+) => McpToolBehavior | undefined;
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
@@ -2148,6 +2153,7 @@ export class TrustedAgentApprovalRuntime {
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
+  private mcpToolBehaviorResolver: McpToolBehaviorResolver | null = null;
 
   constructor(
     policyPath = POLICY_PATH,
@@ -2184,6 +2190,10 @@ export class TrustedAgentApprovalRuntime {
     emitter: ApprovalRuleHookEmitter | null | undefined,
   ): void {
     this.approvalRuleHookEmitter = emitter || null;
+  }
+
+  setMcpToolBehaviorResolver(resolver: McpToolBehaviorResolver | null): void {
+    this.mcpToolBehaviorResolver = resolver;
   }
 
   private runStakesMiddleware(
@@ -3427,9 +3437,11 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.includes('__')) {
-      const kind = classifyMcpTool(lowerTool);
+      const behavior = this.mcpToolBehaviorResolver?.(toolName);
+      const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
+      const annotations = behavior?.annotations;
       const [serverName, rawToolName] = lowerTool.split('__', 2);
-      const toolLabel = rawToolName || lowerTool;
+      const toolLabel = annotations?.title || rawToolName || lowerTool;
       const actionKey = `mcp:${serverName || 'server'}:${kind}`;
 
       if (kind === 'read' || kind === 'search' || kind === 'fetch') {
@@ -3438,7 +3450,9 @@ export class TrustedAgentApprovalRuntime {
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
           consequenceIfDenied: 'I will continue without this MCP lookup.',
-          reason: 'this MCP tool appears read-only',
+          reason: annotations?.readOnlyHint
+            ? 'the MCP server marks this tool read-only'
+            : 'this MCP tool appears read-only',
           commandPreview: normalizePreview(JSON.stringify(args)),
           pathHints: [],
           hostHints: [],
@@ -3449,16 +3463,19 @@ export class TrustedAgentApprovalRuntime {
       }
 
       if (kind === 'delete' || kind === 'execute') {
+        const marked = annotations?.destructiveHint === true;
         return {
           tier: 'red',
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied:
-            kind === 'delete'
+          consequenceIfDenied: marked
+            ? 'I will continue without making that change.'
+            : kind === 'delete'
               ? 'I will continue without deleting anything.'
               : 'I will continue without executing that action.',
-          reason:
-            kind === 'delete'
+          reason: marked
+            ? 'the MCP server marks this tool destructive'
+            : kind === 'delete'
               ? 'this MCP tool appears destructive'
               : 'this MCP tool appears to execute commands or external actions',
           commandPreview: normalizePreview(JSON.stringify(args)),
@@ -3484,7 +3501,9 @@ export class TrustedAgentApprovalRuntime {
         hostHints: [],
         writeIntent: kind === 'edit',
         promotableRed: false,
-        stickyYellow: false,
+        // A write that reaches outside (mail, a PR comment) is narrated every
+        // time instead of going quiet after its first run.
+        stickyYellow: annotations?.openWorldHint === true,
       };
     }
 
