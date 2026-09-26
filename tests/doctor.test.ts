@@ -883,15 +883,15 @@ test('checkSecurity does not offer an auto-fix for modified instruction copies',
     isSecurityTrustAccepted: () => true,
   }));
   vi.doMock('../src/security/instruction-integrity.js', () => ({
-    summarizeInstructionIntegrity: () => 'SECURITY.md:modified',
+    summarizeInstructionIntegrity: () => 'TRUST_MODEL.md:modified',
     syncRuntimeInstructionCopies: vi.fn(),
     verifyInstructionIntegrity: () => ({
       ok: false,
       files: [
         {
-          path: 'SECURITY.md',
-          sourcePath: '/repo/SECURITY.md',
-          runtimePath: '/tmp/runtime/SECURITY.md',
+          path: 'TRUST_MODEL.md',
+          sourcePath: '/repo/TRUST_MODEL.md',
+          runtimePath: '/tmp/runtime/TRUST_MODEL.md',
           expectedHash: 'expected',
           actualHash: 'actual',
           status: 'modified',
@@ -904,7 +904,7 @@ test('checkSecurity does not offer an auto-fix for modified instruction copies',
   const [result] = await checkSecurity();
 
   expect(result.severity).toBe('warn');
-  expect(result.message).toContain('SECURITY.md:modified');
+  expect(result.message).toContain('TRUST_MODEL.md:modified');
   expect(result.fix).toBeUndefined();
 });
 
