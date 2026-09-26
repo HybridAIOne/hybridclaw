@@ -67,6 +67,10 @@
 
 ### Fixed
 
+- **Docker launch passes the gateway token by environment**: The container
+  runner hands `docker run` the gateway token through the Docker CLI's
+  environment instead of its argument list, and gateway logs leave out the
+  arguments of a failed child process.
 - **Turns right after an interrupt**: A turn started right after a stop,
   full-auto preemption, Discord message edit, or client disconnect no longer
   reuses the container that is still shutting down, which failed the turn. It
