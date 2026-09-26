@@ -10,10 +10,12 @@
 
 ### Fixed
 
-- **Stopped turns and delegations**: A stopped turn never starts the
-  delegations it queued, and its stored history now says so. The next turn's
+- **Failed turns and delegations**: A turn that ends in an error without
+  starting its delegations now says so in its stored history. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was
-  started instead of repeating "Delegation accepted".
+  started instead of repeating "Delegation accepted". This covers stops, which
+  never start the delegations they queued, and timeouts, agent crashes and
+  runner errors, whose queued delegations never reach the gateway.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
