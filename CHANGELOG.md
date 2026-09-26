@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **macOS browser control window isolation**: The `mac-cua` browser provider
+  opens a dedicated browser window instead of taking over an existing one, so
+  it no longer drives the tab holding the web chat.
+
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
 ### Added
