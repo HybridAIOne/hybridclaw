@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Prompt-cache usage for more providers**: Streaming Anthropic calls keep
+  their input and cache token counts; the final stream event used to replace
+  them with output-only usage, so these calls recorded zero prompt tokens. Cache
+  reads from `openai-codex` (Responses API) and cache writes reported by
+  HybridAI and `openai-codex` are now counted, so usage, cost estimates, and
+  cache hit rates include them.
+
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
