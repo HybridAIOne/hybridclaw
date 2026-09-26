@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- **Response rating audit actors**: Ratings identify the submitting user as
+  the actor, preventing invalid agent identity warnings for rated responses.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
