@@ -52,7 +52,9 @@ async function readMissingOutput(
   terminalError: string | null,
 ): Promise<ContainerOutput> {
   const { readOutput } = await import('../src/infra/ipc.ts');
-  return readOutput(sessionId, 20, { terminalError: () => terminalError });
+  return readOutput(sessionId, 'request-1', 20, {
+    terminalError: () => terminalError,
+  });
 }
 
 function chatRequest(sessionId: string) {
