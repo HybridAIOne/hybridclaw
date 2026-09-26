@@ -1,3 +1,14 @@
+/**
+ * File references in tool arguments — the one route for bytes that must not
+ * enter the model context.
+ *
+ * A `<file-base64:path>` value is substituted exactly once, after approval and
+ * the before-tool hooks have judged the model-authored call, so those see the
+ * reference and never the payload; what they miss is always base64, never the
+ * referenced file's own text. Not the gateway's `<secret:NAME>` expansion,
+ * which resolves credentials this process is deliberately never given.
+ */
+
 import fs from 'node:fs';
 
 import {
