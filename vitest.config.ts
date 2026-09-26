@@ -13,6 +13,10 @@ const sharedTestConfig = {
 
 const sharedExclude = ['node_modules/**', 'dist/**', 'container/**'];
 
+// Unit and integration suites must never read or migrate the developer's real
+// ~/.hybridclaw; e2e/live suites manage their own runtime home.
+const isolatedHomeSetup = ['tests/helpers/isolate-runtime-home.ts'];
+
 // The installer Docker matrix (scripts/install.sh) lives in its own project so a
 // plain `vitest run --project e2e` — invoked by several CI jobs — never pulls it
 // in. It is gated only on a reachable Docker daemon (no opt-in env var); run it
@@ -45,6 +49,7 @@ export default defineConfig({
         test: {
           ...sharedTestConfig,
           name: 'unit',
+          setupFiles: isolatedHomeSetup,
           include: ['tests/**/*.test.ts'],
           exclude: [
             'tests/**/*.integration.test.ts',
@@ -59,6 +64,7 @@ export default defineConfig({
         test: {
           ...sharedTestConfig,
           name: 'integration',
+          setupFiles: isolatedHomeSetup,
           include: ['tests/**/*.integration.test.ts'],
           exclude: sharedExclude,
         },
