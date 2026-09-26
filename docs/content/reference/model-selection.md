@@ -177,6 +177,9 @@ Routing follows these rules:
   calls can escalate to the next tier
 - empty or narrate-only output receives one retry on the same rung before
   escalation; buffered deltas from a failed attempt are not shown to the user
+- an attempt that ran a tool or stopped at an approval is final: it is not
+  retried on a fallback model, the same rung, or the next tier, so tool effects
+  never repeat, and a failed turn lists the tool calls that ran
 - after a successful escalation, that tier remains the floor for
   `routing.escalationStickyTurns` interactive turns; set the value to `0` to
   disable stickiness
