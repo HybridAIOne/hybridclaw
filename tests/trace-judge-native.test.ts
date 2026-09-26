@@ -7,11 +7,11 @@ import { expect, test } from 'vitest';
 import {
   TRACE_JUDGE_EVAL_CRITERION_TYPES,
   TRACE_JUDGE_EVAL_DATASET,
-} from '../src/evals/trace-judge-eval-dataset.ts';
+} from '../eval-harness/src/trace-judge-eval-dataset.ts';
 import {
   runTraceJudgeNativeCli,
   runTraceJudgeNativeEval,
-} from '../src/evals/trace-judge-native.ts';
+} from '../eval-harness/src/trace-judge-native.ts';
 
 test('trace judge eval dataset covers at least 150 balanced labeled examples', () => {
   expect(TRACE_JUDGE_EVAL_DATASET.length).toBeGreaterThanOrEqual(150);

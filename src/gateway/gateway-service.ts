@@ -168,9 +168,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
-  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
-  GATEWAY_CLIENT_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
@@ -671,6 +669,7 @@ import {
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
+import { interruptedDelegationsNote } from './interrupted-delegations.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -3988,6 +3987,7 @@ export function recordSuccessfulTurn(opts: {
   username: string | null;
   canonicalScopeId: string;
   userContent: string;
+  userMedia?: readonly MediaContextItem[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
@@ -4009,6 +4009,7 @@ export function recordSuccessfulTurn(opts: {
             username: opts.username,
             role: 'user',
             content: opts.userContent,
+            media: opts.userMedia,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -4027,6 +4028,7 @@ export function recordSuccessfulTurn(opts: {
             userId: opts.userId,
             username: opts.username,
             content: opts.userContent,
+            media: opts.userMedia,
           },
           assistant: {
             userId: 'assistant',
@@ -4207,6 +4209,7 @@ export function buildErrorTurnPlaceholder(params: {
   error: string;
   tools: ErrorTurnToolRecord[];
   delegationAcknowledgement?: string | null;
+  interrupted?: boolean;
 }): string {
   const lines = [
     `[This turn ended with an error before a reply was produced: ${params.error}]`,
@@ -4225,6 +4228,9 @@ export function buildErrorTurnPlaceholder(params: {
   }
   const ack = params.delegationAcknowledgement?.trim();
   if (ack) lines.push(`Delegations were still started: ${ack}`);
+  const notStarted =
+    params.interrupted && interruptedDelegationsNote(params.tools);
+  if (notStarted) lines.push(notStarted);
   return lines.join('\n');
 }
 
@@ -4236,11 +4242,14 @@ export function recordErrorTurn(opts: {
   username: string | null;
   canonicalScopeId: string;
   userContent: string;
+  userMedia?: readonly MediaContextItem[];
   error: string;
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
   delegationAcknowledgement?: string | null;
+  /** The turn was interrupted and its delegations dropped, never started. */
+  interrupted?: boolean;
   replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
@@ -4250,6 +4259,7 @@ export function recordErrorTurn(opts: {
     error: opts.error,
     tools: opts.tools,
     delegationAcknowledgement: opts.delegationAcknowledgement,
+    interrupted: opts.interrupted,
   });
   const storedTurn =
     opts.replaceBuiltInMemory === true
@@ -4260,6 +4270,7 @@ export function recordErrorTurn(opts: {
             username: opts.username,
             role: 'user',
             content: opts.userContent,
+            media: opts.userMedia,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -4277,6 +4288,7 @@ export function recordErrorTurn(opts: {
             userId: opts.userId,
             username: opts.username,
             content: opts.userContent,
+            media: opts.userMedia,
           },
           assistant: {
             userId: 'assistant',
@@ -15155,29 +15167,6 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
-      }
-
-      case 'eval': {
-        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
-        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
-          return badCommand(
-            'Eval Restricted',
-            'The `eval` command is only available from local TUI, web, or CLI sessions.',
-          );
-        }
-
-        const evalModule = await import('../evals/eval-command.js');
-        const runtime = resolveAgentForRequest({ session });
-        return evalModule.handleEvalCommand({
-          args: req.args.slice(1),
-          channelId: req.channelId,
-          dataDir: DATA_DIR,
-          gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-          webApiToken: WEB_API_TOKEN,
-          gatewayApiToken: GATEWAY_API_TOKEN,
-          effectiveAgentId: runtime.agentId,
-          effectiveModel: runtime.model,
-        });
       }
 
       default: {

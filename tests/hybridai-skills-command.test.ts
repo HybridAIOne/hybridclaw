@@ -40,7 +40,7 @@ import {
   resolveHybridaiSkillsDocsRoot,
   syncHybridaiSkillsFixturesWithDocs,
   writeHybridaiSkillsFixtures,
-} from '../src/evals/hybridai-skills-command.js';
+} from '../eval-harness/src/hybridai-skills-command.js';
 import { resolveInstallPath } from '../src/infra/install-root.js';
 import { useTempDir } from './test-utils.ts';
 

@@ -1,3 +1,13 @@
+/**
+ * File-based IPC between the gateway and the agent process: one input and one
+ * output file per request in the session's `ipc/` dir; auth material from the
+ * first stdin request is never written to disk.
+ *
+ * `readOutput` always settles, with the agent's output, a timeout, or an
+ * interrupt. An interrupted read keeps only the tool history the agent flushed
+ * while shutting down; anything else it wrote late is ignored. Starting and
+ * stopping the agent belongs to host-runner / container-runner, not here.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -186,6 +196,11 @@ const MIN_OUTPUT_POLL_INTERVAL_MS = 5;
 const MAX_OUTPUT_POLL_INTERVAL_MS = 250;
 // Keep the backoff formula aligned with container/src/ipc.ts; max differs by side.
 const OUTPUT_POLL_BACKOFF_FACTOR = 1.5;
+// 2s (agent call, 2026-09-26, pending owner review): the agent writes its
+// SIGTERM output synchronously and `docker stop` signals well within this, so
+// the wait only runs out when no output is coming. It caps how long collecting
+// tool history can delay an interrupt.
+const INTERRUPTED_OUTPUT_GRACE_MS = 2_000;
 
 function normalizePositiveTimeoutMs(
   value: number | null | undefined,
@@ -263,35 +278,16 @@ async function readOutputFile(
       };
     }
     if (now >= idleDeadline) break;
-    if (signal?.aborted) return interruptedOutput();
-
-    if (fs.existsSync(outputPath)) {
-      const stat = fs.statSync(outputPath);
-      if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
-        fs.unlinkSync(outputPath);
-        logger.warn(
-          { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
-          'Container output exceeded size limit',
-        );
-        return {
-          status: 'error',
-          result: null,
-          toolsUsed: [],
-          error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
-        };
-      }
-      try {
-        const raw = fs.readFileSync(outputPath, 'utf-8');
-        const output: ContainerOutput = JSON.parse(raw);
-        // Clean up output file after reading
-        fs.unlinkSync(outputPath);
-        logger.debug({ sessionId }, 'Read IPC output');
-        return output;
-      } catch (err) {
-        // File might be partially written, wait and retry
-        logger.debug({ sessionId, err }, 'Output file not ready, retrying');
-      }
+    if (signal?.aborted) {
+      return collectInterruptedOutput(
+        sessionId,
+        outputPath,
+        opts?.terminalError,
+      );
     }
+
+    const output = pollOutputFile(sessionId, outputPath);
+    if (output) return output;
     const terminalError = opts?.terminalError?.();
     if (terminalError) {
       return {
@@ -306,7 +302,13 @@ async function readOutputFile(
       Math.min(pollInterval, idleDeadline - now, hardDeadline - now),
     );
     const aborted = await sleepWithAbort(sleepMs, signal);
-    if (aborted) return interruptedOutput();
+    if (aborted) {
+      return collectInterruptedOutput(
+        sessionId,
+        outputPath,
+        opts?.terminalError,
+      );
+    }
     pollInterval = Math.min(
       Math.ceil(pollInterval * OUTPUT_POLL_BACKOFF_FACTOR),
       MAX_OUTPUT_POLL_INTERVAL_MS,
@@ -319,6 +321,74 @@ async function readOutputFile(
     toolsUsed: [],
     error: `Timeout waiting for agent output after ${idleTimeoutMs}ms`,
   };
+}
+
+/** One look at the output file: the parsed output, an oversize error, or null. */
+function pollOutputFile(
+  sessionId: string,
+  outputPath: string,
+): ContainerOutput | null {
+  if (!fs.existsSync(outputPath)) return null;
+  const stat = fs.statSync(outputPath);
+  if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
+    fs.unlinkSync(outputPath);
+    logger.warn(
+      { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
+      'Container output exceeded size limit',
+    );
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
+    };
+  }
+  try {
+    const raw = fs.readFileSync(outputPath, 'utf-8');
+    const output: ContainerOutput = JSON.parse(raw);
+    // Clean up output file after reading
+    fs.unlinkSync(outputPath);
+    logger.debug({ sessionId }, 'Read IPC output');
+    return output;
+  } catch (err) {
+    // File might be partially written, wait and retry
+    logger.debug({ sessionId, err }, 'Output file not ready, retrying');
+    return null;
+  }
+}
+
+/**
+ * The stopped agent flushes the tool calls it already ran (see
+ * container/src/shutdown-output.ts). Keep only that history: the turn stays
+ * interrupted, and its late results and side effects are not honored.
+ */
+async function collectInterruptedOutput(
+  sessionId: string,
+  outputPath: string,
+  terminalError?: () => string | null,
+): Promise<ContainerOutput> {
+  const deadline = Date.now() + INTERRUPTED_OUTPUT_GRACE_MS;
+  let pollInterval = MIN_OUTPUT_POLL_INTERVAL_MS;
+  while (true) {
+    const late = pollOutputFile(sessionId, outputPath);
+    if (late) {
+      return {
+        ...interruptedOutput(),
+        ...(late.toolHistory?.length ? { toolHistory: late.toolHistory } : {}),
+        ...(late.toolHistoryForReplay?.length
+          ? { toolHistoryForReplay: late.toolHistoryForReplay }
+          : {}),
+      };
+    }
+    const remainingMs = deadline - Date.now();
+    // An agent that already exited will not write anything more.
+    if (remainingMs <= 0 || terminalError?.()) return interruptedOutput();
+    await sleepWithAbort(Math.min(pollInterval, remainingMs));
+    pollInterval = Math.min(
+      Math.ceil(pollInterval * OUTPUT_POLL_BACKOFF_FACTOR),
+      MAX_OUTPUT_POLL_INTERVAL_MS,
+    );
+  }
 }
 
 export function readHealthOutput(

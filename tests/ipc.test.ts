@@ -242,3 +242,120 @@ test('readOutput outlives a silence longer than the inactivity window while acti
     expect.objectContaining({ status: 'success', result: 'ok' }),
   );
 });
+
+const INTERRUPTED_TOOL_HISTORY = [
+  {
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      {
+        id: 'call-1',
+        type: 'function',
+        function: {
+          name: 'vision_analyze',
+          arguments: '{"image_url":"/uploaded-media-cache/2026-09-26/1-a-Logo.png"}',
+        },
+      },
+    ],
+  },
+  {
+    role: 'tool',
+    tool_call_id: 'call-1',
+    content: 'Tool outcome unknown: the agent process received SIGTERM.',
+    is_error: true,
+  },
+];
+const INTERRUPTED = {
+  status: 'error',
+  result: null,
+  toolsUsed: [],
+  error: 'Interrupted by user.',
+};
+
+async function startInterruptedRead(terminalError?: () => string | null) {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-26T00:00:00Z'));
+  vi.resetModules();
+  const { ensureSessionDirs, readOutput } = await import('../src/infra/ipc.ts');
+  ensureSessionDirs('session-1');
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 100);
+  let settled = false;
+  const output = readOutput('session-1', null, {
+    signal: controller.signal,
+    maxWallClockMs: null,
+    terminalError,
+  }).finally(() => {
+    settled = true;
+  });
+  return {
+    output,
+    isSettled: () => settled,
+    outputPath: path.join(
+      homeDir,
+      '.hybridclaw',
+      'data',
+      'sessions',
+      'session-1',
+      'ipc',
+      'output.json',
+    ),
+  };
+}
+
+test('an interrupted readOutput keeps only the tool history the stopped agent flushed', async () => {
+  const { output, outputPath } = await startInterruptedRead();
+  // The agent's SIGTERM handler writes its output just after the interrupt.
+  setTimeout(() => {
+    fs.writeFileSync(
+      outputPath,
+      JSON.stringify({
+        status: 'error',
+        result: 'late reply text',
+        toolsUsed: ['vision_analyze'],
+        error: 'Request interrupted: the agent process received SIGTERM.',
+        sideEffects: {
+          delegations: [{ action: 'delegate', prompt: 'summarize inbox' }],
+        },
+        toolHistory: INTERRUPTED_TOOL_HISTORY,
+        toolHistoryForReplay: INTERRUPTED_TOOL_HISTORY,
+      }),
+    );
+  }, 150);
+
+  await vi.advanceTimersByTimeAsync(500);
+
+  await expect(output).resolves.toEqual({
+    ...INTERRUPTED,
+    toolHistory: INTERRUPTED_TOOL_HISTORY,
+    toolHistoryForReplay: INTERRUPTED_TOOL_HISTORY,
+  });
+  expect(fs.existsSync(outputPath)).toBe(false);
+});
+
+test('an interrupted readOutput waits at most the grace window for shutdown output', async () => {
+  const { output, isSettled } = await startInterruptedRead();
+
+  await vi.advanceTimersByTimeAsync(1_900);
+  expect(isSettled()).toBe(false);
+  await vi.advanceTimersByTimeAsync(400);
+
+  await expect(output).resolves.toEqual(INTERRUPTED);
+});
+
+test('an interrupted readOutput stops waiting once the agent has exited', async () => {
+  let exited = false;
+  const { output, isSettled } = await startInterruptedRead(() =>
+    exited ? 'Host agent process exited (signal SIGTERM)' : null,
+  );
+  setTimeout(() => {
+    exited = true;
+  }, 120);
+
+  await vi.advanceTimersByTimeAsync(400);
+
+  expect(isSettled()).toBe(true);
+  await expect(output).resolves.toEqual(INTERRUPTED);
+});

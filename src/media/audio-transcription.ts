@@ -1,33 +1,14 @@
 import path from 'node:path';
 
-import {
-  CONTAINER_BINDS,
-  CONTAINER_SANDBOX_MODE,
-  DATA_DIR,
-} from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
-import {
-  buildValidatedMountAliases,
-  resolveAllowedHostMediaPath,
-} from '../security/media-paths.js';
 import type { MediaContextItem } from '../types/container.js';
 import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
-import { MANAGED_TEMP_MEDIA_DIR_PREFIXES } from './managed-temp-media.js';
+import { createMediaHostPathResolver } from './media-host-path.js';
 import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
-import {
-  resolveUploadedMediaCacheHostDir,
-  UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
-} from './uploaded-media-cache.js';
-
-const WORKSPACE_ROOT_DISPLAY = '/workspace';
-const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
-const DISCORD_MEDIA_CACHE_ROOT = path.resolve(
-  path.join(DATA_DIR, 'discord-media-cache'),
-);
 
 export interface AudioTranscriptItem {
   filename: string;
@@ -104,9 +85,7 @@ export async function prependAudioTranscriptionsToUserContent(params: {
     };
   }
 
-  const mountAliases = buildValidatedMountAliases({
-    binds: CONTAINER_BINDS,
-  });
+  const resolveHostPath = createMediaHostPathResolver(params.workspaceRoot);
   const transcripts: AudioTranscriptItem[] = [];
   let remainingChars = audioConfig.maxTotalChars;
 
@@ -115,18 +94,7 @@ export async function prependAudioTranscriptionsToUserContent(params: {
       break;
     }
 
-    const resolvedPath = await resolveAllowedHostMediaPath({
-      rawPath: item.path || '',
-      workspaceRoot: params.workspaceRoot,
-      workspaceRootDisplay: WORKSPACE_ROOT_DISPLAY,
-      mediaCacheRoot: DISCORD_MEDIA_CACHE_ROOT,
-      mediaCacheRootDisplay: DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-      uploadedMediaRoot: resolveUploadedMediaCacheHostDir(),
-      uploadedMediaRootDisplay: UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
-      mountAliases,
-      managedTempDirPrefixes: MANAGED_TEMP_MEDIA_DIR_PREFIXES,
-      allowHostAbsolutePaths: CONTAINER_SANDBOX_MODE === 'host',
-    });
+    const resolvedPath = await resolveHostPath(item.path || '');
     if (!resolvedPath) {
       logger.debug(
         {

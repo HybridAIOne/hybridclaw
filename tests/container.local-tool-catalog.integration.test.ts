@@ -51,10 +51,11 @@ async function harness(replies: Array<Record<string, unknown>>, overrides: Parti
     const outputPath = path.join(ipc, 'output.json');
     const until = Date.now() + 10000;
     while (Date.now() < until) {
-      if (fs.existsSync(outputPath)) {
+      // Missing and unparseable both mean not ready yet, as in readOutput (src/infra/ipc.ts).
+      try {
         const result = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as ContainerOutput;
         fs.unlinkSync(outputPath); return result;
-      }
+      } catch {}
       if (child.exitCode !== null) throw new Error(errors);
       await new Promise((resolve) => setTimeout(resolve, 20));
     }

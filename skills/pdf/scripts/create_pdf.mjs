@@ -14,6 +14,7 @@ function parseArgs(argv) {
     title: '',
     fontSize: 24,
     fontName: 'Helvetica',
+    fontPath: '',
     imagePath: '',
     imageUrl: '',
     imageMaxWidth: 220,
@@ -43,6 +44,13 @@ function parseArgs(argv) {
           `Ignoring invalid --font-size "${rawFontSize}" and keeping ${args.fontSize}.`,
         );
       }
+      index += 1;
+      continue;
+    }
+    if (value === '--font-path') {
+      args.fontPath = argv[index + 1] || '';
+      if (!args.fontPath)
+        throw new Error('--font-path requires a TTF/OTF path.');
       index += 1;
       continue;
     }
@@ -116,6 +124,63 @@ function resolveStandardFont(name) {
   }
   console.warn(`Unknown --font "${name}". Falling back to Helvetica.`);
   return StandardFonts.Helvetica;
+}
+
+async function embedTextFont(
+  pdfDoc,
+  fields,
+  standardName,
+  fontPath,
+  bundledName,
+) {
+  const characters = Object.entries(fields).map(([field, text]) => [
+    field,
+    [...new Set(normalizeTextBreaks(text).replace(/\s/g, ''))],
+  ]);
+  if (characters.every(([, values]) => values.length === 0)) return null;
+  if (!fontPath) {
+    const standard = await pdfDoc.embedFont(standardName);
+    const supported = new Set(standard.getCharacterSet());
+    if (
+      characters.every(([, values]) =>
+        values.every((character) => supported.has(character.codePointAt(0))),
+      )
+    ) {
+      return standard;
+    }
+  }
+
+  const { default: fontkit } = await import('@pdf-lib/fontkit');
+  const source =
+    fontPath ||
+    new URL(
+      import.meta.resolve(
+        `pdfjs-dist/standard_fonts/LiberationSans-${bundledName}.ttf`,
+      ),
+    );
+  const bytes = fs.readFileSync(source);
+  const parsed = fontkit.create(bytes);
+  for (const [field, values] of characters) {
+    const missing = values.find(
+      (character) => !parsed.hasGlyphForCodePoint(character.codePointAt(0)),
+    );
+    if (!missing) continue;
+    const code = missing
+      .codePointAt(0)
+      .toString(16)
+      .toUpperCase()
+      .padStart(4, '0');
+    const guidance = fontPath
+      ? `The supplied --font-path "${fontPath}" lacks this glyph; choose a font covering the requested text. `
+      : 'Use --font-path with a TTF/OTF font covering the requested text. ';
+    throw new Error(
+      `PDF font cannot encode "${missing}" (U+${code}) in --${field}. ` +
+        guidance +
+        'Keep the original characters; do not replace them with transliterations.',
+    );
+  }
+  pdfDoc.registerFontkit(fontkit);
+  return pdfDoc.embedFont(bytes, { subset: true });
 }
 
 function normalizeTextBreaks(value) {
@@ -250,13 +315,31 @@ async function main() {
     (!args.text && !args.title && !args.imagePath && !args.imageUrl)
   ) {
     console.error(
-      'Usage: node skills/pdf/scripts/create_pdf.mjs <output.pdf> --text "content" [--title "heading"] [--image-url https://example.com/logo.png] [--image-path logo.png] [--font-size 24] [--font Helvetica]',
+      'Usage: node skills/pdf/scripts/create_pdf.mjs <output.pdf> --text "content" [--title "heading"] [--image-url https://example.com/logo.png] [--image-path logo.png] [--font-size 24] [--font Helvetica] [--font-path font.ttf]',
     );
     process.exitCode = 1;
     return;
   }
 
   const pdfDoc = await PDFDocument.create();
+  const font = await embedTextFont(
+    pdfDoc,
+    args.fontPath
+      ? { text: args.text, title: args.title }
+      : { text: args.text },
+    resolveStandardFont(args.fontName),
+    args.fontPath,
+    'Regular',
+  );
+  const boldFont = args.fontPath
+    ? font
+    : await embedTextFont(
+        pdfDoc,
+        { title: args.title },
+        StandardFonts.HelveticaBold,
+        args.fontPath,
+        'Bold',
+      );
   const imageInput = await readImageBytes(args);
   let embeddedImage = null;
   if (imageInput) {
@@ -266,8 +349,6 @@ async function main() {
         ? await pdfDoc.embedPng(imageInput.bytes)
         : await pdfDoc.embedJpg(imageInput.bytes);
   }
-  const font = await pdfDoc.embedFont(resolveStandardFont(args.fontName));
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const firstPage = pdfDoc.addPage();
   const { width, height } = firstPage.getSize();
   const margin = 50;
@@ -305,7 +386,7 @@ async function main() {
     return drewText;
   };
 
-  if (args.title) {
+  if (boldFont && args.title.trim()) {
     const titleSize = Math.min(args.fontSize * 1.5, 48);
     const titleLineHeight = computeLineHeight(boldFont, titleSize, 1.15);
     const titleLines = buildWrappedLines(
@@ -339,7 +420,7 @@ async function main() {
     y -= imageHeight + Math.max(18, args.fontSize * 0.75);
   }
 
-  if (args.text) {
+  if (font && args.text.trim()) {
     const bodyLineHeight = computeLineHeight(font, args.fontSize, 1.35);
     const bodyLines = buildWrappedLines(
       args.text,

@@ -1,5 +1,6 @@
 /**
  * Runner binds model credentials and per-agent configuration to one request.
+ * Optional shell OAuth credentials are resolved at tool execution, not here.
  * Local starter names control schema visibility; the independent allowed/blocked
  * tool lists remain the permission boundary enforced by the worker.
  */
@@ -19,10 +20,6 @@ import {
 } from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  getGoogleWorkspaceRuntimeEnvRecoveryHint,
-  resolveGoogleWorkspaceRuntimeEnv,
-} from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
@@ -955,14 +952,6 @@ async function runHostProcessInner(
     sessionModel: modelRuntime.model || model,
   });
   const runtimeModel = modelRuntime.model || model;
-  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
-    const recoveryHint = getGoogleWorkspaceRuntimeEnvRecoveryHint(error);
-    logger.warn(
-      { error, recoveryHint },
-      `Failed to resolve Google access token for Workspace CLI runtime environment. ${recoveryHint}`,
-    );
-    return {};
-  });
 
   enforceWarmHostPressure();
   if (
@@ -1062,7 +1051,6 @@ async function runHostProcessInner(
     pluginTools,
     mcpServers,
     taskModels,
-    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,

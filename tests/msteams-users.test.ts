@@ -4,6 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { closeDatabase, initDatabase } from '../src/memory/database.js';
+import { DATABASE_SCHEMA_VERSION } from '../src/memory/schema/migrations.js';
 import { getOrCreateSession } from '../src/memory/sessions.js';
 import {
   getMSTeamsUserAgent,
@@ -321,7 +322,9 @@ describe('Teams user routing and attribution', () => {
     });
     const migrated = new Database(dbPath, { readonly: true });
     try {
-      expect(migrated.pragma('user_version', { simple: true })).toBe(63);
+      expect(migrated.pragma('user_version', { simple: true })).toBe(
+        DATABASE_SCHEMA_VERSION,
+      );
       expect(
         migrated
           .prepare('SELECT * FROM migrations WHERE version <= ? ORDER BY version')
