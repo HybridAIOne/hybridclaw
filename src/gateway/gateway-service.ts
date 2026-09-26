@@ -669,6 +669,7 @@ import {
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
+import { interruptedDelegationsNote } from './interrupted-delegations.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -4208,6 +4209,7 @@ export function buildErrorTurnPlaceholder(params: {
   error: string;
   tools: ErrorTurnToolRecord[];
   delegationAcknowledgement?: string | null;
+  interrupted?: boolean;
 }): string {
   const lines = [
     `[This turn ended with an error before a reply was produced: ${params.error}]`,
@@ -4226,6 +4228,9 @@ export function buildErrorTurnPlaceholder(params: {
   }
   const ack = params.delegationAcknowledgement?.trim();
   if (ack) lines.push(`Delegations were still started: ${ack}`);
+  const notStarted =
+    params.interrupted && interruptedDelegationsNote(params.tools);
+  if (notStarted) lines.push(notStarted);
   return lines.join('\n');
 }
 
@@ -4243,6 +4248,8 @@ export function recordErrorTurn(opts: {
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
   delegationAcknowledgement?: string | null;
+  /** The turn was interrupted and its delegations dropped, never started. */
+  interrupted?: boolean;
   replaceBuiltInMemory?: boolean;
 }): {
   userMessageId: number;
@@ -4252,6 +4259,7 @@ export function recordErrorTurn(opts: {
     error: opts.error,
     tools: opts.tools,
     delegationAcknowledgement: opts.delegationAcknowledgement,
+    interrupted: opts.interrupted,
   });
   const storedTurn =
     opts.replaceBuiltInMemory === true
