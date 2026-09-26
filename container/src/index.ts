@@ -64,6 +64,7 @@ import {
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
   advanceStalledTurnCount,
+  MAX_INVALID_TOOL_CALL_RETRIES,
   MAX_STALLED_MODEL_TURNS,
   shouldRetryEmptyFinalResponse,
   shouldRetryEmptyVisibleCompletion,
@@ -97,7 +98,11 @@ import {
   type ToolApprovalEvaluation,
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
-import { validateStructuredToolCalls } from './tool-call-validation.js';
+import {
+  invalidToolCallCorrection,
+  validateStructuredToolCalls,
+  withReplaySafeArguments,
+} from './tool-call-validation.js';
 import { ToolCatalog } from './tool-catalog.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
@@ -1179,6 +1184,7 @@ async function processRequestInner(
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
+  let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1526,7 +1532,8 @@ async function processRequestInner(
     });
 
     let toolCalls = choice.message.tool_calls || [];
-    let invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    const malformedToolCallError = validateStructuredToolCalls(toolCalls);
+    let invalidToolCallError = malformedToolCallError;
     let catalogCorrection: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
       try {
@@ -1545,13 +1552,23 @@ async function processRequestInner(
         }
       }
     }
-    if (catalogCorrection) {
+    const correction =
+      catalogCorrection ??
+      (malformedToolCallError &&
+      invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
+        ? invalidToolCallCorrection(
+            malformedToolCallError,
+            choice.finish_reason,
+          )
+        : null);
+    if (correction) {
+      if (!catalogCorrection) invalidToolCallRetries += 1;
       // Keep the original rejected calls for valid tool-result pairing. Nothing
       // from this batch reaches approval or execution, including valid siblings.
       const rejectedMessage: ChatMessage = {
         role: 'assistant',
         content: choice.message.content,
-        tool_calls: choice.message.tool_calls,
+        tool_calls: withReplaySafeArguments(choice.message.tool_calls || []),
       };
       turnToolHistory.recordAssistant(rejectedMessage);
       history.push(rejectedMessage);
@@ -1560,23 +1577,23 @@ async function processRequestInner(
           turnToolHistory.recordResult({
             role: 'tool',
             tool_call_id: call.id,
-            content: catalogCorrection,
+            content: correction,
           }),
         );
         toolsUsed.push(call.function.name);
         toolExecutions.push({
           name: call.function.name,
           arguments: call.function.arguments,
-          result: catalogCorrection,
+          result: correction,
           durationMs: 0,
           isError: true,
           blocked: true,
-          blockedReason: 'Invalid local tool catalog arguments.',
+          blockedReason: 'Invalid tool call arguments.',
         });
       }
       stalledTurns += 1;
       console.error(
-        '[model] rejected local catalog arguments; requesting correction',
+        '[model] rejected tool call arguments; requesting correction',
       );
       continue;
     }
@@ -1601,6 +1618,7 @@ async function processRequestInner(
       });
       return failed;
     }
+    invalidToolCallRetries = 0;
     const assistantSegment = classifyAssistantChatSegment({
       content: choice.message.content,
       hasToolCalls: toolCalls.length > 0,
