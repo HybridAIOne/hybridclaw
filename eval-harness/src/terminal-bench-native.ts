@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { stopSessionExecution } from '../agent/executor.js';
-import { handleGatewayMessage } from '../gateway/gateway-chat-service.js';
-import type { GatewayChatRequest } from '../gateway/gateway-types.js';
+import { stopSessionExecution } from '../../src/agent/executor.js';
+import { handleGatewayMessage } from '../../src/gateway/gateway-chat-service.js';
+import type { GatewayChatRequest } from '../../src/gateway/gateway-types.js';
 
 interface TerminalBenchTask {
   task_name: string;

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { HandleEvalCommandParams } from '../src/evals/eval-command.js';
+import type { HandleEvalCommandParams } from '../eval-harness/src/eval-command.js';
 
 const spawnMock = vi.fn();
 const spawnSyncMock = vi.fn(() => ({ status: 0 }));
@@ -714,7 +714,7 @@ function writeTerminalBenchAgentResult(
 }
 
 test('returns suite stub info without exposing tokens', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -755,7 +755,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
     unref: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['python', '-m', 'swebench.harness.run_evaluation'],
@@ -809,7 +809,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
 });
 
 test('shows managed tau2 usage', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -822,14 +822,14 @@ test('shows managed tau2 usage', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('tau2');
-  expect(result.text).toContain('/eval tau2 setup');
+  expect(result.text).toContain('npm run eval -- tau2 setup');
   expect(result.text).toContain(
-    '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
+    'npm run eval -- tau2 run --domain telecom --num-trials 1 --num-tasks 10',
   );
 });
 
 test('shows managed locomo usage', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -842,9 +842,9 @@ test('shows managed locomo usage', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('LOCOMO');
-  expect(result.text).toContain('/eval locomo setup');
+  expect(result.text).toContain('npm run eval -- locomo setup');
   expect(result.text).toContain(
-    '/eval locomo run --budget 4000 --max-questions 20',
+    'npm run eval -- locomo run --budget 4000 --max-questions 20',
   );
   expect(result.text).toContain('`--max-questions` for quick smoke runs');
   expect(result.text).toContain(
@@ -853,7 +853,7 @@ test('shows managed locomo usage', async () => {
 });
 
 test('shows managed trace-judge usage', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -866,14 +866,14 @@ test('shows managed trace-judge usage', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Trace Judge');
-  expect(result.text).toContain('/eval trace-judge run');
+  expect(result.text).toContain('npm run eval -- trace-judge run');
   expect(result.text).toContain(
     '`--live` calls the configured trace judge through the same `judgeTrace` path',
   );
 });
 
 test('shows managed agent-risk usage', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -886,8 +886,8 @@ test('shows managed agent-risk usage', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Agent Risk');
-  expect(result.text).toContain('/eval agent-risk run');
-  expect(result.text).toContain('/eval agent-risk run --scenario data-privacy');
+  expect(result.text).toContain('npm run eval -- agent-risk run');
+  expect(result.text).toContain('npm run eval -- agent-risk run --scenario data-privacy');
   expect(result.text).toContain('NIST AI RMF');
   expect(result.text).toContain('OWASP LLM Top 10 2025');
 });
@@ -903,7 +903,7 @@ test('starts detached tau2 setup', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'setup'],
@@ -921,8 +921,8 @@ test('starts detached tau2 setup', async () => {
   expect(result.text).toContain(
     'Setup strategy: uv-managed Python 3.12 venv with tau2 CLI smoke test.',
   );
-  expect(result.text).toContain('Use `/eval tau2 status`');
-  expect(result.text).toContain('Use `/eval tau2 results`');
+  expect(result.text).toContain('Use `npm run eval -- tau2 status`');
+  expect(result.text).toContain('Use `npm run eval -- tau2 results`');
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('git clone');
@@ -934,7 +934,7 @@ test('starts detached tau2 setup', async () => {
 });
 
 test('reports non-terminal suites as not implemented yet', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -946,8 +946,8 @@ test('reports non-terminal suites as not implemented yet', async () => {
   expect(result.kind).toBe('error');
   expect(result.title).toBe('SWE-bench Verified');
   expect(result.text).toContain('SWE-bench Verified is not implemented yet.');
-  expect(result.text).toContain('/eval terminal-bench-2.0');
-  expect(result.text).toContain('/eval tau2');
+  expect(result.text).toContain('npm run eval -- terminal-bench-2.0');
+  expect(result.text).toContain('npm run eval -- tau2');
   expect(spawnMock).not.toHaveBeenCalled();
 });
 
@@ -962,7 +962,7 @@ test('starts detached locomo setup', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'setup'],
@@ -979,8 +979,8 @@ test('starts detached locomo setup', async () => {
   expect(result.text).toContain(
     'Setup strategy: native HybridClaw LOCOMO harness with official locomo10 dataset download.',
   );
-  expect(result.text).toContain('Use `/eval locomo status`');
-  expect(result.text).toContain('Use `/eval locomo results`');
+  expect(result.text).toContain('Use `npm run eval -- locomo status`');
+  expect(result.text).toContain('Use `npm run eval -- locomo results`');
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain(
@@ -989,7 +989,7 @@ test('starts detached locomo setup', async () => {
     ),
   );
   expect(shellArgs[1]).toContain(
-    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+    quoteForShell(path.join(process.cwd(), 'eval-harness', 'src', 'cli.ts')),
   );
   expect(shellArgs[1]).toContain('__eval-locomo-native');
   expect(shellArgs[1]).toContain('setup');
@@ -1008,7 +1008,7 @@ test('runs managed locomo with question cap flag', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'run', '--budget', '4000', '--max-questions', '20'],
@@ -1025,7 +1025,7 @@ test('runs managed locomo with question cap flag', async () => {
     'Command: locomo run --budget 4000 --max-questions 20',
   );
   expect(result.text).toContain(
-    'Use `/eval locomo status` and `/eval locomo results` to follow this run.',
+    'Use `npm run eval -- locomo status` and `npm run eval -- locomo results` to follow this run.',
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
@@ -1035,7 +1035,7 @@ test('runs managed locomo with question cap flag', async () => {
     ),
   );
   expect(shellArgs[1]).toContain(
-    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+    quoteForShell(path.join(process.cwd(), 'eval-harness', 'src', 'cli.ts')),
   );
   expect(shellArgs[1]).toContain('__eval-locomo-native');
   expect(shellArgs[1]).toContain('run');
@@ -1057,7 +1057,7 @@ test('runs managed trace-judge without setup', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['trace-judge', 'run', '--criterion', 'risk'],
@@ -1091,7 +1091,7 @@ test('runs managed agent-risk without setup', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['agent-risk', 'run', '--scenario', 'data-privacy'],
@@ -1128,7 +1128,7 @@ test('runs managed locomo with current agent override', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: ['--current-agent', 'locomo', 'run', '--max-questions', '20'],
@@ -1148,7 +1148,7 @@ test('rejects fresh-agent override for managed locomo', async () => {
   );
   installLocomoLayout(dataDir);
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['--fresh-agent', 'locomo', 'run', '--max-questions', '20'],
@@ -1180,7 +1180,7 @@ test('runs managed locomo with retrieval mode', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -1232,7 +1232,7 @@ test('runs managed locomo retrieval matrix sweep', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -1269,7 +1269,7 @@ test('runs managed locomo retrieval rerank matrix sweep', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -1306,7 +1306,7 @@ test('runs managed locomo retrieval embedding matrix sweep', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -1367,7 +1367,7 @@ test('does not apply memory config defaults to locomo retrieval flags', async ()
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
@@ -1405,7 +1405,7 @@ test('starts detached terminal-bench setup', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'setup'],
@@ -1422,8 +1422,8 @@ test('starts detached terminal-bench setup', async () => {
   expect(result.text).toContain(
     'Setup strategy: uv-managed Python 3.12 venv with Hugging Face datasets install and native Terminal-Bench helper smoke test.',
   );
-  expect(result.text).toContain('Use `/eval terminal-bench-2.0 status`');
-  expect(result.text).toContain('Use `/eval terminal-bench-2.0 results`');
+  expect(result.text).toContain('Use `npm run eval -- terminal-bench-2.0 status`');
+  expect(result.text).toContain('Use `npm run eval -- terminal-bench-2.0 results`');
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('uv pip install --python');
@@ -1452,7 +1452,7 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
@@ -1469,7 +1469,7 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
     'Command: terminal-bench-2.0 run --num-tasks 10',
   );
   expect(result.text).toContain(
-    'Use `/eval terminal-bench-2.0 status` and `/eval terminal-bench-2.0 results` to follow this run.',
+    'Use `npm run eval -- terminal-bench-2.0 status` and `npm run eval -- terminal-bench-2.0 results` to follow this run.',
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
@@ -1479,7 +1479,7 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
     ),
   );
   expect(shellArgs[1]).toContain(
-    quoteForShell(path.join(process.cwd(), 'src', 'cli.ts')),
+    quoteForShell(path.join(process.cwd(), 'eval-harness', 'src', 'cli.ts')),
   );
   expect(shellArgs[1]).toContain('__eval-terminal-bench-native');
   expect(shellArgs[1]).toContain('--install-dir');
@@ -1517,7 +1517,7 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
 
   isContainerMaxConcurrentExplicitMock.mockReturnValue(true);
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
@@ -1547,7 +1547,7 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
   isContainerMaxConcurrentExplicitMock.mockReturnValue(true);
   maxConcurrentContainersState.value = 3;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
@@ -1576,7 +1576,7 @@ test('preserves explicit terminal-bench concurrency override', async () => {
 
   isContainerMaxConcurrentExplicitMock.mockReturnValue(true);
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -1619,7 +1619,7 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
     };
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'setup'],
@@ -1633,7 +1633,7 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
 });
 
 test('reports gaia subcommands as not implemented yet', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['gaia', 'status'],
@@ -1647,7 +1647,7 @@ test('reports gaia subcommands as not implemented yet', async () => {
 });
 
 test('rejects unknown suite prefixes instead of launching a raw eval command', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['termin'],
@@ -1734,7 +1734,7 @@ test('reports managed suite latest run in status output', async () => {
   );
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'status'],
@@ -1800,7 +1800,7 @@ test('reports agent-risk latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), '');
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['agent-risk', 'status'],
@@ -1868,7 +1868,7 @@ test('reports locomo latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'status'],
@@ -1945,7 +1945,7 @@ test('reports locomo retrieval latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'status'],
@@ -2011,7 +2011,7 @@ test('reports locomo in-flight progress in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'status'],
@@ -2071,7 +2071,7 @@ test('shows generic managed suite setup logs in results', async () => {
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'results'],
@@ -2130,7 +2130,7 @@ test('shows locomo run summary in results when a run exists', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2210,7 +2210,7 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2291,7 +2291,7 @@ test('shows locomo retrieval matrix summary table in results', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const evalCommand = await import('../src/evals/eval-command.ts');
+  const evalCommand = await import('../eval-harness/src/eval-command.ts');
   const result = await evalCommand.handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2365,7 +2365,7 @@ test('logs debug when locomo result json is malformed', async () => {
 
   const { logger } = await import('../src/logger.ts');
   const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => logger);
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2426,7 +2426,7 @@ test('shows locomo run progress in results while a run is active', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2504,7 +2504,7 @@ test('shows locomo retrieval matrix progress in results while a run is active', 
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2602,7 +2602,7 @@ test('prefers locomo progress over completed summary while the run is still acti
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
@@ -2715,7 +2715,7 @@ test('shows managed suite run summary in results when a run exists', async () =>
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'results'],
@@ -2794,7 +2794,7 @@ test('shows agent-risk run summary in results when a run exists', async () => {
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['agent-risk', 'results'],
@@ -2871,7 +2871,7 @@ test('ignores agent-risk result summaries with unsupported schema versions', asy
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['agent-risk', 'results'],
@@ -2968,7 +2968,7 @@ test('does not count recovered terminal-bench task warnings as errors', async ()
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'results'],
@@ -3073,7 +3073,7 @@ test('shows partial terminal-bench progress in results while a run is still acti
 
   process.kill = vi.fn(() => true) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'results'],
@@ -3151,7 +3151,7 @@ test('shows managed suite log tails in logs view', async () => {
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'logs'],
@@ -3212,7 +3212,7 @@ test('stops managed suite runs and marks the run metadata as terminated', async 
 
   process.kill = vi.fn(() => true) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['terminal-bench-2.0', 'stop'],
@@ -3241,7 +3241,7 @@ test('requires tau2 setup before tau2 run', async () => {
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -3259,7 +3259,7 @@ test('requires tau2 setup before tau2 run', async () => {
   );
 
   expect(result.kind).toBe('error');
-  expect(result.text).toContain('Run `/eval tau2 setup` first.');
+  expect(result.text).toContain('Run `npm run eval -- tau2 setup` first.');
 });
 
 test('reports tau2 setup as still running before install completes', async () => {
@@ -3302,7 +3302,7 @@ test('reports tau2 setup as still running before install completes', async () =>
     return true as never;
   }) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -3323,7 +3323,7 @@ test('reports tau2 setup as still running before install completes', async () =>
   expect(result.title).toBe('tau2 Setup Running');
   expect(result.text).toContain('tau2 setup is still running.');
   expect(result.text).toContain(
-    'Use `/eval tau2 results` to inspect the setup logs.',
+    'Use `npm run eval -- tau2 results` to inspect the setup logs.',
   );
 });
 
@@ -3339,7 +3339,7 @@ test('runs managed tau2 with default llms when installed', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -3365,347 +3365,13 @@ test('runs managed tau2 with default llms when installed', async () => {
     'Command: tau2 run --domain telecom --num-trials 1 --num-tasks 10 --agent-llm "$HYBRIDCLAW_EVAL_MODEL" --user-llm "$HYBRIDCLAW_EVAL_MODEL"',
   );
   expect(result.text).toContain(
-    'Use `/eval tau2 status` and `/eval tau2 results` to follow this run.',
+    'Use `npm run eval -- tau2 status` and `npm run eval -- tau2 results` to follow this run.',
   );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain(path.join('tau2-bench', '.venv'));
   expect(shellArgs[1]).toContain('--agent-llm "$HYBRIDCLAW_EVAL_MODEL"');
   expect(shellArgs[1]).toContain('--user-llm "$HYBRIDCLAW_EVAL_MODEL"');
-});
-
-test('queues an initial tau2 progress bar for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  installTau2Layout(dataDir);
-  spawnMock.mockReturnValue({
-    pid: 6791,
-    unref: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-  });
-
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
-
-  const { initDatabase, claimQueuedProactiveMessages } = await import(
-    '../src/memory/db.ts'
-  );
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-
-  initDatabase({ quiet: true });
-
-  const result = await handleEvalCommand(
-    defaultEvalParams({
-      args: [
-        'tau2',
-        'run',
-        '--domain',
-        'telecom',
-        '--num-trials',
-        '1',
-        '--num-tasks',
-        '10',
-      ],
-      channelId: 'tui',
-      dataDir,
-    }),
-  );
-
-  expect(result.kind).toBe('info');
-  expect(result.text).toContain(
-    'Progress: proactive tau2 bar queued to local tui channel (10 tasks)',
-  );
-
-  const messages = claimQueuedProactiveMessages('tui', 10);
-  expect(messages).toHaveLength(1);
-  expect(messages[0]?.text).toContain('tau2 [--------------------] 0/10 tasks');
-});
-
-test('queues a tau2 setup completion notification for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
-
-  const exitHandlers: Array<
-    (code: number | null, signal: NodeJS.Signals | null) => void
-  > = [];
-  spawnMock.mockReturnValue({
-    pid: 7001,
-    unref: vi.fn(),
-    off: vi.fn(),
-    on: vi.fn(
-      (
-        event: string,
-        handler: (code: number | null, signal: NodeJS.Signals | null) => void,
-      ) => {
-        if (event === 'exit') exitHandlers.push(handler);
-      },
-    ),
-  });
-
-  const { initDatabase, claimQueuedProactiveMessages } = await import(
-    '../src/memory/db.ts'
-  );
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-
-  initDatabase({ quiet: true });
-
-  const result = await handleEvalCommand(
-    defaultEvalParams({
-      args: ['tau2', 'setup'],
-      channelId: 'tui',
-      dataDir,
-    }),
-  );
-
-  expect(result.kind).toBe('info');
-  expect(exitHandlers.length).toBeGreaterThan(0);
-  for (const handler of exitHandlers) {
-    handler(0, null);
-  }
-
-  const messages = claimQueuedProactiveMessages('tui', 10);
-  expect(
-    messages.some((message) =>
-      message.text.includes('tau2 setup completed successfully.\n\nRun ID:'),
-    ),
-  ).toBe(true);
-});
-
-test('queues a tau2 setup failure notification for tui sessions', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
-
-  const exitHandlers: Array<
-    (code: number | null, signal: NodeJS.Signals | null) => void
-  > = [];
-  spawnMock.mockImplementation((_command, _args, options) => {
-    const stderrFd = (options as { stdio: [string, number, number] }).stdio[2];
-    fs.writeSync(
-      stderrFd,
-      "ERROR: Package 'tau2' requires a different Python\n",
-    );
-    return {
-      pid: 7002,
-      unref: vi.fn(),
-      off: vi.fn(),
-      on: vi.fn(
-        (
-          event: string,
-          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
-        ) => {
-          if (event === 'exit') exitHandlers.push(handler);
-        },
-      ),
-    };
-  });
-
-  const { initDatabase, claimQueuedProactiveMessages } = await import(
-    '../src/memory/db.ts'
-  );
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-
-  initDatabase({ quiet: true });
-
-  const result = await handleEvalCommand(
-    defaultEvalParams({
-      args: ['tau2', 'setup'],
-      channelId: 'tui',
-      dataDir,
-    }),
-  );
-
-  expect(result.kind).toBe('info');
-  expect(exitHandlers.length).toBeGreaterThan(0);
-  for (const handler of exitHandlers) {
-    handler(1, null);
-  }
-
-  const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(
-    messages.some((message) => message.text.includes('tau2 setup failed.')),
-  ).toBe(true);
-  expect(
-    messages.some((message) =>
-      message.text.includes('tau2 setup failed.\n\nRun ID:'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) => message.text.includes('Reason: ERROR: Package')),
-  ).toBe(true);
-});
-
-test('queues a tau2 run completion notification without a duplicate generic finished message', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  installTau2Layout(dataDir);
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
-
-  const exitHandlers: Array<
-    (code: number | null, signal: NodeJS.Signals | null) => void
-  > = [];
-  spawnMock.mockImplementation((_command, _args, options) => {
-    const stdoutFd = (options as { stdio: [string, number, number] }).stdio[1];
-    fs.writeSync(
-      stdoutFd,
-      'Total Tasks               10\nAverage Reward         0.6000\nPass^1                 0.600\nDB Match              ✓ 3 / ✗ 7 (30.0%)\nNormal Stop            10 (👤 10 / 🤖 0)\n',
-    );
-    return {
-      pid: 7003,
-      unref: vi.fn(),
-      off: vi.fn(),
-      on: vi.fn(
-        (
-          event: string,
-          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
-        ) => {
-          if (event === 'exit') exitHandlers.push(handler);
-        },
-      ),
-    };
-  });
-
-  const { initDatabase, claimQueuedProactiveMessages } = await import(
-    '../src/memory/db.ts'
-  );
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-
-  initDatabase({ quiet: true });
-
-  const result = await handleEvalCommand(
-    defaultEvalParams({
-      args: [
-        'tau2',
-        'run',
-        '--domain',
-        'telecom',
-        '--num-trials',
-        '1',
-        '--num-tasks',
-        '10',
-      ],
-      channelId: 'tui',
-      dataDir,
-    }),
-  );
-
-  expect(result.kind).toBe('info');
-  expect(exitHandlers.length).toBeGreaterThan(0);
-  for (const handler of exitHandlers) {
-    handler(0, null);
-  }
-
-  const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(
-    messages.some((message) =>
-      message.text.includes('tau2 run completed.\n\nRun ID:'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) =>
-      message.text.includes('Success: 6/10 (0.600 reward pass)'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) => message.text.includes('DB match: 3/10 (30.0%)')),
-  ).toBe(true);
-  expect(
-    messages.some((message) =>
-      message.text.includes('Conversations: 10 normal stop'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) => message.text.includes('Eval finished')),
-  ).toBe(false);
-});
-
-test('queues a tau2 run failure notification with the reason', async () => {
-  const dataDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
-  );
-  installTau2Layout(dataDir);
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-home-'));
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_HOME = path.join(homeDir, '.hybridclaw');
-
-  const exitHandlers: Array<
-    (code: number | null, signal: NodeJS.Signals | null) => void
-  > = [];
-  spawnMock.mockImplementation((_command, _args, options) => {
-    const stderrFd = (options as { stdio: [string, number, number] }).stdio[2];
-    fs.writeSync(stderrFd, 'ERROR: telecom credentials missing\n');
-    return {
-      pid: 7004,
-      unref: vi.fn(),
-      off: vi.fn(),
-      on: vi.fn(
-        (
-          event: string,
-          handler: (code: number | null, signal: NodeJS.Signals | null) => void,
-        ) => {
-          if (event === 'exit') exitHandlers.push(handler);
-        },
-      ),
-    };
-  });
-
-  const { initDatabase, claimQueuedProactiveMessages } = await import(
-    '../src/memory/db.ts'
-  );
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-
-  initDatabase({ quiet: true });
-
-  const result = await handleEvalCommand(
-    defaultEvalParams({
-      args: [
-        'tau2',
-        'run',
-        '--domain',
-        'telecom',
-        '--num-trials',
-        '1',
-        '--num-tasks',
-        '10',
-      ],
-      channelId: 'tui',
-      dataDir,
-    }),
-  );
-
-  expect(result.kind).toBe('info');
-  expect(exitHandlers.length).toBeGreaterThan(0);
-  for (const handler of exitHandlers) {
-    handler(2, null);
-  }
-
-  const messages = claimQueuedProactiveMessages('tui', 20);
-  expect(
-    messages.some((message) =>
-      message.text.includes('tau2 run failed.\n\nRun ID:'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) =>
-      message.text.includes('Reason: ERROR: telecom credentials missing'),
-    ),
-  ).toBe(true);
-  expect(
-    messages.some((message) => message.text.includes('Eval finished')),
-  ).toBe(false);
 });
 
 test('preserves explicit tau2 llm flags', async () => {
@@ -3720,7 +3386,7 @@ test('preserves explicit tau2 llm flags', async () => {
     off: vi.fn(),
   });
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: [
@@ -3799,7 +3465,7 @@ test('reports tau2 install and latest run status', async () => {
     return true as never;
   }) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'status'],
@@ -3866,7 +3532,7 @@ test('reports tau2 success metric in status output for completed runs', async ()
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'status'],
@@ -3928,7 +3594,7 @@ test('reports tau2 setup failure reason in status output', async () => {
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'status'],
@@ -3982,7 +3648,7 @@ test('stops the latest running tau2 process', async () => {
     return true as never;
   }) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'stop'],
@@ -4066,7 +3732,7 @@ test('shows latest tau2 results from log tails', async () => {
     ),
   );
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'results'],
@@ -4136,7 +3802,7 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
     return true as never;
   }) as typeof process.kill;
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
   const result = await handleEvalCommand(
     defaultEvalParams({
       args: ['tau2', 'results'],
@@ -4157,7 +3823,7 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
 });
 
 test('rejects the removed eval run syntax', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({
@@ -4168,12 +3834,12 @@ test('rejects the removed eval run syntax', async () => {
 
   expect(result.kind).toBe('error');
   expect(result.text).toContain(
-    'Use `/eval <shell command...>` instead of `/eval run <shell command...>`.',
+    'Use `npm run eval -- <shell command...>` instead of `npm run eval -- run <shell command...>`.',
   );
 });
 
 test('fails fast when eval gateway auth tokens are missing', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   await expect(
     handleEvalCommand(
@@ -4189,7 +3855,7 @@ test('fails fast when eval gateway auth tokens are missing', async () => {
 });
 
 test('encodes fresh-agent ablation options into the eval model', async () => {
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const { handleEvalCommand } = await import('../eval-harness/src/eval-command.ts');
 
   const result = await handleEvalCommand(
     defaultEvalParams({

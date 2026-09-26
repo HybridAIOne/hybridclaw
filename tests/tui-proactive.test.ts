@@ -14,13 +14,6 @@ test('uses fullauto badge for full-auto proactive messages', () => {
   expect(proactiveSourceSuffix('fullauto:queued')).toBe('');
 });
 
-test('suppresses reminder chrome for eval proactive messages', () => {
-  expect(proactiveBadgeLabel('eval')).toBe('eval');
-  expect(proactiveSourceSuffix('eval')).toBe('');
-  expect(proactiveBadgeLabel('eval:queued')).toBe('eval');
-  expect(proactiveSourceSuffix('eval:queued')).toBe('');
-});
-
 test('uses delegate badge for delegation proactive messages', () => {
   expect(proactiveBadgeLabel('delegate')).toBe('delegate');
   expect(proactiveSourceSuffix('delegate')).toBe('');
