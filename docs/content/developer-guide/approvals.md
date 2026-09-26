@@ -47,9 +47,9 @@ In practice, approvals cover:
 - Shell execution, mainly `bash`. Read-only commands such as `ls`, `cat`, `rg`,
   `git status`, and `git diff` are usually green. Normal mutating commands such
   as `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, and
-  dependency installs are usually yellow. Deletion, unknown scripts, critical
-  shell patterns such as `sudo` or `curl | sh`, host-app control, and writes
-  outside the workspace fence are red.
+  dependency installs are usually yellow. Deletion, unknown scripts, running
+  code that `curl` or `wget` fetched, critical shell patterns such as `sudo`,
+  host-app control, and writes outside the workspace fence are red.
 - Most runtime tools. Read/search tools are green. `write`, `edit`, and
   `memory` are yellow. `delete` is red. `delegate` is green because it is
   internal orchestration; the delegated agent's child tool calls are still
@@ -105,22 +105,24 @@ Two important transitions:
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
-| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
+| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
-| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag` | Write side effects inside the workspace |
+| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
-| Deletion | Red | `delete`, `rm`, `find -delete` | Destructive; cache/build deletions may be promotable |
+| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace; `xargs rm`, variables, `~`, and `..` targets never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
-| Critical shell commands | Red | `sudo`, `curl | sh`, `wget | bash`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
-| Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh` | Treated as high risk |
+| Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
+| Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
+| Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
+| Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word: operands, redirect targets, and `--opt=` values count whether relative, `~/`, or `$HOME/`; text a lone `echo`/`printf` prints and `grep` patterns do not |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
@@ -128,6 +130,23 @@ files matching the built-in pinned paths (`.env*`, `~/.ssh/**`, `/etc/**`)
 unless `path` or `include` names a pinned path, which makes the call red. The
 output reports how many files were skipped. Paths added under
 `approval.pinned_red` gate explicit arguments only; walks do not skip them.
+
+`bash` commands get the pinned check for every operand, not only absolute
+paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
+paths, `../` escapes resolved from the workspace root, redirects
+(`cat < .env`), option values (`--env-file=.env`), git revisions
+(`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs that bash
+expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
+(unless piped into another command) and `grep`/`rg` patterns are not paths.
+A recursive read that can reach
+pinned files without naming them is pinned red on every run
+(`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
+walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is
+always pinned: excluding file names cannot keep it out of `/etc` or `~/.ssh`.
+Like the `grep` tool, walks consider only the built-in pinned paths. The check
+is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
+an earlier bash call are not resolved; it stops accidental shell reads of
+pinned files rather than replacing a sandbox.
 
 ## Network Policy
 

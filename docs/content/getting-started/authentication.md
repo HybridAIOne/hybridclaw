@@ -225,7 +225,10 @@ The route provider uses the same encrypted Google OAuth material created by
 `hybridclaw auth login google`. At request time the gateway mints a
 short-lived access token on the host and injects it into matching
 `http_request` calls. The token is only injectable into `googleapis.com` or
-`*.googleapis.com` requests.
+`*.googleapis.com` requests. Chat setup does not refresh Google credentials.
+For `gws` and `gog`, short-lived CLI tokens are resolved when an approved
+`bash` tool executes, and are excluded from persistent shell snapshots.
+An expired Google login does not block unrelated shell commands.
 
 ### 1. Create A Google OAuth Client
 
