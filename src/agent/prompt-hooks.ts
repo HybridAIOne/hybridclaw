@@ -550,6 +550,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
     'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
+    "To pass a local file's bytes through a tool argument — an API upload, or a connector that writes a repository file — use `<file-base64:path>` as the entire argument value. The runtime substitutes the file content as base64 before the call runs.",
+    'Never base64-encode a file in `bash` and paste the result into a tool argument. Payloads that large get truncated on the way back out, and the upload is silently corrupted even though the tool reports success.',
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first.',
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not inspect or reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder unless the user explicitly asks to update them or use them as a template.',
     ...messageToolPromptLines,
