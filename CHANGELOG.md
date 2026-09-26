@@ -14,10 +14,17 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
-- **MCP read-only hints respected**: Tools a server marks `readOnlyHint` run
-  without approval, whatever their name. Before, a read-only tool such as
-  `execute_sql` was treated as a command runner and held for approval on
-  every call, which a voice caller could never grant.
+- **MCP tool annotations respected**: Approvals follow what a server says a
+  tool does instead of guessing from its name. Read-only tools run without
+  approval, so an `execute_sql` that only runs SELECTs no longer waits for a
+  yes on every call, which a voice caller could never give. Destructive
+  writes need approval, including writes that leave `destructiveHint` unset,
+  since the spec default is destructive. Additive writes that reach the
+  outside world are announced on every call. A failed call is resent after
+  reconnecting only when the tool is read-only or idempotent, so a lost
+  response no longer sends the same mail twice. The tool's `title` names it
+  in approval prompts. Tools without annotations are judged by name as
+  before.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

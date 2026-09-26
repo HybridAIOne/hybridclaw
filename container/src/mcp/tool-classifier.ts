@@ -1,3 +1,5 @@
+import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+
 export type ToolKind =
   | 'read'
   | 'edit'
@@ -59,13 +61,40 @@ function matchesHint(name: string, hints: readonly string[]): boolean {
   return hints.some((hint) => name.includes(hint));
 }
 
+/**
+ * Whether the server described the tool's behaviour. Once it has, unset
+ * hints take the MCP spec defaults (a write is destructive and open-world);
+ * without any, the tool is judged by its name.
+ */
+export function hasBehaviorHints(
+  annotations: ToolAnnotations | undefined,
+): annotations is ToolAnnotations {
+  return (
+    annotations?.readOnlyHint !== undefined ||
+    annotations?.destructiveHint !== undefined ||
+    annotations?.idempotentHint !== undefined ||
+    annotations?.openWorldHint !== undefined
+  );
+}
+
+/** Whether a call that may already have reached the server can be resent. */
+export function isRetrySafe(annotations: ToolAnnotations | undefined): boolean {
+  if (!hasBehaviorHints(annotations)) return true;
+  return (
+    annotations.readOnlyHint === true || annotations.idempotentHint === true
+  );
+}
+
 export function classifyMcpTool(
   toolName: string,
-  annotations?: { readOnlyHint?: boolean },
+  annotations?: ToolAnnotations,
 ): ToolKind {
-  // The server's own hint beats guessing from the name ("execute_sql" may
+  // The server's own hints beat guessing from the name ("execute_sql" may
   // only ever run SELECTs).
-  if (annotations?.readOnlyHint === true) return 'read';
+  if (hasBehaviorHints(annotations)) {
+    if (annotations.readOnlyHint === true) return 'read';
+    return annotations.destructiveHint === false ? 'edit' : 'delete';
+  }
   const lower = toolName
     .toLowerCase()
     .split('__')

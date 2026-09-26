@@ -48,7 +48,8 @@ import {
   type BehaviorAnomalyScore,
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
-import { classifyMcpTool, type ToolKind } from './mcp/tool-classifier.js';
+import { classifyMcpTool, hasBehaviorHints } from './mcp/tool-classifier.js';
+import type { McpToolBehavior } from './mcp/types.js';
 import {
   matchesHardPinnedPath,
   matchesPathPattern,
@@ -336,7 +337,9 @@ export type ApprovalRuleHookEmitter = (
   event: ApprovalRuleHookEvent,
 ) => void | Promise<void>;
 
-export type McpToolKindResolver = (toolName: string) => ToolKind | undefined;
+export type McpToolBehaviorResolver = (
+  toolName: string,
+) => McpToolBehavior | undefined;
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
@@ -2150,7 +2153,7 @@ export class TrustedAgentApprovalRuntime {
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
-  private mcpToolKindResolver: McpToolKindResolver | null = null;
+  private mcpToolBehaviorResolver: McpToolBehaviorResolver | null = null;
 
   constructor(
     policyPath = POLICY_PATH,
@@ -2189,8 +2192,8 @@ export class TrustedAgentApprovalRuntime {
     this.approvalRuleHookEmitter = emitter || null;
   }
 
-  setMcpToolKindResolver(resolver: McpToolKindResolver | null): void {
-    this.mcpToolKindResolver = resolver;
+  setMcpToolBehaviorResolver(resolver: McpToolBehaviorResolver | null): void {
+    this.mcpToolBehaviorResolver = resolver;
   }
 
   private runStakesMiddleware(
@@ -3434,10 +3437,11 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.includes('__')) {
-      const kind =
-        this.mcpToolKindResolver?.(toolName) ?? classifyMcpTool(lowerTool);
+      const behavior = this.mcpToolBehaviorResolver?.(toolName);
+      const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
+      const annotations = behavior?.annotations;
       const [serverName, rawToolName] = lowerTool.split('__', 2);
-      const toolLabel = rawToolName || lowerTool;
+      const toolLabel = annotations?.title || rawToolName || lowerTool;
       const actionKey = `mcp:${serverName || 'server'}:${kind}`;
 
       if (kind === 'read' || kind === 'search' || kind === 'fetch') {
@@ -3492,7 +3496,10 @@ export class TrustedAgentApprovalRuntime {
         hostHints: [],
         writeIntent: kind === 'edit',
         promotableRed: false,
-        stickyYellow: false,
+        // A write that reaches outside (mail, a PR comment) is narrated every
+        // time instead of going quiet after its first run.
+        stickyYellow:
+          hasBehaviorHints(annotations) && annotations.openWorldHint !== false,
       };
     }
 

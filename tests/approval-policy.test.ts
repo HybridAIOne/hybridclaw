@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   type ApprovalRuleHookEvent,
@@ -1727,24 +1728,61 @@ approval:
     expect(evaluation.actionKey).toBe('mcp:runner:execute');
   });
 
-  test('MCP tools the server marks read-only are green despite an execute-like name', () => {
-    const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
-    );
-    runtime.setMcpToolKindResolver((name) =>
-      name === 'warehouse__execute_sql'
-        ? classifyMcpTool('execute_sql', { readOnlyHint: true })
-        : undefined,
-    );
+  describe('MCP tools the server annotates', () => {
+    function runtimeFor(annotations: ToolAnnotations) {
+      const runtime = new TrustedAgentApprovalRuntime(
+        '/tmp/hybridclaw-missing-policy.yaml',
+      );
+      runtime.setMcpToolBehaviorResolver(() => ({
+        kind: classifyMcpTool('execute_sql', annotations),
+        annotations,
+      }));
+      return runtime;
+    }
 
-    const evaluation = runtime.evaluateToolCall({
-      toolName: 'warehouse__execute_sql',
-      argsJson: JSON.stringify({ sql: 'SELECT 1' }),
-      latestUserPrompt: 'Who are my top customers?',
+    function evaluate(runtime: TrustedAgentApprovalRuntime) {
+      return runtime.evaluateToolCall({
+        toolName: 'warehouse__execute_sql',
+        argsJson: JSON.stringify({ sql: 'SELECT 1' }),
+        latestUserPrompt: 'Who are my top customers?',
+      });
+    }
+
+    test('a read-only hint beats an execute-like name', () => {
+      const evaluation = evaluate(runtimeFor({ readOnlyHint: true }));
+
+      expect(evaluation.tier).toBe('green');
+      expect(evaluation.actionKey).toBe('mcp:warehouse:read');
     });
 
-    expect(evaluation.tier).toBe('green');
-    expect(evaluation.actionKey).toBe('mcp:warehouse:read');
+    test('a write without a destructive hint takes the spec default', () => {
+      const evaluation = evaluate(runtimeFor({ readOnlyHint: false }));
+
+      expect(evaluation.tier).toBe('red');
+      expect(evaluation.decision).toBe('required');
+    });
+
+    test.each([
+      [false, 'green'],
+      [true, 'yellow'],
+      [undefined, 'yellow'],
+    ] as const)('an additive write with openWorldHint %s is %s on its second run', (openWorldHint, secondTier) => {
+      const runtime = runtimeFor({ destructiveHint: false, openWorldHint });
+
+      const first = evaluate(runtime);
+      expect(first.tier).toBe('yellow');
+      runtime.afterToolExecution(first, true);
+
+      expect(evaluate(runtime).tier).toBe(secondTier);
+    });
+
+    test('the title names the tool in the approval', () => {
+      const evaluation = evaluate(
+        runtimeFor({ title: 'Query the warehouse', readOnlyHint: false }),
+      );
+
+      expect(evaluation.intent).toBe('run MCP tool Query the warehouse');
+    });
   });
 
   test('read-only bundled PDF extraction commands are green', () => {

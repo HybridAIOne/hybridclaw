@@ -18,10 +18,11 @@ import {
 
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
-import { classifyMcpTool, type ToolKind } from './tool-classifier.js';
+import { classifyMcpTool, isRetrySafe } from './tool-classifier.js';
 import type {
   McpClientHandle,
   McpServerConfig,
+  McpToolBehavior,
   McpToolDefinition,
 } from './types.js';
 
@@ -32,10 +33,9 @@ const MCP_CLIENT_INFO = {
   version: process.env.npm_package_version || '0.0.0',
 };
 
-interface ToolIndexEntry {
+interface ToolIndexEntry extends McpToolBehavior {
   serverName: string;
   toolName: string;
-  kind: ToolKind;
 }
 
 interface ListToolsResult {
@@ -174,8 +174,9 @@ export class McpClientManager {
     return this.toolIndex.has(name);
   }
 
-  getToolKind(name: string): ToolKind | undefined {
-    return this.toolIndex.get(name)?.kind;
+  getToolBehavior(name: string): McpToolBehavior | undefined {
+    const entry = this.toolIndex.get(name);
+    return entry && { kind: entry.kind, annotations: entry.annotations };
   }
 
   hasServer(name: string): boolean {
@@ -243,7 +244,7 @@ export class McpClientManager {
       entry.toolName,
       namespacedName,
       args,
-      true,
+      isRetrySafe(entry.annotations),
     );
   }
 
@@ -424,6 +425,7 @@ export class McpClientManager {
         description,
         inputSchema: rawSchema,
         kind: classifyMcpTool(tool.name, tool.annotations),
+        annotations: tool.annotations,
       };
     });
   }
@@ -515,6 +517,7 @@ export class McpClientManager {
           serverName: handle.serverName,
           toolName: tool.originalName,
           kind: tool.kind,
+          annotations: tool.annotations,
         });
       }
     }
