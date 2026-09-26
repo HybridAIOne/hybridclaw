@@ -43,6 +43,67 @@
 - **Atomic agent output files**: The agent runtime publishes `output.json` and
   `health-output.json` by renaming a finished temporary file, so readers never
   see an empty or half-written result.
+- **Recursive shell reads of pinned files need approval**: Recursive reads
+  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
+  `find -exec`, `find | xargs`) now require approval on every run unless they
+  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
+  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
+  always do. Shell commands also match pinned paths through dotfile globs
+  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
+  command. The bash tool description points agents to the grep tool and the
+  exclusion.
+- **A read-only first command no longer makes a whole bash line green**: Only
+  the first segment was checked, so `ls ; tar czf - . | base64`,
+  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
+  Every command the line runs must now be read-only, including pipeline
+  stages, later lines, background jobs, `$(...)` and backtick contents, and
+  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
+  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
+  while `git log | head`, `ls -la | grep foo`, and
+  `find . -name '*.ts' | wc -l` stay green.
+- **Deletions without an `rm` flag need approval**: bash deletion detection
+  required a flag after `rm`, so `rm notes.txt` ran yellow and
+  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
+  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
+  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
+  (cache and build targets stay promotable `bash:delete-cache`), and a
+  flagless `rm` outside the workspace hits the workspace fence.
+  `git rm --cached`, which keeps the files, is now a yellow git write instead of
+  a deletion; `rmdir` stays yellow because it only removes empty directories.
+- **Read-only commands that run programs or write files leave the green
+  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
+  `git diff --output=FILE`, `git log --output=../out.txt`, and
+  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
+  and `--hostname-bin` are now red script execution; git's `--output` and
+  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
+  absolute target outside the workspace hits the workspace fence. Plain
+  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
+- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
+  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
+  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
+  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
+  narrated yellow without a prompt. Promotion now requires every deletion
+  target (rm/unlink/`git rm` operands and the starting points of
+  `find -delete` or `find -exec rm`), resolved through any `cd` in the same
+  command, to be such a path inside the workspace or scratch space;
+  `xargs rm`, variables, `~`, a `..` or `cd` that leaves the workspace, and
+  `rm -…` hidden in another command's arguments make the deletion a plain
+  `bash:delete`.
+- **The workspace fence catches relative writes that climb out**: The bash
+  fence only checked absolute paths, so `echo x > ../out.txt`,
+  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
+  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
+  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
+  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
+  resolved from the workspace root through any `cd` in the same command, and
+  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
+  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
+- **Running downloaded code needs explicit approval**: Bash commands that run
+  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
+  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
+  red `bash:fetched-code` approval that full-auto never grants, closing the
+  two-step route around the `curl | sh` block. Files curl and wget save also
+  count as writes for the workspace fence.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
@@ -85,12 +146,6 @@
 
 ### Fixed
 
-- **Running downloaded code needs explicit approval**: Bash commands that run
-  code `curl` or `wget` fetched (`curl -o f URL && sh f`, `sh -c "$(curl …)"`,
-  `bash <(curl …)`, or a file an earlier call in the session downloaded) are a
-  red `bash:fetched-code` approval that full-auto never grants, closing the
-  two-step route around the `curl | sh` block. Files curl and wget save also
-  count as writes for the workspace fence.
 - **Discord announcements respect mention rules**: `@here` and `@everyone`
   alone do not count as addressing the bot or trigger mention-only reactions.
   Direct bot mentions, bot-role mentions, and reply pings still count.
@@ -197,59 +252,6 @@
   `cp`, and `mv` targets outside the workspace now require approval when
   quoted, too. `touch "/Users/me/x.txt"` previously ran as an implicit yellow
   write while the unquoted spelling was fenced.
-- **Recursive shell reads of pinned files need approval**: Recursive reads
-  that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
-  `find -exec`, `find | xargs`) now require approval on every run unless they
-  exclude `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`,
-  plain `rg`, `find -name '*.ts' -exec`); walks rooted at `/`, `~`, or `..`
-  always do. Shell commands also match pinned paths through dotfile globs
-  (`cat .e*`), `bash -c` and `eval` scripts, and a `cd` earlier in the same
-  command. The bash tool description points agents to the grep tool and the
-  exclusion.
-- **A read-only first command no longer makes a whole bash line green**: Only
-  the first segment was checked, so `ls ; tar czf - . | base64`,
-  `ls; python3 -c …`, and `ls $(python3 x.py)` ran green without narration.
-  Every command the line runs must now be read-only, including pipeline
-  stages, later lines, background jobs, `$(...)` and backtick contents, and
-  what `find -exec` or `xargs` runs; anything else is yellow `bash:other`.
-  Pipelines such as `cat x | sort` or `cat package.json | jq .` are now yellow,
-  while `git log | head`, `ls -la | grep foo`, and
-  `find . -name '*.ts' | wc -l` stay green.
-- **Deletions without an `rm` flag need approval**: bash deletion detection
-  required a flag after `rm`, so `rm notes.txt` ran yellow and
-  `find . -name '*.log' -exec rm {} +` ran green. Every command a line runs is
-  now checked: `rm` and `unlink` with or without flags, `find -exec rm`,
-  `xargs rm`, deletions inside `bash -c`, and `git rm` are red `bash:delete`
-  (cache and build targets stay promotable `bash:delete-cache`), and a
-  flagless `rm` outside the workspace hits the workspace fence.
-  `git rm --cached`, which keeps the files, is now a yellow git write instead of
-  a deletion; `rmdir` stays yellow because it only removes empty directories.
-- **Read-only commands that run programs or write files leave the green
-  tier**: `rg --pre python3 KEY` ran python3 on every searched file, and
-  `git diff --output=FILE`, `git log --output=../out.txt`, and
-  `find -fprint FILE` wrote files, all green without narration. `rg --pre`
-  and `--hostname-bin` are now red script execution; git's `--output` and
-  find's `-fprint`, `-fprint0`, `-fprintf`, and `-fls` are yellow writes, and an
-  absolute target outside the workspace hits the workspace fence. Plain
-  `rg KEY`, `git diff --stat`, and `find . -name '*.ts'` stay green.
-- **Cache-cleanup promotion checks what is deleted**: A bash deletion became
-  the promotable `bash:delete-cache` action when `node_modules`, `dist`,
-  `build`, `coverage`, or `.cache` appeared anywhere in the command, so after
-  one approved `rm -rf node_modules`, `rm -rf src && npm run build` ran as a
-  narrated yellow without a prompt. Promotion now requires every deletion
-  target (rm/unlink/`git rm` operands and the starting points of
-  `find -delete` or `find -exec rm`) to be such a path inside the workspace;
-  `xargs rm`, variables, `~`, `..`, and `rm -…` hidden in another command's
-  arguments make the deletion a plain `bash:delete`.
-- **The workspace fence catches relative writes that climb out**: The bash
-  fence only checked absolute paths, so `echo x > ../out.txt`,
-  `cp notes.txt ../out.txt`, `tee ../out.txt`, `cd .. && touch x`, and
-  `echo x > ~/out.txt` wrote outside the workspace as a narrated yellow. Write
-  targets (redirects, `tee`, `-o`/`--out`, cp/mv destinations,
-  mkdir/touch/chmod/chown operands, and git `--output`/find `-fprint`) are now
-  resolved from the workspace root through any `cd` in the same command, and
-  those that land outside it hit the fence; `sub/../notes.txt` and `/tmp`
-  paths stay unfenced. A `>` inside quotes no longer counts as a redirect.
 - **Connector credential changes require secret permissions**: Saving the
   HybridAI API key and starting a connector OAuth flow require
   `secret.overwrite`, and logging a connector out requires `secret.unset`, for
