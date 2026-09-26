@@ -67,6 +67,12 @@
 
 ### Fixed
 
+- **Long model calls no longer time out**: The agent reports activity during
+  every model call and retry backoff, as it already did for tool calls. A
+  non-streaming turn (scheduled tasks, delegations, output-guarded chats) that
+  waits more than five minutes on a slow local model or long reasoning is no
+  longer stopped by the gateway's inactivity timeout. Hung requests still end
+  at the provider's own request and stream timeouts.
 - **Retries that repeated tool side effects**: A delegated task that fails
   with a transient-looking error after it already ran a tool (a shell command,
   a file write, an email, a `delegate` call) reports the failure instead of
