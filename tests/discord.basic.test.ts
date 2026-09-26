@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 
 import { buildResponseText } from '../src/channels/discord/delivery.js';
 import {
+  buildOptionalReplyContext,
   cleanIncomingContent,
   hasDirectBotMention,
   hasDiscordMessageContentChanged,
@@ -265,6 +266,14 @@ test('isTrigger commands-only allows slash-text agent commands', () => {
     hasBotMention: false,
   });
   expect(shouldTrigger).toBe(true);
+});
+
+test('buildOptionalReplyContext tells the agent how to skip a reply', () => {
+  const context = buildOptionalReplyContext();
+  expect(context.startsWith('[Reply policy]\n')).toBe(true);
+  expect(context).toContain('respond with ONLY: __MESSAGE_SEND_HANDLED__');
+  // Ends with a blank line, like the other context blocks before the message.
+  expect(context.endsWith('\n\n')).toBe(true);
 });
 
 const BOT_USER: APIUser = {
