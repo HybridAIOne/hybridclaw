@@ -73,6 +73,11 @@
 - **Empty auxiliary model replies use the fallback chain**: Session titles and
   other auxiliary tasks try the next eligible model when a provider returns
   blank text, and record the empty attempt as a failure.
+- **Warm-pool refill failures**: A turn that finished keeps its reply, tool
+  calls, and queued delegations when refilling the warm process pool
+  afterwards fails, for example on a full disk or a spawn error, instead of
+  being recorded as a failed turn. The refill failure is logged as a warning
+  and retried on the next turn.
 - **Failed turns and delegations**: A turn that ends in an error without
   starting its delegations now says so in its stored history. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was
@@ -172,6 +177,10 @@
   red `bash:fetched-code` approval that full-auto never grants, closing the
   two-step route around the `curl | sh` block. Files curl and wget save also
   count as writes for the workspace fence.
+- **Routed turns keep their tool calls**: With model routing enabled, an
+  attempt that fails after running a tool is no longer retried on a fallback
+  model, the same rung, or a higher tier, which could repeat its effects. The
+  failed turn lists the tool calls that ran, as unrouted turns do.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

@@ -7,6 +7,12 @@ import { resolveLadder } from '../src/providers/model-routing.js';
 import type { ResolvedModelRuntimeCredentials } from '../src/providers/types.js';
 import type { ContainerOutput } from '../src/types/container.js';
 
+// Fallback-chain models resolve through the factory, not `resolveRuntime`.
+vi.mock('../src/providers/factory.js', () => ({
+  resolveModelRuntimeCredentials: async ({ model }: { model: string }) =>
+    runtime(model),
+}));
+
 const config = {
   enabled: true,
   tiers: [
@@ -137,4 +143,88 @@ test('a failed turn with tool execution is returned without rerouting', async ()
   expect(result.output).toBe(failed);
   expect(invoke).toHaveBeenCalledTimes(1);
   expect(onEscalation).not.toHaveBeenCalled();
+});
+
+test('a provider error thrown before any tool still escalates', async () => {
+  const invoke = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('Provider returned HTTP 503'))
+    .mockResolvedValueOnce(output({ status: 'success', result: 'done' }));
+  const onEscalation = vi.fn();
+  const result = await executeModelRouting({
+    ladder: resolveLadder(config),
+    agentId: 'main',
+    resolveRuntime: async ({ model }) => runtime(model),
+    invoke,
+    onEscalation,
+  });
+
+  expect(result.model).toBe('hybridai/medium');
+  expect(onEscalation).toHaveBeenCalledWith({
+    fromTier: 'economy',
+    toTier: 'general',
+    reason: 'provider_server_error',
+  });
+});
+
+test.each([
+  ['throws a provider error', new Error('Provider returned HTTP 503')],
+  [
+    'returns a provider error without executions',
+    output({ status: 'error', error: 'Provider returned HTTP 503' }),
+  ],
+  ['returns empty output', output({ status: 'success', result: '' })],
+])('an attempt that reported a tool and %s is never run again', async (_label, outcome) => {
+  const invoke = vi.fn(
+    async (_runtime: unknown, _model: string, markToolStarted: () => void) => {
+      markToolStarted();
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    },
+  );
+  const onEscalation = vi.fn();
+  const settled = await executeModelRouting({
+    // A fallback model and a next rung leave every retry path open.
+    ladder: resolveLadder({
+      ...config,
+      tiers: [
+        { name: 'economy', models: ['local/small', 'local/backup'] },
+        { name: 'general', models: ['hybridai/medium'] },
+      ],
+    }),
+    agentId: 'main',
+    resolveRuntime: async ({ model }) => runtime(model),
+    invoke,
+    onEscalation,
+  }).then(
+    (result) => result.output,
+    (error: unknown) => error,
+  );
+
+  expect(settled).toBe(outcome);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(onEscalation).not.toHaveBeenCalled();
+});
+
+test('a later rung that reported a tool and threw surfaces its own error', async () => {
+  const failure = new Error('container exited unexpectedly');
+  const invoke = vi
+    .fn()
+    .mockResolvedValueOnce(output({ status: 'error', error: 'HTTP 503' }))
+    .mockImplementationOnce(
+      async (_runtime: unknown, _model: string, markToolStarted: () => void) => {
+        markToolStarted();
+        throw failure;
+      },
+    );
+
+  await expect(
+    executeModelRouting({
+      ladder: resolveLadder(config),
+      agentId: 'main',
+      resolveRuntime: async ({ model }) => runtime(model),
+      invoke,
+    }),
+  ).rejects.toBe(failure);
+  expect(invoke).toHaveBeenCalledTimes(2);
 });
