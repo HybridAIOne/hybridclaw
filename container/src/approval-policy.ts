@@ -32,6 +32,17 @@ import {
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import {
+  DELETE_RE,
+  deletesFiles,
+  deletionTargets,
+  optionWriteTargets,
+  runsProgramOption,
+  shellCommandsRun,
+  writeTargets,
+} from './bash-commands.js';
+import { findBashPinnedReach } from './bash-pinned-reach.js';
+import { findFetchedCode } from './bash-remote-code.js';
+import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
   type BehaviorAnomalyScore,
@@ -418,21 +429,27 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 };
 
 const CRITICAL_BASH_RE =
-  /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b|\bcurl\b[^\n|]*\|\s*(sh|bash|zsh)\b|\bwget\b[^\n|]*\|\s*(sh|bash|zsh)\b/i;
+  /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
-const DELETE_RE = /\brm\s+-[^\n;|&]*\b|\bfind\b[^\n]*\s-delete\b/i;
 const WRITE_INTENT_RE =
   /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
-  /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag)\b/i;
+  /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
 const UNKNOWN_SCRIPT_RE =
   /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
   /^\s*(ls|pwd|cat|head|tail|wc|rg|grep|find|git\s+(status|log|diff|show)|npm\s+test|pnpm\s+test|yarn\s+test|vitest|pytest|phpunit|node\s+--version|npm\s+--version|pnpm\s+--version|yarn\s+--version)\b/i;
+const CACHE_PATH_SEGMENTS = new Set([
+  '.cache',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+]);
 const NETWORK_COMMAND_RE = /\b(curl|wget|http|https|ssh|scp)\b/i;
 const ABS_PATH_RE = /(^|\s)(\/[^\s"'`;,|&()<>]+)/g;
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
@@ -1191,6 +1208,25 @@ function buildBashInspectionSurface(command: string): string {
     .join(' ; ');
 }
 
+// A target a promotable cache cleanup may delete: a node_modules, dist, build,
+// coverage, or .cache path segment that stays in the workspace or scratch
+// space. `..`, `~`, and variables make the real target unknown.
+function isCacheDeletionTarget(target: string): boolean {
+  if (/^~|\$/.test(target)) return false;
+  const segments = target.split('/');
+  if (segments.includes('..')) return false;
+  if (
+    target.startsWith('/') &&
+    !isWorkspacePath(target) &&
+    !isScratchPath(target)
+  ) {
+    return false;
+  }
+  return segments.some((segment) =>
+    CACHE_PATH_SEGMENTS.has(segment.toLowerCase()),
+  );
+}
+
 function splitCommandSegments(command: string): string[] {
   const segments: string[] = [];
   let current = '';
@@ -1235,173 +1271,6 @@ function splitCommandSegments(command: string): string[] {
 
   if (current.trim()) segments.push(current.trim());
   return segments;
-}
-
-function unquotePathToken(rawValue: string): string {
-  const trimmed = rawValue.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function pushAbsolutePath(
-  output: Set<string>,
-  rawValue: string | undefined,
-): void {
-  const candidate = unquotePathToken(String(rawValue || ''));
-  if (!candidate.startsWith('/')) return;
-  output.add(candidate);
-}
-
-function extractLikelyWritePaths(command: string): string[] {
-  const paths = new Set<string>();
-  const segments = splitCommandSegments(command);
-
-  for (const segment of segments) {
-    // Operands as shell words, not ABS_PATH_RE matches: a quote before the
-    // slash (`touch "/Users/me/x.txt"`) hid the path from the regex.
-    const segmentAbsPaths = tokenizeShellSegment(segment)
-      .filter((word) => word.startsWith('/'))
-      .map((word) => path.resolve(word));
-    for (const match of segment.matchAll(
-      /(?:^|\s)(?:--out|-o)\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-    for (const match of segment.matchAll(
-      /(?:^|[^>])>>?\s*("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-    for (const match of segment.matchAll(
-      /(?:^|\s)tee(?:\s+-a)?\s+("[^"]+"|'[^']+'|\/[^\s"'`;,|&()<>]+)/g,
-    )) {
-      pushAbsolutePath(paths, match[1]);
-    }
-
-    if (/^\s*(mkdir|touch|chmod|chown)\b/i.test(segment)) {
-      for (const candidate of segmentAbsPaths) {
-        paths.add(candidate);
-      }
-    }
-
-    if (/^\s*(cp|mv)\b/i.test(segment)) {
-      const destination = segmentAbsPaths.at(-1);
-      if (destination) paths.add(destination);
-    }
-  }
-
-  return [...paths];
-}
-
-function normalizeBashPathWord(word: string): string {
-  // Drop subshell/substitution punctuation and curl's `@file` marker, and
-  // spell `$HOME` as `~` so home-relative pinned rules apply.
-  return word
-    .replace(/^(?:\$\(|[({`@])+/, '')
-    .replace(/^\$(?:HOME|\{HOME\})(?![\w}])/, '~')
-    .replace(/[)}`]+$/, '')
-    .replace(/^file:\/\//i, '');
-}
-
-// Every word of a command that can name a local file, relative or not:
-// operands, `--opt=` and assignment values, and redirect targets.
-function extractBashPathHints(inspectionSurface: string): string[] {
-  const hints = new Set<string>();
-  const addHint = (rawWord: string): void => {
-    // A quoted `"$(cat .env)"` stays one token; its inner words count.
-    if (/\$\(|`/.test(rawWord)) {
-      for (const piece of rawWord.split(/\$\(|[\s`()]+/)) addHint(piece);
-      return;
-    }
-    const word = normalizeBashPathWord(rawWord);
-    if (!word || word === '-' || /^[a-z][\w+.-]*:\/\//i.test(word)) return;
-    hints.add(word);
-    // The shell starts in the workspace root; resolve `../` escapes so
-    // absolute rules such as `/etc/**` still apply.
-    const normalized = path.posix.normalize(word);
-    if (normalized === '..' || normalized.startsWith('../')) {
-      hints.add(path.resolve(WORKSPACE_ROOT_ACTUAL, normalized));
-    }
-  };
-
-  const segments = splitCommandSegments(inspectionSurface);
-  for (const segment of segments) {
-    const words: string[] = [];
-    let pending: 'target' | 'delimiter' | null = null;
-    for (const token of tokenizeShellSegment(segment)) {
-      if (pending) {
-        if (pending === 'target') addHint(token);
-        pending = null;
-        continue;
-      }
-      // Whitespace only survives tokenizing inside quotes, where `<` and
-      // `>` are literal text.
-      const operatorAt = /\s/.test(token) ? -1 : token.search(/[<>]/);
-      if (operatorAt < 0) {
-        words.push(token);
-        continue;
-      }
-      // `x>.env` glues a word to the redirect; a bare fd (`2>`, `&>`) doesn't.
-      const word = token.slice(0, operatorAt);
-      if (word && !/^(?:\d+|&)$/.test(word)) words.push(word);
-      const [, operator = '', target = ''] =
-        /^([<>]+[&|-]?)(.*)$/s.exec(token.slice(operatorAt)) || [];
-      if (operator === '<<' || operator === '<<-') {
-        // Heredoc bodies are already stripped; the delimiter is no path.
-        if (!target) pending = 'delimiter';
-      } else if (operator.endsWith('&') && /^(?:\d+|-)$/.test(target)) {
-        // `2>&1` duplicates a descriptor.
-      } else if (target) {
-        addHint(target);
-      } else {
-        pending = 'target';
-      }
-    }
-
-    // Newlines, `&`, and substitutions start more commands inside one
-    // segment, so only a plain command gets its operands read as text.
-    const plain = !/[\n`]|\$\(|[<>]\(|(?:^|[^&<>])&(?![&>])/.test(segment);
-    const commandAt = words.findIndex((word) => !/^[A-Za-z_]\w*=/.test(word));
-    const command = path.posix.basename(words[commandAt] || '');
-    // A lone echo/printf only prints its operands (`echo "fill in .env"`);
-    // piped or followed by more commands, they may be read as paths.
-    const skipOperands =
-      plain && segments.length === 1 && /^(?:echo|printf)$/.test(command);
-    // grep's first operand is its pattern unless -e/-f (`-e.KEY`, `-rne`,
-    // GNU's abbreviated `--reg=`) supplies one: `grep -r ".env" src`
-    // searches src. sed and awk scripts are programs that can name files,
-    // so they are not skipped.
-    let skipPattern =
-      plain &&
-      /^(?:grep|egrep|fgrep|rg)$/.test(command) &&
-      !words.some((word) => /^(?:-[A-Za-z]*[ef]|--(?:reg|file))/.test(word));
-    let optionsEnded = false;
-    for (const [index, word] of words.entries()) {
-      const valueAt = word.indexOf('=') + 1;
-      if (commandAt < 0 || index < commandAt) {
-        addHint(word.slice(valueAt));
-      } else if (index === commandAt) {
-        addHint(word);
-      } else if (!optionsEnded && word.startsWith('-')) {
-        // `--env-file=.env` and `-T.env` carry file values too.
-        if (word === '--') optionsEnded = true;
-        else if (valueAt > 0) addHint(word.slice(valueAt));
-        else if (!word.startsWith('--')) addHint(word.slice(2));
-      } else if (skipPattern) {
-        skipPattern = false;
-      } else if (!skipOperands) {
-        addHint(word);
-        // `dd if=.env`, `curl -F file=@.env`
-        if (valueAt > 0) addHint(word.slice(valueAt));
-      }
-    }
-  }
-  return [...hints];
 }
 
 function isWithinResolvedRoot(candidate: string, root: string): boolean {
@@ -2270,6 +2139,8 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  // Files curl/wget calls saved this session; running one is fetched code.
+  private readonly fetchedFiles = new Set<string>();
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
@@ -3663,17 +3534,56 @@ export class TrustedAgentApprovalRuntime {
       (host) => !httpHostSet.has(host) && !this.seenNetworkHosts.has(host),
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
-    const likelyWritePaths = extractLikelyWritePaths(inspectionSurface);
-    // Pinned rules match pathHints only, so they need relative and `~/`
-    // paths too.
+    // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
+    // segment; these checks need the commands bash actually runs.
+    const shellScript = stripHereDocBodies(command);
+    const commandsRun = shellCommandsRun(shellScript);
+    const pinnedReach = findBashPinnedReach(shellScript, (candidate) =>
+      this.namesPinnedPath(candidate),
+    );
+    // Pinned rules match pathHints only; relative operands join them when
+    // they name a pinned path.
     const pathHints = [
-      ...new Set([...absPaths, ...extractBashPathHints(inspectionSurface)]),
+      ...new Set([
+        ...absPaths,
+        ...pinnedReach.namedPaths,
+        ...(pinnedReach.walk?.reaches || []),
+      ]),
     ];
+    const fetchedCode = findFetchedCode(shellScript, this.fetchedFiles);
+    // Recorded before the decision: a partial or failed download still leaves
+    // a file, and a denied one only costs a later prompt.
+    for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
+    const optionWrites = commandsRun.flatMap(optionWriteTargets);
+    const deletes =
+      DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
-      DELETE_RE.test(inspectionSurface) ||
+      deletes ||
+      optionWrites.length > 0 ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
+
+    // Explicit approval even under full-auto (owner call, 2026-09-25): the
+    // two-step `curl -o f` then `sh f` route around the `curl | sh` block was
+    // auto-approved as bash:script. Human-granted trust still applies.
+    if (fetchedCode.runs) {
+      return {
+        tier: 'red',
+        actionKey: 'bash:fetched-code',
+        intent: `run code fetched from the network (\`${normalizePreview(command)}\`)`,
+        consequenceIfDenied:
+          'I will not run downloaded code and will ask how to proceed.',
+        reason: 'the command runs code that curl or wget fetched',
+        commandPreview: normalizePreview(command),
+        pathHints,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+        explicitApprovalRequired: true,
+      };
+    }
 
     if (CRITICAL_BASH_RE.test(command) || FORCE_PUSH_RE.test(command)) {
       return {
@@ -3693,13 +3603,20 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const workspaceFencePaths =
-        likelyWritePaths.length > 0 ? likelyWritePaths : absPaths;
-      const outsideWorkspace = workspaceFencePaths.find(
+      const targets = writeTargets(shellScript);
+      const absoluteTargets = targets.filter((target) =>
+        target.startsWith('/'),
+      );
+      const outsideWorkspace = [
+        ...(absoluteTargets.length > 0 ? absoluteTargets : absPaths),
+        // Bash starts in the workspace root, so `../x` lands outside it.
+        ...targets.filter((target) => /^\.\.(?:\/|$)/.test(target)),
+      ].find(
         (entry) =>
-          !isWorkspacePath(entry) &&
-          !entry.startsWith('/dev/null') &&
-          !isScratchPath(entry),
+          !entry.startsWith('/') ||
+          (!isWorkspacePath(entry) &&
+            !entry.startsWith('/dev/null') &&
+            !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
         return {
@@ -3718,10 +3635,15 @@ export class TrustedAgentApprovalRuntime {
       }
     }
 
-    if (DELETE_RE.test(inspectionSurface)) {
-      const promotable = /(node_modules|dist|build|coverage|\.cache)/i.test(
-        lower,
-      );
+    if (deletes) {
+      // Promotable only when every target is cache or build output: a cache
+      // word anywhere in the line let `rm -rf src && npm run build` ride on
+      // one approved `rm -rf node_modules`.
+      const targets = deletionTargets(shellScript);
+      const promotable =
+        targets !== null &&
+        targets.length > 0 &&
+        targets.every(isCacheDeletionTarget);
       return {
         tier: 'red',
         actionKey: promotable ? 'bash:delete-cache' : 'bash:delete',
@@ -3737,13 +3659,38 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (UNKNOWN_SCRIPT_RE.test(inspectionSurface)) {
+    if (
+      UNKNOWN_SCRIPT_RE.test(inspectionSurface) ||
+      commandsRun.some(runsProgramOption)
+    ) {
       return {
         tier: 'red',
         actionKey: 'bash:script',
         intent: `run script \`${normalizePreview(command)}\``,
         consequenceIfDenied: 'I will avoid executing unknown scripts.',
         reason: 'script execution is treated as high risk',
+        commandPreview: normalizePreview(command),
+        pathHints,
+        hostHints: hosts,
+        writeIntent,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    // Pinned red on every run (owner call, 2026-09-24): a walk that can read
+    // .env* without naming it gets the same per-call approval as `read .env`;
+    // session-trustable red was rejected and sandbox masking deferred.
+    // Excluding .env* or using the grep tool keeps the usual tier.
+    if (pinnedReach.walk) {
+      const { program, reaches } = pinnedReach.walk;
+      return {
+        tier: 'red',
+        actionKey: 'bash:recursive-read',
+        intent: `run recursive read \`${normalizePreview(command)}\``,
+        consequenceIfDenied:
+          'I will exclude pinned files or search with the grep tool instead.',
+        reason: `\`${program}\` can read pinned files (${reaches.join(', ')}) without naming them`,
         commandPreview: normalizePreview(command),
         pathHints,
         hostHints: hosts,
@@ -3825,7 +3772,8 @@ export class TrustedAgentApprovalRuntime {
 
     if (
       GIT_WRITE_RE.test(inspectionSurface) ||
-      WRITE_INTENT_RE.test(inspectionSurface)
+      WRITE_INTENT_RE.test(inspectionSurface) ||
+      optionWrites.length > 0
     ) {
       return {
         tier: 'yellow',
@@ -3842,7 +3790,14 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_BASH_RE.test(inspectionSurface)) {
+    // Green also needs every command the script runs to be read-only: the
+    // first segment alone let `ls; tar czf - . | base64` run unnarrated.
+    const everyCommandReadOnly = commandsRun.every((words) => {
+      const text = words.join(' ');
+      return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
+    });
+
+    if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {
         tier: 'green',
         actionKey: 'bash:read-only',
@@ -3858,7 +3813,10 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (READ_ONLY_PDF_SCRIPT_RE.test(inspectionSurface)) {
+    if (
+      everyCommandReadOnly &&
+      READ_ONLY_PDF_SCRIPT_RE.test(inspectionSurface)
+    ) {
       return {
         tier: 'green',
         actionKey: 'bash:pdf-read-only',
@@ -3887,6 +3845,17 @@ export class TrustedAgentApprovalRuntime {
       promotableRed: false,
       stickyYellow: false,
     };
+  }
+
+  private namesPinnedPath(candidate: string): boolean {
+    return (
+      matchesHardPinnedPath(candidate) ||
+      this.loadedPolicy.pinnedRed.some((rule) =>
+        (rule.paths || []).some((pattern) =>
+          matchesPathPattern(candidate, pattern),
+        ),
+      )
+    );
   }
 
   private isPinnedRed(input: {
