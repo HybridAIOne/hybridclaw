@@ -213,6 +213,7 @@ import {
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
 import { isGatewayShuttingDown, trackInFlightTurn } from './in-flight-turns.js';
+import { dropInterruptedDelegations } from './interrupted-delegations.js';
 import {
   executeModelRouting,
   type ModelRoutingAttempt,
@@ -2285,6 +2286,10 @@ async function handleGatewayMessageInner(
     // before final accounting so comparison usage stays attached to this turn.
     await shadowCompletion;
     agentStage = 'processing-agent-output';
+    // A reply that beat the stop still starts its delegations.
+    const interrupted =
+      output.status === 'error' && activeGatewayRequest.signal.aborted;
+    if (interrupted) output = dropInterruptedDelegations(output);
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
       media,
@@ -2652,6 +2657,7 @@ async function handleGatewayMessageInner(
             ? errorTurnToolsFromExecutions(toolExecutions)
             : observedToolCalls,
         delegationAcknowledgement,
+        interrupted,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
       turnPersisted = true;
