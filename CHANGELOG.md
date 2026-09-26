@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Empty auxiliary model replies use the fallback chain**: Session titles and
+  other auxiliary tasks try the next eligible model when a provider returns
+  blank text, and record the empty attempt as a failure.
 ### Changed
 
 - **Eval harness moved out of the product build**: The benchmark and eval
