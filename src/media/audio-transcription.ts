@@ -7,8 +7,8 @@ import {
   resolveAudioTranscriptionModels,
   transcribeAudioWithFallback,
 } from './audio-transcription-backends.js';
+import { createMediaHostPathResolver } from './media-host-path.js';
 import { AUDIO_FILE_EXTENSION_RE, normalizeMimeType } from './mime-utils.js';
-import { resolveSessionMediaHostPath } from './session-media-paths.js';
 
 export interface AudioTranscriptItem {
   filename: string;
@@ -85,6 +85,7 @@ export async function prependAudioTranscriptionsToUserContent(params: {
     };
   }
 
+  const resolveHostPath = createMediaHostPathResolver(params.workspaceRoot);
   const transcripts: AudioTranscriptItem[] = [];
   let remainingChars = audioConfig.maxTotalChars;
 
@@ -93,10 +94,7 @@ export async function prependAudioTranscriptionsToUserContent(params: {
       break;
     }
 
-    const resolvedPath = await resolveSessionMediaHostPath(
-      item.path || '',
-      params.workspaceRoot,
-    );
+    const resolvedPath = await resolveHostPath(item.path || '');
     if (!resolvedPath) {
       logger.debug(
         {

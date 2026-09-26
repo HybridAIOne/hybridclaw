@@ -27,6 +27,9 @@ Model prefixes:
   named local endpoints use their configured endpoint name as the prefix, for
   example `haigpu2/google/gemma-4-e4b-it`
 
+New HybridAI configurations default to `gpt-6-luna`; existing configurations
+keep their saved default.
+
 The shipped default Codex model is `openai-codex/gpt-5-codex`.
 
 Examples:
@@ -57,9 +60,6 @@ Examples:
 /agent model openrouter/anthropic/claude-sonnet-4
 /model info
 /concierge info
-/concierge on
-/concierge model gemini-3-flash
-/concierge profile no_hurry ollama/qwen3:latest
 ```
 
 ## Scope Rules
@@ -97,6 +97,32 @@ pricing metadata.
 The admin Models page combines the same metadata with daily and monthly usage
 rollups, so operators can sort by context window or monthly usage and compare
 spend across active models.
+
+## Routing Controls
+
+Configure automatic routing in **Models → Routing**. Tiers share capability
+order but can assign different models to Auto, Privacy, Speed, and Cost modes.
+The privacy boundary limits permitted execution destinations: Local, HybridAI,
+EU provider, EU hosting, or World. Save validation rejects unusable routes.
+Explicit session or request model pins bypass automatic model selection.
+
+An optional live classifier selects a starting tier. An optional comparison
+classifier records a shadow decision without changing execution or failing the
+live turn. Both are opt-in and subject to classifier disclosure guards. The
+`/concierge info` command reports routing; configuration belongs in the editor.
+
+Cost uses known token rates. Speed uses recent successful tool-free execution
+timings; Auto balances known price and timing. Incomplete timing coverage keeps
+configured order, so unmeasured candidates remain available. See the
+[configuration reference](./configuration.md) for the underlying settings.
+
+Enable **Show routing information in chat** to inspect decisions, attempts,
+tokens, cache usage, and costs. The preference defaults off. Routing controls
+and visibility are disabled while automatic routing is off; saved preferences
+are retained. In web chat, `/escalate <prompt>` immediately runs the supplied
+prompt one tier higher; bare `/escalate` queues the next turn. Successful
+manual escalations use the configured sticky window, while failed attempts do
+not establish a higher floor.
 
 ## Deterministic Tier Routing
 

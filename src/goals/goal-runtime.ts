@@ -236,8 +236,6 @@ export function pauseActiveGoalForSession(params: {
 }
 
 export function pauseGoalForAgentBudgetHardStop(session: Session): void {
-  // R5.3 has not shipped a hard-stop emitter yet. Call this from that signal
-  // once it exists so standing goals pause before scheduling another turn.
   pauseActiveGoalForSession({
     session,
     reason: 'agent budget hard-stop',

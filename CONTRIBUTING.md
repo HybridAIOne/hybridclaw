@@ -158,6 +158,22 @@ staged diff.
 The repository includes issue forms and a PR template to keep bug reports,
 feature requests, docs fixes, and validation details consistent. Use them.
 
+## npm Release Publishing
+
+The [Publish Release workflow](./.github/workflows/publish-release.yml) checks
+whether the version is public before installing dependencies. For a new version,
+it verifies registry signatures, builds and checks the package once, creates a
+tarball, generates SBOMs, and publishes that tarball with provenance. Packaging
+and publishing skip lifecycle scripts because the explicit `prepack` step has
+already run the build and release checks.
+
+npm can accept an upload before the version becomes installable. The workflow
+polls up to 60 times, 30 seconds apart (plus registry request time). A retry that
+finds the same version already staged waits for it rather than failing on the
+duplicate upload. Other publication and registry errors still fail the job.
+If the availability wait expires, inspect npm's scan/staging status before
+rerunning the failed job. Do not bump the version just to escape a pending scan.
+
 ## Licensing And Sign-Off (DCO)
 
 HybridClaw is licensed under the [MIT License](./LICENSE). Contributions are

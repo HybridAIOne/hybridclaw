@@ -29,6 +29,7 @@ const PERMANENT_GATEWAY_ERROR_PATTERNS: RegExp[] = [
   /not found/i,
   /invalid api key/i,
   /blocked by security hook/i,
+  /budget exhausted/i,
 ];
 
 export function classifyGatewayError(errorText: string): GatewayErrorClass {

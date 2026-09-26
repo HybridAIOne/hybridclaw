@@ -27,14 +27,13 @@ texts ship inside the respective packages.
 | @azure/core-rest-pipeline | 1.25.0 | MIT |
 | @azure/core-tracing | 1.4.0 | MIT |
 | @azure/core-util | 1.14.0 | MIT |
-| @azure/identity | 4.13.2 | MIT |
+| @azure/identity | 4.13.3 | MIT |
 | @azure/logger | 1.4.0 | MIT |
-| @azure/msal-browser | 5.21.0 | MIT |
+| @azure/msal-browser | 5.22.0 | MIT |
 | @azure/msal-common | 14.16.1 | MIT |
-| @azure/msal-common | 16.13.0 | MIT |
-| @azure/msal-common | 16.14.0 | MIT |
+| @azure/msal-common | 16.14.1 | MIT |
 | @azure/msal-node | 2.16.3 | MIT |
-| @azure/msal-node | 5.6.0 | MIT |
+| @azure/msal-node | 6.0.1 | MIT |
 | @discordjs/builders | 1.14.1 | Apache-2.0 |
 | @discordjs/collection | 1.5.3 | Apache-2.0 |
 | @discordjs/collection | 2.1.1 | Apache-2.0 |
@@ -42,37 +41,36 @@ texts ship inside the respective packages.
 | @discordjs/rest | 2.6.3 | Apache-2.0 |
 | @discordjs/util | 1.2.0 | Apache-2.0 |
 | @discordjs/ws | 1.2.3 | Apache-2.0 |
-| @e965/xlsx | 0.20.3 | Apache-2.0 |
-| @grpc/grpc-js | 1.14.4 | Apache-2.0 |
+| @grpc/grpc-js | 1.14.5 | Apache-2.0 |
 | @grpc/proto-loader | 0.8.1 | Apache-2.0 |
 | @hono/node-server | 2.1.1 | MIT |
 | @js-sdsl/ordered-map | 4.4.2 | MIT |
 | @modelcontextprotocol/sdk | 1.30.0 | MIT |
 | @mozilla/readability | 0.6.0 | Apache-2.0 |
 | @napi-rs/canvas | 0.1.100 | MIT |
-| @napi-rs/canvas | 1.0.8 | MIT |
+| @napi-rs/canvas | 1.0.9 | MIT |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-android-arm64 | 1.0.8 | MIT |
+| @napi-rs/canvas-android-arm64 | 1.0.9 | MIT |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-arm64 | 1.0.8 | MIT |
+| @napi-rs/canvas-darwin-arm64 | 1.0.9 | MIT |
 | @napi-rs/canvas-darwin-x64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-x64 | 1.0.8 | MIT |
+| @napi-rs/canvas-darwin-x64 | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm-gnueabihf | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-musl | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm64-musl | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-riscv64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-riscv64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-riscv64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-x64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-x64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-x64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-musl | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-x64-musl | 1.0.9 | MIT |
 | @napi-rs/canvas-win32-arm64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-arm64-msvc | 1.0.8 | MIT |
+| @napi-rs/canvas-win32-arm64-msvc | 1.0.9 | MIT |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-x64-msvc | 1.0.8 | MIT |
+| @napi-rs/canvas-win32-x64-msvc | 1.0.9 | MIT |
 | @ngrok/ngrok | 1.7.0 | (MIT OR Apache-2.0) |
 | @ngrok/ngrok-android-arm64 | 1.7.0 | MIT |
 | @ngrok/ngrok-darwin-arm64 | 1.7.0 | MIT |
@@ -121,6 +119,7 @@ texts ship inside the respective packages.
 | @opentelemetry/sdk-trace-base | 2.10.0 | Apache-2.0 |
 | @opentelemetry/sdk-trace-node | 2.10.0 | Apache-2.0 |
 | @opentelemetry/semantic-conventions | 1.43.0 | Apache-2.0 |
+| @pdf-lib/fontkit | 1.1.1 | MIT |
 | @pdf-lib/standard-fonts | 1.0.0 | MIT |
 | @pdf-lib/upng | 1.0.1 | MIT |
 | @pinojs/redact | 0.4.0 | MIT |
@@ -138,11 +137,11 @@ texts ship inside the respective packages.
 | @sapphire/snowflake | 3.5.5 | MIT |
 | @selderee/plugin-htmlparser2 | 0.12.0 | MIT |
 | @sentry/conventions | 0.16.0 | MIT |
-| @sentry/core | 10.73.0 | MIT |
-| @sentry/node | 10.73.0 | MIT |
-| @sentry/node-core | 10.73.0 | MIT |
-| @sentry/opentelemetry | 10.73.0 | MIT |
-| @sentry/server-utils | 10.73.0 | MIT |
+| @sentry/core | 10.75.0 | MIT |
+| @sentry/node | 10.75.0 | MIT |
+| @sentry/node-core | 10.75.0 | MIT |
+| @sentry/opentelemetry | 10.75.0 | MIT |
+| @sentry/server-utils | 10.75.0 | MIT |
 | @sindresorhus/is | 4.6.0 | MIT |
 | @slack/bolt | 4.7.3 | MIT |
 | @slack/logger | 4.0.1 | MIT |
@@ -150,13 +149,13 @@ texts ship inside the respective packages.
 | @slack/socket-mode | 2.0.7 | MIT |
 | @slack/types | 2.22.0 | MIT |
 | @slack/web-api | 7.19.0 | MIT |
-| @tanstack/history | 1.162.1 | MIT |
-| @tanstack/query-core | 5.102.8 | MIT |
-| @tanstack/react-query | 5.102.8 | MIT |
-| @tanstack/react-router | 1.170.32 | MIT |
-| @tanstack/react-store | 0.9.3 | MIT |
-| @tanstack/router-core | 1.171.27 | MIT |
-| @tanstack/store | 0.9.3 | MIT |
+| @tanstack/history | 1.162.4 | MIT |
+| @tanstack/query-core | 5.103.1 | MIT |
+| @tanstack/react-query | 5.103.1 | MIT |
+| @tanstack/react-router | 1.170.38 | MIT |
+| @tanstack/react-store | 0.11.1 | MIT |
+| @tanstack/router-core | 1.171.32 | MIT |
+| @tanstack/store | 0.11.1 | MIT |
 | @types/body-parser | 1.19.6 | MIT |
 | @types/connect | 3.4.38 | MIT |
 | @types/express | 5.0.6 | MIT |
@@ -165,8 +164,8 @@ texts ship inside the respective packages.
 | @types/jsonwebtoken | 9.0.10 | MIT |
 | @types/jsonwebtoken | 9.0.6 | MIT |
 | @types/ms | 2.1.0 | MIT |
-| @types/node | 22.20.1 | MIT |
-| @types/node | 25.9.5 | MIT |
+| @types/node | 22.20.3 | MIT |
+| @types/node | 25.9.7 | MIT |
 | @types/qs | 6.15.1 | MIT |
 | @types/range-parser | 1.2.7 | MIT |
 | @types/retry | 0.12.0 | MIT |
@@ -179,16 +178,17 @@ texts ship inside the respective packages.
 | @xterm/addon-fit | 0.11.0 | MIT |
 | @xterm/xterm | 5.5.0 | MIT |
 | @zone-eu/mailsplit | 5.4.16 | (MIT OR EUPL-1.1+) |
+| @zone-eu/mailsplit | 5.4.17 | (MIT OR EUPL-1.1+) |
 | accepts | 2.0.0 | MIT |
 | adaptivecards | 1.2.3 | MIT |
 | adler-32 | 1.3.1 | Apache-2.0 |
-| adm-zip | 0.6.0 | MIT |
+| adm-zip | 0.6.1 | MIT |
 | agent-base | 6.0.2 | MIT |
 | agent-base | 7.1.4 | MIT |
 | agent-browser | 0.27.0 | Apache-2.0 |
 | ajv | 8.20.0 | MIT |
 | ajv-formats | 3.0.1 | MIT |
-| amaro | 1.1.11 | MIT |
+| amaro | 1.2.0 | MIT |
 | ansi-regex | 5.0.1 | MIT |
 | ansi-styles | 4.3.0 | MIT |
 | asynckit | 0.4.0 | MIT |
@@ -197,7 +197,7 @@ texts ship inside the respective packages.
 | balanced-match | 4.0.4 | MIT |
 | base64-js | 1.5.1 | MIT |
 | base64url | 3.0.1 | MIT |
-| baseline-browser-mapping | 2.11.21 | Apache-2.0 |
+| baseline-browser-mapping | 2.11.25 | Apache-2.0 |
 | better-sqlite3 | 12.11.1 | MIT |
 | better-sqlite3 | 13.0.3 | MIT |
 | bindings | 1.5.0 | MIT |
@@ -211,8 +211,8 @@ texts ship inside the respective packages.
 | botframework-connector | 4.23.3 | MIT |
 | botframework-schema | 4.23.3 | MIT |
 | botframework-streaming | 4.23.3 | MIT |
-| brace-expansion | 5.0.9 | MIT |
-| browserslist | 4.28.8 | MIT |
+| brace-expansion | 5.0.12 | MIT |
+| browserslist | 4.29.0 | MIT |
 | buffer | 5.7.1 | MIT |
 | buffer | 6.0.3 | MIT |
 | buffer-crc32 | 1.0.0 | MIT |
@@ -244,7 +244,7 @@ texts ship inside the respective packages.
 | core-util-is | 1.0.3 | MIT |
 | cors | 2.8.6 | MIT |
 | crc-32 | 1.2.2 | Apache-2.0 |
-| cron-parser | 5.10.0 | MIT |
+| cron-parser | 5.10.1 | MIT |
 | cross-fetch | 4.1.0 | MIT |
 | cross-spawn | 7.0.6 | MIT |
 | css-select | 7.0.0 | BSD-2-Clause |
@@ -280,17 +280,18 @@ texts ship inside the respective packages.
 | dunder-proto | 1.0.1 | MIT |
 | ecdsa-sig-formatter | 1.0.11 | Apache-2.0 |
 | ee-first | 1.1.1 | MIT |
-| electron-to-chromium | 1.5.420 | ISC |
+| electron-to-chromium | 1.5.431 | ISC |
 | emoji-regex | 8.0.0 | MIT |
 | encodeurl | 2.0.0 | MIT |
 | encoding-japanese | 2.3.0 | MIT |
+| encoding-japanese | 2.4.0 | MIT |
 | end-of-stream | 1.4.5 | MIT |
 | entities | 4.5.0 | BSD-2-Clause |
 | entities | 7.0.1 | BSD-2-Clause |
-| entities | 8.0.0 | BSD-2-Clause |
+| entities | 8.1.0 | BSD-2-Clause |
 | es-define-property | 1.0.1 | MIT |
 | es-errors | 1.3.0 | MIT |
-| es-module-lexer | 2.3.2 | MIT |
+| es-module-lexer | 3.0.2 | MIT |
 | es-object-atoms | 1.1.2 | MIT |
 | es-set-tostringtag | 2.1.0 | MIT |
 | escalade | 3.2.0 | MIT |
@@ -307,7 +308,7 @@ texts ship inside the respective packages.
 | fast-copy | 4.1.1 | MIT |
 | fast-deep-equal | 3.1.3 | MIT |
 | fast-safe-stringify | 2.1.1 | MIT |
-| fast-uri | 3.1.7 | BSD-3-Clause |
+| fast-uri | 3.1.8 | BSD-3-Clause |
 | file-uri-to-path | 1.0.0 | MIT |
 | filename-reserved-regex | 3.0.0 | MIT |
 | filenamify | 6.0.0 | MIT |
@@ -319,7 +320,6 @@ texts ship inside the respective packages.
 | fresh | 2.0.0 | MIT |
 | fs-constants | 1.0.0 | MIT |
 | fs-extra | 11.4.0 | MIT |
-| fsevents | 2.3.2 | MIT |
 | function-bind | 1.1.2 | MIT |
 | generative-bayesian-network | 2.1.88 | Apache-2.0 |
 | get-caller-file | 2.0.5 | ISC |
@@ -337,7 +337,7 @@ texts ship inside the respective packages.
 | header-generator | 2.1.88 | Apache-2.0 |
 | help-me | 5.0.0 | MIT |
 | highlight.js | 11.12.0 | BSD-3-Clause |
-| hono | 4.13.5 | MIT |
+| hono | 4.13.8 | MIT |
 | html-escaper | 3.0.3 | MIT |
 | html-to-text | 10.0.1 | MIT |
 | htmlparser2 | 10.1.0 | MIT |
@@ -351,19 +351,19 @@ texts ship inside the respective packages.
 | ieee754 | 1.2.1 | BSD-3-Clause |
 | imapflow | 1.7.8 | MIT |
 | immediate | 3.0.6 | MIT |
-| impit | 0.14.4 | Apache-2.0 |
-| impit-darwin-arm64 | 0.14.4 | Apache-2.0 |
-| impit-darwin-x64 | 0.14.4 | Apache-2.0 |
-| impit-linux-arm64-gnu | 0.14.4 | Apache-2.0 |
-| impit-linux-arm64-musl | 0.14.4 | Apache-2.0 |
-| impit-linux-x64-gnu | 0.14.4 | Apache-2.0 |
-| impit-linux-x64-musl | 0.14.4 | Apache-2.0 |
-| impit-win32-arm64-msvc | 0.14.4 | Apache-2.0 |
-| impit-win32-x64-msvc | 0.14.4 | Apache-2.0 |
-| import-in-the-middle | 3.4.0 | Apache-2.0 |
+| impit | 0.14.5 | Apache-2.0 |
+| impit-darwin-arm64 | 0.14.5 | Apache-2.0 |
+| impit-darwin-x64 | 0.14.5 | Apache-2.0 |
+| impit-linux-arm64-gnu | 0.14.5 | Apache-2.0 |
+| impit-linux-arm64-musl | 0.14.5 | Apache-2.0 |
+| impit-linux-x64-gnu | 0.14.5 | Apache-2.0 |
+| impit-linux-x64-musl | 0.14.5 | Apache-2.0 |
+| impit-win32-arm64-msvc | 0.14.5 | Apache-2.0 |
+| impit-win32-x64-msvc | 0.14.5 | Apache-2.0 |
+| import-in-the-middle | 3.5.1 | Apache-2.0 |
 | inherits | 2.0.4 | ISC |
 | ini | 1.3.8 | ISC |
-| ip-address | 10.7.0 | MIT |
+| ip-address | 10.7.2 | MIT |
 | ipaddr.js | 1.9.1 | MIT |
 | is-docker | 3.0.0 | MIT |
 | is-electron | 2.2.2 | MIT |
@@ -377,13 +377,13 @@ texts ship inside the respective packages.
 | isarray | 1.0.0 | MIT |
 | isbot | 5.2.2 | Unlicense |
 | isexe | 2.0.0 | ISC |
-| jose | 6.2.10 | MIT |
+| jose | 6.2.12 | MIT |
 | joycon | 3.1.1 | MIT |
 | json-schema-traverse | 1.0.0 | MIT |
 | json-schema-typed | 8.0.2 | BSD-2-Clause |
 | jsonfile | 6.2.1 | MIT |
 | jsonwebtoken | 9.0.3 | MIT |
-| jszip | 3.10.1 | (MIT OR GPL-3.0-or-later) |
+| jszip | 3.10.2 | (MIT OR GPL-3.0-or-later) |
 | jwa | 2.0.1 | MIT |
 | jws | 4.0.1 | MIT |
 | katex | 0.16.47 | MIT |
@@ -393,6 +393,7 @@ texts ship inside the respective packages.
 | leac | 0.7.0 | MIT |
 | libbase64 | 1.3.0 | MIT |
 | libmime | 5.4.3 | MIT |
+| libmime | 5.4.4 | MIT |
 | libqp | 2.1.1 | MIT |
 | lie | 3.3.0 | MIT |
 | linkedom | 0.18.13 | ISC |
@@ -412,7 +413,7 @@ texts ship inside the respective packages.
 | lru-cache | 11.5.2 | BlueOak-1.0.0 |
 | luxon | 3.7.2 | MIT |
 | magic-bytes.js | 1.13.1 | MIT |
-| mailparser | 3.9.20 | MIT |
+| mailparser | 3.9.28 | MIT |
 | marked | 17.0.6 | MIT |
 | math-intrinsics | 1.1.0 | MIT |
 | maxmind | 5.0.7 | MIT |
@@ -439,7 +440,7 @@ texts ship inside the respective packages.
 | node-addon-api | 8.9.2 | MIT |
 | node-fetch | 2.7.0 | MIT |
 | node-pty | 1.1.0 | MIT |
-| node-releases | 2.0.54 | MIT |
+| node-releases | 2.0.56 | MIT |
 | nodemailer | 9.1.1 | MIT-0 |
 | nth-check | 3.0.1 | BSD-2-Clause |
 | object-assign | 4.1.1 | MIT |
@@ -473,15 +474,15 @@ texts ship inside the respective packages.
 | pino-pretty | 13.1.3 | MIT |
 | pino-std-serializers | 7.1.0 | MIT |
 | pkce-challenge | 5.0.1 | MIT |
-| playwright | 1.62.1 | Apache-2.0 |
-| playwright-core | 1.62.1 | Apache-2.0 |
+| playwright | 1.63.0 | Apache-2.0 |
+| playwright-core | 1.63.0 | Apache-2.0 |
 | postcss | 8.5.28 | MIT |
 | prebuild-install | 7.1.3 | MIT |
-| pretty-bytes | 7.1.2 | MIT |
+| pretty-bytes | 7.1.3 | MIT |
 | process-nextick-args | 2.0.1 | MIT |
 | process-warning | 5.1.0 | MIT |
 | protobufjs | 7.6.6 | BSD-3-Clause |
-| proxy-addr | 2.0.7 | MIT |
+| proxy-addr | 2.0.8 | MIT |
 | proxy-from-env | 2.1.0 | MIT |
 | pump | 3.0.4 | MIT |
 | punycode.js | 2.3.1 | MIT |
@@ -491,8 +492,8 @@ texts ship inside the respective packages.
 | range-parser | 1.3.0 | MIT |
 | raw-body | 3.0.2 | MIT |
 | rc | 1.2.8 | (BSD-2-Clause OR MIT OR Apache-2.0) |
-| react | 19.2.8 | MIT |
-| react-dom | 19.2.8 | MIT |
+| react | 19.3.0 | MIT |
+| react-dom | 19.3.0 | MIT |
 | readable-stream | 2.3.8 | MIT |
 | readable-stream | 3.6.2 | MIT |
 | real-require | 0.2.0 | MIT |
@@ -510,13 +511,13 @@ texts ship inside the respective packages.
 | safer-buffer | 2.1.2 | MIT |
 | sanitize-html | 2.17.7 | MIT |
 | sax | 1.6.1 | BlueOak-1.0.0 |
-| scheduler | 0.27.0 | MIT |
+| scheduler | 0.28.0 | MIT |
 | secure-json-parse | 4.1.0 | BSD-3-Clause |
 | selderee | 0.12.0 | MIT |
 | semver | 7.8.5 | ISC |
 | send | 1.2.1 | MIT |
-| seroval | 1.6.4 | MIT |
-| seroval-plugins | 1.6.4 | MIT |
+| seroval | 1.6.7 | MIT |
+| seroval-plugins | 1.6.7 | MIT |
 | serve-static | 2.2.1 | MIT |
 | setimmediate | 1.0.5 | MIT |
 | setprototypeof | 1.2.0 | ISC |
@@ -534,7 +535,6 @@ texts ship inside the respective packages.
 | source-map-js | 1.2.1 | BSD-3-Clause |
 | split2 | 4.2.0 | ISC |
 | statuses | 2.0.2 | MIT |
-| stemmer | 2.0.1 | MIT |
 | string_decoder | 1.1.1 | MIT |
 | string-width | 4.2.3 | MIT |
 | strip-ansi | 6.0.1 | MIT |
@@ -557,13 +557,13 @@ texts ship inside the respective packages.
 | ua-parser-js | 1.0.41 | MIT |
 | uc.micro | 2.1.0 | MIT |
 | uhyphen | 0.2.0 | ISC |
-| undici | 6.28.0 | MIT |
+| undici | 6.28.1 | MIT |
 | undici-types | 6.21.0 | MIT |
 | undici-types | 7.24.6 | MIT |
 | universalify | 2.0.1 | MIT |
 | unpipe | 1.0.0 | MIT |
-| update-browserslist-db | 1.3.2 | MIT |
-| use-sync-external-store | 1.6.0 | MIT |
+| update-browserslist-db | 1.3.3 | MIT |
+| use-sync-external-store | 1.7.0 | MIT |
 | util-deprecate | 1.0.2 | MIT |
 | uuid | 11.1.1 | MIT |
 | vali-date | 1.0.0 | MIT |
@@ -582,13 +582,13 @@ texts ship inside the respective packages.
 | xml2js | 0.6.2 | MIT |
 | xmlbuilder | 11.0.1 | MIT |
 | y18n | 5.0.8 | ISC |
-| yaml | 2.9.0 | ISC |
+| yaml | 2.9.1 | ISC |
 | yargs | 17.7.3 | MIT |
 | yargs-parser | 21.1.1 | ISC |
 | yauzl | 3.4.0 | MIT |
 | yazl | 3.3.1 | MIT |
 | zod | 3.25.76 | MIT |
-| zod | 4.5.4 | MIT |
+| zod | 4.6.5 | MIT |
 | zod-to-json-schema | 3.25.2 | ISC |
 
 ## hybridclaw-agent (`container/npm-shrinkwrap.json`)
@@ -601,29 +601,30 @@ texts ship inside the respective packages.
 | @modelcontextprotocol/sdk | 1.30.0 | MIT |
 | @mozilla/readability | 0.6.0 | Apache-2.0 |
 | @napi-rs/canvas | 0.1.100 | MIT |
-| @napi-rs/canvas | 1.0.8 | MIT |
+| @napi-rs/canvas | 1.0.9 | MIT |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-android-arm64 | 1.0.8 | MIT |
+| @napi-rs/canvas-android-arm64 | 1.0.9 | MIT |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-arm64 | 1.0.8 | MIT |
+| @napi-rs/canvas-darwin-arm64 | 1.0.9 | MIT |
 | @napi-rs/canvas-darwin-x64 | 0.1.100 | MIT |
-| @napi-rs/canvas-darwin-x64 | 1.0.8 | MIT |
+| @napi-rs/canvas-darwin-x64 | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm-gnueabihf | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-arm64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-arm64-musl | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-arm64-musl | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-riscv64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-riscv64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-riscv64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-x64-gnu | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-gnu | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-x64-gnu | 1.0.9 | MIT |
 | @napi-rs/canvas-linux-x64-musl | 0.1.100 | MIT |
-| @napi-rs/canvas-linux-x64-musl | 1.0.8 | MIT |
+| @napi-rs/canvas-linux-x64-musl | 1.0.9 | MIT |
 | @napi-rs/canvas-win32-arm64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-arm64-msvc | 1.0.8 | MIT |
+| @napi-rs/canvas-win32-arm64-msvc | 1.0.9 | MIT |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT |
-| @napi-rs/canvas-win32-x64-msvc | 1.0.8 | MIT |
+| @napi-rs/canvas-win32-x64-msvc | 1.0.9 | MIT |
+| @pdf-lib/fontkit | 1.1.1 | MIT |
 | @pdf-lib/standard-fonts | 1.0.0 | MIT |
 | @pdf-lib/upng | 1.0.1 | MIT |
 | accepts | 2.0.0 | MIT |
@@ -661,7 +662,7 @@ texts ship inside the respective packages.
 | encodeurl | 2.0.0 | MIT |
 | entities | 4.5.0 | BSD-2-Clause |
 | entities | 7.0.1 | BSD-2-Clause |
-| entities | 8.0.0 | BSD-2-Clause |
+| entities | 8.1.0 | BSD-2-Clause |
 | es-define-property | 1.0.1 | MIT |
 | es-errors | 1.3.0 | MIT |
 | es-object-atoms | 1.1.2 | MIT |
@@ -672,33 +673,32 @@ texts ship inside the respective packages.
 | express | 5.2.1 | MIT |
 | express-rate-limit | 8.7.0 | MIT |
 | fast-deep-equal | 3.1.3 | MIT |
-| fast-uri | 3.1.7 | BSD-3-Clause |
+| fast-uri | 3.1.8 | BSD-3-Clause |
 | finalhandler | 2.1.1 | MIT |
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
-| fsevents | 2.3.2 | MIT |
 | function-bind | 1.1.2 | MIT |
 | get-intrinsic | 1.3.0 | MIT |
 | get-proto | 1.0.1 | MIT |
 | gopd | 1.2.0 | MIT |
 | has-symbols | 1.1.0 | MIT |
 | hasown | 2.0.4 | MIT |
-| hono | 4.13.5 | MIT |
+| hono | 4.13.8 | MIT |
 | html-escaper | 3.0.3 | MIT |
 | htmlparser2 | 10.1.0 | MIT |
 | http-errors | 2.0.1 | MIT |
 | iconv-lite | 0.7.3 | MIT |
 | immediate | 3.0.6 | MIT |
 | inherits | 2.0.4 | ISC |
-| ip-address | 10.7.0 | MIT |
+| ip-address | 10.7.2 | MIT |
 | ipaddr.js | 1.9.1 | MIT |
 | is-promise | 4.0.0 | MIT |
 | isarray | 1.0.0 | MIT |
 | isexe | 2.0.0 | ISC |
-| jose | 6.2.10 | MIT |
+| jose | 6.2.12 | MIT |
 | json-schema-traverse | 1.0.0 | MIT |
 | json-schema-typed | 8.0.2 | BSD-2-Clause |
-| jszip | 3.10.1 | (MIT OR GPL-3.0-or-later) |
+| jszip | 3.10.2 | (MIT OR GPL-3.0-or-later) |
 | lie | 3.3.0 | MIT |
 | linkedom | 0.18.13 | ISC |
 | math-intrinsics | 1.1.0 | MIT |
@@ -720,10 +720,10 @@ texts ship inside the respective packages.
 | pdf-lib | 1.17.1 | MIT |
 | pdfjs-dist | 6.3.289 | Apache-2.0 |
 | pkce-challenge | 5.0.1 | MIT |
-| playwright | 1.62.1 | Apache-2.0 |
-| playwright-core | 1.62.1 | Apache-2.0 |
+| playwright | 1.63.0 | Apache-2.0 |
+| playwright-core | 1.63.0 | Apache-2.0 |
 | process-nextick-args | 2.0.1 | MIT |
-| proxy-addr | 2.0.7 | MIT |
+| proxy-addr | 2.0.8 | MIT |
 | qs | 6.16.0 | BSD-3-Clause |
 | range-parser | 1.3.0 | MIT |
 | raw-body | 3.0.2 | MIT |
@@ -753,8 +753,8 @@ texts ship inside the respective packages.
 | vary | 1.1.2 | MIT |
 | which | 2.0.2 | ISC |
 | wrappy | 1.0.2 | ISC |
-| yaml | 2.9.0 | ISC |
-| zod | 4.5.4 | MIT |
+| yaml | 2.9.1 | ISC |
+| zod | 4.6.5 | MIT |
 | zod-to-json-schema | 3.25.2 | ISC |
 
 ## @hybridaione/hybridclaw-runtime-tools (`container/tools/package-lock.json`)
@@ -764,8 +764,8 @@ texts ship inside the respective packages.
 | Package | Version | License |
 | --- | --- | --- |
 | @e965/xlsx | 0.20.3 | Apache-2.0 |
-| @types/node | 22.20.4 | MIT |
-| @types/node | 25.9.8 | MIT |
+| @types/node | 22.20.3 | MIT |
+| @types/node | 25.9.7 | MIT |
 | adler-32 | 1.3.1 | Apache-2.0 |
 | cfb | 1.2.2 | Apache-2.0 |
 | core-util-is | 1.0.3 | MIT |
@@ -822,7 +822,7 @@ texts ship inside the respective packages.
 
 ## NOTICE Files
 
-### import-in-the-middle@3.4.0 — NOTICE
+### import-in-the-middle@3.5.1 — NOTICE
 
 ````text
 import-in-the-middle is licensed for use as follows:
@@ -861,7 +861,7 @@ https://github.com/DataDog/import-in-the-middle repository:
     limitations under the License.
 ````
 
-### playwright@1.62.1 — NOTICE
+### playwright@1.63.0 — NOTICE
 
 ````text
 Playwright
@@ -871,7 +871,7 @@ This software contains code derived from the Puppeteer project (https://github.c
 available under the Apache 2.0 license (https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
 ````
 
-### playwright-core@1.62.1 — NOTICE
+### playwright-core@1.63.0 — NOTICE
 
 ````text
 Playwright
@@ -885,7 +885,7 @@ available under the Apache 2.0 license (https://github.com/puppeteer/puppeteer/b
 
 ### Text 1 of 302
 
-Applies to: @azure/abort-controller@2.2.0, @azure/core-auth@1.11.0, @azure/core-client@1.11.1, @azure/core-http-compat@2.5.0, @azure/core-rest-pipeline@1.25.0, @azure/core-tracing@1.4.0, @azure/core-util@1.14.0, @azure/identity@4.13.2, @azure/logger@1.4.0, @typespec/ts-http-runtime@0.3.9
+Applies to: @azure/abort-controller@2.2.0, @azure/core-auth@1.11.0, @azure/core-client@1.11.1, @azure/core-http-compat@2.5.0, @azure/core-rest-pipeline@1.25.0, @azure/core-tracing@1.4.0, @azure/core-util@1.14.0, @azure/identity@4.13.3, @azure/logger@1.4.0, @typespec/ts-http-runtime@0.3.9
 
 ````text
 Copyright (c) Microsoft Corporation.
@@ -941,7 +941,7 @@ SOFTWARE.
 
 ### Text 3 of 302
 
-Applies to: @azure/msal-browser@5.21.0, @azure/msal-common@14.16.1, @azure/msal-common@16.13.0, @azure/msal-common@16.14.0
+Applies to: @azure/msal-browser@5.22.0, @azure/msal-common@14.16.1, @azure/msal-common@16.14.1
 
 ````text
 MIT License
@@ -969,7 +969,7 @@ SOFTWARE
 
 ### Text 4 of 302
 
-Applies to: @azure/msal-node@2.16.3, @azure/msal-node@5.6.0
+Applies to: @azure/msal-node@2.16.3, @azure/msal-node@6.0.1
 
 ````text
 MIT License
@@ -2195,7 +2195,7 @@ Apache License
 
 ### Text 11 of 302
 
-Applies to: @grpc/grpc-js@1.14.4, @grpc/proto-loader@0.8.1, detect-libc@2.1.2
+Applies to: @grpc/grpc-js@1.14.5, @grpc/proto-loader@0.8.1, detect-libc@2.1.2
 
 ````text
 Apache License
@@ -2725,7 +2725,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Text 17 of 302
 
-Applies to: @opentelemetry/api@1.9.1, @opentelemetry/api-logs@0.220.0, @opentelemetry/api-logs@0.221.0, @opentelemetry/configuration@0.221.0, @opentelemetry/context-async-hooks@2.10.0, @opentelemetry/core@2.10.0, @opentelemetry/core@2.11.0, @opentelemetry/exporter-logs-otlp-grpc@0.221.0, @opentelemetry/exporter-logs-otlp-http@0.221.0, @opentelemetry/exporter-logs-otlp-proto@0.221.0, @opentelemetry/exporter-metrics-otlp-grpc@0.221.0, @opentelemetry/exporter-metrics-otlp-http@0.221.0, @opentelemetry/exporter-metrics-otlp-proto@0.221.0, @opentelemetry/exporter-prometheus@0.221.0, @opentelemetry/exporter-trace-otlp-grpc@0.221.0, @opentelemetry/exporter-trace-otlp-http@0.221.0, @opentelemetry/exporter-trace-otlp-proto@0.221.0, @opentelemetry/exporter-zipkin@2.10.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/instrumentation@0.221.0, @opentelemetry/otlp-exporter-base@0.221.0, @opentelemetry/otlp-grpc-exporter-base@0.221.0, @opentelemetry/otlp-transformer@0.221.0, @opentelemetry/propagator-b3@2.10.0, @opentelemetry/propagator-jaeger@2.10.0, @opentelemetry/resources@2.10.0, @opentelemetry/resources@2.11.0, @opentelemetry/sdk-logs@0.221.0, @opentelemetry/sdk-metrics@2.10.0, @opentelemetry/sdk-node@0.221.0, @opentelemetry/sdk-trace@2.10.0, @opentelemetry/sdk-trace-base@2.10.0, @opentelemetry/sdk-trace-node@2.10.0, @opentelemetry/semantic-conventions@1.43.0, baseline-browser-mapping@2.11.21, long@5.3.2
+Applies to: @opentelemetry/api@1.9.1, @opentelemetry/api-logs@0.220.0, @opentelemetry/api-logs@0.221.0, @opentelemetry/configuration@0.221.0, @opentelemetry/context-async-hooks@2.10.0, @opentelemetry/core@2.10.0, @opentelemetry/core@2.11.0, @opentelemetry/exporter-logs-otlp-grpc@0.221.0, @opentelemetry/exporter-logs-otlp-http@0.221.0, @opentelemetry/exporter-logs-otlp-proto@0.221.0, @opentelemetry/exporter-metrics-otlp-grpc@0.221.0, @opentelemetry/exporter-metrics-otlp-http@0.221.0, @opentelemetry/exporter-metrics-otlp-proto@0.221.0, @opentelemetry/exporter-prometheus@0.221.0, @opentelemetry/exporter-trace-otlp-grpc@0.221.0, @opentelemetry/exporter-trace-otlp-http@0.221.0, @opentelemetry/exporter-trace-otlp-proto@0.221.0, @opentelemetry/exporter-zipkin@2.10.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/instrumentation@0.221.0, @opentelemetry/otlp-exporter-base@0.221.0, @opentelemetry/otlp-grpc-exporter-base@0.221.0, @opentelemetry/otlp-transformer@0.221.0, @opentelemetry/propagator-b3@2.10.0, @opentelemetry/propagator-jaeger@2.10.0, @opentelemetry/resources@2.10.0, @opentelemetry/resources@2.11.0, @opentelemetry/sdk-logs@0.221.0, @opentelemetry/sdk-metrics@2.10.0, @opentelemetry/sdk-node@0.221.0, @opentelemetry/sdk-trace@2.10.0, @opentelemetry/sdk-trace-base@2.10.0, @opentelemetry/sdk-trace-node@2.10.0, @opentelemetry/semantic-conventions@1.43.0, baseline-browser-mapping@2.11.25, long@5.3.2
 
 ````text
 Apache License
@@ -3165,7 +3165,7 @@ SOFTWARE.
 
 ### Text 26 of 302
 
-Applies to: @sentry/core@10.73.0
+Applies to: @sentry/core@10.75.0
 
 ````text
 MIT License
@@ -3193,7 +3193,7 @@ SOFTWARE.
 
 ### Text 27 of 302
 
-Applies to: @sentry/node-core@10.73.0
+Applies to: @sentry/node-core@10.75.0
 
 ````text
 MIT License
@@ -3221,7 +3221,7 @@ SOFTWARE.
 
 ### Text 28 of 302
 
-Applies to: @sentry/node@10.73.0, @sentry/opentelemetry@10.73.0
+Applies to: @sentry/node@10.75.0, @sentry/opentelemetry@10.75.0
 
 ````text
 MIT License
@@ -3249,7 +3249,7 @@ SOFTWARE.
 
 ### Text 29 of 302
 
-Applies to: @sindresorhus/is@4.6.0, bundle-name@4.1.0, decompress-response@6.0.0, default-browser@5.5.1, default-browser-id@5.0.1, define-lazy-prop@3.0.0, dot-prop@6.0.1, escape-string-regexp@4.0.0, filename-reserved-regex@3.0.0, filenamify@6.0.0, is-docker@3.0.0, is-inside-container@1.0.0, is-stream@2.0.1, is-wsl@3.1.1, mimic-response@3.1.0, open@10.2.0, ow@0.28.2, p-queue@6.6.2, pretty-bytes@7.1.2, run-applescript@7.1.0, strip-json-comments@5.0.3, wrap-ansi@7.0.0, wsl-utils@0.1.0
+Applies to: @sindresorhus/is@4.6.0, bundle-name@4.1.0, decompress-response@6.0.0, default-browser@5.5.1, default-browser-id@5.0.1, define-lazy-prop@3.0.0, dot-prop@6.0.1, escape-string-regexp@4.0.0, filename-reserved-regex@3.0.0, filenamify@6.0.0, is-docker@3.0.0, is-inside-container@1.0.0, is-stream@2.0.1, is-wsl@3.1.1, mimic-response@3.1.0, open@10.2.0, ow@0.28.2, p-queue@6.6.2, pretty-bytes@7.1.3, run-applescript@7.1.0, strip-json-comments@5.0.3, wrap-ansi@7.0.0, wsl-utils@0.1.0
 
 ````text
 MIT License
@@ -3323,7 +3323,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Text 32 of 302
 
-Applies to: @tanstack/history@1.162.1, @tanstack/query-core@5.102.8, @tanstack/react-query@5.102.8, @tanstack/react-router@1.170.32, @tanstack/router-core@1.171.27
+Applies to: @tanstack/history@1.162.4, @tanstack/query-core@5.103.1, @tanstack/react-query@5.103.1, @tanstack/react-router@1.170.38, @tanstack/router-core@1.171.32
 
 ````text
 MIT License
@@ -3351,7 +3351,7 @@ SOFTWARE.
 
 ### Text 33 of 302
 
-Applies to: @tanstack/react-store@0.9.3, @tanstack/store@0.9.3
+Applies to: @tanstack/react-store@0.11.1, @tanstack/store@0.11.1
 
 ````text
 MIT License
@@ -3379,7 +3379,7 @@ SOFTWARE.
 
 ### Text 34 of 302
 
-Applies to: @types/body-parser@1.19.6, @types/connect@3.4.38, @types/express@5.0.6, @types/express-serve-static-core@5.1.3, @types/http-errors@2.0.5, @types/jsonwebtoken@9.0.10, @types/jsonwebtoken@9.0.6, @types/ms@2.1.0, @types/node@22.20.1, @types/node@22.20.4, @types/node@25.9.5, @types/node@25.9.8, @types/qs@6.15.1, @types/range-parser@1.2.7, @types/send@1.2.1, @types/serve-static@2.2.0, @types/ws@8.18.1
+Applies to: @types/body-parser@1.19.6, @types/connect@3.4.38, @types/express@5.0.6, @types/express-serve-static-core@5.1.3, @types/http-errors@2.0.5, @types/jsonwebtoken@9.0.10, @types/jsonwebtoken@9.0.6, @types/ms@2.1.0, @types/node@22.20.3, @types/node@25.9.7, @types/qs@6.15.1, @types/range-parser@1.2.7, @types/send@1.2.1, @types/serve-static@2.2.0, @types/ws@8.18.1
 
 ````text
 MIT License
@@ -3520,7 +3520,7 @@ THE SOFTWARE.
 
 ### Text 39 of 302
 
-Applies to: @zone-eu/mailsplit@5.4.16
+Applies to: @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.17
 
 ````text
 EUROOPA LIIDU TARKVARA VABA KASUTUSE LITSENTS v. 1.2
@@ -3970,7 +3970,7 @@ Apache License
 
 ### Text 43 of 302
 
-Applies to: adm-zip@0.6.0
+Applies to: adm-zip@0.6.1
 
 ````text
 MIT License
@@ -4291,7 +4291,7 @@ SOFTWARE.
 
 ### Text 48 of 302
 
-Applies to: amaro@1.1.11
+Applies to: amaro@1.2.0
 
 ````text
 MIT License
@@ -4669,7 +4669,7 @@ SOFTWARE.
 
 ### Text 62 of 302
 
-Applies to: brace-expansion@5.0.9
+Applies to: brace-expansion@5.0.12
 
 ````text
 MIT License
@@ -4699,7 +4699,7 @@ SOFTWARE.
 
 ### Text 63 of 302
 
-Applies to: browserslist@4.28.8
+Applies to: browserslist@4.29.0
 
 ````text
 The MIT License (MIT)
@@ -6256,7 +6256,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Text 88 of 302
 
-Applies to: cron-parser@5.10.0
+Applies to: cron-parser@5.10.1
 
 ````text
 The MIT License (MIT)
@@ -6340,7 +6340,7 @@ THE SOFTWARE.
 
 ### Text 91 of 302
 
-Applies to: css-select@7.0.0, css-what@8.0.0, domelementtype@2.3.0, domelementtype@3.0.0, domhandler@5.0.3, domhandler@6.0.1, domutils@3.2.2, domutils@4.0.2, entities@4.5.0, entities@7.0.1, entities@8.0.0, nth-check@3.0.1
+Applies to: css-select@7.0.0, css-what@8.0.0, domelementtype@2.3.0, domelementtype@3.0.0, domhandler@5.0.3, domhandler@6.0.1, domutils@3.2.2, domutils@4.0.2, entities@4.5.0, entities@7.0.1, entities@8.1.0, nth-check@3.0.1
 
 ````text
 Copyright (c) Felix Böhm
@@ -6992,7 +6992,7 @@ THE SOFTWARE.
 
 ### Text 109 of 302
 
-Applies to: electron-to-chromium@1.5.420
+Applies to: electron-to-chromium@1.5.431
 
 ````text
 Copyright 2018 Kilian Valkhof
@@ -7088,6 +7088,58 @@ SOFTWARE.
 
 ### Text 113 of 302
 
+Applies to: encoding-japanese@2.4.0
+
+````text
+MIT License
+
+Copyright (c) 2012-present polygonplanet
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----
+
+Third-Party Licenses and Credits
+
+TypeScript declarations and type tests are based on the type definitions for
+encoding-japanese from DefinitelyTyped, licensed under the MIT License.
+
+Upstream package: @types/encoding-japanese 2.2.1
+
+The LICENSE distributed with @types/encoding-japanese states:
+
+  Copyright (c) Microsoft Corporation.
+
+The LICENSE in the DefinitelyTyped repository states:
+
+  Copyrights are respective of each contributor listed at the beginning of
+  each definition file.
+
+The contributors credited in the upstream package are:
+  rhysd (https://github.com/rhysd)
+  Piotr Błażejewicz (https://github.com/peterblazejewicz)
+
+The MIT License terms stated above apply equally to these files.
+````
+
+### Text 114 of 302
+
 Applies to: end-of-stream@1.4.5, pump@3.0.4, tar-fs@2.1.5, tar-stream@2.2.0
 
 ````text
@@ -7114,9 +7166,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 114 of 302
+### Text 115 of 302
 
-Applies to: es-module-lexer@2.3.2
+Applies to: es-module-lexer@3.0.2
 
 ````text
 MIT License
@@ -7131,7 +7183,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 115 of 302
+### Text 116 of 302
 
 Applies to: es-set-tostringtag@2.1.0
 
@@ -7159,7 +7211,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 116 of 302
+### Text 117 of 302
 
 Applies to: escalade@3.2.0
 
@@ -7175,7 +7227,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 117 of 302
+### Text 118 of 302
 
 Applies to: escape-html@1.0.3
 
@@ -7206,9 +7258,9 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 118 of 302
+### Text 119 of 302
 
-Applies to: etag@1.8.1, proxy-addr@2.0.7
+Applies to: etag@1.8.1, proxy-addr@2.0.8
 
 ````text
 (The MIT License)
@@ -7235,7 +7287,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 119 of 302
+### Text 120 of 302
 
 Applies to: eventemitter3@4.0.7, eventemitter3@5.0.4
 
@@ -7263,7 +7315,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 120 of 302
+### Text 121 of 302
 
 Applies to: eventsource-parser@3.1.1
 
@@ -7291,7 +7343,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 121 of 302
+### Text 122 of 302
 
 Applies to: eventsource@3.0.7
 
@@ -7320,7 +7372,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 122 of 302
+### Text 123 of 302
 
 Applies to: expand-template@2.0.3
 
@@ -7348,7 +7400,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 123 of 302
+### Text 124 of 302
 
 Applies to: express-rate-limit@8.7.0
 
@@ -7376,7 +7428,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 124 of 302
+### Text 125 of 302
 
 Applies to: express@5.2.1
 
@@ -7407,7 +7459,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 125 of 302
+### Text 126 of 302
 
 Applies to: fast-copy@4.1.1
 
@@ -7435,7 +7487,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 126 of 302
+### Text 127 of 302
 
 Applies to: fast-deep-equal@3.1.3, json-schema-traverse@1.0.0
 
@@ -7463,7 +7515,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 127 of 302
+### Text 128 of 302
 
 Applies to: fast-safe-stringify@2.1.1
 
@@ -7493,9 +7545,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 128 of 302
+### Text 129 of 302
 
-Applies to: fast-uri@3.1.7
+Applies to: fast-uri@3.1.8
 
 ````text
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
@@ -7530,7 +7582,7 @@ The complete list of contributors can be found at:
 - https://github.com/garycourt/uri-js/graphs/contributors
 ````
 
-### Text 129 of 302
+### Text 130 of 302
 
 Applies to: file-uri-to-path@1.0.0
 
@@ -7557,7 +7609,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 130 of 302
+### Text 131 of 302
 
 Applies to: finalhandler@2.1.1
 
@@ -7586,7 +7638,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 131 of 302
+### Text 132 of 302
 
 Applies to: fingerprint-generator@2.1.88, generative-bayesian-network@2.1.88, header-generator@2.1.88
 
@@ -7794,7 +7846,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ````
 
-### Text 132 of 302
+### Text 133 of 302
 
 Applies to: follow-redirects@1.16.0
 
@@ -7819,7 +7871,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 133 of 302
+### Text 134 of 302
 
 Applies to: form-data@4.0.6
 
@@ -7845,7 +7897,7 @@ Copyright (c) 2012 Felix Geisendörfer (felix@debuggable.com) and contributors
  THE SOFTWARE.
 ````
 
-### Text 134 of 302
+### Text 135 of 302
 
 Applies to: fresh@2.0.0
 
@@ -7875,7 +7927,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 135 of 302
+### Text 136 of 302
 
 Applies to: fs-constants@1.0.0
 
@@ -7903,7 +7955,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 136 of 302
+### Text 137 of 302
 
 Applies to: fs-extra@11.4.0
 
@@ -7925,7 +7977,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 137 of 302
+### Text 138 of 302
 
 Applies to: function-bind@1.1.2
 
@@ -7951,7 +8003,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 138 of 302
+### Text 139 of 302
 
 Applies to: get-caller-file@2.0.5
 
@@ -7964,7 +8016,7 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 139 of 302
+### Text 140 of 302
 
 Applies to: get-intrinsic@1.3.0
 
@@ -7992,7 +8044,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 140 of 302
+### Text 141 of 302
 
 Applies to: get-proto@1.0.1
 
@@ -8020,7 +8072,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 141 of 302
+### Text 142 of 302
 
 Applies to: github-from-package@0.0.0, minimist@1.2.8
 
@@ -8045,7 +8097,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 142 of 302
+### Text 143 of 302
 
 Applies to: glob@13.0.6
 
@@ -8115,7 +8167,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim.***
 ````
 
-### Text 143 of 302
+### Text 144 of 302
 
 Applies to: gopd@1.2.0
 
@@ -8143,7 +8195,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 144 of 302
+### Text 145 of 302
 
 Applies to: graceful-fs@4.2.11
 
@@ -8165,7 +8217,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 145 of 302
+### Text 146 of 302
 
 Applies to: has-symbols@1.1.0
 
@@ -8193,7 +8245,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 146 of 302
+### Text 147 of 302
 
 Applies to: has-tostringtag@1.0.2
 
@@ -8221,7 +8273,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 147 of 302
+### Text 148 of 302
 
 Applies to: hasown@2.0.4
 
@@ -8249,7 +8301,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 148 of 302
+### Text 149 of 302
 
 Applies to: help-me@5.0.0
 
@@ -8277,7 +8329,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 149 of 302
+### Text 150 of 302
 
 Applies to: highlight.js@11.12.0
 
@@ -8313,9 +8365,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 150 of 302
+### Text 151 of 302
 
-Applies to: hono@4.13.5
+Applies to: hono@4.13.8
 
 ````text
 MIT License
@@ -8341,7 +8393,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 151 of 302
+### Text 152 of 302
 
 Applies to: html-escaper@3.0.3
 
@@ -8367,7 +8419,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 152 of 302
+### Text 153 of 302
 
 Applies to: html-to-text@10.0.1
 
@@ -8399,7 +8451,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 153 of 302
+### Text 154 of 302
 
 Applies to: html-to-text@9.0.5
 
@@ -8431,7 +8483,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 154 of 302
+### Text 155 of 302
 
 Applies to: htmlparser2@10.1.0, htmlparser2@12.0.0, htmlparser2@8.0.2, htmlparser2@9.1.0
 
@@ -8456,7 +8508,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 ````
 
-### Text 155 of 302
+### Text 156 of 302
 
 Applies to: http-errors@2.0.1
 
@@ -8485,7 +8537,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 156 of 302
+### Text 157 of 302
 
 Applies to: iconv-lite@0.7.3
 
@@ -8512,7 +8564,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 157 of 302
+### Text 158 of 302
 
 Applies to: ieee754@1.2.1
 
@@ -8530,7 +8582,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 158 of 302
+### Text 159 of 302
 
 Applies to: imapflow@1.7.8
 
@@ -8553,7 +8605,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 159 of 302
+### Text 160 of 302
 
 Applies to: immediate@3.0.6
 
@@ -8580,9 +8632,9 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 160 of 302
+### Text 161 of 302
 
-Applies to: import-in-the-middle@3.4.0
+Applies to: import-in-the-middle@3.5.1
 
 ````text
 Apache License
@@ -8795,7 +8847,7 @@ dev,c8,ISC,"Copyright (c) 2017, Contributors"
 dev,imhotap,MIT,Copyright (c) 2019 Bryan English.
 ````
 
-### Text 161 of 302
+### Text 162 of 302
 
 Applies to: inherits@2.0.4
 
@@ -8817,9 +8869,9 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 162 of 302
+### Text 163 of 302
 
-Applies to: ip-address@10.7.0
+Applies to: ip-address@10.7.2
 
 ````text
 Copyright (C) 2011 by Beau Gunderson
@@ -8843,7 +8895,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 163 of 302
+### Text 164 of 302
 
 Applies to: ipaddr.js@1.9.1
 
@@ -8869,7 +8921,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 164 of 302
+### Text 165 of 302
 
 Applies to: is-electron@2.2.2
 
@@ -8897,7 +8949,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 165 of 302
+### Text 166 of 302
 
 Applies to: is-plain-object@5.1.0
 
@@ -8925,7 +8977,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 166 of 302
+### Text 167 of 302
 
 Applies to: is-promise@4.0.0
 
@@ -8951,7 +9003,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 167 of 302
+### Text 168 of 302
 
 Applies to: isbot@5.2.2
 
@@ -8984,9 +9036,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org/>
 ````
 
-### Text 168 of 302
+### Text 169 of 302
 
-Applies to: jose@6.2.10
+Applies to: jose@6.2.12
 
 ````text
 The MIT License (MIT)
@@ -9012,7 +9064,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 169 of 302
+### Text 170 of 302
 
 Applies to: joycon@3.1.1
 
@@ -9040,7 +9092,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 170 of 302
+### Text 171 of 302
 
 Applies to: json-schema-typed@8.0.2
 
@@ -9104,7 +9156,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 171 of 302
+### Text 172 of 302
 
 Applies to: jsonfile@6.2.1
 
@@ -9126,7 +9178,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
  ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 172 of 302
+### Text 173 of 302
 
 Applies to: jsonwebtoken@9.0.3
 
@@ -9154,9 +9206,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 173 of 302
+### Text 174 of 302
 
-Applies to: jszip@3.10.1, jszip@3.10.2
+Applies to: jszip@3.10.2
 
 ````text
 JSZip is dual licensed. At your choice you may use it under the MIT license *or* the GPLv3
@@ -9812,7 +9864,7 @@ copy of the Program in return for a fee.
                      END OF TERMS AND CONDITIONS
 ````
 
-### Text 174 of 302
+### Text 175 of 302
 
 Applies to: jwa@2.0.1, jws@4.0.1
 
@@ -9836,7 +9888,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 175 of 302
+### Text 176 of 302
 
 Applies to: katex@0.16.47
 
@@ -9864,7 +9916,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 176 of 302
+### Text 177 of 302
 
 Applies to: language-tags@2.1.0
 
@@ -9878,7 +9930,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 177 of 302
+### Text 178 of 302
 
 Applies to: leac@0.7.0, parseley@0.13.1, peberminta@0.10.0
 
@@ -9906,7 +9958,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 178 of 302
+### Text 179 of 302
 
 Applies to: libbase64@1.3.0
 
@@ -9932,9 +9984,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 179 of 302
+### Text 180 of 302
 
-Applies to: libmime@5.4.3
+Applies to: libmime@5.4.3, libmime@5.4.4
 
 ````text
 Copyright (c) 2014-2016 Andris Reinman
@@ -9958,7 +10010,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 180 of 302
+### Text 181 of 302
 
 Applies to: libqp@2.1.1
 
@@ -9984,7 +10036,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 181 of 302
+### Text 182 of 302
 
 Applies to: lie@3.3.0
 
@@ -9998,7 +10050,7 @@ The above copyright notice and this permission notice shall be included in all c
 **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 ````
 
-### Text 182 of 302
+### Text 183 of 302
 
 Applies to: linkedom@0.18.13
 
@@ -10020,7 +10072,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 183 of 302
+### Text 184 of 302
 
 Applies to: linkify-it@5.0.2
 
@@ -10049,7 +10101,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 184 of 302
+### Text 185 of 302
 
 Applies to: lodash.camelcase@4.3.0, lodash.includes@4.3.0, lodash.isinteger@4.0.4, lodash.isplainobject@4.0.6, lodash.once@4.1.1, lodash.snakecase@4.1.1
 
@@ -10103,7 +10155,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 185 of 302
+### Text 186 of 302
 
 Applies to: lodash.isboolean@3.0.3, lodash.isnumber@3.0.3, lodash.isstring@4.0.1
 
@@ -10132,7 +10184,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 186 of 302
+### Text 187 of 302
 
 Applies to: lodash.isequal@4.5.0
 
@@ -10186,7 +10238,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 187 of 302
+### Text 188 of 302
 
 Applies to: lodash@4.18.1
 
@@ -10240,7 +10292,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ````
 
-### Text 188 of 302
+### Text 189 of 302
 
 Applies to: lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.1
 
@@ -10302,7 +10354,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim.***
 ````
 
-### Text 189 of 302
+### Text 190 of 302
 
 Applies to: luxon@3.7.2
 
@@ -10316,7 +10368,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 190 of 302
+### Text 191 of 302
 
 Applies to: magic-bytes.js@1.13.1
 
@@ -10344,9 +10396,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 191 of 302
+### Text 192 of 302
 
-Applies to: mailparser@3.9.20
+Applies to: mailparser@3.9.28
 
 ````text
 Copyright (c) 2020 - 2025 Andris Reinman
@@ -10367,7 +10419,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 192 of 302
+### Text 193 of 302
 
 Applies to: marked@17.0.6
 
@@ -10418,7 +10470,7 @@ Redistribution and use in source and binary forms, with or without modification,
 This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
 ````
 
-### Text 193 of 302
+### Text 194 of 302
 
 Applies to: maxmind@5.0.7, mmdb-lib@3.0.3
 
@@ -10445,7 +10497,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 194 of 302
+### Text 195 of 302
 
 Applies to: merge-descriptors@2.0.0
 
@@ -10463,7 +10515,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 195 of 302
+### Text 196 of 302
 
 Applies to: mime-db@1.52.0, mime-db@1.54.0
 
@@ -10493,7 +10545,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 196 of 302
+### Text 197 of 302
 
 Applies to: minimalistic-assert@1.0.1
 
@@ -10513,7 +10565,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 197 of 302
+### Text 198 of 302
 
 Applies to: minimatch@10.2.6
 
@@ -10575,7 +10627,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim._**
 ````
 
-### Text 198 of 302
+### Text 199 of 302
 
 Applies to: mkdirp-classic@0.5.3
 
@@ -10603,7 +10655,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 199 of 302
+### Text 200 of 302
 
 Applies to: module-details-from-path@1.0.4
 
@@ -10631,7 +10683,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 200 of 302
+### Text 201 of 302
 
 Applies to: ms@2.1.3
 
@@ -10659,7 +10711,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 201 of 302
+### Text 202 of 302
 
 Applies to: nanoid@5.1.16
 
@@ -10686,7 +10738,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 202 of 302
+### Text 203 of 302
 
 Applies to: napi-build-utils@2.0.0
 
@@ -10714,7 +10766,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 203 of 302
+### Text 204 of 302
 
 Applies to: negotiator@1.1.0
 
@@ -10745,7 +10797,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 204 of 302
+### Text 205 of 302
 
 Applies to: node-abi@3.96.0
 
@@ -10773,7 +10825,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 205 of 302
+### Text 206 of 302
 
 Applies to: node-addon-api@7.1.1, node-addon-api@8.9.2
 
@@ -10789,7 +10841,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 206 of 302
+### Text 207 of 302
 
 Applies to: node-fetch@2.7.0
 
@@ -10817,7 +10869,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 207 of 302
+### Text 208 of 302
 
 Applies to: node-pty@1.1.0
 
@@ -10893,9 +10945,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 208 of 302
+### Text 209 of 302
 
-Applies to: node-releases@2.0.54
+Applies to: node-releases@2.0.56
 
 ````text
 The MIT License
@@ -10921,7 +10973,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 209 of 302
+### Text 210 of 302
 
 Applies to: nodemailer@7.0.13, nodemailer@9.1.1
 
@@ -10944,7 +10996,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 210 of 302
+### Text 211 of 302
 
 Applies to: object-assign@4.1.1, p-finally@1.0.0, strip-json-comments@2.0.1
 
@@ -10972,7 +11024,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 211 of 302
+### Text 212 of 302
 
 Applies to: object-inspect@1.13.4
 
@@ -11000,7 +11052,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 212 of 302
+### Text 213 of 302
 
 Applies to: on-exit-leak-free@2.1.2, thread-stream@3.2.0, thread-stream@4.2.0
 
@@ -11028,7 +11080,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 213 of 302
+### Text 214 of 302
 
 Applies to: on-finished@2.4.1
 
@@ -11058,7 +11110,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 214 of 302
+### Text 215 of 302
 
 Applies to: openssl-wrapper@0.3.4
 
@@ -11086,7 +11138,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 215 of 302
+### Text 216 of 302
 
 Applies to: pako@1.0.11
 
@@ -11114,7 +11166,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 216 of 302
+### Text 217 of 302
 
 Applies to: parse-srcset@1.0.2
 
@@ -11142,7 +11194,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 217 of 302
+### Text 218 of 302
 
 Applies to: parseurl@1.3.3
 
@@ -11172,7 +11224,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 218 of 302
+### Text 219 of 302
 
 Applies to: path-to-regexp@8.4.2
 
@@ -11200,7 +11252,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 219 of 302
+### Text 220 of 302
 
 Applies to: pdf-lib@1.17.1
 
@@ -11228,7 +11280,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 220 of 302
+### Text 221 of 302
 
 Applies to: pdfjs-dist@6.3.289
 
@@ -11411,7 +11463,7 @@ Apache License
    END OF TERMS AND CONDITIONS
 ````
 
-### Text 221 of 302
+### Text 222 of 302
 
 Applies to: pend@1.2.0
 
@@ -11441,7 +11493,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 222 of 302
+### Text 223 of 302
 
 Applies to: picocolors@1.1.1
 
@@ -11463,7 +11515,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 223 of 302
+### Text 224 of 302
 
 Applies to: pino-abstract-transport@2.0.0, pino-abstract-transport@3.0.0
 
@@ -11491,7 +11543,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 224 of 302
+### Text 225 of 302
 
 Applies to: pino-pretty@13.1.3
 
@@ -11519,7 +11571,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 225 of 302
+### Text 226 of 302
 
 Applies to: pino-std-serializers@7.1.0
 
@@ -11533,7 +11585,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 226 of 302
+### Text 227 of 302
 
 Applies to: pino@10.3.1, pino@9.14.0
 
@@ -11561,7 +11613,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 227 of 302
+### Text 228 of 302
 
 Applies to: pkce-challenge@5.0.1
 
@@ -11589,9 +11641,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 228 of 302
+### Text 229 of 302
 
-Applies to: playwright@1.62.1, playwright-core@1.62.1
+Applies to: playwright@1.63.0, playwright-core@1.63.0
 
 ````text
 Apache License
@@ -11798,7 +11850,7 @@ Apache License
    limitations under the License.
 ````
 
-### Text 229 of 302
+### Text 230 of 302
 
 Applies to: postcss@8.5.28
 
@@ -11825,7 +11877,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 230 of 302
+### Text 231 of 302
 
 Applies to: pptxgenjs@4.0.1
 
@@ -11853,7 +11905,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 231 of 302
+### Text 232 of 302
 
 Applies to: prebuild-install@7.1.3
 
@@ -11881,7 +11933,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 232 of 302
+### Text 233 of 302
 
 Applies to: process-nextick-args@2.0.1
 
@@ -11907,7 +11959,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
 ````
 
-### Text 233 of 302
+### Text 234 of 302
 
 Applies to: process-warning@5.1.0
 
@@ -11935,7 +11987,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 234 of 302
+### Text 235 of 302
 
 Applies to: protobufjs@7.6.6
 
@@ -11981,7 +12033,7 @@ standalone and requires a support library to be linked with it. This
 support library is itself covered by the above license.
 ````
 
-### Text 235 of 302
+### Text 236 of 302
 
 Applies to: proxy-from-env@2.1.0
 
@@ -12008,7 +12060,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 236 of 302
+### Text 237 of 302
 
 Applies to: qrcode-terminal@0.12.0
 
@@ -12236,7 +12288,7 @@ Located in ./vendor/QRCode
 - project has been modified to work in Node and some refactoring was done for code cleanup
 ````
 
-### Text 237 of 302
+### Text 238 of 302
 
 Applies to: qs@6.16.0
 
@@ -12272,7 +12324,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 238 of 302
+### Text 239 of 302
 
 Applies to: quick-format-unescaped@4.0.4
 
@@ -12300,7 +12352,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 239 of 302
+### Text 240 of 302
 
 Applies to: range-parser@1.3.0
 
@@ -12330,7 +12382,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 240 of 302
+### Text 241 of 302
 
 Applies to: raw-body@3.0.2
 
@@ -12359,7 +12411,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 241 of 302
+### Text 242 of 302
 
 Applies to: rc@1.2.8
 
@@ -12437,9 +12489,9 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 242 of 302
+### Text 243 of 302
 
-Applies to: react@19.2.8, react-dom@19.2.8, scheduler@0.27.0, use-sync-external-store@1.6.0
+Applies to: react@19.3.0, react-dom@19.3.0, scheduler@0.28.0, use-sync-external-store@1.7.0
 
 ````text
 MIT License
@@ -12465,7 +12517,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 243 of 302
+### Text 244 of 302
 
 Applies to: readable-stream@2.3.8, readable-stream@3.6.2, string_decoder@1.1.1
 
@@ -12519,7 +12571,7 @@ IN THE SOFTWARE.
 """
 ````
 
-### Text 244 of 302
+### Text 245 of 302
 
 Applies to: real-require@0.2.0, real-require@1.0.0
 
@@ -12547,7 +12599,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 245 of 302
+### Text 246 of 302
 
 Applies to: require-directory@2.1.1
 
@@ -12576,7 +12628,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 246 of 302
+### Text 247 of 302
 
 Applies to: require-from-string@2.0.2
 
@@ -12604,7 +12656,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 247 of 302
+### Text 248 of 302
 
 Applies to: require-in-the-middle@8.0.1
 
@@ -12634,7 +12686,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 248 of 302
+### Text 249 of 302
 
 Applies to: retry@0.13.1
 
@@ -12662,7 +12714,7 @@ Felix Geisendörfer (felix@debuggable.com)
  THE SOFTWARE.
 ````
 
-### Text 249 of 302
+### Text 250 of 302
 
 Applies to: router@2.2.0
 
@@ -12692,7 +12744,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 250 of 302
+### Text 251 of 302
 
 Applies to: rsa-pem-from-mod-exp@0.8.6
 
@@ -12719,7 +12771,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 251 of 302
+### Text 252 of 302
 
 Applies to: safe-buffer@5.1.2, safe-buffer@5.2.1
 
@@ -12747,7 +12799,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ````
 
-### Text 252 of 302
+### Text 253 of 302
 
 Applies to: safe-stable-stringify@2.5.0
 
@@ -12775,7 +12827,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 253 of 302
+### Text 254 of 302
 
 Applies to: safer-buffer@2.1.2
 
@@ -12803,7 +12855,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 254 of 302
+### Text 255 of 302
 
 Applies to: sanitize-html@2.17.7
 
@@ -12817,7 +12869,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 255 of 302
+### Text 256 of 302
 
 Applies to: secure-json-parse@4.1.0
 
@@ -12843,7 +12895,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 256 of 302
+### Text 257 of 302
 
 Applies to: send@1.2.1
 
@@ -12873,9 +12925,9 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 257 of 302
+### Text 258 of 302
 
-Applies to: seroval@1.6.4, seroval-plugins@1.6.4
+Applies to: seroval@1.6.7, seroval-plugins@1.6.7
 
 ````text
 MIT License Copyright (c) 2025 Alexis Munsayac <alexis.munsayac@gmail.com>
@@ -12887,7 +12939,7 @@ The above copyright notice and this permission notice (including the next paragr
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 258 of 302
+### Text 259 of 302
 
 Applies to: serve-static@2.2.1
 
@@ -12919,7 +12971,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 259 of 302
+### Text 260 of 302
 
 Applies to: setimmediate@1.0.5
 
@@ -12946,7 +12998,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 260 of 302
+### Text 261 of 302
 
 Applies to: setprototypeof@1.2.0
 
@@ -12966,7 +13018,7 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 261 of 302
+### Text 262 of 302
 
 Applies to: shebang-command@2.0.0
 
@@ -12982,7 +13034,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 262 of 302
+### Text 263 of 302
 
 Applies to: side-channel@1.1.1, side-channel-weakmap@1.0.2
 
@@ -13010,7 +13062,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 263 of 302
+### Text 264 of 302
 
 Applies to: simple-concat@1.0.1, simple-get@4.0.1
 
@@ -13037,7 +13089,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 264 of 302
+### Text 265 of 302
 
 Applies to: smart-buffer@4.2.0
 
@@ -13064,7 +13116,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 265 of 302
+### Text 266 of 302
 
 Applies to: socks@2.8.9
 
@@ -13091,7 +13143,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
-### Text 266 of 302
+### Text 267 of 302
 
 Applies to: sonic-boom@4.2.1
 
@@ -13119,7 +13171,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-### Text 267 of 302
+### Text 268 of 302
 
 Applies to: source-map-js@1.2.1
 
@@ -13153,7 +13205,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ````
 
-### Text 268 of 302
+### Text 269 of 302
 
 Applies to: split2@4.2.0
 
@@ -13173,7 +13225,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ````
 
-### Text 269 of 302
+### Text 270 of 302
 
 Applies to: statuses@2.0.2
 
@@ -13200,35 +13252,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-````
-
-### Text 270 of 302
-
-Applies to: stemmer@2.0.1
-
-````text
-(The MIT License)
-
-Copyright (c) 2014 Titus Wormer <tituswormer@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ````
 
 ### Text 271 of 302
@@ -13510,7 +13533,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ### Text 280 of 302
 
-Applies to: undici@6.28.0, undici-types@6.21.0, undici-types@7.24.6
+Applies to: undici@6.28.1, undici-types@6.21.0, undici-types@7.24.6
 
 ````text
 MIT License
@@ -13594,7 +13617,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Text 283 of 302
 
-Applies to: update-browserslist-db@1.3.2
+Applies to: update-browserslist-db@1.3.3
 
 ````text
 The MIT License (MIT)
@@ -13957,7 +13980,7 @@ THIS SOFTWARE.
 
 ### Text 297 of 302
 
-Applies to: yaml@2.9.0
+Applies to: yaml@2.9.1
 
 ````text
 Copyright Eemeli Aro <eemeli@gmail.com>
@@ -14076,7 +14099,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### Text 302 of 302
 
-Applies to: zod@3.25.76, zod@4.5.4
+Applies to: zod@3.25.76, zod@4.6.5
 
 ````text
 MIT License
@@ -14110,29 +14133,29 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | Package | Version | License | Reason |
 | --- | --- | --- | --- |
 | @napi-rs/canvas | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-android-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-android-arm64 | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-android-arm64 | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-darwin-arm64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-darwin-arm64 | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-darwin-arm64 | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-darwin-x64 | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-darwin-x64 | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-darwin-x64 | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm-gnueabihf | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm64-gnu | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-arm64-gnu | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-arm64-musl | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-arm64-musl | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-arm64-musl | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-riscv64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-riscv64-gnu | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-riscv64-gnu | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-x64-gnu | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-x64-gnu | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-x64-gnu | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-linux-x64-musl | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-linux-x64-musl | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-linux-x64-musl | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-win32-arm64-msvc | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-win32-arm64-msvc | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-win32-arm64-msvc | 1.0.9 | MIT | platform-specific optional dependency |
 | @napi-rs/canvas-win32-x64-msvc | 0.1.100 | MIT | platform-specific optional dependency |
-| @napi-rs/canvas-win32-x64-msvc | 1.0.8 | MIT | platform-specific optional dependency |
+| @napi-rs/canvas-win32-x64-msvc | 1.0.9 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-android-arm64 | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-darwin-arm64 | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-darwin-universal | 1.7.0 | MIT | platform-specific optional dependency |
@@ -14146,23 +14169,23 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | @ngrok/ngrok-win32-arm64-msvc | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-win32-ia32-msvc | 1.7.0 | MIT | platform-specific optional dependency |
 | @ngrok/ngrok-win32-x64-msvc | 1.7.0 | MIT | platform-specific optional dependency |
+| @pdf-lib/fontkit | 1.1.1 | MIT | no license file bundled with the package |
 | @sapphire/async-queue | 1.5.5 | MIT | no license file bundled with the package |
 | @sapphire/snowflake | 3.5.5 | MIT | no license file bundled with the package |
-| @sentry/server-utils | 10.73.0 | MIT | no license file bundled with the package |
+| @sentry/server-utils | 10.75.0 | MIT | no license file bundled with the package |
 | agent-base | 6.0.2 | MIT | no license file bundled with the package |
-| fsevents | 2.3.2 | MIT | platform-specific optional dependency |
 | hash.js | 1.1.7 | MIT | no license file bundled with the package |
 | https | 1.0.0 | ISC | no license file bundled with the package |
 | https-proxy-agent | 5.0.1 | MIT | no license file bundled with the package |
-| impit | 0.14.4 | Apache-2.0 | no license file bundled with the package |
-| impit-darwin-arm64 | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-darwin-x64 | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-linux-arm64-gnu | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-linux-arm64-musl | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-linux-x64-gnu | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-linux-x64-musl | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-win32-arm64-msvc | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
-| impit-win32-x64-msvc | 0.14.4 | Apache-2.0 | platform-specific optional dependency |
+| impit | 0.14.5 | Apache-2.0 | no license file bundled with the package |
+| impit-darwin-arm64 | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-darwin-x64 | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-linux-arm64-gnu | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-linux-arm64-musl | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-linux-x64-gnu | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-linux-x64-musl | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-win32-arm64-msvc | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
+| impit-win32-x64-msvc | 0.14.5 | Apache-2.0 | platform-specific optional dependency |
 | isarray | 1.0.0 | MIT | no license file bundled with the package |
 | language-subtag-registry | 0.3.23 | CC0-1.0 | no license file bundled with the package |
 | launder | 1.7.1 | MIT | no license file bundled with the package |

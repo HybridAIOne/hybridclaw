@@ -9,7 +9,7 @@ import {
   runAgentRiskNative,
   runAgentRiskNativeCli,
   type AgentRiskRunSummary,
-} from '../src/evals/agent-risk-native.ts';
+} from '../eval-harness/src/agent-risk-native.ts';
 import {
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,

@@ -10,7 +10,7 @@ import { isRecord } from '../utils/type-guards.js';
 
 type RawRecord = Record<string, unknown>;
 
-// compat: remove after v0.33 — memory.embedding.{model,revision,dtype} moved
+// compat: remove after v0.34 — memory.embedding.{model,revision,dtype} moved
 // to the transformers-embeddings plugin config in schema v39.
 const EMBEDDING_PLUGIN_ID = 'transformers-embeddings';
 const EMBEDDING_PLUGIN_CONFIG_VERSION = 39;

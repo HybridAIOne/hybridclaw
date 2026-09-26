@@ -15,10 +15,10 @@ import path from 'node:path';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { isSafeDiscordCdnUrl } from '../channels/discord/discord-cdn-fetch.js';
 import {
+  createMediaHostPathResolver,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-  resolveSessionMediaHostPath,
   WORKSPACE_ROOT_DISPLAY,
-} from '../media/session-media-paths.js';
+} from '../media/media-host-path.js';
 import { getSessionById } from '../memory/db.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import {
@@ -80,10 +80,9 @@ export function createPluginMediaHost(session: {
       ) {
         return null;
       }
-      return resolveSessionMediaHostPath(
-        trimmed,
+      return createMediaHostPathResolver(
         session.resolveWorkspaceRoot(sessionId),
-      );
+      )(trimmed);
     },
     async fetchRemote(
       url: string,

@@ -3,6 +3,9 @@
  * row so retrieval/deletion cannot split pairs. Unlike audit storage, these
  * rows are conversation context and never confer execution authority. Routing
  * evidence is separate metadata that survives history retrieval and branching.
+ * A user row keeps the local paths of its attachments beside the readable
+ * "Attached file" summary, so later turns can find the files again; whether a
+ * path still exists is decided at prompt time, never here.
  */
 
 import type Database from 'better-sqlite3';
@@ -13,6 +16,7 @@ import {
   serializeActivityTrace,
 } from '../types/activity-trace.js';
 import type { ChatMessage } from '../types/api.js';
+import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import {
   parseRoutingTrace,
@@ -129,6 +133,47 @@ function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
   }
 }
 
+/** What a later turn needs to find an attachment again: where, and what. */
+export type MessageMediaItem = Pick<
+  MediaContextItem,
+  'filename' | 'mimeType' | 'sizeBytes'
+> & { path: string };
+
+function normalizeMessageMedia(media: readonly unknown[]): MessageMediaItem[] {
+  const normalized: MessageMediaItem[] = [];
+  for (const raw of media) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Partial<Record<keyof MessageMediaItem, unknown>>;
+    const path = typeof item.path === 'string' ? item.path.trim() : '';
+    const filename =
+      typeof item.filename === 'string' ? item.filename.trim() : '';
+    // Attachments that never reached local storage have nothing to carry over.
+    if (!path || !filename) continue;
+    normalized.push({
+      path,
+      filename,
+      mimeType:
+        typeof item.mimeType === 'string' && item.mimeType.trim()
+          ? item.mimeType.trim()
+          : null,
+      sizeBytes: normalizeNonNegativeInteger(item.sizeBytes),
+    });
+  }
+  return normalized;
+}
+
+export function parseMessageMedia(
+  raw: string | null | undefined,
+): MessageMediaItem[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? normalizeMessageMedia(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeResponseRatingValue(
   value: string | null | undefined,
 ): ResponseRatingValue | null {
@@ -165,6 +210,7 @@ export function storeMessage(
   artifacts?: ArtifactMetadata[] | null,
   source?: string | null,
   toolHistory?: ChatMessage[],
+  media?: readonly MediaContextItem[],
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
@@ -174,6 +220,10 @@ export function storeMessage(
   const toolHistoryJson = toolHistory?.length
     ? JSON.stringify(sanitizeToolHistory(toolHistory))
     : null;
+  if (media?.length && role !== 'user')
+    throw new Error('Attachment media requires a user message.');
+  const storedMedia = normalizeMessageMedia(media ?? []);
+  const mediaJson = storedMedia.length ? JSON.stringify(storedMedia) : null;
   const result = getMessageDatabase()
     .prepare(
       `INSERT INTO messages (
@@ -186,8 +236,9 @@ export function storeMessage(
          artifacts_json,
          source,
          tool_history_json,
+         media_json,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -199,6 +250,7 @@ export function storeMessage(
       artifactsJson,
       source?.trim() || null,
       toolHistoryJson,
+      mediaJson,
     );
 
   getMessageDatabase()

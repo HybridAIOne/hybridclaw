@@ -16,7 +16,6 @@ import {
   printBrowserUsage,
   printDeprecatedProviderAliasWarning,
   printDoctorUsage,
-  printEvalUsage,
   printGatewayUsage,
   printHarnessEvolutionUsage,
   printHelpTopic,
@@ -1333,45 +1332,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (sub === 'eval') {
-    console.error('Use top-level eval commands: `hybridclaw eval ...`');
-    process.exitCode = 1;
-    return;
-  }
-
   await runGatewayApiCommand(normalized);
-}
-
-async function handleEvalCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printEvalUsage();
-    return;
-  }
-
-  const { initDatabase, isDatabaseInitialized } = await import(
-    './memory/db.js'
-  );
-  const { initAgentRegistry } = await import('./agents/agent-registry.js');
-  const { handleGatewayCommand, renderGatewayCommand } = await import(
-    './gateway/gateway-service.js'
-  );
-
-  if (!isDatabaseInitialized()) {
-    initDatabase({ quiet: true });
-  }
-  initAgentRegistry(getRuntimeConfig().agents);
-
-  const result = await handleGatewayCommand({
-    sessionId: 'cli:eval',
-    guildId: null,
-    channelId: 'cli',
-    args: ['eval', ...normalized],
-  });
-
-  const rendered = renderGatewayCommand(result).trim();
-  if (rendered) console.log(rendered);
-  if (result.kind === 'error') process.exitCode = 1;
 }
 
 function parseHarnessEvolutionValueFlag(
@@ -2019,46 +1980,9 @@ export async function main(
       refreshVersionCache();
       break;
     }
-    case 'eval':
-      await handleEvalCommand(subargs);
-      break;
     case 'harness-evolve':
       await handleHarnessEvolutionCommand(subargs);
       break;
-    case '__eval-terminal-bench-native': {
-      const { initDatabase, isDatabaseInitialized } = await import(
-        './memory/db.js'
-      );
-      const { initAgentRegistry } = await import('./agents/agent-registry.js');
-      const { runTerminalBenchNativeCli } = await import(
-        './evals/terminal-bench-native.js'
-      );
-      if (!isDatabaseInitialized()) {
-        initDatabase({ quiet: true });
-      }
-      initAgentRegistry(getRuntimeConfig().agents);
-      await runTerminalBenchNativeCli(subargs);
-      break;
-    }
-    case '__eval-locomo-native': {
-      const { runLocomoNativeCli } = await import('./evals/locomo-native.js');
-      await runLocomoNativeCli(subargs);
-      break;
-    }
-    case '__eval-trace-judge-native': {
-      const { runTraceJudgeNativeCli } = await import(
-        './evals/trace-judge-native.js'
-      );
-      await runTraceJudgeNativeCli(subargs);
-      break;
-    }
-    case '__eval-agent-risk-native': {
-      const { runAgentRiskNativeCli } = await import(
-        './evals/agent-risk-native.js'
-      );
-      await runAgentRiskNativeCli(subargs);
-      break;
-    }
     case 'tui':
       await launchTui(subargs);
       break;

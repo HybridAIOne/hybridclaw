@@ -37,7 +37,11 @@ async function importFreshDiscordWebhook(
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // runtime-config's load-time SecretRef audit starts an import() nobody
+  // awaits; settle it under this test's mocks, or it evaluates the real
+  // config.ts inside the next test's reset registry and hits a TDZ.
+  await vi.dynamicImportSettled();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/config/config.js');

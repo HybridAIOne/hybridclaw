@@ -5,7 +5,8 @@ description: Per-response routing and model usage in the web chat.
 
 # Routing transparency
 
-In **Admin → Providers**, enable **Show routing information in chat**. The
+In **Models → Routing** (`/admin/model-routing`), enable **Show routing
+information in chat** while automatic routing is enabled. The
 `routing.showRoutingInfo` setting defaults to `false`. It controls presentation;
 routing policy, accounting, and persisted evidence remain active when hidden.
 
@@ -18,9 +19,10 @@ Concierge and other in-turn auxiliary calls appear as overhead. Retries and
 escalations contribute to the totals. Routing metadata survives reloads and
 session branching; older messages without records display no tags.
 
-These are execution records, not generated explanations. No PII detector or new
-privacy, speed, cost, or Auto mode is introduced by this feature. An execution
-zone is catalog metadata, not an independent attestation of where data traveled.
+These are execution records, not generated explanations. Execution modes and
+privacy boundaries are configured separately in the same editor; see
+[Model Selection](../reference/model-selection.md). An execution zone is catalog
+metadata, not an independent attestation of where data traveled.
 
 ## Cost and token semantics
 
@@ -65,7 +67,7 @@ for the visibility setting itself.
 
 ## Configure tiers in the console
 
-Open **Providers → Model routing** (`/admin/models#model-routing`). Add a tier,
+Open **Models → Routing** (`/admin/model-routing`). Add a tier,
 name it, and select its first model. Optional backup models are tried in their
 listed order. Add further tiers and use the arrow buttons to order them. Choose
 **Start new requests at**, enable **Automatic model routing**, then **Save routing**.
