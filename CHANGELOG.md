@@ -67,6 +67,11 @@
 
 ### Fixed
 
+- **Non-ASCII text split across pipe reads**: Umlauts, accents, CJK characters,
+  and emoji that straddled a pipe chunk turned into `�`. This affected the
+  first request each new agent process reads from stdin (the full
+  conversation, system prompt included) and the tool-progress previews the
+  gateway parses from agent output.
 - **Retries that repeated tool side effects**: A delegated task that fails
   with a transient-looking error after it already ran a tool (a shell command,
   a file write, an email, a `delegate` call) reports the failure instead of
