@@ -77,6 +77,13 @@
   shared session and messages arrive in order. A read waits for a write to
   the same file. A `bash` call no longer makes the whole batch sequential:
   the lookups before and after it still run together.
+- **Retries that repeated tool side effects**: A delegated task that fails
+  with a transient-looking error after it already ran a tool (a shell command,
+  a file write, an email, a `delegate` call) reports the failure instead of
+  starting over and running those tools again. Likewise, when a model rejects
+  native image or audio parts, a turn that already used a tool is not re-sent
+  without the media. A re-sent first request keeps its HybridAI correlation
+  headers.
 - **Turns right after an interrupt**: A turn started right after a stop,
   full-auto preemption, Discord message edit, or client disconnect no longer
   reuses the container that is still shutting down, which failed the turn. It
