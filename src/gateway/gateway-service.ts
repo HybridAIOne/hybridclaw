@@ -14,6 +14,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -10730,8 +10731,10 @@ async function runDelegationTaskWithRetry(
   while (attempt < maxAttempts) {
     attempt += 1;
     const startedAt = Date.now();
+    let output: ContainerOutput | undefined;
+    let toolReported = false;
     try {
-      const output = await runAgent({
+      output = await runAgent({
         sessionId,
         messages: requestMessages,
         chatbotId,
@@ -10740,7 +10743,10 @@ async function runDelegationTaskWithRetry(
         agentId,
         channelId,
         allowedTools,
-        onToolProgress,
+        onToolProgress: (event) => {
+          toolReported = true;
+          onToolProgress?.(event);
+        },
       });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
@@ -10778,7 +10784,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
 
       logger.warn(
         {
@@ -10810,7 +10816,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
       logger.warn(
         {
           parentSessionId,

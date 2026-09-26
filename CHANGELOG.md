@@ -18,6 +18,13 @@
 
 ### Fixed
 
+- **Retries that repeated tool side effects**: A delegated task that fails
+  with a transient-looking error after it already ran a tool (a shell command,
+  a file write, an email, a `delegate` call) reports the failure instead of
+  starting over and running those tools again. Likewise, when a model rejects
+  native image or audio parts, a turn that already used a tool is not re-sent
+  without the media. A re-sent first request keeps its HybridAI correlation
+  headers.
 - **Stopped turns and delegations**: A stopped turn never starts the
   delegations it queued, and its stored history now says so. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was
