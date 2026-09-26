@@ -49,7 +49,11 @@ import {
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { emitRuntimeEvent } from './extensions.js';
-import { expandFileReferences, FileReferenceError } from './file-reference.js';
+import {
+  assertNoPastedBinaryPayload,
+  expandFileReferences,
+  FileReferenceError,
+} from './file-reference.js';
 import {
   type GatewayJsonResponse,
   postGatewayJson,
@@ -2890,6 +2894,7 @@ async function executeToolInternal(
 
   let args = parsedToolArgs;
   try {
+    assertNoPastedBinaryPayload(parsedToolArgs);
     const expanded = expandFileReferences(parsedToolArgs);
     args = expanded.args;
     for (const expansion of expanded.expansions) {
