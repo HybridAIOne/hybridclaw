@@ -1,20 +1,20 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRuntimeConfig } from '../config/runtime-config.js';
-import { initDatabase } from '../memory/db.js';
-import { normalizeMemoryEmbeddingProviderKind } from '../memory/embeddings.js';
-import { memoryService } from '../memory/memory-service.js';
-import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
-import { HYBRIDCLAW_USER_AGENT } from '../providers/user-agent.js';
-import { buildSessionKey } from '../session/session-key.js';
-import type { Session } from '../types/session.js';
+import { getRuntimeConfig } from '../../src/config/runtime-config.js';
 import {
   buildDefaultEvalProfile,
   type EvalProfile,
   encodeEvalProfileModel,
   parseEvalProfileModel,
-} from './eval-profile.js';
+} from '../../src/evals/eval-profile.js';
+import { initDatabase } from '../../src/memory/db.js';
+import { normalizeMemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
+import { memoryService } from '../../src/memory/memory-service.js';
+import { normalizeMemoryRecallBackend } from '../../src/memory/semantic-recall.js';
+import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
+import { buildSessionKey } from '../../src/session/session-key.js';
+import type { Session } from '../../src/types/session.js';
 import { scoreOfficialLocomoAnswer } from './locomo-official-scoring.js';
 import type {
   LocomoAgentMode,
@@ -608,17 +608,17 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
   const hasDataset = fs.existsSync(datasetPath);
   if (!hasMarker && !hasDataset) {
     throw new Error(
-      'LOCOMO is not set up. Run `setup` first, or use `/eval locomo setup`.',
+      'LOCOMO is not set up. Run `setup` first, or use `npm run eval -- locomo setup`.',
     );
   }
   if (!hasDataset) {
     throw new Error(
-      `LOCOMO dataset is missing at ${datasetPath}. Re-run \`setup\`, or use \`/eval locomo setup\`.`,
+      `LOCOMO dataset is missing at ${datasetPath}. Re-run \`setup\`, or use \`npm run eval -- locomo setup\`.`,
     );
   }
   if (!hasMarker) {
     throw new Error(
-      `LOCOMO setup marker is missing at ${markerPath}. Re-run \`setup\`, or use \`/eval locomo setup\`.`,
+      `LOCOMO setup marker is missing at ${markerPath}. Re-run \`setup\`, or use \`npm run eval -- locomo setup\`.`,
     );
   }
 

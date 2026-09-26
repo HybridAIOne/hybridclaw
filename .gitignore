@@ -13,6 +13,7 @@ desktop/build/runtime-bin/
 desktop/build/runtime-deps/
 container/dist/
 coverage/
+.vitest-reports/
 
 # Runtime data
 data/

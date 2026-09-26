@@ -114,25 +114,49 @@ function buildBudgetSummary(
   };
 }
 
+function configuredAgentBudget(
+  agentId: string,
+): { agentId: string; budget: AgentBudgetConfig } | null {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return null;
+  const budget = budgetConfigByAgent().get(normalizedAgentId);
+  if (!budget || budget.cap <= 0) return null;
+  return { agentId: normalizedAgentId, budget };
+}
+
+function monthlyBudgetSummary(
+  agentId: string,
+  budget: AgentBudgetConfig,
+  now: Date,
+): BoardBudgetSummary {
+  return buildBudgetSummary(
+    agentId,
+    budget,
+    monthlyUsageByAgent([agentId], now).get(agentId),
+  );
+}
+
 export function maybeEmitBudgetSoftWarnForAgent(
   agentId: string,
   now = new Date(),
 ): void {
-  const normalizedAgentId = agentId.trim();
-  if (!normalizedAgentId) return;
-
-  const budget = budgetConfigByAgent().get(normalizedAgentId);
-  if (!budget || budget.cap <= 0) return;
+  const configured = configuredAgentBudget(agentId);
+  if (!configured) return;
   const billingWindow = billingWindowFor(now);
-  if (hasBudgetSoftWarnMarker(normalizedAgentId, billingWindow, budget.unit)) {
+  if (
+    hasBudgetSoftWarnMarker(
+      configured.agentId,
+      billingWindow,
+      configured.budget.unit,
+    )
+  ) {
     return;
   }
 
-  const usageByAgent = monthlyUsageByAgent([normalizedAgentId], now);
-  const summary = buildBudgetSummary(
-    normalizedAgentId,
-    budget,
-    usageByAgent.get(normalizedAgentId),
+  const summary = monthlyBudgetSummary(
+    configured.agentId,
+    configured.budget,
+    now,
   );
   if (summary.percent < SOFT_WARN_THRESHOLD) return;
 
@@ -162,6 +186,41 @@ export function maybeEmitBudgetSoftWarnForAgent(
     source: 'board_budget_chip',
   };
   emitRuntimeEvent(event);
+}
+
+export interface AgentBudgetHardStop {
+  summary: BoardBudgetSummary;
+  billingWindow: string;
+  error: string;
+}
+
+function formatBudgetAmount(value: number, unit: AgentBudgetUnit): string {
+  return unit === 'tokens'
+    ? `${Math.round(value)} tokens`
+    : `${value.toFixed(2)} ${unit}`;
+}
+
+// A cap is a hard limit: at 100% the agent takes no new turns until the next
+// UTC billing month or until an operator raises the cap. Enforced by
+// `gateway/agent-budget-hard-stop.ts`.
+export function findAgentBudgetHardStop(
+  agentId: string,
+  now = new Date(),
+): AgentBudgetHardStop | null {
+  const configured = configuredAgentBudget(agentId);
+  if (!configured) return null;
+  const summary = monthlyBudgetSummary(
+    configured.agentId,
+    configured.budget,
+    now,
+  );
+  if (summary.used < summary.cap) return null;
+  const billingWindow = billingWindowFor(now);
+  return {
+    summary,
+    billingWindow,
+    error: `Monthly budget exhausted for agent "${summary.agentId}": ${formatBudgetAmount(summary.used, summary.unit)} used of ${formatBudgetAmount(summary.cap, summary.unit)} in ${billingWindow}. Raise the agent's budget cap or wait for the next billing month.`,
+  };
 }
 
 subscribeUsageRecords((agentIds) => {

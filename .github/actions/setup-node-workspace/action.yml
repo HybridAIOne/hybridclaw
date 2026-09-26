@@ -5,6 +5,11 @@ inputs:
   node-version:
     description: Node.js version to use.
     default: '22'
+  verify-signatures:
+    description: >-
+      Run `npm run audit:signatures`. Every CI job installs from the same
+      lockfiles, so one job per workflow verifying them is enough.
+    default: 'true'
 
 runs:
   using: composite
@@ -46,5 +51,6 @@ runs:
       run: npm --prefix container/tools ci --ignore-scripts --omit=dev --no-audit --fund=false
 
     - name: Verify npm registry signatures
+      if: inputs.verify-signatures == 'true'
       shell: bash
       run: npm run audit:signatures

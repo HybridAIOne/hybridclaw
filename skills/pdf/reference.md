@@ -8,6 +8,7 @@ The supported PDF runtime is:
 
 - `pdfjs-dist` for text extraction and page rendering
 - `pdf-lib` for PDF creation, merging, splitting, and form work
+- `@pdf-lib/fontkit` for custom font embedding; `pdfjs-dist/standard_fonts/` supplies Liberation Sans
 - `@napi-rs/canvas` for image output and validation overlays
 
 If a task cannot be done with those libraries, it is outside the guaranteed path of this skill.
@@ -57,9 +58,11 @@ node skills/pdf/scripts/fill_pdf_form_with_annotations.mjs input.pdf fields.json
 
 ### Create a new PDF from scratch
 
-**Critical:** Always call `pdfDoc.embedFont()` before drawing text. Calling
-`drawText()` without an explicit `font` produces invisible or corrupt text
-because the font is not embedded in the output file.
+Prefer `create_pdf.mjs` for text PDFs, including Cyrillic and Greek. The recipe
+below uses Helvetica and is limited to WinAnsi characters. For a custom layout
+with other characters, register `@pdf-lib/fontkit` with `pdfDoc.registerFontkit()`,
+embed a TTF/OTF covering the text, and pass that font to every `drawText()` call.
+Omitting `font` uses the default Helvetica; it does not enable Unicode support.
 
 ```js
 import fs from "node:fs";
@@ -74,7 +77,7 @@ page.drawText("Hello World", {
   x: 50,
   y: height - 80,
   size: 30,
-  font,            // ← required — omitting this produces a blank page
+  font,
   color: rgb(0, 0, 0),
 });
 

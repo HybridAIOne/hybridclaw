@@ -5,6 +5,11 @@ description: One mechanism — an operator-configured ladder of model tiers; eve
 
 > **Internal document.** Design for the HybridClaw/HybridAI routing layer. Drafted 2026-07-17 on branch `claude/hybridclaw-routing-arch-6a6503`. Aligns with roadmap row R50 but is deliberately simpler than the roadmap sketch; where they differ, this document wins. Code anchors verified against this repo and `~/src/chat` on the same date.
 
+> For the shipped routing settings and console workflow, use
+> [Model Selection](../reference/model-selection.md) and the
+> [configuration reference](../reference/configuration.md). The design below
+> includes historical and proposed fields that are not the runtime contract.
+
 # Model Routing — Configurable Tier Ladder with Escalation
 
 ## 1. The client sentence

@@ -52,20 +52,21 @@ For production package requirements see
 The 🎯 **Try it yourself** prompts on each skill page double as fixtures for
 the `hybridai-skills` eval suite. When you add or rename a prompt, the eval
 picks up the change automatically — no separate fixture file to keep in sync.
+Run it from a source checkout against a running gateway:
 
 ```bash
-hybridclaw eval hybridai-skills setup                   # harvest fixtures from these pages
-hybridclaw eval hybridai-skills list --skill code-review
-hybridclaw eval hybridai-skills run --dry-run           # validate fixture shape + skill existence
-hybridclaw eval hybridai-skills run --max 3             # live-run against the local gateway
+npm run eval -- hybridai-skills setup                   # harvest fixtures from these pages
+npm run eval -- hybridai-skills list --skill code-review
+npm run eval -- hybridai-skills run --dry-run           # validate fixture shape + skill existence
+npm run eval -- hybridai-skills run --max 3             # live-run against the local gateway
 ```
 
 The runner grades each prompt by inspecting the model's tool trace with the
 same `resolveObservedSkillName` oracle the gateway uses, so "skill X was
 activated" means the same thing here as in production. See
-[Commands → Local Eval Workflows](../../reference/commands.md#local-eval-workflows)
+[Eval Harness](../../developer-guide/eval-harness.md)
 for the full surface.
-Use `hybridclaw eval hybridai-skills run --explicit ...` when you want the
+Use `npm run eval -- hybridai-skills run --explicit ...` when you want the
 runner to rewrite each prompt as `/<skill> ...` and compare explicit
 invocation against the natural-language prompt path. Live summaries also show
 the observed skill, whether artifacts were produced, and counted tool-call

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.31.1',
+  version: '0.32.0',
   highlights: [
-    'Reply in Discord threads',
-    'Read forwarded Discord messages',
-    'More reliable Teams attachments',
-    'Improved A2A interoperability',
+    'Choose routing modes and privacy boundaries',
+    'Sign in to HybridAI with browser or device',
+    'Assign Teams users to agents',
+    'Inspect cache usage and response costs',
   ],
 } as const;
 

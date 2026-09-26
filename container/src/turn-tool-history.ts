@@ -1,7 +1,8 @@
 /**
  * Captures this turn's tool exchanges before context pruning can erase them.
  * Unlike loop detection, it retains ordered model messages for later replay;
- * unexecuted calls receive explicit terminal results, never fabricated success.
+ * unexecuted calls receive explicit terminal results, never fabricated success,
+ * and calls a signal cut off are marked "outcome unknown", never "not run".
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -84,6 +85,18 @@ export class TurnToolHistory {
   }
 
   finish(reason: string, forReplay = false): ChatMessage[] {
+    return this.close(`Tool not executed: ${reason}`, forReplay);
+  }
+
+  /**
+   * For a turn killed mid-flight: an open call may already be running, so its
+   * outcome is unknown rather than "not executed".
+   */
+  finishInterrupted(reason: string, forReplay = false): ChatMessage[] {
+    return this.close(`Tool outcome unknown: ${reason}`, forReplay);
+  }
+
+  private close(openCallResult: string, forReplay: boolean): ChatMessage[] {
     const completed = structuredClone(
       forReplay
         ? this.replayMessages.filter(
@@ -102,7 +115,7 @@ export class TurnToolHistory {
       completed.push({
         role: 'tool',
         tool_call_id: id,
-        content: `Tool not executed: ${reason}`,
+        content: openCallResult,
         is_error: true,
       });
     }

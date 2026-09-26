@@ -264,3 +264,60 @@ describe('web fetch SSRF guard', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('web fetch escalation and pagination', () => {
+  const htmlResponse = (html: string) =>
+    new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  const article = `<article><h1>Exhibitors</h1>${'<p>Startup profile text for the exhibition list.</p>'.repeat(40)}</article>`;
+
+  it.each([
+    {
+      name: 'a content page that loads a script from cdnjs.cloudflare.com',
+      html: `<html><head><script src="https://cdnjs.cloudflare.com/x.js"></script></head><body>${article}</body></html>`,
+      expected: undefined,
+    },
+    {
+      name: 'a challenge page',
+      html: '<html><head><title>Just a moment...</title></head><body><p>Checking your browser before accessing the site.</p></body></html>',
+      expected: 'bot_blocked',
+    },
+  ])('flags bot blocking only for $name', async ({ html, expected }) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => htmlResponse(html)),
+    );
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const result = await webFetch({ url: 'https://93.184.216.34/page' });
+    expect(result.escalationHint).toBe(expected);
+  });
+
+  it.each([
+    {
+      name: 'Webflow pagination',
+      link: '<a href="?9de5417e_page=2" aria-label="Next Page" class="w-pagination-next">Load more</a>',
+      expected: 'https://93.184.216.34/exhibition?9de5417e_page=2',
+    },
+    {
+      name: 'rel=next',
+      link: '<link rel="next" href="/exhibition/page/2?a=1&amp;b=2">',
+      expected: 'https://93.184.216.34/exhibition/page/2?a=1&b=2',
+    },
+    { name: 'no pagination', link: '', expected: undefined },
+  ])('reports the next page for $name', async ({ link, expected }) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        htmlResponse(
+          `<html><head></head><body>${article}<div class="w-pagination-wrapper">${link}</div></body></html>`,
+        ),
+      ),
+    );
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const result = await webFetch({ url: 'https://93.184.216.34/exhibition' });
+    expect(result.nextPageUrl).toBe(expected);
+  });
+});
+

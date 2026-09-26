@@ -206,6 +206,8 @@ let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
 let shutdownPromise: Promise<never> | null = null;
 let requestInFlight = false;
+/** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
+let activeTurnToolHistory: TurnToolHistory | null = null;
 
 function cloneTaskModels(
   taskModels: ContainerInput['taskModels'],
@@ -286,6 +288,9 @@ async function syncMcpConfig(
     mcpClientManager = new McpClientManager();
     mcpConfigWatcher = new McpConfigWatcher(mcpClientManager);
     setMcpClientManager(mcpClientManager);
+    approvalRuntime.setMcpToolBehaviorResolver((name) =>
+      mcpClientManager?.getToolBehavior(name),
+    );
   }
   await mcpConfigWatcher?.applyConfig(nextServers);
 }
@@ -294,6 +299,7 @@ async function shutdownMcp(): Promise<void> {
   mcpConfigWatcher?.stop();
   mcpConfigWatcher = null;
   setMcpClientManager(null);
+  approvalRuntime.setMcpToolBehaviorResolver(null);
   if (mcpClientManager) {
     await mcpClientManager.shutdown();
   }
@@ -331,7 +337,11 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
   requestInFlight = false;
   try {
     writeOutput(
-      buildInterruptedShutdownOutput(reason, getPendingSideEffects()),
+      buildInterruptedShutdownOutput(
+        reason,
+        getPendingSideEffects(),
+        activeTurnToolHistory,
+      ),
     );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
@@ -1055,7 +1065,12 @@ async function processRequest(
   params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
   const turnToolHistory = new TurnToolHistory(params.sessionId, WORKSPACE_ROOT);
-  const output = await processRequestInner(params, turnToolHistory);
+  activeTurnToolHistory = turnToolHistory;
+  const output = await processRequestInner(params, turnToolHistory).finally(
+    () => {
+      activeTurnToolHistory = null;
+    },
+  );
   const reason = output.pendingApproval
     ? 'Awaiting human approval; execution has not occurred.'
     : output.error || 'The turn ended before this call could execute.';

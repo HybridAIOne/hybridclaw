@@ -1,5 +1,6 @@
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ToolKind } from './tool-classifier.js';
 
@@ -23,7 +24,11 @@ export interface McpToolDefinition {
   description: string;
   inputSchema: Record<string, unknown>;
   kind: ToolKind;
+  annotations?: ToolAnnotations;
 }
+
+/** What the approval policy needs to know about an MCP tool. */
+export type McpToolBehavior = Pick<McpToolDefinition, 'kind' | 'annotations'>;
 
 export interface McpClientHandle {
   serverName: string;
