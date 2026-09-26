@@ -257,9 +257,13 @@ saved revision history directly.
   `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
   instance and bearer SecretRef for a specific agent
 - `agents.list[].budget.cap`, `agents.list[].budget.currency`, and optional
-  `agents.list[].budget.unit` configure the read-only board budget chip and
-  budget-aware commands for that agent. `unit` accepts `USD`, `EUR`, or
-  `tokens`; when omitted, the budget uses the configured currency.
+  `agents.list[].budget.unit` set a monthly cap for that agent. `unit`
+  accepts `USD`, `EUR`, or `tokens`; when omitted, the budget uses the
+  configured currency. The board budget chip shows spend against the cap, a
+  soft warning fires at 80%, and at 100% the gateway refuses new turns for the
+  agent (user, scheduled, goal, and full-auto) and pauses its active goals
+  until the next UTC billing month or until the cap is raised. A turn already
+  running when the cap is crossed finishes.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";
@@ -498,6 +502,9 @@ instead of per-channel temp directories.
   `/uploaded-media-cache/...`.
 - The shared cache is pruned automatically, so these paths are meant for
   short-lived inbound media handling rather than permanent storage.
+- Later turns of the same session list the eight most recent earlier
+  attachments with their paths; once cleanup has pruned a file, the agent is
+  told it is no longer available instead of receiving its old path.
 
 ## Audio Transcription Notes
 

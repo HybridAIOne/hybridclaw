@@ -3988,6 +3988,7 @@ export function recordSuccessfulTurn(opts: {
   username: string | null;
   canonicalScopeId: string;
   userContent: string;
+  userMedia?: readonly MediaContextItem[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
@@ -4009,6 +4010,7 @@ export function recordSuccessfulTurn(opts: {
             username: opts.username,
             role: 'user',
             content: opts.userContent,
+            media: opts.userMedia,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -4027,6 +4029,7 @@ export function recordSuccessfulTurn(opts: {
             userId: opts.userId,
             username: opts.username,
             content: opts.userContent,
+            media: opts.userMedia,
           },
           assistant: {
             userId: 'assistant',
@@ -4236,6 +4239,7 @@ export function recordErrorTurn(opts: {
   username: string | null;
   canonicalScopeId: string;
   userContent: string;
+  userMedia?: readonly MediaContextItem[];
   error: string;
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
@@ -4260,6 +4264,7 @@ export function recordErrorTurn(opts: {
             username: opts.username,
             role: 'user',
             content: opts.userContent,
+            media: opts.userMedia,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -4277,6 +4282,7 @@ export function recordErrorTurn(opts: {
             userId: opts.userId,
             username: opts.username,
             content: opts.userContent,
+            media: opts.userMedia,
           },
           assistant: {
             userId: 'assistant',

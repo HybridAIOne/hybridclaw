@@ -61,6 +61,7 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
+import { buildEarlierAttachmentsPrompt } from '../media/earlier-attachments.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
@@ -149,6 +150,7 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
+import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
@@ -1149,6 +1151,29 @@ async function handleGatewayMessageInner(
       verdict: 'preempted',
     });
   }
+  // Before the session rebind below, so a refused turn skips the reset work.
+  let budgetHardStopError: string | null;
+  try {
+    budgetHardStopError = enforceAgentBudgetHardStop({
+      session,
+      runId,
+      agentId,
+      source,
+    });
+  } catch (error) {
+    activeGatewayRequest.release();
+    throw error;
+  }
+  if (budgetHardStopError) {
+    activeGatewayRequest.release();
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      agentId,
+      error: budgetHardStopError,
+    });
+  }
   const autoApproveTools = req.autoApproveTools === true;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
@@ -1450,6 +1475,7 @@ async function handleGatewayMessageInner(
         username: req.username,
         canonicalScopeId: canonicalContextScope,
         userContent: routingUserContent,
+        userMedia: blockedMedia,
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -1970,6 +1996,10 @@ async function handleGatewayMessageInner(
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
+  const earlierAttachments = await buildEarlierAttachmentsPrompt({
+    history,
+    workspaceRoot: workspacePath,
+  });
   const {
     messages,
     skills,
@@ -1982,6 +2012,7 @@ async function handleGatewayMessageInner(
     retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
       ? null
       : pluginPromptSummary,
+    earlierAttachments,
     history,
     historyTruncated,
     currentUserContent: effectiveUserTurnContent,
@@ -2131,6 +2162,7 @@ async function handleGatewayMessageInner(
         username: req.username,
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
+        userMedia: media,
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -2788,6 +2820,7 @@ async function handleGatewayMessageInner(
         username: req.username,
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
+        userMedia: media,
         error: errorMessage,
         toolHistory: output.toolHistory,
         toolHistoryForReplay: output.toolHistoryForReplay,
@@ -2966,6 +2999,7 @@ async function handleGatewayMessageInner(
       username: req.username,
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
+      userMedia: media,
       resultText,
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
@@ -3136,6 +3170,7 @@ async function handleGatewayMessageInner(
           username: req.username,
           canonicalScopeId: canonicalContextScope,
           userContent: buildStoredUserTurnContent(userTurnContent, media),
+          userMedia: media,
           error: errorMsg,
           tools: observedToolCalls,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

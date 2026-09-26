@@ -815,9 +815,9 @@ counting another turn, and any real user message preempts the loop so the
 operator stays in control. `/goal` persists intent; it does not bypass
 approval policy or grant full-auto permissions.
 
-Agent budget hard-stops pause active goals through the R5.3 integration hook.
-The hard-stop emitter is not present in this release, so the hook is explicitly
-reserved for the R5.3 signal when that spend-tracking enforcement lands.
+When an agent reaches its monthly budget cap (`agents.list[].budget`), the
+gateway refuses further turns for it and pauses its active goal with the reason
+`agent budget hard-stop`.
 
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id

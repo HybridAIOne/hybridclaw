@@ -409,7 +409,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 |----|------|------|--------|
 | R5.1 | Metering | Usage totals and monthly spend surfacing | ✅ Done |
 | R5.2 | Enforcement | Soft-warn spend threshold | ⬜ To be filed |
-| R5.3 | Enforcement | Hard-stop policy predicate consuming `monthlySpendUsd` | ⬜ To be filed |
+| R5.3 | Enforcement | Hard-stop policy predicate consuming `monthlySpendUsd` | ✅ Gateway refuses turns at 100% of cap; not yet rolled up across sub-agents (R5.7) |
 | R5.4 | Enforcement | Per-skill budget sub-limits | ⬜ To be filed |
 | R5.5 | Admin | Budget admin surface | ⬜ To be filed |
 | R5.6 | Audit | Budget warning and enforcement audit events | ⬜ To be filed |
@@ -532,7 +532,7 @@ Use these as issue titles. Keep each issue small enough to ship independently. *
 | R40.7 | Backstop | Consecutive-parse-failures auto-pause (3-in-a-row threshold) for cases where the judge model emits prose instead of strict JSON — without it the 20-turn budget burns on judge-returned-empty. | ✅ #1004 |
 | R40.8 | Policy | Goal continuations use the ordinary approval policy path and do not elevate autonomy. | ✅ #1004 |
 | R40.9 | Audit | Goal lifecycle audit events shipped for set, continued, paused, completed, and cleared states. | ✅ #1004 |
-| R40.10 | Budget | **R5** integration: continuations consume usage like ordinary turns, and the R5.3 hard-stop hook exists to pause active goals with `paused_reason: "agent budget hard-stop"` once the hard-stop emitter ships. Remaining: wire the future R5.3 signal into the hook. | 🟡 hook shipped via #1004; R5.3 emitter open |
+| R40.10 | Budget | **R5** integration: continuations consume usage like ordinary turns, and the R5.3 hard-stop hook exists to pause active goals with `paused_reason: "agent budget hard-stop"` once the hard-stop emitter ships. The gateway budget hard-stop calls the hook. | ✅ #1004 + R5.3 |
 | R40.11 | Surface | Goal continuation output flows through the existing proactive-message rail with `goal-continuation` source tagging, so TUI/web/channel surfaces can distinguish goal-driven output from reminders and ordinary user turns. | ✅ #1004 |
 | R40.12 | Board | **R29.1** parent-goal breadcrumb: a `/goal`-initiated card carries the goal as `parent_goal` so the breadcrumb renders the chain. **R44** milestone fires on `goal.completed`. | ⬜ To be filed |
 | R40.13 | Sibling | **Steering primitive** (transient mid-loop nudge — distinct from `/goal` persistent intent): `/steer "<text>"` injects a one-turn-only message into the next turn header without rewriting the goal or restarting. Shares the same per-thread state hook. File once R40.1–R40.6 land. | ⬜ To be filed |
