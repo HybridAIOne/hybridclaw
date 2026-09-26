@@ -14,6 +14,13 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **Attachments in follow-up turns**: The agent now sees the local path of a
+  file uploaded earlier in the session, including after an interrupted turn,
+  instead of only its filename. A file removed by media cleanup is reported as
+  no longer available rather than as a stale path.
+- **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
+  calls that already ran, with their arguments and results, for the next turn.
+  A call still running at the stop is marked as having an unknown outcome.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
