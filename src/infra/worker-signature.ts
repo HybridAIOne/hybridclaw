@@ -1,5 +1,3 @@
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
-import type { ProviderCredentials } from '../types/container.js';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
@@ -24,7 +22,6 @@ export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
   providerMethod?: string;
-  codexRuntime?: CodexTurnRuntime;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
@@ -35,7 +32,6 @@ export interface WorkerSignatureInput {
   browserProvider?: string;
   browserAllowPrivateNetwork?: boolean;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
-  providerCredentials?: ProviderCredentials;
   runtimeEnv?: Record<string, string>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
@@ -86,40 +82,6 @@ function normalizeTaskModel(
   };
 }
 
-function normalizeProviderCredentials(
-  credentials: ProviderCredentials | undefined,
-): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {};
-  if (credentials?.speechToText) {
-    normalized.speechToText = {
-      defaultProvider: String(credentials.speechToText.defaultProvider || '')
-        .trim()
-        .toLowerCase(),
-    };
-  }
-  for (const provider of [
-    'openai',
-    'gemini',
-    'xai',
-    'bfl',
-    'deepgram',
-    'assemblyai',
-  ] as const) {
-    const credential = credentials?.[provider];
-    if (!credential) continue;
-    normalized[provider] = {
-      apiKey: String(credential.apiKey || ''),
-      baseUrl: String(credential.baseUrl || '')
-        .trim()
-        .replace(/\/+$/g, ''),
-      audioModel: String(credential.audioModel || '').trim(),
-      imageModel: String(credential.imageModel || '').trim(),
-      videoModel: String(credential.videoModel || '').trim(),
-    };
-  }
-  return normalized;
-}
-
 export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = normalizeHeaders(input.requestHeaders);
   const taskModels = Object.fromEntries(
@@ -133,7 +95,6 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     agentId: String(input.agentId || '').trim(),
     provider: String(input.provider || '').trim(),
     providerMethod: String(input.providerMethod || '').trim(),
-    codexRuntime: String(input.codexRuntime || '').trim(),
     baseUrl: String(input.baseUrl || '')
       .trim()
       .replace(/\/+$/g, ''),
@@ -146,9 +107,6 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     browserProvider: String(input.browserProvider || '').trim(),
     browserAllowPrivateNetwork: input.browserAllowPrivateNetwork === true,
     taskModels,
-    providerCredentials: normalizeProviderCredentials(
-      input.providerCredentials,
-    ),
     runtimeEnv: normalizeHeaders(input.runtimeEnv),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(

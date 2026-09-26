@@ -1,7 +1,6 @@
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -46,26 +45,6 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ProviderCredential {
-  apiKey?: string;
-  baseUrl?: string;
-  audioModel?: string;
-  imageModel?: string;
-  videoModel?: string;
-}
-
-export interface ProviderCredentials {
-  speechToText?: {
-    defaultProvider?: string;
-  };
-  openai?: ProviderCredential;
-  gemini?: ProviderCredential;
-  xai?: ProviderCredential;
-  bfl?: ProviderCredential;
-  deepgram?: ProviderCredential;
-  assemblyai?: ProviderCredential;
-}
-
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -94,7 +73,6 @@ export interface ContainerInput {
   browserAllowPrivateNetwork?: boolean;
   model: string;
   addressEnvelope?: AddressEnvelope;
-  codexRuntime?: CodexTurnRuntime;
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
@@ -120,7 +98,6 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
-  providerCredentials?: ProviderCredentials;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;
@@ -131,7 +108,6 @@ export interface ContainerOutput {
   result: string | null;
   toolsUsed: string[];
   outputPresentation?: OutputPresentationMetadata;
-  codexRuntime?: CodexTurnRuntime;
   artifacts?: ArtifactMetadata[];
   memoryCitations?: MemoryCitation[];
   toolExecutions?: ToolExecution[];

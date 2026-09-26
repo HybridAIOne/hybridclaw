@@ -31,7 +31,6 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
-  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -68,7 +67,6 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
@@ -77,7 +75,6 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderCredentials } from '../providers/provider-credentials.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -171,7 +168,6 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
-  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -1137,9 +1133,6 @@ async function runContainerInner(
     }),
   );
   const existingEntry = pool.get(sessionId);
-  const selectedCodexRuntime =
-    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
-  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
   const requestId = randomUUID();
 
   const input: ContainerInput = {
@@ -1166,7 +1159,6 @@ async function runContainerInner(
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
-    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1221,7 +1213,6 @@ async function runContainerInner(
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,
     },
     webSearch: webSearchRuntime,
-    providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
   };
@@ -1229,7 +1220,6 @@ async function runContainerInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
-    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -1238,7 +1228,6 @@ async function runContainerInner(
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
-    providerCredentials: input.providerCredentials,
     runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
@@ -1310,7 +1299,6 @@ async function runContainerInner(
   }
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
-  entry.codexRuntime = input.codexRuntime;
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;

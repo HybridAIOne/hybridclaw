@@ -1,50 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
-import type { RuntimeProvider } from './providers/provider-ids.js';
-import { ProviderRequestError } from './providers/shared.js';
-import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
-import type { ProviderCredentials } from './types.js';
-
-type VideoGenerationProviderId = 'openai' | 'gemini';
-
-export interface VideoGenerationRuntimeContext {
-  provider: RuntimeProvider;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-  providerCredentials?: ProviderCredentials;
-}
-
-interface ProviderCandidate {
-  id: VideoGenerationProviderId;
-  label: string;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-}
-
-interface NormalizedVideoGenerationRequest {
-  prompt: string;
-  aspectRatio: string | null;
-  resolution: string | null;
-  durationSeconds: number | null;
-  warnings: string[];
-}
-
-interface GeneratedVideoBuffer {
-  buffer: Buffer;
-  mimeType: string;
-  metadata?: Record<string, unknown>;
-}
-
-interface VideoGenerationUsage {
-  generated_videos?: number;
-  duration_seconds?: number;
-  estimated?: boolean;
-}
+import {
+  isRecord,
+  normalizeBaseUrl,
+  ProviderRequestError,
+  readCredentialValue,
+  readStringValue,
+  sanitizeProviderError,
+  sleep,
+  stripProviderPrefix,
+  uniqueFilename,
+  writeWorkspaceFile,
+} from './shared.js';
 
 const OUTPUT_DIR = '.generated-videos';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -56,18 +21,7 @@ const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
 const VIDEO_POLL_INTERVAL_MS = 10_000;
 const VIDEO_POLL_TIMEOUT_MS = 15 * 60_000;
 const MAX_GENERATED_VIDEO_BYTES = 512 * 1024 * 1024;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readStringValue(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function readNumberValue(value: unknown): number | null {
+function readNumberValue(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim()) {
     const parsed = Number(value);
@@ -75,37 +29,13 @@ function readNumberValue(value: unknown): number | null {
   }
   return null;
 }
-
-function normalizeBaseUrl(value: string, fallback: string): string {
-  const trimmed = String(value || '').trim() || fallback;
-  return trimmed.replace(/\/+$/, '');
-}
-
-function stripProviderPrefix(model: string, provider: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = `${provider}/`;
-  if (trimmed.toLowerCase().startsWith(prefix)) {
-    return trimmed.slice(prefix.length).trim();
-  }
-  return trimmed;
-}
-
-function hasVideoModelHint(model: string): boolean {
+function hasVideoModelHint(model) {
   return /sora|veo|video/i.test(model);
 }
-
-function readCredentialValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function providerCredentials(
-  context: VideoGenerationRuntimeContext,
-  provider: VideoGenerationProviderId,
-) {
+function providerCredentials(context, provider) {
   return context.providerCredentials?.[provider] || {};
 }
-
-function normalizeAspectRatio(value: unknown): string | null {
+function normalizeAspectRatio(value) {
   const raw = readStringValue(value);
   if (!raw) return null;
   const compact = raw.toLowerCase().replace(/\s+/g, '');
@@ -114,10 +44,7 @@ function normalizeAspectRatio(value: unknown): string | null {
   if (compact === 'portrait') return '9:16';
   return raw;
 }
-
-function normalizeRequest(
-  args: Record<string, unknown>,
-): NormalizedVideoGenerationRequest {
+function normalizeRequest(args) {
   const prompt = readStringValue(args.prompt);
   if (!prompt) throw new Error('video_generate requires a prompt.');
   const durationSeconds = readNumberValue(
@@ -134,10 +61,7 @@ function normalizeRequest(
     warnings: [],
   };
 }
-
-function candidateFromCurrentContext(
-  context: VideoGenerationRuntimeContext,
-): ProviderCandidate | null {
+function candidateFromCurrentContext(context) {
   if (!context.apiKey) return null;
   if (context.provider === 'openai-codex') {
     const model = stripProviderPrefix(context.model, 'openai-codex');
@@ -163,12 +87,9 @@ function candidateFromCurrentContext(
   }
   return null;
 }
-
-function buildProviderCandidates(
-  context: VideoGenerationRuntimeContext,
-): ProviderCandidate[] {
-  const candidates: ProviderCandidate[] = [];
-  const configured: ProviderCandidate[] = [];
+function buildProviderCandidates(context) {
+  const candidates = [];
+  const configured = [];
   const openaiConfig = providerCredentials(context, 'openai');
   const openaiKey = readCredentialValue(openaiConfig.apiKey);
   if (openaiKey) {
@@ -185,7 +106,6 @@ function buildProviderCandidates(
         DEFAULT_OPENAI_VIDEO_MODEL,
     });
   }
-
   const geminiConfig = providerCredentials(context, 'gemini');
   const geminiKey = readCredentialValue(geminiConfig.apiKey);
   if (geminiKey) {
@@ -202,18 +122,13 @@ function buildProviderCandidates(
         DEFAULT_GEMINI_VIDEO_MODEL,
     });
   }
-
   const current = candidateFromCurrentContext(context);
   if (current && !configured.some((entry) => entry.id === current.id))
     candidates.push(current);
   candidates.push(...configured);
-
   return candidates;
 }
-
-export function listVideoGenerationProviders(
-  context: VideoGenerationRuntimeContext,
-): Record<string, unknown> {
+export function listVideoGenerationProviders(context) {
   const candidates = buildProviderCandidates(context);
   const ready = new Set(candidates.map((entry) => entry.id));
   const active = candidateFromCurrentContext(context)?.id || null;
@@ -246,18 +161,14 @@ export function listVideoGenerationProviders(
     configured_count: providers.filter((entry) => entry.ready).length,
   };
 }
-
-async function fetchJson(
-  url: string,
-  init: RequestInit,
-): Promise<Record<string, unknown>> {
+async function fetchJson(url, init) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     const rawText = await response.text();
     if (!response.ok) throw new ProviderRequestError(response.status, rawText);
-    const parsed = JSON.parse(rawText) as unknown;
+    const parsed = JSON.parse(rawText);
     if (isRecord(parsed)) return parsed;
     throw new Error('provider returned invalid JSON');
   } catch (error) {
@@ -271,20 +182,14 @@ async function fetchJson(
     clearTimeout(timer);
   }
 }
-
-function authJsonHeaders(candidate: ProviderCandidate): Record<string, string> {
+function authJsonHeaders(candidate) {
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${candidate.apiKey}`,
     ...(candidate.requestHeaders || {}),
   };
 }
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function findFirstStringByKey(value: unknown, key: string): string | null {
+function findFirstStringByKey(value, key) {
   if (Array.isArray(value)) {
     for (const entry of value) {
       const found = findFirstStringByKey(entry, key);
@@ -301,8 +206,7 @@ function findFirstStringByKey(value: unknown, key: string): string | null {
   }
   return null;
 }
-
-async function readLimitedResponseBuffer(response: Response): Promise<Buffer> {
+async function readLimitedResponseBuffer(response) {
   const contentLength = Number.parseInt(
     response.headers.get('content-length') || '',
     10,
@@ -315,11 +219,10 @@ async function readLimitedResponseBuffer(response: Response): Promise<Buffer> {
       `generated video exceeds max size (${MAX_GENERATED_VIDEO_BYTES} bytes)`,
     );
   }
-
   const body = response.body;
   if (body && typeof body === 'object' && 'getReader' in body) {
-    const reader = (body as ReadableStream<Uint8Array>).getReader();
-    const chunks: Uint8Array[] = [];
+    const reader = body.getReader();
+    const chunks = [];
     let bytesRead = 0;
     try {
       while (true) {
@@ -345,7 +248,6 @@ async function readLimitedResponseBuffer(response: Response): Promise<Buffer> {
     }
     return Buffer.concat(chunks, bytesRead);
   }
-
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.length > MAX_GENERATED_VIDEO_BYTES) {
     throw new Error(
@@ -354,11 +256,7 @@ async function readLimitedResponseBuffer(response: Response): Promise<Buffer> {
   }
   return buffer;
 }
-
-async function fetchBinary(
-  url: string,
-  init: RequestInit,
-): Promise<GeneratedVideoBuffer> {
+async function fetchBinary(url, init) {
   const response = await fetch(url, init);
   if (!response.ok) {
     throw new Error(`provider video download failed (${response.status})`);
@@ -366,11 +264,7 @@ async function fetchBinary(
   const mimeType = response.headers.get('content-type') || 'video/mp4';
   return { buffer: await readLimitedResponseBuffer(response), mimeType };
 }
-
-async function pollOpenAiVideo(
-  candidate: ProviderCandidate,
-  videoId: string,
-): Promise<Record<string, unknown>> {
+async function pollOpenAiVideo(candidate, videoId) {
   const deadline = Date.now() + VIDEO_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const payload = await fetchJson(`${candidate.baseUrl}/videos/${videoId}`, {
@@ -390,12 +284,8 @@ async function pollOpenAiVideo(
     `OpenAI video generation timed out after ${VIDEO_POLL_TIMEOUT_MS}ms`,
   );
 }
-
-async function generateWithOpenAi(
-  candidate: ProviderCandidate,
-  request: NormalizedVideoGenerationRequest,
-): Promise<GeneratedVideoBuffer[]> {
-  const body: Record<string, unknown> = {
+async function generateWithOpenAi(candidate, request) {
+  const body = {
     model: candidate.model,
     prompt: request.prompt,
   };
@@ -416,11 +306,7 @@ async function generateWithOpenAi(
   video.metadata = { video_id: videoId };
   return [video];
 }
-
-async function pollGeminiOperation(
-  candidate: ProviderCandidate,
-  operationName: string,
-): Promise<Record<string, unknown>> {
+async function pollGeminiOperation(candidate, operationName) {
   const baseUrl = candidate.baseUrl.replace(/\/openai$/i, '');
   const deadline = Date.now() + VIDEO_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -438,13 +324,9 @@ async function pollGeminiOperation(
     `Gemini video generation timed out after ${VIDEO_POLL_TIMEOUT_MS}ms`,
   );
 }
-
-async function generateWithGemini(
-  candidate: ProviderCandidate,
-  request: NormalizedVideoGenerationRequest,
-): Promise<GeneratedVideoBuffer[]> {
+async function generateWithGemini(candidate, request) {
   const baseUrl = candidate.baseUrl.replace(/\/openai$/i, '');
-  const parameters: Record<string, unknown> = {};
+  const parameters = {};
   if (request.aspectRatio) parameters.aspectRatio = request.aspectRatio;
   if (request.resolution) parameters.resolution = request.resolution;
   if (request.durationSeconds)
@@ -476,34 +358,29 @@ async function generateWithGemini(
   video.metadata = { operation_name: operationName, source_url: videoUri };
   return [video];
 }
-
-async function generateWithCandidate(
-  candidate: ProviderCandidate,
-  request: NormalizedVideoGenerationRequest,
-): Promise<GeneratedVideoBuffer[]> {
+async function generateWithCandidate(candidate, request) {
   if (candidate.id === 'gemini') return generateWithGemini(candidate, request);
   return generateWithOpenAi(candidate, request);
 }
-
-function extensionFromMimeType(mimeType: string): string {
+function extensionFromMimeType(mimeType) {
   const normalized = mimeType.toLowerCase();
   if (normalized.includes('webm')) return '.webm';
   if (normalized.includes('quicktime')) return '.mov';
   return '.mp4';
 }
-
-function persistVideos(
-  videos: GeneratedVideoBuffer[],
-  provider: ProviderCandidate,
-): Array<Record<string, unknown>> {
-  const outputRoot = path.join(WORKSPACE_ROOT, OUTPUT_DIR);
-  fs.mkdirSync(outputRoot, { recursive: true });
+function persistVideos(context, videos, provider) {
   return videos.map((video, index) => {
-    const ext = extensionFromMimeType(video.mimeType);
-    const filename = `video-${Date.now()}-${index + 1}-${randomUUID().slice(0, 8)}${ext}`;
-    const hostPath = path.join(outputRoot, filename);
-    fs.writeFileSync(hostPath, video.buffer);
-    const displayPath = `${WORKSPACE_ROOT_DISPLAY}/${OUTPUT_DIR}/${filename}`;
+    const filename = uniqueFilename(
+      'video',
+      index,
+      extensionFromMimeType(video.mimeType),
+    );
+    const { displayPath } = writeWorkspaceFile(
+      context,
+      OUTPUT_DIR,
+      filename,
+      video.buffer,
+    );
     return {
       path: displayPath,
       filename,
@@ -515,32 +392,18 @@ function persistVideos(
     };
   });
 }
-
-function sanitizeProviderError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function buildVideoUsage(
-  generatedVideos: number,
-  durationSeconds: number | null,
-): VideoGenerationUsage {
+function buildVideoUsage(generatedVideos, durationSeconds) {
   return {
     generated_videos: generatedVideos,
     ...(durationSeconds != null ? { duration_seconds: durationSeconds } : {}),
     estimated: true,
   };
 }
-
-export async function runVideoGenerate(
-  args: Record<string, unknown>,
-  context: VideoGenerationRuntimeContext,
-): Promise<string> {
+export async function runVideoGenerate(args, context) {
   const action = readStringValue(args.action)?.toLowerCase();
   if (action === 'list') {
     return JSON.stringify(listVideoGenerationProviders(context), null, 2);
   }
-
   const request = normalizeRequest(args);
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
@@ -548,9 +411,8 @@ export async function runVideoGenerate(
       'video_generate is not configured: store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex/gemini model.',
     );
   }
-
-  const attempts: Array<Record<string, unknown>> = [];
-  const errors: string[] = [];
+  const attempts = [];
+  const errors = [];
   for (const candidate of candidates) {
     try {
       const providerWarnings = [...request.warnings];
@@ -560,7 +422,7 @@ export async function runVideoGenerate(
         );
       }
       const videos = await generateWithCandidate(candidate, request);
-      const persisted = persistVideos(videos, candidate);
+      const persisted = persistVideos(context, videos, candidate);
       attempts.push({
         provider: candidate.id,
         model: candidate.model,
@@ -591,7 +453,6 @@ export async function runVideoGenerate(
       });
     }
   }
-
   throw new Error(
     `video_generate failed for all configured providers. ${errors.join(' | ')}`,
   );

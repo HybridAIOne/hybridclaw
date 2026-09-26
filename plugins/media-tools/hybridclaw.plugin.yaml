@@ -1,0 +1,34 @@
+id: media-tools
+name: Media Tools
+version: 0.1.0
+kind: tool
+description: image_generate, video_generate, and audio_transcribe tools that call OpenAI, Gemini, xAI, Black Forest Labs, Deepgram, or AssemblyAI from the gateway, so provider keys never enter the sandbox.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+credentials:
+  - OPENAI_API_KEY
+  - OPENAI_BASE_URL
+  - OPENAI_AUDIO_MODEL
+  - OPENAI_IMAGE_MODEL
+  - OPENAI_VIDEO_MODEL
+  - GEMINI_API_KEY
+  - GOOGLE_API_KEY
+  - GEMINI_IMAGE_MODEL
+  - GEMINI_VIDEO_MODEL
+  - XAI_API_KEY
+  - XAI_IMAGE_MODEL
+  - BFL_API_KEY
+  - BLACK_FOREST_LABS_API_KEY
+  - BFL_BASE_URL
+  - BFL_IMAGE_MODEL
+  - DEEPGRAM_API_KEY
+  - DEEPGRAM_BASE_URL
+  - DEEPGRAM_AUDIO_MODEL
+  - ASSEMBLYAI_API_KEY
+  - ASSEMBLYAI_BASE_URL
+  - ASSEMBLYAI_AUDIO_MODEL
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

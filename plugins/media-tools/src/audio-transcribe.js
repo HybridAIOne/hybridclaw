@@ -1,110 +1,25 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { estimateAudioTranscriptionCostUsd } from '../shared/audio-transcription-pricing.js';
-import { isPrivateNetworkAddress } from '../shared/private-network.js';
 import {
   classifyProviderError,
-  shouldFallbackProviderError,
-} from '../shared/provider-fallback.js';
-import { isSafeDiscordCdnUrl } from './discord-cdn.js';
-import type { RuntimeProvider } from './providers/provider-ids.js';
-import {
   isRecord,
+  normalizeBaseUrl,
   ProviderRequestError,
+  readCredentialValue,
   readStringValue,
-} from './providers/shared.js';
-import {
-  DISCORD_MEDIA_CACHE_ROOT,
-  DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
-  resolveMediaPath,
-  resolveWorkspacePath,
-  WORKSPACE_ROOT,
-  WORKSPACE_ROOT_DISPLAY,
-} from './runtime-paths.js';
-import type { MediaContextItem, ProviderCredentials } from './types.js';
-
-type AudioTranscriptionProviderId = 'openai' | 'deepgram' | 'assemblyai';
-type TimestampMode = 'segment' | 'word' | 'none';
-
-export interface AudioTranscriptionRuntimeContext {
-  provider: RuntimeProvider;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-  media: MediaContextItem[];
-  providerCredentials?: ProviderCredentials;
-}
-
-interface ProviderCandidate {
-  id: AudioTranscriptionProviderId;
-  label: string;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  requestHeaders?: Record<string, string>;
-  maxAudioBytes: number;
-  supportsDiarization: boolean;
-  supportsWordTimestamps: boolean;
-  supportsLanguageDetection: boolean;
-}
-
-interface AudioInput {
-  buffer: Buffer;
-  filename: string;
-  mimeType: string;
-  source: string;
-  localPath?: string;
-  cleanupPath?: string;
-}
-
-interface NormalizedAudioTranscriptionRequest {
-  audio: AudioInput;
-  language: string | null;
-  prompt: string | null;
-  timestamps: TimestampMode;
-  provider: string | null;
-  diarization: boolean;
-  minSpeakers: number | null;
-  maxSpeakers: number | null;
-  detectLanguageOnly: boolean;
-  warnings: string[];
-}
-
-interface TranscriptSegment {
-  start: number | null;
-  end: number | null;
-  text: string;
-  speaker?: string;
-}
-
-interface TranscriptWord {
-  start: number | null;
-  end: number | null;
-  word: string;
-  speaker?: string;
-}
-
-interface AudioTranscriptionResult {
-  text: string;
-  language: string | null;
-  durationSec: number | null;
-  segments: TranscriptSegment[];
-  words?: TranscriptWord[];
-}
-
-interface CandidateTranscriptionResult {
-  result: AudioTranscriptionResult;
-  warnings: string[];
-}
+  sanitizeProviderError,
+  shouldFallbackProviderError,
+  stripProviderPrefix,
+  writeWorkspaceFile,
+} from './shared.js';
 
 const OUTPUT_DIR = '.transcripts';
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
+const MAX_FETCH_AUDIO_BYTES = 512 * 1024 * 1024;
 const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
 const ASSEMBLYAI_INITIAL_POLL_INTERVAL_MS = 1_000;
 const ASSEMBLYAI_MAX_POLL_INTERVAL_MS = 10_000;
@@ -118,13 +33,11 @@ const DEFAULT_DEEPGRAM_AUDIO_MODEL = 'nova-3';
 const DEFAULT_ASSEMBLYAI_AUDIO_MODEL = 'universal';
 const DEFAULT_CHUNK_WINDOW_SEC = 25 * 60;
 const DEFAULT_CHUNK_OVERLAP_SEC = 10;
-
-function readNumberValue(value: unknown): number | null {
+function readNumberValue(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return null;
 }
-
-function readBooleanValue(value: unknown): boolean | null {
+function readBooleanValue(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
@@ -133,38 +46,15 @@ function readBooleanValue(value: unknown): boolean | null {
   }
   return null;
 }
-
-function readPositiveInteger(value: unknown): number | null {
+function readPositiveInteger(value) {
   const parsed = readNumberValue(value);
   if (parsed == null || parsed <= 0) return null;
   return Math.floor(parsed);
 }
-
-function normalizeBaseUrl(value: string, fallback: string): string {
-  const trimmed = String(value || '').trim() || fallback;
-  return trimmed.replace(/\/+$/g, '');
-}
-
-function stripProviderPrefix(model: string, provider: string): string {
-  const trimmed = String(model || '').trim();
-  const prefix = `${provider}/`;
-  if (trimmed.toLowerCase().startsWith(prefix)) {
-    return trimmed.slice(prefix.length).trim();
-  }
-  return trimmed;
-}
-
-function hasAudioTranscriptionModelHint(model: string): boolean {
+function hasAudioTranscriptionModelHint(model) {
   return /whisper|transcribe|transcription/i.test(model);
 }
-
-function readCredentialValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeSpeechToTextProvider(
-  value: unknown,
-): AudioTranscriptionProviderId | null {
+function normalizeSpeechToTextProvider(value) {
   const normalized = readCredentialValue(value).toLowerCase();
   if (normalized === 'whisper' || normalized === 'openai-whisper') {
     return 'openai';
@@ -175,8 +65,7 @@ function normalizeSpeechToTextProvider(
     ? normalized
     : null;
 }
-
-function extensionFromMimeType(mimeType: string): string {
+function extensionFromMimeType(mimeType) {
   const normalized = mimeType.toLowerCase();
   if (normalized.includes('mpeg') || normalized === 'audio/mp3') return '.mp3';
   if (normalized.includes('mp4') || normalized.includes('m4a')) return '.m4a';
@@ -186,11 +75,7 @@ function extensionFromMimeType(mimeType: string): string {
   if (normalized.includes('flac')) return '.flac';
   return '.audio';
 }
-
-function inferAudioMimeType(
-  filePath: string,
-  fallback?: string | null,
-): string {
+function inferAudioMimeType(filePath, fallback) {
   const normalizedFallback = String(fallback || '')
     .trim()
     .toLowerCase();
@@ -212,47 +97,7 @@ function inferAudioMimeType(
   if (ext === '.flac') return 'audio/flac';
   return 'application/octet-stream';
 }
-
-function normalizeHostname(hostname: string): string {
-  const normalized = hostname.trim().toLowerCase();
-  if (normalized.startsWith('[') && normalized.endsWith(']')) {
-    return normalized.slice(1, -1);
-  }
-  return normalized;
-}
-
-async function assertSafeRemoteUrl(rawUrl: string): Promise<URL> {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error('audio URL is invalid');
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new Error('audio URL must use https');
-  }
-  if (isSafeDiscordCdnUrl(rawUrl)) return parsed;
-
-  const hostname = normalizeHostname(parsed.hostname);
-  if (
-    !hostname ||
-    hostname === 'localhost' ||
-    isPrivateNetworkAddress(hostname)
-  ) {
-    throw new Error('audio URL host is not allowed');
-  }
-
-  const records = await lookup(hostname, { all: true, verbatim: false });
-  if (records.some((record) => isPrivateNetworkAddress(record.address))) {
-    throw new Error('audio URL resolves to a private network address');
-  }
-  // DNS is still resolved separately from fetch; redirect blocking below closes
-  // the common SSRF redirect path, while DNS rebinding needs network isolation.
-  return parsed;
-}
-
-function assertAudioSize(buffer: Buffer, maxBytes = MAX_AUDIO_BYTES): void {
+function assertAudioSize(buffer, maxBytes = MAX_AUDIO_BYTES) {
   if (buffer.length <= 0) throw new Error('audio input is empty');
   if (buffer.length > maxBytes) {
     throw new Error(
@@ -260,11 +105,7 @@ function assertAudioSize(buffer: Buffer, maxBytes = MAX_AUDIO_BYTES): void {
     );
   }
 }
-
-function findMediaContextItem(
-  value: string,
-  media: MediaContextItem[],
-): MediaContextItem | null {
+function findMediaContextItem(value, media) {
   const normalized = value.trim();
   if (!normalized) return null;
   return (
@@ -277,10 +118,7 @@ function findMediaContextItem(
     ) || null
   );
 }
-
-function resolveImplicitMediaItem(
-  media: MediaContextItem[],
-): MediaContextItem | null {
+function resolveImplicitMediaItem(media) {
   const audioItems = media.filter((item) => {
     const mimeType = String(item.mimeType || '').toLowerCase();
     return (
@@ -291,31 +129,24 @@ function resolveImplicitMediaItem(
   });
   return audioItems.length === 1 ? audioItems[0] : null;
 }
-
-async function readLocalAudio(
-  rawPath: string,
-  mediaHint?: MediaContextItem | null,
-): Promise<AudioInput> {
+async function readLocalAudio(rawPath, context, mediaHint) {
   const resolved =
-    resolveWorkspacePath(rawPath) ||
-    resolveMediaPath(rawPath) ||
-    (mediaHint?.path
-      ? resolveWorkspacePath(mediaHint.path) || resolveMediaPath(mediaHint.path)
-      : null);
+    (await context.resolveInputPath(rawPath)) ||
+    (mediaHint?.path ? await context.resolveInputPath(mediaHint.path) : null);
   if (!resolved) {
     throw new Error(
-      `audio path must be under ${WORKSPACE_ROOT_DISPLAY}, ${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}, or /uploaded-media-cache`,
+      `audio path must be a readable file under ${context.workspaceDisplayRoot}, /discord-media-cache (current turn only), or /uploaded-media-cache: ${rawPath}`,
     );
   }
   const stat = fs.statSync(resolved);
   if (stat.size <= 0) throw new Error('audio input is empty');
-  if (stat.size > 512 * 1024 * 1024) {
+  if (stat.size > MAX_FETCH_AUDIO_BYTES) {
     throw new Error(
-      'audio input exceeds max provider upload size (536870912 bytes)',
+      `audio input exceeds max provider upload size (${MAX_FETCH_AUDIO_BYTES} bytes)`,
     );
   }
   const buffer = await fs.promises.readFile(resolved);
-  assertAudioSize(buffer, 512 * 1024 * 1024);
+  assertAudioSize(buffer, MAX_FETCH_AUDIO_BYTES);
   const mimeType = inferAudioMimeType(resolved, mediaHint?.mimeType);
   if (
     !mimeType.startsWith('audio/') &&
@@ -329,78 +160,46 @@ async function readLocalAudio(
     filename: path.basename(resolved),
     mimeType,
     localPath: resolved,
-    source: resolved.startsWith(WORKSPACE_ROOT)
-      ? `${WORKSPACE_ROOT_DISPLAY}/${path.relative(WORKSPACE_ROOT, resolved).replace(/\\/g, '/')}`
-      : resolved.startsWith(DISCORD_MEDIA_CACHE_ROOT)
-        ? `${DISCORD_MEDIA_CACHE_ROOT_DISPLAY}/${path.relative(DISCORD_MEDIA_CACHE_ROOT, resolved).replace(/\\/g, '/')}`
-        : rawPath,
+    source: rawPath,
   };
 }
-
-async function fetchRemoteAudio(
-  rawUrl: string,
-  mediaHint?: MediaContextItem | null,
-): Promise<AudioInput> {
-  const parsed = await assertSafeRemoteUrl(rawUrl);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(rawUrl, {
-      signal: controller.signal,
-      redirect: 'manual',
-    });
-    if (response.status >= 300 && response.status < 400) {
-      throw new Error('audio URL redirects are not allowed');
-    }
-    if (!response.ok) {
-      throw new Error(`audio fetch failed with HTTP ${response.status}`);
-    }
-    const contentLength = Number(response.headers.get('content-length') || 0);
-    if (contentLength > 512 * 1024 * 1024) {
-      throw new Error(
-        'remote audio input exceeds max fetch size (536870912 bytes)',
-      );
-    }
-    const mimeType = inferAudioMimeType(
-      parsed.pathname,
-      response.headers.get('content-type') || mediaHint?.mimeType,
-    );
-    if (
-      !mimeType.startsWith('audio/') &&
-      mimeType !== 'video/mp4' &&
-      mimeType !== 'video/webm'
-    ) {
-      throw new Error(`remote URL is not audio (${mimeType || 'unknown'})`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    assertAudioSize(buffer, 512 * 1024 * 1024);
-    const filename =
-      mediaHint?.filename ||
-      path.basename(parsed.pathname) ||
-      `audio${extensionFromMimeType(mimeType)}`;
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-stt-src-'),
-    );
-    const tempPath = path.join(tempDir, filename);
-    fs.writeFileSync(tempPath, buffer);
-    return {
-      buffer,
-      filename,
-      mimeType,
-      localPath: tempPath,
-      cleanupPath: tempDir,
-      source: rawUrl,
-    };
-  } finally {
-    clearTimeout(timeout);
+async function fetchRemoteAudio(rawUrl, context, mediaHint) {
+  const parsed = new URL(rawUrl);
+  const response = await context.fetchRemote(rawUrl, {
+    maxBytes: MAX_FETCH_AUDIO_BYTES,
+    timeoutMs: FETCH_TIMEOUT_MS,
+  });
+  const mimeType = inferAudioMimeType(
+    parsed.pathname,
+    response.contentType || mediaHint?.mimeType,
+  );
+  if (
+    !mimeType.startsWith('audio/') &&
+    mimeType !== 'video/mp4' &&
+    mimeType !== 'video/webm'
+  ) {
+    throw new Error(`remote URL is not audio (${mimeType || 'unknown'})`);
   }
+  const buffer = response.body;
+  assertAudioSize(buffer, MAX_FETCH_AUDIO_BYTES);
+  const filename = path.basename(
+    mediaHint?.filename ||
+      path.basename(parsed.pathname) ||
+      `audio${extensionFromMimeType(mimeType)}`,
+  );
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-src-'));
+  const tempPath = path.join(tempDir, filename);
+  fs.writeFileSync(tempPath, buffer);
+  return {
+    buffer,
+    filename,
+    mimeType,
+    localPath: tempPath,
+    cleanupPath: tempDir,
+    source: rawUrl,
+  };
 }
-
-async function resolveAudioInput(
-  args: Record<string, unknown>,
-  context: AudioTranscriptionRuntimeContext,
-): Promise<AudioInput> {
+async function resolveAudioInput(args, context) {
   const explicit =
     readStringValue(args.audio) ||
     readStringValue(args.audio_url) ||
@@ -414,15 +213,11 @@ async function resolveAudioInput(
       'audio_transcribe requires an audio path, URL, or exactly one current audio attachment.',
     );
   }
-
-  if (/^https:\/\//i.test(raw)) return fetchRemoteAudio(raw, mediaHint);
-  return readLocalAudio(raw, mediaHint);
+  if (/^https:\/\//i.test(raw))
+    return fetchRemoteAudio(raw, context, mediaHint);
+  return readLocalAudio(raw, context, mediaHint);
 }
-
-function normalizeTimestampMode(
-  value: unknown,
-  warnings: string[],
-): TimestampMode {
+function normalizeTimestampMode(value, warnings) {
   const raw = readStringValue(value)?.toLowerCase();
   if (!raw || raw === 'segment' || raw === 'segments') return 'segment';
   if (raw === 'word' || raw === 'words') return 'word';
@@ -430,12 +225,8 @@ function normalizeTimestampMode(
   warnings.push(`timestamps "${raw}" is unsupported; using segment.`);
   return 'segment';
 }
-
-async function normalizeRequest(
-  args: Record<string, unknown>,
-  context: AudioTranscriptionRuntimeContext,
-): Promise<NormalizedAudioTranscriptionRequest> {
-  const warnings: string[] = [];
+async function normalizeRequest(args, context) {
+  const warnings = [];
   const diarization =
     readBooleanValue(args.diarization ?? args.diarize ?? args.speaker_labels) ??
     false;
@@ -467,10 +258,7 @@ async function normalizeRequest(
     warnings,
   };
 }
-
-function candidateFromCurrentContext(
-  context: AudioTranscriptionRuntimeContext,
-): ProviderCandidate | null {
+function candidateFromCurrentContext(context) {
   if (!context.apiKey || context.provider !== 'openai-codex') return null;
   const model = stripProviderPrefix(context.model, 'openai-codex');
   return {
@@ -488,12 +276,8 @@ function candidateFromCurrentContext(
     supportsLanguageDetection: true,
   };
 }
-
-function buildProviderCandidates(
-  context: AudioTranscriptionRuntimeContext,
-  providerOverride?: string | null,
-): ProviderCandidate[] {
-  const candidates: ProviderCandidate[] = [];
+function buildProviderCandidates(context, providerOverride) {
+  const candidates = [];
   const openaiConfig = context.providerCredentials?.openai || {};
   const openaiKey = readCredentialValue(openaiConfig.apiKey);
   const current = candidateFromCurrentContext(context);
@@ -516,7 +300,6 @@ function buildProviderCandidates(
       supportsLanguageDetection: true,
     });
   }
-
   const deepgramConfig = context.providerCredentials?.deepgram || {};
   const deepgramKey = readCredentialValue(deepgramConfig.apiKey);
   if (deepgramKey) {
@@ -537,7 +320,6 @@ function buildProviderCandidates(
       supportsLanguageDetection: true,
     });
   }
-
   const assemblyaiConfig = context.providerCredentials?.assemblyai || {};
   const assemblyaiKey = readCredentialValue(assemblyaiConfig.apiKey);
   if (assemblyaiKey) {
@@ -558,7 +340,6 @@ function buildProviderCandidates(
       supportsLanguageDetection: true,
     });
   }
-
   const requested = String(providerOverride || 'auto')
     .trim()
     .toLowerCase();
@@ -580,10 +361,7 @@ function buildProviderCandidates(
       : requested;
   return candidates.filter((candidate) => candidate.id === normalized);
 }
-
-export function listAudioTranscriptionProviders(
-  context: AudioTranscriptionRuntimeContext,
-): Record<string, unknown> {
+export function listAudioTranscriptionProviders(context) {
   const candidates = buildProviderCandidates(context);
   const ready = new Set(candidates.map((entry) => entry.id));
   const active = candidateFromCurrentContext(context)?.id || null;
@@ -649,31 +427,25 @@ export function listAudioTranscriptionProviders(
     ],
   };
 }
-
-function normalizeHeaders(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  const normalized: Record<string, string> = {};
+function normalizeHeaders(headers) {
+  const normalized = {};
   for (const [key, value] of Object.entries(headers || {})) {
     if (!key || key.toLowerCase() === 'authorization') continue;
     normalized[key] = value;
   }
   return normalized;
 }
-
-function bufferAsBodyInit(buffer: Buffer): BodyInit {
-  return buffer as unknown as BodyInit;
+function bufferAsBodyInit(buffer) {
+  return buffer;
 }
-
-function bufferAsBlobPart(buffer: Buffer): BlobPart {
-  return buffer as unknown as BlobPart;
+function bufferAsBlobPart(buffer) {
+  return buffer;
 }
-
 async function fetchWithTimeout(
-  input: string | URL,
-  init: RequestInit = {},
+  input,
+  init = {},
   timeoutMs = PROVIDER_API_TIMEOUT_MS,
-): Promise<Response> {
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -682,16 +454,12 @@ async function fetchWithTimeout(
     clearTimeout(timeout);
   }
 }
-
-async function parseProviderJson(
-  response: Response,
-  providerLabel: string,
-): Promise<unknown> {
+async function parseProviderJson(response, providerLabel) {
   const text = await response.text();
   if (!response.ok) {
     let detail = text.trim();
     try {
-      const parsed = JSON.parse(text) as unknown;
+      const parsed = JSON.parse(text);
       if (isRecord(parsed)) {
         const error = parsed.error;
         if (isRecord(error) && typeof error.message === 'string') {
@@ -711,16 +479,15 @@ async function parseProviderJson(
     );
   }
   try {
-    return JSON.parse(text) as unknown;
+    return JSON.parse(text);
   } catch {
     throw new Error(`${providerLabel} transcription returned invalid JSON`);
   }
 }
-
-function normalizeSegments(value: unknown): TranscriptSegment[] {
+function normalizeSegments(value) {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry): TranscriptSegment | null => {
+    .map((entry) => {
       if (!isRecord(entry)) return null;
       const text = readStringValue(entry.text) || '';
       if (!text) return null;
@@ -732,20 +499,15 @@ function normalizeSegments(value: unknown): TranscriptSegment[] {
         ...(speaker ? { speaker } : {}),
       };
     })
-    .filter((entry): entry is TranscriptSegment => Boolean(entry));
+    .filter((entry) => Boolean(entry));
 }
-
-function buildFallbackSegments(
-  text: string | null,
-  durationSec: number | null,
-): TranscriptSegment[] {
+function buildFallbackSegments(text, durationSec) {
   return text ? [{ start: null, end: durationSec, text }] : [];
 }
-
-function normalizeWords(value: unknown): TranscriptWord[] | undefined {
+function normalizeWords(value) {
   if (!Array.isArray(value)) return undefined;
   const words = value
-    .map((entry): TranscriptWord | null => {
+    .map((entry) => {
       if (!isRecord(entry)) return null;
       const word = readStringValue(entry.word) || readStringValue(entry.text);
       if (!word) return null;
@@ -757,21 +519,16 @@ function normalizeWords(value: unknown): TranscriptWord[] | undefined {
         ...(speaker ? { speaker } : {}),
       };
     })
-    .filter((entry): entry is TranscriptWord => Boolean(entry));
+    .filter((entry) => Boolean(entry));
   return words.length > 0 ? words : undefined;
 }
-
-function formatSpeaker(value: unknown): string | undefined {
+function formatSpeaker(value) {
   const text = readStringValue(value);
   if (text) return text.startsWith('speaker') ? text : `speaker_${text}`;
   const number = readNumberValue(value);
   return number == null ? undefined : `speaker_${Math.floor(number)}`;
 }
-
-async function transcribeWithOpenAi(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
+async function transcribeWithOpenAi(candidate, request) {
   const form = new FormData();
   form.set('model', candidate.model);
   form.set('response_format', 'verbose_json');
@@ -790,7 +547,6 @@ async function transcribeWithOpenAi(
       request.timestamps === 'word' ? 'word' : 'segment',
     );
   }
-
   const response = await fetchWithTimeout(
     `${candidate.baseUrl}/audio/transcriptions`,
     {
@@ -814,8 +570,7 @@ async function transcribeWithOpenAi(
     words: normalizeWords(parsed.words),
   };
 }
-
-function normalizeDeepgramResult(parsed: Record<string, unknown>) {
+function normalizeDeepgramResult(parsed) {
   const metadata = isRecord(parsed.metadata) ? parsed.metadata : {};
   const results = isRecord(parsed.results) ? parsed.results : {};
   const channels = Array.isArray(results.channels) ? results.channels : [];
@@ -843,7 +598,7 @@ function normalizeDeepgramResult(parsed: Record<string, unknown>) {
   const segments =
     utterances.length > 0
       ? utterances
-          .map((entry): TranscriptSegment | null => {
+          .map((entry) => {
             if (!isRecord(entry)) return null;
             const text = readStringValue(entry.transcript) || '';
             if (!text) return null;
@@ -855,7 +610,7 @@ function normalizeDeepgramResult(parsed: Record<string, unknown>) {
               ...(speaker ? { speaker } : {}),
             };
           })
-          .filter((entry): entry is TranscriptSegment => Boolean(entry))
+          .filter((entry) => Boolean(entry))
       : normalizeSegments(
           isRecord(alternative.paragraphs)
             ? alternative.paragraphs.paragraphs
@@ -879,11 +634,7 @@ function normalizeDeepgramResult(parsed: Record<string, unknown>) {
     words,
   };
 }
-
-async function transcribeWithDeepgram(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
+async function transcribeWithDeepgram(candidate, request) {
   const url = new URL(`${candidate.baseUrl}/listen`);
   url.searchParams.set('model', candidate.model);
   url.searchParams.set('smart_format', 'true');
@@ -892,7 +643,6 @@ async function transcribeWithDeepgram(
   url.searchParams.set('utterances', 'true');
   if (request.language) url.searchParams.set('language', request.language);
   if (request.diarization) url.searchParams.set('diarize', 'true');
-
   const response = await fetchWithTimeout(url.toString(), {
     method: 'POST',
     headers: {
@@ -907,11 +657,7 @@ async function transcribeWithDeepgram(
   }
   return normalizeDeepgramResult(parsed);
 }
-
-async function uploadAssemblyAiAudio(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<string> {
+async function uploadAssemblyAiAudio(candidate, request) {
   const response = await fetchWithTimeout(`${candidate.baseUrl}/v2/upload`, {
     method: 'POST',
     headers: {
@@ -929,10 +675,7 @@ async function uploadAssemblyAiAudio(
     throw new Error('AssemblyAI upload did not return upload_url');
   return uploadUrl;
 }
-
-function normalizeAssemblyAiResult(
-  parsed: Record<string, unknown>,
-): AudioTranscriptionResult {
+function normalizeAssemblyAiResult(parsed) {
   const utterances = Array.isArray(parsed.utterances) ? parsed.utterances : [];
   const words = normalizeWords(
     Array.isArray(parsed.words)
@@ -943,11 +686,11 @@ function normalizeAssemblyAiResult(
                 start:
                   readNumberValue(word.start) == null
                     ? null
-                    : (readNumberValue(word.start) as number) / 1000,
+                    : readNumberValue(word.start) / 1000,
                 end:
                   readNumberValue(word.end) == null
                     ? null
-                    : (readNumberValue(word.end) as number) / 1000,
+                    : readNumberValue(word.end) / 1000,
                 speaker: formatSpeaker(word.speaker),
               }
             : word,
@@ -955,7 +698,7 @@ function normalizeAssemblyAiResult(
       : undefined,
   );
   const segments = utterances
-    .map((entry): TranscriptSegment | null => {
+    .map((entry) => {
       if (!isRecord(entry)) return null;
       const text = readStringValue(entry.text) || '';
       if (!text) return null;
@@ -969,7 +712,7 @@ function normalizeAssemblyAiResult(
         ...(speaker ? { speaker } : {}),
       };
     })
-    .filter((entry): entry is TranscriptSegment => Boolean(entry));
+    .filter((entry) => Boolean(entry));
   const durationSec = readNumberValue(parsed.audio_duration);
   return {
     text:
@@ -986,15 +729,11 @@ function normalizeAssemblyAiResult(
     words,
   };
 }
-
-async function transcribeWithAssemblyAi(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
+async function transcribeWithAssemblyAi(candidate, request) {
   const audioUrl = request.audio.source.startsWith('https://')
     ? request.audio.source
     : await uploadAssemblyAiAudio(candidate, request);
-  const body: Record<string, unknown> = {
+  const body = {
     audio_url: audioUrl,
     punctuate: true,
     format_text: true,
@@ -1010,7 +749,6 @@ async function transcribeWithAssemblyAi(
         : null
       : (request.maxSpeakers ?? request.minSpeakers);
   if (speakersExpected) body.speakers_expected = speakersExpected;
-
   const createResponse = await fetchWithTimeout(
     `${candidate.baseUrl}/v2/transcript`,
     {
@@ -1030,7 +768,6 @@ async function transcribeWithAssemblyAi(
   }
   const id = readStringValue(created.id);
   if (!id) throw new Error('AssemblyAI transcript creation did not return id');
-
   const startedAt = Date.now();
   let pollIntervalMs = ASSEMBLYAI_INITIAL_POLL_INTERVAL_MS;
   for (;;) {
@@ -1064,12 +801,8 @@ async function transcribeWithAssemblyAi(
     );
   }
 }
-
-function collectCandidateWarnings(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): string[] {
-  const warnings: string[] = [];
+function collectCandidateWarnings(candidate, request) {
+  const warnings = [];
   if (request.diarization && !candidate.supportsDiarization) {
     warnings.push(
       `${candidate.label} does not support diarization; speaker labels will be omitted.`,
@@ -1091,11 +824,7 @@ function collectCandidateWarnings(
   }
   return warnings;
 }
-
-async function transcribeWithCandidate(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<AudioTranscriptionResult> {
+async function transcribeWithCandidate(candidate, request) {
   assertAudioSize(request.audio.buffer, candidate.maxAudioBytes);
   if (candidate.id === 'deepgram')
     return transcribeWithDeepgram(candidate, request);
@@ -1103,22 +832,7 @@ async function transcribeWithCandidate(
     return transcribeWithAssemblyAi(candidate, request);
   return transcribeWithOpenAi(candidate, request);
 }
-
-function estimateCostUsd(
-  durationSec: number | null,
-  candidate: ProviderCandidate,
-): number | null {
-  if (durationSec == null || durationSec < 0) return null;
-  return (
-    estimateAudioTranscriptionCostUsd({
-      provider: candidate.id,
-      model: candidate.model,
-      audioSeconds: durationSec,
-    }) ?? null
-  );
-}
-
-function runMediaProbe(command: string, args: string[]): string {
+function runMediaProbe(command, args) {
   const result = spawnSync(command, args, {
     encoding: 'utf-8',
     maxBuffer: 1024 * 1024,
@@ -1129,8 +843,7 @@ function runMediaProbe(command: string, args: string[]): string {
   }
   return String(result.stdout || '').trim();
 }
-
-function probeAudioDurationSec(filePath: string): number {
+function probeAudioDurationSec(filePath) {
   const output = runMediaProbe('ffprobe', [
     '-v',
     'error',
@@ -1146,16 +859,12 @@ function probeAudioDurationSec(filePath: string): number {
   }
   return duration;
 }
-
-function createAudioChunks(
-  input: AudioInput,
-  durationSec: number,
-): Array<AudioInput & { offsetSec: number }> {
+function createAudioChunks(input, durationSec) {
   if (!input.localPath) {
     throw new Error('long audio chunking requires a local staged audio file');
   }
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-'));
-  const chunks: Array<AudioInput & { offsetSec: number }> = [];
+  const chunks = [];
   const stepSec = Math.max(
     1,
     DEFAULT_CHUNK_WINDOW_SEC - DEFAULT_CHUNK_OVERLAP_SEC,
@@ -1201,37 +910,28 @@ function createAudioChunks(
   }
   return chunks;
 }
-
-function offsetSegments(
-  segments: TranscriptSegment[],
-  offsetSec: number,
-): TranscriptSegment[] {
+function offsetSegments(segments, offsetSec) {
   return segments.map((segment) => ({
     ...segment,
     start: segment.start == null ? null : segment.start + offsetSec,
     end: segment.end == null ? null : segment.end + offsetSec,
   }));
 }
-
-function offsetWords(
-  words: TranscriptWord[] | undefined,
-  offsetSec: number,
-): TranscriptWord[] | undefined {
+function offsetWords(words, offsetSec) {
   return words?.map((word) => ({
     ...word,
     start: word.start == null ? null : word.start + offsetSec,
     end: word.end == null ? null : word.end + offsetSec,
   }));
 }
-
 export function stitchTranscriptionChunks(
-  chunks: Array<AudioTranscriptionResult & { offsetSec: number }>,
+  chunks,
   overlapSec = DEFAULT_CHUNK_OVERLAP_SEC,
-): AudioTranscriptionResult {
-  const segments: TranscriptSegment[] = [];
-  const words: TranscriptWord[] = [];
-  let language: string | null = null;
-  let durationSec: number | null = null;
+) {
+  const segments = [];
+  const words = [];
+  let language = null;
+  let durationSec = null;
   for (const chunk of chunks) {
     language ||= chunk.language;
     const chunkEnd =
@@ -1263,13 +963,9 @@ export function stitchTranscriptionChunks(
     ...(words.length > 0 ? { words } : {}),
   };
 }
-
-async function transcribePossiblyChunked(
-  candidate: ProviderCandidate,
-  request: NormalizedAudioTranscriptionRequest,
-): Promise<CandidateTranscriptionResult> {
+async function transcribePossiblyChunked(candidate, request) {
   const warnings = collectCandidateWarnings(candidate, request);
-  let durationSec: number | null = null;
+  let durationSec = null;
   let shouldChunk = request.audio.buffer.length > candidate.maxAudioBytes;
   if (candidate.id === 'openai' && request.audio.localPath) {
     try {
@@ -1316,23 +1012,20 @@ async function transcribePossiblyChunked(
     warnings,
   };
 }
-
-function persistTranscript(params: {
-  result: AudioTranscriptionResult;
-  provider: ProviderCandidate;
-  source: string;
-  costUsd: number | null;
-}): Array<Record<string, unknown>> {
-  const outputRoot = path.join(WORKSPACE_ROOT, OUTPUT_DIR);
-  fs.mkdirSync(outputRoot, { recursive: true });
+function persistTranscript(params) {
   const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`;
   const textFilename = `transcript-${stamp}.txt`;
   const jsonFilename = `transcript-${stamp}.json`;
-  const textPath = path.join(outputRoot, textFilename);
-  const jsonPath = path.join(outputRoot, jsonFilename);
-  fs.writeFileSync(textPath, params.result.text, 'utf-8');
-  fs.writeFileSync(
-    jsonPath,
+  const text = writeWorkspaceFile(
+    params.context,
+    OUTPUT_DIR,
+    textFilename,
+    params.result.text,
+  );
+  const json = writeWorkspaceFile(
+    params.context,
+    OUTPUT_DIR,
+    jsonFilename,
     JSON.stringify(
       {
         text: params.result.text,
@@ -1342,47 +1035,34 @@ function persistTranscript(params: {
         provider: params.provider.id,
         model: params.provider.model,
         duration_sec: params.result.durationSec,
-        cost_usd: params.costUsd,
         source: params.source,
       },
       null,
       2,
     ),
-    'utf-8',
   );
   return [
     {
-      path: `${WORKSPACE_ROOT_DISPLAY}/${OUTPUT_DIR}/${textFilename}`,
+      path: text.displayPath,
       filename: textFilename,
       mimeType: 'text/plain',
     },
     {
-      path: `${WORKSPACE_ROOT_DISPLAY}/${OUTPUT_DIR}/${jsonFilename}`,
+      path: json.displayPath,
       filename: jsonFilename,
       mimeType: 'application/json',
     },
   ];
 }
-
-function sanitizeProviderError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function cleanupAudioInput(input: AudioInput): void {
+function cleanupAudioInput(input) {
   if (!input.cleanupPath) return;
   fs.rmSync(input.cleanupPath, { recursive: true, force: true });
 }
-
-export async function runAudioTranscribe(
-  args: Record<string, unknown>,
-  context: AudioTranscriptionRuntimeContext,
-): Promise<string> {
+export async function runAudioTranscribe(args, context) {
   const action = readStringValue(args.action)?.toLowerCase();
   if (action === 'list') {
     return JSON.stringify(listAudioTranscriptionProviders(context), null, 2);
   }
-
   const request = await normalizeRequest(args, context);
   const candidates = buildProviderCandidates(context, request.provider);
   if (candidates.length === 0) {
@@ -1392,25 +1072,23 @@ export async function runAudioTranscribe(
         : 'audio_transcribe is not configured: store the provider API key with `hybridclaw secret set <name> <key>` or in TUI with `/secret set <name> <key>`, or use a configured openai-codex model.',
     );
   }
-
   try {
-    const attempts: Array<Record<string, unknown>> = [];
-    const errors: string[] = [];
+    const attempts = [];
+    const errors = [];
     for (let index = 0; index < candidates.length; index += 1) {
-      const candidate = candidates[index] as ProviderCandidate;
+      const candidate = candidates[index];
       try {
         const { result, warnings } = await transcribePossiblyChunked(
           candidate,
           request,
         );
-        const costUsd = estimateCostUsd(result.durationSec, candidate);
         const artifacts = request.detectLanguageOnly
           ? []
           : persistTranscript({
+              context,
               result,
               provider: candidate,
               source: request.audio.source,
-              costUsd,
             });
         attempts.push({
           provider: candidate.id,
@@ -1436,11 +1114,8 @@ export async function runAudioTranscribe(
             ...transcriptPayload,
             language: result.language,
             duration_sec: result.durationSec,
-            cost_usd: costUsd,
             usage: {
               audio_seconds: result.durationSec,
-              cost_usd: costUsd,
-              estimated: costUsd != null,
             },
             warnings: [...request.warnings, ...warnings],
             attempts,
@@ -1466,7 +1141,6 @@ export async function runAudioTranscribe(
         if (index === candidates.length - 1) break;
       }
     }
-
     throw new Error(
       `all audio transcription providers failed: ${errors.join(' | ')}`,
     );
