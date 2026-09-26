@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { ipcOutputFileName } from '../shared/ipc-output-files.js';
 import { IPC_DIR } from './runtime-paths.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
 
 const INPUT_PATH = path.join(IPC_DIR, 'input.json');
-const OUTPUT_PATH = path.join(IPC_DIR, 'output.json');
 const HEALTH_INPUT_PATH = path.join(IPC_DIR, 'health-input.json');
 const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
 const MIN_INPUT_POLL_INTERVAL_MS = 5;
@@ -58,8 +58,14 @@ export async function waitForInput(
   return null; // Idle timeout
 }
 
-export function writeOutput(output: ContainerOutput): void {
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+export function writeOutput(
+  output: ContainerOutput,
+  requestId: string | undefined,
+): void {
+  fs.writeFileSync(
+    path.join(IPC_DIR, ipcOutputFileName(requestId)),
+    JSON.stringify(output, null, 2),
+  );
 }
 
 export function writeHealthOutput(output: ContainerOutput): void {

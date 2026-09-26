@@ -237,6 +237,8 @@ export interface ContainerInput {
   };
   sessionId: string;
   runId?: string;
+  /** Names this request's reply file; see shared/ipc-output-files.js. */
+  requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
   chatbotId: string;
