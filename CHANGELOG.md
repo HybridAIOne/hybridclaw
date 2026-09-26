@@ -4,6 +4,14 @@
 
 ### Changed
 
+- **Eval harness moved out of the product build**: The benchmark and eval
+  harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
+  skill-activation suites, about 13.8K lines) moved from `src/evals/` to the
+  unshipped `eval-harness/` workspace. Released installs no longer include
+  `hybridclaw eval`, `/eval`, or the internal `__eval-*` CLI entries; run
+  `npm run eval -- <suite> ...` from a source checkout instead. The
+  gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
+  stay in core. `stemmer` is now a dev dependency.
 - npm releases build and verify the package once, publish the resulting tarball,
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
