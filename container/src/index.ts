@@ -109,7 +109,7 @@ import {
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
 import {
-  getToolExecutionMode,
+  leadingParallelRun,
   mapConcurrentInOrder,
   takeCachedValue,
 } from './tool-parallelism.js';
@@ -1872,43 +1872,18 @@ async function processRequestInner(
     }
 
     let successfulToolCallsThisTurn = 0;
-    const allowConcurrentBatching =
-      toolCalls.length > 1 &&
-      toolCalls.every(
-        (entry) =>
-          getToolExecutionMode(
-            entry.function.name,
-            entry.function.arguments,
-          ) === 'parallel',
-      );
     const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
       const cachedApproval = takeCachedValue(cachedApprovals, call.id);
-      const executionMode =
-        cachedApproval || !allowConcurrentBatching ? 'sequential' : 'parallel';
+      const candidateCalls = cachedApproval
+        ? []
+        : leadingParallelRun(
+            toolCalls.slice(callIndex, callIndex + MAX_PARALLEL_TOOL_CALLS),
+          );
 
-      if (executionMode === 'parallel') {
-        const candidateCalls: ToolCall[] = [call];
-        let nextOffset = 1;
-        while (
-          callIndex + nextOffset < toolCalls.length &&
-          candidateCalls.length < MAX_PARALLEL_TOOL_CALLS
-        ) {
-          const candidate = toolCalls[callIndex + nextOffset];
-          if (
-            getToolExecutionMode(
-              candidate.function.name,
-              candidate.function.arguments,
-            ) !== 'parallel'
-          ) {
-            break;
-          }
-          candidateCalls.push(candidate);
-          nextOffset += 1;
-        }
-
+      if (candidateCalls.length > 1) {
         const preparedBatch: PreparedToolCallExecution[] = [];
         for (const candidate of candidateCalls) {
           const candidateApproval = await resolveToolApproval({
@@ -2003,6 +1978,7 @@ async function processRequestInner(
 
       const approval =
         cachedApproval ||
+        takeCachedValue(cachedApprovals, call.id) ||
         (await resolveToolApproval({
           toolName,
           argsJson: call.function.arguments,

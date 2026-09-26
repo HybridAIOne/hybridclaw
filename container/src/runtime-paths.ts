@@ -105,7 +105,7 @@ export function expandUserPath(input: string): string {
   return trimmed;
 }
 
-function isWithinRoot(candidate: string, root: string): boolean {
+export function isWithinRoot(candidate: string, root: string): boolean {
   const resolvedCandidate = path.resolve(candidate);
   const resolvedRoot = path.resolve(root);
   return (
