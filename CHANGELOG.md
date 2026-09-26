@@ -8,6 +8,13 @@
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
 
+### Fixed
+
+- **Attachments in follow-up turns**: The agent now sees the local path of a
+  file uploaded earlier in the session, including after an interrupted turn,
+  instead of only its filename. A file removed by media cleanup is reported as
+  no longer available rather than as a stale path.
+
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
 ### Added

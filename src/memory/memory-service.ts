@@ -13,6 +13,7 @@ import type {
   SessionResetPolicy,
 } from '../session/session-reset.js';
 import type { ChatMessage } from '../types/api.js';
+import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   KnowledgeEntityTypeValue,
@@ -185,6 +186,7 @@ export interface MemoryBackend {
     artifacts?: ArtifactMetadata[] | null,
     source?: string | null,
     toolHistory?: ChatMessage[],
+    media?: readonly MediaContextItem[],
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -256,6 +258,7 @@ export interface StoreTurnParams {
     userId: string;
     username: string | null;
     content: string;
+    media?: readonly MediaContextItem[];
   };
   assistant: {
     userId?: string;
@@ -766,6 +769,7 @@ export class MemoryService {
     artifacts?: ArtifactMetadata[] | null;
     source?: string | null;
     toolHistory?: ChatMessage[];
+    media?: readonly MediaContextItem[];
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -777,6 +781,7 @@ export class MemoryService {
       params.artifacts,
       params.source,
       params.toolHistory,
+      params.media,
     );
   }
 
@@ -817,6 +822,7 @@ export class MemoryService {
       username: params.user.username,
       role: 'user',
       content: params.user.content,
+      media: params.user.media,
     });
     const assistantMessageId = this.storeMessage({
       sessionId: params.sessionId,
