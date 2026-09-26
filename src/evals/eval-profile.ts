@@ -189,33 +189,3 @@ export function parseEvalProfileModel(model: string): {
     },
   };
 }
-
-export function describeEvalProfile(profile: EvalProfile): string[] {
-  const normalizedAgentId = normalizeAgentId(profile.agentId);
-  const setup =
-    profile.workspaceMode === 'fresh-agent'
-      ? 'fresh temporary agent workspace'
-      : normalizedAgentId
-        ? `current agent workspace (${normalizedAgentId})`
-        : 'current agent workspace';
-  return [
-    `Agent setup: ${setup}`,
-    'Session state: fresh transient OpenAI-compatible session per request',
-    `System prompt: ${profile.ablateSystemPrompt ? 'ablated' : 'enabled'}`,
-    `Prompt include: ${
-      profile.includePromptParts.length > 0
-        ? profile.includePromptParts.join(', ')
-        : 'default'
-    }`,
-    `Prompt omit: ${
-      profile.omitPromptParts.length > 0
-        ? profile.omitPromptParts.join(', ')
-        : 'none'
-    }`,
-    `Workspace MEMORY.md: ${
-      profile.workspaceMode === 'fresh-agent'
-        ? 'fresh template file'
-        : 'current agent file'
-    }`,
-  ];
-}
