@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { McpClientManager } from '../container/src/mcp/client-manager.js';
 import type {
@@ -60,5 +60,39 @@ describe('McpClientManager tool namespacing', () => {
     expect(new Set(names).size).toBe(2);
     expect(manager.toolIndex.size).toBe(2);
     expect(names.every((name) => name.startsWith('foo_bar_'))).toBe(true);
+  });
+});
+
+describe('McpClientManager after a failed call', () => {
+  test.each([
+    ['an unannotated tool', undefined, 2],
+    ['a read-only tool', { readOnlyHint: true }, 2],
+    ['an idempotent write', { readOnlyHint: false, idempotentHint: true }, 2],
+    ['a write', { readOnlyHint: false }, 1],
+    ['an additive write', { destructiveHint: false }, 1],
+  ] as const)('reconnects and sends %s %i time(s) in total', async (_label, annotations, calls) => {
+    const callTool = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const rebuildClient = vi.fn(async () => {});
+    const handle = makeHandle('mail', 'send');
+    handle.client = { callTool } as never;
+    handle.tools[0].annotations = annotations;
+    const manager = new McpClientManager() as unknown as {
+      configs: Map<string, McpServerConfig>;
+      clients: Map<string, McpClientHandle>;
+      rebuildToolIndex(): void;
+      rebuildClient(name: string): Promise<void>;
+      callToolDetailed(name: string, args: object): Promise<unknown>;
+    };
+    manager.configs.set('mail', makeConfig('node'));
+    manager.clients.set('mail', handle);
+    manager.rebuildToolIndex();
+    manager.rebuildClient = rebuildClient;
+
+    await expect(manager.callToolDetailed('mail__send', {})).rejects.toThrow(
+      'socket hang up',
+    );
+    expect(callTool).toHaveBeenCalledTimes(calls);
+    // Without the reconnect the server would keep no tools after one failure.
+    expect(rebuildClient).toHaveBeenCalledOnce();
   });
 });
