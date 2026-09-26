@@ -14,6 +14,13 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **Attachments in follow-up turns**: The agent now sees the local path of a
+  file uploaded earlier in the session, including after an interrupted turn,
+  instead of only its filename. A file removed by media cleanup is reported as
+  no longer available rather than as a stale path.
+- **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
+  calls that already ran, with their arguments and results, for the next turn.
+  A call still running at the stop is marked as having an unknown outcome.
 - **Recursive shell reads of pinned files need approval**: Recursive reads
   that can reach pinned files without naming them (`grep -r`, `rg --hidden`,
   `find -exec`, `find | xargs`) now require approval on every run unless they
