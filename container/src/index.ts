@@ -7,6 +7,7 @@
  */
 import path from 'node:path';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
+import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -610,11 +611,15 @@ interface CompletedToolCallExecution {
   artifacts: ArtifactMetadata[];
 }
 
+// Tool starts this process has reported; the gateway parses them as progress.
+let toolCallsStarted = 0;
+
 function logToolCallStart(
   toolName: string,
   argsJson: string,
   approval: ToolApprovalEvaluation,
 ): void {
+  toolCallsStarted += 1;
   console.error(
     `[tool] ${formatToolNameForLog(toolName)}: ${formatToolCallStartProgressText(
       toolName,
@@ -1078,6 +1083,37 @@ async function processRequest(
         toolHistoryForReplay: turnToolHistory.finish(reason, true),
       }
     : output;
+}
+
+/**
+ * Runs a request and, when the model rejects its native media parts, runs it
+ * once more on `mediaFreeMessages`. A run that already used a tool is final.
+ */
+async function processRequestWithMediaFallback(
+  mediaFreeMessages: ChatMessage[],
+  params: ProcessRequestParams,
+): Promise<ContainerOutput> {
+  const toolCallsBefore = toolCallsStarted;
+  const output = await processRequest(params);
+  if (
+    params.messages === mediaFreeMessages ||
+    output.status !== 'error' ||
+    !shouldRetryWithoutNativeMedia(output.error) ||
+    !isRetrySafeRun(output, toolCallsStarted > toolCallsBefore)
+  ) {
+    return output;
+  }
+  console.error(
+    '[media] native media injection rejected by model; retrying without native media parts',
+  );
+  const promptOverride = params.effectiveUserPromptOverride;
+  const retryMessages = promptOverride
+    ? replaceLatestUserPrompt(mediaFreeMessages, promptOverride)
+    : mediaFreeMessages;
+  return processRequest({
+    ...params,
+    messages: injectSkillCacheHint(retryMessages),
+  });
 }
 
 async function processRequestInner(
@@ -2281,7 +2317,7 @@ async function main(): Promise<void> {
     };
     console.error('[approval] resolved user response without model run');
   } else {
-    firstOutput = await processRequest({
+    firstOutput = await processRequestWithMediaFallback(firstInput.messages, {
       sessionId: firstInput.sessionId,
       messages: firstMessagesForRequest,
       apiKey: storedApiKey,
@@ -2316,57 +2352,6 @@ async function main(): Promise<void> {
       escalationTarget: firstInput.escalationTarget,
       approvedToolCall: firstApprovedToolCall,
     });
-    if (
-      firstMessagesForRequest !== firstInput.messages &&
-      firstOutput.status === 'error' &&
-      shouldRetryWithoutNativeMedia(firstOutput.error)
-    ) {
-      console.error(
-        '[media] native media injection rejected by model; retrying without native media parts',
-      );
-      const firstRetryMessages = firstPromptOverride
-        ? replaceLatestUserPrompt(firstInput.messages, firstPromptOverride)
-        : firstInput.messages;
-      const firstRetryMessagesWithSkillCache =
-        injectSkillCacheHint(firstRetryMessages);
-      firstOutput = await processRequest({
-        sessionId: firstInput.sessionId,
-        messages: firstRetryMessagesWithSkillCache,
-        apiKey: storedApiKey,
-        baseUrl: firstInput.baseUrl,
-        provider: firstInput.provider,
-        providerMethod: firstInput.providerMethod,
-        codexRuntime: firstInput.codexRuntime,
-        isLocal: firstInput.isLocal,
-        contextWindow: firstInput.contextWindow,
-        modelBehavior: firstInput.modelBehavior,
-        thinkingFormat: firstInput.thinkingFormat,
-        reasoningEffort: firstInput.reasoningEffort,
-        model: firstInput.model,
-        chatbotId: firstInput.chatbotId,
-        enableRag: firstInput.enableRag,
-        requestHeaders: firstInput.requestHeaders,
-        ...inputRuntimeContext(firstInput),
-        tools: resolveTools(firstInput),
-        localToolMode: firstInput.localToolMode,
-        localStarterTools: firstInput.localStarterTools,
-        localDiscoveryDisabled:
-          firstInput.blockedTools?.includes('tool_catalog'),
-        deferredTools: resolveDeferredTools(firstInput),
-        taskModels: firstTaskModels,
-        contextGuard: firstInput.contextGuard,
-        channelId: firstInput.channelId,
-        skipContainerSystemPrompt:
-          firstInput.skipContainerSystemPrompt === true,
-        streamTextDeltas: firstInput.streamTextDeltas === true,
-        debugModelResponses: firstInput.debugModelResponses === true,
-        maxTokens: firstInput.maxTokens,
-        effectiveUserPromptOverride: firstPromptOverride,
-        ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
-        escalationTarget: firstInput.escalationTarget,
-        approvedToolCall: firstApprovedToolCall,
-      });
-    }
   }
 
   firstOutput.sideEffects = getPendingSideEffects();
@@ -2498,7 +2483,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    let output = await processRequest({
+    const output = await processRequestWithMediaFallback(input.messages, {
       sessionId: input.sessionId,
       messages: messagesForRequestWithSkillCache,
       apiKey,
@@ -2533,54 +2518,6 @@ async function main(): Promise<void> {
       escalationTarget: input.escalationTarget,
       approvedToolCall,
     });
-    if (
-      messagesForRequestWithSkillCache !== input.messages &&
-      output.status === 'error' &&
-      shouldRetryWithoutNativeMedia(output.error)
-    ) {
-      console.error(
-        '[media] native media injection rejected by model; retrying without native media parts',
-      );
-      const retryMessages = promptOverride
-        ? replaceLatestUserPrompt(input.messages, promptOverride)
-        : input.messages;
-      const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
-      output = await processRequest({
-        sessionId: input.sessionId,
-        messages: retryMessagesWithSkillCache,
-        apiKey,
-        baseUrl: input.baseUrl,
-        provider: input.provider,
-        providerMethod: input.providerMethod,
-        codexRuntime: input.codexRuntime,
-        isLocal: input.isLocal,
-        contextWindow: input.contextWindow,
-        modelBehavior: input.modelBehavior,
-        thinkingFormat: input.thinkingFormat,
-        reasoningEffort: input.reasoningEffort,
-        model: input.model,
-        chatbotId: input.chatbotId,
-        enableRag: input.enableRag,
-        requestHeaders,
-        ...inputRuntimeContext(input),
-        tools: resolveTools(input),
-        localToolMode: input.localToolMode,
-        localStarterTools: input.localStarterTools,
-        localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
-        deferredTools: resolveDeferredTools(input),
-        taskModels,
-        contextGuard: input.contextGuard,
-        channelId: input.channelId,
-        skipContainerSystemPrompt: input.skipContainerSystemPrompt === true,
-        streamTextDeltas: input.streamTextDeltas === true,
-        debugModelResponses: input.debugModelResponses === true,
-        maxTokens: input.maxTokens,
-        effectiveUserPromptOverride: promptOverride,
-        ralphMaxIterationsOverride: input.ralphMaxIterations,
-        escalationTarget: input.escalationTarget,
-        approvedToolCall,
-      });
-    }
 
     output.sideEffects = getPendingSideEffects();
     writeOutput(output);
