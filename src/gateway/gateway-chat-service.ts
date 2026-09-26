@@ -150,6 +150,7 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
+import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
@@ -1148,6 +1149,29 @@ async function handleGatewayMessageInner(
       session,
       reason: 'user-message',
       verdict: 'preempted',
+    });
+  }
+  // Before the session rebind below, so a refused turn skips the reset work.
+  let budgetHardStopError: string | null;
+  try {
+    budgetHardStopError = enforceAgentBudgetHardStop({
+      session,
+      runId,
+      agentId,
+      source,
+    });
+  } catch (error) {
+    activeGatewayRequest.release();
+    throw error;
+  }
+  if (budgetHardStopError) {
+    activeGatewayRequest.release();
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      agentId,
+      error: budgetHardStopError,
     });
   }
   const autoApproveTools = req.autoApproveTools === true;
