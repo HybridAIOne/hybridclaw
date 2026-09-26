@@ -96,6 +96,11 @@ interface DynamicContextMessageOptions {
   sessionSummary?: string | null;
   historyWindow?: HistoryWindowNote | null;
   /**
+   * Attachments from earlier turns with their current availability. Rendered
+   * here, not into stored history, because it changes as media expires.
+   */
+  earlierAttachments?: string | null;
+  /**
    * Per-session identity block (platform, session id, session key, user).
    * Rendered here rather than in the system prompt so a new session does not
    * invalidate the provider's prompt cache for the static prefix.
@@ -118,6 +123,7 @@ export function buildDynamicContextMessage(
     }
     dynamicSections.push(
       buildHistoryWindowPrompt(options.historyWindow),
+      options.earlierAttachments || '',
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
@@ -187,6 +193,7 @@ export function buildConversationContext(params: {
   agentId: string;
   sessionSummary?: string | null;
   retrievedContext?: string | null;
+  earlierAttachments?: string | null;
   history: HistoryMessage[];
   /** True when the caller's history fetch hit its row limit. */
   historyTruncated?: boolean;
@@ -204,6 +211,7 @@ export function buildConversationContext(params: {
     agentId,
     sessionSummary,
     retrievedContext,
+    earlierAttachments,
     history,
     historyTruncated = false,
     promptMode = 'full',
@@ -269,6 +277,7 @@ export function buildConversationContext(params: {
       agentId,
       retrievedContext,
       sessionSummary,
+      earlierAttachments,
       historyWindow,
       sessionContext: shouldRenderSessionContext(hookContext)
         ? runtimeInfo?.sessionContext
