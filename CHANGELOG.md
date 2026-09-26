@@ -62,6 +62,11 @@
 
 ### Fixed
 
+- **Warm-pool refill failures**: A turn that finished keeps its reply, tool
+  calls, and queued delegations when refilling the warm process pool
+  afterwards fails, for example on a full disk or a spawn error, instead of
+  being recorded as a failed turn. The refill failure is logged as a warning
+  and retried on the next turn.
 - **Failed turns and delegations**: A turn that ends in an error without
   starting its delegations now says so in its stored history. The next turn's
   error placeholder and any replayed `delegate` results state that nothing was

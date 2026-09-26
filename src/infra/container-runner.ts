@@ -1368,12 +1368,17 @@ async function runContainerInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
-      maintainWarmContainerPool({
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        bashProxy: params.bashProxy,
-      });
+      // Best-effort: a failed refill must not discard the finished turn.
+      try {
+        maintainWarmContainerPool({
+          agentId,
+          workspacePathOverride: params.workspacePathOverride,
+          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+          bashProxy: params.bashProxy,
+        });
+      } catch (err) {
+        logger.warn({ agentId, err }, 'Warm container refill failed');
+      }
     }
 
     logger.info(
