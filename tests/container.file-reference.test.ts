@@ -194,6 +194,104 @@ describe('expandFileReferences', () => {
   });
 });
 
+describe('assertNoPastedBinaryPayload', () => {
+  test('rejects the abbreviated payload that reached production', async () => {
+    // Verbatim content of snoller/psychoanalyse-akademie public/logo.png at
+    // commit e26d5e3a: 27 bytes where a 92 KB PNG was expected.
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({
+        content: 'iVBORw0KGgoAAAANSUhEUgAA...',
+      }),
+    ).toThrow(/abbreviated base64/);
+  });
+
+  test('rejects an ellipsis in the middle of a payload', async () => {
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({
+        content: `${'A'.repeat(40)}...${'B'.repeat(40)}`,
+      }),
+    ).toThrow(/abbreviated base64/);
+  });
+
+  test('rejects an oversized inline payload', async () => {
+    const { assertNoPastedBinaryPayload, INLINE_BASE64_MAX_CHARS } =
+      await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({
+        content_base64: 'A'.repeat(INLINE_BASE64_MAX_CHARS + 1),
+      }),
+    ).toThrow(/inline base64 payload/);
+  });
+
+  test('rejects an oversized payload nested in a data url', async () => {
+    const { assertNoPastedBinaryPayload, INLINE_BASE64_MAX_CHARS } =
+      await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({
+        json: {
+          image: `data:image/png;base64,${'A'.repeat(INLINE_BASE64_MAX_CHARS + 1)}`,
+        },
+      }),
+    ).toThrow(/inline base64 payload/);
+  });
+
+  test('rejects a line-wrapped oversized payload', async () => {
+    const { assertNoPastedBinaryPayload, INLINE_BASE64_MAX_CHARS } =
+      await loadFileReference();
+    const wrapped = ('A'.repeat(76) + '\n').repeat(
+      Math.ceil((INLINE_BASE64_MAX_CHARS + 1) / 76),
+    );
+
+    expect(() => assertNoPastedBinaryPayload({ body: wrapped })).toThrow(
+      /inline base64 payload/,
+    );
+  });
+
+  test('allows a small inline payload', async () => {
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({ content_base64: 'A'.repeat(1024) }),
+    ).not.toThrow();
+  });
+
+  test('allows source code larger than the limit', async () => {
+    const { assertNoPastedBinaryPayload, INLINE_BASE64_MAX_CHARS } =
+      await loadFileReference();
+    const source = 'export function noop() { return null; }\n'.repeat(
+      Math.ceil(INLINE_BASE64_MAX_CHARS / 10),
+    );
+
+    expect(() =>
+      assertNoPastedBinaryPayload({ path: 'noop.ts', contents: source }),
+    ).not.toThrow();
+  });
+
+  test('allows prose that ends in an ellipsis', async () => {
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({
+        text: 'Ich schaue mir das an und melde mich gleich...',
+      }),
+    ).not.toThrow();
+  });
+
+  test('allows the file reference placeholder itself', async () => {
+    const { assertNoPastedBinaryPayload } = await loadFileReference();
+
+    expect(() =>
+      assertNoPastedBinaryPayload({ content: '<file-base64:logo.png>' }),
+    ).not.toThrow();
+  });
+});
+
 describe('tool dispatch', () => {
   test('expands references before the tool runs', async () => {
     fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), BINARY_BYTES);
@@ -212,6 +310,45 @@ describe('tool dispatch', () => {
       'utf8',
     );
     expect(written).toBe(BINARY_BYTES.toString('base64'));
+  });
+
+  test('does not apply the inline payload guard to its own expansion', async () => {
+    // 92 KB expands to ~123k base64 characters, far over the inline limit.
+    // The guard has to run on what the model wrote, not on what the runtime
+    // substituted, or every real upload trips it.
+    const payload = Buffer.alloc(92321);
+    for (let i = 0; i < payload.length; i += 1) payload[i] = i % 256;
+    fs.writeFileSync(path.join(workspaceRoot, 'logo.png'), payload);
+    const { executeTool } = await loadTools();
+
+    await executeTool(
+      'write',
+      JSON.stringify({
+        path: 'encoded.txt',
+        contents: '<file-base64:logo.png>',
+      }),
+    );
+
+    const written = fs.readFileSync(
+      path.join(workspaceRoot, 'encoded.txt'),
+      'utf8',
+    );
+    expect(written).toBe(payload.toString('base64'));
+  });
+
+  test('reports a pasted payload as a tool error', async () => {
+    const { executeTool } = await loadTools();
+
+    const output = await executeTool(
+      'write',
+      JSON.stringify({
+        path: 'out.txt',
+        contents: 'iVBORw0KGgoAAAANSUhEUgAA...',
+      }),
+    );
+
+    expect(output).toMatch(/abbreviated base64/);
+    expect(fs.existsSync(path.join(workspaceRoot, 'out.txt'))).toBe(false);
   });
 
   test('reports an unresolvable reference as a tool error', async () => {

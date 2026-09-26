@@ -43,7 +43,11 @@ import {
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { emitRuntimeEvent } from './extensions.js';
-import { expandFileReferences, FileReferenceError } from './file-reference.js';
+import {
+  assertNoPastedBinaryPayload,
+  expandFileReferences,
+  FileReferenceError,
+} from './file-reference.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
@@ -2946,6 +2950,7 @@ async function executeToolInternal(
 
   let args = parsedToolArgs;
   try {
+    assertNoPastedBinaryPayload(parsedToolArgs);
     const expanded = expandFileReferences(parsedToolArgs);
     args = expanded.args;
     for (const expansion of expanded.expansions) {
