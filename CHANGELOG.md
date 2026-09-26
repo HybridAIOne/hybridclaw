@@ -694,6 +694,12 @@
   quotation, expense, report, and bank-plan requests default `voucherStatus` to
   the documented `any` wildcard when `--status` is omitted, avoiding an HTTP
   400 response from the Lexware API.
+- **The console view switcher highlights the page you are on**: its Agents
+  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
+  lit up Admin instead. It now links straight to the agents page, and the
+  switcher no longer lets the router mark Admin as a second current page on
+  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
+  `/agents` are rewritten when the config loads.
 
 ## [0.29.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.29.3) - 2026-08-25
 
@@ -706,12 +712,6 @@
 
 ### Fixed
 
-- **The console view switcher highlights the page you are on**: its Agents
-  entry pointed at `/agents`, a redirect into `/admin/agents`, so following it
-  lit up Admin instead. It now links straight to the agents page, and the
-  switcher no longer lets the router mark Admin as a second current page on
-  every `/admin/*` route. Stored `ui.navigation` entries still pointing at
-  `/agents` are rewritten when the config loads.
 - **Premium-model errors now point at the current free model**: The guidance
   shown when a HybridAI request is rejected for premium-model access names
   `gpt-5.6-luna` — the model available without a paid plan or credits — instead
@@ -1643,6 +1643,12 @@
 
 ## [0.25.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.2) - 2026-06-20
 
+### Changed
+
+- **Desktop packaging**: Desktop build commands rebuild the app before
+  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
+  and strip non-runtime dependency files from packaged desktop bundles.
+
 ### Fixed
 
 - **Cloud chat write authentication**: Cookie-authenticated browser writes now
@@ -1651,12 +1657,6 @@
   TLS-terminating proxy.
 
 ## [0.25.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.25.1) - 2026-06-20
-
-### Changed
-
-- **Desktop packaging**: Desktop build commands rebuild the app before
-  packaging, reuse current icon/runtime stages, cache the staged Node runtime,
-  and strip non-runtime dependency files from packaged desktop bundles.
 
 ### Fixed
 
@@ -3361,10 +3361,6 @@
 - **Immediate one-shot scheduler jobs**: Added config-backed `one_shot` jobs
   that run immediately, retry up to `maxRetries`, preserve review state, and
   surface richer delivery output across the gateway and admin scheduler UI.
-- **Mem0 memory plugin**: Added a bundled `mem0-memory` plugin so local
-  HybridClaw installs can mirror turns into Mem0 cloud memory, inject
-  prompt-time Mem0 recall, expose `mem0_*` tools, and mirror explicit native
-  memory writes back into Mem0.
 
 ### Changed
 
@@ -3426,15 +3422,9 @@
 - **Telegram config reload behavior**: Running gateways now restart the
   Telegram integration automatically when `telegram.*` config changes land, so
   most setup edits apply within a few seconds without a full gateway restart.
-- **Per-agent skill allowlists**: Agent `skills` settings now narrow the
-  globally enabled skill set, while omitting `skills` keeps the existing
-  globally enabled scope for backward compatibility.
 
 ### Fixed
 
-- **TUI sandbox preflight**: `hybridclaw tui` now follows the sandbox mode
-  reported by a reachable gateway, avoiding unnecessary container rebuild
-  checks when the running gateway is already in host mode and vice versa.
 - **HybridAI auxiliary model prefixes**: Auxiliary-model routing now strips the
   leading provider prefix correctly so HybridAI requests do not fail when the
   configured model name already carries a provider namespace.
@@ -5060,6 +5050,7 @@
 - **CLI and scripts**: Updated command descriptions and npm scripts so `gateway` is the primary runtime (`dev`/`start` now launch gateway).
 - **Gateway HTTP server role**: `src/health.ts` now serves health, API routes, and static web assets.
 - **Configuration and docs**: Added gateway-related env vars (`HEALTH_HOST`, `WEB_API_TOKEN`, `GATEWAY_BASE_URL`, `GATEWAY_API_TOKEN`) and updated `.env.example`/`README.md`.
+- **Container runtime toolchain**: Agent container image now includes `python3`, `pip`, and `uv` in addition to existing `git`, `node`, and `npm` tooling
 
 ### Fixed
 
@@ -5080,7 +5071,6 @@
 - **Prompt context assembly**: Discord, TUI, and heartbeat sessions now inject persisted `session_summary` context into the system prompt alongside bootstrap files and skills
 - **Compaction execution model**: Discord and TUI now run compaction in the background after sending the assistant reply, preserving responsive UX
 - **Configuration surface**: Added new `.env` knobs for compaction and pre-compaction flush thresholds/limits (`SESSION_COMPACTION_*`, `PRE_COMPACTION_MEMORY_FLUSH_*`)
-- **Container runtime toolchain**: Agent container image now includes `python3`, `pip`, and `uv` in addition to existing `git`, `node`, and `npm` tooling
 
 ## [0.1.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.1.1)
 
