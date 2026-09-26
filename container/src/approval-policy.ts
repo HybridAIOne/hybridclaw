@@ -48,7 +48,7 @@ import {
   type BehaviorAnomalyScore,
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
-import { classifyMcpTool, hasBehaviorHints } from './mcp/tool-classifier.js';
+import { classifyMcpTool } from './mcp/tool-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
   matchesHardPinnedPath,
@@ -3450,7 +3450,9 @@ export class TrustedAgentApprovalRuntime {
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
           consequenceIfDenied: 'I will continue without this MCP lookup.',
-          reason: 'this MCP tool appears read-only',
+          reason: annotations?.readOnlyHint
+            ? 'the MCP server marks this tool read-only'
+            : 'this MCP tool appears read-only',
           commandPreview: normalizePreview(JSON.stringify(args)),
           pathHints: [],
           hostHints: [],
@@ -3461,16 +3463,19 @@ export class TrustedAgentApprovalRuntime {
       }
 
       if (kind === 'delete' || kind === 'execute') {
+        const marked = annotations?.destructiveHint === true;
         return {
           tier: 'red',
           actionKey,
           intent: `run MCP tool ${toolLabel}`,
-          consequenceIfDenied:
-            kind === 'delete'
+          consequenceIfDenied: marked
+            ? 'I will continue without making that change.'
+            : kind === 'delete'
               ? 'I will continue without deleting anything.'
               : 'I will continue without executing that action.',
-          reason:
-            kind === 'delete'
+          reason: marked
+            ? 'the MCP server marks this tool destructive'
+            : kind === 'delete'
               ? 'this MCP tool appears destructive'
               : 'this MCP tool appears to execute commands or external actions',
           commandPreview: normalizePreview(JSON.stringify(args)),
@@ -3498,8 +3503,7 @@ export class TrustedAgentApprovalRuntime {
         promotableRed: false,
         // A write that reaches outside (mail, a PR comment) is narrated every
         // time instead of going quiet after its first run.
-        stickyYellow:
-          hasBehaviorHints(annotations) && annotations.openWorldHint !== false,
+        stickyYellow: annotations?.openWorldHint === true,
       };
     }
 

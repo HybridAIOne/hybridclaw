@@ -61,40 +61,47 @@ function matchesHint(name: string, hints: readonly string[]): boolean {
   return hints.some((hint) => name.includes(hint));
 }
 
+const LOOKUP_KINDS: ReadonlySet<ToolKind> = new Set([
+  'read',
+  'search',
+  'fetch',
+]);
+
 /**
- * Whether the server described the tool's behaviour. Once it has, unset
- * hints take the MCP spec defaults (a write is destructive and open-world);
- * without any, the tool is judged by its name.
+ * Whether a call that may already have reached the server can be sent again.
+ * Only a tool the server says writes, without calling it idempotent, is not.
  */
-export function hasBehaviorHints(
+export function isResendSafe(
   annotations: ToolAnnotations | undefined,
-): annotations is ToolAnnotations {
+): boolean {
+  if (annotations?.readOnlyHint === true) return true;
+  if (annotations?.idempotentHint === true) return true;
   return (
-    annotations?.readOnlyHint !== undefined ||
-    annotations?.destructiveHint !== undefined ||
-    annotations?.idempotentHint !== undefined ||
-    annotations?.openWorldHint !== undefined
+    annotations?.readOnlyHint !== false &&
+    annotations?.destructiveHint === undefined
   );
 }
 
-/** Whether a call that may already have reached the server can be resent. */
-export function isRetrySafe(annotations: ToolAnnotations | undefined): boolean {
-  if (!hasBehaviorHints(annotations)) return true;
-  return (
-    annotations.readOnlyHint === true || annotations.idempotentHint === true
-  );
-}
-
+/**
+ * Hints the server states beat guessing from the name ("execute_sql" may only
+ * ever run SELECTs); hints it leaves out fall back to the name.
+ */
 export function classifyMcpTool(
   toolName: string,
   annotations?: ToolAnnotations,
 ): ToolKind {
-  // The server's own hints beat guessing from the name ("execute_sql" may
-  // only ever run SELECTs).
-  if (hasBehaviorHints(annotations)) {
-    if (annotations.readOnlyHint === true) return 'read';
-    return annotations.destructiveHint === false ? 'edit' : 'delete';
+  if (annotations?.readOnlyHint === true) return 'read';
+  if (annotations?.destructiveHint === true) return 'delete';
+  if (annotations?.destructiveHint === false) return 'edit';
+  const kind = classifyMcpToolName(toolName);
+  // A tool the server says writes never passes as a lookup by its name.
+  if (annotations?.readOnlyHint === false && LOOKUP_KINDS.has(kind)) {
+    return 'other';
   }
+  return kind;
+}
+
+function classifyMcpToolName(toolName: string): ToolKind {
   const lower = toolName
     .toLowerCase()
     .split('__')

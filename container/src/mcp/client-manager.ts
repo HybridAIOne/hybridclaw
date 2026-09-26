@@ -18,7 +18,7 @@ import {
 
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
-import { classifyMcpTool, isRetrySafe } from './tool-classifier.js';
+import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
 import type {
   McpClientHandle,
   McpServerConfig,
@@ -244,7 +244,7 @@ export class McpClientManager {
       entry.toolName,
       namespacedName,
       args,
-      isRetrySafe(entry.annotations),
+      isResendSafe(entry.annotations) ? 'resend' : 'reconnect',
     );
   }
 
@@ -435,7 +435,7 @@ export class McpClientManager {
     toolName: string,
     namespacedName: string,
     args: Record<string, unknown>,
-    allowRetry: boolean,
+    retry: 'resend' | 'reconnect' | 'none',
   ): Promise<ToolRunResult> {
     const handle = this.clients.get(serverName);
     if (!handle) {
@@ -474,14 +474,16 @@ export class McpClientManager {
         serverName,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (!allowRetry) throw error;
+      if (retry === 'none') throw error;
+      // Reconnect either way: a failed server has no tools until it does.
       await this.rebuildClient(serverName);
+      if (retry === 'reconnect') throw error;
       return this.callToolOnServer(
         serverName,
         toolName,
         namespacedName,
         args,
-        false,
+        'none',
       );
     }
   }

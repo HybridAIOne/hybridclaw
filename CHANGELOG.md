@@ -15,16 +15,16 @@
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
 - **MCP tool annotations respected**: Approvals follow what a server says a
-  tool does instead of guessing from its name. Read-only tools run without
-  approval, so an `execute_sql` that only runs SELECTs no longer waits for a
-  yes on every call, which a voice caller could never give. Destructive
-  writes need approval, including writes that leave `destructiveHint` unset,
-  since the spec default is destructive. Additive writes that reach the
-  outside world are announced on every call. A failed call is resent after
-  reconnecting only when the tool is read-only or idempotent, so a lost
+  tool does; only hints it leaves out are still guessed from the name.
+  Read-only tools run without approval, so an `execute_sql` that only runs
+  SELECTs no longer waits for a yes on every call, which a voice caller could
+  never give. Tools marked destructive need approval, tools marked additive
+  are announced, and additive tools marked open-world are announced on every
+  call. A tool that says it writes is never waved through as a lookup because
+  of its name. After a failed call the server is still reconnected, but the
+  call is only sent again when the tool is read-only or idempotent, so a lost
   response no longer sends the same mail twice. The tool's `title` names it
-  in approval prompts. Tools without annotations are judged by name as
-  before.
+  in approval prompts.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

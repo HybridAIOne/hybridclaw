@@ -63,14 +63,16 @@ describe('McpClientManager tool namespacing', () => {
   });
 });
 
-describe('McpClientManager retry after a failed call', () => {
+describe('McpClientManager after a failed call', () => {
   test.each([
     ['an unannotated tool', undefined, 2],
     ['a read-only tool', { readOnlyHint: true }, 2],
     ['an idempotent write', { readOnlyHint: false, idempotentHint: true }, 2],
-    ['a non-idempotent write', { destructiveHint: false }, 1],
-  ] as const)('resends %s %i time(s) in total', async (_label, annotations, calls) => {
+    ['a write', { readOnlyHint: false }, 1],
+    ['an additive write', { destructiveHint: false }, 1],
+  ] as const)('reconnects and sends %s %i time(s) in total', async (_label, annotations, calls) => {
     const callTool = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const rebuildClient = vi.fn(async () => {});
     const handle = makeHandle('mail', 'send');
     handle.client = { callTool } as never;
     handle.tools[0].annotations = annotations;
@@ -84,11 +86,13 @@ describe('McpClientManager retry after a failed call', () => {
     manager.configs.set('mail', makeConfig('node'));
     manager.clients.set('mail', handle);
     manager.rebuildToolIndex();
-    manager.rebuildClient = async () => {};
+    manager.rebuildClient = rebuildClient;
 
     await expect(manager.callToolDetailed('mail__send', {})).rejects.toThrow(
       'socket hang up',
     );
     expect(callTool).toHaveBeenCalledTimes(calls);
+    // Without the reconnect the server would keep no tools after one failure.
+    expect(rebuildClient).toHaveBeenCalledOnce();
   });
 });

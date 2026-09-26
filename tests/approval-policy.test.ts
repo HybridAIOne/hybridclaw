@@ -1729,45 +1729,79 @@ approval:
   });
 
   describe('MCP tools the server annotates', () => {
-    function runtimeFor(annotations: ToolAnnotations) {
+    function runtimeFor(toolName: string, annotations: ToolAnnotations) {
       const runtime = new TrustedAgentApprovalRuntime(
         '/tmp/hybridclaw-missing-policy.yaml',
       );
       runtime.setMcpToolBehaviorResolver(() => ({
-        kind: classifyMcpTool('execute_sql', annotations),
+        kind: classifyMcpTool(toolName, annotations),
         annotations,
       }));
       return runtime;
     }
 
-    function evaluate(runtime: TrustedAgentApprovalRuntime) {
+    function evaluate(
+      runtime: TrustedAgentApprovalRuntime,
+      toolName = 'execute_sql',
+    ) {
       return runtime.evaluateToolCall({
-        toolName: 'warehouse__execute_sql',
-        argsJson: JSON.stringify({ sql: 'SELECT 1' }),
-        latestUserPrompt: 'Who are my top customers?',
+        toolName: `warehouse__${toolName}`,
+        argsJson: JSON.stringify({
+          sql: 'SELECT customer, SUM(revenue_net) AS revenue FROM orders GROUP BY customer ORDER BY revenue DESC LIMIT 2',
+        }),
+        latestUserPrompt: 'Was sind meine zwei Top-Kunden?',
       });
     }
 
     test('a read-only hint beats an execute-like name', () => {
-      const evaluation = evaluate(runtimeFor({ readOnlyHint: true }));
+      const evaluation = evaluate(
+        runtimeFor('execute_sql', { readOnlyHint: true }),
+      );
 
       expect(evaluation.tier).toBe('green');
       expect(evaluation.actionKey).toBe('mcp:warehouse:read');
     });
 
-    test('a write without a destructive hint takes the spec default', () => {
-      const evaluation = evaluate(runtimeFor({ readOnlyHint: false }));
+    test('a write the server marks destructive needs approval', () => {
+      const evaluation = evaluate(
+        runtimeFor('update_file', { readOnlyHint: false, destructiveHint: true }),
+        'update_file',
+      );
 
       expect(evaluation.tier).toBe('red');
       expect(evaluation.decision).toBe('required');
+      expect(evaluation.reason).toContain(
+        'the MCP server marks this tool destructive',
+      );
+    });
+
+    test('a write that leaves destructiveHint unset keeps its name tier', () => {
+      const evaluation = evaluate(
+        runtimeFor('create_issue', { readOnlyHint: false }),
+        'create_issue',
+      );
+
+      expect(evaluation.tier).toBe('yellow');
+    });
+
+    test('a tool the server says writes never passes as a lookup', () => {
+      const evaluation = evaluate(
+        runtimeFor('get_or_create_session', { readOnlyHint: false }),
+        'get_or_create_session',
+      );
+
+      expect(evaluation.tier).toBe('yellow');
     });
 
     test.each([
       [false, 'green'],
+      [undefined, 'green'],
       [true, 'yellow'],
-      [undefined, 'yellow'],
     ] as const)('an additive write with openWorldHint %s is %s on its second run', (openWorldHint, secondTier) => {
-      const runtime = runtimeFor({ destructiveHint: false, openWorldHint });
+      const runtime = runtimeFor('execute_sql', {
+        destructiveHint: false,
+        openWorldHint,
+      });
 
       const first = evaluate(runtime);
       expect(first.tier).toBe('yellow');
@@ -1778,7 +1812,10 @@ approval:
 
     test('the title names the tool in the approval', () => {
       const evaluation = evaluate(
-        runtimeFor({ title: 'Query the warehouse', readOnlyHint: false }),
+        runtimeFor('execute_sql', {
+          title: 'Query the warehouse',
+          readOnlyHint: true,
+        }),
       );
 
       expect(evaluation.intent).toBe('run MCP tool Query the warehouse');
