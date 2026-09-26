@@ -18,10 +18,11 @@ import {
 
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
-import { classifyMcpTool } from './tool-classifier.js';
+import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
 import type {
   McpClientHandle,
   McpServerConfig,
+  McpToolBehavior,
   McpToolDefinition,
 } from './types.js';
 
@@ -32,7 +33,7 @@ const MCP_CLIENT_INFO = {
   version: process.env.npm_package_version || '0.0.0',
 };
 
-interface ToolIndexEntry {
+interface ToolIndexEntry extends McpToolBehavior {
   serverName: string;
   toolName: string;
 }
@@ -173,6 +174,11 @@ export class McpClientManager {
     return this.toolIndex.has(name);
   }
 
+  getToolBehavior(name: string): McpToolBehavior | undefined {
+    const entry = this.toolIndex.get(name);
+    return entry && { kind: entry.kind, annotations: entry.annotations };
+  }
+
   hasServer(name: string): boolean {
     return this.configs.has(name);
   }
@@ -238,7 +244,7 @@ export class McpClientManager {
       entry.toolName,
       namespacedName,
       args,
-      true,
+      isResendSafe(entry.annotations) ? 'resend' : 'reconnect',
     );
   }
 
@@ -418,7 +424,8 @@ export class McpClientManager {
         name: namespacedName,
         description,
         inputSchema: rawSchema,
-        kind: classifyMcpTool(tool.name),
+        kind: classifyMcpTool(tool.name, tool.annotations),
+        annotations: tool.annotations,
       };
     });
   }
@@ -428,7 +435,7 @@ export class McpClientManager {
     toolName: string,
     namespacedName: string,
     args: Record<string, unknown>,
-    allowRetry: boolean,
+    retry: 'resend' | 'reconnect' | 'none',
   ): Promise<ToolRunResult> {
     const handle = this.clients.get(serverName);
     if (!handle) {
@@ -467,14 +474,16 @@ export class McpClientManager {
         serverName,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (!allowRetry) throw error;
+      if (retry === 'none') throw error;
+      // Reconnect either way: a failed server has no tools until it does.
       await this.rebuildClient(serverName);
+      if (retry === 'reconnect') throw error;
       return this.callToolOnServer(
         serverName,
         toolName,
         namespacedName,
         args,
-        false,
+        'none',
       );
     }
   }
@@ -509,6 +518,8 @@ export class McpClientManager {
         this.toolIndex.set(tool.name, {
           serverName: handle.serverName,
           toolName: tool.originalName,
+          kind: tool.kind,
+          annotations: tool.annotations,
         });
       }
     }

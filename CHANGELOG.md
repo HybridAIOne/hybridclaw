@@ -12,6 +12,12 @@
   next written. `model.usage` audit events no longer carry `runtime` or
   `codexRuntime`, and `/status` no longer prints a `Runtime:` field.
 
+### Fixed
+
+- **Empty auxiliary model replies use the fallback chain**: Session titles and
+  other auxiliary tasks try the next eligible model when a provider returns
+  blank text, and record the empty attempt as a failure.
+
 ### Changed
 
 - **Media tools move to the `media-tools` plugin; provider keys leave the
@@ -68,6 +74,17 @@
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
   from older installs.
+- **MCP tool annotations respected**: Approvals follow what a server says a
+  tool does; only hints it leaves out are still guessed from the name.
+  Read-only tools run without approval, so an `execute_sql` that only runs
+  SELECTs no longer waits for a yes on every call, which a voice caller could
+  never give. Tools marked destructive need approval, tools marked additive
+  are announced, and additive tools marked open-world are announced on every
+  call. A tool that says it writes is never waved through as a lookup because
+  of its name. After a failed call the server is still reconnected, but the
+  call is only sent again when the tool is read-only or idempotent, so a lost
+  response no longer sends the same mail twice. The tool's `title` names it
+  in approval prompts.
 - **Attachments in follow-up turns**: The agent now sees the local path of a
   file uploaded earlier in the session, including after an interrupted turn,
   instead of only its filename. A file removed by media cleanup is reported as
