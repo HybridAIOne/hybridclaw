@@ -671,6 +671,10 @@ import {
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
+import {
+  interruptedDelegationsNote,
+  withDelegationsNotStarted,
+} from './interrupted-delegations.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -4228,6 +4232,8 @@ export function buildErrorTurnPlaceholder(params: {
   }
   const ack = params.delegationAcknowledgement?.trim();
   if (ack) lines.push(`Delegations were still started: ${ack}`);
+  const notStarted = !ack && interruptedDelegationsNote(params.tools);
+  if (notStarted) lines.push(notStarted);
   return lines.join('\n');
 }
 
@@ -4244,6 +4250,7 @@ export function recordErrorTurn(opts: {
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
+  /** Present iff delegations were started; without it the turn says none were. */
   delegationAcknowledgement?: string | null;
   replaceBuiltInMemory?: boolean;
 }): {
@@ -4255,6 +4262,9 @@ export function recordErrorTurn(opts: {
     tools: opts.tools,
     delegationAcknowledgement: opts.delegationAcknowledgement,
   });
+  const history = opts.delegationAcknowledgement?.trim()
+    ? opts
+    : withDelegationsNotStarted(opts);
   const storedTurn =
     opts.replaceBuiltInMemory === true
       ? {
@@ -4273,7 +4283,7 @@ export function recordErrorTurn(opts: {
             role: 'assistant',
             content: placeholder,
             agentId: opts.agentId,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -4289,7 +4299,7 @@ export function recordErrorTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: placeholder,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
@@ -4338,7 +4348,7 @@ export function recordErrorTurn(opts: {
     userId: 'assistant',
     username: null,
     content: placeholder,
-    toolHistory: opts.toolHistory,
+    toolHistory: history.toolHistory,
   });
   return storedTurn;
 }

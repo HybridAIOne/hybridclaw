@@ -10,6 +10,12 @@
 
 ### Fixed
 
+- **Failed turns and delegations**: A turn that ends in an error without
+  starting its delegations now says so in its stored history. The next turn's
+  error placeholder and any replayed `delegate` results state that nothing was
+  started instead of repeating "Delegation accepted". This covers stops, which
+  never start the delegations they queued, and timeouts, agent crashes and
+  runner errors, whose queued delegations never reach the gateway.
 - **Document delivery**: Reports, lists, and data files an agent writes are
   attached to its reply when the reply names them, including links with
   `sandbox:` or host workspace paths. Web chat links to an attached file

@@ -213,6 +213,7 @@ import {
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
 import { isGatewayShuttingDown, trackInFlightTurn } from './in-flight-turns.js';
+import { dropInterruptedDelegations } from './interrupted-delegations.js';
 import {
   executeModelRouting,
   type ModelRoutingAttempt,
@@ -2036,6 +2037,7 @@ async function handleGatewayMessageInner(
     | 'processing-agent-output' = 'pre-agent';
   let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
   const observedToolCalls: ErrorTurnToolRecord[] = [];
+  let delegationAcknowledgement: string | null = null;
   let turnPersisted = false;
   const recordPendingHatchingTerminalAudit = (): void => {
     recordBootstrapHatchingTerminalAudit({
@@ -2285,6 +2287,10 @@ async function handleGatewayMessageInner(
     // before final accounting so comparison usage stays attached to this turn.
     await shadowCompletion;
     agentStage = 'processing-agent-output';
+    // A reply that beat the stop still starts its delegations.
+    const interrupted =
+      output.status === 'error' && activeGatewayRequest.signal.aborted;
+    if (interrupted) output = dropInterruptedDelegations(output);
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
       media,
@@ -2605,7 +2611,7 @@ async function handleGatewayMessageInner(
             ackText: ackText || '',
           })
         : null;
-    const delegationAcknowledgement = delegationDescriptor ? ackText : null;
+    delegationAcknowledgement = delegationDescriptor ? ackText : null;
 
     promoteWorkspaceSkills(workspacePath);
 
@@ -2997,6 +3003,7 @@ async function handleGatewayMessageInner(
           userMedia: media,
           error: errorMsg,
           tools: observedToolCalls,
+          delegationAcknowledgement,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
         });
       } catch (storeErr) {
