@@ -5,13 +5,17 @@ import { parseJsonObject } from '../utils/json-object.js';
 import { finiteNumberOrNull } from '../utils/number-normalization.js';
 
 const COMMON_EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.csv': 'text/csv',
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
+  '.html': 'text/html',
   '.jpg': 'image/jpeg',
+  '.json': 'application/json',
   '.m4a': 'audio/mp4',
   '.m4v': 'video/mp4',
+  '.md': 'text/markdown',
   '.mp3': 'audio/mpeg',
   '.mov': 'video/quicktime',
   '.mp4': 'video/mp4',
@@ -21,6 +25,8 @@ const COMMON_EXTENSION_MIME_TYPES: Record<string, string> = {
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
+  '.tsv': 'text/tab-separated-values',
+  '.txt': 'text/plain',
   '.wav': 'audio/wav',
   '.webm': 'video/webm',
   '.webp': 'image/webp',
