@@ -3740,6 +3740,11 @@ async function executeToolInternal(
       if (result.warning) {
         lines.push(`Warning: ${result.warning}`);
       }
+      if (result.nextPageUrl) {
+        lines.push(
+          `Next page: ${result.nextPageUrl} (paginated; fetch it for more items).`,
+        );
+      }
       let outputText = result.text;
       if (useLlmProcessing && result.text.trim()) {
         try {

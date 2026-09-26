@@ -168,9 +168,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
-  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
-  GATEWAY_CLIENT_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
@@ -15161,29 +15159,6 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
-      }
-
-      case 'eval': {
-        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
-        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
-          return badCommand(
-            'Eval Restricted',
-            'The `eval` command is only available from local TUI, web, or CLI sessions.',
-          );
-        }
-
-        const evalModule = await import('../evals/eval-command.js');
-        const runtime = resolveAgentForRequest({ session });
-        return evalModule.handleEvalCommand({
-          args: req.args.slice(1),
-          channelId: req.channelId,
-          dataDir: DATA_DIR,
-          gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-          webApiToken: WEB_API_TOKEN,
-          gatewayApiToken: GATEWAY_API_TOKEN,
-          effectiveAgentId: runtime.agentId,
-          effectiveModel: runtime.model,
-        });
       }
 
       default: {

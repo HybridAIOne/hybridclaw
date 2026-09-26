@@ -1,4 +1,4 @@
-import type { JudgeTraceVerdict } from './trace-judge.js';
+import type { JudgeTraceVerdict } from '../../src/evals/trace-judge.js';
 
 export type TraceJudgeCriterionType =
   | 'risk'

@@ -69,6 +69,7 @@ templates/              Runtime workspace bootstrap files seeded into agent work
 tests/                  Vitest suites: unit, integration, e2e, live
 docs/                   Static site assets, development reference docs
 console/                Web console workspace package
+eval-harness/           Benchmark/eval harness (unshipped; `npm run eval -- <suite>`)
 ```
 
 ### Key Data Flows

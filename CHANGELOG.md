@@ -4,6 +4,14 @@
 
 ### Changed
 
+- **Eval harness moved out of the product build**: The benchmark and eval
+  harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
+  skill-activation suites, about 13.8K lines) moved from `src/evals/` to the
+  unshipped `eval-harness/` workspace. Released installs no longer include
+  `hybridclaw eval`, `/eval`, or the internal `__eval-*` CLI entries; run
+  `npm run eval -- <suite> ...` from a source checkout instead. The
+  gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
+  stay in core. `stemmer` is now a dev dependency.
 - npm releases build and verify the package once, publish the resulting tarball,
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
@@ -16,6 +24,13 @@
   also never receives the stopped turn's late shutdown reply, which failed the
   turn and started the stopped turn's queued delegations: each agent request
   now replies in its own IPC file.
+- **Document delivery**: Reports, lists, and data files an agent writes are
+  attached to its reply when the reply names them, including links with
+  `sandbox:` or host workspace paths. Web chat links to an attached file
+  download it.
+- **Paginated pages in `web_fetch`**: Results name the next page when the
+  page links to one, and pages that only load a script from a Cloudflare CDN
+  are no longer reported as bot-blocked.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
@@ -27,6 +42,9 @@
 - **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
   calls that already ran, with their arguments and results, for the next turn.
   A call still running at the stop is marked as having an unknown outcome.
+- **Atomic agent output files**: The agent runtime publishes its reply and
+  `health-output.json` files by renaming a finished temporary file, so readers
+  never see an empty or half-written result.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 

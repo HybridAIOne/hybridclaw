@@ -202,11 +202,7 @@ import {
   trackObservedToolCall,
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
-import {
-  extensionToMimeType,
-  firstNumber,
-  resolveWorkspaceRelativePath,
-} from './gateway-utils.js';
+import { firstNumber } from './gateway-utils.js';
 import {
   type BootstrapHatchingTurnResult,
   recordBootstrapHatchingTerminalAudit,
@@ -228,6 +224,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { recoverGeneratedMediaArtifactsFromResultText } from './result-text-artifacts.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
@@ -453,180 +450,6 @@ export function buildEmptyAgentResponseFallback(
   const artifactList = Array.isArray(artifacts) ? artifacts : [];
   if (artifactList.length === 0) return 'No response from agent.';
   return '';
-}
-
-const GENERATED_MEDIA_ARTIFACT_RE =
-  /(?:\/workspace\/|\.\/)?(\.generated-(?:images|videos)\/[A-Za-z0-9._@%+=-]+\.(?:png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm))/gi;
-const REFERENCED_WORKSPACE_ARTIFACT_RE =
-  /(?:\/workspace\/|\.\/)?([\p{L}\p{N}._@%+=-]+(?:\/[\p{L}\p{N}._@%+= -]+)*\.(?:docx|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|pdf|png|pptx|svg|wav|webm|webp|xlsx))/giu;
-
-function isGeneratedMediaPath(filePath: string): boolean {
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  return (
-    parts.includes('.generated-images') || parts.includes('.generated-videos')
-  );
-}
-
-function normalizeArtifactTextPath(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
-function decodeArtifactTextVariants(resultText: string): string[] {
-  const variants = [resultText];
-  try {
-    // Web chat artifact URLs encode path separators; recover those when the
-    // model copies an `/api/artifact?path=...` URL into final text.
-    const decoded = decodeURIComponent(resultText);
-    if (decoded !== resultText) variants.push(decoded);
-  } catch {
-    // Leave malformed percent escapes untouched.
-  }
-  return variants;
-}
-
-function extractGeneratedMediaReferences(params: {
-  resultText: string;
-  workspacePath: string;
-}): Array<{ filePath: string; filename: string }> {
-  const references: Array<{
-    filePath: string;
-    filename: string;
-  }> = [];
-  const seen = new Set<string>();
-  for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
-    for (const match of textVariant.matchAll(GENERATED_MEDIA_ARTIFACT_RE)) {
-      const relativePath = match[1];
-      if (!relativePath) continue;
-      const filePath = resolveWorkspaceRelativePath(
-        params.workspacePath,
-        relativePath,
-      );
-      if (!filePath || seen.has(filePath)) continue;
-      seen.add(filePath);
-      references.push({
-        filePath,
-        filename: path.basename(filePath),
-      });
-    }
-  }
-  return references;
-}
-
-function extractReferencedWorkspaceArtifacts(params: {
-  resultText: string;
-  workspacePath: string;
-}): Array<{ filePath: string; filename: string }> {
-  const references: Array<{ filePath: string; filename: string }> = [];
-  const seen = new Set<string>();
-  for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
-    for (const match of textVariant.matchAll(
-      REFERENCED_WORKSPACE_ARTIFACT_RE,
-    )) {
-      const relativePath = match[1];
-      if (!relativePath) continue;
-      const filePath = resolveWorkspaceRelativePath(
-        params.workspacePath,
-        relativePath,
-      );
-      if (!filePath || seen.has(filePath)) continue;
-      seen.add(filePath);
-      references.push({
-        filePath,
-        filename: path.basename(filePath),
-      });
-    }
-  }
-  return references;
-}
-
-function artifactIsMentionedInText(params: {
-  artifact: ArtifactMetadata;
-  resultTextVariants: string[];
-  workspacePath: string;
-}): boolean {
-  const mentionedValues = new Set<string>();
-  const filename = params.artifact.filename.trim();
-  if (filename) mentionedValues.add(filename);
-
-  const artifactPath = normalizeArtifactTextPath(params.artifact.path);
-  if (artifactPath) mentionedValues.add(artifactPath);
-
-  const relativePath = normalizeArtifactTextPath(
-    path.relative(params.workspacePath, params.artifact.path),
-  );
-  if (
-    relativePath &&
-    relativePath !== '..' &&
-    !relativePath.startsWith('../')
-  ) {
-    mentionedValues.add(relativePath);
-    mentionedValues.add(`./${relativePath}`);
-    mentionedValues.add(`/workspace/${relativePath}`);
-  }
-
-  for (const textVariant of params.resultTextVariants) {
-    const normalizedText = normalizeArtifactTextPath(textVariant);
-    for (const value of mentionedValues) {
-      if (value && normalizedText.includes(value)) return true;
-    }
-  }
-  return false;
-}
-
-export function recoverGeneratedMediaArtifactsFromResultText(params: {
-  resultText: string;
-  workspacePath: string;
-  artifacts?: ArtifactMetadata[];
-}): ArtifactMetadata[] | undefined {
-  const existing = Array.isArray(params.artifacts) ? params.artifacts : [];
-  const recovered = [...existing];
-  const seen = new Set(existing.map((artifact) => artifact.path));
-  const references = [
-    ...extractGeneratedMediaReferences({
-      resultText: params.resultText,
-      workspacePath: params.workspacePath,
-    }),
-    ...extractReferencedWorkspaceArtifacts({
-      resultText: params.resultText,
-      workspacePath: params.workspacePath,
-    }),
-  ];
-  for (const reference of references) {
-    if (seen.has(reference.filePath)) continue;
-    seen.add(reference.filePath);
-    recovered.push({
-      path: reference.filePath,
-      filename: reference.filename,
-      mimeType: extensionToMimeType(
-        path.extname(reference.filename),
-        'image/png',
-      ),
-    });
-  }
-  if (recovered.length > 1) {
-    const resultTextVariants = decodeArtifactTextVariants(params.resultText);
-    const mentionedGeneratedArtifacts = new Set(
-      recovered
-        .filter(
-          (artifact) =>
-            isGeneratedMediaPath(artifact.path) &&
-            artifactIsMentionedInText({
-              artifact,
-              resultTextVariants,
-              workspacePath: params.workspacePath,
-            }),
-        )
-        .map((artifact) => path.resolve(artifact.path)),
-    );
-    if (mentionedGeneratedArtifacts.size === 0) {
-      return recovered;
-    }
-    return recovered.filter((artifact) => {
-      if (!isGeneratedMediaPath(artifact.path)) return true;
-      return mentionedGeneratedArtifacts.has(path.resolve(artifact.path));
-    });
-  }
-  return recovered.length > 0 ? recovered : undefined;
 }
 
 function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
@@ -2970,6 +2793,7 @@ async function handleGatewayMessageInner(
       resultText,
       workspacePath,
       artifacts: output.artifacts,
+      toolExecutions,
     });
     if (recoveredArtifacts) {
       output.artifacts = recoveredArtifacts;

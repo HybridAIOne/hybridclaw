@@ -10,7 +10,7 @@
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
 import { isPrivateNetworkAddress } from '../shared/private-network.js';
-import { stripTags } from './search-utils.js';
+import { decodeEntities, stripTags } from './search-utils.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -23,6 +23,10 @@ const CACHE_MAX_ENTRIES = 100;
 const READABILITY_MAX_HTML_CHARS = 1_000_000;
 const ESCALATION_MIN_TEXT_CHARS = 200;
 const ESCALATION_MIN_HTML_CHARS = 5_000;
+// 1,000 chars (Benedikt Koehler, 2026-09-25): challenge pages carry almost no
+// visible text, while a real page that loads a script from
+// cdnjs.cloudflare.com must not be reported as bot-blocked.
+const BOT_BLOCKED_MAX_TEXT_CHARS = 1_000;
 const BOT_BLOCKED_PATTERNS = [
   'access denied',
   'bot detected',
@@ -470,6 +474,29 @@ function includesAny(haystack: string, needles: readonly string[]): boolean {
   return false;
 }
 
+// Readability drops pagination wrappers as unlikely content, so paginated
+// lists (e.g. Webflow "Load more") would look complete to the model.
+function findNextPageUrl(html: string, baseUrl: string): string | undefined {
+  for (const [tag] of html.matchAll(/<(?:a|link)\b[^>]*>/gi)) {
+    const isNext =
+      /\brel\s*=\s*["'][^"']*\bnext\b/i.test(tag) ||
+      /\b(?:class|aria-label)\s*=\s*["'][^"']*\b(?:pagination-next|next[ -]page)\b/i.test(
+        tag,
+      );
+    const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+    if (!isNext || !href) continue;
+    try {
+      const url = new URL(decodeEntities(href), baseUrl);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return url.href;
+      }
+    } catch {
+      // Ignore malformed hrefs and keep looking.
+    }
+  }
+  return undefined;
+}
+
 function isCloudflareChallenge(res: Response): boolean {
   return res.status === 403 && res.headers.get('cf-mitigated') === 'challenge';
 }
@@ -481,10 +508,12 @@ function detectEscalationHint(params: {
   extractedText: string;
 }): WebFetchEscalationHint | undefined {
   const normalizedBody = normalizeForDetection(params.body);
+  const normalizedExtracted = normalizeForDetection(params.extractedText);
   if (
     params.status === 403 ||
     params.status === 429 ||
-    includesAny(normalizedBody, BOT_BLOCKED_PATTERNS)
+    (normalizedExtracted.length < BOT_BLOCKED_MAX_TEXT_CHARS &&
+      includesAny(normalizedBody, BOT_BLOCKED_PATTERNS))
   ) {
     return 'bot_blocked';
   }
@@ -511,7 +540,6 @@ function detectEscalationHint(params: {
     return 'spa_shell_only';
   }
 
-  const normalizedExtracted = normalizeForDetection(params.extractedText);
   if (normalizedExtracted.length === 0) {
     return 'empty_extraction';
   }
@@ -549,6 +577,7 @@ export interface WebFetchResult {
   cached?: boolean;
   warning?: string;
   escalationHint?: WebFetchEscalationHint;
+  nextPageUrl?: string;
 }
 
 export async function webFetch(params: {
@@ -605,6 +634,7 @@ export async function webFetch(params: {
     let title: string | undefined;
     let extractor = 'raw';
     let text = body;
+    let nextPageUrl: string | undefined;
 
     if (contentType.includes('text/markdown')) {
       extractor = 'cf-markdown';
@@ -618,6 +648,7 @@ export async function webFetch(params: {
       text = readable.text;
       title = readable.title;
       extractor = 'readability';
+      nextPageUrl = findNextPageUrl(body, finalUrl);
     } else if (contentType.includes('application/json')) {
       try {
         text = JSON.stringify(JSON.parse(body), null, 2);
@@ -666,6 +697,7 @@ export async function webFetch(params: {
       text,
       warning,
       escalationHint,
+      nextPageUrl,
     };
 
     writeCache(cacheKey, result);
