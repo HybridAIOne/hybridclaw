@@ -2176,7 +2176,6 @@ async function handleGatewayMessageInner(
         {
           text: string[];
           thinking: string[];
-          tools: ToolProgressEvent[];
           approvals: PendingApproval[];
           chatbotId: string;
         }
@@ -2196,12 +2195,11 @@ async function handleGatewayMessageInner(
             event: { type: 'route.escalated', ...event },
           });
         },
-        invoke: async (runtime, routedModel) => {
+        invoke: async (runtime, routedModel, markToolStarted) => {
           startRoutingTraceAttempt(routedModel);
           const buffered = {
             text: [] as string[],
             thinking: [] as string[],
-            tools: [] as ToolProgressEvent[],
             approvals: [] as PendingApproval[],
             chatbotId: runtime.chatbotId || chatbotId,
           };
@@ -2210,7 +2208,11 @@ async function handleGatewayMessageInner(
             chatbotId: runtime.chatbotId || chatbotId,
             onTextDelta: (delta) => buffered.text.push(delta),
             onThinkingDelta: (delta) => buffered.thinking.push(delta),
-            onToolProgress: (event) => buffered.tools.push(event),
+            // Reporting a tool makes this attempt final, so tools stream live.
+            onToolProgress: (event) => {
+              markToolStarted();
+              onToolProgress(event);
+            },
             onApprovalProgress: (approval) => buffered.approvals.push(approval),
           });
           bufferedEvents.set(attemptOutput, buffered);
@@ -2227,7 +2229,6 @@ async function handleGatewayMessageInner(
       for (const delta of finalEvents?.thinking || []) {
         emitThinkingDeltas?.(delta);
       }
-      for (const event of finalEvents?.tools || []) onToolProgress(event);
       for (const approval of finalEvents?.approvals || []) {
         onApprovalProgress(approval);
       }

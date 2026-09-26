@@ -125,6 +125,10 @@
   red `bash:fetched-code` approval that full-auto never grants, closing the
   two-step route around the `curl | sh` block. Files curl and wget save also
   count as writes for the workspace fence.
+- **Routed turns keep their tool calls**: With model routing enabled, an
+  attempt that fails after running a tool is no longer retried on a fallback
+  model, the same rung, or a higher tier, which could repeat its effects. The
+  failed turn lists the tool calls that ran, as unrouted turns do.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
