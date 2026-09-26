@@ -4,12 +4,27 @@
 
 ### Changed
 
+- **Eval harness moved out of the product build**: The benchmark and eval
+  harness (LoCoMo, tau2, terminal-bench, agent-risk, trace-judge, and
+  skill-activation suites, about 13.8K lines) moved from `src/evals/` to the
+  unshipped `eval-harness/` workspace. Released installs no longer include
+  `hybridclaw eval`, `/eval`, or the internal `__eval-*` CLI entries; run
+  `npm run eval -- <suite> ...` from a source checkout instead. The
+  gateway's eval model profiles (`__hc_eval=`) and the runtime trace judge
+  stay in core. `stemmer` is now a dev dependency.
 - npm releases build and verify the package once, publish the resulting tarball,
   skip dependency installation for already-public versions, and wait for npm's
   registry scan to finish after an accepted or previously staged upload.
 
 ### Fixed
 
+- **Document delivery**: Reports, lists, and data files an agent writes are
+  attached to its reply when the reply names them, including links with
+  `sandbox:` or host workspace paths. Web chat links to an attached file
+  download it.
+- **Paginated pages in `web_fetch`**: Results name the next page when the
+  page links to one, and pages that only load a script from a Cloudflare CDN
+  are no longer reported as bot-blocked.
 - **Runtime SECURITY.md copy retired**: `~/.hybridclaw/instructions/` holds
   only `TRUST_MODEL.md`, the one runtime copy still read (by onboarding).
   `hybridclaw audit instructions --sync` deletes a leftover `SECURITY.md` copy
@@ -25,6 +40,16 @@
   call is only sent again when the tool is read-only or idempotent, so a lost
   response no longer sends the same mail twice. The tool's `title` names it
   in approval prompts.
+- **Attachments in follow-up turns**: The agent now sees the local path of a
+  file uploaded earlier in the session, including after an interrupted turn,
+  instead of only its filename. A file removed by media cleanup is reported as
+  no longer available rather than as a stale path.
+- **Interrupted turns keep their tool calls**: Stopping a turn keeps the tool
+  calls that already ran, with their arguments and results, for the next turn.
+  A call still running at the stop is marked as having an unknown outcome.
+- **Atomic agent output files**: The agent runtime publishes `output.json` and
+  `health-output.json` by renaming a finished temporary file, so readers never
+  see an empty or half-written result.
 
 ## [0.32.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.0) - 2026-09-25
 
@@ -59,6 +84,11 @@
   one cron task per watched competitor, diffs each run against a workspace
   snapshot, and appends a fenced `watch` JSON block to the daily memory note,
   which the Sales Companion iOS app reads through cloud memory.
+- **Agent budget hard stop**: An agent that reaches 100% of its monthly
+  `agents.list[].budget.cap` takes no new turns (user, scheduled, goal, or
+  full-auto) until the next billing month or until the cap is raised. The
+  refusal pauses the agent's active goal, disables full-auto for the session,
+  and records a `budget.hard_stop` audit event.
 
 ### Fixed
 
@@ -264,6 +294,12 @@
   taskId, so schedule changes no longer leave duplicate tasks behind.
 
 ### Changed
+
+- **Leaner root dependencies**: The gateway package drops `@e965/xlsx` (the
+  runtime images get it from `container/tools`) and the redundant `impit` pin
+  (still installed through `camoufox-js`). Teams manifest IDs use a built-in
+  UUIDv5 helper instead of the undeclared `uuid` package, and `undici`, which
+  the gateway HTTP proxy imports, is declared directly.
 
 - **Dependencies refreshed with a seven-day release-age gate**: Compatible
   updates include React 19.3, Playwright 1.63, Vite 8.3, runtime libraries,

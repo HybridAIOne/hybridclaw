@@ -276,8 +276,8 @@ that exit zero or nonzero.
   environments with verifier scripts, which maps cleanly to harness evolution
   commands and `pass@1`.
 - [tau2-bench](https://github.com/sierra-research/tau2-bench) is the best fit
-  for customer-service and tool-policy agents. HybridClaw already exposes a
-  managed `hybridclaw eval tau2` helper, so a harness suite can wrap small
+  for customer-service and tool-policy agents. The source-checkout eval
+  harness has a managed `npm run eval -- tau2` helper, so a harness suite can wrap small
   tau2 runs when the goal is conversational tool use.
 - [OSWorld](https://os-world.github.io/) and
   [WebArena](https://webarena.dev/) are useful for computer-use or browser
