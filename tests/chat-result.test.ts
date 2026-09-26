@@ -197,6 +197,52 @@ describe('normalizeSilentMessageSendReply', () => {
       'Message sent.',
     );
   });
+
+  test('replaces a bare silent reply with a fallback by default', () => {
+    const result = normalizeSilentMessageSendReply(
+      makeResult({ result: silentToken, toolsUsed: [] }),
+    );
+    expect(result.result).toBe('Done.');
+  });
+
+  test('keeps a bare silent reply when the channel allows no reply', () => {
+    const result = normalizeSilentMessageSendReply(
+      makeResult({
+        result: silentToken,
+        toolsUsed: ['memory_search'],
+        toolExecutions: [
+          {
+            name: 'memory_search',
+            arguments: '{"query":"update"}',
+            result: 'No matching memories.',
+            isError: false,
+          },
+        ],
+      }),
+      { allowSilentReply: true },
+    );
+    // Not the last tool output, which the default fallback would post.
+    expect(result.result).toBe(silentToken);
+  });
+
+  test('still surfaces a failed send when the channel allows no reply', () => {
+    const failed = makeResult({
+      result: silentToken,
+      toolsUsed: ['message'],
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: '{"action":"send","to":"+491234567890","content":"hi"}',
+          result: 'Error: WhatsApp is not linked.',
+          isError: true,
+        },
+      ],
+    });
+    const result = normalizeSilentMessageSendReply(failed, {
+      allowSilentReply: true,
+    });
+    expect(result.result).toContain('WhatsApp is not linked');
+  });
 });
 
 describe('normalizePendingApprovalReply', () => {

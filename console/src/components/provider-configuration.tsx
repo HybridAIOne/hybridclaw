@@ -50,11 +50,6 @@ const PROVIDERS: ReadonlyArray<ProviderDescriptor> = [
     label: 'Codex',
     sectionPath: 'codex',
     baseUrlPath: 'codex.baseUrl',
-    select: {
-      path: 'codex.turnRuntime',
-      label: 'Turn runtime',
-      options: ['hybridclaw', 'codex-cli'],
-    },
   },
   {
     id: 'openai',

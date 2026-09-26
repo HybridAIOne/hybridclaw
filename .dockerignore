@@ -24,8 +24,13 @@ docs/tools/
 docs/CNAME
 packages/
 plugins/*
+!plugins/media-tools/
+!plugins/media-tools/**
 !plugins/tier-router/
 !plugins/tier-router/**
+!plugins/transformers-embeddings/
+!plugins/transformers-embeddings/**
+plugins/*/node_modules/
 
 # IDE and OS
 *.swp
