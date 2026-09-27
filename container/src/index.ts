@@ -820,7 +820,20 @@ async function executePreparedToolCall(
   };
 }
 
-async function callHybridAIWithRetry(params: {
+// The gateway stops a worker that stays silent for its inactivity window. A
+// non-streaming call writes nothing until the response arrives, and neither
+// does a streaming call before its first chunk or a retry backoff. Hung
+// requests still end at the provider's own request and stream timeouts.
+function callHybridAIWithRetry(
+  params: Parameters<typeof callModelWithRetry>[0],
+): Promise<ChatCompletionResponse> {
+  return withToolActivityHeartbeat(
+    () => callModelWithRetry(params),
+    emitStreamActivity,
+  );
+}
+
+async function callModelWithRetry(params: {
   sessionId?: string;
   provider?: ContainerInput['provider'];
   providerMethod?: string;
