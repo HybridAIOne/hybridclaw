@@ -15,13 +15,14 @@ user explicitly approves or denies it.
 | Area | Default | Notes |
 | --- | --- | --- |
 | Policy file | `./.hybridclaw/policy.yaml` | Workspace-local approval and network policy |
-| Pending red approvals | `3` | New blocked actions are denied once the queue is full |
+| Pending red approvals | `3` | Counted per session; a session's new blocked actions are denied once its queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
 | Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
-| Workspace fence | `on` | Writes outside the workspace are blocked by default |
+| Workspace fence | `on` | Shell writes outside the workspace and scratch space need approval, even in full-auto |
 | Agent trust file | `.hybridclaw/approval-agent-trust.json` | Durable `yes for agent` trust |
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |
+| Approval state files | Protected | The agent's own writes, edits, and deletes of `.hybridclaw/**` or `approval-trust.json`, and bash commands naming them, need explicit approval every time, even in full-auto |
 
 ## What Approvals Actually Cover
 
@@ -92,8 +93,28 @@ Two important transitions:
 
 - Some red actions are promotable. After the first explicit approval, later
   runs of the same action key can drop to yellow.
-- Pinned-sensitive red actions never become durable trust. `session`, `agent`,
-  and `all` fall back to one-time approval for those actions.
+- Pinned-sensitive red actions never become durable trust, and full-auto never
+  approves them. `session`, `agent`, and `all` fall back to one-time approval
+  for those actions.
+
+## Approval Modes
+
+Each session has an approval mode. It changes how many of the tiers above stop
+for a human. Pick it from the chip next to the model in the web chat composer,
+or with `/approvals mode [ask|auto|full]` on any surface.
+
+| Mode | Label | Green | Yellow | Red |
+| --- | --- | --- | --- | --- |
+| `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
+| `auto` (default) | Auto | Runs | Runs | Prompts |
+| `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+
+- The mode is stored per session. A new chat and `/reset` start at `auto`;
+  an automatic idle-expiry reset keeps the mode.
+- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- Trust you already granted (`yes for session`, `agent`, or `all`) still
+  applies in `ask`.
+- Every mode change is written to the audit log as `approval.mode_changed`.
 
 ## Action Reference
 
@@ -122,7 +143,8 @@ Two important transitions:
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
@@ -147,6 +169,17 @@ Like the `grep` tool, walks consider only the built-in pinned paths. The check
 is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
 an earlier bash call are not resolved; it stops accidental shell reads of
 pinned files rather than replacing a sandbox.
+
+The approval policy, the trust grants, the pending approvals, and the
+per-session guard state live in the agent's own workspace, so an agent that
+could rewrite them would approve itself. A `write`, `edit`, or `delete` of
+those paths, or a bash command that names one, therefore waits for a human
+every time: full-auto never approves it, and `yes for session`, `yes for
+agent`, and `yes for all` cover that one call. A static check cannot tell a
+shell read from a shell write, so read these files with the `read` tool, and
+change policy with `hybridclaw policy` or `/policy`. The same limits as above
+apply: a path hidden in a variable, interpreter code, or a symlink escapes the
+check.
 
 ## Network Policy
 
@@ -175,6 +208,7 @@ Key behaviors:
 
 - Rules are evaluated in order. The first matching rule wins.
 - Rule matching can scope by `host`, `port`, `methods`, `paths`, and `agent`.
+  `host` and `paths` take globs; see [Policy Patterns](#policy-patterns).
 - Bare site-scope hosts like `github.com` also match subdomains like
   `api.github.com` under the current host-scope rules. There is currently no
   exact-root-only host syntax in `policy.yaml`.
@@ -311,13 +345,22 @@ skill:
         reason: SAP is finance-only.
 ```
 
-Secret resolution is another policy-engine consumer. The default is deny unless
-the workspace policy explicitly sets `secret.default: allow` or an allow rule
-matches. Prefer the composite `secret_resolve_allowed` predicate for normal
-secret injection rules:
+Secret resolution is another policy-engine consumer. The gateway evaluates it
+each time it injects a stored secret into an `http_request` call or a browser
+field. The default is allow: a stored secret resolves unless a deny rule
+matches, or the workspace policy sets `secret.default: deny` and no allow rule
+matches. The seeded workspace policy has no `secret` section, so new workspaces
+resolve every stored secret.
+
+To limit which agents, skills, hosts, and fields can use stored secrets, set
+`secret.default: deny` and allow each use. `secret route add` appends an allow
+rule scoped to its secret, host, header, and agent, so its routes keep
+resolving under a deny default. Prefer the composite `secret_resolve_allowed`
+predicate for these rules:
 
 ```yaml
 secret:
+  default: deny
   rules:
     - id: allow-datev-login
       when:
@@ -338,20 +381,49 @@ rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
 `all`, `any`, or `not` composition that is clearer than one composite
 predicate.
 
+## Policy Patterns
+
+Paths, hosts, and secret names in `policy.yaml` are globs:
+`approval.pinned_red` `paths`, `network.rules` `host` and `paths`, `host` in
+secret and browser stealth rules, and secret `id` and `selector`. A glob must
+match the whole value, ignoring case. `*`, `**`, and `?` are the only
+wildcards; every other character, including `[`, `]`, `{`, and `}`, matches
+itself.
+
+| Pattern | `*` | `**` | `?` |
+| --- | --- | --- | --- |
+| Paths | Any characters except `/` | Any characters, including `/` | One character except `/` |
+| Hosts | Any characters except `.`; a leading `*.` and a bare `*` also cross `.` | Any characters, including `.` | One character except `.` |
+| Secret `id` and `selector` | Any characters | Same as `*` | One character |
+
+A pinned `dir/**` also covers `dir` itself; a network path `/dir/**` does not
+cover `/dir`.
+
+A leading `*.` covers subdomains at any depth: `*.example.com` matches
+`a.b.example.com` but not `example.com`. A bare `*` matches every host. Any
+other `*` stays inside one label, so `example.*` matches `example.org` but not
+`example.co.uk` or `example.attacker.com`; write `example.**` to match across
+labels. A host with a wildcard covers only the hosts it spells out:
+`ex?mple.com` matches `example.com` but not `api.example.com`, while the bare
+host `example.com` also covers its subdomains.
+
 ## Approval Scopes
 
 | Reply or command | Internal scope | Persistence | Stored in | Notes |
 | --- | --- | --- | --- | --- |
 | `yes` or `/approve yes` | Once | Current blocked action only | Not stored | Safest one-off approval |
-| `yes for session` or `/approve session` | Session | Current runtime session only | In-memory only | Best when you are actively iterating in the same session |
+| `yes for session` or `/approve session` | Session | Until the session's worker exits (5 idle minutes, a provider switch, or a crash; see [Worker State](./runtime.md#worker-state)) | Worker memory only | Best when you are actively iterating in the same session |
 | `yes for agent` or `/approve agent` | Agent | Durable for the current agent workspace | `.hybridclaw/approval-agent-trust.json` | Survives runtime restarts |
 | `yes for all` or `/approve all` | Workspace allowlist | Durable for the workspace | `approval-trust.json` | Broader than agent-only trust |
 | `no`, `skip`, or `/approve no` | Deny | Current blocked action only | Not stored as trust | The assistant continues without that action |
 
 Notes:
 
+- A reply answers only the requests of the session it is sent in. An agent's
+  sessions share its workspace, but a `yes` (or an approval id) in one chat
+  never approves an action another chat is waiting on.
 - If there is only one pending approval, the request id is optional. The most
-  recent pending approval is used.
+  recent pending approval in the session is used.
 - If there are multiple pending approvals, include the approval id. The TUI and
   web chat do this for you.
 - In web chat, `Allow once` sends `/approve yes`, `Allow always` sends
@@ -359,6 +431,31 @@ Notes:
   approval commands.
 - For pinned-sensitive red actions, `session`, `agent`, and `all` degrade to a
   one-time approval instead of creating durable trust.
+
+## Full-Auto
+
+Full-auto approves yellow and red actions without a prompt. It applies to
+sessions with `/fullauto on` and to OpenAI-compatible requests that carry an
+agent or eval profile. These actions still wait for a human:
+
+- Pinned-sensitive actions: `.env*`, `~/.ssh/**`, and `/etc/**` targets,
+  recursive shell reads that can reach them, force pushes, changes to the
+  approval policy and trust files, and `approval.pinned_red` rules, whose
+  defaults also cover `rm -rf` on an absolute path. They accept one-time
+  approval only, so the next matching call asks again.
+- Shell writes outside the workspace and scratch space
+  (`bash:workspace-fence`), such as `> /opt/out.txt`, `cp app /usr/local/bin/`,
+  or `>> ~/.bashrc`.
+- Fetched code (`bash:fetched-code`).
+- Tools and action keys listed under `full_auto.never_approve` in
+  `.hybridclaw/policy.yaml`.
+
+A `yes for session`, `yes for agent`, or `yes for all` reply to a fence write or
+to fetched code also approves later calls of that kind in the same scope.
+Hard-denied actions, such as policy-blocked hosts, stay denied. A pending
+approval stops a `/fullauto` run. When an unattended full-auto turn hits one,
+full-auto turns itself off for the session; answer the approval, then run
+`/fullauto on` to continue.
 
 ## Tips And Tricks
 

@@ -11,9 +11,11 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { isRecord } from '../utils/type-guards.js';
 import { migrateLegacySecretFile } from './runtime-secrets-migration.js';
 
-const RUNTIME_SECRETS_FILE = 'credentials.json';
-const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
-const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
+export const RUNTIME_SECRETS_FILE = 'credentials.json';
+export const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
+export const RUNTIME_MASTER_KEY_SECRET_PATH =
+  '/run/secrets/hybridclaw_master_key';
+export const RUNTIME_MASTER_KEY_ENV = 'HYBRIDCLAW_MASTER_KEY';
 const RUNTIME_LEGACY_SECRETS_SUFFIX = '.legacy';
 const PASSPHRASE_KDF_SALT = 'hybridclaw-master-key-v1';
 const SECRET_STORE_VERSION = 1;
@@ -281,7 +283,7 @@ function readFileMetadata(filePath: string): {
 }
 
 function currentMasterKeySourceSignature(): string {
-  const envKey = (process.env.HYBRIDCLAW_MASTER_KEY || '').trim();
+  const envKey = (process.env[RUNTIME_MASTER_KEY_ENV] || '').trim();
   if (envKey) {
     return `env:${createHash('sha256').update(envKey, 'utf-8').digest('hex')}`;
   }
@@ -332,7 +334,7 @@ function resolveMasterKey(options?: { allowCreateLocalFallback?: boolean }): {
   key: Buffer;
   source: 'env' | 'mounted-secret' | 'local-file';
 } {
-  const envKey = (process.env.HYBRIDCLAW_MASTER_KEY || '').trim();
+  const envKey = (process.env[RUNTIME_MASTER_KEY_ENV] || '').trim();
   if (envKey) {
     return {
       key: parseMasterKey(envKey),

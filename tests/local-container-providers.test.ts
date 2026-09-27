@@ -101,7 +101,7 @@ describe('local container providers', () => {
       expect(body.model).toBe('llava:7b');
       expect(body.stream).toBe(false);
       expect(body.tools).toEqual(tools);
-      expect(body.options).toEqual({ num_predict: 64 });
+      expect(body.options).toEqual({ num_predict: 64, num_ctx: 32_768 });
       expect(messages[0]?.images).toEqual(['ZmFrZQ==']);
       return new Response(
         JSON.stringify({

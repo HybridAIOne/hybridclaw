@@ -126,10 +126,14 @@ outside the standard PDF encoding, it embeds the bundled Liberation Sans font
 font discovery or custom script is needed for these alphabets.
 For other scripts, supply a suitable local TTF/OTF with `--font-path font.ttf`;
 the helper checks glyph coverage before writing the PDF.
+For custom fonts, obtain TTF/OTF files rather than WOFF/WOFF2 web fonts.
+Fontkit being able to read a font does not prove it can be embedded directly
+in a PDF. If text extracts but renders blank, check the embedded font format
+before changing the layout.
 
 After creation, extract the output once and check the requested content is intact:
 `node skills/pdf/scripts/extract_pdf_text.mjs output.pdf --json`.
-For custom layouts, render and inspect the pages as well. A successful command
+For custom layouts or fonts, render and inspect the pages as well. A successful command
 only proves that a file was written. Preserve the requested script and content;
 never replace unsupported characters with transliterations or omit a requested
 column to make generation succeed. If no suitable font is available, report the

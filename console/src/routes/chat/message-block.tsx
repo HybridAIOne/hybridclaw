@@ -244,6 +244,21 @@ function saveBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
+export async function downloadArtifact(
+  token: string,
+  artifact: ChatArtifact,
+): Promise<void> {
+  if (!artifact.path) return;
+  try {
+    saveBlob(
+      await fetchArtifactBlob(token, artifact.path),
+      artifact.filename ?? 'artifact',
+    );
+  } catch {
+    // Auth failures still dispatch globally via fetchArtifactBlob.
+  }
+}
+
 function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const { artifact, token } = props;
   const previewUrlRef = useRef<string | null>(null);
@@ -482,11 +497,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
     const artifact = index === null ? undefined : msg.artifacts?.[index];
     if (!artifact?.path) return;
     event.preventDefault();
-    void fetchArtifactBlob(token, artifact.path)
-      .then((blob) => saveBlob(blob, artifact.filename ?? 'artifact'))
-      .catch(() => {
-        // Auth failures still dispatch globally via fetchArtifactBlob.
-      });
+    void downloadArtifact(token, artifact);
   };
   const markdownRef = useCodeCopyButtons();
   const presentation = msg.assistantPresentation;

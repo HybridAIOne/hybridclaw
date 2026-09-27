@@ -3404,6 +3404,13 @@ export async function executeBrowserTool(
       }
 
       case 'browser_resume_interaction': {
+        // The parked page lives in this worker's browser. A restarted worker
+        // has lost it, and consuming the operator's reply would waste it.
+        if (!suspendedSessionByBrowserSession.has(effectiveSessionId)) {
+          return failure(
+            'No browser interaction is parked in this sandbox, so the operator reply was not used. If browser_await_two_factor ran before the sandbox restarted, the page waiting for the code is gone: open the login page again and repeat the step.',
+          );
+        }
         const ref = ensureRef(args.ref);
         const sessionId = String(
           args.sessionId ||

@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
   type BrowserStealthPolicyAccessEvaluation,
@@ -32,6 +33,11 @@ import {
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import {
+  changesApprovalState,
+  guardApprovalStateChange,
+  matchesApprovalStatePath,
+} from './approval-state-guard.js';
+import {
   DELETE_RE,
   deletesFiles,
   deletionTargets,
@@ -52,6 +58,11 @@ import {
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
+  loadSessionPendingApprovals,
+  type PendingApproval,
+  saveSessionPendingApprovals,
+} from './pending-approval-store.js';
+import {
   matchesHardPinnedPath,
   matchesPathPattern,
   normalizePathValue,
@@ -61,6 +72,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { SessionStateSet, sessionStateKey } from './session-state.js';
 import {
   createStakesClassifier,
   type StakesClassifier,
@@ -191,22 +203,6 @@ export interface ClassifiedAction {
   explicitApprovalRequired?: boolean;
 }
 
-export interface PendingApproval {
-  id: string;
-  fingerprint: string;
-  actionKey: string;
-  toolName: string;
-  argsJson: string;
-  intent: string;
-  consequenceIfDenied: string;
-  reason: string;
-  commandPreview: string;
-  createdAtMs: number;
-  expiresAtMs: number;
-  originalPrompt: string;
-  pinned: boolean;
-}
-
 export interface ApprovalPrelude {
   immediateMessage?: string;
   replayPrompt?: string;
@@ -298,11 +294,14 @@ export interface ToolCallContextHelpers {
   hasAgentTrust(actionKey: string, fingerprint: string): boolean;
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
-  isFullAutoEnabled(): boolean;
+  approvalMode(): SessionApprovalMode;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
   getOrCreatePending(
-    input: Omit<PendingApproval, 'id' | 'createdAtMs' | 'expiresAtMs'>,
+    input: Omit<
+      PendingApproval,
+      'id' | 'sessionHash' | 'createdAtMs' | 'expiresAtMs'
+    >,
   ): PendingApproval;
   getActionExecutionCount(actionKey: string): number;
   shouldApplyImplicitDelay(
@@ -329,6 +328,8 @@ export interface Decision {
   kind: 'decision';
   evaluation: ToolApprovalEvaluation;
 }
+
+export type { PendingApproval } from './pending-approval-store.js';
 
 export type ApprovalRuleResult = Decision | NextRule;
 
@@ -1401,12 +1402,6 @@ interface PersistedApprovalTrustStore {
   updatedAt: string;
 }
 
-interface PersistedPendingApprovalStore {
-  version: 1;
-  pending: PendingApproval[];
-  updatedAt: string;
-}
-
 function parsePersistedTrustStore(
   raw: string,
 ): PersistedApprovalTrustStore | null {
@@ -1443,92 +1438,6 @@ function parsePersistedTrustStore(
         typeof record.updatedAt === 'string'
           ? record.updatedAt
           : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const id = typeof record.id === 'string' ? record.id.trim() : '';
-  const fingerprint =
-    typeof record.fingerprint === 'string' ? record.fingerprint.trim() : '';
-  const actionKey =
-    typeof record.actionKey === 'string' ? record.actionKey.trim() : '';
-  const toolName =
-    typeof record.toolName === 'string' ? record.toolName.trim() : '';
-  const argsJson = typeof record.argsJson === 'string' ? record.argsJson : '';
-  const intent = typeof record.intent === 'string' ? record.intent.trim() : '';
-  const consequenceIfDenied =
-    typeof record.consequenceIfDenied === 'string'
-      ? record.consequenceIfDenied.trim()
-      : '';
-  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
-  const commandPreview =
-    typeof record.commandPreview === 'string'
-      ? record.commandPreview.trim()
-      : '';
-  const originalPrompt =
-    typeof record.originalPrompt === 'string' ? record.originalPrompt : '';
-  const createdAtMs =
-    typeof record.createdAtMs === 'number' ? record.createdAtMs : NaN;
-  const expiresAtMs =
-    typeof record.expiresAtMs === 'number' ? record.expiresAtMs : NaN;
-
-  if (
-    !id ||
-    !fingerprint ||
-    !actionKey ||
-    !toolName ||
-    !intent ||
-    !consequenceIfDenied ||
-    !reason ||
-    !Number.isFinite(createdAtMs) ||
-    !Number.isFinite(expiresAtMs)
-  ) {
-    return null;
-  }
-
-  return {
-    id,
-    fingerprint,
-    actionKey,
-    toolName,
-    argsJson,
-    intent,
-    consequenceIfDenied,
-    reason,
-    commandPreview,
-    createdAtMs,
-    expiresAtMs,
-    originalPrompt,
-    pinned: record.pinned === true,
-  };
-}
-
-function parsePersistedPendingApprovalStore(
-  raw: string,
-): PersistedPendingApprovalStore | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
-    const pending = Array.isArray(record.pending)
-      ? record.pending
-          .map((entry) => parsePersistedPendingApproval(entry))
-          .filter((entry): entry is PendingApproval => Boolean(entry))
-      : [];
-    return {
-      version: 1,
-      pending,
-      updatedAt:
-        typeof record.updatedAt === 'string'
-          ? record.updatedAt
-          : new Date(0).toISOString(),
     };
   } catch {
     return null;
@@ -1776,9 +1685,9 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   classify_action(context) {
-    context.classified = context.helpers.classifyAction(
+    context.classified = guardApprovalStateChange(
       context.params.toolName,
-      context.args,
+      context.helpers.classifyAction(context.params.toolName, context.args),
     );
     context.decision = 'auto';
     return nextRule();
@@ -1885,6 +1794,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       context.baseTier = 'red';
       context.tier = 'red';
     }
+    // Ask mode prompts for every side effect; green reads still run.
+    if (context.helpers.approvalMode() === 'ask' && context.tier === 'yellow') {
+      context.baseTier = 'red';
+      context.tier = 'red';
+    }
     return nextRule();
   },
 
@@ -1965,6 +1879,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
     const promotable =
+      context.helpers.approvalMode() !== 'ask' &&
       !requirePinned(context) &&
       classified.promotableRed &&
       context.helpers.getExplicitApprovalCount(classified.actionKey) > 0;
@@ -1977,8 +1892,12 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   red_full_auto(context) {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
+    // Pinned calls prompt in every mode (owner call, 2026-09-27), as
+    // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
+    // exemption.
     if (
-      context.helpers.isFullAutoEnabled() &&
+      context.helpers.approvalMode() === 'full' &&
+      !requirePinned(context) &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -2042,7 +1961,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (
       context.tier === 'yellow' &&
       context.decision === 'auto' &&
-      context.helpers.isFullAutoEnabled() &&
+      context.helpers.approvalMode() === 'full' &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -2149,12 +2068,16 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
   // Files curl/wget calls saved this session; running one is fetched code.
-  private readonly fetchedFiles = new Set<string>();
+  // Persisted per session: a worker restart between `curl -o f` and `sh f`
+  // must not forget the download.
+  private readonly fetchedFiles = new SessionStateSet('fetched-files.json');
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
-  private fullAutoEnabled = false;
+  private approvalMode: SessionApprovalMode = 'auto';
+  // The bound session's key: pending approvals load, save, and resolve for it only.
+  private sessionHash = '';
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
   private mcpToolBehaviorResolver: McpToolBehaviorResolver | null = null;
@@ -2223,11 +2146,20 @@ export class TrustedAgentApprovalRuntime {
     };
   }
 
-  setFullAutoOptions(params?: {
-    enabled?: boolean;
+  /** Loads the session's persisted state; call before each turn. */
+  setSession(sessionId: string): void {
+    this.fetchedFiles.bindSession(sessionId);
+    const sessionHash = sessionId ? sessionStateKey(sessionId) : '';
+    if (sessionHash === this.sessionHash) return;
+    this.sessionHash = sessionHash;
+    this.loadPersistedPendingApprovals();
+  }
+
+  setApprovalMode(params?: {
+    mode?: SessionApprovalMode;
     neverApproveTools?: string[];
   }): void {
-    this.fullAutoEnabled = params?.enabled === true;
+    this.approvalMode = params?.mode ?? 'auto';
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
       const value = String(raw || '')
@@ -2281,7 +2213,7 @@ export class TrustedAgentApprovalRuntime {
         this.allowlistedFingerprints.has(fingerprint),
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
-      isFullAutoEnabled: () => this.fullAutoEnabled,
+      approvalMode: () => this.approvalMode,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
       getPendingCount: () => this.pending.size,
@@ -2435,49 +2367,21 @@ export class TrustedAgentApprovalRuntime {
   }
 
   private loadPersistedPendingApprovals(): void {
-    try {
-      if (!fs.existsSync(this.pendingStorePath)) return;
-      const parsed = parsePersistedPendingApprovalStore(
-        fs.readFileSync(this.pendingStorePath, 'utf-8'),
-      );
-      if (!parsed) return;
-      const now = Date.now();
-      let droppedExpiredCount = 0;
-      for (const pending of parsed.pending) {
-        if (pending.expiresAtMs <= now) {
-          droppedExpiredCount += 1;
-          continue;
-        }
-        this.pending.set(pending.id, pending);
-      }
-      if (droppedExpiredCount > 0) {
-        console.warn(
-          `[approval-policy] dropped ${droppedExpiredCount} expired persisted pending approval(s) on load`,
-        );
-        this.persistPendingApprovals();
-      }
-    } catch {
-      // ignore persistence failures and continue with in-memory pending approvals
+    this.pending.clear();
+    for (const pending of loadSessionPendingApprovals(
+      this.pendingStorePath,
+      this.sessionHash,
+    )) {
+      this.pending.set(pending.id, pending);
     }
   }
 
   private persistPendingApprovals(): void {
-    const payload: PersistedPendingApprovalStore = {
-      version: 1,
-      pending: [...this.pending.values()].sort(
-        (left, right) => left.createdAtMs - right.createdAtMs,
-      ),
-      updatedAt: new Date().toISOString(),
-    };
-    try {
-      const dir = path.dirname(this.pendingStorePath);
-      fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = `${this.pendingStorePath}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, this.pendingStorePath);
-    } catch {
-      // ignore persistence failures and continue with in-memory pending approvals
-    }
+    saveSessionPendingApprovals(
+      this.pendingStorePath,
+      this.sessionHash,
+      this.pending.values(),
+    );
   }
 
   handleApprovalResponse(messages: ChatMessage[]): ApprovalPrelude | null {
@@ -2687,7 +2591,10 @@ export class TrustedAgentApprovalRuntime {
   }
 
   private getOrCreatePending(
-    input: Omit<PendingApproval, 'id' | 'createdAtMs' | 'expiresAtMs'>,
+    input: Omit<
+      PendingApproval,
+      'id' | 'sessionHash' | 'createdAtMs' | 'expiresAtMs'
+    >,
   ): PendingApproval {
     for (const pending of this.pending.values()) {
       if (pending.fingerprint === input.fingerprint) return pending;
@@ -2696,6 +2603,7 @@ export class TrustedAgentApprovalRuntime {
     const pending: PendingApproval = {
       ...input,
       id: randomUUID().slice(0, 8),
+      sessionHash: this.sessionHash,
       createdAtMs,
       expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
     };
@@ -3642,6 +3550,10 @@ export class TrustedAgentApprovalRuntime {
             !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
+        // Explicit approval even under full-auto (owner call, 2026-09-27): the
+        // fence survives every mode, as approvals-v2 plans for `full`, and
+        // evals get no exemption. Human-granted trust still applies. Deferred:
+        // narrowing the absPaths fallback, which also fences outside reads.
         return {
           tier: 'red',
           actionKey: 'bash:workspace-fence',
@@ -3654,6 +3566,7 @@ export class TrustedAgentApprovalRuntime {
           writeIntent,
           promotableRed: false,
           stickyYellow: true,
+          explicitApprovalRequired: true,
         };
       }
     }
@@ -3875,6 +3788,7 @@ export class TrustedAgentApprovalRuntime {
   private namesPinnedPath(candidate: string): boolean {
     return (
       matchesHardPinnedPath(candidate) ||
+      matchesApprovalStatePath(candidate) ||
       this.loadedPolicy.pinnedRed.some((rule) =>
         (rule.paths || []).some((pattern) =>
           matchesPathPattern(candidate, pattern),
@@ -3895,6 +3809,7 @@ export class TrustedAgentApprovalRuntime {
     if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
       return true;
     }
+    if (changesApprovalState(input.toolName, input.pathHints)) return true;
     if (fullText.includes('git push --force')) return true;
 
     for (const rule of this.loadedPolicy.pinnedRed) {

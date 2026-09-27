@@ -1,4 +1,5 @@
 import type { MessageMentions, UserResolvable } from 'discord.js';
+import { escapeRegExp } from '../../../container/shared/regex.js';
 import { SILENT_REPLY_TOKEN } from '../../agent/silent-reply.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
@@ -27,10 +28,6 @@ const URL_ONLY_RE = /^https?:\/\/\S+$/i;
 const FREE_MODE_CHANNEL_ADDRESS_RE =
   /\b(?:all|everyone|anyone|team|folks|guys|channel|chat|alle|zusammen|jemand)\b/i;
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function normalizeAlias(raw: string): string {
   return raw.trim().replace(/^@+/, '').toLowerCase();
 }
@@ -47,7 +44,7 @@ export function hasLooseBotMention(
     if (!alias || alias.length < 2) continue;
     if (!/^[\p{L}\p{N}._-]+$/u.test(alias)) continue;
 
-    const escapedAlias = escapeRegex(alias);
+    const escapedAlias = escapeRegExp(alias);
     const mentionRe = new RegExp(
       `(?:^|[^\\p{L}\\p{N}_-])${escapedAlias}(?=$|[^\\p{L}\\p{N}_-])`,
       'iu',

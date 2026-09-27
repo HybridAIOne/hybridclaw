@@ -4,6 +4,36 @@
 
 ### Fixed
 
+- **Approvals stay in their session**: An agent's sessions share one store of
+  pending approvals. A `yes` in one chat, including a reply to an unrelated
+  question or a message ending in `yes`, could approve the action another chat
+  was waiting on and run it in the wrong conversation, and one chat's pending
+  requests counted against every other chat's queue. Each pending request now
+  belongs to its session: replies, approval ids, and the pending-request limit
+  apply only within it. An action still waiting for approval during the
+  upgrade asks again.
+- **Changing the approval policy needs a human**: The approval policy,
+  trust grants, and pending approvals live in the agent's workspace
+  (`.hybridclaw/`, `approval-trust.json`). A `write`, `edit`, or bash redirect
+  to them ran as a normal workspace change, auto-approved in full-auto, so a
+  prompt-injected agent could open its network rules or trust itself. Writes,
+  edits, and deletes of these files, and any bash command that names one, now
+  need explicit human approval every time, even in full-auto, and an approval
+  never becomes durable trust. Reading them with `read` is unchanged.
+- **Bash keeps its working directory when the sandbox restarts**: A session's
+  sandbox restarts after 5 idle minutes, a provider switch, or a crash. The
+  next bash call used to start in the workspace root while the agent assumed
+  it was still in the directory it had changed to. The working directory now
+  carries over for the whole session; exported variables and aliases still
+  end with the sandbox, and the first bash result after a restart says so.
+- **Downloaded scripts stay flagged across sandbox restarts**: Running a file
+  that an earlier `curl` or `wget` call in the session saved needs explicit
+  approval. A sandbox restart between the download and the run used to forget
+  the download, so full-auto could approve running it.
+- **2FA resume after a sandbox restart**: When the page waiting for a 2FA code
+  was lost with its sandbox, `browser_resume_interaction` consumed the
+  operator's code and then failed to fill it. It now fails at once, leaves the
+  code unused, and tells the agent to repeat the login.
 - **Prompt-too-long rejections recover**: When a provider rejects a request
   because the prompt exceeds the model's context window, the agent shrinks its
   history and retries instead of ending the turn with an API error. The rest
@@ -29,6 +59,18 @@
   URLs included, one character at a time for broken Unicode. That blocked the
   agent for about 300 ms per 2 MB image on every call. The check now uses the
   string built-ins, which also speeds up audit event ingestion.
+- **Full-auto no longer approves pinned-sensitive actions or writes outside
+  the workspace**: Full-auto ran these without a prompt: reading or writing
+  `.env*` files, shell access to `~/.ssh` or `/etc`, recursive reads that can
+  reach them, force pushes, `rm -rf` on an absolute path,
+  `approval.pinned_red` rules, and shell writes outside the workspace and
+  scratch space (`> /opt/out.txt`, `cp app /usr/local/bin/`, `>> ~/.bashrc`).
+  They now wait for a human in every mode, like fetched code. Pinned actions
+  accept one-time approval only; `yes for session`, `agent`, or `all` on a
+  fence write also approves later ones in that scope. This includes
+  OpenAI-compatible requests with an agent or eval profile, which get the
+  approval request as the reply. When an unattended `/fullauto` turn hits
+  one, full-auto turns off for the session.
 
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
