@@ -97,6 +97,25 @@ Two important transitions:
   approves them. `session`, `agent`, and `all` fall back to one-time approval
   for those actions.
 
+## Approval Modes
+
+Each session has an approval mode. It changes how many of the tiers above stop
+for a human. Pick it from the chip next to the model in the web chat composer,
+or with `/approvals mode [ask|auto|full]` on any surface.
+
+| Mode | Label | Green | Yellow | Red |
+| --- | --- | --- | --- | --- |
+| `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
+| `auto` (default) | Auto | Runs | Runs | Prompts |
+| `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+
+- The mode is stored per session. A new chat and `/reset` start at `auto`;
+  an automatic idle-expiry reset keeps the mode.
+- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- Trust you already granted (`yes for session`, `agent`, or `all`) still
+  applies in `ask`.
+- Every mode change is written to the audit log as `approval.mode_changed`.
+
 ## Action Reference
 
 | Family | Tier | Examples | Notes |
@@ -375,11 +394,17 @@ itself.
 | Pattern | `*` | `**` | `?` |
 | --- | --- | --- | --- |
 | Paths | Any characters except `/` | Any characters, including `/` | One character except `/` |
-| Hosts | Any characters, including `.` | Same as `*` | One character except `.` |
+| Hosts | Any characters except `.`; a leading `*.` and a bare `*` also cross `.` | Any characters, including `.` | One character except `.` |
 | Secret `id` and `selector` | Any characters | Same as `*` | One character |
 
 A pinned `dir/**` also covers `dir` itself; a network path `/dir/**` does not
-cover `/dir`. A host with a wildcard covers only the hosts it spells out:
+cover `/dir`.
+
+A leading `*.` covers subdomains at any depth: `*.example.com` matches
+`a.b.example.com` but not `example.com`. A bare `*` matches every host. Any
+other `*` stays inside one label, so `example.*` matches `example.org` but not
+`example.co.uk` or `example.attacker.com`; write `example.**` to match across
+labels. A host with a wildcard covers only the hosts it spells out:
 `ex?mple.com` matches `example.com` but not `api.example.com`, while the bare
 host `example.com` also covers its subdomains.
 

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
+import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
@@ -506,6 +507,10 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
+import {
+  handleApprovalsCommand,
+  resolveSessionApprovalMode,
+} from './approval-mode.js';
 import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
@@ -5212,7 +5217,9 @@ export async function getGatewayStatus(
   const whatsappPairing = getWhatsAppPairingState();
   const linePairing = getLinePairingState();
   const signalPairing = getSignalLinkState();
-  const signalCli = getSignalCliAvailability();
+  const signalCli = runtimeConfig.signal.enabled
+    ? getSignalCliAvailability()
+    : null;
   const sandbox = getSandboxDiagnostics();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
@@ -5374,10 +5381,10 @@ export async function getGatewayStatus(
       pairingUri: signalPairing.pairingUri,
       pairingUpdatedAt: signalPairing.updatedAt,
       pairingError: signalPairing.error,
-      cliAvailable: signalCli.available,
-      cliPath: signalCli.path,
-      cliVersion: signalCli.version,
-      cliError: signalCli.error,
+      cliAvailable: signalCli?.available ?? null,
+      cliPath: signalCli?.path ?? null,
+      cliVersion: signalCli?.version ?? null,
+      cliError: signalCli?.error ?? null,
     },
     threema,
     slack,
@@ -9659,7 +9666,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       agentId: resolved.agentId,
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: isFullAutoEnabled(session),
+      approvalMode: resolveSessionApprovalMode(session),
       fullAutoNeverApproveTools: [
         ...FULLAUTO_NEVER_APPROVE_TOOLS,
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
@@ -11724,16 +11731,24 @@ export function getGatewaySessionContextUsage(sessionId: string): {
   sessionId: string;
   snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
   routing: GatewaySessionModelRouting | null;
+  approvalMode: ApprovalMode | null;
 } {
   const session = memoryService.getSessionById(sessionId);
   if (!session) {
-    return { status: 'not_found', sessionId, snapshot: null, routing: null };
+    return {
+      status: 'not_found',
+      sessionId,
+      snapshot: null,
+      routing: null,
+      approvalMode: null,
+    };
   }
   return {
     status: 'ok',
     sessionId: session.id,
     snapshot: buildGatewaySessionContextUsageSnapshot(session),
     routing: buildGatewaySessionModelRouting(session),
+    approvalMode: resolveSessionApprovalMode(session),
   };
 }
 
@@ -12907,6 +12922,9 @@ export async function handleGatewayCommand(
       case 'goal': {
         return await handleGoalCommand({ session, req });
       }
+
+      case 'approvals':
+        return handleApprovalsCommand({ session, req });
 
       case 'fullauto': {
         const sub = parseLowerArg(req.args, 1);
