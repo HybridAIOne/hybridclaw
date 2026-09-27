@@ -155,15 +155,22 @@ test.each([
   );
 });
 
-test('a docker-exec sandbox keeps its directory out of sight, so walks and deletes stay conservative', async () => {
+test('a docker-exec sandbox is checked from the workspace root, whatever a local shell saved', async () => {
+  const workspace = makeTempDir();
+  const local = await startWorker(workspace);
+  local.bash('cd /');
   vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
-  const worker = await startWorker(makeTempDir());
+  const sandboxed = await startWorker(workspace);
 
-  expect(worker.classify("grep -r --exclude='.env*' API_KEY .")).toMatchObject(
-    { actionKey: 'bash:recursive-read', pinned: true },
-  );
-  expect(worker.classify('rm -rf node_modules')).toMatchObject({
-    actionKey: 'bash:delete',
+  expect(sandboxed.classify('echo note > notes.txt')).toMatchObject({
+    actionKey: 'bash:write-op',
+  });
+  expect(sandboxed.classify('rg API_KEY')).toMatchObject({
+    actionKey: 'bash:read-only',
+    pinned: false,
+  });
+  expect(sandboxed.classify('rm -rf node_modules')).toMatchObject({
+    actionKey: 'bash:delete-cache',
   });
 });
 

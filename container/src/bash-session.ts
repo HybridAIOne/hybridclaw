@@ -15,7 +15,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
-import type { Cwd } from './bash-commands.js';
 import {
   BASH_DOCKER_CONTAINER,
   BASH_DOCKER_CWD,
@@ -291,12 +290,15 @@ function enterableSavedCwd(cwdPath: string): string | null {
 /**
  * Where the session's next bash call starts, as the approval classifier
  * resolves paths (bash-commands.ts `Cwd`): '' for the workspace root, relative
- * below it, absolute elsewhere. Null when this worker cannot see it: a
- * docker-exec sandbox keeps its working directory in its own /tmp.
+ * below it, absolute elsewhere.
  */
-export function nextBashCwd(sessionId: string): Cwd {
-  if (!persistentBashStateEnabled) return '';
-  if (TASK_SANDBOX_FS_ENABLED) return null;
+export function nextBashCwd(sessionId: string): string {
+  // A docker-exec sandbox keeps its working directory in its own /tmp, out of
+  // sight, and is checked from the workspace root (owner call, 2026-09-27):
+  // treating it as unknown pinned every recursive search, which stops eval
+  // runs now that full-auto never approves pinned calls. The sandbox is a
+  // disposable task container that does not mount the workspace.
+  if (!persistentBashStateEnabled || TASK_SANDBOX_FS_ENABLED) return '';
   const cwdPath =
     persistentBashSession?.sessionId === sessionId
       ? persistentBashSession.cwdPath

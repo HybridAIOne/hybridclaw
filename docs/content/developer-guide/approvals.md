@@ -156,12 +156,10 @@ The classifier reads the directory the shell saved in the session state dir
 and, like the shell, starts from the workspace root when nothing is saved or
 the saved directory is gone. After `cd /etc`, a later `echo x >> hosts` is a
 write to `/etc/hosts` and `rm -rf node_modules` is no cache cleanup. A
-docker-exec task sandbox keeps its working directory inside the sandbox, out
-of the classifier's sight, so there every command starts from an unknown
-directory: recursive reads count as reaching all pinned directories, deletions
-are never promotable, and relative paths are not placed, as after
-`cd "$DIR"`. With `container.persistBashState` off, every call starts in the
-workspace root.
+docker-exec task sandbox, as the eval harness uses, keeps its working
+directory inside the sandbox, out of the classifier's sight, so its commands
+are checked from the workspace root. With `container.persistBashState` off,
+every call starts in the workspace root.
 
 The approval policy, the trust grants, the pending approvals, and the
 per-session guard state live in the agent's own workspace, so an agent that

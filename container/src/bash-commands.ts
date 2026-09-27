@@ -329,7 +329,7 @@ export function shellCommandsRun(
 }
 
 // '' is the workspace root and a relative path is relative to it; null is
-// unknown (after `cd -`, or a shell the caller cannot see).
+// unknown (after `cd -`).
 export type Cwd = string | null;
 
 // `$HOME/x` and `${HOME}/x` name the same path as `~/x`.
