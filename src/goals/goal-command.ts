@@ -1,3 +1,8 @@
+import {
+  badCommand,
+  infoCommand,
+  plainCommand,
+} from '../gateway/gateway-command-results.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -25,18 +30,6 @@ import {
 export interface GoalCommandContext {
   session: Session;
   req: GatewayCommandRequest;
-}
-
-function plain(text: string): GatewayCommandResult {
-  return { kind: 'plain', text };
-}
-
-function info(title: string, text: string): GatewayCommandResult {
-  return { kind: 'info', title, text };
-}
-
-function error(title: string, text: string): GatewayCommandResult {
-  return { kind: 'error', title, text };
 }
 
 function parseGoalTimestamp(raw: string | null | undefined): number | null {
@@ -92,7 +85,10 @@ function formatActor(req: GatewayCommandRequest): GoalSetterActor {
 function formatGoalStatus(session: Session): GatewayCommandResult {
   const goal = getGoalStatusForSession(session);
   if (!goal || goal.status === 'cleared') {
-    return info('Goal Status', 'No standing goal is set for this thread.');
+    return infoCommand(
+      'Goal Status',
+      'No standing goal is set for this thread.',
+    );
   }
   const usage = getThreadGoalUsage({ sessionId: session.id, goal });
   const durationEnd =
@@ -103,7 +99,7 @@ function formatGoalStatus(session: Session): GatewayCommandResult {
       : goal.status === 'active'
         ? 'active'
         : 'paused';
-  return info(
+  return infoCommand(
     'Goal Status',
     [
       `Status: ${status}`,
@@ -172,7 +168,7 @@ export async function handleGoalCommand(
   if (!isControlSubcommand) {
     const goalText = parseGoalSetArgs(context.req.args, subcommand === 'set');
     if (!goalText) {
-      return error('Usage', 'Usage: `goal <text>` or `goal set <text>`');
+      return badCommand('Usage', 'Usage: `goal <text>` or `goal set <text>`');
     }
     const goal = setThreadGoal({
       threadId,
@@ -195,7 +191,9 @@ export async function handleGoalCommand(
       initialPrompt: true,
       context: buildContinuationContext(context.req, context.session),
     });
-    return plain(`Standing goal set for this thread (max ${goal.maxTurns}).`);
+    return plainCommand(
+      `Standing goal set for this thread (max ${goal.maxTurns}).`,
+    );
   }
 
   if (!subcommand || subcommand === 'status' || subcommand === 'info') {
@@ -212,7 +210,7 @@ export async function handleGoalCommand(
       reason: 'paused by user',
       verdict: 'paused',
     });
-    if (!goal) return info('Goal Status', 'No standing goal is set.');
+    if (!goal) return infoCommand('Goal Status', 'No standing goal is set.');
     clearScheduledGoalContinuation(context.session.id);
     recordGoalAudit({
       sessionId: context.session.id,
@@ -224,19 +222,24 @@ export async function handleGoalCommand(
       maxTurns: goal.maxTurns,
       reason: goal.pausedReason,
     });
-    return plain('Standing goal paused.');
+    return plainCommand('Standing goal paused.');
   }
 
   if (subcommand === 'resume') {
     const goal = resumeThreadGoal(threadId);
     if (!goal || goal.status !== 'active') {
-      return info('Goal Status', 'No paused goal is available to resume.');
+      return infoCommand(
+        'Goal Status',
+        'No paused goal is available to resume.',
+      );
     }
     scheduleGoalContinuation({
       session: context.session,
       context: buildContinuationContext(context.req, context.session),
     });
-    return plain(`Standing goal resumed (${goal.turnsUsed}/${goal.maxTurns}).`);
+    return plainCommand(
+      `Standing goal resumed (${goal.turnsUsed}/${goal.maxTurns}).`,
+    );
   }
 
   if (isClearSubcommand(subcommand)) {
@@ -247,7 +250,7 @@ export async function handleGoalCommand(
       verdict: 'cleared',
       resetParseFailures: true,
     });
-    if (!goal) return info('Goal Status', 'No standing goal is set.');
+    if (!goal) return infoCommand('Goal Status', 'No standing goal is set.');
     clearScheduledGoalContinuation(context.session.id);
     recordGoalAudit({
       sessionId: context.session.id,
@@ -259,10 +262,10 @@ export async function handleGoalCommand(
       maxTurns: goal.maxTurns,
       reason: 'cleared by user',
     });
-    return plain('Standing goal cleared.');
+    return plainCommand('Standing goal cleared.');
   }
 
-  return error(
+  return badCommand(
     'Usage',
     'Usage: `goal [text|set <text>|status|pause|resume|clear]`',
   );

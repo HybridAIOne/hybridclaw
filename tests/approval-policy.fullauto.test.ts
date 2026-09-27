@@ -24,8 +24,8 @@ function createRuntime(params: {
     undefined,
     path.join(dir, 'pending.json'),
   );
-  runtime.setFullAutoOptions({
-    enabled: params.fullAuto,
+  runtime.setApprovalMode({
+    mode: params.fullAuto ? 'full' : 'auto',
     neverApproveTools: params.neverApproveTools,
   });
   return runtime;

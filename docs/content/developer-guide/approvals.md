@@ -97,6 +97,25 @@ Two important transitions:
   approves them. `session`, `agent`, and `all` fall back to one-time approval
   for those actions.
 
+## Approval Modes
+
+Each session has an approval mode. It changes how many of the tiers above stop
+for a human. Pick it from the chip next to the model in the web chat composer,
+or with `/approvals mode [ask|auto|full]` on any surface.
+
+| Mode | Label | Green | Yellow | Red |
+| --- | --- | --- | --- | --- |
+| `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
+| `auto` (default) | Auto | Runs | Runs | Prompts |
+| `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+
+- The mode is stored per session. A new chat and `/reset` start at `auto`;
+  an automatic idle-expiry reset keeps the mode.
+- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- Trust you already granted (`yes for session`, `agent`, or `all`) still
+  applies in `ask`.
+- Every mode change is written to the audit log as `approval.mode_changed`.
+
 ## Action Reference
 
 | Family | Tier | Examples | Notes |
@@ -117,14 +136,14 @@ Two important transitions:
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
-| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
+| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved from the shell's working directory and through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
@@ -136,7 +155,7 @@ output reports how many files were skipped. Paths added under
 
 `bash` commands get the pinned check for every operand, not only absolute
 paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
-paths, `../` escapes resolved from the workspace root, redirects
+paths, `../` escapes resolved from the shell's working directory, redirects
 (`cat < .env`), option values (`--env-file=.env`), git revisions
 (`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs that bash
 expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
@@ -144,12 +163,22 @@ expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
 A recursive read that can reach
 pinned files without naming them is pinned red on every run
 (`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
-walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is
-always pinned: excluding file names cannot keep it out of `/etc` or `~/.ssh`.
-Like the `grep` tool, walks consider only the built-in pinned paths. The check
-is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
-an earlier bash call are not resolved; it stops accidental shell reads of
-pinned files rather than replacing a sandbox.
+walk rooted at `/`, `~`, or `..`, or run after a `cd` there, is always pinned:
+excluding file names cannot keep it out of `/etc` or `~/.ssh`. Like the `grep`
+tool, walks consider only the built-in pinned paths. The check is static, so
+variables, interpreter scripts, and heredoc bodies are not resolved; it stops
+accidental shell reads of pinned files rather than replacing a sandbox.
+
+The shell keeps its working directory between bash calls and across worker
+restarts, so each command is checked from where the session's shell stopped.
+The classifier reads the directory the shell saved in the session state dir
+and, like the shell, starts from the workspace root when nothing is saved or
+the saved directory is gone. After `cd /etc`, a later `echo x >> hosts` is a
+write to `/etc/hosts` and `rm -rf node_modules` is no cache cleanup. A
+docker-exec task sandbox, as the eval harness uses, keeps its working
+directory inside the sandbox, out of the classifier's sight, so its commands
+are checked from the workspace root. With `container.persistBashState` off,
+every call starts in the workspace root.
 
 The approval policy, the trust grants, the pending approvals, and the
 per-session guard state live in the agent's own workspace, so an agent that
@@ -326,13 +355,22 @@ skill:
         reason: SAP is finance-only.
 ```
 
-Secret resolution is another policy-engine consumer. The default is deny unless
-the workspace policy explicitly sets `secret.default: allow` or an allow rule
-matches. Prefer the composite `secret_resolve_allowed` predicate for normal
-secret injection rules:
+Secret resolution is another policy-engine consumer. The gateway evaluates it
+each time it injects a stored secret into an `http_request` call or a browser
+field. The default is allow: a stored secret resolves unless a deny rule
+matches, or the workspace policy sets `secret.default: deny` and no allow rule
+matches. The seeded workspace policy has no `secret` section, so new workspaces
+resolve every stored secret.
+
+To limit which agents, skills, hosts, and fields can use stored secrets, set
+`secret.default: deny` and allow each use. `secret route add` appends an allow
+rule scoped to its secret, host, header, and agent, so its routes keep
+resolving under a deny default. Prefer the composite `secret_resolve_allowed`
+predicate for these rules:
 
 ```yaml
 secret:
+  default: deny
   rules:
     - id: allow-datev-login
       when:
@@ -365,11 +403,17 @@ itself.
 | Pattern | `*` | `**` | `?` |
 | --- | --- | --- | --- |
 | Paths | Any characters except `/` | Any characters, including `/` | One character except `/` |
-| Hosts | Any characters, including `.` | Same as `*` | One character except `.` |
+| Hosts | Any characters except `.`; a leading `*.` and a bare `*` also cross `.` | Any characters, including `.` | One character except `.` |
 | Secret `id` and `selector` | Any characters | Same as `*` | One character |
 
 A pinned `dir/**` also covers `dir` itself; a network path `/dir/**` does not
-cover `/dir`. A host with a wildcard covers only the hosts it spells out:
+cover `/dir`.
+
+A leading `*.` covers subdomains at any depth: `*.example.com` matches
+`a.b.example.com` but not `example.com`. A bare `*` matches every host. Any
+other `*` stays inside one label, so `example.*` matches `example.org` but not
+`example.co.uk` or `example.attacker.com`; write `example.**` to match across
+labels. A host with a wildcard covers only the hosts it spells out:
 `ex?mple.com` matches `example.com` but not `api.example.com`, while the bare
 host `example.com` also covers its subdomains.
 

@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { ApprovalMode } from '../../../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { fetchChatCommands } from '../../api/chat';
 import type {
@@ -35,6 +36,7 @@ import {
   type AgentSwitchOption,
   AgentSwitchSelect,
 } from './agent-switch-select';
+import { ApprovalModeSelect } from './approval-mode-select';
 import css from './chat-page.module.css';
 import { DictationControl } from './dictation-control';
 import {
@@ -100,6 +102,8 @@ export function Composer(props: {
   supportedReasoningEfforts?: ReasoningEffort[];
   reasoningEffort?: ReasoningEffort;
   onReasoningEffortChange?: (value: ReasoningEffort | undefined) => void;
+  approvalMode?: ApprovalMode;
+  onApprovalModeChange?: (mode: ApprovalMode) => void;
   initialValue?: string;
   voiceAvailable?: boolean;
   voiceDetail?: string | null;
@@ -671,6 +675,13 @@ export function Composer(props: {
                   value={props.reasoningEffort}
                   disabled={props.isStreaming}
                   onChange={(value) => props.onReasoningEffortChange?.(value)}
+                />
+              ) : null}
+              {props.approvalMode ? (
+                <ApprovalModeSelect
+                  value={props.approvalMode}
+                  disabled={props.isStreaming}
+                  onChange={(mode) => props.onApprovalModeChange?.(mode)}
                 />
               ) : null}
             </div>
