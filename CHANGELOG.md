@@ -4,11 +4,6 @@
 
 ### Fixed
 
-- **Replies no longer pick up files from other sessions**: The end-of-turn
-  workspace scan keeps only files the turn names in its reply, tool arguments,
-  or tool output. A file another chat or a scheduled job writes to the same
-  agent workspace during the turn is no longer returned as this turn's
-  artifact.
 - **Prompt-cache usage for more providers**: Streaming Anthropic calls keep
   their input and cache token counts; the final stream event used to replace
   them with output-only usage, so these calls recorded zero prompt tokens. Cache
