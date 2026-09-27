@@ -12,13 +12,15 @@ import {
 import { SHELL_RUNTIME_ENV_PATH } from '../container/shared/shell-runtime-env.js';
 
 // Worker credentials through the real gateway request handler. Downstream
-// services are stubbed so each runtime route shows the identity it passes on.
+// services are stubbed so each runtime route shows the identity it passes on,
+// and the admin terminal is stubbed so its native node-pty module never loads.
 // The gateway graph is imported once: loading it per test outruns the timeout
 // on a busy machine.
 
 const STUBBED_MODULES = [
   'node:http',
   '../src/auth/google-auth.js',
+  '../src/gateway/admin-terminal.js',
   '../src/channels/message/tool-actions.js',
   '../src/gateway/gateway-http-proxy.js',
   '../src/gateway/gateway-plugin-service.js',
@@ -55,6 +57,16 @@ async function startGateway() {
     });
     return { ...actual, default: { ...actual, createServer }, createServer };
   });
+  vi.doMock('../src/gateway/admin-terminal.js', () => ({
+    AdminTerminalCapacityError: class extends Error {},
+    createAdminTerminalManager: () => ({
+      startSession: vi.fn(),
+      stopSession: vi.fn(),
+      handleUpgrade: vi.fn(),
+      broadcastShutdown: vi.fn(),
+      dispose: vi.fn(),
+    }),
+  }));
   vi.doMock('../src/gateway/gateway-http-proxy.js', async (importOriginal) => ({
     ...(await importOriginal<object>()),
     handleApiHttpRequest: async (res: ServerResponse, body: unknown) => {
