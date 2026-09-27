@@ -1,16 +1,23 @@
 /**
- * File-based IPC between the gateway and the agent process: one input and one
- * output file per request in the session's `ipc/` dir; auth material from the
- * first stdin request is never written to disk.
+ * File-based IPC between the gateway and the agent process: per request, one
+ * input and one reply file (`output-<requestId>.json`, named in
+ * `container/shared/ipc-output-files.js`) in the session's `ipc/` dir; auth
+ * material from the first stdin request is never written to disk.
  *
- * `readOutput` always settles, with the agent's output, a timeout, or an
- * interrupt. An interrupted read keeps only the tool history the agent flushed
- * while shutting down; anything else it wrote late is ignored. Starting and
- * stopping the agent belongs to host-runner / container-runner, not here.
+ * `readOutput` always settles, with the reply to its own request id, a
+ * timeout, or an interrupt, so a stopped agent's late reply never answers a
+ * later request. An interrupted read keeps only the tool history the agent
+ * flushed while shutting down. Starting and stopping the agent belongs to
+ * host-runner / container-runner, not here.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  ipcOutputFileName,
+  isIpcOutputFileName,
+  LEGACY_IPC_OUTPUT_FILE,
+} from '../../container/shared/ipc-output-files.js';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -75,7 +82,6 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
     requestHeaders: {},
     taskModels: redactTaskModelSecrets(input.taskModels),
     webSearch: redactWebSearchSecrets(input.webSearch),
-    providerCredentials: undefined,
   };
 }
 
@@ -213,6 +219,7 @@ function normalizePositiveTimeoutMs(
 
 export async function readOutput(
   sessionId: string,
+  requestId: string,
   timeoutMs: number | null | undefined,
   opts?: {
     signal?: AbortSignal;
@@ -221,12 +228,22 @@ export async function readOutput(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  return readOutputFile(sessionId, 'output.json', timeoutMs, opts);
+  return readOutputFile(
+    sessionId,
+    [
+      ipcOutputFileName(requestId),
+      // compat: remove after v0.34 — agent images built before request ids
+      // reply in output.json.
+      LEGACY_IPC_OUTPUT_FILE,
+    ],
+    timeoutMs,
+    opts,
+  );
 }
 
 async function readOutputFile(
   sessionId: string,
-  filename: string,
+  filenames: readonly string[],
   timeoutMs: number | null | undefined,
   opts?: {
     signal?: AbortSignal;
@@ -235,7 +252,9 @@ async function readOutputFile(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  const outputPath = ipcFilePath(sessionId, filename);
+  const outputPaths = filenames.map((filename) =>
+    ipcFilePath(sessionId, filename),
+  );
   const signal = opts?.signal;
   const activity = opts?.activity;
 
@@ -281,12 +300,12 @@ async function readOutputFile(
     if (signal?.aborted) {
       return collectInterruptedOutput(
         sessionId,
-        outputPath,
+        outputPaths,
         opts?.terminalError,
       );
     }
 
-    const output = pollOutputFile(sessionId, outputPath);
+    const output = pollOutputFiles(sessionId, outputPaths);
     if (output) return output;
     const terminalError = opts?.terminalError?.();
     if (terminalError) {
@@ -305,7 +324,7 @@ async function readOutputFile(
     if (aborted) {
       return collectInterruptedOutput(
         sessionId,
-        outputPath,
+        outputPaths,
         opts?.terminalError,
       );
     }
@@ -323,38 +342,40 @@ async function readOutputFile(
   };
 }
 
-/** One look at the output file: the parsed output, an oversize error, or null. */
-function pollOutputFile(
+/** One look at the reply files: the parsed output, an oversize error, or null. */
+function pollOutputFiles(
   sessionId: string,
-  outputPath: string,
+  outputPaths: readonly string[],
 ): ContainerOutput | null {
-  if (!fs.existsSync(outputPath)) return null;
-  const stat = fs.statSync(outputPath);
-  if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
-    fs.unlinkSync(outputPath);
-    logger.warn(
-      { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
-      'Container output exceeded size limit',
-    );
-    return {
-      status: 'error',
-      result: null,
-      toolsUsed: [],
-      error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
-    };
+  for (const outputPath of outputPaths) {
+    if (!fs.existsSync(outputPath)) continue;
+    const stat = fs.statSync(outputPath);
+    if (stat.size > CONTAINER_MAX_OUTPUT_SIZE) {
+      fs.unlinkSync(outputPath);
+      logger.warn(
+        { sessionId, size: stat.size, limit: CONTAINER_MAX_OUTPUT_SIZE },
+        'Container output exceeded size limit',
+      );
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: `Output too large (${stat.size} bytes, limit ${CONTAINER_MAX_OUTPUT_SIZE})`,
+      };
+    }
+    try {
+      const raw = fs.readFileSync(outputPath, 'utf-8');
+      const output: ContainerOutput = JSON.parse(raw);
+      // Clean up output file after reading
+      fs.unlinkSync(outputPath);
+      logger.debug({ sessionId }, 'Read IPC output');
+      return output;
+    } catch (err) {
+      // File might be partially written, wait and retry
+      logger.debug({ sessionId, err }, 'Output file not ready, retrying');
+    }
   }
-  try {
-    const raw = fs.readFileSync(outputPath, 'utf-8');
-    const output: ContainerOutput = JSON.parse(raw);
-    // Clean up output file after reading
-    fs.unlinkSync(outputPath);
-    logger.debug({ sessionId }, 'Read IPC output');
-    return output;
-  } catch (err) {
-    // File might be partially written, wait and retry
-    logger.debug({ sessionId, err }, 'Output file not ready, retrying');
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -364,13 +385,13 @@ function pollOutputFile(
  */
 async function collectInterruptedOutput(
   sessionId: string,
-  outputPath: string,
+  outputPaths: readonly string[],
   terminalError?: () => string | null,
 ): Promise<ContainerOutput> {
   const deadline = Date.now() + INTERRUPTED_OUTPUT_GRACE_MS;
   let pollInterval = MIN_OUTPUT_POLL_INTERVAL_MS;
   while (true) {
-    const late = pollOutputFile(sessionId, outputPath);
+    const late = pollOutputFiles(sessionId, outputPaths);
     if (late) {
       return {
         ...interruptedOutput(),
@@ -398,18 +419,23 @@ export function readHealthOutput(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  return readOutputFile(sessionId, 'health-output.json', timeoutMs, opts);
+  return readOutputFile(sessionId, ['health-output.json'], timeoutMs, opts);
 }
 
 /**
- * Clean up IPC files for a session.
+ * Clean up a session's request IPC files, including replies that stopped
+ * agents wrote after their request ended.
  */
 export function cleanupIpc(sessionId: string): void {
   const dir = ipcDir(sessionId);
-  for (const file of ['input.json', 'output.json', 'history.json']) {
-    const filePath = path.join(dir, file);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir)) {
+    if (
+      file === 'input.json' ||
+      file === 'history.json' ||
+      isIpcOutputFileName(file)
+    ) {
+      fs.rmSync(path.join(dir, file), { force: true });
     }
   }
 }

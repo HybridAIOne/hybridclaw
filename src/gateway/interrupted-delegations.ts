@@ -1,16 +1,17 @@
 /**
- * A stop is the user's kill switch: an interrupted turn never starts the
- * delegations it queued, even when the agent's shutdown output carries them.
- * `delegate` had already answered "Delegation accepted", so this module also
- * corrects the stored turn: later turns read that nothing was started.
- * NOT `agent/side-effects.ts`, which starts the delegations of finished turns.
+ * An error turn starts only the delegations the gateway received and enqueued,
+ * as its `delegationAcknowledgement` records. A stop drops them even when the
+ * agent's shutdown output carries them (the user's kill switch); a timeout,
+ * crash, or thrown error never delivered them. `delegate` had already answered
+ * "Delegation accepted", so a turn stored without an acknowledgement says that
+ * nothing was started. NOT `agent/side-effects.ts`, which starts delegations.
  */
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput } from '../types/container.js';
 import type { ErrorTurnToolRecord } from './gateway-service.js';
 
 export const INTERRUPTED_DELEGATIONS_NOTE =
-  'Delegations requested in this turn were not started because the turn was interrupted; no delegate results will arrive.';
+  'Delegations requested in this turn were not started; no delegate results will arrive.';
 
 function markDelegateResultsNotStarted(
   history: ChatMessage[] | undefined,
@@ -40,17 +41,22 @@ function markDelegateResultsNotStarted(
 export function dropInterruptedDelegations(
   output: ContainerOutput,
 ): ContainerOutput {
+  return { ...output, sideEffects: undefined };
+}
+
+/** The tool histories to store for an error turn that started no delegation. */
+export function withDelegationsNotStarted(
+  turn: Pick<ContainerOutput, 'toolHistory' | 'toolHistoryForReplay'>,
+): Pick<ContainerOutput, 'toolHistory' | 'toolHistoryForReplay'> {
   return {
-    ...output,
-    sideEffects: undefined,
-    toolHistory: markDelegateResultsNotStarted(output.toolHistory),
+    toolHistory: markDelegateResultsNotStarted(turn.toolHistory),
     toolHistoryForReplay: markDelegateResultsNotStarted(
-      output.toolHistoryForReplay,
+      turn.toolHistoryForReplay,
     ),
   };
 }
 
-/** The error-placeholder line, when the interrupted turn asked to delegate. */
+/** The error-placeholder line for a delegating turn that started nothing. */
 export function interruptedDelegationsNote(
   tools: readonly ErrorTurnToolRecord[],
 ): string | null {

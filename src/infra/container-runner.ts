@@ -11,6 +11,7 @@
  * capability pinned to its selected model. This is not a general network proxy.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
@@ -30,7 +31,6 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
   BROWSER_PROVIDER,
-  CODEX_RUNTIME,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
@@ -67,7 +67,6 @@ import {
   WEB_SEARCH_PROVIDER,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import type { CodexTurnRuntime } from '../config/runtime-config.js';
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
 import { startMlxRelay } from '../inference/mlx-relay.js';
 import { logger } from '../logger.js';
@@ -76,7 +75,6 @@ import { resolveMcpServersForRuntime } from '../mcp/mcp-oauth.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
-import { resolveProviderCredentials } from '../providers/provider-credentials.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -170,7 +168,6 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
-  codexRuntime?: CodexTurnRuntime;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -905,6 +902,17 @@ function getOrSpawnContainer(
     },
   };
 
+  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
+  // without stdio and emits 'error' next tick, fatal if nobody listens.
+  proc.on('error', (err) => {
+    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    removePoolEntry(entry);
+    logger.error({ sessionId, containerName, error: err }, 'Container error');
+  });
+  if (!proc.stderr) {
+    throw new Error('stdio pipes not created (out of file descriptors)');
+  }
+
   proc.stderr.on('data', (data) => {
     entry.stderrBuffer += data.toString('utf-8');
     const lines = entry.stderrBuffer.split('\n');
@@ -997,12 +1005,6 @@ function getOrSpawnContainer(
     });
     removePoolEntry(entry);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
-  });
-
-  proc.on('error', (err) => {
-    entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    removePoolEntry(entry);
-    logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
 
   if (entry.warm) {
@@ -1136,13 +1138,12 @@ async function runContainerInner(
     }),
   );
   const existingEntry = pool.get(sessionId);
-  const selectedCodexRuntime =
-    modelRuntime.provider === 'openai-codex' ? CODEX_RUNTIME : 'hybridclaw';
-  const codexRuntime = existingEntry?.codexRuntime || selectedCodexRuntime;
+  const requestId = randomUUID();
 
   const input: ContainerInput = {
     sessionId,
     runId: params.runId,
+    requestId,
     agentId,
     messages,
     chatbotId: modelRuntime.chatbotId,
@@ -1163,7 +1164,6 @@ async function runContainerInner(
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
     reasoningEffort: params.reasoningEffort,
-    codexRuntime,
     ralphMaxIterations,
     fullAutoEnabled,
     fullAutoNeverApproveTools,
@@ -1218,7 +1218,6 @@ async function runContainerInner(
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,
     },
     webSearch: webSearchRuntime,
-    providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
   };
@@ -1226,7 +1225,6 @@ async function runContainerInner(
     agentId,
     provider: input.provider,
     providerMethod: input.providerMethod,
-    codexRuntime: input.codexRuntime,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -1235,7 +1233,6 @@ async function runContainerInner(
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     taskModels: input.taskModels,
-    providerCredentials: input.providerCredentials,
     runtimeEnv: storedRuntimeEnv,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
@@ -1307,7 +1304,6 @@ async function runContainerInner(
   }
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
-  entry.codexRuntime = input.codexRuntime;
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
@@ -1319,6 +1315,9 @@ async function runContainerInner(
       'Interrupt requested, stopping container',
     );
     stopContainer(entry.containerName);
+    // `docker stop` keeps the `docker run` client alive until the container
+    // exits; drop the entry so the next turn cannot reuse a dying container.
+    removePoolEntry(entry);
   };
   if (abortSignal) {
     abortSignal.addEventListener('abort', onAbort, { once: true });
@@ -1339,6 +1338,7 @@ async function runContainerInner(
 
     const output = await readOutput(
       entry.ipcSessionId,
+      requestId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,
@@ -1380,12 +1380,17 @@ async function runContainerInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
-      maintainWarmContainerPool({
-        agentId,
-        workspacePathOverride: params.workspacePathOverride,
-        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-        bashProxy: params.bashProxy,
-      });
+      // Best-effort: a failed refill must not discard the finished turn.
+      try {
+        maintainWarmContainerPool({
+          agentId,
+          workspacePathOverride: params.workspacePathOverride,
+          workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+          bashProxy: params.bashProxy,
+        });
+      } catch (err) {
+        logger.warn({ agentId, err }, 'Warm container refill failed');
+      }
     }
 
     logger.info(

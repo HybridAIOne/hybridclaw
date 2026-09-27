@@ -239,6 +239,7 @@ export function normalizePlaceholderToolReply(
 
 export function normalizeSilentMessageSendReply(
   result: GatewayChatResult,
+  options: { allowSilentReply?: boolean } = {},
 ): GatewayChatResult {
   if (result.status !== 'success') return result;
   const sentByMessageTool = hasMessageSendToolExecution(result);
@@ -253,6 +254,14 @@ export function normalizeSilentMessageSendReply(
     return fallbackResultFromTools(result);
   };
   if (isSilentReply(rawResult)) {
+    // The model chose not to reply at all, and the channel can stay silent.
+    if (
+      options.allowSilentReply &&
+      !sentByMessageTool &&
+      !hasFailedMessageSendToolExecution(result)
+    ) {
+      return result;
+    }
     return {
       ...result,
       result: silentFallback(),

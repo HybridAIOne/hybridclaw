@@ -1035,6 +1035,7 @@ test('ContainerExecutor surfaces missing packaged runtime dependencies as immedi
   const readOutput = vi.fn(
     async (
       _sessionId: string,
+      _requestId: string,
       _timeoutMs: number,
       opts?: {
         terminalError?: () => string | null;
@@ -1213,6 +1214,7 @@ test('ContainerExecutor forwards maxWallClockMs to the IPC output reader', async
 
   expect(readOutput).toHaveBeenCalledWith(
     'session-max-wall-clock',
+    expect.any(String),
     expect.any(Number),
     expect.objectContaining({
       maxWallClockMs: 3_600_000,
@@ -1300,6 +1302,7 @@ test('ContainerExecutor forwards disabled inactivity timeout to the IPC output r
 
   expect(readOutput).toHaveBeenCalledWith(
     'session-no-inactivity-timeout',
+    expect.any(String),
     null,
     expect.any(Object),
   );
@@ -1316,6 +1319,7 @@ test('ContainerExecutor treats heartbeat lines as activity without evicting stde
   const readOutput = vi.fn(
     async (
       _sessionId: string,
+      _requestId: string,
       _timeoutMs: number,
       opts?: {
         activity?: { lastActivityMs: number; notify: () => void };

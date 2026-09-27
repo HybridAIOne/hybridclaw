@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRuntimeConfig } from '../../src/config/runtime-config.js';
 import {
   buildDefaultEvalProfile,
   type EvalProfile,
@@ -9,9 +8,13 @@ import {
   parseEvalProfileModel,
 } from '../../src/evals/eval-profile.js';
 import { initDatabase } from '../../src/memory/db.js';
-import { normalizeMemoryEmbeddingProviderKind } from '../../src/memory/embeddings.js';
+import {
+  getEmbeddingProviderRegistration,
+  normalizeMemoryEmbeddingProviderKind,
+} from '../../src/memory/embeddings.js';
 import { memoryService } from '../../src/memory/memory-service.js';
 import { normalizeMemoryRecallBackend } from '../../src/memory/semantic-recall.js';
+import { ensurePluginManagerInitialized } from '../../src/plugins/plugin-manager.js';
 import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
 import { buildSessionKey } from '../../src/session/session-key.js';
 import type { Session } from '../../src/types/session.js';
@@ -623,6 +626,15 @@ async function runEvaluation(options: LocomoRunnerOptions): Promise<void> {
   }
 
   const runtime = readGatewayRuntime();
+  // Embedding providers other than `hashed` are plugin-supplied, and this CLI
+  // process does not load plugins otherwise.
+  if (
+    options.mode === 'retrieval' &&
+    (options.retrievalEmbeddingProvider !== 'hashed' ||
+      (options.matrix && options.matrixSweep === 'embedding'))
+  ) {
+    await ensurePluginManagerInitialized();
+  }
   const allSamples = loadSamples(datasetPath);
   const selectedSamples =
     options.numSamples && options.numSamples > 0
@@ -1270,7 +1282,7 @@ function resolveLocomoRetrievalEmbeddingModel(
   if (embeddingProvider !== 'transformers') {
     return null;
   }
-  return String(getRuntimeConfig().memory.embedding.model || '').trim() || null;
+  return getEmbeddingProviderRegistration(embeddingProvider)?.model || null;
 }
 
 function resolveLocomoRunEmbeddingModel(params: {

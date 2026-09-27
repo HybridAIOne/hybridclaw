@@ -4,6 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import {
+  makeStdiolessChildProcess,
+  settleCatchingUncaught,
+} from './helpers/spawn-fd-exhaustion.ts';
 
 function createMockSpawnProcess(params?: {
   code?: number | null;
@@ -624,5 +628,61 @@ describe('skill install metadata', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       }),
     );
+  });
+
+  test('reports a failed install without crashing when spawn runs out of file descriptors', async () => {
+    const skillDir = path.join(
+      process.env.HOME || '',
+      '.codex',
+      'skills',
+      'fd-demo',
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: fd-demo',
+        'description: Test install under file-descriptor exhaustion.',
+        'metadata: {"hybridclaw":{"install":[{"id":"demo-tool","kind":"npm","package":"demo-tool","bins":["demo-tool"]}]}}',
+        '---',
+        '',
+        '# Fd Demo',
+      ].join('\n'),
+      'utf8',
+    );
+    const spawnMock = vi.fn((command: string, args: string[]) =>
+      makeStdiolessChildProcess(command, args),
+    );
+    vi.doMock('node:child_process', () => ({
+      spawn: spawnMock,
+    }));
+    vi.doMock('../src/skills/skills.ts', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/skills/skills.ts')
+      >('../src/skills/skills.ts');
+      return {
+        ...actual,
+        hasBinary: (binName: string) => binName === 'npm',
+      };
+    });
+    const { installSkillDependency } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const { outcome, uncaught } = await settleCatchingUncaught(() =>
+      installSkillDependency({ skillName: 'fd-demo', installId: 'demo-tool' }),
+    );
+
+    expect(uncaught).toEqual([]);
+    expect(outcome).toEqual({
+      status: 'fulfilled',
+      value: expect.objectContaining({
+        ok: false,
+        code: null,
+        stderr: 'spawn npm EMFILE',
+      }),
+    });
+    expect(spawnMock).toHaveBeenCalledOnce();
   });
 });

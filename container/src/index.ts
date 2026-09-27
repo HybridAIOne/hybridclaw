@@ -7,6 +7,7 @@
  */
 import path from 'node:path';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
+import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
   cleanupAllBrowserSessions,
@@ -19,10 +20,6 @@ import {
   outputPresentationForAssistantSegment,
   statusOutputPresentation,
 } from './chat-segments.js';
-import {
-  resumePendingCodexAppServerApproval,
-  runCodexAppServerTurn,
-} from './codex-app-server.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -64,9 +61,11 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
   advanceStalledTurnCount,
+  MAX_INVALID_TOOL_CALL_RETRIES,
   MAX_STALLED_MODEL_TURNS,
   shouldRetryEmptyFinalResponse,
   shouldRetryEmptyVisibleCompletion,
@@ -100,7 +99,11 @@ import {
   type ToolApprovalEvaluation,
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
-import { validateStructuredToolCalls } from './tool-call-validation.js';
+import {
+  invalidToolCallCorrection,
+  validateStructuredToolCalls,
+  withReplaySafeArguments,
+} from './tool-call-validation.js';
 import { ToolCatalog } from './tool-catalog.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
@@ -109,7 +112,7 @@ import {
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
 import {
-  getToolExecutionMode,
+  leadingParallelRun,
   mapConcurrentInOrder,
   takeCachedValue,
 } from './tool-parallelism.js';
@@ -134,7 +137,6 @@ import {
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
-  setProviderCredentials,
   setScheduledTasks,
   setScheduleSideEffectsEnabled,
   setSessionContext,
@@ -204,8 +206,7 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
-let shutdownPromise: Promise<never> | null = null;
-let requestInFlight = false;
+let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
 
@@ -306,16 +307,12 @@ async function shutdownMcp(): Promise<void> {
   mcpClientManager = null;
 }
 
-async function shutdownAgentProcess(
+function shutdownAgentProcess(
   exitCode: number,
   reason: string,
   finalOutput?: ContainerOutput,
 ): Promise<never> {
-  if (shutdownPromise) {
-    return shutdownPromise;
-  }
-
-  shutdownPromise = (async () => {
+  return startShutdown(async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
     resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
@@ -325,16 +322,27 @@ async function shutdownAgentProcess(
       console.error('[hybridclaw-agent] MCP shutdown failed:', error);
     });
     if (finalOutput) {
-      writeOutput(finalOutput);
+      writeOutput(finalOutput, inFlightInput?.requestId);
     }
     process.exit(exitCode);
-  })();
-  return shutdownPromise;
+  });
+}
+
+/** Parks once shutdown starts: the signal handler's reply stays the only one. */
+async function replyToRequest(
+  input: ContainerInput,
+  output: ContainerOutput,
+): Promise<void> {
+  await haltIfShuttingDown();
+  output.sideEffects = getPendingSideEffects();
+  writeOutput(output, input.requestId);
+  inFlightInput = null;
 }
 
 function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
-  if (!requestInFlight) return;
-  requestInFlight = false;
+  const input = inFlightInput;
+  if (!input) return;
+  inFlightInput = null;
   try {
     writeOutput(
       buildInterruptedShutdownOutput(
@@ -342,6 +350,7 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
         getPendingSideEffects(),
         activeTurnToolHistory,
       ),
+      input.requestId,
     );
   } catch (error) {
     console.error('[hybridclaw-agent] shutdown output write failed:', error);
@@ -577,11 +586,23 @@ function collectRequestedArtifacts(params: {
   artifacts: ArtifactMetadata[];
   artifactPaths: Set<string>;
   startedAtMs: number;
+  finalText: string | null;
+  toolExecutions: ToolExecution[];
 }): void {
+  // Other sessions and scheduled jobs write to the same workspace, so a file
+  // modified during this turn is only this turn's if the turn names it.
+  const mentionedIn = [
+    params.finalText || '',
+    ...params.toolExecutions.flatMap((execution) => [
+      execution.arguments,
+      execution.result,
+    ]),
+  ];
   const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
     modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
     modifiedBeforeMs: Date.now() + 1_000,
     limit: 8,
+    mentionedIn,
   });
 
   for (const artifact of discovered) {
@@ -614,11 +635,15 @@ interface CompletedToolCallExecution {
   artifacts: ArtifactMetadata[];
 }
 
+// Tool starts this process has reported; the gateway parses them as progress.
+let toolCallsStarted = 0;
+
 function logToolCallStart(
   toolName: string,
   argsJson: string,
   approval: ToolApprovalEvaluation,
 ): void {
+  toolCallsStarted += 1;
   console.error(
     `[tool] ${formatToolNameForLog(toolName)}: ${formatToolCallStartProgressText(
       toolName,
@@ -718,6 +743,8 @@ async function executePreparedToolCall(
   }
 
   const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  // Last await before the tool runs: a stop in the delay or hooks cancels it.
+  await haltIfShuttingDown();
   const loopGuard = blockedReason
     ? { stuck: false as const }
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
@@ -801,7 +828,20 @@ async function executePreparedToolCall(
   };
 }
 
-async function callHybridAIWithRetry(params: {
+// The gateway stops a worker that stays silent for its inactivity window. A
+// non-streaming call writes nothing until the response arrives, and neither
+// does a streaming call before its first chunk or a retry backoff. Hung
+// requests still end at the provider's own request and stream timeouts.
+function callHybridAIWithRetry(
+  params: Parameters<typeof callModelWithRetry>[0],
+): Promise<ChatCompletionResponse> {
+  return withToolActivityHeartbeat(
+    () => callModelWithRetry(params),
+    emitStreamActivity,
+  );
+}
+
+async function callModelWithRetry(params: {
   sessionId?: string;
   provider?: ContainerInput['provider'];
   providerMethod?: string;
@@ -853,6 +893,7 @@ async function callHybridAIWithRetry(params: {
   let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
+    await haltIfShuttingDown();
     attempt += 1;
     const attemptStartedAt = Date.now();
     let firstTextDeltaMs: number | null = null;
@@ -1003,7 +1044,6 @@ interface ProcessRequestParams {
   baseUrl: string;
   provider: ContainerInput['provider'];
   providerMethod?: string;
-  codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
   modelBehavior?: ContainerInput['modelBehavior'];
@@ -1013,13 +1053,6 @@ interface ProcessRequestParams {
   chatbotId: string;
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
-  gatewayBaseUrl?: string;
-  gatewayApiToken?: string;
-  configuredDiscordChannels?: string[];
-  mcpServers?: ContainerInput['mcpServers'];
-  media?: ContainerInput['media'];
-  webSearch?: ContainerInput['webSearch'];
-  providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
   localToolMode?: ContainerInput['localToolMode'];
   localStarterTools?: string[];
@@ -1036,29 +1069,6 @@ interface ProcessRequestParams {
   ralphMaxIterationsOverride?: number | null;
   escalationTarget?: EscalationTarget;
   approvedToolCall?: ApprovalPrelude['approvedToolCall'];
-}
-
-function inputRuntimeContext(
-  input: ContainerInput,
-): Pick<
-  ProcessRequestParams,
-  | 'gatewayBaseUrl'
-  | 'gatewayApiToken'
-  | 'configuredDiscordChannels'
-  | 'mcpServers'
-  | 'media'
-  | 'webSearch'
-  | 'providerCredentials'
-> {
-  return {
-    gatewayBaseUrl: input.gatewayBaseUrl,
-    gatewayApiToken: input.gatewayApiToken,
-    configuredDiscordChannels: input.configuredDiscordChannels,
-    mcpServers: input.mcpServers,
-    media: input.media,
-    webSearch: input.webSearch,
-    providerCredentials: input.providerCredentials,
-  };
 }
 
 async function processRequest(
@@ -1084,6 +1094,37 @@ async function processRequest(
     : output;
 }
 
+/**
+ * Runs a request and, when the model rejects its native media parts, runs it
+ * once more on `mediaFreeMessages`. A run that already used a tool is final.
+ */
+async function processRequestWithMediaFallback(
+  mediaFreeMessages: ChatMessage[],
+  params: ProcessRequestParams,
+): Promise<ContainerOutput> {
+  const toolCallsBefore = toolCallsStarted;
+  const output = await processRequest(params);
+  if (
+    params.messages === mediaFreeMessages ||
+    output.status !== 'error' ||
+    !shouldRetryWithoutNativeMedia(output.error) ||
+    !isRetrySafeRun(output, toolCallsStarted > toolCallsBefore)
+  ) {
+    return output;
+  }
+  console.error(
+    '[media] native media injection rejected by model; retrying without native media parts',
+  );
+  const promptOverride = params.effectiveUserPromptOverride;
+  const retryMessages = promptOverride
+    ? replaceLatestUserPrompt(mediaFreeMessages, promptOverride)
+    : mediaFreeMessages;
+  return processRequest({
+    ...params,
+    messages: injectSkillCacheHint(retryMessages),
+  });
+}
+
 async function processRequestInner(
   params: ProcessRequestParams,
   turnToolHistory: TurnToolHistory,
@@ -1095,7 +1136,6 @@ async function processRequestInner(
     baseUrl,
     provider,
     providerMethod,
-    codexRuntime,
     isLocal,
     contextWindow,
     modelBehavior,
@@ -1105,13 +1145,6 @@ async function processRequestInner(
     chatbotId,
     enableRag,
     requestHeaders,
-    gatewayBaseUrl,
-    gatewayApiToken,
-    configuredDiscordChannels,
-    mcpServers,
-    media,
-    webSearch,
-    providerCredentials,
     tools: availableTools,
     localStarterTools,
     localToolMode,
@@ -1185,6 +1218,7 @@ async function processRequestInner(
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
+  let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
@@ -1204,59 +1238,6 @@ async function processRequestInner(
     tools,
   });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
-
-  if (provider === 'openai-codex' && codexRuntime === 'app-server') {
-    const resumed = await resumePendingCodexAppServerApproval({
-      sessionId,
-      messages: history,
-      streamTextDeltas,
-      onTextDelta: emitStreamDelta,
-      onActivity: emitStreamActivity,
-    });
-    if (resumed) {
-      resumed.codexRuntime = 'app-server';
-      await emitRuntimeEvent({
-        event: 'turn_end',
-        status: resumed.status,
-        toolsUsed: resumed.toolsUsed,
-      });
-      return resumed;
-    }
-    const output = await runCodexAppServerTurn({
-      sessionId,
-      messages: history,
-      model,
-      cwd: WORKSPACE_ROOT,
-      apiKey,
-      baseUrl,
-      provider,
-      providerMethod,
-      chatbotId,
-      requestHeaders,
-      maxTokens,
-      modelBehavior,
-      debugModelResponses,
-      gatewayBaseUrl,
-      gatewayApiToken,
-      channelId,
-      configuredDiscordChannels,
-      mcpServers,
-      taskModels,
-      media,
-      webSearch,
-      providerCredentials,
-      streamTextDeltas,
-      onTextDelta: emitStreamDelta,
-      onActivity: emitStreamActivity,
-    });
-    output.codexRuntime = 'app-server';
-    await emitRuntimeEvent({
-      event: 'turn_end',
-      status: output.status,
-      toolsUsed: output.toolsUsed,
-    });
-    return output;
-  }
 
   const resolveToolApproval = createToolApprovalResolver({
     latestUserPrompt: effectiveUserPrompt,
@@ -1420,6 +1401,7 @@ async function processRequestInner(
         history,
         contextWindowTokens: contextWindow,
         summarize: async (summaryMessages, summaryMaxTokens) => {
+          await haltIfShuttingDown();
           tokenUsage.modelCalls += 1;
           tokenUsage.estimatedPromptTokens +=
             estimateMessageTokens(summaryMessages);
@@ -1585,7 +1567,8 @@ async function processRequestInner(
     });
 
     let toolCalls = choice.message.tool_calls || [];
-    let invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    const malformedToolCallError = validateStructuredToolCalls(toolCalls);
+    let invalidToolCallError = malformedToolCallError;
     let catalogCorrection: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
       try {
@@ -1604,13 +1587,23 @@ async function processRequestInner(
         }
       }
     }
-    if (catalogCorrection) {
+    const correction =
+      catalogCorrection ??
+      (malformedToolCallError &&
+      invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
+        ? invalidToolCallCorrection(
+            malformedToolCallError,
+            choice.finish_reason,
+          )
+        : null);
+    if (correction) {
+      if (!catalogCorrection) invalidToolCallRetries += 1;
       // Keep the original rejected calls for valid tool-result pairing. Nothing
       // from this batch reaches approval or execution, including valid siblings.
       const rejectedMessage: ChatMessage = {
         role: 'assistant',
         content: choice.message.content,
-        tool_calls: choice.message.tool_calls,
+        tool_calls: withReplaySafeArguments(choice.message.tool_calls || []),
       };
       turnToolHistory.recordAssistant(rejectedMessage);
       history.push(rejectedMessage);
@@ -1619,23 +1612,23 @@ async function processRequestInner(
           turnToolHistory.recordResult({
             role: 'tool',
             tool_call_id: call.id,
-            content: catalogCorrection,
+            content: correction,
           }),
         );
         toolsUsed.push(call.function.name);
         toolExecutions.push({
           name: call.function.name,
           arguments: call.function.arguments,
-          result: catalogCorrection,
+          result: correction,
           durationMs: 0,
           isError: true,
           blocked: true,
-          blockedReason: 'Invalid local tool catalog arguments.',
+          blockedReason: 'Invalid tool call arguments.',
         });
       }
       stalledTurns += 1;
       console.error(
-        '[model] rejected local catalog arguments; requesting correction',
+        '[model] rejected tool call arguments; requesting correction',
       );
       continue;
     }
@@ -1660,6 +1653,7 @@ async function processRequestInner(
       });
       return failed;
     }
+    invalidToolCallRetries = 0;
     const assistantSegment = classifyAssistantChatSegment({
       content: choice.message.content,
       hasToolCalls: toolCalls.length > 0,
@@ -1771,6 +1765,8 @@ async function processRequestInner(
             artifacts,
             artifactPaths,
             startedAtMs: processStartedAt,
+            finalText: assistantSegment.text,
+            toolExecutions,
           });
           latestFinalAssistantText = assistantSegment.text;
           textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
@@ -1828,6 +1824,8 @@ async function processRequestInner(
         artifacts,
         artifactPaths,
         startedAtMs: processStartedAt,
+        finalText: assistantSegment.text,
+        toolExecutions,
       });
       if (
         shouldRetryEmptyFinalResponse({
@@ -1872,43 +1870,18 @@ async function processRequestInner(
     }
 
     let successfulToolCallsThisTurn = 0;
-    const allowConcurrentBatching =
-      toolCalls.length > 1 &&
-      toolCalls.every(
-        (entry) =>
-          getToolExecutionMode(
-            entry.function.name,
-            entry.function.arguments,
-          ) === 'parallel',
-      );
     const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
       const cachedApproval = takeCachedValue(cachedApprovals, call.id);
-      const executionMode =
-        cachedApproval || !allowConcurrentBatching ? 'sequential' : 'parallel';
+      const candidateCalls = cachedApproval
+        ? []
+        : leadingParallelRun(
+            toolCalls.slice(callIndex, callIndex + MAX_PARALLEL_TOOL_CALLS),
+          );
 
-      if (executionMode === 'parallel') {
-        const candidateCalls: ToolCall[] = [call];
-        let nextOffset = 1;
-        while (
-          callIndex + nextOffset < toolCalls.length &&
-          candidateCalls.length < MAX_PARALLEL_TOOL_CALLS
-        ) {
-          const candidate = toolCalls[callIndex + nextOffset];
-          if (
-            getToolExecutionMode(
-              candidate.function.name,
-              candidate.function.arguments,
-            ) !== 'parallel'
-          ) {
-            break;
-          }
-          candidateCalls.push(candidate);
-          nextOffset += 1;
-        }
-
+      if (candidateCalls.length > 1) {
         const preparedBatch: PreparedToolCallExecution[] = [];
         for (const candidate of candidateCalls) {
           const candidateApproval = await resolveToolApproval({
@@ -2003,6 +1976,7 @@ async function processRequestInner(
 
       const approval =
         cachedApproval ||
+        takeCachedValue(cachedApprovals, call.id) ||
         (await resolveToolApproval({
           toolName,
           argsJson: call.function.arguments,
@@ -2106,6 +2080,8 @@ async function processRequestInner(
     artifacts,
     artifactPaths,
     startedAtMs: processStartedAt,
+    finalText: latestFinalAssistantText,
+    toolExecutions,
   });
   const completed: ContainerOutput = {
     status: 'success',
@@ -2118,7 +2094,6 @@ async function processRequestInner(
       : statusOutputPresentation(true),
     ...(artifacts.length > 0 ? { artifacts } : {}),
     toolExecutions,
-    codexRuntime,
     tokenUsage: finalizeTokenUsage(tokenUsage),
     effectiveUserPrompt,
   };
@@ -2196,8 +2171,9 @@ async function main(): Promise<void> {
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
+  await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
-  requestInFlight = true;
+  inFlightInput = firstInput;
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
@@ -2249,7 +2225,6 @@ async function main(): Promise<void> {
     firstInput.modelBehavior,
     firstInput.debugModelResponses === true,
   );
-  setProviderCredentials(firstInput.providerCredentials);
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
   const firstVisionMessages = await injectNativeVisionContent({
@@ -2286,14 +2261,13 @@ async function main(): Promise<void> {
     };
     console.error('[approval] resolved user response without model run');
   } else {
-    firstOutput = await processRequest({
+    firstOutput = await processRequestWithMediaFallback(firstInput.messages, {
       sessionId: firstInput.sessionId,
       messages: firstMessagesForRequest,
       apiKey: storedApiKey,
       baseUrl: firstInput.baseUrl,
       provider: firstInput.provider,
       providerMethod: firstInput.providerMethod,
-      codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
       modelBehavior: firstInput.modelBehavior,
@@ -2303,7 +2277,6 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: firstRequestHeaders,
-      ...inputRuntimeContext(firstInput),
       tools: resolveTools(firstInput),
       localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
@@ -2321,62 +2294,9 @@ async function main(): Promise<void> {
       escalationTarget: firstInput.escalationTarget,
       approvedToolCall: firstApprovedToolCall,
     });
-    if (
-      firstMessagesForRequest !== firstInput.messages &&
-      firstOutput.status === 'error' &&
-      shouldRetryWithoutNativeMedia(firstOutput.error)
-    ) {
-      console.error(
-        '[media] native media injection rejected by model; retrying without native media parts',
-      );
-      const firstRetryMessages = firstPromptOverride
-        ? replaceLatestUserPrompt(firstInput.messages, firstPromptOverride)
-        : firstInput.messages;
-      const firstRetryMessagesWithSkillCache =
-        injectSkillCacheHint(firstRetryMessages);
-      firstOutput = await processRequest({
-        sessionId: firstInput.sessionId,
-        messages: firstRetryMessagesWithSkillCache,
-        apiKey: storedApiKey,
-        baseUrl: firstInput.baseUrl,
-        provider: firstInput.provider,
-        providerMethod: firstInput.providerMethod,
-        codexRuntime: firstInput.codexRuntime,
-        isLocal: firstInput.isLocal,
-        contextWindow: firstInput.contextWindow,
-        modelBehavior: firstInput.modelBehavior,
-        thinkingFormat: firstInput.thinkingFormat,
-        reasoningEffort: firstInput.reasoningEffort,
-        model: firstInput.model,
-        chatbotId: firstInput.chatbotId,
-        enableRag: firstInput.enableRag,
-        requestHeaders: firstInput.requestHeaders,
-        ...inputRuntimeContext(firstInput),
-        tools: resolveTools(firstInput),
-        localToolMode: firstInput.localToolMode,
-        localStarterTools: firstInput.localStarterTools,
-        localDiscoveryDisabled:
-          firstInput.blockedTools?.includes('tool_catalog'),
-        deferredTools: resolveDeferredTools(firstInput),
-        taskModels: firstTaskModels,
-        contextGuard: firstInput.contextGuard,
-        channelId: firstInput.channelId,
-        skipContainerSystemPrompt:
-          firstInput.skipContainerSystemPrompt === true,
-        streamTextDeltas: firstInput.streamTextDeltas === true,
-        debugModelResponses: firstInput.debugModelResponses === true,
-        maxTokens: firstInput.maxTokens,
-        effectiveUserPromptOverride: firstPromptOverride,
-        ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
-        escalationTarget: firstInput.escalationTarget,
-        approvedToolCall: firstApprovedToolCall,
-      });
-    }
   }
 
-  firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput);
-  requestInFlight = false;
+  await replyToRequest(firstInput, firstOutput);
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2387,7 +2307,7 @@ async function main(): Promise<void> {
     const input = await waitForInput(Math.max(0, idleDeadlineAt - Date.now()));
 
     if (!input) {
-      console.error('[hybridclaw-agent] idle timeout, exiting');
+      // Idle timeout; if shutdown already started, this joins it.
       await shutdownAgentProcess(0, 'idle timeout');
       return;
     }
@@ -2403,7 +2323,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    requestInFlight = true;
+    inFlightInput = input;
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2461,7 +2381,6 @@ async function main(): Promise<void> {
       input.modelBehavior,
       input.debugModelResponses === true,
     );
-    setProviderCredentials(input.providerCredentials);
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
     const visionPreparedMessages = await injectNativeVisionContent({
@@ -2496,22 +2415,19 @@ async function main(): Promise<void> {
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      immediate.sideEffects = getPendingSideEffects();
-      writeOutput(immediate);
-      requestInFlight = false;
+      await replyToRequest(input, immediate);
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
     }
 
-    let output = await processRequest({
+    const output = await processRequestWithMediaFallback(input.messages, {
       sessionId: input.sessionId,
       messages: messagesForRequestWithSkillCache,
       apiKey,
       baseUrl: input.baseUrl,
       provider: input.provider,
       providerMethod: input.providerMethod,
-      codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
       modelBehavior: input.modelBehavior,
@@ -2521,7 +2437,6 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
-      ...inputRuntimeContext(input),
       tools: resolveTools(input),
       localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
@@ -2539,58 +2454,8 @@ async function main(): Promise<void> {
       escalationTarget: input.escalationTarget,
       approvedToolCall,
     });
-    if (
-      messagesForRequestWithSkillCache !== input.messages &&
-      output.status === 'error' &&
-      shouldRetryWithoutNativeMedia(output.error)
-    ) {
-      console.error(
-        '[media] native media injection rejected by model; retrying without native media parts',
-      );
-      const retryMessages = promptOverride
-        ? replaceLatestUserPrompt(input.messages, promptOverride)
-        : input.messages;
-      const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
-      output = await processRequest({
-        sessionId: input.sessionId,
-        messages: retryMessagesWithSkillCache,
-        apiKey,
-        baseUrl: input.baseUrl,
-        provider: input.provider,
-        providerMethod: input.providerMethod,
-        codexRuntime: input.codexRuntime,
-        isLocal: input.isLocal,
-        contextWindow: input.contextWindow,
-        modelBehavior: input.modelBehavior,
-        thinkingFormat: input.thinkingFormat,
-        reasoningEffort: input.reasoningEffort,
-        model: input.model,
-        chatbotId: input.chatbotId,
-        enableRag: input.enableRag,
-        requestHeaders,
-        ...inputRuntimeContext(input),
-        tools: resolveTools(input),
-        localToolMode: input.localToolMode,
-        localStarterTools: input.localStarterTools,
-        localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
-        deferredTools: resolveDeferredTools(input),
-        taskModels,
-        contextGuard: input.contextGuard,
-        channelId: input.channelId,
-        skipContainerSystemPrompt: input.skipContainerSystemPrompt === true,
-        streamTextDeltas: input.streamTextDeltas === true,
-        debugModelResponses: input.debugModelResponses === true,
-        maxTokens: input.maxTokens,
-        effectiveUserPromptOverride: promptOverride,
-        ralphMaxIterationsOverride: input.ralphMaxIterations,
-        escalationTarget: input.escalationTarget,
-        approvedToolCall,
-      });
-    }
 
-    output.sideEffects = getPendingSideEffects();
-    writeOutput(output);
-    requestInFlight = false;
+    await replyToRequest(input, output);
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

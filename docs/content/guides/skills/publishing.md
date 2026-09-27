@@ -43,12 +43,14 @@ repair source consume token budget.
 
 ## image-generation
 
-Generate or edit raster images through the native `image_generate` tool. The
-runtime owns provider auth, provider quirks, artifact persistence, and media
-delivery paths.
+Generate or edit raster images through the `image_generate` tool from the
+`media-tools` plugin. The plugin owns provider auth, provider quirks, artifact
+persistence, and media delivery paths, and calls providers from the gateway so
+their keys never enter the sandbox.
 
-**Prerequisites** — configure at least one supported image provider and model
-credential in the runtime environment or encrypted secret store.
+**Prerequisites** — `hybridclaw plugin install media-tools`, plus at least one
+supported image provider key in the encrypted secret store, or a session model
+on OpenAI Codex, Gemini, or xAI.
 
 > 💡 **Tips & Tricks**
 >
@@ -73,11 +75,13 @@ credential in the runtime environment or encrypted secret store.
 
 ## video-generation
 
-Generate short videos through the native `video_generate` tool. The runtime
-handles provider selection, output persistence, warnings, and artifact delivery.
+Generate short videos through the `video_generate` tool from the `media-tools`
+plugin. The plugin handles provider selection, output persistence, warnings,
+and artifact delivery.
 
-**Prerequisites** — configure at least one supported video provider and model
-credential in the runtime environment or encrypted secret store.
+**Prerequisites** — `hybridclaw plugin install media-tools`, plus an OpenAI or
+Gemini key in the encrypted secret store, or a session model on OpenAI Codex or
+Gemini.
 
 > 💡 **Tips & Tricks**
 >

@@ -1,6 +1,6 @@
 ---
 name: video-generation
-description: Generate videos with the native video_generate tool.
+description: Generate videos with the video_generate tool.
 metadata:
   hybridclaw:
     category: media
@@ -15,8 +15,11 @@ user-invocable: true
 
 # Video Generation
 
-Use the native `video_generate` tool when the user asks you to create, generate,
+Use the `video_generate` tool when the user asks you to create, generate,
 render, or make a deliverable video.
+
+The tool comes from the `media-tools` plugin. If it is not in your tool list,
+tell the user to enable it with `hybridclaw plugin install media-tools`.
 
 Do not use `video_generate` for image generation or video understanding. Use
 `image_generate` for still images and the appropriate vision/video analysis

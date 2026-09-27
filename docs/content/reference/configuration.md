@@ -182,11 +182,7 @@ saved revision history directly.
   are excluded. With incomplete timing coverage, Speed and Auto use configured
   order and report that
   fallback in routing details. Restarting the gateway clears these samples.
-- `codex.baseUrl`, `codex.turnRuntime`, and `codex.models` for first-class
-  Codex provider behavior. `codex.turnRuntime` accepts `hybridclaw` for the
-  standard HybridClaw tool loop or `app-server` for the native Codex app-server
-  turn loop on `openai-codex/*` models. `codex.runtime` is accepted as a
-  compatibility alias; new config should use `codex.turnRuntime`.
+- `codex.baseUrl` and `codex.models` for first-class Codex provider behavior.
 - `openai.enabled`, `openai.baseUrl`, and `openai.models` configure the direct
   OpenAI Responses API provider. Store its API key as `OPENAI_API_KEY` in the
   encrypted runtime secret store and select models with the `openai/` prefix.
@@ -225,10 +221,9 @@ saved revision history directly.
   memory cleanup, prompt-time semantic recall limits, and live semantic
   retrieval behavior (`memory.backend` accepts `cosine`, `full-text`, or
   `hybrid`, while `memory.tokenizer` accepts `unicode61`, `porter`, or
-  `trigram`; `memory.embedding.provider` accepts `hashed` or
-  `transformers`, with the Transformers.js provider configured by
-  `memory.embedding.model`, `memory.embedding.revision`, and
-  `memory.embedding.dtype`); `0`
+  `trigram`; `memory.embedding.provider` accepts `hashed` or an id a
+  plugin registers, such as `transformers` from the
+  `transformers-embeddings` plugin, which holds its own model settings); `0`
   disables scheduled runs, `24` matches `dream on`, and `dream now` triggers
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh

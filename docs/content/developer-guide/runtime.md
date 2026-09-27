@@ -515,6 +515,42 @@ This is particularly important for local models that may take 30+ seconds
 per iteration and easily exceed a fixed 5-minute wall clock over multiple
 tool-call rounds.
 
+## Request-Scoped Agent Replies
+
+Every executor request carries a random `requestId`. The agent writes its
+reply to `output-<requestId>.json` in the session IPC directory (naming in
+`container/shared/ipc-output-files.js`), and `readOutput()` waits for that file
+only:
+
+- A stopped agent's SIGTERM handler still answers its in-flight request, with
+  the tool calls that ran and any delegations it had queued. The interrupted
+  read waits up to 2 s for that reply and keeps only its tool history. A reply
+  that lands later stays in the stopped request's own file, which no later
+  request reads; the next request's `cleanupIpc()` deletes it.
+- An interrupted container leaves the pool immediately, so the next turn starts
+  a fresh container instead of reusing one that `docker stop` is still shutting
+  down.
+- Requests without an id reply in `output.json`; the gateway also accepts that
+  file from agent images built before request ids.
+
+## Agent Shutdown
+
+When the gateway stops an agent process, for example to interrupt a turn, the
+agent receives `SIGTERM` (through `docker stop` in container mode). It writes
+the interrupted reply to its in-flight request's reply file at once, keeping
+the tool calls that already ran, and then closes its browser sessions and MCP
+servers, which can take seconds. From the signal on, the agent starts nothing
+new:
+
+- no model call, tool approval, tool run, or later reply; a model or tool
+  result still in flight when the signal arrives is dropped
+- no `input.json` or `health-input.json` is consumed, because the replacement
+  agent that the runner starts for the next turn can share the session's IPC
+  directory
+
+Each of these entry points checks the latch in
+`container/src/shutdown-latch.ts`; a new entry point must check it too.
+
 ## Session Reset Workflow
 
 Gateway `reset [yes|no]`, TUI `/reset`, and Discord `/reset` share the same

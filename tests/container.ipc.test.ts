@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
+import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type { ContainerOutput } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
@@ -12,7 +13,7 @@ useCleanMocks({
 });
 
 test.each([
-  ['writeOutput', 'output.json'],
+  ['writeOutput', ipcOutputFileName('request-1')],
   ['writeHealthOutput', 'health-output.json'],
 ] as const)(
   '%s never shows a poller a half-written %s',
@@ -38,10 +39,37 @@ test.each([
       toolsUsed: [],
     };
 
-    ipc[writer](output);
+    if (writer === 'writeOutput') ipc.writeOutput(output, 'request-1');
+    else ipc.writeHealthOutput(output);
 
     expect(polled).toEqual([null]);
     expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual(output);
     expect(fs.readdirSync(ipcDir)).toEqual([name]);
   },
 );
+
+test.each([
+  'input.json',
+  'health-input.json',
+])('once shutdown starts, waitForInput leaves %s for the replacement agent', async (name) => {
+  const ipcDir = makeTempDir();
+  vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
+  const { waitForInput } = await import('../container/src/ipc.js');
+  const { startShutdown } = await import('../container/src/shutdown-latch.js');
+  const writeInput = () =>
+    fs.writeFileSync(
+      path.join(ipcDir, name),
+      JSON.stringify({ sessionId: 'session-a', messages: [] }),
+    );
+  writeInput();
+  await expect(waitForInput(1_000)).resolves.toMatchObject({
+    sessionId: 'session-a',
+  });
+
+  const waiting = waitForInput(5_000);
+  void startShutdown(() => new Promise<never>(() => {}));
+  writeInput();
+
+  await expect(waiting).resolves.toBeNull();
+  expect(fs.readdirSync(ipcDir)).toEqual([name]);
+});

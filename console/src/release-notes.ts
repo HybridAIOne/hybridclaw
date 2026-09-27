@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.32.0',
+  version: '0.32.1',
   highlights: [
-    'Choose routing modes and privacy boundaries',
-    'Sign in to HybridAI with browser or device',
-    'Assign Teams users to agents',
-    'Inspect cache usage and response costs',
+    'Reliable file uploads and document delivery',
+    'Safer retries and interrupted turns',
+    'Enforced monthly agent budgets',
+    'Leaner installs with optional media plugins',
   ],
 } as const;
 
