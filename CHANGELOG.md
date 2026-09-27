@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Faster model calls with images on OpenAI-compatible providers**: Every
+  call to vLLM, LM Studio, llama.cpp, MLX, OpenRouter, and the other
+  OpenAI-compatible providers re-checked each message, image and audio data
+  URLs included, one character at a time for broken Unicode. That blocked the
+  agent for about 300 ms per 2 MB image on every call. The check now uses the
+  string built-ins, which also speeds up audit event ingestion.
+
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
