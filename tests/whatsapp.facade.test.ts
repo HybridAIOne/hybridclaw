@@ -8,6 +8,7 @@ import {
   initWhatsApp,
   isWhatsAppTransportInstalled,
   sendToWhatsAppChat,
+  sendWhatsAppMediaToChat,
   shutdownWhatsApp,
   WhatsAppTransportMissingError,
   WHATSAPP_PLUGIN_INSTALL_COMMAND,
@@ -60,4 +61,27 @@ test('prefers the registered plugin and retains its instance for shutdown', asyn
   unregisterChannelTransport('whatsapp');
   await shutdownWhatsApp();
   expect(instance.shutdown).toHaveBeenCalledTimes(1);
+});
+
+test('preserves plugin send IDs across the facade for text and media', async () => {
+  const textResult = { messageIds: ['chunk-1', 'chunk-2'] };
+  const mediaResult = { messageIds: ['attachment-1'] };
+  registerChannelTransport({
+    kind: 'whatsapp',
+    create: () => ({
+      init: async () => {},
+      shutdown: async () => {},
+      sendText: async () => textResult,
+      sendMedia: async () => mediaResult,
+    }),
+  });
+  await expect(
+    sendToWhatsAppChat('15550100200@s.whatsapp.net', 'hello'),
+  ).resolves.toBe(textResult);
+  await expect(
+    sendWhatsAppMediaToChat({
+      jid: '15550100200@s.whatsapp.net',
+      filePath: '/tmp/image.png',
+    }),
+  ).resolves.toBe(mediaResult);
 });

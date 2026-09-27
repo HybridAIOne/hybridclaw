@@ -1147,6 +1147,7 @@ test('channels whatsapp setup configures self-chat-only mode by default', async 
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   await cli.main(['channels', 'whatsapp', 'setup']);
 
@@ -1157,6 +1158,10 @@ test('channels whatsapp setup configures self-chat-only mode by default', async 
   expect(config.whatsapp.groupAllowFrom).toEqual([]);
   expect(config.whatsapp.ackReaction).toBe('👀');
   expect(logSpy).toHaveBeenCalledWith('WhatsApp mode: self-chat only');
+  const { WHATSAPP_SELF_CHAT_ADVISORY } = await import(
+    '../src/channels/whatsapp/self-chat.js'
+  );
+  expect(warnSpy).toHaveBeenCalledWith(`Warning: ${WHATSAPP_SELF_CHAT_ADVISORY}`);
   expect(logSpy).toHaveBeenCalledWith('Ack reaction: 👀');
   expect(logSpy).not.toHaveBeenCalledWith('Next:');
 });
@@ -1226,6 +1231,7 @@ test('channels signal setup supports open DM policy with default daemon URL', as
 test('channels whatsapp setup normalizes allowlisted DM numbers', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   await cli.main([
     'channels',
@@ -1241,6 +1247,10 @@ test('channels whatsapp setup normalizes allowlisted DM numbers', async () => {
   expect(config.whatsapp.groupPolicy).toBe('disabled');
   expect(config.whatsapp.allowFrom).toEqual(['+491701234567', '+12025550101']);
   expect(config.whatsapp.ackReaction).toBe('👀');
+  const { WHATSAPP_SELF_CHAT_ADVISORY } = await import(
+    '../src/channels/whatsapp/self-chat.js'
+  );
+  expect(warnSpy).not.toHaveBeenCalledWith(`Warning: ${WHATSAPP_SELF_CHAT_ADVISORY}`);
 });
 
 test('channels whatsapp setup preserves an existing custom ack reaction', async () => {
