@@ -39,6 +39,7 @@ function makeEntry(
   return {
     id,
     sessionId: id,
+    workerCredential: `hcw_test_${id}`,
     agentId,
     lastUsedAt,
     warm: true,

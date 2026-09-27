@@ -14,7 +14,7 @@
 import { createHash, createHmac, createSign, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import type { LookupFunction } from 'node:net';
 import net from 'node:net';
 import path from 'node:path';
@@ -73,11 +73,7 @@ import {
   type SecretRef,
 } from '../security/secret-refs.js';
 
-import {
-  parsePositiveInteger,
-  readJsonBody,
-  sendJson,
-} from './gateway-http-utils.js';
+import { parsePositiveInteger, sendJson } from './gateway-http-utils.js';
 import {
   assertSecretResolveAllowed,
   recordSecretResolved,
@@ -2309,10 +2305,10 @@ function makeHttpSecretAuditCallback(context: SecretResolveContext) {
 }
 
 export async function handleApiHttpRequest(
-  req: IncomingMessage,
   res: ServerResponse,
+  rawBody: unknown,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiHttpRequestBody;
+  const body = rawBody as ApiHttpRequestBody;
   const replacePlaceholders = body.replaceSecretPlaceholders !== false;
   const baseSecretContext: SecretResolveContext = {
     sessionId: normalizeSecretString(body.sessionId),

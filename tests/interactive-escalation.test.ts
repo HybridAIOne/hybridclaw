@@ -167,6 +167,40 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   expect(reloaded.consumeOperatorReturn('session-2fa')).toBeNull();
 });
 
+test('an owner-scoped caller reads only its own agent escalation response', async () => {
+  const escalation = await importInteractiveEscalation();
+  for (const agentId of ['agent-a', 'agent-b']) {
+    escalation.createSuspendedSession({
+      sessionId: `escalation-${agentId}`,
+      prompt: 'Enter the SMS verification code.',
+      userId: 'operator-1',
+      modality: 'sms',
+      frameSnapshot: { url: 'https://sap.example/login' },
+      agentId,
+    });
+    escalation.resumeWith(`escalation-${agentId}`, {
+      kind: 'code',
+      value: `code-${agentId}`,
+    });
+  }
+
+  expect(
+    escalation.peekOperatorReturn('escalation-agent-b', 'agent-a'),
+  ).toBeNull();
+  expect(
+    escalation.consumeOperatorReturn('escalation-agent-b', 'agent-a'),
+  ).toBeNull();
+  expect(
+    escalation.consumeOperatorReturn('escalation-agent-a', 'agent-a'),
+  ).toEqual({ kind: 'code', value: 'code-agent-a' });
+  // The refused read neither consumed agent B's code nor needs an owner for
+  // gateway-token callers.
+  expect(escalation.consumeOperatorReturn('escalation-agent-b')).toEqual({
+    kind: 'code',
+    value: 'code-agent-b',
+  });
+});
+
 test('suspended session artifacts are validated before persistence', async () => {
   const escalation = await importInteractiveEscalation();
   const baseInput = {

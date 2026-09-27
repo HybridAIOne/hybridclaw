@@ -478,15 +478,23 @@ test('ContainerExecutor claims a warm container for a later session', async () =
 
   const spawnedRuns: Array<{
     args: string[];
+    credential: string;
     proc: ReturnType<typeof makeFakeChildProcess>;
   }> = [];
-  const spawn = vi.fn((command: string, args?: string[]) => {
-    const proc = makeFakeChildProcess();
-    if (command === 'docker' && Array.isArray(args) && args[0] === 'run') {
-      spawnedRuns.push({ args: [...args], proc });
-    }
-    return proc as never;
-  });
+  const spawn = vi.fn(
+    (
+      command: string,
+      args?: string[],
+      options?: { env?: NodeJS.ProcessEnv },
+    ) => {
+      const proc = makeFakeChildProcess();
+      if (command === 'docker' && Array.isArray(args) && args[0] === 'run') {
+        const credential = String(options?.env?.HYBRIDCLAW_GATEWAY_TOKEN);
+        spawnedRuns.push({ args: [...args], credential, proc });
+      }
+      return proc as never;
+    },
+  );
   const readOutput = vi.fn(async () => ({
     status: 'success' as const,
     result: 'ok',
@@ -590,6 +598,23 @@ test('ContainerExecutor claims a warm container for a later session', async () =
     'Claimed warm container',
   );
   expect(initialWarmRun?.proc.stdin.write).toHaveBeenCalledTimes(1);
+  // The claim binds the warm worker's credential to the claiming session; the
+  // stopped session's worker loses its credential.
+  const { resolveWorkerCredential } = await import(
+    '../src/security/worker-credentials.js'
+  );
+  const warmCredential = initialWarmRun?.credential ?? '';
+  expect(resolveWorkerCredential(warmCredential)).toEqual({
+    agentId: 'default',
+    sessionId: 'session-claims-warm',
+  });
+  expect(
+    JSON.parse(String(initialWarmRun?.proc.stdin.write.mock.calls[0]?.[0]))
+      .gatewayApiToken,
+  ).toBe(warmCredential);
+  const stoppedRun = spawnedRuns.find((run) => run !== initialWarmRun);
+  expect(stoppedRun?.credential).toMatch(/^hcw_/);
+  expect(resolveWorkerCredential(stoppedRun?.credential ?? '')).toBeNull();
 });
 
 test('ContainerExecutor injects gateway runtime env into docker launch', async () => {
@@ -672,18 +697,37 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
     channelId: 'tui',
   });
 
-  const runCall = spawn.mock.calls.find(
+  const runIndex = spawn.mock.calls.findIndex(
     (call) => call[0] === 'docker' && Array.isArray(call[1]),
   );
+  const runCall = spawn.mock.calls[runIndex];
   const runArgs = runCall?.[1] as string[] | undefined;
   const runEnv = (runCall?.[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+  const runStdin = (
+    spawn.mock.results[runIndex]?.value as ReturnType<
+      typeof makeFakeChildProcess
+    >
+  ).stdin.write.mock.calls
+    .map((call) => String(call[0]))
+    .join('');
   expect(runArgs).toContain(
     'HYBRIDCLAW_GATEWAY_URL=http://host.docker.internal:9090',
   );
-  // The token rides in the docker CLI's env; argv shows up in `ps`.
+  // The container gets its own worker credential, never the gateway token.
+  const credential = String(runEnv?.HYBRIDCLAW_GATEWAY_TOKEN);
+  expect(credential).toMatch(/^hcw_/);
+  expect(JSON.parse(runStdin).gatewayApiToken).toBe(credential);
+  const { resolveWorkerCredential } = await import(
+    '../src/security/worker-credentials.js'
+  );
+  expect(resolveWorkerCredential(credential)).toEqual({
+    agentId: 'default',
+    sessionId: 'session-gateway-env',
+  });
+  expect(`${runArgs?.join('\n')}\n${runStdin}`).not.toContain('gateway-secret');
+  // The credential rides in the docker CLI's env; argv shows up in `ps`.
   expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN');
-  expect(runArgs?.filter((arg) => arg.includes('gateway-secret'))).toEqual([]);
-  expect(runEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe('gateway-secret');
+  expect(runArgs?.filter((arg) => arg.includes(credential))).toEqual([]);
   // docker itself still needs the gateway's PATH, DOCKER_HOST, and so on.
   expect(runEnv?.PATH).toBe(process.env.PATH);
   expect(runArgs).toContain(`TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone}`);

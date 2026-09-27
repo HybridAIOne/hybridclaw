@@ -125,8 +125,13 @@ describe.sequential('container bash tool persistence', () => {
     vi.stubEnv('AWS_SESSION_TOKEN', 'aws-session-token');
     vi.stubEnv('GITHUB_TOKEN', 'github-token');
     vi.stubEnv('BRAVE_API_KEY', 'brave-secret');
+    // The gateway's own tokens never reach a shell, even if inherited; the
+    // shell gets only the worker credential the runner put in
+    // HYBRIDCLAW_GATEWAY_TOKEN.
+    vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-master-token');
+    vi.stubEnv('WEB_API_TOKEN', 'web-master-token');
     vi.stubEnv('HYBRIDCLAW_GATEWAY_URL', 'http://127.0.0.1:9090');
-    vi.stubEnv('HYBRIDCLAW_GATEWAY_TOKEN', 'gateway-token');
+    vi.stubEnv('HYBRIDCLAW_GATEWAY_TOKEN', 'hcw_worker-credential');
     vi.stubEnv('HYBRIDCLAW_TEST_VISIBLE', 'visible');
 
     const { executeTool } = await createBashTestRuntime({
@@ -136,11 +141,13 @@ describe.sequential('container bash tool persistence', () => {
     const result = await executeTool(
       'bash',
       bashCommand(
-        'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" "$OPENAI_API_KEY" "$ANTHROPIC_API_KEY" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_SESSION_TOKEN" "$GITHUB_TOKEN" "$BRAVE_API_KEY" "$HYBRIDCLAW_GATEWAY_URL" "$HYBRIDCLAW_GATEWAY_TOKEN" "$HYBRIDCLAW_TEST_VISIBLE"',
+        'printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s" "$OPENAI_API_KEY" "$ANTHROPIC_API_KEY" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_SESSION_TOKEN" "$GITHUB_TOKEN" "$BRAVE_API_KEY" "$GATEWAY_API_TOKEN" "$WEB_API_TOKEN" "$HYBRIDCLAW_GATEWAY_URL" "$HYBRIDCLAW_GATEWAY_TOKEN" "$HYBRIDCLAW_TEST_VISIBLE"',
       ),
     );
 
-    expect(result).toBe('|||||||http://127.0.0.1:9090|gateway-token|visible');
+    expect(result).toBe(
+      '|||||||||http://127.0.0.1:9090|hcw_worker-credential|visible',
+    );
   });
 
   test('persists aliases across bash calls', async () => {

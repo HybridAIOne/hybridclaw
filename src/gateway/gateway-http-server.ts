@@ -177,6 +177,12 @@ import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
 import {
+  bindWorkerRequestBody,
+  isWorkerRuntimeRoute,
+  resolveWorkerCredential,
+  type WorkerCredentialBinding,
+} from '../security/worker-credentials.js';
+import {
   normalizeRecentChatSearchQuery,
   normalizeRecentChatSessionLimit,
 } from '../session/recent-chat-search.js';
@@ -1023,11 +1029,12 @@ async function getGatewayBrowserSession(
 }
 
 async function handleApiBrowserTool(
-  req: IncomingMessage,
   res: ServerResponse,
+  rawBody: unknown,
   activeSseResponses: Set<ServerResponse>,
+  worker: WorkerCredentialBinding | null,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as Record<string, unknown>;
+  const body = rawBody as Record<string, unknown>;
   const toolName = String(body.toolName || '').trim();
   const sessionId = normalizeGatewayBrowserSessionId(body.sessionId);
   const agentId = normalizeGatewayBrowserAgentId(body.agentId);
@@ -1640,7 +1647,7 @@ async function handleApiBrowserTool(
     const waypoint = normalizeGatewayBrowserWaypoint(toolName);
     const suspendedSessionId =
       normalizeOptionalString(args.sessionId) || sessionId;
-    const response = peekOperatorReturn(suspendedSessionId);
+    const response = peekOperatorReturn(suspendedSessionId, worker?.agentId);
     if (!response) {
       throw new GatewayRequestError(
         404,
@@ -2273,6 +2280,7 @@ type ResolvedAuthKind =
   | 'apiToken'
   | 'session'
   | 'localSession'
+  | 'worker'
   | 'none';
 
 interface ResolvedAuthContext {
@@ -3983,10 +3991,10 @@ async function handleApiCommand(
 }
 
 async function handleApiMessageAction(
-  req: IncomingMessage,
   res: ServerResponse,
+  rawBody: unknown,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiMessageActionRequestBody;
+  const body = rawBody as ApiMessageActionRequestBody;
   const action =
     typeof body.action === 'string'
       ? normalizeDiscordToolAction(body.action)
@@ -4061,19 +4069,11 @@ async function handleApiMessageAction(
   sendJson(res, 200, result);
 }
 
-async function handleApiSchedulerTask(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const body = await readJsonBody(req);
-  sendJson(res, 200, runScheduledTaskToolAction(body));
-}
-
 async function handleApiPluginTool(
-  req: IncomingMessage,
   res: ServerResponse,
+  rawBody: unknown,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiPluginToolRequestBody;
+  const body = rawBody as ApiPluginToolRequestBody;
   const toolName =
     typeof body.toolName === 'string' ? body.toolName.trim() : '';
   if (!toolName) {
@@ -6769,16 +6769,16 @@ async function handleApiResumeInteractiveEscalation(
 }
 
 async function handleApiConsumeInteractiveEscalation(
-  req: IncomingMessage,
   res: ServerResponse,
+  body: InteractiveHandlerBody,
+  worker: WorkerCredentialBinding | null,
 ): Promise<void> {
   try {
-    const body = await readInteractiveBody(req);
     const sessionId = normalizeOptionalString(body.sessionId);
     if (!sessionId) {
       throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
     }
-    const response = consumeOperatorReturn(sessionId);
+    const response = consumeOperatorReturn(sessionId, worker?.agentId);
     if (!response) {
       throw new GatewayRequestError(
         404,
@@ -6843,12 +6843,11 @@ async function handleApiSmsReplyInteractiveEscalation(
 }
 
 async function handleApiCreateInteractiveEscalation(
-  req: IncomingMessage,
   res: ServerResponse,
+  body: InteractiveHandlerBody,
   activeSseResponses: Set<ServerResponse>,
 ): Promise<void> {
   try {
-    const body = await readInteractiveBody(req);
     const modality = parseInteractionModality(body.modality);
     const prompt = normalizeOptionalString(body.prompt);
     if (!prompt) {
@@ -10720,12 +10719,25 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
       }
 
-      const authContext = resolveAuthContext(req, url, {
-        allowQueryToken: false,
-        allowLocalWebSession: true,
-        allowSessionCookie: true,
-        requireSameOrigin: method !== 'GET',
-      });
+      // A worker credential reaches the runtime routes only, and acts there
+      // as its own agent and session (readRuntimeBody).
+      const worker = resolveWorkerCredential(extractBearerToken(req));
+      if (worker && !isWorkerRuntimeRoute(method, pathname)) {
+        logger.warn(
+          { agentId: worker.agentId, sessionId: worker.sessionId, pathname },
+          'Rejected worker credential outside the runtime routes',
+        );
+        sendJson(res, 403, { error: 'Forbidden.' });
+        return;
+      }
+      const authContext: ResolvedAuthContext = worker
+        ? { kind: 'worker', payload: null }
+        : resolveAuthContext(req, url, {
+            allowQueryToken: false,
+            allowLocalWebSession: true,
+            allowSessionCookie: true,
+            requireSameOrigin: method !== 'GET',
+          });
       if (authContext.kind === 'none') {
         recordUnauthenticatedAdminSecretMutation(req, pathname, method);
         sendJson(res, 401, {
@@ -10737,6 +10749,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       if (!enforceAdminRouteRbac(authContext, res, pathname, method)) {
         return;
       }
+      // Runtime-only routes accept a worker credential or the gateway token.
+      const hasRuntimeAuth = worker !== null || hasGatewayApiAuth(req);
+      const readRuntimeBody = async (): Promise<unknown> =>
+        bindWorkerRequestBody(
+          await readJsonBody(req),
+          worker,
+          method,
+          pathname,
+        );
 
       void (async () => {
         try {
@@ -11280,8 +11301,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             method === 'POST'
           ) {
             await handleApiCreateInteractiveEscalation(
-              req,
               res,
+              (await readRuntimeBody()) as InteractiveHandlerBody,
               activeSseResponses,
             );
             return;
@@ -11301,7 +11322,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname === '/api/interactive-escalations/consume' &&
             method === 'POST'
           ) {
-            await handleApiConsumeInteractiveEscalation(req, res);
+            await handleApiConsumeInteractiveEscalation(
+              res,
+              (await readRuntimeBody()) as InteractiveHandlerBody,
+              worker,
+            );
             return;
           }
           if (
@@ -11507,56 +11532,65 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {
-            await handleApiMessageAction(req, res);
+            await handleApiMessageAction(res, await readRuntimeBody());
             return;
           }
           if (pathname === '/api/plugin/tool' && method === 'POST') {
-            await handleApiPluginTool(req, res);
+            await handleApiPluginTool(res, await readRuntimeBody());
             return;
           }
           if (pathname === '/api/http/request' && method === 'POST') {
-            await handleApiHttpRequest(req, res);
+            await handleApiHttpRequest(res, await readRuntimeBody());
             return;
           }
           if (pathname === '/api/browser/tool' && method === 'POST') {
-            if (!hasGatewayApiAuth(req)) {
+            if (!hasRuntimeAuth) {
               sendJson(res, 401, {
                 error:
                   'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
               });
               return;
             }
-            await handleApiBrowserTool(req, res, activeSseResponses);
+            await handleApiBrowserTool(
+              res,
+              await readRuntimeBody(),
+              activeSseResponses,
+              worker,
+            );
             return;
           }
           if (pathname === '/api/scheduler/task' && method === 'POST') {
-            if (!hasGatewayApiAuth(req)) {
+            if (!hasRuntimeAuth) {
               sendJson(res, 401, {
                 error:
                   'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
               });
               return;
             }
-            await handleApiSchedulerTask(req, res);
+            sendJson(
+              res,
+              200,
+              runScheduledTaskToolAction(await readRuntimeBody()),
+            );
             return;
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {
-            await handleApiShellEnv(res, hasGatewayApiAuth(req));
+            await handleApiShellEnv(res, hasRuntimeAuth);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {
-            if (!hasGatewayApiAuth(req)) {
+            if (!hasRuntimeAuth) {
               sendJson(res, 401, {
                 error:
                   'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
               });
               return;
             }
-            await handleApiSecretInject(req, res);
+            await handleApiSecretInject(res, await readRuntimeBody());
             return;
           }
           if (pathname === '/api/discord/action' && method === 'POST') {
-            await handleApiMessageAction(req, res);
+            await handleApiMessageAction(res, await readJsonBody(req));
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

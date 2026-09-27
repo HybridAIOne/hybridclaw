@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
@@ -18,7 +18,7 @@ import {
   readWorkspaceSecretPolicyState,
 } from '../security/secret-policy.js';
 import { parseSessionKey } from '../session/session-key.js';
-import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import { sendJson } from './gateway-http-utils.js';
 
 type ApiSecretInjectBody = {
   secretName?: unknown;
@@ -196,10 +196,10 @@ export function resolveStoredSecretForInjection(params: {
 }
 
 export async function handleApiSecretInject(
-  req: IncomingMessage,
   res: ServerResponse,
+  rawBody: unknown,
 ): Promise<void> {
-  const body = (await readJsonBody(req)) as ApiSecretInjectBody;
+  const body = rawBody as ApiSecretInjectBody;
   const secretName = normalizeString(body.secretName);
   const sinkKindInput = normalizeString(body.sinkKind).toLowerCase();
   if (sinkKindInput && sinkKindInput !== 'dom') {

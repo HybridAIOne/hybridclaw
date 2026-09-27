@@ -709,11 +709,21 @@ export function resumeWith(
   return session;
 }
 
+/**
+ * With `ownerAgentId` (a worker caller), only that agent's escalations count;
+ * another agent's escalation reads like a missing one.
+ */
+function isOwnedBy(sessionId: string, ownerAgentId?: string): boolean {
+  if (ownerAgentId === undefined) return true;
+  return getSuspendedSession(sessionId)?.agentId === ownerAgentId;
+}
+
 export function consumeOperatorReturn(
   sessionId: string,
+  ownerAgentId?: string,
 ): OperatorReturn | null {
   const normalized = sessionId.trim();
-  if (!normalized) return null;
+  if (!normalized || !isOwnedBy(normalized, ownerAgentId)) return null;
   cleanupOperatorReturns();
   const entry = operatorReturnBySession.get(normalized) || null;
   if (entry) {
@@ -722,9 +732,12 @@ export function consumeOperatorReturn(
   return entry?.response || null;
 }
 
-export function peekOperatorReturn(sessionId: string): OperatorReturn | null {
+export function peekOperatorReturn(
+  sessionId: string,
+  ownerAgentId?: string,
+): OperatorReturn | null {
   const normalized = sessionId.trim();
-  if (!normalized) return null;
+  if (!normalized || !isOwnedBy(normalized, ownerAgentId)) return null;
   cleanupOperatorReturns();
   return operatorReturnBySession.get(normalized)?.response || null;
 }

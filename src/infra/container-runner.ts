@@ -50,7 +50,6 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GUILDS,
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
-  GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
@@ -81,6 +80,7 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactCredentialSecrets } from '../security/redact.js';
+import { issueWorkerCredential } from '../security/worker-credentials.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import {
   type ArtifactMetadata,
@@ -874,10 +874,14 @@ function getOrSpawnContainer(
     'Spawning persistent container',
   );
 
+  const workerCredential = issueWorkerCredential({
+    agentId,
+    sessionId: params.warm ? null : sessionId,
+  });
   const proc = spawn('docker', args, {
     // Docker fills the valueless `-e HYBRIDCLAW_GATEWAY_TOKEN` from this env,
     // which keeps the token out of argv.
-    env: { ...process.env, HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '' },
+    env: { ...process.env, HYBRIDCLAW_GATEWAY_TOKEN: workerCredential },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -886,6 +890,7 @@ function getOrSpawnContainer(
     process: proc,
     containerName,
     sessionId,
+    workerCredential,
     ipcSessionId,
     agentId,
     startedAt: Date.now(),
@@ -1165,7 +1170,6 @@ async function runContainerInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
-    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
@@ -1293,6 +1297,7 @@ async function runContainerInner(
   }
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
+  input.gatewayApiToken = entry.workerCredential;
   const mlxRelay =
     modelRuntime.provider === 'mlx'
       ? startMlxRelay({
