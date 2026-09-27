@@ -224,6 +224,12 @@ Key behaviors:
   exact-root-only host syntax in `policy.yaml`.
 - Omitting `port` means any port. Use `port: 443` only when you want an exact
   port match.
+- Every rule needs `action: allow` or `action: deny`, and a `host`. A rule with
+  any other action, including `block`, or with no action, no host, or an
+  invalid port, is enforced as `deny` for everything it names. A missing host
+  covers every host, and an invalid port covers every port. `policy list`
+  shows the rule as `Unreadable rule #N, enforced as deny`, and
+  `hybridclaw policy` refuses to edit the file until the rule is fixed.
 - `network.default` applies only to HTTP/network actions. It does not
   auto-approve general `bash`, file writes, deletion, or other non-network
   tools.
@@ -354,6 +360,11 @@ skill:
         type: deny
         reason: SAP is finance-only.
 ```
+
+A skill rule's action type is `allow`, `deny`, `block`, `warn`, `log`, or
+`confirm-each`. A rule with any other type, or with no action, is enforced as
+`deny` for the skills its `when` matches. The skill loader logs it with the
+reason `Unreadable skill rule #N, enforced as deny`.
 
 Secret resolution is another policy-engine consumer. The gateway evaluates it
 each time it injects a stored secret into an `http_request` call or a browser

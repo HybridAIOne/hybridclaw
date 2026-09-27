@@ -1,10 +1,42 @@
-import { expect, test } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { expect, test, vi } from 'vitest';
 import {
   doesNetworkHostPatternExpandToSubdomains,
   evaluateNetworkPolicyAccess,
   matchesNetworkHostPattern,
   matchesNetworkPathPatterns,
+  normalizeNetworkRule,
+  readNetworkPolicyState,
 } from '../container/shared/network-policy.js';
+import {
+  loadPolicyFromDisk,
+  TrustedAgentApprovalRuntime,
+} from '../container/src/approval-policy.js';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
+
+const makeTempDir = useTempDir('hybridclaw-network-policy-');
+useCleanMocks({ restoreAllMocks: true });
+
+// Reads one policy.yaml rule the way the gateway and the container do.
+function decide(
+  rule: Record<string, unknown>,
+  { defaultAction = 'deny', host = 'evil.example.com', agentId = 'main' } = {},
+) {
+  const state = readNetworkPolicyState({
+    network: { default: defaultAction, rules: [rule] },
+  });
+  return evaluateNetworkPolicyAccess({
+    rules: state.rules,
+    defaultAction: state.defaultAction,
+    host,
+    port: 443,
+    method: 'GET',
+    path: '/',
+    agentId,
+  }).decision;
+}
 
 test.each([
   { pattern: 'ap?.example.com', host: 'api.example.com', matches: true },
@@ -108,4 +140,111 @@ test.each([
       path: '/',
     }).decision,
   ).toBe(decision);
+});
+
+test.each([
+  { action: 'allow', decision: 'allow' },
+  { action: 'deny', decision: 'deny' },
+  { action: ' Deny ', decision: 'deny' },
+  { action: 'block', decision: 'deny' },
+  { action: 'denny', decision: 'deny' },
+  { action: 'alow', decision: 'deny' },
+  { action: undefined, decision: 'deny' },
+])('rule action $action under default deny: $decision', ({
+  action,
+  decision,
+}) => {
+  expect(decide({ action, host: 'evil.example.com' })).toBe(decision);
+});
+
+test.each([
+  {
+    name: 'a deny rule with port 99999',
+    rule: { action: 'deny', host: 'evil.example.com', port: 99999 },
+    host: 'evil.example.com',
+    decision: 'deny',
+  },
+  {
+    name: 'a deny rule without a host',
+    rule: { action: 'deny' },
+    host: 'any.example.org',
+    decision: 'deny',
+  },
+  {
+    name: 'a misspelled action key',
+    rule: { actoin: 'deny', host: 'evil.example.com' },
+    host: 'evil.example.com',
+    decision: 'deny',
+  },
+  {
+    name: 'a block rule',
+    rule: { action: 'block', host: 'evil.example.com' },
+    host: 'other.example.org',
+    decision: 'allow',
+  },
+  {
+    name: 'a block rule for another agent',
+    rule: { action: 'block', host: 'evil.example.com', agent: 'research' },
+    host: 'evil.example.com',
+    decision: 'allow',
+  },
+])('$name under default allow: $host gets $decision', ({
+  rule,
+  host,
+  decision,
+}) => {
+  expect(decide(rule, { defaultAction: 'allow', host })).toBe(decision);
+});
+
+test.each([
+  { name: 'action block', rule: { action: 'block', host: 'example.com' } },
+  { name: 'no action', rule: { host: 'example.com' } },
+  { name: 'no host', rule: { action: 'deny' } },
+  {
+    name: 'port 99999',
+    rule: { action: 'deny', host: 'example.com', port: 99999 },
+  },
+])('editors reject a rule with $name', ({ rule }) => {
+  expect(normalizeNetworkRule(rule)).toBeNull();
+});
+
+test('the container denies an unreadable rule and keeps the rest of the policy', () => {
+  const policyPath = path.join(makeTempDir(), 'policy.yaml');
+  fs.writeFileSync(
+    policyPath,
+    [
+      'approval:',
+      '  pinned_red:',
+      '    - pattern: "kubectl delete"',
+      'network:',
+      '  default: deny',
+      '  rules:',
+      '    - action: block',
+      '      host: evil.example.com',
+      '',
+    ].join('\n'),
+  );
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  expect(loadPolicyFromDisk(policyPath)).toMatchObject({
+    pinnedRed: [{ pattern: 'kubectl delete' }],
+    networkRules: [{ action: 'deny', host: 'evil.example.com', port: '*' }],
+  });
+  expect(errorSpy).not.toHaveBeenCalled();
+
+  const runtime = new TrustedAgentApprovalRuntime(policyPath);
+  const fetchUrl = (url: string) =>
+    runtime.evaluateToolCall({
+      toolName: 'http_request',
+      argsJson: JSON.stringify({ url, method: 'GET' }),
+      latestUserPrompt: 'Fetch the page',
+    });
+  expect(fetchUrl('https://evil.example.com/')).toMatchObject({
+    tier: 'red',
+    decision: 'denied',
+  });
+  expect(fetchUrl('https://other.example.org/')).toMatchObject({
+    tier: 'yellow',
+    decision: 'implicit',
+  });
 });
