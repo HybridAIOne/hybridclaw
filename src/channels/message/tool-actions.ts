@@ -52,18 +52,13 @@ import {
 } from '../telegram/target.js';
 import { sendToThreemaChat } from '../threema/runtime.js';
 import { normalizeThreemaChannelId } from '../threema/target.js';
-import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
   isWhatsAppJid,
-  jidToPhone,
   normalizePhoneNumber,
   phoneToJid,
 } from '../whatsapp/phone.js';
-import {
-  sendToWhatsAppChat,
-  sendWhatsAppMediaToChat,
-} from '../whatsapp/runtime.js';
+import { sendWhatsAppToolMessage } from '../whatsapp/tool-send.js';
 
 const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
 const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
@@ -478,61 +473,12 @@ async function runWhatsAppMessageSendAction(
     throw new Error('components are not supported for WhatsApp sends.');
   }
 
-  const whatsappAuth = await getWhatsAppAuthStatus();
-  if (!whatsappAuth.linked) {
-    throw new Error('WhatsApp is not linked.');
-  }
-
-  // Make the result self-describing so the model cannot misreport who sent
-  // the message, to whom, or whether WhatsApp confirmed delivery. The
-  // transport only tells us the linked device accepted the message; there is
-  // no delivery receipt.
-  const linkedJid = whatsappAuth.jid
-    ? canonicalizeWhatsAppUserJid(whatsappAuth.jid)
-    : null;
-  const recipientJid = canonicalizeWhatsAppUserJid(channelId);
-  const isSelfMessage =
-    linkedJid != null && recipientJid != null && linkedJid === recipientJid;
-  const deliveryInfo = {
-    sentFrom: linkedJid
-      ? (jidToPhone(linkedJid) ?? linkedJid)
-      : 'the linked WhatsApp account',
-    recipient: jidToPhone(channelId) ?? channelId,
-    deliveryStatus: 'accepted_by_linked_device',
-    deliveryConfirmed: false,
-    ...(isSelfMessage
-      ? {
-          note: 'The recipient is the linked WhatsApp account itself. WhatsApp shows this as a message to yourself and does not send a push notification.',
-        }
-      : {}),
-  };
-
-  if (filePath) {
-    await sendWhatsAppMediaToChat({
-      jid: channelId,
-      filePath,
-      caption: content || undefined,
-    });
-    return {
-      ok: true,
-      action: 'send',
-      channelId,
-      transport: 'whatsapp',
-      attachmentCount: 1,
-      contentLength: content.length,
-      ...deliveryInfo,
-    };
-  }
-
-  await sendToWhatsAppChat(channelId, content);
-  return {
-    ok: true,
-    action: 'send',
+  return sendWhatsAppToolMessage({
     channelId,
-    transport: 'whatsapp',
-    contentLength: content.length,
-    ...deliveryInfo,
-  };
+    content,
+    filePath,
+    from: request.from,
+  });
 }
 
 async function runLineMessageSendAction(

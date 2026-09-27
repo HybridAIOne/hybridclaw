@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
   type BrowserStealthPolicyAccessEvaluation,
@@ -293,7 +294,7 @@ export interface ToolCallContextHelpers {
   hasAgentTrust(actionKey: string, fingerprint: string): boolean;
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
-  isFullAutoEnabled(): boolean;
+  approvalMode(): SessionApprovalMode;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
   getOrCreatePending(
@@ -1793,6 +1794,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       context.baseTier = 'red';
       context.tier = 'red';
     }
+    // Ask mode prompts for every side effect; green reads still run.
+    if (context.helpers.approvalMode() === 'ask' && context.tier === 'yellow') {
+      context.baseTier = 'red';
+      context.tier = 'red';
+    }
     return nextRule();
   },
 
@@ -1873,6 +1879,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
     const promotable =
+      context.helpers.approvalMode() !== 'ask' &&
       !requirePinned(context) &&
       classified.promotableRed &&
       context.helpers.getExplicitApprovalCount(classified.actionKey) > 0;
@@ -1889,8 +1896,8 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
     // exemption.
     if (
+      context.helpers.approvalMode() === 'full' &&
       !requirePinned(context) &&
-      context.helpers.isFullAutoEnabled() &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -1954,7 +1961,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (
       context.tier === 'yellow' &&
       context.decision === 'auto' &&
-      context.helpers.isFullAutoEnabled() &&
+      context.helpers.approvalMode() === 'full' &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -2068,7 +2075,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
-  private fullAutoEnabled = false;
+  private approvalMode: SessionApprovalMode = 'auto';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
   private readonly fullAutoNeverApprove = new Set<string>();
@@ -2148,11 +2155,11 @@ export class TrustedAgentApprovalRuntime {
     this.loadPersistedPendingApprovals();
   }
 
-  setFullAutoOptions(params?: {
-    enabled?: boolean;
+  setApprovalMode(params?: {
+    mode?: SessionApprovalMode;
     neverApproveTools?: string[];
   }): void {
-    this.fullAutoEnabled = params?.enabled === true;
+    this.approvalMode = params?.mode ?? 'auto';
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
       const value = String(raw || '')
@@ -2206,7 +2213,7 @@ export class TrustedAgentApprovalRuntime {
         this.allowlistedFingerprints.has(fingerprint),
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
-      isFullAutoEnabled: () => this.fullAutoEnabled,
+      approvalMode: () => this.approvalMode,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
       getPendingCount: () => this.pending.size,

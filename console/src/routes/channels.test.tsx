@@ -1568,55 +1568,60 @@ describe('ChannelsPage', () => {
     expect(screen.queryByText('stale QR text')).toBeNull();
   });
 
-  it('disables Signal linked-device setup when signal-cli is unavailable', async () => {
-    fetchConfigMock.mockResolvedValue({
-      path: '/tmp/config.json',
-      config: makeConfig(),
-    });
-    validateTokenMock.mockResolvedValue({
-      status: 'ok',
-      webAuthConfigured: true,
-      version: 'test',
-      imageTag: null,
-      uptime: 1,
-      sessions: 0,
-      activeContainers: 0,
-      defaultModel: 'gpt-5',
-      ragDefault: true,
-      timestamp: new Date().toISOString(),
-      signal: {
-        enabled: false,
-        daemonUrlConfigured: false,
-        accountConfigured: false,
-        pairingStatus: 'idle',
-        pairingQrText: null,
-        pairingQrSvg: null,
-        pairingUri: null,
-        pairingUpdatedAt: null,
-        pairingError: null,
-        cliAvailable: false,
-        cliPath: 'signal-cli',
-        cliVersion: null,
-        cliError: 'spawn signal-cli ENOENT',
-      },
-    });
+  it.each([false, null])(
+    'Signal CLI availability %s controls setup',
+    async (available) => {
+      fetchConfigMock.mockResolvedValue({
+        path: '/tmp/config.json',
+        config: makeConfig(),
+      });
+      validateTokenMock.mockResolvedValue({
+        status: 'ok',
+        webAuthConfigured: true,
+        version: 'test',
+        imageTag: null,
+        uptime: 1,
+        sessions: 0,
+        activeContainers: 0,
+        defaultModel: 'gpt-5',
+        ragDefault: true,
+        timestamp: new Date().toISOString(),
+        signal: {
+          enabled: false,
+          daemonUrlConfigured: false,
+          accountConfigured: false,
+          pairingStatus: 'idle',
+          pairingQrText: null,
+          pairingQrSvg: null,
+          pairingUri: null,
+          pairingUpdatedAt: null,
+          pairingError: null,
+          cliAvailable: available,
+          cliPath: 'signal-cli',
+          cliVersion: null,
+          cliError: 'spawn signal-cli ENOENT',
+        },
+      });
 
-    renderChannelsPage();
+      renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Signal/i });
-    fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
+      await screen.findByRole('button', { name: /Signal/i });
+      fireEvent.click(screen.getByRole('button', { name: /Signal/i }));
 
-    expect(
-      (
-        screen.getByRole('button', {
-          name: 'Start QR link',
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    expect(
-      screen.getByText(/signal-cli is not available on this gateway host/i),
-    ).toBeTruthy();
-  });
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Start QR link',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(available === false);
+      expect(
+        screen.queryByText(
+          /signal-cli is not available on this gateway host/i,
+        ) !== null,
+      ).toBe(available === false);
+    },
+  );
 
   it('shows Voice in the catalog and opens the Twilio voice editor', async () => {
     const baseConfig = makeConfig();
