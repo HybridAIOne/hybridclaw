@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-secret-policy-');
@@ -290,7 +291,7 @@ describe('secret resolution policy', () => {
     {
       name: 'any given as a mapping',
       rule: allowWhen({ any: { predicate: 'secret.id', equals: 'DATEV_*' } }),
-      error: /secret rule #1 when\.any .*"secret\.id"/,
+      error: /secret rule #1 when\.any .*not a list/,
     },
     {
       name: 'two operators in one node',
@@ -362,6 +363,11 @@ describe('secret resolution policy', () => {
       name: 'an unknown source',
       rule: allowWhen({ predicate: 'secret.source', equals: 'env' }),
       error: /secret rule #1 when\.equals .*"env"/,
+    },
+    {
+      name: 'a when that contains itself',
+      rule: allowWhen(YAML.parse('&loop {not: *loop}')),
+      error: /secret rule #1 when\.not .*itself/,
     },
   ])('a rule with $name throws instead of resolving', async ({
     rule,

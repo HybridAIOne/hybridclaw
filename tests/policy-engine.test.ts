@@ -54,6 +54,22 @@ test('policy expressions compose pluggable predicates', () => {
   ).toBe(true);
 });
 
+test.each([
+  'constructor',
+  'toString',
+  'hasOwnProperty',
+  'valueOf',
+  '__proto__',
+])('an inherited %s predicate is unknown, not a match', (predicate) => {
+  expect(() =>
+    evaluatePolicyExpression(
+      { predicate },
+      { agent: 'finance', label: 'confidential', text: '' },
+      predicates,
+    ),
+  ).toThrow(`Unknown policy predicate: ${predicate}`);
+});
+
 test('policy engine returns the first matching action by default', () => {
   const rules: PolicyRule<{ type: string; reason: string }>[] = [
     {

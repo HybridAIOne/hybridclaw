@@ -3087,7 +3087,9 @@ export class TrustedAgentApprovalRuntime {
           intent: `activate stealth browser mode for ${hostScope}`,
           consequenceIfDenied:
             'I will use the standard browser path or avoid that host.',
-          reason: 'browser stealth mode is not allowlisted for this host',
+          reason:
+            stealthAccess.matchedRule?.description ||
+            'browser stealth mode is not allowlisted for this host',
           commandPreview: normalizePreview(rawUrl),
           pathHints: [],
           hostHints: [hostScope],
