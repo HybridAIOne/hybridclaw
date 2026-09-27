@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Malformed tool calls no longer end the turn**: When a model sends tool-call
-  arguments that are not a JSON object, for example a large `write` cut off by
-  the output-token limit, the agent returns the error to the model as a tool
-  result so it can resend the call in smaller pieces. Nothing from the
-  rejected response runs. After two rejected responses in a row the turn fails
-  as before.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
