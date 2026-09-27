@@ -34,6 +34,7 @@ import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
+  isContextWindowExceededError,
   isRetryableModelError,
   retryDelayMs,
   shouldDowngradeStreamToNonStreaming,
@@ -1229,6 +1230,8 @@ async function processRequestInner(
   let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
   let compactionRetries = 0;
+  // Drops below any estimate the provider rejects as too long.
+  let guardContextWindow = contextWindow;
   const tokenEstimateCache = createTokenEstimateCache();
   const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
     provider,
@@ -1374,7 +1377,7 @@ async function processRequestInner(
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
       history,
-      contextWindowTokens: contextWindow,
+      contextWindowTokens: guardContextWindow,
       promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
@@ -1388,58 +1391,44 @@ async function processRequestInner(
       );
     }
     if (guardResult.tier3Triggered) {
-      if (compactionRetries >= maxContextGuardRetries) {
-        const overflow = buildContextOverflowOutput({
-          latestFinalAssistantText,
-          toolsUsed,
-          artifacts,
-          toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
-          effectiveUserPrompt,
-        });
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: overflow.status,
-          toolsUsed: overflow.toolsUsed,
-        });
-        return overflow;
-      }
-
-      const compacted = await compactInLoop({
-        history,
-        contextWindowTokens: contextWindow,
-        summarize: async (summaryMessages, summaryMaxTokens) => {
-          await haltIfShuttingDown();
-          tokenUsage.modelCalls += 1;
-          tokenUsage.estimatedPromptTokens +=
-            estimateMessageTokens(summaryMessages);
-          const response = await callAuxiliaryModel({
-            task: 'compression',
-            taskModels,
-            fallbackContext: {
-              provider,
-              baseUrl,
-              apiKey,
-              model,
-              chatbotId,
-              requestHeaders,
-              isLocal,
-              contextWindow,
-              modelBehavior,
-              thinkingFormat,
-            },
-            messages: summaryMessages,
-            maxTokens: summaryMaxTokens,
-            toolName: 'in_loop_compaction',
-          });
-          accumulateApiUsage(tokenUsage, response.response);
-          tokenUsage.estimatedCompletionTokens += estimateTextTokens(
-            response.content,
-          );
-          return response.content;
-        },
-      });
-      if (!compacted.changed) {
+      const compacted =
+        compactionRetries < maxContextGuardRetries
+          ? await compactInLoop({
+              history,
+              contextWindowTokens: guardContextWindow,
+              summarize: async (summaryMessages, summaryMaxTokens) => {
+                await haltIfShuttingDown();
+                tokenUsage.modelCalls += 1;
+                tokenUsage.estimatedPromptTokens +=
+                  estimateMessageTokens(summaryMessages);
+                const response = await callAuxiliaryModel({
+                  task: 'compression',
+                  taskModels,
+                  fallbackContext: {
+                    provider,
+                    baseUrl,
+                    apiKey,
+                    model,
+                    chatbotId,
+                    requestHeaders,
+                    isLocal,
+                    contextWindow,
+                    modelBehavior,
+                    thinkingFormat,
+                  },
+                  messages: summaryMessages,
+                  maxTokens: summaryMaxTokens,
+                  toolName: 'in_loop_compaction',
+                });
+                accumulateApiUsage(tokenUsage, response.response);
+                tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+                  response.content,
+                );
+                return response.content;
+              },
+            })
+          : null;
+      if (!compacted?.changed) {
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,
@@ -1507,6 +1496,21 @@ async function processRequestInner(
         reasoningEffort,
       });
     } catch (err) {
+      if (
+        contextGuard?.enabled !== false &&
+        compactionRetries < maxContextGuardRetries &&
+        isContextWindowExceededError(err)
+      ) {
+        // The estimate undercounted this prompt: budget the guard below it so
+        // the next pass shrinks history. 0.9 (2026-09-26 call): any factor
+        // under 1 forces progress; parsing providers' token counts deferred.
+        guardContextWindow = Math.floor(estimatedPromptTokensForCall * 0.9);
+        compactionRetries += 1;
+        console.error(
+          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${compactionRetries}`,
+        );
+        continue;
+      }
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -2207,6 +2211,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  approvalRuntime.setSession(firstInput.sessionId);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
@@ -2362,6 +2367,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    approvalRuntime.setSession(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(

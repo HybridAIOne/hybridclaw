@@ -178,6 +178,25 @@ describe('OpenAI Codex provider', () => {
     expect(result.choices[0]?.message.content).toBe('ls -la');
   });
 
+  test('surfaces the error a response.failed event carries on its response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'event: response.failed\r\n',
+          'data: {"type":"response.failed","response":{"id":"resp_5","status":"failed","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model."}}}\r\n\r\n',
+        ]),
+      ),
+    );
+
+    await expect(
+      callOpenAICodexProviderStream({
+        ...baseArgs,
+        onTextDelta: () => undefined,
+      }),
+    ).rejects.toThrow('Your input exceeds the context window of this model.');
+  });
+
   test('times out a stalled streaming response after the first event', async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
