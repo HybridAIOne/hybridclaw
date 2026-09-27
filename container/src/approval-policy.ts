@@ -48,6 +48,7 @@ import {
 } from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
+import { nextBashCwd } from './bash-session.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -67,6 +68,7 @@ import {
   normalizePathValue,
 } from './pinned-paths.js';
 import {
+  resolveCanonicalPath,
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -390,12 +392,13 @@ const NO_IMPLICIT_DELAY_TOOLS = new Set([
 ]);
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
+// Real paths too: the shell reports `pwd -P`, and macOS links its temp dir.
 const SCRATCH_ROOTS = Array.from(
   new Set(
     ['/tmp', '/private/tmp', os.tmpdir()]
       .map((value) => value.trim())
       .filter(Boolean)
-      .map((value) => path.resolve(value)),
+      .flatMap((value) => [path.resolve(value), resolveCanonicalPath(value)]),
   ),
 );
 // Args naming the local files a tool reads. Pinned path rules only match
@@ -2065,6 +2068,8 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private fullAutoEnabled = false;
+  // The bound session: bash commands start where its shell stopped.
+  private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
   private readonly fullAutoNeverApprove = new Set<string>();
@@ -2137,6 +2142,7 @@ export class TrustedAgentApprovalRuntime {
 
   /** Loads the session's persisted state; call before each turn. */
   setSession(sessionId: string): void {
+    this.sessionId = sessionId;
     this.fetchedFiles.bindSession(sessionId);
     const sessionHash = sessionId ? sessionStateKey(sessionId) : '';
     if (sessionHash === this.sessionHash) return;
@@ -3455,8 +3461,12 @@ export class TrustedAgentApprovalRuntime {
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
-    // segment; these checks need the commands bash actually runs, parsed once.
-    const shellCommands = scriptCommands(stripHereDocBodies(command));
+    // segment; these checks need the commands bash actually runs, parsed once
+    // from where the session's shell stopped.
+    const shellCommands = scriptCommands(
+      stripHereDocBodies(command),
+      nextBashCwd(this.sessionId),
+    );
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
@@ -3529,7 +3539,7 @@ export class TrustedAgentApprovalRuntime {
       );
       const outsideWorkspace = [
         ...(absoluteTargets.length > 0 ? absoluteTargets : absPaths),
-        // Bash starts in the workspace root, so `../x` lands outside it.
+        // Relative targets are workspace-relative, so `../x` lands outside it.
         ...targets.filter((target) => /^\.\.(?:\/|$)/.test(target)),
       ].find(
         (entry) =>

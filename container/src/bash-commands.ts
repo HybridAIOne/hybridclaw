@@ -328,7 +328,8 @@ export function shellCommandsRun(
   return commands.flatMap(({ words }) => commandsRun(words, depth));
 }
 
-// '' is the starting directory (the workspace); null is unknown (`cd -`).
+// '' is the workspace root and a relative path is relative to it; null is
+// unknown (after `cd -`, or a shell the caller cannot see).
 export type Cwd = string | null;
 
 // `$HOME/x` and `${HOME}/x` name the same path as `~/x`.
@@ -336,7 +337,7 @@ export const HOME_VARIABLE_RE = /^\$(?:HOME|\{HOME\})(?=\/|$)/;
 
 // null when the path is unknown: after `cd -`, or through another variable or
 // a command substitution the classifier cannot expand. Relative results stay
-// relative to the starting directory.
+// relative to the workspace root.
 export function resolvePath(value: string, cwd: Cwd): string | null {
   const withHome = value.replace(HOME_VARIABLE_RE, '~');
   if (withHome.includes('$')) return null;
@@ -369,7 +370,8 @@ export interface ScriptCommand {
 }
 
 // A script parsed once for every check: each simple command with its program
-// and the directory it runs in. `script` should have heredoc bodies removed.
+// and the directory it runs in, starting from `startCwd`, where the shell is
+// before the script runs. `script` should have heredoc bodies removed.
 export function scriptCommands(
   script: string,
   startCwd: Cwd = '',
@@ -672,9 +674,9 @@ export function commandWriteTargets(words: string[]): string[] {
 }
 
 // Every path a script writes, resolved against the directory each command
-// runs in (bash starts in the workspace, and `cd` moves it). Relative results
-// stay relative to that start, so `../out.txt` climbs out; targets behind a
-// variable or an unknown `cd` are left out.
+// runs in. Relative results stay relative to the workspace root, so
+// `../out.txt` run there climbs out; targets behind a variable or an unknown
+// directory are left out.
 export function writeTargets(commands: ScriptCommand[], depth = 0): string[] {
   const targets: string[] = [];
   for (const { words, program, args, cwd } of commands) {

@@ -6,8 +6,8 @@
  * Exported variables and aliases are worker state: the snapshot captures the
  * whole environment, gateway token included, so it stays in the worker's temp
  * dir and dies with it, and the first call in a new worker says so. NOT the
- * command guard or approval classifier: commands arrive here already allowed,
- * and this module only runs them.
+ * command guard or approval classifier: commands arrive here already allowed;
+ * this module runs them and tells the classifier where the next one starts.
  */
 import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -15,13 +15,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
+import type { Cwd } from './bash-commands.js';
 import {
   BASH_DOCKER_CONTAINER,
   BASH_DOCKER_CWD,
   runBashProcess,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
-import { WORKSPACE_ROOT } from './runtime-paths.js';
+import {
+  isWithinRoot,
+  resolveCanonicalPath,
+  WORKSPACE_ROOT,
+} from './runtime-paths.js';
 import { ensureSessionStateDir, sessionStatePath } from './session-state.js';
 
 type PersistentBashSession = {
@@ -44,6 +49,7 @@ type BashRunParams = {
 let persistentBashStateEnabled = true;
 let persistentBashSession: PersistentBashSession | null = null;
 const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
+const SESSION_CWD_FILE = 'bash-cwd';
 // 2026-09-10, Codex CI review: keep command contents out of process argv.
 // NUL framing preserves whitespace and gives child commands an exhausted stdin.
 const READ_BASH_COMMAND_SCRIPT = `IFS= read -r -d '' __hybridclaw_command || exit 125`;
@@ -164,7 +170,7 @@ export function setPersistentBashStateEnabled(enabled: boolean): boolean {
 // shell keeps the working directory in its own /tmp, like the snapshot.
 function resolveSessionCwdPath(sessionId: string): string | null {
   if (!sessionId || TASK_SANDBOX_FS_ENABLED) return null;
-  const cwdPath = sessionStatePath(sessionId, 'bash-cwd');
+  const cwdPath = sessionStatePath(sessionId, SESSION_CWD_FILE);
   try {
     ensureSessionStateDir(cwdPath);
     return cwdPath;
@@ -262,4 +268,44 @@ export function runBash(params: BashRunParams): {
     session.initialized = true;
   }
   return { result, notice };
+}
+
+// The real path of the directory the wrapper enters from `cwdPath`, or null
+// when it starts in the workspace root instead: nothing saved yet, or the
+// saved directory is gone, not a directory, or not searchable.
+function enterableSavedCwd(cwdPath: string): string | null {
+  try {
+    // The wrapper reads it with `$(cat …)`, which drops trailing newlines.
+    const savedCwd = fs.readFileSync(cwdPath, 'utf-8').replace(/\n+$/, '');
+    if (!savedCwd) return null;
+    const realPath = resolveCanonicalPath(
+      path.resolve(WORKSPACE_ROOT, savedCwd),
+    );
+    fs.accessSync(realPath, fs.constants.X_OK);
+    return fs.statSync(realPath).isDirectory() ? realPath : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the session's next bash call starts, as the approval classifier
+ * resolves paths (bash-commands.ts `Cwd`): '' for the workspace root, relative
+ * below it, absolute elsewhere. Null when this worker cannot see it: a
+ * docker-exec sandbox keeps its working directory in its own /tmp.
+ */
+export function nextBashCwd(sessionId: string): Cwd {
+  if (!persistentBashStateEnabled) return '';
+  if (TASK_SANDBOX_FS_ENABLED) return null;
+  const cwdPath =
+    persistentBashSession?.sessionId === sessionId
+      ? persistentBashSession.cwdPath
+      : sessionId && sessionStatePath(sessionId, SESSION_CWD_FILE);
+  const start = cwdPath ? enterableSavedCwd(cwdPath) : null;
+  if (!start) return '';
+  // The shell saves `pwd -P`, so compare real paths.
+  const workspace = resolveCanonicalPath(WORKSPACE_ROOT);
+  return isWithinRoot(start, workspace)
+    ? path.relative(workspace, start)
+    : start;
 }
