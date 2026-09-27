@@ -3,6 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import {
+  TOOL_HISTORY_RESULT_MAX_CHARS,
+  toolResultForHistory,
+} from '../container/shared/tool-history.js';
 
 describe.sequential('container read tool paths', () => {
   let cloudRoot = '';
@@ -121,5 +125,39 @@ describe.sequential('container read tool paths', () => {
 
     expect(result).not.toContain('other session data');
     expect(result).toContain('Path escapes workspace');
+  });
+
+  test('a page fits the live-history cap, so its continuation offset is exact', async () => {
+    const { executeTool } = await loadCloudReadRuntime();
+    const workspaceRoot = path.join(
+      cloudRoot,
+      '.data',
+      'data',
+      'agents',
+      'anika',
+      'workspace',
+    );
+    const lines = Array.from(
+      { length: 3_000 },
+      (_, index) => `line ${index + 1}: ${'x'.repeat(40)}`,
+    );
+    fs.writeFileSync(
+      path.join(workspaceRoot, 'big.log'),
+      lines.join('\n'),
+      'utf8',
+    );
+
+    const page = await executeTool('read', JSON.stringify({ path: 'big.log' }));
+
+    expect(page.length).toBeLessThanOrEqual(TOOL_HISTORY_RESULT_MAX_CHARS);
+    const inHistory = toolResultForHistory(
+      { role: 'tool', tool_call_id: 'call_read', content: page },
+      'session-a',
+    );
+    expect(inHistory.content).toBe(page);
+    const nextOffset = Number(page.match(/offset=(\d+)/)?.[1]);
+    expect(nextOffset).toBeGreaterThan(1);
+    expect(page).toContain(`${lines[nextOffset - 2]}\n`);
+    expect(page).not.toContain(`line ${nextOffset}:`);
   });
 });

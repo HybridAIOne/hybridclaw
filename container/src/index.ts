@@ -6,6 +6,7 @@
  * calls grant permissions or approvals, and replay never repeats side effects.
  */
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
@@ -33,7 +34,9 @@ import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
+  isContextWindowExceededError,
   isRetryableModelError,
+  retryDelayMs,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
@@ -61,9 +64,11 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { haltIfShuttingDown, startShutdown } from './shutdown-latch.js';
 import { buildInterruptedShutdownOutput } from './shutdown-output.js';
 import {
   advanceStalledTurnCount,
+  MAX_INVALID_TOOL_CALL_RETRIES,
   MAX_STALLED_MODEL_TURNS,
   shouldRetryEmptyFinalResponse,
   shouldRetryEmptyVisibleCompletion,
@@ -97,7 +102,11 @@ import {
   type ToolApprovalEvaluation,
 } from './tool-approval.js';
 import { parseToolArgsJson } from './tool-args.js';
-import { validateStructuredToolCalls } from './tool-call-validation.js';
+import {
+  invalidToolCallCorrection,
+  validateStructuredToolCalls,
+  withReplaySafeArguments,
+} from './tool-call-validation.js';
 import { ToolCatalog } from './tool-catalog.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
@@ -106,7 +115,7 @@ import {
   recordToolCallOutcome,
 } from './tool-loop-detection.js';
 import {
-  getToolExecutionMode,
+  leadingParallelRun,
   mapConcurrentInOrder,
   takeCachedValue,
 } from './tool-parallelism.js';
@@ -200,7 +209,6 @@ let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
 let mcpConfigWatcher: McpConfigWatcher | null = null;
-let shutdownPromise: Promise<never> | null = null;
 let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
@@ -302,16 +310,12 @@ async function shutdownMcp(): Promise<void> {
   mcpClientManager = null;
 }
 
-async function shutdownAgentProcess(
+function shutdownAgentProcess(
   exitCode: number,
   reason: string,
   finalOutput?: ContainerOutput,
 ): Promise<never> {
-  if (shutdownPromise) {
-    return shutdownPromise;
-  }
-
-  shutdownPromise = (async () => {
+  return startShutdown(async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
     resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
@@ -324,8 +328,18 @@ async function shutdownAgentProcess(
       writeOutput(finalOutput, inFlightInput?.requestId);
     }
     process.exit(exitCode);
-  })();
-  return shutdownPromise;
+  });
+}
+
+/** Parks once shutdown starts: the signal handler's reply stays the only one. */
+async function replyToRequest(
+  input: ContainerInput,
+  output: ContainerOutput,
+): Promise<void> {
+  await haltIfShuttingDown();
+  output.sideEffects = getPendingSideEffects();
+  writeOutput(output, input.requestId);
+  inFlightInput = null;
 }
 
 function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
@@ -395,8 +409,11 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
 function readStdinLine(): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = '';
+    // Pipe chunks can split a multi-byte character; decoding each chunk alone
+    // would turn both halves into U+FFFD.
+    const decoder = new StringDecoder('utf8');
     const onData = (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8');
+      buffer += decoder.write(chunk);
       const nl = buffer.indexOf('\n');
       if (nl !== -1) {
         process.stdin.removeListener('data', onData);
@@ -575,11 +592,23 @@ function collectRequestedArtifacts(params: {
   artifacts: ArtifactMetadata[];
   artifactPaths: Set<string>;
   startedAtMs: number;
+  finalText: string | null;
+  toolExecutions: ToolExecution[];
 }): void {
+  // Other sessions and scheduled jobs write to the same workspace, so a file
+  // modified during this turn is only this turn's if the turn names it.
+  const mentionedIn = [
+    params.finalText || '',
+    ...params.toolExecutions.flatMap((execution) => [
+      execution.arguments,
+      execution.result,
+    ]),
+  ];
   const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
     modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
     modifiedBeforeMs: Date.now() + 1_000,
     limit: 8,
+    mentionedIn,
   });
 
   for (const artifact of discovered) {
@@ -720,6 +749,8 @@ async function executePreparedToolCall(
   }
 
   const blockedReason = await runBeforeToolHooks(toolName, argsJson);
+  // Last await before the tool runs: a stop in the delay or hooks cancels it.
+  await haltIfShuttingDown();
   const loopGuard = blockedReason
     ? { stuck: false as const }
     : detectToolCallLoop(toolCallHistory, toolName, argsJson);
@@ -803,7 +834,20 @@ async function executePreparedToolCall(
   };
 }
 
-async function callHybridAIWithRetry(params: {
+// The gateway stops a worker that stays silent for its inactivity window. A
+// non-streaming call writes nothing until the response arrives, and neither
+// does a streaming call before its first chunk or a retry backoff. Hung
+// requests still end at the provider's own request and stream timeouts.
+function callHybridAIWithRetry(
+  params: Parameters<typeof callModelWithRetry>[0],
+): Promise<ChatCompletionResponse> {
+  return withToolActivityHeartbeat(
+    () => callModelWithRetry(params),
+    emitStreamActivity,
+  );
+}
+
+async function callModelWithRetry(params: {
   sessionId?: string;
   provider?: ContainerInput['provider'];
   providerMethod?: string;
@@ -855,6 +899,7 @@ async function callHybridAIWithRetry(params: {
   let delayMs = RETRY_BASE_DELAY_MS;
 
   while (true) {
+    await haltIfShuttingDown();
     attempt += 1;
     const attemptStartedAt = Date.now();
     let firstTextDeltaMs: number | null = null;
@@ -971,14 +1016,17 @@ async function callHybridAIWithRetry(params: {
       return response;
     } catch (err) {
       const formattedError = formatModelErrorForLog(err, baseUrl);
-      const retryable =
+      const retryDelay =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
         canReplayModelRequestAfterStreamError({
           receivedTextDelta,
           textDeltasVisible,
         }) &&
-        attempt < RETRY_MAX_ATTEMPTS;
+        attempt < RETRY_MAX_ATTEMPTS
+          ? retryDelayMs(delayMs, err)
+          : null;
+      const retryable = retryDelay !== null;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
@@ -988,8 +1036,8 @@ async function callHybridAIWithRetry(params: {
       console.error(
         `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
-      if (!retryable) throw err;
-      await sleep(delayMs);
+      if (retryDelay === null) throw err;
+      await sleep(retryDelay);
       delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
     }
   }
@@ -1179,8 +1227,11 @@ async function processRequestInner(
   let ralphExtraIterations = 0;
   let stalledTurns = 0;
   let emptyVisibleCompletionRetries = 0;
+  let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
   let compactionRetries = 0;
+  // Drops below any estimate the provider rejects as too long.
+  let guardContextWindow = contextWindow;
   const tokenEstimateCache = createTokenEstimateCache();
   const promptOverheadTokens = estimateRoutedPromptOverheadTokens({
     provider,
@@ -1326,7 +1377,7 @@ async function processRequestInner(
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
       history,
-      contextWindowTokens: contextWindow,
+      contextWindowTokens: guardContextWindow,
       promptOverheadTokens,
       config: contextGuard,
       cache: tokenEstimateCache,
@@ -1340,57 +1391,44 @@ async function processRequestInner(
       );
     }
     if (guardResult.tier3Triggered) {
-      if (compactionRetries >= maxContextGuardRetries) {
-        const overflow = buildContextOverflowOutput({
-          latestFinalAssistantText,
-          toolsUsed,
-          artifacts,
-          toolExecutions,
-          tokenUsage: finalizeTokenUsage(tokenUsage),
-          effectiveUserPrompt,
-        });
-        await emitRuntimeEvent({
-          event: 'turn_end',
-          status: overflow.status,
-          toolsUsed: overflow.toolsUsed,
-        });
-        return overflow;
-      }
-
-      const compacted = await compactInLoop({
-        history,
-        contextWindowTokens: contextWindow,
-        summarize: async (summaryMessages, summaryMaxTokens) => {
-          tokenUsage.modelCalls += 1;
-          tokenUsage.estimatedPromptTokens +=
-            estimateMessageTokens(summaryMessages);
-          const response = await callAuxiliaryModel({
-            task: 'compression',
-            taskModels,
-            fallbackContext: {
-              provider,
-              baseUrl,
-              apiKey,
-              model,
-              chatbotId,
-              requestHeaders,
-              isLocal,
-              contextWindow,
-              modelBehavior,
-              thinkingFormat,
-            },
-            messages: summaryMessages,
-            maxTokens: summaryMaxTokens,
-            toolName: 'in_loop_compaction',
-          });
-          accumulateApiUsage(tokenUsage, response.response);
-          tokenUsage.estimatedCompletionTokens += estimateTextTokens(
-            response.content,
-          );
-          return response.content;
-        },
-      });
-      if (!compacted.changed) {
+      const compacted =
+        compactionRetries < maxContextGuardRetries
+          ? await compactInLoop({
+              history,
+              contextWindowTokens: guardContextWindow,
+              summarize: async (summaryMessages, summaryMaxTokens) => {
+                await haltIfShuttingDown();
+                tokenUsage.modelCalls += 1;
+                tokenUsage.estimatedPromptTokens +=
+                  estimateMessageTokens(summaryMessages);
+                const response = await callAuxiliaryModel({
+                  task: 'compression',
+                  taskModels,
+                  fallbackContext: {
+                    provider,
+                    baseUrl,
+                    apiKey,
+                    model,
+                    chatbotId,
+                    requestHeaders,
+                    isLocal,
+                    contextWindow,
+                    modelBehavior,
+                    thinkingFormat,
+                  },
+                  messages: summaryMessages,
+                  maxTokens: summaryMaxTokens,
+                  toolName: 'in_loop_compaction',
+                });
+                accumulateApiUsage(tokenUsage, response.response);
+                tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+                  response.content,
+                );
+                return response.content;
+              },
+            })
+          : null;
+      if (!compacted?.changed) {
         const overflow = buildContextOverflowOutput({
           latestFinalAssistantText,
           toolsUsed,
@@ -1458,6 +1496,21 @@ async function processRequestInner(
         reasoningEffort,
       });
     } catch (err) {
+      if (
+        contextGuard?.enabled !== false &&
+        compactionRetries < maxContextGuardRetries &&
+        isContextWindowExceededError(err)
+      ) {
+        // The estimate undercounted this prompt: budget the guard below it so
+        // the next pass shrinks history. 0.9 (2026-09-26 call): any factor
+        // under 1 forces progress; parsing providers' token counts deferred.
+        guardContextWindow = Math.floor(estimatedPromptTokensForCall * 0.9);
+        compactionRetries += 1;
+        console.error(
+          `[context] provider rejected prompt as too long estimatedTokens=${estimatedPromptTokensForCall} guardWindow=${guardContextWindow} retry=${compactionRetries}`,
+        );
+        continue;
+      }
       const failed: ContainerOutput = {
         status: 'error',
         result: null,
@@ -1526,7 +1579,8 @@ async function processRequestInner(
     });
 
     let toolCalls = choice.message.tool_calls || [];
-    let invalidToolCallError = validateStructuredToolCalls(toolCalls);
+    const malformedToolCallError = validateStructuredToolCalls(toolCalls);
+    let invalidToolCallError = malformedToolCallError;
     let catalogCorrection: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
       try {
@@ -1545,13 +1599,23 @@ async function processRequestInner(
         }
       }
     }
-    if (catalogCorrection) {
+    const correction =
+      catalogCorrection ??
+      (malformedToolCallError &&
+      invalidToolCallRetries < MAX_INVALID_TOOL_CALL_RETRIES
+        ? invalidToolCallCorrection(
+            malformedToolCallError,
+            choice.finish_reason,
+          )
+        : null);
+    if (correction) {
+      if (!catalogCorrection) invalidToolCallRetries += 1;
       // Keep the original rejected calls for valid tool-result pairing. Nothing
       // from this batch reaches approval or execution, including valid siblings.
       const rejectedMessage: ChatMessage = {
         role: 'assistant',
         content: choice.message.content,
-        tool_calls: choice.message.tool_calls,
+        tool_calls: withReplaySafeArguments(choice.message.tool_calls || []),
       };
       turnToolHistory.recordAssistant(rejectedMessage);
       history.push(rejectedMessage);
@@ -1560,23 +1624,23 @@ async function processRequestInner(
           turnToolHistory.recordResult({
             role: 'tool',
             tool_call_id: call.id,
-            content: catalogCorrection,
+            content: correction,
           }),
         );
         toolsUsed.push(call.function.name);
         toolExecutions.push({
           name: call.function.name,
           arguments: call.function.arguments,
-          result: catalogCorrection,
+          result: correction,
           durationMs: 0,
           isError: true,
           blocked: true,
-          blockedReason: 'Invalid local tool catalog arguments.',
+          blockedReason: 'Invalid tool call arguments.',
         });
       }
       stalledTurns += 1;
       console.error(
-        '[model] rejected local catalog arguments; requesting correction',
+        '[model] rejected tool call arguments; requesting correction',
       );
       continue;
     }
@@ -1601,6 +1665,7 @@ async function processRequestInner(
       });
       return failed;
     }
+    invalidToolCallRetries = 0;
     const assistantSegment = classifyAssistantChatSegment({
       content: choice.message.content,
       hasToolCalls: toolCalls.length > 0,
@@ -1712,6 +1777,8 @@ async function processRequestInner(
             artifacts,
             artifactPaths,
             startedAtMs: processStartedAt,
+            finalText: assistantSegment.text,
+            toolExecutions,
           });
           latestFinalAssistantText = assistantSegment.text;
           textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
@@ -1769,6 +1836,8 @@ async function processRequestInner(
         artifacts,
         artifactPaths,
         startedAtMs: processStartedAt,
+        finalText: assistantSegment.text,
+        toolExecutions,
       });
       if (
         shouldRetryEmptyFinalResponse({
@@ -1813,43 +1882,18 @@ async function processRequestInner(
     }
 
     let successfulToolCallsThisTurn = 0;
-    const allowConcurrentBatching =
-      toolCalls.length > 1 &&
-      toolCalls.every(
-        (entry) =>
-          getToolExecutionMode(
-            entry.function.name,
-            entry.function.arguments,
-          ) === 'parallel',
-      );
     const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
       const toolName = call.function.name;
       const cachedApproval = takeCachedValue(cachedApprovals, call.id);
-      const executionMode =
-        cachedApproval || !allowConcurrentBatching ? 'sequential' : 'parallel';
+      const candidateCalls = cachedApproval
+        ? []
+        : leadingParallelRun(
+            toolCalls.slice(callIndex, callIndex + MAX_PARALLEL_TOOL_CALLS),
+          );
 
-      if (executionMode === 'parallel') {
-        const candidateCalls: ToolCall[] = [call];
-        let nextOffset = 1;
-        while (
-          callIndex + nextOffset < toolCalls.length &&
-          candidateCalls.length < MAX_PARALLEL_TOOL_CALLS
-        ) {
-          const candidate = toolCalls[callIndex + nextOffset];
-          if (
-            getToolExecutionMode(
-              candidate.function.name,
-              candidate.function.arguments,
-            ) !== 'parallel'
-          ) {
-            break;
-          }
-          candidateCalls.push(candidate);
-          nextOffset += 1;
-        }
-
+      if (candidateCalls.length > 1) {
         const preparedBatch: PreparedToolCallExecution[] = [];
         for (const candidate of candidateCalls) {
           const candidateApproval = await resolveToolApproval({
@@ -1944,6 +1988,7 @@ async function processRequestInner(
 
       const approval =
         cachedApproval ||
+        takeCachedValue(cachedApprovals, call.id) ||
         (await resolveToolApproval({
           toolName,
           argsJson: call.function.arguments,
@@ -2047,6 +2092,8 @@ async function processRequestInner(
     artifacts,
     artifactPaths,
     startedAtMs: processStartedAt,
+    finalText: latestFinalAssistantText,
+    toolExecutions,
   });
   const completed: ContainerOutput = {
     status: 'success',
@@ -2136,6 +2183,7 @@ async function main(): Promise<void> {
 
   // First request arrives via stdin (contains apiKey — never written to disk)
   const stdinData = await readStdinLine();
+  await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   inFlightInput = firstInput;
   applyRuntimeEnv(firstInput.runtimeEnv);
@@ -2259,9 +2307,7 @@ async function main(): Promise<void> {
     });
   }
 
-  firstOutput.sideEffects = getPendingSideEffects();
-  writeOutput(firstOutput, firstInput.requestId);
-  inFlightInput = null;
+  await replyToRequest(firstInput, firstOutput);
   console.error(
     `[hybridclaw-agent] first request complete: ${firstOutput.status}`,
   );
@@ -2272,7 +2318,7 @@ async function main(): Promise<void> {
     const input = await waitForInput(Math.max(0, idleDeadlineAt - Date.now()));
 
     if (!input) {
-      console.error('[hybridclaw-agent] idle timeout, exiting');
+      // Idle timeout; if shutdown already started, this joins it.
       await shutdownAgentProcess(0, 'idle timeout');
       return;
     }
@@ -2379,9 +2425,7 @@ async function main(): Promise<void> {
         toolExecutions: [],
         effectiveUserPrompt: latestUserPrompt(messagesForRequestWithSkillCache),
       };
-      immediate.sideEffects = getPendingSideEffects();
-      writeOutput(immediate, input.requestId);
-      inFlightInput = null;
+      await replyToRequest(input, immediate);
       idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
       console.error('[approval] resolved user response without model run');
       continue;
@@ -2421,9 +2465,7 @@ async function main(): Promise<void> {
       approvedToolCall,
     });
 
-    output.sideEffects = getPendingSideEffects();
-    writeOutput(output, input.requestId);
-    inFlightInput = null;
+    await replyToRequest(input, output);
     idleDeadlineAt = Date.now() + IDLE_TIMEOUT_MS;
     console.error(`[hybridclaw-agent] request complete: ${output.status}`);
   }

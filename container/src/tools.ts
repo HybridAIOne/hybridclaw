@@ -22,6 +22,7 @@ import {
   looksLikeMSTeamsConversationId,
 } from '../shared/msteams-session-ids.js';
 import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
+import { TOOL_HISTORY_RESULT_MAX_CHARS } from '../shared/tool-history.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -2121,7 +2122,10 @@ const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
 const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
 const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
 const READ_MAX_LINES = 2000;
-const READ_MAX_BYTES = 50 * 1024;
+// A page must fit the live-history cap with room for its trailer: a longer
+// result loses its middle there while "Use offset=N to continue" survives, so
+// the model would skip lines it never saw. Bytes bound the character count.
+const READ_MAX_BYTES = TOOL_HISTORY_RESULT_MAX_CHARS - 1_024;
 type ReadTruncationResult = {
   content: string;
   truncated: boolean;
@@ -3650,10 +3654,21 @@ async function executeToolInternal(
         );
       }
 
+      // Newest first: readdir order is arbitrary, and past the cap the
+      // recent sessions are the ones worth searching.
       const files = fs
         .readdirSync(transcriptDir)
         .filter((name) => name.endsWith('.jsonl'))
-        .slice(0, SESSION_SEARCH_MAX_FILES);
+        .map((name) => ({
+          name,
+          mtimeMs:
+            fs.statSync(path.join(transcriptDir, name), {
+              throwIfNoEntry: false,
+            })?.mtimeMs ?? 0,
+        }))
+        .sort((left, right) => right.mtimeMs - left.mtimeMs)
+        .slice(0, SESSION_SEARCH_MAX_FILES)
+        .map((entry) => entry.name);
 
       const candidates: SessionSearchCandidate[] = [];
       for (const filename of files) {
@@ -4186,8 +4201,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description:
-        'Read a file and return its contents. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files.',
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large files.`,
       parameters: {
         type: 'object',
         properties: {

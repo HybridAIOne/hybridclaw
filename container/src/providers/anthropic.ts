@@ -23,6 +23,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
@@ -587,6 +588,14 @@ function mapStopReason(stopReason: string | null | undefined): string {
   return stopReason || 'stop';
 }
 
+// Anthropic reports these after the 200 response, by type only; as status
+// errors they retry like the same failure reported before the stream.
+const TRANSIENT_STREAM_ERROR_STATUS = new Map([
+  ['api_error', 500],
+  ['overloaded_error', 529],
+  ['rate_limit_error', 429],
+]);
+
 /**
  * Stream usage arrives in parts: message_start carries the input and cache
  * counts, message_delta the cumulative output count. Fields an event omits
@@ -864,6 +873,7 @@ export async function callAnthropicProvider(
     throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
+      readRetryAfterMs(response.headers),
     );
   }
 
@@ -926,6 +936,7 @@ export async function callAnthropicProviderStream(
     throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
+      readRetryAfterMs(response.headers),
     );
   }
   if (!response.body) {
@@ -963,6 +974,10 @@ export async function callAnthropicProviderStream(
       args.onActivity?.();
 
       if (event.type === 'error') {
+        const status = isRecord(event.error)
+          ? TRANSIENT_STREAM_ERROR_STATUS.get(String(event.error.type))
+          : undefined;
+        if (status) throw new ProviderRequestError(status, sse.data);
         const error =
           isRecord(event.error) && typeof event.error.message === 'string'
             ? event.error.message

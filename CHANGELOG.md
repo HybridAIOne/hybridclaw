@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **Prompt-too-long rejections recover**: When a provider rejects a request
+  because the prompt exceeds the model's context window, the agent shrinks its
+  history and retries instead of ending the turn with an API error. The rest
+  of the turn stays below the size the provider rejected, which the
+  character-based token estimate had let through. The retries count against
+  `sessionCompaction.inLoopGuard.maxRetries`, and a disabled in-loop guard
+  still fails fast. Codex stream failures report the provider's error instead
+  of "Codex stream ended with status failed".
+- **Gateway survives file-descriptor exhaustion**: When the gateway runs out
+  of file descriptors (EMFILE/ENFILE), a process it cannot start fails only
+  the operation that needed it instead of crashing the gateway. This covers
+  container and host agent processes, Docker image checks, skill dependency
+  installers, harness-evolution eval commands, and `cloudflared`.
 - **Prompt-cache usage for more providers**: Streaming Anthropic calls keep
   their input and cache token counts; the final stream event used to replace
   them with output-only usage, so these calls recorded zero prompt tokens. Cache
@@ -137,11 +150,6 @@
   started instead of repeating "Delegation accepted". This covers stops, which
   never start the delegations they queued, and timeouts, agent crashes and
   runner errors, whose queued delegations never reach the gateway.
-- **Gateway survives file-descriptor exhaustion**: When the gateway runs out
-  of file descriptors (EMFILE/ENFILE), a process it cannot start fails only
-  the operation that needed it instead of crashing the gateway. This covers
-  container and host agent processes, Docker image checks, skill dependency
-  installers, harness-evolution eval commands, and `cloudflared`.
 - **Document delivery**: Reports, lists, and data files an agent writes are
   attached to its reply when the reply names them, including links with
   `sandbox:` or host workspace paths. Web chat links to an attached file

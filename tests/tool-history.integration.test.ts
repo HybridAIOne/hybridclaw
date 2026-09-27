@@ -1,9 +1,7 @@
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import type { ChatMessage } from '../src/types/api.js';
@@ -11,6 +9,7 @@ import type {
   ContainerInput,
   ContainerOutput,
 } from '../src/types/container.js';
+import { runContainerWorker } from './helpers/container-worker.js';
 
 let root: string;
 let db: typeof import('../src/memory/db.js');
@@ -100,39 +99,14 @@ test('upgrades schema 58 without losing chat or scheduler failure data', async (
   }
 });
 
-async function runFreshWorker(
+function runFreshWorker(
   sessionId: string,
   messages: ChatMessage[],
   baseUrl: string,
   overrides: Partial<ContainerInput> = {},
 ): Promise<ContainerOutput> {
-  const ipcDir = fs.mkdtempSync(path.join(root, 'ipc-'));
-  const child = spawn(
-    process.execPath,
-    ['--import', 'tsx', 'container/src/index.ts'],
+  return runContainerWorker(
     {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspace,
-        HYBRIDCLAW_AGENT_IPC_DIR: ipcDir,
-        HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify([workspace]),
-        HYBRIDCLAW_RETRY_ENABLED: 'false',
-        CONTAINER_IDLE_TIMEOUT: '25',
-      },
-      stdio: ['pipe', 'ignore', 'pipe'],
-    },
-  );
-  let stderr = '';
-  child.stderr.on('data', (chunk) => {
-    stderr += String(chunk);
-  });
-  const exited = new Promise<void>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', () => resolve());
-  });
-  child.stdin.end(
-    JSON.stringify({
       sessionId,
       messages,
       apiKey: 'test-key',
@@ -140,32 +114,18 @@ async function runFreshWorker(
       provider: 'hybridai',
       model: 'test-model',
       chatbotId: 'test-bot',
+      channelId: 'test-channel',
       enableRag: false,
       allowedTools: ['read'],
       skipContainerSystemPrompt: true,
       contextWindow: 128_000,
       ...overrides,
-    }) + '\n',
+    },
+    {
+      HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspace,
+      HYBRIDCLAW_AGENT_ALLOWED_ROOTS: JSON.stringify([workspace]),
+    },
   );
-  try {
-    const outputPath = path.join(ipcDir, 'output.json');
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      // Missing and unparseable both mean not ready yet, as in readOutput
-      // (src/infra/ipc.ts).
-      try {
-        return JSON.parse(
-          fs.readFileSync(outputPath, 'utf8'),
-        ) as ContainerOutput;
-      } catch {}
-      if (child.exitCode !== null) break;
-      await delay(25);
-    }
-    throw new Error(`Worker produced no IPC output: ${stderr}`);
-  } finally {
-    child.kill('SIGTERM');
-    await exited;
-  }
 }
 
 test('a fresh worker uses the previous turn’s stored result without calling the tool again', async () => {

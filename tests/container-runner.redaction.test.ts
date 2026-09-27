@@ -158,6 +158,13 @@ test('ContainerExecutor preserves user-visible streamed text and tool progress w
         '[tool] bash result (12ms): emailed user@example.com with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop\n',
       ),
     );
+    // A pipe chunk can end inside a multi-byte character.
+    const splitLine = Buffer.from(
+      '[tool] read result (3ms): Größenübersicht für café\n',
+    );
+    const cut = splitLine.indexOf(Buffer.from('ö')) + 1;
+    proc.stderr.emit('data', splitLine.subarray(0, cut));
+    proc.stderr.emit('data', splitLine.subarray(cut));
     return {
       status: 'success' as const,
       result: 'ok',
@@ -239,6 +246,7 @@ test('ContainerExecutor preserves user-visible streamed text and tool progress w
   expect(toolEvents[0]?.preview).toBe(
     'emailed user@example.com with OPENAI_API_KEY=sk-123...mnop',
   );
+  expect(toolEvents[1]?.preview).toBe('Größenübersicht für café');
 });
 
 test('ContainerExecutor preserves user-visible approval details while redacting credentials', async () => {
