@@ -42,13 +42,13 @@ import {
   deletesFiles,
   deletionTargets,
   optionWriteTargets,
-  runsProgramOption,
   scriptCommands,
   shellCommandsRun,
-  writeTargets,
 } from './bash-commands.js';
+import { fenceCandidates } from './bash-fence.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
+import { runsScript } from './bash-script-run.js';
 import { nextBashCwd } from './bash-session.js';
 import {
   type BehaviorAnomalyInput,
@@ -441,14 +441,14 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
+// `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor and write no file,
+// so adding one never changes the tier (owner call, 2026-09-27).
 const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!&(?:\d+|-)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
-const UNKNOWN_SCRIPT_RE =
-  /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
@@ -1104,6 +1104,11 @@ function skillManagedWriteApprovalReason(
     return `${skillName} API write requests require explicit operator approval`;
   }
   return null;
+}
+
+function isReadOnlyCommand(words: string[]): boolean {
+  const text = words.join(' ');
+  return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -3546,15 +3551,11 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const targets = writeTargets(shellCommands);
-      const absoluteTargets = targets.filter((target) =>
-        target.startsWith('/'),
-      );
-      const outsideWorkspace = [
-        ...(absoluteTargets.length > 0 ? absoluteTargets : absPaths),
-        // Relative targets are workspace-relative, so `../x` lands outside it.
-        ...targets.filter((target) => /^\.\.(?:\/|$)/.test(target)),
-      ].find(
+      const outsideWorkspace = fenceCandidates(
+        shellCommands,
+        absPaths,
+        isReadOnlyCommand,
+      ).find(
         (entry) =>
           !entry.startsWith('/') ||
           (!isWorkspacePath(entry) &&
@@ -3564,8 +3565,7 @@ export class TrustedAgentApprovalRuntime {
       if (outsideWorkspace) {
         // Explicit approval even under full-auto (owner call, 2026-09-27): the
         // fence survives every mode, as approvals-v2 plans for `full`, and
-        // evals get no exemption. Human-granted trust still applies. Deferred:
-        // narrowing the absPaths fallback, which also fences outside reads.
+        // evals get no exemption. Human-granted trust still applies.
         return {
           tier: 'red',
           actionKey: 'bash:workspace-fence',
@@ -3607,10 +3607,9 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (
-      UNKNOWN_SCRIPT_RE.test(inspectionSurface) ||
-      commandsRun.some(runsProgramOption)
-    ) {
+    const agentWritable = (file: string) =>
+      isWorkspacePath(file) || isScratchPath(file);
+    if (commandsRun.some((words) => runsScript(words, agentWritable))) {
       return {
         tier: 'red',
         actionKey: 'bash:script',
@@ -3742,10 +3741,7 @@ export class TrustedAgentApprovalRuntime {
     // first segment alone let `ls; tar czf - . | base64` run unnarrated), and
     // the surface's first segment still matches, so forms such as `(ls)` or a
     // quoted command name stay yellow as before.
-    const everyCommandReadOnly = commandsRun.every((words) => {
-      const text = words.join(' ');
-      return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
-    });
+    const everyCommandReadOnly = commandsRun.every(isReadOnlyCommand);
 
     if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {

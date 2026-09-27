@@ -38,7 +38,8 @@ export const PINNED_NAME_SAMPLES: ReadonlyMap<string, readonly string[]> =
   new Map([['.env*', ['.env', '.envrc', '.env.local', '.env.production']]]);
 
 // Programs that print only names or metadata of the files they are handed.
-const NAME_ONLY_PROGRAMS = new Set([
+// They write nothing but their output; bash-fence.ts relies on that.
+export const NAME_ONLY_PROGRAMS = new Set([
   'basename',
   'dirname',
   'du',
