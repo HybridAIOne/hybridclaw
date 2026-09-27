@@ -122,3 +122,20 @@ go to `/admin/gateway` and click `Reload Gateway`.
 1. Send yourself a WhatsApp message if you used self-chat mode.
 2. If you used `--allow-from`, send a message from one of the allowlisted
    phone numbers.
+
+## Outbound Message Results
+
+The `message` tool sends from the linked WhatsApp account. Supplying `from`
+on a WhatsApp send is rejected, including for attachments; remove that read
+filter to send from the account named in the error.
+
+`ok: true` means the transport accepted the send. The pinned transport does
+not verify recipient registration or provide delivery receipts, so results
+report `deliveryStatus: "unknown-recipient"` and `deliveryConfirmed: false`.
+This also applies to unregistered phone numbers: acceptance does not prove
+that the recipient exists or received the message.
+
+Results include `sentFrom`, `recipient`, and `messageIds`. Transport-provided
+IDs are preserved for text chunks and attachments. The pinned WhatsApp
+plugin returns no IDs, so its `messageIds` is empty. Recipient lookup, ID
+production, and receipt tracking require support in the WhatsApp plugin.
