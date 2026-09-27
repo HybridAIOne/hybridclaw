@@ -3553,7 +3553,6 @@ export class TrustedAgentApprovalRuntime {
     if (this.loadedPolicy.workspaceFence && writeIntent) {
       const outsideWorkspace = fenceCandidates(
         shellCommands,
-        absPaths,
         isReadOnlyCommand,
       ).find(
         (entry) =>

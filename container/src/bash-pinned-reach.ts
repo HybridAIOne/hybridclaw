@@ -489,6 +489,18 @@ function scanProgram(
   }
 }
 
+// Word indexes of a command's text that is not a path: grep and rg patterns,
+// and what echo and printf print unless it is piped on.
+export function nonPathWords({
+  start,
+  program,
+  args,
+  pipesOut,
+}: ScriptCommand): Set<number> {
+  const scan = scanProgram(program, args, pipesOut);
+  return new Set(scan.nonPathArgs.map((index) => index + start + 1));
+}
+
 // Values that name files to skip: `--exclude .env`, `--exclude=.env*`, and
 // find's `! -name '.env*'`.
 function isExclusionValue(words: string[], index: number): boolean {
@@ -629,9 +641,9 @@ function scanScript(
   let listing: Walk | null = null;
 
   for (const command of commands) {
-    const { words, start, program, args, piped, pipesOut, cwd } = command;
+    const { words, program, args, piped, pipesOut, cwd } = command;
     const scan = scanProgram(program, args, pipesOut);
-    const nonPath = new Set(scan.nonPathArgs.map((index) => index + start + 1));
+    const nonPath = nonPathWords(command);
 
     for (let index = 0; index < words.length; index += 1) {
       if (nonPath.has(index) || isExclusionValue(words, index)) continue;

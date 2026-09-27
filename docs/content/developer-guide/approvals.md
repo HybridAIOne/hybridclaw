@@ -190,11 +190,15 @@ in the command. `2>&1` and `>&2` only duplicate a descriptor. Reading from outsi
 targets is an absolute path and the command also runs a program whose writes
 are not parsed, such as `rm`, `sed -i`, `mv` (which removes its sources),
 `tar`, an installer, an interpreter, `xargs`, or an unknown program, every
-unquoted absolute path in the command counts as a possible write, except the
-program and the script it runs. That keeps
-`sed -i 's/a/b/' /opt/app.conf > log.txt` and
-`ls /opt/data > files.txt && python3 cleanup.py files.txt` fenced. The fence is
-static too: a path in a variable, or one a script writes, is not seen.
+absolute, `~/`, or `$HOME/` path in the command counts as a possible write,
+quoted or not and including `--name=/path` values. Text read as code or a
+pattern does not: `sed` and `awk` scripts, `grep` and `rg` patterns, what
+`echo` prints, and inline interpreter code. Neither do the program and the
+script it runs. That keeps `sed -i 's/a/b/' "/opt/app.conf" > log.txt`,
+`rm -rf ~/old`, `pip install --target=/opt/libs x`, and
+`ls /opt/data > files.txt && python3 cleanup.py files.txt` fenced, while
+`sed -i '/^#/d' config.txt` is not. The fence is static too: a path in a
+variable, or one a script writes, is not seen.
 
 The approval policy, the trust grants, the pending approvals, and the
 per-session guard state live in the agent's own workspace, so an agent that

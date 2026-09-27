@@ -332,14 +332,12 @@ approval:
     'rm -rf build src',
     'rm -rf node_modules/../src',
     'rm -rf $DIR/node_modules',
-    'rm -rf ~/.cache',
     'rm -rf ../build',
     "find . -name node_modules -prune -exec rm -rf {} +",
     'find build | xargs rm -rf',
     'docker exec box rm -rf node_modules',
     // Targets resolve through `cd`: these leave the workspace or are unknown.
     'cd .. && rm -rf node_modules',
-    'cd ~/other && rm -rf node_modules',
     'cd "$DIR" && rm -rf node_modules',
     "cd .. && find dist -name '*.map' -delete",
     "bash -c 'cd .. && rm -rf build'",
@@ -510,5 +508,45 @@ approval:
 
     expect(evaluation.actionKey).toBe('bash:workspace-fence');
     expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    'rm -rf "/opt/data"',
+    "rm -f '/opt/data/x.csv'",
+    'rm "/opt/my data/x.csv"',
+    "sed -i 's/a/b/' \"/opt/data/app.conf\" > log.txt",
+    "sed -i '' 's/a/b/' \"/opt/data/app.conf\"",
+    "find \"/opt/data\" -name '*.tmp' -delete",
+    'mv "/opt/data/input.csv" input.csv',
+    'pip install --target=/opt/libs requests > log.txt',
+    'tar -xzf bundle.tgz --directory=/opt/data > log.txt',
+    "sh -c 'rm \"/opt/data/x.csv\"'",
+    'rm -rf ~/scratch',
+    'rm -rf ~/.cache',
+    'rm "$HOME/notes.txt"',
+    'cd ~/other && rm -rf node_modules',
+  ])('quotes, --name=/path, and ~ do not hide a write outside the workspace: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    "sed -i '/^#/d' config.txt",
+    "sed -i '' '/^#/d' config.txt",
+    "sed -i -e '/^#/d' -e 's/a/b/' config.txt",
+    "sed -i --expression='/^#/d' config.txt",
+    "sed < app.log '/^#/d' > clean.log",
+    "awk '/error/ {print}' app.log > errors.txt",
+    "grep -n '/api/v1' src/app.ts > hits.txt; sed -i 's/a/b/' app.conf",
+    "perl -ne '/foo/ && print' app.log > foo.txt",
+    "sh -c '/opt/tools/run.sh --check' > log.txt",
+    '~/bin/tool --check > out.txt',
+  ])('scripts, patterns, and programs a command runs are not paths it writes: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:write-op');
+    expect(evaluation.decision).toBe('implicit');
   });
 });
