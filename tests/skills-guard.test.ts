@@ -354,14 +354,7 @@ test.each([
   );
 });
 
-// alexa.cjs reads the runtime secret store and master key itself instead of
-// going through gateway secret injection: a real finding, not a false
-// positive. The builtin source skips the scan, but a copy installed as a
-// personal skill is blocked. Listed until alexa is fixed; the test then fails
-// until the entry is removed.
-const KNOWN_BUNDLED_CRITICAL = ['alexa/alexa.cjs runtime_secrets_access'];
-
-test('bundled skills produce no critical findings beyond the known ones', () => {
+test('bundled skills produce no critical findings', () => {
   const bundledRoot = path.resolve('skills');
   const critical = fs
     .readdirSync(bundledRoot)
@@ -374,18 +367,11 @@ test('bundled skills produce no critical findings beyond the known ones', () => 
         sourceTag: 'community',
       })
         .result.findings.filter((finding) => finding.severity === 'critical')
-        .map((finding) => ({
-          known: `${name}/${finding.file} ${finding.patternId}`,
-          detail: `${name}/${finding.file}:${finding.line} ${finding.patternId}: ${finding.match}`,
-        })),
+        .map(
+          (finding) =>
+            `${name}/${finding.file}:${finding.line} ${finding.patternId}: ${finding.match}`,
+        ),
     );
 
-  expect(
-    critical
-      .filter((finding) => !KNOWN_BUNDLED_CRITICAL.includes(finding.known))
-      .map((finding) => finding.detail),
-  ).toEqual([]);
-  expect([...new Set(critical.map((finding) => finding.known))]).toEqual(
-    KNOWN_BUNDLED_CRITICAL,
-  );
+  expect(critical).toEqual([]);
 });

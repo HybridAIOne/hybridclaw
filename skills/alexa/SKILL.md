@@ -247,14 +247,16 @@ For Alexa-connected smart plugs/lights exposed through the Alexa app (for
 example `Poolpumpe`), use the `smart-home` helper commands. Do not use
 `connectedhomes/v1/appliances`; Amazon can return a 200 HTML deeplink page
 instead of JSON. The helper resolves the Alexa app device by name, runs the
-discovery and status/control calls itself, and returns the result JSON. This
-path uses `ALEXA_REFRESH_COOKIE`; do not ask for
+discovery and status/control calls through the HybridClaw gateway, and returns
+the result JSON. This path uses `ALEXA_REFRESH_COOKIE`; do not ask for
 `ALEXA_SMARTHOME_ACCESS_TOKEN` or Smart Home Skill OAuth when the operator asks
 to use the stored Alexa cookie for these Alexa-app appliances. If the helper
 reports `Unauthenticated call`, `FORBIDDEN`, `INVALID_AUTHORIZATION_CREDENTIAL`,
-or an HTTP 401/403, treat that as an auth failure for the cookie path. Inspect
-the stored cookie/import path first; do not immediately start the browser proxy
-unless the operator explicitly asks for a new proxy login.
+or an HTTP 401/403, treat that as an auth failure for the cookie path. A gateway
+error saying `ALEXA_REFRESH_COOKIE` is not set or has no `csrf` cookie means the
+stored cookie is missing or incomplete. Inspect the stored cookie/import path
+first; do not immediately start the browser proxy unless the operator
+explicitly asks for a new proxy login.
 
 ```bash
 node skills/alexa/alexa.cjs --format json smart-home status \
@@ -509,7 +511,9 @@ If using HybridClaw's direct `http_request` helper path instead of invoking
 the browser setup flow, `ALEXA_REFRESH_COOKIE` must be the complete `Cookie`
 header for an authenticated Alexa Remote API request such as
 `https://alexa.amazon.de/api/devices-v2/device`. A single cookie value such as
-`session-id` or `ubid-main` is not enough. Do not paste Amazon passwords,
+`session-id` or `ubid-main` is not enough. The gateway sends the stored header
+as `Cookie` and, for writes, copies its `csrf` cookie into the `csrf` header, so
+the header must include `csrf=...`. Do not paste Amazon passwords,
 one-time codes, or raw tokens into chat; store only the resulting cookie header
 through the HybridClaw secret store. The `alexa-auth.cjs import-cookie` helper
 can store a cookie with `--write-secret` when a local JSON file, copied cURL
