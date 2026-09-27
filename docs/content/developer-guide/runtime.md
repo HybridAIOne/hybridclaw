@@ -492,6 +492,24 @@ only:
 - Requests without an id reply in `output.json`; the gateway also accepts that
   file from agent images built before request ids.
 
+## Agent Shutdown
+
+When the gateway stops an agent process, for example to interrupt a turn, the
+agent receives `SIGTERM` (through `docker stop` in container mode). It writes
+the interrupted reply to its in-flight request's reply file at once, keeping
+the tool calls that already ran, and then closes its browser sessions and MCP
+servers, which can take seconds. From the signal on, the agent starts nothing
+new:
+
+- no model call, tool approval, tool run, or later reply; a model or tool
+  result still in flight when the signal arrives is dropped
+- no `input.json` or `health-input.json` is consumed, because the replacement
+  agent that the runner starts for the next turn can share the session's IPC
+  directory
+
+Each of these entry points checks the latch in
+`container/src/shutdown-latch.ts`; a new entry point must check it too.
+
 ## Session Reset Workflow
 
 Gateway `reset [yes|no]`, TUI `/reset`, and Discord `/reset` share the same

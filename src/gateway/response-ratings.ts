@@ -1,3 +1,8 @@
+/**
+ * Response ratings attribute feedback to the submitting user, while the rated
+ * agent remains subject metadata. Unlike the audit reader, this service knows
+ * who performed the action; it does not infer actors from response ownership.
+ */
 import { findAgentConfig } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
@@ -9,6 +14,8 @@ import {
   HYBRIDAI_CHATBOT_ID,
   OBSERVABILITY_BOT_ID,
 } from '../config/config.js';
+import { createUserActor } from '../identity/actor.js';
+import { formatLocalOwnerUserId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
   clearResponseRating,
@@ -247,6 +254,7 @@ export function submitResponseRating(
     runId: makeAuditRunId('rating'),
     event: {
       type: 'response.rating',
+      actor: createUserActor(formatLocalOwnerUserId(operatorUserId)),
       sessionId,
       messageId: input.messageId,
       agentId: target.agent_id,

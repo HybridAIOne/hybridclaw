@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_LOCAL_STARTER_TOOLS, normalizeLocalStarterTools } from '../container/shared/local-tool-config.js';
 import { ToolCatalog } from '../container/src/tool-catalog.js';
-import { getToolExecutionMode } from '../container/src/tool-parallelism.js';
+import { leadingParallelRun } from '../container/src/tool-parallelism.js';
 import type { ToolCall, ToolDefinition } from '../container/src/types.js';
 
 function tool(name: string, description = name): ToolDefinition {
@@ -45,7 +45,7 @@ describe('local tool catalog boundary', () => {
     expect(resolved.id).toBe(original.id);
     expect(resolved.function).toEqual({ name: 'bash', arguments: '{"command":"pwd"}' });
     expect(original.function.name).toBe('tool_catalog');
-    expect(getToolExecutionMode(resolved.function.name, resolved.function.arguments)).toBe('sequential');
+    expect(leadingParallelRun([resolved, resolved])).toEqual([]);
   });
   test.each([
     { action: 'call', name: 'tool_catalog', arguments: {} },

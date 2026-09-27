@@ -114,6 +114,44 @@ test('session_search upgrades summaries with the auxiliary session_search task m
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test('session_search scans the newest transcripts when there are too many to scan all', async () => {
+  workspaceRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-session-search-recency-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspaceRoot);
+  const transcriptDir = path.join(workspaceRoot, '.session-transcripts');
+  // One more transcript than session_search scans (300).
+  for (let index = 0; index < 301; index += 1) {
+    writeTranscript(workspaceRoot, `session-${index}`, [
+      { role: 'user', content: 'Weekly status update.' },
+    ]);
+  }
+  // Whatever readdir lists last becomes the newest session, the one that
+  // mentions the query.
+  const last = fs.readdirSync(transcriptDir).at(-1) || '';
+  writeTranscript(workspaceRoot, last.replace(/\.jsonl$/, ''), [
+    { role: 'user', content: 'Where did we store the quarterly forecast?' },
+  ]);
+  const past = new Date(1_700_000_000_000);
+  for (const name of fs.readdirSync(transcriptDir)) {
+    if (name !== last) fs.utimesSync(path.join(transcriptDir, name), past, past);
+  }
+
+  const { executeToolWithMetadata } = await import(
+    '../container/src/tools.js'
+  );
+  const result = await executeToolWithMetadata(
+    'session_search',
+    JSON.stringify({ query: 'quarterly forecast', useLlmSummary: false }),
+  );
+
+  expect(result.isError).toBe(false);
+  const parsed = JSON.parse(result.output) as {
+    results: Array<{ session_id?: string; sessionId?: string }>;
+  };
+  expect(parsed.results).toHaveLength(1);
+});
+
 test('web_extract applies auxiliary web processing by default', async () => {
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
