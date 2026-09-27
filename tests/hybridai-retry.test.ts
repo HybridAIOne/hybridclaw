@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
+  isContextWindowExceededError,
   isRetryableModelError,
   shouldDowngradeStreamToNonStreaming,
   shouldFallbackFromStreamError,
@@ -92,6 +93,120 @@ describe('shouldFallbackFromStreamError', () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  test('does not fall back for context-length rejections', () => {
+    expect(
+      shouldFallbackFromStreamError(
+        new ProviderRequestError(
+          400,
+          '{"error":{"message":"Input rejected.","code":"context_length_exceeded"}}',
+        ),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('isContextWindowExceededError', () => {
+  test.each([
+    [
+      'OpenAI-style code',
+      new ProviderRequestError(
+        400,
+        '{"error":{"message":"Input rejected.","type":"invalid_request_error","code":"context_length_exceeded"}}',
+      ),
+    ],
+    [
+      'OpenAI-compatible message',
+      new ProviderRequestError(
+        400,
+        '{"object":"error","message":"This model\'s maximum context length is 4096 tokens. However, you requested 5000 tokens.","code":400}',
+      ),
+    ],
+    [
+      'Anthropic prompt length',
+      new ProviderRequestError(
+        400,
+        '{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 208000 tokens > 200000 maximum"}}',
+      ),
+    ],
+    [
+      'Anthropic input plus max_tokens',
+      new ProviderRequestError(
+        400,
+        '{"type":"error","error":{"type":"invalid_request_error","message":"input length and `max_tokens` exceed context limit: 188000 + 21333 > 200000"}}',
+      ),
+    ],
+    [
+      'Gemini input token count',
+      new ProviderRequestError(
+        400,
+        '[{"error":{"code":400,"message":"The input token count (1200000) exceeds the maximum number of tokens allowed (1048576).","status":"INVALID_ARGUMENT"}}]',
+      ),
+    ],
+    [
+      'xAI prompt length',
+      new ProviderRequestError(
+        400,
+        '{"error":"This model\'s maximum prompt length is 131072 but the request contains 140000 tokens."}',
+      ),
+    ],
+    [
+      'Kimi token limit',
+      new ProviderRequestError(
+        400,
+        '{"error":{"message":"Invalid request: Your request exceeded model token limit: 131072","type":"invalid_request_error"}}',
+      ),
+    ],
+    [
+      'llama.cpp context size',
+      new ProviderRequestError(
+        400,
+        '{"error":{"code":400,"message":"the request exceeds the available context size, try increasing it","type":"exceed_context_size_error"}}',
+      ),
+    ],
+    [
+      'LM Studio loaded context',
+      new ProviderRequestError(
+        400,
+        '{"error":"The model is loaded with context length of only 4096 tokens, which is not enough."}',
+      ),
+    ],
+    [
+      'Codex stream failure',
+      new Error(
+        'Your input exceeds the context window of this model. Please adjust your input and try again.',
+      ),
+    ],
+  ])('recognizes %s', (_name, error) => {
+    expect(isContextWindowExceededError(error)).toBe(true);
+  });
+
+  test.each([
+    [
+      'an output-token cap',
+      new ProviderRequestError(
+        400,
+        '{"error":{"message":"max_tokens is too large: 50000. This model supports at most 16384 completion tokens.","code":"invalid_value"}}',
+      ),
+    ],
+    [
+      'a tokens-per-minute limit',
+      new ProviderRequestError(
+        429,
+        '{"error":{"message":"Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 50000.","code":"rate_limit_exceeded"}}',
+      ),
+    ],
+    [
+      'a request byte limit',
+      new ProviderRequestError(
+        413,
+        '{"type":"error","error":{"type":"request_too_large","message":"Request exceeds the maximum allowed number of bytes."}}',
+      ),
+    ],
+    ['a network failure', new Error('fetch failed')],
+  ])('ignores %s', (_name, error) => {
+    expect(isContextWindowExceededError(error)).toBe(false);
   });
 });
 

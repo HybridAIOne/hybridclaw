@@ -8,6 +8,13 @@ const TRANSIENT_NETWORK_ERROR_RE =
   /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN|terminated/i;
 const TRANSIENT_CODEX_STREAM_ERROR_RE =
   /an error occurred while processing your request|request id [0-9a-f-]{8}-[0-9a-f-]{27}|streaming response ended without payload|stream ended without payload|response\.incomplete|response\.failed/i;
+// How providers say the prompt does not fit the context window: the
+// OpenAI-style code (also forwarded by HybridAI), Anthropic, Gemini, xAI,
+// Kimi, and the local servers (llama.cpp, LM Studio, Ollama, vLLM). Output
+// caps and token quotas are deliberately absent: shrinking history fixes
+// neither.
+const CONTEXT_WINDOW_EXCEEDED_RE =
+  /context_length_exceeded|exceed_context_size|prompt is too long|input is too long|input token count|maximum (?:context|prompt) length|context length of only|model token limit|(?:exceed(?:s|ed)?|greater than) (?:[\w']+ ){0,3}context (?:window|length|limit|size)/i;
 const MAX_ERROR_DETAIL_DEPTH = 3;
 
 interface ErrorLike {
@@ -143,11 +150,24 @@ export function formatModelErrorForLog(
   }
 }
 
+/** True when the provider rejected the request because the prompt is too long. */
+export function isContextWindowExceededError(error: unknown): boolean {
+  const text =
+    error instanceof ProviderRequestError
+      ? error.body
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return CONTEXT_WINDOW_EXCEEDED_RE.test(text);
+}
+
 export function shouldFallbackFromStreamError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
     // Keep 429 on retry/backoff path; fallback does not help throttling.
     if (error.status === 429) return false;
     if (isPremiumModelPermissionError(error)) return false;
+    // The same prompt is just as long without streaming.
+    if (isContextWindowExceededError(error)) return false;
     return error.status >= 400 && error.status <= 599;
   }
   const message = error instanceof Error ? error.message : String(error);
