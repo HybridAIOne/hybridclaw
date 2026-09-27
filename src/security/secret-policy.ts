@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 import YAML from 'yaml';
+import { globToRegExp } from '../../container/shared/policy-glob.js';
 import { matchesNetworkHostPattern } from '../policy/network-policy.js';
 import {
   evaluatePolicyRules,
@@ -160,10 +161,7 @@ export function clearSecretPolicyStateCache(): void {
 function compileGlobPattern(pattern: string): RegExp {
   const cached = globRegexCache.get(pattern);
   if (cached) return cached;
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  const regex = new RegExp(`^${escaped}$`, 'i');
+  const regex = globToRegExp(pattern, 'text');
   if (globRegexCache.size >= MAX_GLOB_REGEX_CACHE_ENTRIES) {
     const oldest = globRegexCache.keys().next().value;
     if (oldest) globRegexCache.delete(oldest);

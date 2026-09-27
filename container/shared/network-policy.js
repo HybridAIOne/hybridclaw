@@ -1,4 +1,5 @@
 import { evaluatePolicyRules } from './policy-engine.js';
+import { globToRegExp, hasGlobWildcard } from './policy-glob.js';
 
 export const DEFAULT_NETWORK_DEFAULT = 'deny';
 
@@ -146,28 +147,12 @@ export function doesNetworkHostPatternExpandToSubdomains(host) {
     .trim()
     .toLowerCase()
     .replace(/\.$/, '');
-  if (!normalized || normalized.includes('*')) return false;
+  if (!normalized || hasGlobWildcard(normalized)) return false;
   if (parseIpv4Cidr(normalized)) return false;
   if (IPV4_HOST_RE.test(normalized) || normalized.includes(':')) return false;
   const labels = normalized.split('.').filter(Boolean);
   if (labels.length < 2) return false;
   return normalized === normalizeNetworkHostScope(normalized);
-}
-
-function globPatternToRegExp(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '::DOUBLE_STAR::')
-    .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function globHostPatternToRegExp(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
 }
 
 export function matchesNetworkHostPattern(pattern, candidateHost) {
@@ -186,8 +171,8 @@ export function matchesNetworkHostPattern(pattern, candidateHost) {
     const candidate = parseIpv4Address(normalizedCandidate);
     return candidate != null && (candidate & cidr.mask) >>> 0 === cidr.base;
   }
-  if (normalizedPattern.includes('*')) {
-    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
+  if (hasGlobWildcard(normalizedPattern)) {
+    return globToRegExp(normalizedPattern, 'host').test(normalizedCandidate);
   }
   if (IPV4_HOST_RE.test(normalizedPattern) || normalizedPattern.includes(':')) {
     return false;
@@ -210,7 +195,7 @@ export function matchesNetworkMethodPattern(allowedMethods, candidateMethod) {
 export function matchesNetworkPathPatterns(allowedPaths, candidatePath) {
   const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
   return allowedPaths.some((pattern) =>
-    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
+    globToRegExp(normalizeNetworkPathPattern(pattern), 'path').test(
       normalizedCandidate,
     ),
   );

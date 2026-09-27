@@ -85,6 +85,7 @@ import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
+import { SessionOutputs } from './session-outputs';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
@@ -1396,6 +1397,7 @@ export function ChatPage() {
               token={auth.token}
               enabled={chatApiReady}
             />
+            <SessionOutputs messages={messages} token={auth.token} />
             <button
               type="button"
               className={css.mobileQrButton}

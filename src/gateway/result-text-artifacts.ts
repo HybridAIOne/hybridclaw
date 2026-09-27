@@ -14,6 +14,7 @@
  */
 
 import path from 'node:path';
+import { escapeRegExp } from '../../container/shared/regex.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import { WORKSPACE_BOOTSTRAP_FILES } from '../workspace.js';
 import {
@@ -143,7 +144,7 @@ function resolveWrittenDeliverable(
 }
 
 function textNamesFile(textVariants: string[], filename: string): boolean {
-  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(filename);
   // `list.md` must not match inside `checklist.md`, `list.mdx`, or
   // `list.md.bak`; a trailing sentence period still counts.
   const pattern = new RegExp(

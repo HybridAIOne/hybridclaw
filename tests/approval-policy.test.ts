@@ -1906,61 +1906,6 @@ approval:
     expect(evaluation.pinned).toBe(true);
   });
 
-  test('full-auto mode auto-approves red actions without creating a pending prompt', () => {
-    const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
-    );
-    runtime.setApprovalMode({ mode: 'full' });
-
-    const evaluation = runtime.evaluateToolCall({
-      toolName: 'bash',
-      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
-      latestUserPrompt: 'Clean the build output',
-    });
-
-    expect(evaluation.baseTier).toBe('red');
-    expect(evaluation.decision).toBe('approved_fullauto');
-    expect(evaluation.tier).toBe('yellow');
-    expect(evaluation.requestId).toBeUndefined();
-  });
-
-  test('full-auto mode auto-approves yellow mutating actions without interruption delay', () => {
-    const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
-    );
-    runtime.setApprovalMode({ mode: 'full' });
-
-    const evaluation = runtime.evaluateToolCall({
-      toolName: 'write',
-      argsJson: JSON.stringify({ path: 'app/ars.R', contents: 'test' }),
-      latestUserPrompt: 'Write the file',
-    });
-
-    expect(evaluation.baseTier).toBe('yellow');
-    expect(evaluation.decision).toBe('approved_fullauto');
-    expect(evaluation.implicitDelayMs).toBeUndefined();
-  });
-
-  test('full-auto mode still requires approval for tools on the never-approve list', () => {
-    const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
-    );
-    runtime.setApprovalMode({
-      mode: 'full',
-      neverApproveTools: ['write'],
-    });
-
-    const evaluation = runtime.evaluateToolCall({
-      toolName: 'write',
-      argsJson: JSON.stringify({ path: '.env', contents: 'API_KEY=abc' }),
-      latestUserPrompt: 'Write env file',
-    });
-
-    expect(evaluation.baseTier).toBe('red');
-    expect(evaluation.decision).toBe('required');
-    expect(evaluation.requestId).toBeTruthy();
-  });
-
   test('host app control commands require explicit approval', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

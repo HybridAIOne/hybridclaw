@@ -74,7 +74,10 @@ npm run eval -- --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
   whether artifacts were produced, and counted tool-call totals per fixture
 - eval-profiled loopback requests auto-approve tools and return
   execution-session plus artifact-count headers so detached and profiled eval
-  runs can finish unattended while still being easy to correlate later
+  runs can finish unattended while still being easy to correlate later;
+  pinned-sensitive actions, shell writes outside the workspace, and fetched
+  code still stop for approval (see
+  [Full-Auto](./approvals.md#full-auto))
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics

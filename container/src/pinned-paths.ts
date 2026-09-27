@@ -8,6 +8,7 @@
  * rules, which stays in approval-policy.ts.
  */
 import path from 'node:path';
+import { globToRegExp } from '../shared/policy-glob.js';
 import { expandUserPath } from './runtime-paths.js';
 
 // Safety net that a policy file replacing `approval.pinned_red` cannot drop.
@@ -19,17 +20,14 @@ export const HARD_PINNED_PATH_PATTERNS: readonly string[] = [
   '~/.ssh/**',
 ];
 
-function globPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\/\*\*$/, '::DIR_DOUBLE_STAR::')
-    .replace(/\*\*/g, '::DOUBLE_STAR::')
-    .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*')
-    // Like picomatch, `dir/**` also matches `dir` itself: searching that
-    // directory reaches everything below it.
-    .replace('::DIR_DOUBLE_STAR::', '(?:/.*)?');
-  return new RegExp(`^${escaped}$`, 'i');
+// Like picomatch, `dir/**` also matches `dir` itself: searching that
+// directory reaches everything below it.
+function pathGlobMatcher(pattern: string): (value: string) => boolean {
+  const patterns = pattern.endsWith('/**')
+    ? [pattern, pattern.slice(0, -'/**'.length)]
+    : [pattern];
+  const regexps = patterns.map((entry) => globToRegExp(entry, 'path'));
+  return (value) => regexps.some((regexp) => regexp.test(value));
 }
 
 export function normalizePathValue(rawPath: string): string {
@@ -60,18 +58,18 @@ export function matchesPathPattern(
     !normalizedPattern.startsWith('~/')
   ) {
     const relativePattern = normalizedPattern.replace(/^\.\//, '');
-    const relRe = globPatternToRegExp(relativePattern);
-    if (relRe.test(normalizedCandidate)) return true;
+    const matchesRelative = pathGlobMatcher(relativePattern);
+    if (matchesRelative(normalizedCandidate)) return true;
     // Only slash-free patterns match a file name at any depth; `secrets/**`
     // must not match an unrelated file named `docs/secrets`.
     if (relativePattern.includes('/')) return false;
-    return relRe.test(path.posix.basename(normalizedCandidate));
+    return matchesRelative(path.posix.basename(normalizedCandidate));
   }
 
-  const absoluteRe = globPatternToRegExp(
+  const matchesAbsolute = pathGlobMatcher(
     normalizeAbsolutePathValue(normalizedPattern),
   );
-  return absoluteRe.test(normalizeAbsolutePathValue(candidatePath));
+  return matchesAbsolute(normalizeAbsolutePathValue(candidatePath));
 }
 
 export function matchesHardPinnedPath(candidatePath: string): boolean {
