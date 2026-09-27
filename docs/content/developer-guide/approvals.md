@@ -136,14 +136,14 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
-| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
+| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved from the shell's working directory and through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
@@ -155,7 +155,7 @@ output reports how many files were skipped. Paths added under
 
 `bash` commands get the pinned check for every operand, not only absolute
 paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
-paths, `../` escapes resolved from the workspace root, redirects
+paths, `../` escapes resolved from the shell's working directory, redirects
 (`cat < .env`), option values (`--env-file=.env`), git revisions
 (`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs that bash
 expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
@@ -163,12 +163,22 @@ expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
 A recursive read that can reach
 pinned files without naming them is pinned red on every run
 (`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
-walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is
-always pinned: excluding file names cannot keep it out of `/etc` or `~/.ssh`.
-Like the `grep` tool, walks consider only the built-in pinned paths. The check
-is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
-an earlier bash call are not resolved; it stops accidental shell reads of
-pinned files rather than replacing a sandbox.
+walk rooted at `/`, `~`, or `..`, or run after a `cd` there, is always pinned:
+excluding file names cannot keep it out of `/etc` or `~/.ssh`. Like the `grep`
+tool, walks consider only the built-in pinned paths. The check is static, so
+variables, interpreter scripts, and heredoc bodies are not resolved; it stops
+accidental shell reads of pinned files rather than replacing a sandbox.
+
+The shell keeps its working directory between bash calls and across worker
+restarts, so each command is checked from where the session's shell stopped.
+The classifier reads the directory the shell saved in the session state dir
+and, like the shell, starts from the workspace root when nothing is saved or
+the saved directory is gone. After `cd /etc`, a later `echo x >> hosts` is a
+write to `/etc/hosts` and `rm -rf node_modules` is no cache cleanup. A
+docker-exec task sandbox, as the eval harness uses, keeps its working
+directory inside the sandbox, out of the classifier's sight, so its commands
+are checked from the workspace root. With `container.persistBashState` off,
+every call starts in the workspace root.
 
 The approval policy, the trust grants, the pending approvals, and the
 per-session guard state live in the agent's own workspace, so an agent that
