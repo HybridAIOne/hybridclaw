@@ -1,3 +1,10 @@
+/**
+ * Skill policy: the `skill.rules` section of `policy.yaml`, deciding whether
+ * an agent may load a skill. The default is allow, so a rule whose action type
+ * is unknown or missing is enforced as deny, never dropped, and never throws:
+ * the skill loader treats a throw as "no rules". NOT the static
+ * `skills.disabled` config, which is applied before these rules.
+ */
 import { evaluatePolicyRules } from './policy-engine.js';
 
 const SKILL_POLICY_ACTION_TYPES = new Set([
@@ -52,17 +59,19 @@ function normalizeSkillPolicyAction(raw) {
   };
 }
 
-function normalizeSkillPolicyRule(raw) {
+function normalizeSkillPolicyRule(raw, index) {
   const record = asRecord(raw);
-  const action = normalizeSkillPolicyAction(record.action);
-  if (!action) return null;
   const id = normalizeString(record.id);
   const description = normalizeString(record.description);
   return {
     ...(id ? { id } : {}),
     ...(description ? { description } : {}),
     when: record.when,
-    action,
+    // An unknown or missing action type keeps the rule's `when` scope as deny.
+    action: normalizeSkillPolicyAction(record.action) ?? {
+      type: 'deny',
+      reason: `Unreadable skill rule #${index + 1}, enforced as deny`,
+    },
     metadata: { skillRule: raw },
   };
 }
@@ -71,9 +80,7 @@ export function readSkillPolicyState(document) {
   const skill = asRecord(document?.skill);
   const rawRules = Array.isArray(skill.rules) ? skill.rules : [];
   return {
-    rules: rawRules
-      .map((rule) => normalizeSkillPolicyRule(rule))
-      .filter(Boolean),
+    rules: rawRules.map(normalizeSkillPolicyRule),
   };
 }
 
