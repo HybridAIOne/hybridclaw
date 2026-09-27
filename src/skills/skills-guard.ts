@@ -4,11 +4,11 @@
  *
  * Critical rules block at every non-builtin trust level, so each must match
  * the threat, not a mention or lookalike syntax; a test holds the bundled
- * skills to zero critical findings. The exfiltration and credential rules live
- * in `skills-guard-exfil-rules.ts` and `skills-guard-credential-rules.ts`;
- * skill content is decided by the walk in `skills-guard-structure.ts`. NOT a
- * sandbox: rules are line-level regex heuristics, and a loaded skill's actions
- * still go through runtime approvals.
+ * skills to zero critical findings beyond the real ones it lists. The
+ * exfiltration and credential rules live in `skills-guard-exfil-rules.ts` and
+ * `skills-guard-credential-rules.ts`; skill content is decided by the walk in
+ * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
+ * heuristics, and a loaded skill's actions still go through runtime approvals.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -359,7 +359,8 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r('\\`[^\\`]*\\$\\([^)]+\\)[^\\`]*\\`'),
-    skipFiles: /\.md$/i, // backticks delimit code spans in Markdown
+    // Backticks delimit code spans in Markdown and template literals in JS/TS.
+    skipFiles: /\.(?:md|[cm]?[jt]sx?)$/i,
     patternId: 'backtick_subshell',
     severity: 'medium',
     category: 'destructive-ops',

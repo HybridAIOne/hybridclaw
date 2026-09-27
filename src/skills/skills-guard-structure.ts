@@ -19,6 +19,8 @@ export interface SkillFileEntry {
   mtimeMs: number;
   mode: number;
   isBinary: boolean;
+  /** Starts with `#!`: a script whatever its name, so the text scan reads it. */
+  hasShebang: boolean;
 }
 
 export interface StructureScanState {
@@ -239,6 +241,7 @@ export function collectStructure(skillPath: string): StructureScanState {
         mtimeMs: stat.mtimeMs,
         mode: stat.mode,
         isBinary,
+        hasShebang: head[0] === 0x23 && head[1] === 0x21,
       });
 
       if (stat.size > MAX_SINGLE_FILE_BYTES) {

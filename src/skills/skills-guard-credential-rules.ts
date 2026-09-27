@@ -1,10 +1,20 @@
 /**
  * Skill guard credential rules — secrets written into a skill (API keys,
  * tokens, private keys) and credentials coerced into strings in skill code.
- * These rules are the last slice of the table in `skills-guard.ts`, which owns
- * the verdict.
+ *
+ * A credential used as intended is not exposure: a `<secret:NAME>` placeholder
+ * the gateway resolves, or an auth header value. These rules are the last
+ * slice of the table in `skills-guard.ts`, which owns the verdict.
  */
 import { r, type ThreatRule } from './skills-guard-text.js';
+
+// A credential interpolated as intended: a `<secret:${NAME}>` placeholder (the
+// documented helper pattern), an auth-scheme header value (`Bearer ${token}`),
+// or a SHOUTY_SNAKE name such as `${ACCESS_TOKEN_SECRET}` in usage text, which
+// names a secret or, in a shell script without an extension, expands an env
+// var. Case-sensitive for the SHOUTY_SNAKE test.
+const SECRET_REF_INTENDED_USE =
+  /<secret:\$\{[^{}\n]*\}>|\b(?:[Bb]earer|[Bb]asic|[Bb]ot|[Tt]oken|OAuth)\s+\$\{[^{}\n]*\}|\$\{[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\}/g;
 
 export const CREDENTIAL_RULES: ThreatRule[] = [
   {
@@ -72,12 +82,16 @@ export const CREDENTIAL_RULES: ThreatRule[] = [
     description: 'JSON.stringify() of a SecretRef or credential ref',
   },
   {
+    // The name must END in the secret word: `${secretName}`, `${tokensFile}`,
+    // and `${credentialScope}` hold no credential, and `${totalTokens}` counts
+    // LLM tokens.
     regex: r(
-      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token(?!s\b))[\w$]*\s*\}`,
+      String.raw`\$\{\s*(?:[\w$]+\??\.)*[\w$]*?(?:secretRef|credentialRef|secrets?|credentials?|creds?|passwords?|token)\s*\}`,
     ),
+    ignore: SECRET_REF_INTENDED_USE,
     // SecretRefs are JS objects: `${...}` in shell and Markdown examples is
-    // parameter expansion, and `${totalTokens}` counts LLM tokens.
-    skipFiles: /\.(?:md|sh|bash)$/i,
+    // parameter expansion.
+    skipFiles: /\.(?:md|sh|bash|zsh)$/i,
     patternId: 'secret_ref_template_interpolation',
     severity: 'critical',
     category: 'credential-exposure',
