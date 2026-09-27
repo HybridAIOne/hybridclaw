@@ -58,7 +58,16 @@ For self-chat only:
 hybridclaw channels whatsapp setup
 ```
 
-For allowlisted DMs:
+Self-chat is useful for testing, but WhatsApp does not send push notifications
+for messages in your own "You" chat. Heartbeats, scheduled briefings, and
+delegation results delivered there can go unnoticed.
+
+For proactive notifications, pair a **dedicated second WhatsApp number** and
+allowlist your personal number. Scan the QR code using the second account,
+then chat with it from your personal account. Adding your own number to the
+allowlist while pairing that same account still leaves you in self-chat.
+
+For allowlisted DMs (replace the example with your personal number):
 
 ```bash
 hybridclaw channels whatsapp setup --allow-from +14155551212
@@ -120,5 +129,9 @@ go to `/admin/gateway` and click `Reload Gateway`.
 ## Step 6: Verify The Setup
 
 1. Send yourself a WhatsApp message if you used self-chat mode.
+   Check the "You" chat directly; a reply there will not push-notify you.
 2. If you used `--allow-from`, send a message from one of the allowlisted
    phone numbers.
+
+`hybridclaw doctor channels` warns when DMs are disabled and the
+configured heartbeat target or automatic proactive delivery target is WhatsApp.

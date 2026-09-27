@@ -1,6 +1,8 @@
 import { isLineTransportInstalled } from '../../channels/line/runtime.js';
 import { getWhatsAppAuthStatus } from '../../channels/whatsapp/auth.js';
+import { isWhatsAppJid } from '../../channels/whatsapp/phone.js';
 import { isWhatsAppTransportInstalled } from '../../channels/whatsapp/runtime.js';
+import { WHATSAPP_SELF_CHAT_ADVISORY } from '../../channels/whatsapp/self-chat.js';
 import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
@@ -10,6 +12,7 @@ import {
   TELEGRAM_BOT_TOKEN,
   THREEMA_GATEWAY_SECRET,
 } from '../../config/config.js';
+import { getMostRecentSessionChannelId } from '../../memory/db.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom } from '../utils.js';
 
@@ -156,6 +159,15 @@ export async function checkChannels(): Promise<DiagResult[]> {
     severities.push('error');
   } else if (whatsapp.linked) {
     segments.push('WhatsApp linked');
+    if (config.whatsapp.dmPolicy === 'disabled') {
+      const channelId =
+        (config.heartbeat?.enabled && config.heartbeat.channel.trim()) ||
+        getMostRecentSessionChannelId();
+      if (channelId && isWhatsAppJid(channelId)) {
+        segments.push(WHATSAPP_SELF_CHAT_ADVISORY);
+        severities.push('warn');
+      }
+    }
   } else if (whatsappExpected) {
     segments.push('WhatsApp not linked');
     severities.push(config.whatsapp.dmPolicy === 'pairing' ? 'warn' : 'error');
