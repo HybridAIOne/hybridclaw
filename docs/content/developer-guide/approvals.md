@@ -240,6 +240,12 @@ Key behaviors:
   exact-root-only host syntax in `policy.yaml`.
 - Omitting `port` means any port. Use `port: 443` only when you want an exact
   port match.
+- Every rule needs `action: allow` or `action: deny`, and a `host`. A rule with
+  any other action, including `block`, or with no action, no host, or an
+  invalid port, is enforced as `deny` for everything it names. A missing host
+  covers every host, and an invalid port covers every port. `policy list`
+  shows the rule as `Unreadable rule #N, enforced as deny`, and
+  `hybridclaw policy` refuses to edit the file until the rule is fixed.
 - `network.default` applies only to HTTP/network actions. It does not
   auto-approve general `bash`, file writes, deletion, or other non-network
   tools.
@@ -371,6 +377,11 @@ skill:
         reason: SAP is finance-only.
 ```
 
+A skill rule's action type is `allow`, `deny`, `block`, `warn`, `log`, or
+`confirm-each`. A rule with any other type, or with no action, is enforced as
+`deny` for the skills its `when` matches. The skill loader logs it with the
+reason `Unreadable skill rule #N, enforced as deny`.
+
 Secret resolution is another policy-engine consumer. The gateway evaluates it
 each time it injects a stored secret into an `http_request` call or a browser
 field. The default is allow: a stored secret resolves unless a deny rule
@@ -402,18 +413,31 @@ secret:
 ```
 
 The secret policy consumer also exposes fine-grained predicates for composed
-rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
-`secret.selector`, `skill.name`, and `agent.id`. Use these when the rule needs
-`all`, `any`, or `not` composition that is clearer than one composite
-predicate.
+rules. Use these when the rule needs `all`, `any`, or `not` composition that is
+clearer than one composite predicate. Each predicate takes only the parameters
+below; where a parameter has several names, set one of them:
+
+| Predicate | Parameters |
+| --- | --- |
+| `secret_resolve_allowed` | `id` (or `secret`, `secretId`), `source`, `sink` (or `sinkKind`, `sinks`), `host`, `selector` (or `selectors`), `skill` (or `skillName`), `agent` (or `agentId`) |
+| `secret.id`, `secret.selector` | `equals`, `matches`, or `in` |
+| `secret.source`, `secret.sink`, `skill.name`, `agent.id` | `equals` or `in` |
+| `secret.host` | `host`, `equals`, or `matches` |
+
+A parameter value is a string or a list of strings, except that a host is one
+pattern. `source` is `store`, `sink` is `dom` for browser fields or `http` for
+HTTP requests, and `*` matches any value.
 
 `secret.default` and each secret rule's `action` accept `allow`, `deny`, or
-`block`, which means the same as `deny`. Leaving `secret`, `secret.default`,
-or `secret.rules` out, or empty, is the same as not setting it. Any other
-value makes every stored-secret resolve for that workspace fail with
-`Invalid secret policy in <path>` until the file is fixed. That includes a
-typo such as `denied`, a rule without an action, and a `secret` section that
-is not a mapping.
+`block`, which means the same as `deny`. A rule takes the keys `id`,
+`description`, `comment`, `when`, `action`, and `managed_by_*`, and a rule
+without `when` matches every resolve. Leaving `secret`, `secret.default`, or
+`secret.rules` out, or empty, is the same as not setting it. Anything else the
+parser does not know makes every stored-secret resolve for that workspace fail
+with `Invalid secret policy in <path>` until the file is fixed. That includes
+a typo such as `denied`, a rule without an action, a `secret` section that is
+not a mapping, an unknown rule key, predicate, parameter, or `sink` value, and
+an empty `when`, `all`, `any`, or parameter.
 
 ## Policy Patterns
 

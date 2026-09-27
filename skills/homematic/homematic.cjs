@@ -747,6 +747,8 @@ function policyRules(args, opts) {
         },
       ],
     },
+    // Only the http-request auth payloads resolve these via the gateway, as
+    // JSON-body placeholders (selector `json`); run-websocket reads its env.
     secret: {
       rules: [
         {
@@ -756,9 +758,9 @@ function policyRules(args, opts) {
             predicate: 'secret_resolve_allowed',
             id: AUTH_TOKEN_SECRET,
             source: 'store',
-            sink: 'websocket',
-            host: wsUrl.hostname,
-            selector: 'authtoken',
+            sink: 'http',
+            host: httpBase.hostname,
+            selector: 'json',
             agent,
           },
           action: 'allow',
@@ -772,7 +774,7 @@ function policyRules(args, opts) {
             source: 'store',
             sink: 'http',
             host: httpBase.hostname,
-            selector: 'json.activationKey',
+            selector: 'json',
             agent,
           },
           action: 'allow',

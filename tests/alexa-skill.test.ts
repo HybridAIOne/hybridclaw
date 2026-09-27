@@ -40,6 +40,15 @@ const communityCookieSecretHeaders = [
     prefix: 'none',
   },
 ];
+const communityWriteSecretHeaders = [
+  ...communityCookieSecretHeaders,
+  {
+    name: 'csrf',
+    secretName: 'ALEXA_REFRESH_COOKIE',
+    cookie: 'csrf',
+    prefix: 'none',
+  },
+];
 
 afterAll(() => {
   for (const dir of tempDirs) {
@@ -951,8 +960,9 @@ test('Alexa write http-request commands require exact operator grants', () => {
   expect(payload.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.com/api/behaviors/preview',
-    secretHeaders: communityCookieSecretHeaders,
+    secretHeaders: communityWriteSecretHeaders,
   });
+  expect(payload.httpRequest.headers).not.toHaveProperty('csrf');
   expect(payload.requiredApproval).toBeUndefined();
 
   expect(complete.status).toBe(0);
@@ -960,7 +970,7 @@ test('Alexa write http-request commands require exact operator grants', () => {
   expect(completePayload.httpRequest).toMatchObject({
     method: 'PUT',
     url: 'https://alexa.amazon.com/api/namedLists/shopping/items/item-1',
-    secretHeaders: communityCookieSecretHeaders,
+    secretHeaders: communityWriteSecretHeaders,
     bodyJson: { completed: true },
   });
 
@@ -1020,7 +1030,7 @@ test('Alexa helper emits bounded community requests and relink events without se
       Origin: 'https://alexa.amazon.de',
       Referer: 'https://alexa.amazon.de/',
     }),
-    secretHeaders: communityCookieSecretHeaders,
+    secretHeaders: communityWriteSecretHeaders,
   });
   expect(announcePayload.httpRequest).toBeUndefined();
   expect(announcePayload.requiredApproval.approvalText).toContain(
@@ -1032,11 +1042,7 @@ test('Alexa helper emits bounded community requests and relink events without se
   expect(announcePayload.stopOnStatuses).toEqual([401, 403]);
 });
 
-test('Alexa helper prepares live execution without exposing derived cookie secrets', () => {
-  expect(
-    alexa.csrfFromCookieHeader('session-id=abc123; csrf=csrf-token; ubid=xyz'),
-  ).toBe('csrf-token');
-
+test('Alexa helper prepares gateway requests with skill attribution', () => {
   const gatewayRequest = alexa.gatewayHttpRequest({
     method: 'POST',
     url: 'https://api.amazonalexa.com/v3/events',
@@ -1050,6 +1056,7 @@ test('Alexa helper prepares live execution without exposing derived cookie secre
     url: 'https://api.amazonalexa.com/v3/events',
     bearerSecretName: 'ALEXA_SMARTHOME_ACCESS_TOKEN',
     json: { event: { header: { name: 'Discover' } } },
+    skillName: 'alexa',
   });
   expect(gatewayRequest).not.toHaveProperty('bodyJson');
 });
@@ -1069,7 +1076,7 @@ test('Alexa run result treats accepted responses as accepted without auth hint',
 
   const accepted = alexa.runResultPayload({
     requestPayload,
-    transport: 'direct-community-cookie',
+    transport: 'gateway-http-request',
     status: 200,
     ok: true,
     response: {},
@@ -1077,7 +1084,7 @@ test('Alexa run result treats accepted responses as accepted without auth hint',
 
   expect(accepted).toMatchObject({
     command: 'run',
-    transport: 'direct-community-cookie',
+    transport: 'gateway-http-request',
     status: 200,
     ok: true,
     outcome: 'accepted',
@@ -1092,7 +1099,7 @@ test('Alexa run result treats accepted responses as accepted without auth hint',
 
   const rejected = alexa.runResultPayload({
     requestPayload,
-    transport: 'direct-community-cookie',
+    transport: 'gateway-http-request',
     status: 401,
     ok: false,
     response: { error: 'Unauthorized' },
@@ -1315,7 +1322,7 @@ test('Alexa helper plans guarded Echo music playback from resolved device ids', 
       Referer: 'https://alexa.amazon.de/',
       'Accept-Language': 'de-DE',
     }),
-    secretHeaders: communityCookieSecretHeaders,
+    secretHeaders: communityWriteSecretHeaders,
   });
   const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
   expect(sequence.startNode).toMatchObject({
@@ -1388,7 +1395,7 @@ test('Alexa helper plans red-gated Echo voice commands as a guarded fallback', (
   expect(payload.httpRequestTemplate).toMatchObject({
     method: 'POST',
     url: 'https://alexa.amazon.de/api/behaviors/preview',
-    secretHeaders: communityCookieSecretHeaders,
+    secretHeaders: communityWriteSecretHeaders,
   });
   const sequence = JSON.parse(payload.httpRequestTemplate.bodyJson.sequenceJson);
   expect(sequence.startNode).toMatchObject({

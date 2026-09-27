@@ -241,7 +241,10 @@ Never ask the model to paste raw credentials into prose or helper arguments.
 Use runtime secret references:
 
 - `bearerSecretName` for bearer tokens
-- `secretHeaders` for named headers
+- `secretHeaders` for named headers; an entry with `cookie: NAME` sends only
+  that cookie's value from a secret that stores a Cookie header, for APIs that
+  expect a cookie repeated in a header (double-submit CSRF), and fails if the
+  cookie is missing
 - `<secret:NAME>` placeholders for URLs or bodies when the gateway must
   replace values
 - `captureResponseFields` when an OAuth/token exchange should save a returned

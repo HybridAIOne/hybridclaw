@@ -268,24 +268,17 @@ function toPolicyState(
 ): PolicyNetworkState {
   const config = readNetworkPolicyState(document);
   const rawNetwork = asRecord(document.network);
-  const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : null;
-  const rules =
-    rawRules !== null
-      ? rawRules
-          .map((entry) => {
-            const rawRule = asRecord(entry);
-            const normalized = normalizeNetworkRule(rawRule);
-            const managedByPreset = normalizeManagedByPreset(
-              rawRule[MANAGED_BY_PRESET_FIELD],
-            );
-            if (!normalized) return null;
-            return {
-              ...normalized,
-              ...(managedByPreset ? { managedByPreset } : {}),
-            } satisfies ManagedNetworkRule;
-          })
-          .filter((rule): rule is ManagedNetworkRule => Boolean(rule))
-      : config.rules.map((rule) => ({ ...rule }));
+  const rawRules = Array.isArray(rawNetwork.rules) ? rawNetwork.rules : [];
+  // Declared rules map 1:1 to config.rules, which keeps unreadable ones as deny.
+  const rules = config.rules.map((rule, index) => {
+    const managedByPreset = normalizeManagedByPreset(
+      asRecord(rawRules[index])[MANAGED_BY_PRESET_FIELD],
+    );
+    return {
+      ...rule,
+      ...(managedByPreset ? { managedByPreset } : {}),
+    } satisfies ManagedNetworkRule;
+  });
   const workspacePath = path.dirname(path.dirname(policyPath));
   const indexedRules = rules.map((rule, index) => ({
     ...rule,
