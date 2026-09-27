@@ -6,6 +6,7 @@
  * calls grant permissions or approvals, and replay never repeats side effects.
  */
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
@@ -406,8 +407,11 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
 function readStdinLine(): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = '';
+    // Pipe chunks can split a multi-byte character; decoding each chunk alone
+    // would turn both halves into U+FFFD.
+    const decoder = new StringDecoder('utf8');
     const onData = (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8');
+      buffer += decoder.write(chunk);
       const nl = buffer.indexOf('\n');
       if (nl !== -1) {
         process.stdin.removeListener('data', onData);

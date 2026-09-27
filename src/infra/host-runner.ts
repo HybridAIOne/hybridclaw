@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
 import type {
   ExecutorRequest,
@@ -754,8 +755,10 @@ function getOrSpawnHostProcess(
     throw new Error('stdio pipes not created (out of file descriptors)');
   }
 
+  // One decoder per pipe: a chunk can end inside a multi-byte character.
+  const stderrDecoder = new StringDecoder('utf8');
   proc.stderr.on('data', (data) => {
-    entry.stderrBuffer += data.toString('utf-8');
+    entry.stderrBuffer += stderrDecoder.write(data);
     const lines = entry.stderrBuffer.split('\n');
     entry.stderrBuffer = lines.pop() || '';
     for (const rawLine of lines) {
