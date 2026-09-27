@@ -1,44 +1,19 @@
+// Lone surrogates become U+FFFD; valid pairs are kept. The built-ins avoid the
+// per-character string building that cost ~300 ms per 2 MB image data URL on
+// every model call.
 export function replaceUnpairedSurrogates(value) {
-  let output = '';
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        output += value[index] + value[index + 1];
-        index += 1;
-      } else {
-        output += '\ufffd';
-      }
-      continue;
-    }
-    if (code >= 0xdc00 && code <= 0xdfff) {
-      output += '\ufffd';
-      continue;
-    }
-    output += value[index];
-  }
-  return output;
+  return value.isWellFormed() ? value : value.toWellFormed();
 }
 
+const UNSAFE_JSON_STORAGE_CHARS =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — C0 controls (except tab, newline, carriage return) and DEL are unsafe in stored JSON text
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
 export function replaceUnsafeJsonStorageChars(value) {
-  const repaired = replaceUnpairedSurrogates(value);
-  let output = '';
-  for (let index = 0; index < repaired.length; index += 1) {
-    const code = repaired.charCodeAt(index);
-    if (
-      (code >= 0x00 && code <= 0x08) ||
-      code === 0x0b ||
-      code === 0x0c ||
-      (code >= 0x0e && code <= 0x1f) ||
-      code === 0x7f
-    ) {
-      output += '\ufffd';
-      continue;
-    }
-    output += repaired[index];
-  }
-  return output;
+  return replaceUnpairedSurrogates(value).replace(
+    UNSAFE_JSON_STORAGE_CHARS,
+    '\ufffd',
+  );
 }
 
 export function repairUnicodeForJson(value) {

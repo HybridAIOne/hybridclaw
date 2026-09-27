@@ -272,6 +272,37 @@ describe('Anthropic container provider', () => {
     expect(result.choices[0]?.message.content).toBe('streamed');
   });
 
+  test('keeps the message_start input and cache counts after message_delta', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'event: message_start\n',
+          'data: {"type":"message_start","message":{"id":"msg_usage","model":"claude-sonnet-4-6","usage":{"input_tokens":120,"cache_read_input_tokens":1000,"cache_creation_input_tokens":150,"output_tokens":1}}}\n\n',
+          'event: content_block_start\n',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+          'event: content_block_delta\n',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+          'event: message_delta\n',
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callAnthropicProviderStream({
+      ...baseArgs,
+      onTextDelta: () => undefined,
+    });
+
+    expect(result.usage).toMatchObject({
+      prompt_tokens: 120,
+      completion_tokens: 42,
+      cache_read_input_tokens: 1000,
+      cache_creation_input_tokens: 150,
+      total_tokens: 1312,
+    });
+  });
+
   test('streams thinking and replays signed thinking blocks across tool turns', async () => {
     const requestBodies: Record<string, unknown>[] = [];
     const fetchMock = vi.fn(
