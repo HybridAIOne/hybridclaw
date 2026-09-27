@@ -1,5 +1,4 @@
 import {
-  LOCAL_DEFAULT_CONTEXT_WINDOW,
   LOCAL_OLLAMA_BASE_URL,
   LOCAL_OLLAMA_MODEL_BEHAVIOR,
 } from '../config/config.js';
@@ -8,6 +7,7 @@ import {
   resolveModelBehavior,
 } from '../types/model-behavior.js';
 import {
+  defaultOllamaContextWindow,
   getLocalModelInfo,
   resolveLocalModelBehavior,
   resolveLocalModelThinkingFormat,
@@ -63,7 +63,7 @@ async function resolveOllamaRuntimeCredentials(
     requestHeaders: {},
     agentId,
     isLocal: true,
-    contextWindow: modelInfo?.contextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
+    contextWindow: modelInfo?.contextWindow ?? defaultOllamaContextWindow(),
     thinkingFormat: modelBehavior?.thinkingFormat,
     modelBehavior,
   };

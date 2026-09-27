@@ -23,7 +23,11 @@ import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
 } from './factory.js';
-import { discoverAllLocalModels } from './local-discovery.js';
+import {
+  defaultOllamaContextWindow,
+  discoverAllLocalModels,
+  getLocalModelInfo,
+} from './local-discovery.js';
 import { localBackendsProbe } from './local-health.js';
 import {
   stripHybridAIModelPrefix,
@@ -1495,6 +1499,11 @@ async function callOllamaTextModel(
     body.tools = options.tools;
   }
   const ollamaOptions: Record<string, unknown> = {
+    // The window the agent loop sends; another num_ctx makes Ollama reload the
+    // model.
+    num_ctx:
+      getLocalModelInfo(context.model)?.contextWindow ??
+      defaultOllamaContextWindow(),
     ...(rawOptions || {}),
   };
   if (context.maxTokens) {

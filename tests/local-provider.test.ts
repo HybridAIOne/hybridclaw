@@ -189,6 +189,23 @@ describe('local providers', () => {
     expect(credentials.apiKey).toBe('');
   });
 
+  test('an undiscovered Ollama model runs with the default Ollama window', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir);
+    const { discovery, factory } = await importFreshModules(homeDir);
+
+    const credentials = await factory.resolveModelRuntimeCredentials({
+      model: 'ollama/some-model',
+    });
+
+    expect(credentials.contextWindow).toBe(
+      discovery.defaultOllamaContextWindow(),
+    );
+    expect(credentials.contextWindow).toBeLessThanOrEqual(
+      discovery.OLLAMA_DEFAULT_CONTEXT_WINDOW,
+    );
+  });
+
   test('all enabled local provider prefixes remain routable', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {
