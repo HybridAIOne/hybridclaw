@@ -536,6 +536,7 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
   expect(onResult).toHaveBeenCalledWith({
     text: 'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
     artifacts: [],
+    storedMessage: { sessionId: session.id, id: expect.any(Number) },
   });
   expect(
     memoryService.getRecentMessages(session.id).map((message) => ({

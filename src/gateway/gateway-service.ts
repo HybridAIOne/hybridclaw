@@ -1,3 +1,4 @@
+import { notifyWebSession } from './web-notifications.js';
 /**
  * Gateway application service — authoritative host operations shared by transports.
  *
@@ -11228,6 +11229,11 @@ async function publishDelegationCompletion(params: {
     });
   }
 
+  if (channelId === 'web') {
+    if (publishForUser && trimmedForUser)
+      notifyWebSession(parentSessionId, 'turn');
+    return;
+  }
   if (publishForUser) {
     await publishDelegationLifecycleMessage({
       parentSessionId,

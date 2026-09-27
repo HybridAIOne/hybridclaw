@@ -81,7 +81,9 @@ import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
+import { NotificationSettings } from './notification-settings';
 import { SessionOutputs } from './session-outputs';
+import { useChatNotifications } from './use-chat-notifications';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
@@ -518,6 +520,20 @@ export function ChatPage() {
     onAppsCaptured: (apps) => setPreviewApp(apps[apps.length - 1] ?? null),
     resolveAddressedAgentPresentation,
     reasoningEffort: effectiveReasoningEffort,
+  });
+
+  const notifications = useChatNotifications({
+    token: auth.token,
+    enabled: chatApiReady,
+    sessionId,
+    streamingSessionId: stream.isStreaming ? stream.activeSessionId : null,
+    onOpenSession: navigateToSession,
+    onMessage: (id) => {
+      void queryClient.invalidateQueries({
+        queryKey: chatHistoryQueryKey(auth.token, id),
+      });
+      refreshRecent();
+    },
   });
 
   useEffect(() => {
@@ -1346,6 +1362,10 @@ export function ChatPage() {
 
   const sidebarProps = {
     sessions: recentSessions,
+    unreadSessions: notifications.unreadSessions,
+    notificationSettings: (
+      <NotificationSettings notifications={notifications} />
+    ),
     activeSessionId: sessionId,
     onNewChat: handleNewChat,
     onOpenSession: handleOpenSession,
