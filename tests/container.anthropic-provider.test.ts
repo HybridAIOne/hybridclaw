@@ -3,6 +3,7 @@ import {
   callAnthropicProvider,
   callAnthropicProviderStream,
 } from '../container/src/providers/anthropic.js';
+import { ProviderRequestError } from '../container/src/providers/shared.js';
 import type { ChatMessage, ToolDefinition } from '../container/src/types.js';
 
 function makeEventStreamResponse(chunks: string[]): Response {
@@ -270,6 +271,84 @@ describe('Anthropic container provider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(deltas).toEqual(['streamed']);
     expect(result.choices[0]?.message.content).toBe('streamed');
+  });
+
+  test('an HTTP overload carries its status and Retry-After', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('{"type":"error","error":{"type":"overloaded_error"}}', {
+            status: 529,
+            headers: { 'retry-after': '2' },
+          }),
+      ),
+    );
+
+    const error = await callAnthropicProviderStream({
+      ...baseArgs,
+      onTextDelta: () => undefined,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderRequestError);
+    expect(error).toMatchObject({ status: 529, retryAfterMs: 2_000 });
+  });
+
+  test.each([
+    ['overloaded_error', 529],
+    ['rate_limit_error', 429],
+    ['api_error', 500],
+  ])('a mid-stream %s becomes a %i status error', async (type, status) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'event: message_start\n',
+          'data: {"type":"message_start","message":{"id":"msg_err","model":"claude-sonnet-4-6","usage":{"input_tokens":4,"output_tokens":0}}}\n\n',
+          'event: error\n',
+          `data: {"type":"error","error":{"type":"${type}","message":"Overloaded"}}\n\n`,
+        ]),
+      ),
+    );
+
+    const error = await callAnthropicProviderStream({
+      ...baseArgs,
+      onTextDelta: () => undefined,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ProviderRequestError);
+    expect((error as ProviderRequestError).status).toBe(status);
+  });
+
+  test('keeps the message_start input and cache counts after message_delta', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        makeEventStreamResponse([
+          'event: message_start\n',
+          'data: {"type":"message_start","message":{"id":"msg_usage","model":"claude-sonnet-4-6","usage":{"input_tokens":120,"cache_read_input_tokens":1000,"cache_creation_input_tokens":150,"output_tokens":1}}}\n\n',
+          'event: content_block_start\n',
+          'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+          'event: content_block_delta\n',
+          'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+          'event: message_delta\n',
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}\n\n',
+        ]),
+      ),
+    );
+
+    const result = await callAnthropicProviderStream({
+      ...baseArgs,
+      onTextDelta: () => undefined,
+    });
+
+    expect(result.usage).toMatchObject({
+      prompt_tokens: 120,
+      completion_tokens: 42,
+      cache_read_input_tokens: 1000,
+      cache_creation_input_tokens: 150,
+      total_tokens: 1312,
+    });
   });
 
   test('streams thinking and replays signed thinking blocks across tool turns', async () => {

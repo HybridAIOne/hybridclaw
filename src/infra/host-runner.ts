@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
 import type {
   ExecutorRequest,
@@ -743,8 +744,21 @@ function getOrSpawnHostProcess(
     },
   };
 
+  // Listen before touching stdio: on EMFILE/ENFILE, spawn returns a child
+  // without stdio and emits 'error' next tick, fatal if nobody listens.
+  proc.on('error', (err) => {
+    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
+    removePoolEntry(entry);
+    logger.error({ sessionId, error: err }, 'Host agent process error');
+  });
+  if (!proc.stderr) {
+    throw new Error('stdio pipes not created (out of file descriptors)');
+  }
+
+  // One decoder per pipe: a chunk can end inside a multi-byte character.
+  const stderrDecoder = new StringDecoder('utf8');
   proc.stderr.on('data', (data) => {
-    entry.stderrBuffer += data.toString('utf-8');
+    entry.stderrBuffer += stderrDecoder.write(data);
     const lines = entry.stderrBuffer.split('\n');
     entry.stderrBuffer = lines.pop() || '';
     for (const rawLine of lines) {
@@ -831,12 +845,6 @@ function getOrSpawnHostProcess(
     });
     removePoolEntry(entry);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
-  });
-
-  proc.on('error', (err) => {
-    entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    removePoolEntry(entry);
-    logger.error({ sessionId, error: err }, 'Host agent process error');
   });
 
   proc.stdin?.on('error', (err) => {

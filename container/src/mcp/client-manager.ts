@@ -10,7 +10,11 @@ import type {
   CallToolResult,
   Tool as SdkTool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolResultSchema,
+  ErrorCode,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
 import {
   buildMcpServerNamespaces,
   sanitizeMcpToolSegment,
@@ -71,6 +75,19 @@ function withTimeout<T>(
       },
     );
   });
+}
+
+/**
+ * A JSON-RPC error the server sent back (bad arguments, a failure inside the
+ * tool, output that fails its schema): the connection works, so the server
+ * keeps its tools and the same call is not sent again.
+ */
+function isAnsweredByServer(error: unknown): boolean {
+  return (
+    error instanceof McpError &&
+    error.code !== ErrorCode.ConnectionClosed &&
+    error.code !== ErrorCode.RequestTimeout
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -357,7 +374,8 @@ export class McpClientManager {
   ): void {
     transport.onerror = (error: unknown) => {
       if (this.closingServers.has(name)) return;
-      this.markServerUnhealthy(name, error);
+      // Transports also report errors they recover from, such as an SSE stream
+      // that reconnects. A dead connection surfaces as onclose or a failed call.
       void emitRuntimeEvent({
         event: 'mcp_server_error',
         serverName: name,
@@ -443,16 +461,14 @@ export class McpClientManager {
     }
 
     try {
-      const result = (await withTimeout(
-        handle.client.callTool(
-          {
-            name: toolName,
-            arguments: args,
-          },
-          CallToolResultSchema,
-        ),
-        MCP_TOOL_CALL_TIMEOUT_MS,
-        `Call MCP tool ${namespacedName}`,
+      // Without an explicit timeout the SDK applies its own 60 s default.
+      const result = (await handle.client.callTool(
+        {
+          name: toolName,
+          arguments: args,
+        },
+        CallToolResultSchema,
+        { timeout: MCP_TOOL_CALL_TIMEOUT_MS },
       )) as CallToolResult;
       handle.healthy = true;
       handle.lastError = undefined;
@@ -468,6 +484,7 @@ export class McpClientManager {
         isError: result.isError === true,
       };
     } catch (error) {
+      if (isAnsweredByServer(error)) throw error;
       this.markServerUnhealthy(serverName, error);
       await emitRuntimeEvent({
         event: 'mcp_server_error',

@@ -23,6 +23,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
@@ -587,6 +588,31 @@ function mapStopReason(stopReason: string | null | undefined): string {
   return stopReason || 'stop';
 }
 
+// Anthropic reports these after the 200 response, by type only; as status
+// errors they retry like the same failure reported before the stream.
+const TRANSIENT_STREAM_ERROR_STATUS = new Map([
+  ['api_error', 500],
+  ['overloaded_error', 529],
+  ['rate_limit_error', 429],
+]);
+
+/**
+ * Stream usage arrives in parts: message_start carries the input and cache
+ * counts, message_delta the cumulative output count. Fields an event omits
+ * keep their earlier values.
+ */
+function mergeUsageFields(
+  previous: Record<string, unknown>,
+  next: unknown,
+): Record<string, unknown> {
+  if (!isRecord(next)) return previous;
+  const merged = { ...previous };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === 'number') merged[key] = value;
+  }
+  return merged;
+}
+
 function parseUsage(
   value: unknown,
 ): ChatCompletionResponse['usage'] | undefined {
@@ -847,6 +873,7 @@ export async function callAnthropicProvider(
     throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
+      readRetryAfterMs(response.headers),
     );
   }
 
@@ -909,6 +936,7 @@ export async function callAnthropicProviderStream(
     throw new ProviderRequestError(
       response.status,
       await readErrorBody(response),
+      readRetryAfterMs(response.headers),
     );
   }
   if (!response.body) {
@@ -919,6 +947,7 @@ export async function callAnthropicProviderStream(
   const decoder = new TextDecoder();
   const blocks = new Map<number, AnthropicStreamBlock>();
   let usage: ChatCompletionResponse['usage'] | undefined;
+  let usageFields: Record<string, unknown> = {};
   let responseId = 'message';
   let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
@@ -945,6 +974,10 @@ export async function callAnthropicProviderStream(
       args.onActivity?.();
 
       if (event.type === 'error') {
+        const status = isRecord(event.error)
+          ? TRANSIENT_STREAM_ERROR_STATUS.get(String(event.error.type))
+          : undefined;
+        if (status) throw new ProviderRequestError(status, sse.data);
         const error =
           isRecord(event.error) && typeof event.error.message === 'string'
             ? event.error.message
@@ -959,7 +992,8 @@ export async function callAnthropicProviderStream(
         if (typeof event.message.model === 'string' && event.message.model) {
           responseModel = event.message.model;
         }
-        usage = parseUsage(event.message.usage) || usage;
+        usageFields = mergeUsageFields(usageFields, event.message.usage);
+        usage = parseUsage(usageFields) || usage;
         continue;
       }
 
@@ -1079,7 +1113,8 @@ export async function callAnthropicProviderStream(
       }
 
       if (event.type === 'message_delta') {
-        usage = parseUsage(event.usage) || usage;
+        usageFields = mergeUsageFields(usageFields, event.usage);
+        usage = parseUsage(usageFields) || usage;
         if (
           isRecord(event.delta) &&
           typeof event.delta.stop_reason === 'string' &&

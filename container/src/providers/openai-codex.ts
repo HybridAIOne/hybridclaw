@@ -18,6 +18,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
@@ -546,15 +547,18 @@ function parseCodexStreamError(payload: Record<string, unknown>): string {
   if (typeof payload.error === 'string' && payload.error.trim()) {
     return payload.error.trim();
   }
-  if (isRecord(payload.error)) {
-    if (
-      typeof payload.error.message === 'string' &&
-      payload.error.message.trim()
-    ) {
-      return payload.error.message.trim();
+  // `response.failed` carries its error on the response object.
+  const error = isRecord(payload.error)
+    ? payload.error
+    : isRecord(payload.response)
+      ? payload.response.error
+      : undefined;
+  if (isRecord(error)) {
+    if (typeof error.message === 'string' && error.message.trim()) {
+      return error.message.trim();
     }
-    if (typeof payload.error.code === 'string' && payload.error.code.trim()) {
-      return payload.error.code.trim();
+    if (typeof error.code === 'string' && error.code.trim()) {
+      return error.code.trim();
     }
   }
   if (
@@ -852,7 +856,11 @@ async function callOpenAIResponsesProviderStreamInternal(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ProviderRequestError(response.status, text);
+    throw new ProviderRequestError(
+      response.status,
+      text,
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const contentType = (

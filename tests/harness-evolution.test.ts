@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   calculateEvolutionMetrics,
   initializeHarnessWorkspace,
@@ -14,6 +14,13 @@ import {
   validateBashOnlySeed,
   writeHarnessSurfaceFile,
 } from '../src/evolution/harness-evolution.ts';
+import {
+  makeStdiolessChildProcess,
+  settleCatchingUncaught,
+} from './helpers/spawn-fd-exhaustion.ts';
+import { useCleanMocks } from './test-utils.ts';
+
+useCleanMocks({ resetModules: true, unmock: ['node:child_process'] });
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-evolve-'));
@@ -453,6 +460,58 @@ describe('harness evolution', () => {
     );
     expect(result.rounds[0]?.metrics.passAt1).toBe(0.5);
     expect(result.rounds[0]?.metrics.successCount).toBe(1);
+  });
+
+  test('records a failed rollout without crashing when spawn runs out of file descriptors', async () => {
+    const cwd = makeTempDir();
+    const targetRoot = path.join(cwd, 'agent-a');
+    const skillDir = path.join(cwd, 'skills', 'demo');
+    initializeHarnessWorkspace(targetRoot);
+    fs.mkdirSync(path.join(skillDir, 'evals'), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'evals', 'scenarios.json'),
+      `${JSON.stringify({ id: 'demo-skill', tasks: [{ id: 'fd', command: 'node -e 0' }] })}\n`,
+      'utf-8',
+    );
+    const spawnMock = vi.fn((command: string, args: string[]) =>
+      makeStdiolessChildProcess(command, args),
+    );
+    vi.resetModules();
+    vi.doMock('node:child_process', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('node:child_process')>()),
+      spawn: spawnMock,
+    }));
+    const evolution = await import('../src/evolution/harness-evolution.ts');
+
+    const { outcome, uncaught } = await settleCatchingUncaught(() =>
+      evolution.runHarnessEvolutionLoop({
+        targetRoot,
+        suitePath: skillDir,
+        runId: 'fd-exhaustion',
+        rounds: 1,
+        rolloutsPerTask: 1,
+        freshSeed: true,
+        dryRun: true,
+      }),
+    );
+
+    expect(uncaught).toEqual([]);
+    expect(outcome.status).toBe('fulfilled');
+    const rollouts = JSON.parse(
+      fs.readFileSync(
+        path.join(targetRoot, 'runs', 'fd-exhaustion', 'round-1', 'rollouts.json'),
+        'utf-8',
+      ),
+    );
+    expect(rollouts).toEqual([
+      expect.objectContaining({
+        taskId: 'fd',
+        success: false,
+        exitCode: null,
+        stderr: 'spawn node EMFILE',
+      }),
+    ]);
+    expect(spawnMock).toHaveBeenCalledOnce();
   });
 
   test('rejects suites without concrete commands when no outcomes are provided', async () => {
