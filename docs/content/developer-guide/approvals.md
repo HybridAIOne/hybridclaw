@@ -353,6 +353,14 @@ rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
 `all`, `any`, or `not` composition that is clearer than one composite
 predicate.
 
+`secret.default` and each secret rule's `action` accept `allow`, `deny`, or
+`block`, which means the same as `deny`. Leaving `secret`, `secret.default`,
+or `secret.rules` out, or empty, is the same as not setting it. Any other
+value makes every stored-secret resolve for that workspace fail with
+`Invalid secret policy in <path>` until the file is fixed. That includes a
+typo such as `denied`, a rule without an action, and a `secret` section that
+is not a mapping.
+
 ## Policy Patterns
 
 Paths, hosts, and secret names in `policy.yaml` are globs:

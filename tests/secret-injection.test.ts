@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.ts';
+
+const makeTempDir = useTempDir('hybridclaw-secret-policy-');
 
 function mockRuntimeSecrets(
   readStoredRuntimeSecret: (name: string) => string | null,
@@ -129,43 +132,102 @@ describe('SecretHandle', () => {
 });
 
 describe('secret resolution policy', () => {
-  test('allows by default unless secret.default explicitly denies', async () => {
+  test.each([
+    { name: 'no secret section', policy: {}, decision: 'allow' },
+    { name: 'an empty secret section', policy: { secret: null }, decision: 'allow' },
+    { name: 'rules and no default', policy: { secret: { rules: [] } }, decision: 'allow' },
+    {
+      name: 'empty default and rules',
+      policy: { secret: { default: null, rules: null } },
+      decision: 'allow',
+    },
+    { name: 'default allow', policy: { secret: { default: 'allow' } }, decision: 'allow' },
+    { name: 'default deny', policy: { secret: { default: 'deny' } }, decision: 'deny' },
+    { name: 'default block', policy: { secret: { default: 'block' } }, decision: 'deny' },
+    { name: 'default " Deny "', policy: { secret: { default: ' Deny ' } }, decision: 'deny' },
+    {
+      name: 'a block rule',
+      policy: { secret: { rules: [{ action: 'block' }] } },
+      decision: 'deny',
+    },
+    {
+      name: 'a typed deny rule',
+      policy: { secret: { rules: [{ action: { type: 'deny', reason: 'test' } }] } },
+      decision: 'deny',
+    },
+  ])('$name resolves as $decision', async ({ policy, decision }) => {
     const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
       await import('../src/security/secret-policy.js');
 
-    const context = {
-      agentId: 'main',
-      secretSource: 'store' as const,
-      secretId: 'DATEV_PASSWORD',
-      sinkKind: 'dom' as const,
-      host: 'login.datev.de',
-      selector: '#password',
-    };
-
     expect(
       evaluateSecretPolicyAccess({
-        state: readSecretPolicyStateFromDocument({}),
-        context,
+        state: readSecretPolicyStateFromDocument(policy),
+        context: {
+          agentId: 'main',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        },
       }).decision,
-    ).toBe('allow');
+    ).toBe(decision);
+  });
 
-    expect(
-      evaluateSecretPolicyAccess({
-        state: readSecretPolicyStateFromDocument({
-          secret: { default: 'allow' },
-        }),
-        context,
-      }).decision,
-    ).toBe('allow');
+  test.each([
+    {
+      name: 'a misspelled default',
+      policy: { secret: { default: 'denied' } },
+      error: /secret\.default .*"denied"/,
+    },
+    {
+      name: 'an empty-string default',
+      policy: { secret: { default: '' } },
+      error: /secret\.default .*""/,
+    },
+    {
+      name: 'a boolean default',
+      policy: { secret: { default: false } },
+      error: /secret\.default .*false/,
+    },
+    {
+      name: 'a list default',
+      policy: { secret: { default: ['deny'] } },
+      error: /secret\.default .*\["deny"\]/,
+    },
+    {
+      name: 'a scalar secret section',
+      policy: { secret: 'deny' },
+      error: /secret must be a mapping .*"deny"/,
+    },
+    {
+      name: 'rules given as a mapping',
+      policy: { secret: { rules: { action: 'deny' } } },
+      error: /secret\.rules must be a list/,
+    },
+    {
+      name: 'a misspelled rule action',
+      policy: { secret: { rules: [{ action: 'deny' }, { action: 'denny' }] } },
+      error: /secret rule #2 action .*"denny"/,
+    },
+    {
+      name: 'a misspelled typed rule action',
+      policy: { secret: { rules: [{ action: { type: 'denny' } }] } },
+      error: /secret rule #1 action .*"denny"/,
+    },
+    {
+      name: 'a rule without an action',
+      policy: {
+        secret: { rules: [{ when: { predicate: 'secret.id', equals: 'DATEV_*' } }] },
+      },
+      error: /secret rule #1 action/,
+    },
+  ])('$name throws instead of resolving', async ({ policy, error }) => {
+    const { readSecretPolicyStateFromDocument } = await import(
+      '../src/security/secret-policy.js'
+    );
 
-    expect(
-      evaluateSecretPolicyAccess({
-        state: readSecretPolicyStateFromDocument({
-          secret: { default: 'deny' },
-        }),
-        context,
-      }).decision,
-    ).toBe('deny');
+    expect(() => readSecretPolicyStateFromDocument(policy)).toThrow(error);
   });
 
   test('allows host and selector scoped rules through the F3 policy engine', async () => {
@@ -383,6 +445,27 @@ describe('secret resolution policy', () => {
 
     fs.rmSync(workspacePath, { recursive: true, force: true });
   });
+
+  test('names the invalid policy file until it is fixed', async () => {
+    const workspacePath = makeTempDir();
+    const policyPath = path.join(workspacePath, '.hybridclaw', 'policy.yaml');
+    fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+    fs.writeFileSync(policyPath, ['secret:', '  default: denied', ''].join('\n'));
+    const { clearSecretPolicyStateCache, readWorkspaceSecretPolicyState } =
+      await import('../src/security/secret-policy.js');
+
+    clearSecretPolicyStateCache();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect(() => readWorkspaceSecretPolicyState(workspacePath)).toThrow(
+        `Invalid secret policy in ${policyPath}: secret.default`,
+      );
+    }
+
+    fs.writeFileSync(policyPath, ['secret:', '  default: deny', ''].join('\n'));
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'deny',
+    );
+  });
 });
 
 describe('resolved secret leak corpus', () => {
@@ -566,6 +649,51 @@ describe('gateway secret injection', () => {
     );
 
     fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+
+  test.each([
+    { name: 'a misspelled default', policy: ['secret:', '  default: denied'] },
+    {
+      name: 'a misspelled rule action',
+      policy: ['secret:', '  rules:', '    - action: denny'],
+    },
+  ])('fails the resolve on $name without releasing the secret', async ({
+    policy,
+  }) => {
+    const workspacePath = makeTempDir();
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [...policy, ''].join('\n'),
+    );
+    const recordAuditEvent = vi.fn();
+
+    vi.doMock('../src/infra/ipc.js', () => ({
+      agentWorkspaceDir: () => workspacePath,
+    }));
+    vi.doMock('../src/audit/audit-events.js', () => ({
+      makeAuditRunId: () => 'run-secret',
+      recordAuditEvent,
+    }));
+    mockRuntimeSecrets((name) =>
+      name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
+    );
+
+    const { resolveStoredSecretForInjection } = await import(
+      '../src/gateway/gateway-secret-injection.js'
+    );
+
+    expect(() =>
+      resolveStoredSecretForInjection({
+        secretName: 'AIRTABLE_PAT',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        skillName: 'airtable',
+        sinkKind: 'http',
+        host: 'api.airtable.com',
+        selector: 'Authorization',
+      }),
+    ).toThrow(/^Invalid secret policy in .*policy\.yaml: secret/);
+    expect(recordAuditEvent).not.toHaveBeenCalled();
   });
 
   test('audits every stored secret resolve with sink metadata', async () => {
