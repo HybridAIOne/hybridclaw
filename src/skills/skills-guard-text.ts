@@ -31,6 +31,19 @@ export function r(pattern: string): RegExp {
   return new RegExp(pattern, 'i');
 }
 
+/**
+ * `call` at its first occurrence on the line only. `firstOnLine(call)[^\n]*X`
+ * flags the same lines as `call[^\n]*X`, since an X after any later call also
+ * follows the first, but looks for X once rather than once per call, which
+ * was quadratic on a line of repeated calls; a lazy `[^\n]*?X` also reads the
+ * line once instead of to its end and back. `call` leads so the regex engine
+ * can skip to it. End it in something fixed (`curl\s`, not `curl\s+`): the
+ * lookbehind matches it backward from every earlier position on the line.
+ */
+export function firstOnLine(call: string): string {
+  return String.raw`${call}(?<!${call}[^\n]*?${call})`;
+}
+
 // Instructions, config, and scripts. Every JavaScript and TypeScript module
 // type is listed: the documented skill helper is a `.cjs` file, and `node`,
 // `tsx`, or `bun` runs each of them directly. A shebang script is read
