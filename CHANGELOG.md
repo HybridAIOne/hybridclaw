@@ -2,19 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Tool batching follows what each tool touches**: When a model requests
-  several tools at once, only read-only lookups (`read`, `glob`, `grep`,
-  `web_search`, `web_fetch`, `web_extract`, `session_search`, `skills_list`,
-  `vision_analyze`) and `write`/`edit`/`delete` calls on separate paths run
-  at the same time. Browser actions, message sends, `memory`, `delegate`,
-  `cron`, `http_request`, media generation, MCP and plugin tools run one at a
-  time in the order the model gave, so browser steps no longer race on the
-  shared session and messages arrive in order. A read waits for a write to
-  the same file. A `bash` call no longer makes the whole batch sequential:
-  the lookups before and after it still run together.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
