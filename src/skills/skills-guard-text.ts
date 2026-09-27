@@ -20,7 +20,7 @@ export interface ThreatRule {
   category: Exclude<SkillGuardCategory, 'structural'>;
   description: string;
   regex: RegExp;
-  /** Spans removed from a line before `regex` is tested. */
+  /** Spans removed from a matching line before `regex` is tested again. */
   ignore?: RegExp;
   /** Paths the rule skips because its syntax means something else there. */
   skipFiles?: RegExp;
@@ -138,8 +138,11 @@ export function scanTextContent(
       const line = lines[i] || '';
       const dedupeKey = `${rule.patternId}:${lineNo}`;
       if (seen.has(dedupeKey)) continue;
-      const text = rule.ignore ? line.replace(rule.ignore, '') : line;
-      if (!rule.regex.test(text)) continue;
+      if (!rule.regex.test(line)) continue;
+      // Only lines that match pay for `ignore`; stripping every line cost
+      // several times more than the rules themselves.
+      if (rule.ignore && !rule.regex.test(line.replace(rule.ignore, '')))
+        continue;
       seen.add(dedupeKey);
       const matched = line.trim();
       findings.push({

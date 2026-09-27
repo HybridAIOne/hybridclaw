@@ -84,7 +84,7 @@ export function fenceCandidates(
   isReadOnly: (words: string[]) => boolean,
 ): string[] {
   const targets = writeTargets(commands);
-  // Bash starts in the workspace root, so `../x` lands outside it.
+  // Relative targets are workspace-relative, so `../x` lands outside it.
   const climbing = targets.filter((target) => /^\.\.(?:\/|$)/.test(target));
   const absolute = targets.filter((target) => target.startsWith('/'));
   if (absolute.length > 0) return [...absolute, ...climbing];

@@ -2,10 +2,12 @@
  * Pinned-path reach of one bash command: operands that name a pinned path
  * (relative, `~`, or a dotfile glob) and recursive reads (`grep -r`,
  * `find -exec`, `find | xargs`) that reach `.env*`, `/etc`, or `~/.ssh` without
- * naming them. Static: variables, interpreter scripts, and an earlier call's
- * `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
+ * naming them. Static: variables and interpreter scripts escape it, and an
+ * earlier call's `cd` counts only through the start directory of the parse.
+ * NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
+import { escapeRegExp } from '../shared/regex.js';
 import {
   type Cwd,
   FIND_EXEC_ACTIONS,
@@ -170,9 +172,9 @@ function globMatchesName(
       index = close;
     } else if (char === '\\' && index + 1 < glob.length) {
       index += 1;
-      source += glob[index].replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
+      source += escapeRegExp(glob[index]);
     } else {
-      source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      source += escapeRegExp(char);
     }
   }
   try {
@@ -579,8 +581,8 @@ function pinnedMatches(
   const forms = [candidate];
   const resolved = resolvePath(candidate, cwd);
   if (resolved && resolved !== candidate) forms.push(resolved);
-  // Bash starts in the workspace root, so `../../etc/passwd` can land on an
-  // absolute pinned path.
+  // Relative results are relative to the workspace root, so `../../etc/passwd`
+  // can land on an absolute pinned path.
   if (resolved && /^\.\.(?:\/|$)/.test(resolved)) {
     forms.push(path.posix.join(WORKSPACE_ROOT.replace(/\\/g, '/'), resolved));
   }

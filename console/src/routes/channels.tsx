@@ -1386,7 +1386,7 @@ function SignalChannelEditor(props: {
   draft: AdminConfig;
   form: UseFormControllerReturn<AdminConfig>;
   token: string;
-  cliAvailable: boolean;
+  cliAvailable: boolean | null;
   cliVersion: string | null;
   cliError: string | null;
 }) {
@@ -1465,7 +1465,7 @@ function SignalChannelEditor(props: {
             variant="ghost"
             loading={signalLinkMutation.isPending}
             disabled={
-              !props.cliAvailable ||
+              props.cliAvailable === false ||
               signalLinkMutation.isPending ||
               signalLink?.status === 'starting' ||
               signalLink?.status === 'qr'
@@ -1475,7 +1475,7 @@ function SignalChannelEditor(props: {
             {signalLinkMutation.isPending ? 'Starting...' : 'Start QR link'}
           </Button>
         </div>
-        {!props.cliAvailable ? (
+        {props.cliAvailable === false ? (
           <p className="muted-copy">
             signal-cli is not available on this gateway host. Install
             signal-cli, use a bundled cloud amd64 gateway image, or configure an
@@ -3796,7 +3796,7 @@ function renderSelectedEditor(
     pairingError: string | null;
   },
   signalStatus: {
-    cliAvailable: boolean;
+    cliAvailable: boolean | null;
     cliVersion: string | null;
     cliError: string | null;
   },
@@ -4126,7 +4126,7 @@ export function ChannelsPage() {
     pairingError: statusQuery.data?.line?.pairingError ?? null,
   };
   const signalStatus = {
-    cliAvailable: statusQuery.data?.signal?.cliAvailable ?? false,
+    cliAvailable: statusQuery.data?.signal?.cliAvailable ?? null,
     cliVersion: statusQuery.data?.signal?.cliVersion ?? null,
     cliError: statusQuery.data?.signal?.cliError ?? null,
   };

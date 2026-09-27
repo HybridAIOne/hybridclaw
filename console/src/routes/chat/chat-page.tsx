@@ -8,6 +8,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+} from '../../../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
 import { appViewUrl } from '../../api/apps';
 import {
@@ -81,6 +85,7 @@ import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
+import { SessionOutputs } from './session-outputs';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
 import { useStickToBottom } from './use-stick-to-bottom';
@@ -724,6 +729,14 @@ export function ChatPage() {
     if (id) setSelectedModelId(id);
   }, [contextQuery.data?.snapshot?.model]);
 
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>(
+    DEFAULT_APPROVAL_MODE,
+  );
+  useEffect(() => {
+    if (!contextQuery.data) return;
+    setApprovalMode(contextQuery.data.approvalMode ?? DEFAULT_APPROVAL_MODE);
+  }, [contextQuery.data]);
+
   useEffect(() => {
     if (launchAgentId && launchAgentSessionIdRef.current === sessionId) {
       setSelectedAgentId(launchAgentId);
@@ -1228,6 +1241,17 @@ export function ChatPage() {
     [sendSlashSwitch],
   );
 
+  const handleApprovalModeChange = useCallback(
+    (mode: ApprovalMode) =>
+      sendSlashSwitch(
+        ['approvals', 'mode'],
+        mode,
+        (value) => setApprovalMode(value as ApprovalMode),
+        'Could not change approvals — stop the current run and try again.',
+      ),
+    [sendSlashSwitch],
+  );
+
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
@@ -1373,6 +1397,7 @@ export function ChatPage() {
               token={auth.token}
               enabled={chatApiReady}
             />
+            <SessionOutputs messages={messages} token={auth.token} />
             <button
               type="button"
               className={css.mobileQrButton}
@@ -1520,6 +1545,8 @@ export function ChatPage() {
             supportedReasoningEfforts={supportedReasoningEfforts}
             reasoningEffort={effectiveReasoningEffort}
             onReasoningEffortChange={setReasoningEffort}
+            approvalMode={approvalMode}
+            onApprovalModeChange={(mode) => void handleApprovalModeChange(mode)}
             initialValue={initialComposerPrompt}
             voiceAvailable={voiceCapability?.available === true}
             voiceDetail={voiceDetail}

@@ -56,6 +56,7 @@ import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { badCommand, infoCommand } from './gateway-command-results.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import type {
   GatewayAdminOfficialPlugin,
@@ -69,14 +70,6 @@ import { rememberPendingApproval } from './pending-approvals.js';
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
-
-function badCommand(title: string, text: string): GatewayCommandResult {
-  return { kind: 'error', title, text };
-}
-
-function infoCommand(title: string, text: string): GatewayCommandResult {
-  return { kind: 'info', title, text };
-}
 
 function isLocalSession(req: GatewayCommandRequest): boolean {
   return (

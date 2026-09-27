@@ -1,3 +1,8 @@
+/**
+ * Shared plugin transport contract; send results preserve transport message IDs.
+ * Acceptance is not a delivery receipt. Unlike channel runtimes, this registry
+ * owns no connections and does not infer recipient existence or delivery.
+ */
 import type { MediaContextItem } from '../types/container.js';
 import type { ChannelKind } from './channel.js';
 import type { LineTransportHost } from './line/transport-host.js';
@@ -40,11 +45,20 @@ export interface ChannelTransportPairingSession {
   stop(): Promise<void>;
 }
 
+export interface ChannelTransportSendResult {
+  messageIds: string[];
+}
+
 export interface ChannelTransportInstance {
   init(handler: ChannelTransportMessageHandler): Promise<void>;
   shutdown(): Promise<void>;
-  sendText(chatId: string, text: string): Promise<void>;
-  sendMedia(params: ChannelTransportMediaSendParams): Promise<void>;
+  sendText(
+    chatId: string,
+    text: string,
+  ): Promise<ChannelTransportSendResult> | Promise<void>;
+  sendMedia(
+    params: ChannelTransportMediaSendParams,
+  ): Promise<ChannelTransportSendResult> | Promise<void>;
   createPairingSession?(): Promise<ChannelTransportPairingSession>;
 }
 
