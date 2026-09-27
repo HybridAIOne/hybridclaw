@@ -61,7 +61,7 @@ type CodeSource =
   | { stdin: true }
   | { substituted: true };
 
-function codeSource({
+export function codeSource({
   words,
   start,
   program,

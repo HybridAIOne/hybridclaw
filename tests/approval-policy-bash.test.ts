@@ -444,4 +444,71 @@ approval:
     expect(evaluation.actionKey).toBe('bash:write-op');
     expect(evaluation.decision).toBe('implicit');
   });
+
+  test.each([
+    ['cat /usr/share/dict/words > words.txt', 'bash:write-op'],
+    ['cp /opt/data/input.csv input.csv', 'bash:write-op'],
+    ['cp -r /opt/data/templates .', 'bash:write-op'],
+    ['ls /usr/local/bin > bins.txt', 'bash:write-op'],
+    ['head -5 /opt/data/input.csv | grep total > totals.txt', 'bash:write-op'],
+    [
+      'git diff --no-index /opt/data/a.txt /opt/data/b.txt > changes.patch',
+      'bash:write-op',
+    ],
+    ['ls /opt/data > files.txt || echo missing', 'bash:write-op'],
+    // Running a file does not write it.
+    ['python3 /opt/tools/gen.py > out.txt', 'bash:write-op'],
+    ['/opt/tools/bin/convert in.png out.jpg > log.txt', 'bash:write-op'],
+    ['bash /opt/tools/setup.sh > log.txt', 'bash:script'],
+    // `2>&1` and `>&2` duplicate a descriptor and write no file.
+    ['ls -la /opt/data/report.png 2>&1 || echo missing', 'bash:other'],
+    ['node scripts/fetch.cjs --path /api/v2/items/42.jpg 2>&1', 'bash:other'],
+    ['cd /opt/data && npx some-tool check 2>&1', 'bash:other'],
+    ['grep -c key /opt/data/app.log >&2', 'bash:read-only'],
+  ])('reading from outside the workspace is not a fence write: %j', (command, actionKey) => {
+    expect(evaluateBash(command).actionKey).toBe(actionKey);
+  });
+
+  test.each([
+    'git status',
+    'ls /opt/data',
+    'node scripts/fetch.cjs --path /api/v2/items/42.jpg',
+    'cat /usr/share/dict/words > words.txt',
+    'rm /opt/data/old.csv',
+    "sed -i 's/a/b/' /opt/data/app.conf",
+    'echo x > /opt/data/out.txt',
+  ])('appending 2>&1 keeps the classification of %j', (command) => {
+    expect(evaluateBash(`${command} 2>&1`).actionKey).toBe(
+      evaluateBash(command).actionKey,
+    );
+  });
+
+  test.each([
+    "sed -i 's/a/b/' /opt/data/app.conf > log.txt",
+    'rm /opt/data/old.csv; echo done > log.txt',
+    'mv /opt/data/input.csv ./input.csv',
+    'pip install --target /opt/libs requests > log.txt',
+    'tar -xzf bundle.tgz -C /opt/data > log.txt',
+    // Arguments after the script may be outputs.
+    'python3 /opt/tools/gen.py /opt/data/out.csv > log.txt',
+    // A file the line runs still counts when the line also names it elsewhere.
+    "sed -i 's/a/b/' /opt/tools/gen.py && python3 /opt/tools/gen.py > out.txt",
+    // What a read prints can become another command's operands, also through
+    // a file, so a line with any unparsed command keeps the whole fallback.
+    "find /opt/data -name '*.tmp' | xargs rm; echo done > log.txt",
+    "find /opt/data -name '*.conf' | xargs sed -i 's/a/b/'",
+    "find /opt/data -name '*.conf' -exec sed -i 's/a/b/' {} +",
+    "sed -i 's/a/b/' $(grep -l key /opt/data/*.conf)",
+    'cat /opt/data/list.txt | xargs touch',
+    'ls /opt/data > files.txt && python3 cleanup.py files.txt',
+    // Redirects to a file still write it.
+    'node scripts/fetch.cjs >& /opt/data/log.txt',
+    'echo x 2>&1 > /opt/data/out.txt',
+    'echo x >| /opt/data/out.txt',
+  ])('writes outside the workspace stay fenced: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+  });
 });

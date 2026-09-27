@@ -60,7 +60,13 @@ export const DELETE_RE =
 const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
 const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
 // Programs that write every path operand they are given.
-const OPERAND_WRITERS = new Set(['chmod', 'chown', 'mkdir', 'tee', 'touch']);
+export const OPERAND_WRITERS = new Set([
+  'chmod',
+  'chown',
+  'mkdir',
+  'tee',
+  'touch',
+]);
 
 interface ShellCommand {
   words: string[];
@@ -178,6 +184,8 @@ export function splitShellCommands(input: string): ShellCommand[] {
     } else if (char === '(' || char === ')') {
       depth = Math.max(0, depth + (char === '(' ? 1 : -1));
       endCommand();
+    } else if (char === '|' && inWord && /^\d*>$/.test(word)) {
+      // `>|` writes like `>`, overriding noclobber; it is not a pipe.
     } else if (char === '|') {
       if (next === '|') index += 1;
       else if (next === '&') index += 1;
