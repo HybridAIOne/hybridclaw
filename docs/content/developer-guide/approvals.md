@@ -365,11 +365,17 @@ itself.
 | Pattern | `*` | `**` | `?` |
 | --- | --- | --- | --- |
 | Paths | Any characters except `/` | Any characters, including `/` | One character except `/` |
-| Hosts | Any characters, including `.` | Same as `*` | One character except `.` |
+| Hosts | Any characters except `.`; a leading `*.` and a bare `*` also cross `.` | Any characters, including `.` | One character except `.` |
 | Secret `id` and `selector` | Any characters | Same as `*` | One character |
 
 A pinned `dir/**` also covers `dir` itself; a network path `/dir/**` does not
-cover `/dir`. A host with a wildcard covers only the hosts it spells out:
+cover `/dir`.
+
+A leading `*.` covers subdomains at any depth: `*.example.com` matches
+`a.b.example.com` but not `example.com`. A bare `*` matches every host. Any
+other `*` stays inside one label, so `example.*` matches `example.org` but not
+`example.co.uk` or `example.attacker.com`; write `example.**` to match across
+labels. A host with a wildcard covers only the hosts it spells out:
 `ex?mple.com` matches `example.com` but not `api.example.com`, while the bare
 host `example.com` also covers its subdomains.
 
