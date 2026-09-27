@@ -15,7 +15,7 @@ user explicitly approves or denies it.
 | Area | Default | Notes |
 | --- | --- | --- |
 | Policy file | `./.hybridclaw/policy.yaml` | Workspace-local approval and network policy |
-| Pending red approvals | `3` | New blocked actions are denied once the queue is full |
+| Pending red approvals | `3` | Counted per session; a session's new blocked actions are denied once its queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
 | Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
@@ -363,8 +363,11 @@ predicate.
 
 Notes:
 
+- A reply answers only the requests of the session it is sent in. An agent's
+  sessions share its workspace, but a `yes` (or an approval id) in one chat
+  never approves an action another chat is waiting on.
 - If there is only one pending approval, the request id is optional. The most
-  recent pending approval is used.
+  recent pending approval in the session is used.
 - If there are multiple pending approvals, include the approval id. The TUI and
   web chat do this for you.
 - In web chat, `Allow once` sends `/approve yes`, `Allow always` sends

@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **Approvals stay in their session**: An agent's sessions share one store of
+  pending approvals. A `yes` in one chat, including a reply to an unrelated
+  question or a message ending in `yes`, could approve the action another chat
+  was waiting on and run it in the wrong conversation, and one chat's pending
+  requests counted against every other chat's queue. Each pending request now
+  belongs to its session: replies, approval ids, and the pending-request limit
+  apply only within it. An action still waiting for approval during the
+  upgrade asks again.
 - **Changing the approval policy needs a human**: The approval policy,
   trust grants, and pending approvals live in the agent's workspace
   (`.hybridclaw/`, `approval-trust.json`). A `write`, `edit`, or bash redirect

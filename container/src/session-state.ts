@@ -21,9 +21,14 @@ const SESSION_STATE_ROOT = path.join(
   'sessions',
 );
 
+// Stands in for a session id in paths and records, which keeps peer ids such
+// as phone numbers out of agent-readable files.
+export function sessionStateKey(sessionId: string): string {
+  return createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
+}
+
 export function sessionStatePath(sessionId: string, name: string): string {
-  const key = createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
-  return path.join(SESSION_STATE_ROOT, key, name);
+  return path.join(SESSION_STATE_ROOT, sessionStateKey(sessionId), name);
 }
 
 export function ensureSessionStateDir(filePath: string): void {
