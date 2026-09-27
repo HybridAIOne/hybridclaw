@@ -492,9 +492,9 @@ test('Homematic helper emits concrete policy rules for HCU network and secret ac
             predicate: 'secret_resolve_allowed',
             id: 'HOMEMATIC_HCU_AUTH_TOKEN',
             source: 'store',
-            sink: 'websocket',
+            sink: 'http',
             host: 'hcu1-1234.local',
-            selector: 'authtoken',
+            selector: 'json',
             agent: 'main',
           },
           action: 'allow',
@@ -506,7 +506,7 @@ test('Homematic helper emits concrete policy rules for HCU network and secret ac
             source: 'store',
             sink: 'http',
             host: 'hcu1-1234.local',
-            selector: 'json.activationKey',
+            selector: 'json',
             agent: 'main',
           },
           action: 'allow',
@@ -516,6 +516,57 @@ test('Homematic helper emits concrete policy rules for HCU network and secret ac
   });
   expect(payload.network.rules[1].paths).toEqual(['/*']);
   expect(payload.applyWith[1]).toContain('--paths /*');
+});
+
+test('Homematic secret policy rules allow the secrets its auth requests resolve', async () => {
+  const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+    await import('../src/security/secret-policy.js');
+  const hcuUrl = ['--hcu-url', 'https://hcu1-1234.local'];
+  const { secret } = homematic.buildRequest([
+    'policy-rules',
+    ...hcuUrl,
+    '--agent',
+    'main',
+  ]);
+  const state = readSecretPolicyStateFromDocument({
+    secret: { default: 'deny', rules: secret.rules },
+  });
+
+  const resolved: string[] = [];
+  for (const operation of ['auth-token', 'confirm-token']) {
+    const { httpRequest } = homematic.buildRequest([
+      'http-request',
+      operation,
+      ...hcuUrl,
+    ]);
+    for (const [, secretId] of JSON.stringify(httpRequest.json).matchAll(
+      /<secret:([A-Z0-9_]+)>/g,
+    )) {
+      resolved.push(secretId);
+      // The gateway resolves JSON-body placeholders with selector `json`.
+      const context = {
+        agentId: 'main',
+        skillName: httpRequest.skillName,
+        secretSource: 'store' as const,
+        secretId,
+        sinkKind: 'http' as const,
+        host: new URL(httpRequest.url).hostname,
+        selector: 'json',
+      };
+      expect(evaluateSecretPolicyAccess({ state, context }).decision).toBe(
+        'allow',
+      );
+      expect(
+        evaluateSecretPolicyAccess({
+          state,
+          context: { ...context, host: 'evil.example.com' },
+        }).decision,
+      ).toBe('deny');
+    }
+  }
+  expect(new Set(resolved)).toEqual(
+    new Set([homematic.AUTH_TOKEN_SECRET, homematic.ACTIVATION_KEY_SECRET]),
+  );
 });
 
 test('Homematic live WebSocket executor sends one bounded message and summarizes response', async () => {
