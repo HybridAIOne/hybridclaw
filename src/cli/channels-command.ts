@@ -40,6 +40,7 @@ import {
   isWhatsAppTransportInstalled,
   WHATSAPP_PLUGIN_INSTALL_HINT,
 } from '../channels/whatsapp/runtime.js';
+import { WHATSAPP_SELF_CHAT_ADVISORY } from '../channels/whatsapp/self-chat.js';
 import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
@@ -1926,6 +1927,8 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
     `WhatsApp mode: ${parsed.allowFrom.length > 0 ? 'allowlisted DMs only' : 'self-chat only'}`,
   );
   console.log(`DM policy: ${nextConfig.whatsapp.dmPolicy}`);
+  if (nextConfig.whatsapp.dmPolicy === 'disabled')
+    console.warn(`Warning: ${WHATSAPP_SELF_CHAT_ADVISORY}`);
   if (nextConfig.whatsapp.allowFrom.length > 0) {
     console.log(`Allowed senders: ${nextConfig.whatsapp.allowFrom.join(', ')}`);
   }
