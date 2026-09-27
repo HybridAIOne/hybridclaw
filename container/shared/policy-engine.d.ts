@@ -36,6 +36,21 @@ export type PolicyPredicateRegistry<Context> = Record<
   PolicyPredicate<Context>
 >;
 
+export interface PolicyParameterSpec {
+  /** Why a value cannot be read, or '' when it can. */
+  check: (value: unknown) => string;
+  /** Parameters in one group are spellings of one parameter: set at most one. */
+  group?: string;
+  /** A predicate node must set this parameter. */
+  required?: boolean;
+}
+
+/** Each predicate's parameters, as the evaluator reads them. */
+export type PolicyPredicateParameters = Record<
+  string,
+  Record<string, PolicyParameterSpec>
+>;
+
 export interface PolicyEvaluation<Action, Rule extends PolicyRule<Action>> {
   action: Action;
   matchedRule?: Rule;
@@ -63,3 +78,11 @@ export function evaluatePolicyRules<
   defaultAction: Action;
   mode?: 'first' | 'all';
 }): PolicyEvaluation<Action, Rule>;
+
+export function checkPolicyText(value: unknown): string;
+
+/** Why a user-authored rule is unreadable, or '' when it is readable. */
+export function describePolicyRuleProblem(
+  rule: unknown,
+  predicates: PolicyPredicateParameters,
+): string;

@@ -693,7 +693,38 @@ Edit body.
     expect(skillsMod.loadSkills('silent')).toEqual([]);
   });
 
-  it('loadSkills applies workspace skill policy rules', async () => {
+  const denySapForMain = [
+    '    - id: deny-sap-for-main',
+    '      when:',
+    '        all:',
+    '          - predicate: skill.name',
+    '            equals: sap',
+    '          - predicate: agent.id',
+    '            equals: main',
+    '      action:',
+    '        type: deny',
+    '        reason: SAP is blocked for this agent.',
+  ];
+
+  it.each([
+    { name: 'a deny rule', rules: denySapForMain, loaded: ['ga4'] },
+    {
+      // An unreadable rule is enforced as deny for every skill, instead of
+      // widening to allow or making the loader fall back to no rules.
+      name: 'a misspelled allow rule before it',
+      rules: [
+        '    - action: allow',
+        '      when:',
+        '        predicate: skill.name',
+        '        equal: ga4',
+        ...denySapForMain,
+      ],
+      loaded: [],
+    },
+  ])('loadSkills applies workspace skill policy with $name', async ({
+    rules,
+    loaded,
+  }) => {
     const extraDir = path.join(tmpDir, 'policy-skills');
     writeSkill(
       extraDir,
@@ -729,26 +760,14 @@ GA4 body.
     fs.mkdirSync(policyDir, { recursive: true });
     fs.writeFileSync(
       path.join(policyDir, 'policy.yaml'),
-      [
-        'skill:',
-        '  rules:',
-        '    - id: deny-sap-for-main',
-        '      when:',
-        '        all:',
-        '          - predicate: skill.name',
-        '            equals: sap',
-        '          - predicate: agent.id',
-        '            equals: main',
-        '      action:',
-        '        type: deny',
-        '        reason: SAP is blocked for this agent.',
-      ].join('\n'),
+      ['skill:', '  rules:', ...rules].join('\n'),
       'utf-8',
     );
 
     const skillNames = skillsMod.loadSkills('main').map((skill) => skill.name);
-    expect(skillNames).not.toContain('sap');
-    expect(skillNames).toContain('ga4');
+    expect(skillNames.filter((name) => ['sap', 'ga4'].includes(name))).toEqual(
+      loaded,
+    );
   });
 
   it('sorts discovered skills by category and then by name', () => {
