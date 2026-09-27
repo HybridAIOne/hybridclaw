@@ -1,3 +1,10 @@
+/**
+ * Secret resolution policy: whether a stored secret may reach a sink, read
+ * from the workspace `policy.yaml` `secret` section. A missing section or
+ * default means allow; anything present that does not parse throws, so the
+ * resolve fails instead of allowing it. NOT the network policy (deny by
+ * default); `assertSecretResolveAllowed` in the gateway enforces the decision.
+ */
 import fs from 'node:fs';
 
 import YAML from 'yaml';
@@ -56,18 +63,21 @@ function normalizeStringList(value: unknown): string[] {
   return [];
 }
 
-function normalizeAction(value: unknown): SecretPolicyDecision | null {
+function readAction(value: unknown, field: string): SecretPolicyDecision {
   const raw = typeof value === 'string' ? value : asRecord(value).type;
   const normalized = normalizeLower(raw);
   if (normalized === 'allow') return 'allow';
   if (normalized === 'deny' || normalized === 'block') return 'deny';
-  return null;
+  throw new Error(
+    `${field} must be one of allow, deny, block (got ${JSON.stringify(value)})`,
+  );
 }
 
-function normalizeRule(raw: unknown): PolicyRule<SecretPolicyDecision> | null {
+function readRule(
+  raw: unknown,
+  index: number,
+): PolicyRule<SecretPolicyDecision> {
   const record = asRecord(raw);
-  const action = normalizeAction(record.action);
-  if (!action) return null;
   const id = normalizeString(record.id);
   return {
     ...(id ? { id } : {}),
@@ -75,7 +85,7 @@ function normalizeRule(raw: unknown): PolicyRule<SecretPolicyDecision> | null {
       | PolicyPredicateExpression
       | PolicyPredicateExpression[]
       | undefined,
-    action,
+    action: readAction(record.action, `secret rule #${index + 1} action`),
     metadata: { secretRule: raw },
   };
 }
@@ -83,20 +93,28 @@ function normalizeRule(raw: unknown): PolicyRule<SecretPolicyDecision> | null {
 export function readSecretPolicyStateFromDocument(
   document: Record<string, unknown>,
 ): SecretPolicyState {
-  const secret = asRecord(document.secret);
-  const rules = Array.isArray(secret.rules)
-    ? secret.rules
-        .map(normalizeRule)
-        .filter((rule): rule is PolicyRule<SecretPolicyDecision> =>
-          Boolean(rule),
-        )
-    : [];
-  const normalizedDefault = normalizeLower(secret.default);
-  const defaultAction =
-    normalizedDefault === 'deny' || normalizedDefault === 'block'
-      ? 'deny'
-      : 'allow';
-  return { defaultAction, rules };
+  const secret = document.secret ?? {};
+  if (typeof secret !== 'object' || Array.isArray(secret)) {
+    throw new Error(`secret must be a mapping (got ${JSON.stringify(secret)})`);
+  }
+  const section = secret as Record<string, unknown>;
+  const rules = section.rules ?? [];
+  if (!Array.isArray(rules)) {
+    throw new Error(
+      `secret.rules must be a list (got ${JSON.stringify(rules)})`,
+    );
+  }
+  return {
+    // Absent or empty means allow (owner call, #982, 2026-05-13): a deny
+    // default made normal stored-secret use look policy-blocked. A present
+    // value must parse (owner call, 2026-09-27), so a typo such as `denied`
+    // fails every resolve instead of allowing it.
+    defaultAction:
+      section.default == null
+        ? 'allow'
+        : readAction(section.default, 'secret.default'),
+    rules: rules.map(readRule),
+  };
 }
 
 function readPolicyDocument(policyPath: string): Record<string, unknown> {
@@ -142,9 +160,14 @@ export function readWorkspaceSecretPolicyState(
     return cached.state;
   }
 
-  const state = readSecretPolicyStateFromDocument(
-    readPolicyDocument(policyPath),
-  );
+  const document = readPolicyDocument(policyPath);
+  let state: SecretPolicyState;
+  try {
+    state = readSecretPolicyStateFromDocument(document);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid secret policy in ${policyPath}: ${message}`);
+  }
   secretPolicyStateCache.set(policyPath, {
     mtimeMs: stat.mtimeMs,
     size: stat.size,
