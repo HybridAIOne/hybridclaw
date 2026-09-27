@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Long model calls no longer time out**: The agent reports activity during
-  every model call and retry backoff, as it already did for tool calls. A
-  non-streaming turn (scheduled tasks, delegations, output-guarded chats) that
-  waits more than five minutes on a slow local model or long reasoning is no
-  longer stopped by the gateway's inactivity timeout. Hung requests still end
-  at the provider's own request and stream timeouts.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
