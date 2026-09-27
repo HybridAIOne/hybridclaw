@@ -98,8 +98,6 @@
 
 ### Fixed
 
-- **Response rating audit actors**: Ratings identify the submitting user as
-  the actor, preventing invalid agent identity warnings for rated responses.
 - **Unicode PDF generation**: The PDF helper embeds Unicode fonts to preserve
   Cyrillic text and reuses custom fonts across titles and body text.
 - **Lazy Google shell authentication**: Google OAuth refresh runs when a shell
