@@ -44,14 +44,25 @@ export function firstOnLine(call: string): string {
   return String.raw`${call}(?<!${call}[^\n]*?${call})`;
 }
 
+// Instructions, config, and scripts. Every JavaScript and TypeScript module
+// type is listed: the documented skill helper is a `.cjs` file, and `node`,
+// `tsx`, or `bun` runs each of them directly. A shebang script is read
+// whatever its name.
 const SCANNABLE_EXTENSIONS = new Set<string>([
   '.md',
   '.txt',
   '.py',
   '.sh',
   '.bash',
+  '.zsh',
   '.js',
+  '.cjs',
+  '.mjs',
+  '.jsx',
   '.ts',
+  '.cts',
+  '.mts',
+  '.tsx',
   '.rb',
   '.yaml',
   '.yml',
@@ -115,11 +126,7 @@ export function scanFile(
   rules: readonly ThreatRule[],
 ): SkillGuardFinding[] {
   if (entry.isBinary) return [];
-  if (
-    entry.extension !== '.md' &&
-    entry.relativePath !== 'SKILL.md' &&
-    !SCANNABLE_EXTENSIONS.has(entry.extension)
-  ) {
+  if (!entry.hasShebang && !SCANNABLE_EXTENSIONS.has(entry.extension)) {
     return [];
   }
 
