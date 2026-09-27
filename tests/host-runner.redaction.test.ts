@@ -566,7 +566,21 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
     | NodeJS.ProcessEnv
     | undefined;
   expect(spawnEnv?.HYBRIDCLAW_AGENT_SANDBOX_MODE).toBe('host');
-  expect(spawnEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe('gateway-secret');
+  // The worker gets its own credential, never the gateway token.
+  const firstInputLine = String(proc.stdin.write.mock.calls[0]?.[0] || '');
+  const credential = String(spawnEnv?.HYBRIDCLAW_GATEWAY_TOKEN);
+  expect(credential).toMatch(/^hcw_/);
+  expect(JSON.parse(firstInputLine).gatewayApiToken).toBe(credential);
+  const { resolveWorkerCredential } = await import(
+    '../src/security/worker-credentials.js'
+  );
+  expect(resolveWorkerCredential(credential)).toEqual({
+    agentId: 'default',
+    sessionId: 'session-sanitized-env',
+  });
+  expect(
+    `${JSON.stringify(Object.values(spawnEnv ?? {}))}${firstInputLine}`,
+  ).not.toContain('gateway-secret');
   expect(spawnEnv?.HYBRIDCLAW_TEST_VISIBLE).toBe('visible');
   expect(spawnEnv?.OPENAI_API_KEY).toBeUndefined();
   expect(spawnEnv?.ANTHROPIC_API_KEY).toBeUndefined();

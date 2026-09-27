@@ -148,13 +148,16 @@ test('logs a failed docker spawn without the child argv', async () => {
     channelId: 'tui',
   });
 
-  expect(dockerRunCall()?.[2]?.env?.HYBRIDCLAW_GATEWAY_TOKEN).toBe(
-    GATEWAY_TOKEN,
+  const workerCredential = String(
+    dockerRunCall()?.[2]?.env?.HYBRIDCLAW_GATEWAY_TOKEN,
   );
+  expect(workerCredential).toMatch(/^hcw_/);
   expect(logOutput).toContain('"msg":"Container error"');
   expect(logOutput).toContain('"syscall":"spawn docker"');
   expect(logOutput).not.toContain('"spawnargs"');
-  expect(logOutput).not.toContain(GATEWAY_TOKEN);
   expect(output.error).toContain('spawn docker ENOENT');
-  expect(output.error).not.toContain(GATEWAY_TOKEN);
+  for (const credential of [GATEWAY_TOKEN, workerCredential]) {
+    expect(logOutput).not.toContain(credential);
+    expect(output.error).not.toContain(credential);
+  }
 });

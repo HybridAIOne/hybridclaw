@@ -2,6 +2,10 @@ import type { ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import {
+  bindWorkerCredentialSession,
+  revokeWorkerCredential,
+} from '../security/worker-credentials.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import { containerBootstrapScriptPath } from './install-root.js';
 import {
@@ -30,6 +34,8 @@ export const IDLE_SESSION_EVICTION_MIN_AGE_MS = 10_000;
 
 export interface WarmRunnerEntry extends WarmProcessPoolEntry {
   sessionId: string;
+  /** The worker's gateway credential (`worker-credentials.ts`). */
+  workerCredential: string;
   warm: boolean;
   readyForInputAt: number | null;
   pendingColdStartProbeStartedAt: number | null;
@@ -286,6 +292,7 @@ export function removeWarmPoolEntry<T extends WarmRunnerEntry>(
   warmPool: WarmProcessPool<T>,
   entry: T,
 ): void {
+  revokeWorkerCredential(entry.workerCredential);
   warmPool.delete(entry.id);
   for (const [sessionId, active] of pool) {
     if (active === entry) pool.delete(sessionId);
@@ -381,6 +388,7 @@ export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
   if (!canUseWarmPool(params.warmPool, params.eligibility)) return null;
   const entry = params.warmPool.claim(params.agentId);
   if (!entry) return null;
+  bindWorkerCredentialSession(entry.workerCredential, params.sessionId);
   entry.sessionId = params.sessionId;
   entry.warm = false;
   entry.lastUsedAt = Date.now();

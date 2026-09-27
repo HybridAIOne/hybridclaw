@@ -239,6 +239,13 @@ Document credential names and where the operator gets them, but keep the helper
 responsible for injecting them. When a token is domain-bound, preserve that
 binding and do not broaden it in skill prose.
 
+Helpers authenticate to the gateway with `HYBRIDCLAW_GATEWAY_TOKEN` from their
+environment. Inside an agent sandbox that is the worker's own credential. The
+gateway accepts it only on the runtime routes the tools use, such as
+`/api/http/request`, and there it acts as the agent and session running the
+helper. It is rejected on admin, command, and OpenAI-compatible routes, so a
+helper step that needs one of those is an operator command, not an agent step.
+
 Use `config_variables:` frontmatter for non-secret values that should be
 discoverable and persisted, for example inverter IPs, local host URLs, account
 ids, or usernames. These values are plaintext and model-visible; operators set

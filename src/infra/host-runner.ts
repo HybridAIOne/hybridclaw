@@ -35,7 +35,6 @@ import {
   CONTEXT_GUARD_MAX_RETRIES,
   CONTEXT_GUARD_OVERFLOW_RATIO,
   CONTEXT_GUARD_PER_RESULT_SHARE,
-  GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
@@ -64,6 +63,7 @@ import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
+import { issueWorkerCredential } from '../security/worker-credentials.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import {
   normalizeEscalationTarget,
@@ -190,10 +190,12 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
-function buildHostGatewayRuntimeEnv(): Record<string, string> {
+function buildHostGatewayRuntimeEnv(
+  workerCredential: string,
+): Record<string, string> {
   return {
     HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
-    HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
+    HYBRIDCLAW_GATEWAY_TOKEN: workerCredential,
   };
 }
 
@@ -656,10 +658,14 @@ function getOrSpawnHostProcess(
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
   const storedRuntimeEnv = readStoredRuntimeEnv();
+  const workerCredential = issueWorkerCredential({
+    agentId,
+    sessionId: params.warm ? null : sessionId,
+  });
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
-    ...buildHostGatewayRuntimeEnv(),
+    ...buildHostGatewayRuntimeEnv(workerCredential),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,
@@ -724,6 +730,7 @@ function getOrSpawnHostProcess(
     id: ipcSessionId,
     process: proc,
     sessionId,
+    workerCredential,
     ipcSessionId,
     agentId,
     startedAt: Date.now(),
@@ -1004,7 +1011,6 @@ async function runHostProcessInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
     browserProvider: BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
@@ -1124,6 +1130,7 @@ async function runHostProcessInner(
   }
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
+  input.gatewayApiToken = entry.workerCredential;
   entry.workerSignature = workerSignature;
 
   const activity = createActivityTracker();
