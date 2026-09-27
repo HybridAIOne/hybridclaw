@@ -5212,7 +5212,9 @@ export async function getGatewayStatus(
   const whatsappPairing = getWhatsAppPairingState();
   const linePairing = getLinePairingState();
   const signalPairing = getSignalLinkState();
-  const signalCli = getSignalCliAvailability();
+  const signalCli = runtimeConfig.signal.enabled
+    ? getSignalCliAvailability()
+    : null;
   const sandbox = getSandboxDiagnostics();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
@@ -5374,10 +5376,10 @@ export async function getGatewayStatus(
       pairingUri: signalPairing.pairingUri,
       pairingUpdatedAt: signalPairing.updatedAt,
       pairingError: signalPairing.error,
-      cliAvailable: signalCli.available,
-      cliPath: signalCli.path,
-      cliVersion: signalCli.version,
-      cliError: signalCli.error,
+      cliAvailable: signalCli?.available ?? null,
+      cliPath: signalCli?.path ?? null,
+      cliVersion: signalCli?.version ?? null,
+      cliError: signalCli?.error ?? null,
     },
     threema,
     slack,

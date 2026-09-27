@@ -33,7 +33,7 @@ interface ChannelCatalogOptions {
   slackWebhookDefaultConfigured?: boolean;
   signalDaemonUrlConfigured?: boolean;
   signalAccountConfigured?: boolean;
-  signalCliAvailable?: boolean;
+  signalCliAvailable?: boolean | null;
   telegramTokenConfigured?: boolean;
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
