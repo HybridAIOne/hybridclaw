@@ -171,7 +171,7 @@ function makeRuleContext(params?: {
     hasAgentTrust: () => false,
     hasWorkspaceTrust: () => false,
     getExplicitApprovalCount: () => 0,
-    isFullAutoEnabled: () => false,
+    approvalMode: () => 'auto',
     shouldNeverAutoApprove: () => false,
     getPendingCount: () => 0,
     getOrCreatePending: () => ({
@@ -397,7 +397,7 @@ approval:
 
     const fullAuto = prepareRedRuleContext({
       helpers: {
-        isFullAutoEnabled: () => true,
+        approvalMode: () => 'full',
       },
     });
     expect(approvalRules.red_full_auto(fullAuto).kind).toBe('next');
@@ -424,7 +424,7 @@ approval:
 
     const yellowFullAuto = prepareRedRuleContext({
       helpers: {
-        isFullAutoEnabled: () => true,
+        approvalMode: () => 'full',
       },
     });
     yellowFullAuto.baseTier = 'yellow';
@@ -814,10 +814,10 @@ approval:
       now: ANOMALY_BASELINE_NOW,
     };
     const fullAuto = createIsolatedApprovalRuntime('anomaly-full-auto');
-    fullAuto.setFullAutoOptions({ enabled: true });
+    fullAuto.setApprovalMode({ mode: 'full' });
     const neverApprove = createIsolatedApprovalRuntime('anomaly-never-approve');
-    neverApprove.setFullAutoOptions({
-      enabled: true,
+    neverApprove.setApprovalMode({
+      mode: 'full',
       neverApproveTools: ['memory'],
     });
 
@@ -1910,12 +1910,12 @@ approval:
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    runtime.setFullAutoOptions({ enabled: true });
+    runtime.setApprovalMode({ mode: 'full' });
 
     const evaluation = runtime.evaluateToolCall({
-      toolName: 'write',
-      argsJson: JSON.stringify({ path: '.env', contents: 'API_KEY=abc' }),
-      latestUserPrompt: 'Write env file',
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
+      latestUserPrompt: 'Clean the build output',
     });
 
     expect(evaluation.baseTier).toBe('red');
@@ -1928,7 +1928,7 @@ approval:
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    runtime.setFullAutoOptions({ enabled: true });
+    runtime.setApprovalMode({ mode: 'full' });
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'write',
@@ -1945,8 +1945,8 @@ approval:
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    runtime.setFullAutoOptions({
-      enabled: true,
+    runtime.setApprovalMode({
+      mode: 'full',
       neverApproveTools: ['write'],
     });
 
@@ -2408,7 +2408,7 @@ browser:
           host: example.com
 `);
     const runtime = new TrustedAgentApprovalRuntime(policyPath);
-    runtime.setFullAutoOptions({ enabled: true });
+    runtime.setApprovalMode({ mode: 'full' });
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'browser_navigate',

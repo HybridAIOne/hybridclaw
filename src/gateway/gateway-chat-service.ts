@@ -151,6 +151,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
+import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
@@ -1072,10 +1073,12 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
-  const fullAutoEnabled = autoApproveTools || isFullAutoEnabled(session);
+  const approvalMode = autoApproveTools
+    ? 'full'
+    : resolveSessionApprovalMode(session);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools
-    : fullAutoEnabled
+    : approvalMode === 'full'
       ? [
           ...FULLAUTO_NEVER_APPROVE_TOOLS,
           ...loadPolicyFullAutoNeverApprove(workspacePath),
@@ -2140,7 +2143,7 @@ async function handleGatewayMessageInner(
         bashProxy: req.bashProxy,
         channelId: req.channelId,
         ralphMaxIterations: resolveSessionRalphIterations(session),
-        fullAutoEnabled,
+        approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
@@ -2255,7 +2258,7 @@ async function handleGatewayMessageInner(
         bashProxy: req.bashProxy,
         channelId: req.channelId,
         ralphMaxIterations: resolveSessionRalphIterations(session),
-        fullAutoEnabled,
+        approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,

@@ -341,7 +341,7 @@ test('a file reference reaches the outbound request but never the recorded call'
         allowedTools: ['http_request'],
         gatewayBaseUrl: baseUrl,
         gatewayApiToken: 'test-token',
-        fullAutoEnabled: true,
+        approvalMode: 'full',
       },
     );
 

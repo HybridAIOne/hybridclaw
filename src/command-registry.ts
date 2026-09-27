@@ -1,4 +1,7 @@
-import { APPROVE_COMMAND_USAGE } from './approval-commands.js';
+import {
+  APPROVALS_SLASH_COMMAND,
+  APPROVE_COMMAND_USAGE,
+} from './approval-commands.js';
 import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
 
 export interface CanonicalTuiMenuPresentation {
@@ -624,6 +627,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'fullauto':
       return parts.length > 1 ? ['fullauto', ...parts.slice(1)] : ['fullauto'];
+
+    case 'approvals':
+      return ['approvals', ...parts.slice(1)];
 
     case 'dream': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -2500,6 +2506,7 @@ function buildSlashCommandCatalogDefinitions(
         },
       ],
     },
+    APPROVALS_SLASH_COMMAND,
     {
       name: 'fullauto',
       description: 'Enable, inspect, disable, or steer session full-auto mode',

@@ -96,6 +96,25 @@ Two important transitions:
 - Pinned-sensitive red actions never become durable trust. `session`, `agent`,
   and `all` fall back to one-time approval for those actions.
 
+## Approval Modes
+
+Each session has an approval mode. It changes how many of the tiers above stop
+for a human. Pick it from the chip next to the model in the web chat composer,
+or with `/approvals mode [ask|auto|full]` on any surface.
+
+| Mode | Label | Green | Yellow | Red |
+| --- | --- | --- | --- | --- |
+| `ask` | Ask first | Runs | Prompts | Prompts; promotable red actions stay red after an approval |
+| `auto` (default) | Auto | Runs | Runs | Prompts |
+| `full` | Full access | Runs | Runs | Runs, except pinned, explicit-approval, and `full_auto.never_approve` actions |
+
+- The mode is stored per session. A new chat and `/reset` start at `auto`;
+  an automatic idle-expiry reset keeps the mode.
+- A running `/fullauto` loop always uses `full` until `/fullauto off`.
+- Trust you already granted (`yes for session`, `agent`, or `all`) still
+  applies in `ask`.
+- Every mode change is written to the audit log as `approval.mode_changed`.
+
 ## Action Reference
 
 | Family | Tier | Examples | Notes |
