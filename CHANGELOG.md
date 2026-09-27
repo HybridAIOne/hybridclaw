@@ -2,14 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Non-ASCII text split across pipe reads**: Umlauts, accents, CJK characters,
-  and emoji that straddled a pipe chunk turned into `�`. This affected the
-  first request each new agent process reads from stdin (the full
-  conversation, system prompt included) and the tool-progress previews the
-  gateway parses from agent output.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
