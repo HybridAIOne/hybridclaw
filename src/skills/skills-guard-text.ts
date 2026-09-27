@@ -31,6 +31,19 @@ export function r(pattern: string): RegExp {
   return new RegExp(pattern, 'i');
 }
 
+/**
+ * `call` at its first occurrence on the line only. `firstOnLine(call)[^\n]*?X`
+ * flags the same lines as `call[^\n]*X`, since an X after any later call also
+ * follows the first, but looks for X once rather than once per call, which
+ * was quadratic on a line of repeated calls; the lazy `*?` reads the line once
+ * instead of to its end and back. `call` leads so the regex engine can skip to
+ * it. End it in something fixed (`curl\s`, not `curl\s+`): the lookbehind
+ * matches it backward from every earlier position on the line.
+ */
+export function firstOnLine(call: string): string {
+  return String.raw`${call}(?<!${call}[^\n]*?${call})`;
+}
+
 const SCANNABLE_EXTENSIONS = new Set<string>([
   '.md',
   '.txt',

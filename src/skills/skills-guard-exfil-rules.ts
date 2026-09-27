@@ -6,7 +6,7 @@
  * its vendor, is ordinary API use rather than exfiltration. These rules are the
  * first slice of the table in `skills-guard.ts`, which owns the verdict.
  */
-import { r, type ThreatRule } from './skills-guard-text.js';
+import { firstOnLine, r, type ThreatRule } from './skills-guard-text.js';
 
 // A variable whose name ENDS in a secret word; `$X_API_URL` and `$KEY_FILE`
 // hold no secret. `(?!\w)` rather than `\b`: same match, half the backtracking.
@@ -27,7 +27,9 @@ const SECRET_SENT_HOME = new RegExp(
 
 export const EXFILTRATION_RULES: ThreatRule[] = [
   {
-    regex: r(String.raw`curl\s+[^\n]*${SECRET_VAR}`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?${SECRET_VAR}`,
+    ),
     ignore: SECRET_SENT_HOME,
     patternId: 'env_exfil_curl',
     severity: 'critical',
@@ -35,7 +37,9 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'curl sends a secret environment variable away from its API',
   },
   {
-    regex: r(String.raw`wget\s+[^\n]*${SECRET_VAR}`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`wget\s`)}[^\n]*?${SECRET_VAR}`,
+    ),
     ignore: SECRET_SENT_HOME,
     patternId: 'env_exfil_wget',
     severity: 'critical',

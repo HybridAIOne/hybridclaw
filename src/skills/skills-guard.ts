@@ -18,6 +18,7 @@ import {
   safeRealPath,
 } from './skills-guard-structure.js';
 import {
+  firstOnLine,
   r,
   scanFile,
   scanTextContent,
@@ -718,21 +719,23 @@ const THREAT_RULES: ThreatRule[] = [
 
   // supply-chain
   {
-    regex: r(String.raw`curl\s+[^\n]*\|\s*(ba)?sh`),
+    regex: r(String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?\|\s*(ba)?sh`),
     patternId: 'curl_pipe_shell',
     severity: 'critical',
     category: 'supply-chain',
     description: 'curl piped to shell (download-and-execute)',
   },
   {
-    regex: r(String.raw`wget\s+[^\n]*-O\s*-\s*\|\s*(ba)?sh`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`wget\s`)}[^\n]*?-O\s*-\s*\|\s*(ba)?sh`,
+    ),
     patternId: 'wget_pipe_shell',
     severity: 'critical',
     category: 'supply-chain',
     description: 'wget piped to shell (download-and-execute)',
   },
   {
-    regex: r(String.raw`curl\s+[^\n]*\|\s*python`),
+    regex: r(String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?\|\s*python`),
     patternId: 'curl_pipe_python',
     severity: 'critical',
     category: 'supply-chain',
