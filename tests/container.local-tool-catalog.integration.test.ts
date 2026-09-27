@@ -1,71 +1,12 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
-import type { ChatMessage, ContainerInput, ContainerOutput, ToolDefinition } from '../container/src/types.js';
+import { describe, expect, test } from 'vitest';
+import type { ChatMessage, ContainerInput } from '../container/src/types.js';
+import { useContainerAgentHarness } from './helpers/container-agent.js';
 
-type RequestBody = { messages: ChatMessage[]; tools: ToolDefinition[] };
-const children: ChildProcess[] = [];
-const servers: http.Server[] = [];
-const dirs: string[] = [];
-afterEach(async () => {
-  await Promise.all(children.splice(0).map((child) => new Promise<void>((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) return resolve();
-    child.once('exit', () => resolve()); child.kill('SIGTERM');
-  })));
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); })));
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
-
-async function harness(replies: Array<Record<string, unknown>>, overrides: Partial<ContainerInput> = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-local-catalog-ipc-')); dirs.push(dir);
-  const ipc = path.join(dir, 'ipc'); fs.mkdirSync(ipc);
-  fs.writeFileSync(path.join(dir, 'notes.txt'), 'synthetic tool result');
-  const requests: RequestBody[] = [];
-  const server = http.createServer(async (req, res) => {
-    let text = ''; for await (const chunk of req) text += chunk;
-    requests.push(JSON.parse(text));
-    const message = replies.shift() ?? { role: 'assistant', content: 'done' };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ id: 'test', choices: [{ message, finish_reason: message.finish_reason ?? (message.tool_calls ? 'tool_calls' : 'stop') }] }));
-  });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing test port');
-  const child = spawn(process.execPath, ['--import', 'tsx', 'container/src/index.ts'], {
-    cwd: process.cwd(),
-    env: { ...process.env, HOME: dir, HYBRIDCLAW_DATA_DIR: dir, HYBRIDCLAW_AGENT_WORKSPACE_ROOT: dir, HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT: dir, HYBRIDCLAW_AGENT_IPC_DIR: ipc, CONTAINER_IDLE_TIMEOUT: '30000' },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  children.push(child);
-  let errors = ''; child.stderr!.on('data', (chunk) => { errors += chunk; });
-  child.stdout!.resume();
-  const input: ContainerInput = {
-    sessionId: 'test-session', agentId: 'test-agent', apiKey: 'test-key', baseUrl: `http://127.0.0.1:${address.port}/v1`, provider: 'mlx', isLocal: true, model: 'mlx/test', chatbotId: '', enableRag: false, channelId: 'web', ralphMaxIterations: 0, skipContainerSystemPrompt: true, persistBashState: false,
-    messages: [{ role: 'user', content: 'Read the synthetic notes' }],
-    ...overrides,
-  };
-  const waitOutput = async (): Promise<ContainerOutput> => {
-    const outputPath = path.join(ipc, 'output.json');
-    const until = Date.now() + 10000;
-    while (Date.now() < until) {
-      // Missing and unparseable both mean not ready yet, as in readOutput (src/infra/ipc.ts).
-      try {
-        const result = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as ContainerOutput;
-        fs.unlinkSync(outputPath); return result;
-      } catch {}
-      if (child.exitCode !== null) throw new Error(errors);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error(`Runtime did not return output: ${errors}`);
-  };
-  child.stdin!.write(`${JSON.stringify(input)}\n`);
-  return { requests, output: await waitOutput(), dir, followup: async (patch: Partial<ContainerInput>) => {
-    fs.writeFileSync(path.join(ipc, 'input.json'), JSON.stringify({ ...input, ...patch }));
-    return waitOutput();
-  } };
+const runContainerAgent = useContainerAgentHarness();
+function harness(replies: Array<Record<string, unknown>>, overrides: Partial<ContainerInput> = {}) {
+  return runContainerAgent(replies, overrides, { 'notes.txt': 'synthetic tool result' });
 }
 function catalog(action: string, name?: string, args?: Record<string, unknown>): Record<string, unknown> {
   return { role: 'assistant', content: null, tool_calls: [{ id: `call_${action}`, type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action, name: name ?? (action === 'list' ? '' : undefined), arguments: args }) } }] };
