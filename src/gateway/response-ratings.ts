@@ -2,6 +2,7 @@
  * Response ratings attribute feedback to the submitting user, while the rated
  * agent remains subject metadata. Unlike the audit reader, this service knows
  * who performed the action; it does not infer actors from response ownership.
+ * Forwarding requires an explicit bot association; global defaults are not ownership.
  */
 import { findAgentConfig } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
@@ -9,11 +10,7 @@ import {
   getHybridAIApiKey,
   getHybridAIAuthStatus,
 } from '../auth/hybridai-auth.js';
-import {
-  HYBRIDAI_BASE_URL,
-  HYBRIDAI_CHATBOT_ID,
-  OBSERVABILITY_BOT_ID,
-} from '../config/config.js';
+import { HYBRIDAI_BASE_URL } from '../config/config.js';
 import { createUserActor } from '../identity/actor.js';
 import { formatLocalOwnerUserId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
@@ -77,8 +74,6 @@ function resolveHybridAIChatFeedbackBotId(
   return (
     resolveProxyAgentChatbotId(target.agent_id) ||
     target.chatbot_id?.trim() ||
-    OBSERVABILITY_BOT_ID.trim() ||
-    HYBRIDAI_CHATBOT_ID.trim() ||
     ''
   );
 }
