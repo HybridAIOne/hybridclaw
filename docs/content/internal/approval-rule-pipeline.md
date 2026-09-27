@@ -29,7 +29,7 @@ slotted between built-in anchors, for example between `stakes` and
 13. `red_agent_trust` applies durable agent trust for non-pinned actions.
 14. `red_workspace_trust` applies durable workspace allowlist trust for non-pinned actions.
 15. `red_promotable` promotes repeat-approved promotable red actions to yellow.
-16. `red_full_auto` allows full-auto mode to promote eligible red actions to yellow.
+16. `red_full_auto` lets full-auto mode promote non-pinned red actions to yellow, unless they require explicit approval or are on the never-approve list.
 17. `red_queue` denies new approval requests when the pending queue is full.
 18. `red_prompt` creates or reuses a pending approval request.
 19. `yellow_full_auto` allows full-auto mode to approve eligible yellow actions.

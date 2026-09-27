@@ -123,8 +123,12 @@ clean for OpenAI SDKs that validate it:
 
 > **Tools are auto-approved when an agent profile is present.** The marker and
 > the header both flag the request as an eval-profile request, which runs the
-> turn with tool approvals bypassed. Only hand out tokens for agent-selected
-> integrations to callers you would also trust to approve that agent's tools.
+> turn with [full-auto approvals](../developer-guide/approvals.md#full-auto).
+> Pinned-sensitive actions, such as reading `.env` files or force pushing, and
+> shell writes outside the workspace still need a human; the reply is then the
+> approval request. Only hand out
+> tokens for agent-selected integrations to callers you would also trust to
+> approve that agent's tools.
 
 ## 5. Handle delegated answers
 

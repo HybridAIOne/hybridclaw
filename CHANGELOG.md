@@ -59,6 +59,18 @@
   URLs included, one character at a time for broken Unicode. That blocked the
   agent for about 300 ms per 2 MB image on every call. The check now uses the
   string built-ins, which also speeds up audit event ingestion.
+- **Full-auto no longer approves pinned-sensitive actions or writes outside
+  the workspace**: Full-auto ran these without a prompt: reading or writing
+  `.env*` files, shell access to `~/.ssh` or `/etc`, recursive reads that can
+  reach them, force pushes, `rm -rf` on an absolute path,
+  `approval.pinned_red` rules, and shell writes outside the workspace and
+  scratch space (`> /opt/out.txt`, `cp app /usr/local/bin/`, `>> ~/.bashrc`).
+  They now wait for a human in every mode, like fetched code. Pinned actions
+  accept one-time approval only; `yes for session`, `agent`, or `all` on a
+  fence write also approves later ones in that scope. This includes
+  OpenAI-compatible requests with an agent or eval profile, which get the
+  approval request as the reply. When an unattended `/fullauto` turn hits
+  one, full-auto turns off for the session.
 
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
