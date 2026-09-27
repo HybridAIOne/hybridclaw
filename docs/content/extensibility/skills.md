@@ -29,6 +29,10 @@ Skill roots include:
   `.git` metadata, which is also not copied into the agent workspace, and
   accepts image and font assets only when their leading bytes match the
   extension
+- skills that reference the runtime secret store
+  (`~/.hybridclaw/credentials.json`, the master key) or tell the agent to write
+  `AGENTS.md`, `CLAUDE.md`, or `~/.hybridclaw/config.json` are blocked at every
+  trust level except bundled
 - bundled repo skills are mirrored into `/workspace/skills/<name>` inside the agent runtime so bundled script paths like `skills/pdf/scripts/...` stay valid
 
 ## Runtime Discovery

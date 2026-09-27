@@ -2,9 +2,9 @@
  * Skill guard — text rules over a skill's files plus the trust-level policy
  * that turns the verdict into allow or block.
  *
- * Critical rules block at every non-builtin trust level, so they must match
- * an action (writing an instruction file, piping a download to a shell), not
- * a mention. What counts as skill content is decided by the structure walk in
+ * Critical rules block at every non-builtin trust level, so each must match
+ * the threat, not a mention or lookalike syntax; a test holds the bundled
+ * skills to zero critical findings. Skill content is decided by the walk in
  * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
  * heuristics, and a loaded skill's actions still go through runtime approvals.
  */
@@ -15,6 +15,11 @@ import {
   type SkillFileEntry,
   safeRealPath,
 } from './skills-guard-structure.js';
+import {
+  scanFile,
+  scanTextContent,
+  type ThreatRule,
+} from './skills-guard-text.js';
 
 export type SkillGuardTrustLevel =
   | 'builtin'
@@ -62,87 +67,11 @@ export interface SkillGuardDecision {
   result: SkillGuardScanResult;
 }
 
-interface ThreatRule {
-  patternId: string;
-  severity: SkillGuardSeverity;
-  category: Exclude<SkillGuardCategory, 'structural'>;
-  description: string;
-  regex: RegExp;
-  /** Spans removed from a line before `regex` is tested. */
-  ignore?: RegExp;
-}
-
 interface ScanCacheEntry {
   mtimeSignature: string;
   contentHash: string;
   result: SkillGuardScanResult;
 }
-
-const SCANNABLE_EXTENSIONS = new Set<string>([
-  '.md',
-  '.txt',
-  '.py',
-  '.sh',
-  '.bash',
-  '.js',
-  '.ts',
-  '.rb',
-  '.yaml',
-  '.yml',
-  '.json',
-  '.toml',
-  '.cfg',
-  '.ini',
-  '.conf',
-  '.html',
-  '.css',
-  '.xml',
-  '.tex',
-  '.r',
-  '.jl',
-  '.pl',
-  '.php',
-]);
-
-const INVISIBLE_CHARS: readonly string[] = [
-  '\u200b',
-  '\u200c',
-  '\u200d',
-  '\u2060',
-  '\u2062',
-  '\u2063',
-  '\u2064',
-  '\ufeff',
-  '\u202a',
-  '\u202b',
-  '\u202c',
-  '\u202d',
-  '\u202e',
-  '\u2066',
-  '\u2067',
-  '\u2068',
-  '\u2069',
-] as const;
-
-const INVISIBLE_CHAR_NAMES: Record<string, string> = {
-  '\u200b': 'zero-width space',
-  '\u200c': 'zero-width non-joiner',
-  '\u200d': 'zero-width joiner',
-  '\u2060': 'word joiner',
-  '\u2062': 'invisible times',
-  '\u2063': 'invisible separator',
-  '\u2064': 'invisible plus',
-  '\ufeff': 'BOM/zero-width no-break space',
-  '\u202a': 'LTR embedding',
-  '\u202b': 'RTL embedding',
-  '\u202c': 'pop directional formatting',
-  '\u202d': 'LTR override',
-  '\u202e': 'RTL override',
-  '\u2066': 'LTR isolate',
-  '\u2067': 'RTL isolate',
-  '\u2068': 'first strong isolate',
-  '\u2069': 'pop directional isolate',
-};
 
 const INSTALL_POLICY: Record<
   SkillGuardTrustLevel,
@@ -180,9 +109,9 @@ function r(pattern: string): RegExp {
 // repo, not file access.
 const RELATIVE_DOC_LINK = /\]\((?:\.\.\/)+[^\s)]*\.md(?:#[^\s)]*)?\)/g;
 
-// Files agents load as standing instructions, including HybridClaw's own
-// workspace AGENTS.md.
-const AGENT_INSTRUCTION_FILE = String.raw`(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.clinerules)`;
+// Files that shape every later session: instruction files agents load
+// (including HybridClaw's workspace AGENTS.md) and HybridClaw's runtime config.
+const AGENT_CONFIG_FILE = String.raw`(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.clinerules|\.hybridclaw/config\.json)`;
 const WRITE_VERB = String.raw`(?:(?:write|append|prepend|insert|overwrit|modif|update)\w*|(?:add|edit)(?:s|ed|ing)?)`;
 
 const THREAT_RULES: ThreatRule[] = [
@@ -275,11 +204,15 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'references Docker config directory',
   },
   {
-    regex: r(String.raw`\$HOME/\.hermes/\.env|\~/\.hermes/\.env`),
-    patternId: 'hermes_env_access',
+    // Mirrors runtime-secrets.ts (a test keeps them in sync); importing it
+    // here would break every test that mocks that module partially.
+    regex: r(
+      String.raw`\.hybridclaw/credentials\.json|credentials\.master\.key|hybridclaw_master_key`,
+    ),
+    patternId: 'runtime_secrets_access',
     severity: 'critical',
     category: 'exfiltration',
-    description: 'directly references Hermes secrets file',
+    description: "references HybridClaw's secret store or master key",
   },
   {
     regex: r(
@@ -298,11 +231,13 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'dumps all environment variables',
   },
   {
-    regex: r(String.raw`os\.environ\b(?!\s*\.get\s*\(\s*["']PATH)`),
+    regex: r(
+      String.raw`os\.environ\b(?!\s*(?:\[|\.(?:get|setdefault|pop)\s*\())`,
+    ),
     patternId: 'python_os_environ',
     severity: 'high',
     category: 'exfiltration',
-    description: 'accesses os.environ (potential env dump)',
+    description: 'uses the whole os.environ, not one key (potential env dump)',
   },
   {
     regex: r(
@@ -328,7 +263,11 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'reads secret via Ruby ENV[]',
   },
   {
-    regex: r(String.raw`\b(dig|nslookup|host)\s+[^\n]*\$`),
+    // The queried name (first argument after options) carries the `$`, so
+    // `--host "$HOST"` and the word "host" in prose do not match.
+    regex: r(
+      String.raw`(?<!-)\b(?:dig|nslookup|host)\s+(?:[-+@]\S*(?:\s+[^\s$"'@+-][^\s$]*)?\s+)*["']?[^\s"'$]*\$`,
+    ),
     patternId: 'dns_exfil',
     severity: 'critical',
     category: 'exfiltration',
@@ -473,7 +412,10 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'DAN jailbreak attempt',
   },
   {
-    regex: r(String.raw`\bdeveloper\s+mode\b.*\benabled?\b`),
+    // The jailbreak's own phrases; "enable Developer Mode" is device setup.
+    regex: r(
+      String.raw`\b(?:chatgpt|gpt|assistant|ai|model|llm)\s+with\s+developer\s+mode\s+enabled\b|\b(?:simulate|stay\s+in)\s+developer\s+mode\b|\bdeveloper\s+mode\s+output\b`,
+    ),
     patternId: 'jailbreak_dev_mode',
     severity: 'critical',
     category: 'prompt-injection',
@@ -510,8 +452,9 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'fake update announcement',
   },
   {
+    // A claim aimed at the agent ("NEW POLICY:", "…you must"), not news prose.
     regex: r(
-      String.raw`new\s+policy|updated\s+guidelines|revised\s+instructions`,
+      String.raw`(?:new\s+policy|updated\s+guidelines|revised\s+instructions)(?:\s*:|[^\n]*\byou\s+(?:must|should|shall|will|are|may|can)\b)`,
     ),
     patternId: 'fake_policy',
     severity: 'medium',
@@ -613,6 +556,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r('\\`[^\\`]*\\$\\([^)]+\\)[^\\`]*\\`'),
+    skipFiles: /\.md$/i, // backticks delimit code spans in Markdown
     patternId: 'backtick_subshell',
     severity: 'medium',
     category: 'destructive-ops',
@@ -776,22 +720,15 @@ const THREAT_RULES: ThreatRule[] = [
     // AGENTS.md", install docs), which is not persistence.
     regex: r(
       [
-        String.raw`(?<!(?:\bnot|\bnever|n['’]t)\s+)\b${WRITE_VERB}\b.*${AGENT_INSTRUCTION_FILE}`,
-        String.raw`(?:\s>>?|\btee\b(?:\s+-a)?)\s*\S*${AGENT_INSTRUCTION_FILE}`,
-        String.raw`${AGENT_INSTRUCTION_FILE}["']?\s*(?:,\s*["'][wa]|\)\s*\.\s*write)`,
+        String.raw`(?<!(?:\bnot|\bnever|n['’]t)\s+)\b${WRITE_VERB}\b.*${AGENT_CONFIG_FILE}`,
+        String.raw`(?:\s>>?|\btee\b(?:\s+-a)?)\s*\S*${AGENT_CONFIG_FILE}`,
+        String.raw`${AGENT_CONFIG_FILE}["']?\s*(?:,\s*["'][wa]|\)\s*\.\s*write)`,
       ].join('|'),
     ),
     patternId: 'agent_config_mod',
     severity: 'critical',
     category: 'persistence',
-    description: 'writes to agent instruction files (instruction persistence)',
-  },
-  {
-    regex: r(String.raw`\.hermes/config\.yaml|\.hermes/SOUL\.md`),
-    patternId: 'hermes_config_mod',
-    severity: 'critical',
-    category: 'persistence',
-    description: 'references Hermes configuration files directly',
+    description: 'writes to agent instruction or config files (persistence)',
   },
   {
     regex: r(String.raw`\.claude/settings|\.codex/config`),
@@ -817,11 +754,15 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'uses tunneling service for external access',
   },
   {
-    regex: r(String.raw`\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}`),
+    // Skips loopback, private, link-local, unspecified, and documentation
+    // ranges: those are local services or examples, not callback targets.
+    regex: r(
+      String.raw`(?<![\d.])(?!(?:127|10|0)\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}`,
+    ),
     patternId: 'hardcoded_ip_port',
     severity: 'medium',
     category: 'reverse-shells',
-    description: 'hardcoded IP address with port',
+    description: 'hardcoded public IP address with port',
   },
   {
     regex: r(String.raw`0\.0\.0\.0:\d+|INADDR_ANY`),
@@ -1053,6 +994,8 @@ const THREAT_RULES: ThreatRule[] = [
     regex: r(
       String.raw`(?:api[_-]?key|token|secret|password)\s*[=:]\s*["'][A-Za-z0-9+/=_-]{20,}`,
     ),
+    // A quoted SHOUTY_SNAKE value names an env var; it embeds no secret.
+    ignore: /["'][A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+["']/g,
     patternId: 'hardcoded_secret',
     severity: 'critical',
     category: 'credential-exposure',
@@ -1113,90 +1056,17 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(
-      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\}`,
+      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token(?!s\b))[\w$]*\s*\}`,
     ),
+    // SecretRefs are JS objects: `${...}` in shell and Markdown examples is
+    // parameter expansion, and `${totalTokens}` counts LLM tokens.
+    skipFiles: /\.(?:md|sh|bash)$/i,
     patternId: 'secret_ref_template_interpolation',
     severity: 'critical',
     category: 'credential-exposure',
     description: 'template interpolation of a SecretRef or credential ref',
   },
 ];
-
-function scanFile(entry: SkillFileEntry): SkillGuardFinding[] {
-  if (entry.isBinary) return [];
-  if (
-    entry.extension !== '.md' &&
-    entry.relativePath !== 'SKILL.md' &&
-    !SCANNABLE_EXTENSIONS.has(entry.extension)
-  ) {
-    return [];
-  }
-
-  let content: string;
-  try {
-    content = fs.readFileSync(entry.absolutePath, 'utf-8');
-  } catch {
-    return [];
-  }
-
-  return scanTextContent(entry.relativePath, content);
-}
-
-function scanTextContent(
-  relativePath: string,
-  content: string,
-): SkillGuardFinding[] {
-  const normalizedPath = relativePath.trim() || 'SKILL.md';
-
-  const lines = content.split('\n');
-  const seen = new Set<string>();
-  const findings: SkillGuardFinding[] = [];
-
-  for (const rule of THREAT_RULES) {
-    for (let i = 0; i < lines.length; i += 1) {
-      const lineNo = i + 1;
-      const line = lines[i] || '';
-      const dedupeKey = `${rule.patternId}:${lineNo}`;
-      if (seen.has(dedupeKey)) continue;
-      const text = rule.ignore ? line.replace(rule.ignore, '') : line;
-      if (!rule.regex.test(text)) continue;
-      seen.add(dedupeKey);
-      const matched = line.trim();
-      findings.push({
-        patternId: rule.patternId,
-        severity: rule.severity,
-        category: rule.category,
-        file: normalizedPath,
-        line: lineNo,
-        match: matched.length > 120 ? `${matched.slice(0, 117)}...` : matched,
-        description: rule.description,
-      });
-    }
-  }
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const lineNo = i + 1;
-    const line = lines[i] || '';
-    for (const char of INVISIBLE_CHARS) {
-      if (!line.includes(char)) continue;
-      const charName =
-        INVISIBLE_CHAR_NAMES[char] ||
-        `U+${char.codePointAt(0)?.toString(16).toUpperCase()}`;
-      findings.push({
-        patternId: 'invisible_unicode',
-        severity: 'high',
-        category: 'prompt-injection',
-        file: normalizedPath,
-        line: lineNo,
-        match: `U+${(char.codePointAt(0) || 0).toString(16).toUpperCase().padStart(4, '0')} (${charName})`,
-        description: `invisible unicode character ${charName} (possible text hiding/injection)`,
-      });
-      break;
-    }
-  }
-
-  return findings;
-}
 
 function determineVerdict(findings: SkillGuardFinding[]): SkillGuardVerdict {
   if (findings.length === 0) return 'safe';
@@ -1295,7 +1165,7 @@ function scanSkillWithCache(params: {
 
   const findings: SkillGuardFinding[] = [
     ...structure.findings,
-    ...structure.files.flatMap((file) => scanFile(file)),
+    ...structure.files.flatMap((file) => scanFile(file, THREAT_RULES)),
   ];
 
   const result: SkillGuardScanResult = {
@@ -1351,6 +1221,7 @@ export function scanSkillContent(params: {
   const findings = scanTextContent(
     params.fileName || 'SKILL.md',
     params.content,
+    THREAT_RULES,
   );
   const verdict = determineVerdict(findings);
   return {
