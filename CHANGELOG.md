@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **Prompt-too-long rejections recover**: When a provider rejects a request
+  because the prompt exceeds the model's context window, the agent shrinks its
+  history and retries instead of ending the turn with an API error. The rest
+  of the turn stays below the size the provider rejected, which the
+  character-based token estimate had let through. The retries count against
+  `sessionCompaction.inLoopGuard.maxRetries`, and a disabled in-loop guard
+  still fails fast. Codex stream failures report the provider's error instead
+  of "Codex stream ended with status failed".
 - **macOS browser control window isolation**: The `mac-cua` browser provider
   opens a dedicated browser window instead of taking over an existing one, so
   it no longer drives the tab holding the web chat.
