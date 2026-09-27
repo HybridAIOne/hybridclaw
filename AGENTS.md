@@ -175,6 +175,24 @@ core, not dead code).
 - Extend the existing private-network (SSRF) guard, pinned-path matcher,
   approval-policy parser, or secret redactor; never add another copy.
 
+### 3.7 Workers Are Disposable
+
+- A worker (agent container or host agent process) can die between any two
+  turns: the 5-minute idle timeout, a provider or credential switch, eviction
+  under pool pressure, a crash, or a gateway restart.
+- Anything that must outlive a worker lives on the gateway side: SQLite and
+  the data dir, or the host-mounted workspace. Per-session facts go in the
+  session state dir (`container/src/session-state.ts`).
+- Worker memory, worker `/tmp`, and worker processes hold only caches the next
+  worker rebuilds from `ContainerInput`, and live handles (running commands,
+  open browser pages, MCP connections) that die with it.
+- Never promise the model or the user session-long behavior that only the
+  worker remembers. A guard that depends on earlier calls persists what it
+  remembered instead of failing open, and a tool whose live handle is gone
+  says so on its next call.
+- Adding worker state? Update "Worker State" in
+  `docs/content/developer-guide/runtime.md`.
+
 ---
 
 ## 4) Risk Tiers by Path

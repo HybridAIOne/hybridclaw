@@ -60,6 +60,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { SessionStateSet } from './session-state.js';
 import {
   createStakesClassifier,
   type StakesClassifier,
@@ -2145,7 +2146,9 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
   // Files curl/wget calls saved this session; running one is fetched code.
-  private readonly fetchedFiles = new Set<string>();
+  // Persisted per session: a worker restart between `curl -o f` and `sh f`
+  // must not forget the download.
+  private readonly fetchedFiles = new SessionStateSet('fetched-files.json');
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
@@ -2217,6 +2220,11 @@ export class TrustedAgentApprovalRuntime {
       decision: outcome.decision,
       stakesScore,
     };
+  }
+
+  /** Loads the session's persisted state; call before each turn. */
+  setSession(sessionId: string): void {
+    this.fetchedFiles.bindSession(sessionId);
   }
 
   setFullAutoOptions(params?: {

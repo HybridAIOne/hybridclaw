@@ -343,7 +343,7 @@ predicate.
 | Reply or command | Internal scope | Persistence | Stored in | Notes |
 | --- | --- | --- | --- | --- |
 | `yes` or `/approve yes` | Once | Current blocked action only | Not stored | Safest one-off approval |
-| `yes for session` or `/approve session` | Session | Current runtime session only | In-memory only | Best when you are actively iterating in the same session |
+| `yes for session` or `/approve session` | Session | Until the session's worker exits (5 idle minutes, a provider switch, or a crash; see [Worker State](./runtime.md#worker-state)) | Worker memory only | Best when you are actively iterating in the same session |
 | `yes for agent` or `/approve agent` | Agent | Durable for the current agent workspace | `.hybridclaw/approval-agent-trust.json` | Survives runtime restarts |
 | `yes for all` or `/approve all` | Workspace allowlist | Durable for the workspace | `approval-trust.json` | Broader than agent-only trust |
 | `no`, `skip`, or `/approve no` | Deny | Current blocked action only | Not stored as trust | The assistant continues without that action |

@@ -7,6 +7,20 @@
 - **Empty auxiliary model replies use the fallback chain**: Session titles and
   other auxiliary tasks try the next eligible model when a provider returns
   blank text, and record the empty attempt as a failure.
+- **Bash keeps its working directory when the sandbox restarts**: A session's
+  sandbox restarts after 5 idle minutes, a provider switch, or a crash. The
+  next bash call used to start in the workspace root while the agent assumed
+  it was still in the directory it had changed to. The working directory now
+  carries over for the whole session; exported variables and aliases still
+  end with the sandbox, and the first bash result after a restart says so.
+- **Downloaded scripts stay flagged across sandbox restarts**: Running a file
+  that an earlier `curl` or `wget` call in the session saved needs explicit
+  approval. A sandbox restart between the download and the run used to forget
+  the download, so full-auto could approve running it.
+- **2FA resume after a sandbox restart**: When the page waiting for a 2FA code
+  was lost with its sandbox, `browser_resume_interaction` consumed the
+  operator's code and then failed to fill it. It now fails at once, leaves the
+  code unused, and tells the agent to repeat the login.
 ### Changed
 
 - **Eval harness moved out of the product build**: The benchmark and eval

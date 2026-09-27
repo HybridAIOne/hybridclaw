@@ -2223,6 +2223,7 @@ async function main(): Promise<void> {
     firstInput.scheduleSideEffectsEnabled !== false,
   );
   setSessionContext(firstInput.sessionId);
+  approvalRuntime.setSession(firstInput.sessionId);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
@@ -2434,6 +2435,7 @@ async function main(): Promise<void> {
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
+    approvalRuntime.setSession(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     setGatewayContext(
