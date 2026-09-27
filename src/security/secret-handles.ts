@@ -2,7 +2,8 @@ import type { SecretRef } from './secret-refs.js';
 
 const SECRET_HANDLE_BRAND: unique symbol = Symbol('SecretHandle');
 
-export type SecretSinkKind = 'dom' | 'http' | 'unsafe';
+export const SECRET_SINK_KINDS = ['dom', 'http', 'unsafe'] as const;
+export type SecretSinkKind = (typeof SECRET_SINK_KINDS)[number];
 
 export interface SecretHandle {
   readonly [SECRET_HANDLE_BRAND]: true;

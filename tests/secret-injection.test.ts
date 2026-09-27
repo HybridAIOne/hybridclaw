@@ -230,6 +230,258 @@ describe('secret resolution policy', () => {
     expect(() => readSecretPolicyStateFromDocument(policy)).toThrow(error);
   });
 
+  const allowWhen = (when: unknown) => ({ when, action: 'allow' });
+
+  test.each([
+    {
+      name: 'a misspelled when key',
+      rule: { wehn: { predicate: 'secret.id', equals: 'DATEV_*' }, action: 'allow' },
+      error: /secret rule #1 .*"wehn"/,
+    },
+    {
+      name: 'its when body indented as rule keys',
+      rule: { when: null, predicate: 'secret.id', equals: 'DATEV_*', action: 'allow' },
+      error: /secret rule #1 .*"predicate"/,
+    },
+    { name: 'a scalar rule', rule: 'allow', error: /secret rule #1 .*"allow"/ },
+    {
+      name: 'a misspelled composite parameter',
+      rule: allowWhen({
+        predicate: 'secret_resolve_allowed',
+        id: 'DATEV_*',
+        hots: '*.datev.de',
+      }),
+      error: /secret rule #1 when .*"hots"/,
+    },
+    {
+      name: 'a misspelled parameter inside all',
+      rule: allowWhen({
+        all: [
+          { predicate: 'secret.id', equals: 'DATEV_*' },
+          { predicate: 'secret.host', equal: '*.datev.de' },
+        ],
+      }),
+      error: /secret rule #1 when\.all\[1\] .*"equal"/,
+    },
+    {
+      name: 'a misspelled parameter inside not',
+      rule: allowWhen({ not: { predicate: 'skill.name', equal: 'untrusted' } }),
+      error: /secret rule #1 when\.not .*"equal"/,
+    },
+    {
+      name: 'an unknown predicate',
+      rule: allowWhen({ predicate: 'secret.hots', equals: '*.datev.de' }),
+      error: /secret rule #1 when predicate .*"secret\.hots"/,
+    },
+    {
+      name: 'an inherited object key as predicate',
+      rule: allowWhen({ predicate: 'constructor' }),
+      error: /secret rule #1 when predicate .*"constructor"/,
+    },
+    { name: 'a string when', rule: allowWhen('always'), error: /secret rule #1 when .*"always"/ },
+    { name: 'a false when', rule: allowWhen(false), error: /secret rule #1 when .*false/ },
+    { name: 'an empty when', rule: allowWhen(null), error: /secret rule #1 when .*null/ },
+    { name: 'an empty when list', rule: allowWhen([]), error: /secret rule #1 when .*empty list/ },
+    {
+      name: 'an empty all list',
+      rule: allowWhen({ all: [] }),
+      error: /secret rule #1 when\.all .*empty list/,
+    },
+    {
+      name: 'any given as a mapping',
+      rule: allowWhen({ any: { predicate: 'secret.id', equals: 'DATEV_*' } }),
+      error: /secret rule #1 when\.any .*"secret\.id"/,
+    },
+    {
+      name: 'two operators in one node',
+      rule: allowWhen({
+        predicate: 'secret.id',
+        equals: 'DATEV_*',
+        not: { predicate: 'agent.id', equals: 'main' },
+      }),
+      error: /secret rule #1 when .*"not"/,
+    },
+    {
+      name: 'a parameter next to all',
+      rule: allowWhen({
+        all: [{ predicate: 'secret.id', equals: 'DATEV_*' }],
+        host: '*.datev.de',
+      }),
+      error: /secret rule #1 when .*"host"/,
+    },
+    {
+      name: 'a predicate without parameters',
+      rule: allowWhen({ predicate: 'secret.id' }),
+      error: /secret rule #1 when needs .*equals, matches, in/,
+    },
+    {
+      name: 'two spellings of one parameter',
+      rule: allowWhen({
+        predicate: 'secret_resolve_allowed',
+        id: 'DATEV_*',
+        secret: '*',
+      }),
+      error: /secret rule #1 when sets both id and secret/,
+    },
+    {
+      name: 'an empty parameter value',
+      rule: allowWhen({
+        predicate: 'secret_resolve_allowed',
+        id: null,
+        host: '*.datev.de',
+      }),
+      error: /secret rule #1 when\.id .*null/,
+    },
+    {
+      name: 'a mapping parameter value',
+      rule: allowWhen({
+        predicate: 'secret_resolve_allowed',
+        skill: { equals: 'datev-login' },
+      }),
+      error: /secret rule #1 when\.skill .*"datev-login"/,
+    },
+    {
+      name: 'a host list',
+      rule: allowWhen({
+        predicate: 'secret.host',
+        equals: ['*.datev.de', 'datev.de'],
+      }),
+      error: /secret rule #1 when\.equals .*\["\*\.datev\.de"/,
+    },
+    {
+      name: 'an unknown sink',
+      rule: allowWhen({ predicate: 'secret_resolve_allowed', sink: 'websocket' }),
+      error: /secret rule #1 when\.sink .*"websocket"/,
+    },
+    {
+      name: 'a misspelled sink in a list',
+      rule: allowWhen({ predicate: 'secret.sink', in: ['dom', 'htpp'] }),
+      error: /secret rule #1 when\.in .*"htpp"/,
+    },
+    {
+      name: 'an unknown source',
+      rule: allowWhen({ predicate: 'secret.source', equals: 'env' }),
+      error: /secret rule #1 when\.equals .*"env"/,
+    },
+  ])('a rule with $name throws instead of resolving', async ({
+    rule,
+    error,
+  }) => {
+    const { readSecretPolicyStateFromDocument } = await import(
+      '../src/security/secret-policy.js'
+    );
+
+    expect(() =>
+      readSecretPolicyStateFromDocument({
+        secret: { default: 'deny', rules: [rule] },
+      }),
+    ).toThrow(error);
+  });
+
+  test.each([
+    {
+      name: 'annotation and managed_by keys',
+      rule: {
+        id: 'allow-datev',
+        description: 'DATEV login',
+        comment: 'owner: finance',
+        managed_by_example: true,
+        ...allowWhen({ predicate: 'secret.id', equals: 'DATEV_*' }),
+      },
+      decision: 'allow',
+    },
+    {
+      name: 'a when list',
+      rule: allowWhen([
+        { predicate: 'secret.id', equals: 'DATEV_*' },
+        { predicate: 'secret.sink', equals: 'http' },
+      ]),
+      decision: 'deny',
+    },
+    {
+      name: 'not over a list',
+      rule: allowWhen({
+        not: [
+          { predicate: 'secret.id', equals: 'DATEV_*' },
+          { predicate: 'secret.sink', equals: 'http' },
+        ],
+      }),
+      decision: 'allow',
+    },
+    {
+      name: 'mixed-case sinks',
+      rule: allowWhen({ predicate: 'secret_resolve_allowed', sinks: ['HTTP', 'Dom'] }),
+      decision: 'allow',
+    },
+    {
+      name: 'a wildcard sink',
+      rule: allowWhen({ predicate: 'secret.sink', in: '*' }),
+      decision: 'allow',
+    },
+  ])('a rule with $name resolves as $decision', async ({ rule, decision }) => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state: readSecretPolicyStateFromDocument({
+          secret: { default: 'deny', rules: [rule] },
+        }),
+        context: {
+          agentId: 'main',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        },
+      }).decision,
+    ).toBe(decision);
+  });
+
+  test('parses the rule secret route add writes', async () => {
+    const workspacePath = makeTempDir();
+    const policyPath = path.join(workspacePath, '.hybridclaw', 'policy.yaml');
+    fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+    fs.writeFileSync(policyPath, ['secret:', '  default: deny', ''].join('\n'));
+    const { allowHttpSecretRouteInWorkspacePolicy } = await import(
+      '../src/policy/secret-route-policy.js'
+    );
+    const {
+      clearSecretPolicyStateCache,
+      evaluateSecretPolicyAccess,
+      readWorkspaceSecretPolicyState,
+    } = await import('../src/security/secret-policy.js');
+
+    allowHttpSecretRouteInWorkspacePolicy({
+      workspacePath,
+      urlPrefix: 'https://api.example.com/v1',
+      header: 'X-API-Key',
+      secret: { source: 'store', id: 'EXAMPLE_API_KEY' },
+      agentId: 'main',
+    });
+    clearSecretPolicyStateCache();
+    const state = readWorkspaceSecretPolicyState(workspacePath);
+    const context = {
+      agentId: 'main',
+      secretSource: 'store' as const,
+      secretId: 'EXAMPLE_API_KEY',
+      sinkKind: 'http' as const,
+      host: 'api.example.com',
+      selector: 'X-API-Key',
+    };
+
+    expect(evaluateSecretPolicyAccess({ state, context }).decision).toBe(
+      'allow',
+    );
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: { ...context, host: 'evil.example.com' },
+      }).decision,
+    ).toBe('deny');
+  });
+
   test('allows host and selector scoped rules through the F3 policy engine', async () => {
     const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
       await import('../src/security/secret-policy.js');
@@ -656,6 +908,31 @@ describe('gateway secret injection', () => {
     {
       name: 'a misspelled rule action',
       policy: ['secret:', '  rules:', '    - action: denny'],
+    },
+    {
+      name: 'a misspelled rule parameter',
+      policy: [
+        'secret:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      when:',
+        '        predicate: secret_resolve_allowed',
+        '        id: AIRTABLE_PAT',
+        '        hots: "*.example.com"',
+      ],
+    },
+    {
+      name: 'a misspelled when key',
+      policy: [
+        'secret:',
+        '  default: deny',
+        '  rules:',
+        '    - action: allow',
+        '      wehn:',
+        '        predicate: secret.host',
+        '        equals: "*.example.com"',
+      ],
     },
   ])('fails the resolve on $name without releasing the secret', async ({
     policy,
