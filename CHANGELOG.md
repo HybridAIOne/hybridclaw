@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **Docker launch passes the gateway token by environment**: The container
-  runner hands `docker run` the gateway token through the Docker CLI's
-  environment instead of its argument list, and gateway logs leave out the
-  arguments of a failed child process.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
