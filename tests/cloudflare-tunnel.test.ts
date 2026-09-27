@@ -11,6 +11,10 @@ import {
   type CloudflaredProcess,
   CloudflareTunnelProvider,
 } from '../src/tunnel/cloudflare-tunnel-provider.js';
+import {
+  makeStdiolessChildProcess,
+  settleCatchingUncaught,
+} from './helpers/spawn-fd-exhaustion.ts';
 
 class FakeCloudflaredProcess
   extends EventEmitter
@@ -426,5 +430,33 @@ describe('CloudflareTunnelProvider', () => {
     }
     expect(thrown?.message).toContain('<redacted>');
     expect(thrown?.message).not.toContain('cf-token-secret');
+  });
+
+  it('fails to start without crashing when spawn runs out of file descriptors', async () => {
+    const runProcess = vi.fn((args: string[]) =>
+      makeStdiolessChildProcess('cloudflared', args),
+    );
+    const provider = new CloudflareTunnelProvider({
+      publicUrl: 'https://bot.example.com',
+      readSecret: (name) =>
+        name === CLOUDFLARE_TUNNEL_TOKEN_SECRET ? 'cf-token-secret' : null,
+      recordAuditEvent: makeStatusAuditRecorder(),
+      runProcess,
+    });
+
+    const { outcome, uncaught } = await settleCatchingUncaught(() =>
+      provider.start(),
+    );
+
+    expect(uncaught).toEqual([]);
+    expect(outcome).toMatchObject({
+      status: 'rejected',
+      reason: { message: expect.stringContaining('spawn cloudflared EMFILE') },
+    });
+    expect(provider.status()).toMatchObject({
+      running: false,
+      state: 'down',
+      last_error: 'spawn cloudflared EMFILE',
+    });
   });
 });

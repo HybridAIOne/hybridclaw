@@ -29,6 +29,41 @@ function buildResponse(usage: Record<string, unknown>): ChatCompletionResponse {
 }
 
 describe('accumulateApiUsage cache normalization', () => {
+  test.each([
+    [
+      'HybridAI prompt_tokens_details',
+      {
+        prompt_tokens: 37_300,
+        completion_tokens: 23,
+        total_tokens: 37_323,
+        prompt_tokens_details: {
+          cached_tokens: 34_778,
+          cache_write_tokens: 2_519,
+        },
+      },
+    ],
+    [
+      'Responses API input_tokens_details',
+      {
+        input_tokens: 37_300,
+        output_tokens: 23,
+        total_tokens: 37_323,
+        input_tokens_details: {
+          cached_tokens: 34_778,
+          cache_write_tokens: 2_519,
+        },
+      },
+    ],
+  ])('reads cache reads and writes from %s', (_label, usage) => {
+    const stats = createTokenUsageStats();
+    accumulateApiUsage(stats, buildResponse(usage));
+
+    expect(stats.apiCacheUsageAvailable).toBe(true);
+    expect(stats.apiCacheReadTokens).toBe(34_778);
+    expect(stats.apiCacheWriteTokens).toBe(2_519);
+    expect(stats.apiPromptTokens).toBe(37_300);
+  });
+
   test('parses cache_read_input_tokens and cache_creation_input_tokens', () => {
     const stats = createTokenUsageStats();
     accumulateApiUsage(
