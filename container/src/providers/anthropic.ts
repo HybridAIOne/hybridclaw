@@ -587,6 +587,23 @@ function mapStopReason(stopReason: string | null | undefined): string {
   return stopReason || 'stop';
 }
 
+/**
+ * Stream usage arrives in parts: message_start carries the input and cache
+ * counts, message_delta the cumulative output count. Fields an event omits
+ * keep their earlier values.
+ */
+function mergeUsageFields(
+  previous: Record<string, unknown>,
+  next: unknown,
+): Record<string, unknown> {
+  if (!isRecord(next)) return previous;
+  const merged = { ...previous };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === 'number') merged[key] = value;
+  }
+  return merged;
+}
+
 function parseUsage(
   value: unknown,
 ): ChatCompletionResponse['usage'] | undefined {
@@ -919,6 +936,7 @@ export async function callAnthropicProviderStream(
   const decoder = new TextDecoder();
   const blocks = new Map<number, AnthropicStreamBlock>();
   let usage: ChatCompletionResponse['usage'] | undefined;
+  let usageFields: Record<string, unknown> = {};
   let responseId = 'message';
   let responseModel = stripAnthropicModelPrefix(args.model);
   let finishReason = 'stop';
@@ -959,7 +977,8 @@ export async function callAnthropicProviderStream(
         if (typeof event.message.model === 'string' && event.message.model) {
           responseModel = event.message.model;
         }
-        usage = parseUsage(event.message.usage) || usage;
+        usageFields = mergeUsageFields(usageFields, event.message.usage);
+        usage = parseUsage(usageFields) || usage;
         continue;
       }
 
@@ -1079,7 +1098,8 @@ export async function callAnthropicProviderStream(
       }
 
       if (event.type === 'message_delta') {
-        usage = parseUsage(event.usage) || usage;
+        usageFields = mergeUsageFields(usageFields, event.usage);
+        usage = parseUsage(usageFields) || usage;
         if (
           isRecord(event.delta) &&
           typeof event.delta.stop_reason === 'string' &&

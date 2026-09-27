@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **Prompt-cache usage for more providers**: Streaming Anthropic calls keep
+  their input and cache token counts; the final stream event used to replace
+  them with output-only usage, so these calls recorded zero prompt tokens. Cache
+  reads from `openai-codex` (Responses API) and cache writes reported by
+  HybridAI and `openai-codex` are now counted, so usage, cost estimates, and
+  cache hit rates include them.
 - **Faster model calls with images on OpenAI-compatible providers**: Every
   call to vLLM, LM Studio, llama.cpp, MLX, OpenRouter, and the other
   OpenAI-compatible providers re-checked each message, image and audio data
