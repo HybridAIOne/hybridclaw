@@ -208,11 +208,16 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'reads a secret via os.getenv() (usual API-key access)',
   },
   {
-    regex: r(String.raw`process\.env\[`),
+    // As python_os_environ: `process.env[NAME]` is how every helper reads its
+    // config, and spreading the environment into a child process's `env` only
+    // passes on what the child inherits anyway.
+    regex: r(
+      String.raw`(?:JSON\.stringify|Object\.(?:entries|values)|console\.\w+)\s*\(\s*(?:\{\s*\.\.\.\s*)?process\.env\s*[,)}]|for\s*\(\s*(?:const|let|var)\s+[\w$]+\s+in\s+process\.env\b`,
+    ),
     patternId: 'node_process_env',
     severity: 'high',
     category: 'exfiltration',
-    description: 'accesses process.env (Node.js environment)',
+    description: 'uses the whole process.env, not one key (potential env dump)',
   },
   {
     // Case-sensitive, so Python `env[...]` and JS `process.env[key]` do not
