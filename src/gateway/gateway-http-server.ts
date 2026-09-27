@@ -4400,13 +4400,18 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
   }
   const result = getGatewaySessionContextUsage(sessionId);
   if (result.status === 'not_found' || !result.snapshot) {
-    sendJson(res, 200, { sessionId, snapshot: null });
+    sendJson(res, 200, {
+      sessionId,
+      snapshot: null,
+      approvalMode: result.approvalMode,
+    });
     return;
   }
   sendJson(res, 200, {
     sessionId: result.sessionId,
     snapshot: result.snapshot,
     routing: result.routing,
+    approvalMode: result.approvalMode,
   });
 }
 
@@ -8635,7 +8640,6 @@ async function runLiveAppBridgeTool(params: {
     ],
     allowedTools: [params.toolName],
     scheduledTasks: [],
-    fullAutoEnabled: false,
     scheduleSideEffectsEnabled: false,
     maxTokens: 512,
     maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,

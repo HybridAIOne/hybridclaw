@@ -1,3 +1,4 @@
+import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
 import type { RoutingTrace } from './routing-trace.js';
@@ -25,6 +26,7 @@ export interface Session {
   full_auto_prompt: string | null;
   full_auto_started_at: string | null;
   show_mode: SessionShowMode;
+  approval_mode: ApprovalMode;
   created_at: string;
   last_active: string;
   reset_count: number;
