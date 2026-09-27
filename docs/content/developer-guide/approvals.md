@@ -345,13 +345,22 @@ skill:
         reason: SAP is finance-only.
 ```
 
-Secret resolution is another policy-engine consumer. The default is deny unless
-the workspace policy explicitly sets `secret.default: allow` or an allow rule
-matches. Prefer the composite `secret_resolve_allowed` predicate for normal
-secret injection rules:
+Secret resolution is another policy-engine consumer. The gateway evaluates it
+each time it injects a stored secret into an `http_request` call or a browser
+field. The default is allow: a stored secret resolves unless a deny rule
+matches, or the workspace policy sets `secret.default: deny` and no allow rule
+matches. The seeded workspace policy has no `secret` section, so new workspaces
+resolve every stored secret.
+
+To limit which agents, skills, hosts, and fields can use stored secrets, set
+`secret.default: deny` and allow each use. `secret route add` appends an allow
+rule scoped to its secret, host, header, and agent, so its routes keep
+resolving under a deny default. Prefer the composite `secret_resolve_allowed`
+predicate for these rules:
 
 ```yaml
 secret:
+  default: deny
   rules:
     - id: allow-datev-login
       when:
