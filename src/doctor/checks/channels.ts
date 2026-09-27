@@ -1,6 +1,6 @@
 import { isLineTransportInstalled } from '../../channels/line/runtime.js';
 import { getWhatsAppAuthStatus } from '../../channels/whatsapp/auth.js';
-import { isWhatsAppJid } from '../../channels/whatsapp/phone.js';
+import { isGroupJid, isWhatsAppJid } from '../../channels/whatsapp/phone.js';
 import { isWhatsAppTransportInstalled } from '../../channels/whatsapp/runtime.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../../channels/whatsapp/self-chat.js';
 import {
@@ -163,7 +163,7 @@ export async function checkChannels(): Promise<DiagResult[]> {
       const channelId =
         (config.heartbeat?.enabled && config.heartbeat.channel.trim()) ||
         getMostRecentSessionChannelId();
-      if (channelId && isWhatsAppJid(channelId)) {
+      if (channelId && isWhatsAppJid(channelId) && !isGroupJid(channelId)) {
         segments.push(WHATSAPP_SELF_CHAT_ADVISORY);
         severities.push('warn');
       }

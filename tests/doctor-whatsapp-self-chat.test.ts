@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   linked: true,
   installed: true,
   dmPolicy: 'disabled',
+  groupPolicy: 'disabled',
   heartbeat: { enabled: true, channel: '' },
   lastChannel: null as string | null,
 }));
@@ -21,7 +22,7 @@ vi.mock('../src/config/config.js', () => ({
     discord: { guilds: {} },
     msteams: { enabled: false },
     email: { enabled: false },
-    whatsapp: { dmPolicy: state.dmPolicy, groupPolicy: 'disabled' },
+    whatsapp: { dmPolicy: state.dmPolicy, groupPolicy: state.groupPolicy },
     heartbeat: state.heartbeat,
   }),
 }));
@@ -55,6 +56,7 @@ it.each([
     Object.assign(state, {
       linked,
       dmPolicy,
+      groupPolicy: 'disabled',
       heartbeat: { enabled, channel },
       lastChannel,
     });
@@ -63,5 +65,28 @@ it.each([
     expect(result.severity).toBe(warn ? 'warn' : 'ok');
     expect(result.message.includes(WHATSAPP_SELF_CHAT_ADVISORY)).toBe(warn);
     expect(result.fixable).toBeFalsy();
+  },
+);
+
+it.each([
+  ['123456-789@g.us', null],
+  ['whatsapp:123456-789@g.us', null],
+  ['', '123456-789@g.us'],
+  ['', 'whatsapp:123456-789@g.us'],
+] as const)(
+  'does not advise for enabled groups with target=%s recent=%s',
+  async (channel, lastChannel) => {
+    Object.assign(state, {
+      linked: true,
+      installed: true,
+      dmPolicy: 'disabled',
+      groupPolicy: 'allowlist',
+      heartbeat: { enabled: true, channel },
+      lastChannel,
+    });
+    const { checkChannels } = await import('../src/doctor/checks/channels.js');
+    const [result] = await checkChannels();
+    expect(result.severity).toBe('ok');
+    expect(result.message).not.toContain(WHATSAPP_SELF_CHAT_ADVISORY);
   },
 );
