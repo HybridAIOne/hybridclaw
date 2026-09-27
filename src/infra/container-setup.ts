@@ -60,15 +60,16 @@ function runCommand(
     });
     let out = captureStdout ? '' : undefined;
     let err = '';
-    proc.stdout.on('data', (chunk) => {
+    // Under EMFILE/ENFILE spawn returns without stdio and reports via 'error'.
+    proc.on('error', (error) => {
+      resolve({ code: null, out, err: (error as Error).message });
+    });
+    proc.stdout?.on('data', (chunk) => {
       if (!captureStdout) return;
       out += chunk.toString('utf-8');
     });
-    proc.stderr.on('data', (chunk) => {
+    proc.stderr?.on('data', (chunk) => {
       err += chunk.toString('utf-8');
-    });
-    proc.on('error', (error) => {
-      resolve({ code: null, out, err: (error as Error).message });
     });
     proc.on('close', (code) => {
       resolve({ code, out, err });

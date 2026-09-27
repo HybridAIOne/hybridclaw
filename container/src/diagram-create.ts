@@ -236,13 +236,13 @@ function inferMermaidType(source: string): MermaidDiagramType | null {
   return null;
 }
 
-function hasBalancedDelimiters(source: string): boolean {
+function hasBalancedDelimiters(source: string, quotes = `"'`): boolean {
   const pairs: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
   const stack: string[] = [];
   let quote: string | null = null;
   let escaped = false;
   for (const char of source) {
-    if ((char === '"' || char === "'") && !escaped) {
+    if (quotes.includes(char) && !escaped) {
       quote = quote === char ? null : quote || char;
       continue;
     }
@@ -257,114 +257,41 @@ function hasBalancedDelimiters(source: string): boolean {
   return stack.length === 0 && quote === null;
 }
 
-type MermaidParser = {
-  initialize: (options: Record<string, unknown>) => void;
-  parse: (
-    source: string,
-    options?: Record<string, unknown>,
-  ) => Promise<unknown> | unknown;
-};
+// Types whose nodes are bracket-delimited. The rest carry free text, ER
+// cardinality (`||--o{`), or inverted mindmap shapes (`))bang((`), where an
+// unmatched bracket is legal.
+const MERMAID_BRACKETED_TYPES = new Set<MermaidDiagramType>([
+  'flowchart',
+  'state',
+  'class',
+]);
+// Flowchart's asymmetric node `id>label]` closes a bracket it never opened.
+const MERMAID_ASYMMETRIC_NODE = /\b\w+>[^\]\n]*\]/g;
 
-let mermaidParserPromise: Promise<MermaidParser> | null = null;
-let mermaidDomPromise: Promise<{
-  window: unknown;
-  document: unknown;
-}> | null = null;
-let mermaidDomQueue: Promise<unknown> = Promise.resolve();
-
-async function loadMermaidDom(): Promise<{
-  window: unknown;
-  document: unknown;
-}> {
-  if (!mermaidDomPromise) {
-    mermaidDomPromise = (async () => {
-      const { parseHTML } = await import('linkedom');
-      const { window } = parseHTML('<html><body></body></html>');
-      return {
-        window,
-        document: window.document,
-      };
-    })();
-  }
-  return mermaidDomPromise;
-}
-
-async function withMermaidDom<T>(operation: () => Promise<T>): Promise<T> {
-  const run = async () => {
-    const globalScope = globalThis as Record<string, unknown>;
-    const previous = {
-      hasWindow: Object.hasOwn(globalScope, 'window'),
-      window: globalScope.window,
-      hasDocument: Object.hasOwn(globalScope, 'document'),
-      document: globalScope.document,
-    };
-    const dom = await loadMermaidDom();
-    globalScope.window = dom.window;
-    globalScope.document = dom.document;
-    try {
-      return await operation();
-    } finally {
-      if (previous.hasWindow) globalScope.window = previous.window;
-      else delete globalScope.window;
-      if (previous.hasDocument) globalScope.document = previous.document;
-      else delete globalScope.document;
-    }
-  };
-  const result = mermaidDomQueue.then(run, run);
-  mermaidDomQueue = result.catch(() => undefined);
-  return result;
-}
-
-async function loadMermaidParser(): Promise<MermaidParser> {
-  if (!mermaidParserPromise) {
-    mermaidParserPromise = withMermaidDom(async () => {
-      const module = (await import('mermaid')) as {
-        default?: MermaidParser;
-      };
-      const mermaid = module.default;
-      if (!mermaid?.parse || !mermaid.initialize) {
-        throw new Error('Mermaid parser API is unavailable.');
-      }
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
-      return mermaid;
-    }).catch((err) => {
-      mermaidParserPromise = null;
-      throw err;
-    });
-  }
-  return mermaidParserPromise;
-}
-
-function parseErrorMessage(err: unknown): string {
-  if (err instanceof Error && err.message.trim()) {
-    return err.message.trim().split(/\r?\n/)[0] || err.message.trim();
-  }
-  return String(err || 'unknown parse error');
-}
-
-async function validateMermaid(
+// Structural checks only (owner call, 2026-09-25): the mermaid package (131 MB)
+// was dropped from the sandbox because it only parsed. `mmdc`, when installed,
+// is the real validator since it also renders.
+function validateMermaid(
   source: string,
   type: MermaidDiagramType,
-): Promise<DiagramValidation> {
-  const body = stripFence(source);
+): DiagramValidation {
+  const body = stripFence(source)
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('%%'))
+    .join('\n');
   const errors: string[] = [];
-  const first = firstMeaningfulLine(body);
-  if (!body) errors.push('Mermaid source is empty.');
-  if (!MERMAID_HEADERS[type].test(first)) {
+  if (!body.trim()) errors.push('Mermaid source is empty.');
+  if (!MERMAID_HEADERS[type].test(firstMeaningfulLine(body))) {
     errors.push(
       `Expected Mermaid ${type} source to start with the ${type} diagram header.`,
     );
   }
-
-  if (body) {
-    try {
-      const mermaid = await loadMermaidParser();
-      await withMermaidDom(async () => {
-        await mermaid.parse(body, { suppressErrors: false });
-      });
-    } catch (err) {
-      errors.push(`Mermaid parser rejected source: ${parseErrorMessage(err)}`);
-    }
+  if (
+    body.trim() &&
+    MERMAID_BRACKETED_TYPES.has(type) &&
+    !hasBalancedDelimiters(body.replace(MERMAID_ASYMMETRIC_NODE, ''), '"')
+  ) {
+    errors.push('Mermaid source has unbalanced brackets or quotes.');
   }
 
   return {
@@ -418,11 +345,11 @@ function validateExcalidraw(source: string): DiagramValidation {
   return { valid: errors.length === 0, errors };
 }
 
-async function validateDiagramSource(
+function validateDiagramSource(
   source: string,
   format: DiagramFormat,
   type: MermaidDiagramType,
-): Promise<DiagramValidation> {
+): DiagramValidation {
   if (format === 'plantuml') return validatePlantUml(source);
   if (format === 'graphviz') return validateGraphviz(source);
   if (format === 'excalidraw') return validateExcalidraw(source);
@@ -1158,11 +1085,7 @@ async function validateWithFixups(
     fixupAttempts = attempt;
     if (!fixedSource) break;
     const source = stripFence(fixedSource);
-    validation = await validateDiagramSource(
-      source,
-      request.format,
-      request.type,
-    );
+    validation = validateDiagramSource(source, request.format, request.type);
     request = {
       ...request,
       source,
@@ -1182,7 +1105,7 @@ export async function runDiagramTool(
   options?: DiagramRuntimeOptions,
 ): Promise<string> {
   let request = normalizeRequest(args, action);
-  let validation = await validateDiagramSource(
+  let validation = validateDiagramSource(
     request.source,
     request.format,
     request.type,

@@ -23,8 +23,16 @@ export type {
   RuntimeWhatsAppConfig,
 } from '../config/runtime-config.js';
 export type { GatewayChatResult } from '../gateway/gateway-types.js';
+export type {
+  EmbeddingProvider,
+  EmbeddingProviderRegistration,
+} from '../memory/embeddings.js';
 export type { AIProvider } from '../providers/types.js';
 export type { StoredMessage } from '../types/session.js';
+export type {
+  PluginMediaHost,
+  PluginSessionModelCredentials,
+} from './plugin-media-host.js';
 export type {
   HybridClawPluginApi,
   HybridClawPluginDefinition,

@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, test, vi } from 'vitest';
+import {
+  makeStdiolessChildProcess,
+  settleCatchingUncaught,
+} from './helpers/spawn-fd-exhaustion.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -389,6 +393,28 @@ describe('container image metadata resolution', () => {
     await expect(
       containerSetup.resolveContainerImageVersion(taggedImage),
     ).resolves.toBe('0.4.1');
+  });
+
+  test('falls back to the configured image tag without crashing when spawn runs out of file descriptors', async () => {
+    const taggedImage = 'ghcr.io/example/hybridclaw-agent:v0.4.1';
+    const spawnMock = vi.fn((command: string, args: string[]) =>
+      makeStdiolessChildProcess(command, args),
+    );
+    const containerSetup = await importFreshContainerSetup({
+      homeDir: createTempDir(),
+      spawnMock,
+    });
+
+    const { outcome, uncaught } = await settleCatchingUncaught(() =>
+      containerSetup.resolveContainerImageStatus(taggedImage),
+    );
+
+    expect(uncaught).toEqual([]);
+    expect(outcome).toEqual({
+      status: 'fulfilled',
+      value: { version: '0.4.1', shortId: null },
+    });
+    expect(spawnMock).toHaveBeenCalledOnce();
   });
 });
 

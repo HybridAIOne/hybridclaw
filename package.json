@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.32.0",
+  "version": "0.32.1",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "license": "MIT",
@@ -41,9 +41,11 @@
     "docs/",
     "infra/managed-browser/",
     "plugins/concierge-router/",
+    "plugins/media-tools/",
     "plugins/line/",
     "plugins/vonage-voice/",
     "plugins/tier-router/",
+    "plugins/transformers-embeddings/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",
@@ -121,7 +123,6 @@
     "prepare": "command -v git >/dev/null 2>&1 && test -w .git/config && husky || true"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.8.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@ngrok/ngrok": "1.7.0",
     "@opentelemetry/api": "1.9.1",
@@ -208,7 +209,6 @@
       "brace-expansion": "5.0.12",
       "ua-parser-js": "1.0.41"
     },
-    "sharp": "0.35.4",
     "shell-quote": "1.10.0",
     "tar": "7.5.22",
     "tmp": "0.2.7"

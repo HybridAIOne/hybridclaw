@@ -9,6 +9,7 @@ import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
+import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import type { AuxiliaryModelCallParams } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
 import type { ChatMessage } from '../types/api.js';
@@ -16,6 +17,7 @@ import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
+import type { PluginMediaHost } from './plugin-media-host.js';
 
 export type PluginKind =
   | 'memory'
@@ -159,6 +161,8 @@ export interface PluginToolHandlerContext {
   channelId: string;
   pluginId: string;
   logger: PluginLogger;
+  /** Attachments of the turn that called the tool, as the sandbox saw them. */
+  media: MediaContextItem[];
 }
 
 export interface PluginToolDefinition extends PluginRuntimeToolDefinition {
@@ -597,7 +601,11 @@ export interface HybridClawPluginApi {
   readonly pluginConfig: Readonly<Record<string, unknown>>;
   readonly logger: PluginLogger;
   readonly runtime: PluginRuntime;
+  /** Session-scoped media reads, remote fetches, and model credentials. */
+  readonly media: PluginMediaHost;
   registerMemoryLayer(layer: MemoryLayerPlugin): void;
+  /** Supplies a `memory.embedding.provider` id other than the built-in `hashed`. */
+  registerEmbeddingProvider(provider: EmbeddingProviderRegistration): void;
   registerProvider(provider: AIProvider): void;
   registerChannel(channel: ChannelInfo): void;
   registerChannelTransport(transport: ChannelTransportRegistration): void;

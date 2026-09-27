@@ -314,18 +314,19 @@ async function runCommand(
     let stdout = '';
     let stderr = '';
 
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString('utf-8');
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString('utf-8');
-    });
+    // Under EMFILE/ENFILE spawn returns without stdio and reports via 'error'.
     child.on('error', (err) => {
       resolve({
         code: null,
         stdout,
         stderr: err instanceof Error ? err.message : String(err),
       });
+    });
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString('utf-8');
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString('utf-8');
     });
     child.on('close', (code) => {
       resolve({ code, stdout, stderr });

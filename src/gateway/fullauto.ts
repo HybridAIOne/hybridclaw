@@ -1162,6 +1162,9 @@ async function runFullAutoTurn(sessionId: string): Promise<void> {
 
       lastError = result.error || 'Unknown full-auto error';
       lastClassification = classifyGatewayError(lastError);
+      // Safe after tool use: each attempt is a new turn whose history holds
+      // the failed turn's error placeholder listing the tools that ran, just
+      // like the cooldown continuation below.
       if (lastClassification === 'transient' && attempt < maxAttempts) {
         await sleep(delayMs);
         if (!isCurrentFullAutoRuntimeState(sessionId, state)) {

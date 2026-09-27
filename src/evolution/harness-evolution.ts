@@ -1587,15 +1587,16 @@ function runCommandBackedOutcome(
       });
     };
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout = appendCappedTrace(stdout, chunk.toString('utf-8'));
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr = appendCappedTrace(stderr, chunk.toString('utf-8'));
-    });
+    // Under EMFILE/ENFILE spawn returns without stdio and reports via 'error'.
     child.on('error', (error) => {
       processError = error.message;
       finish(null);
+    });
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout = appendCappedTrace(stdout, chunk.toString('utf-8'));
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr = appendCappedTrace(stderr, chunk.toString('utf-8'));
     });
     child.on('close', (code) => finish(code));
   });

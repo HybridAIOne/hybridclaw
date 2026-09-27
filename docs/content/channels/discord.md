@@ -58,6 +58,11 @@ not. In mention mode they do not trigger a reply; in free mode they follow the
 normal reply heuristics. Mention-scoped acknowledgement reactions use the same
 rule.
 
+When no message in a batch directly addresses the bot, the agent may choose
+not to reply after reading it. Silence does not post a placeholder such as
+"Done." This applies to messages admitted by the channel's existing mode and
+reply heuristics; mentions and reply pings retain normal reply handling.
+
 ## Optional: Reply In Threads
 
 Set `discord.replyStyle` to `"thread"` to start a public thread from each

@@ -46,6 +46,8 @@ export function discoverArtifactsSince(
     modifiedBeforeMs?: number;
     excludePaths?: Iterable<string>;
     limit?: number;
+    /** Only files whose name appears in one of these texts. */
+    mentionedIn?: readonly string[];
   },
 ): ArtifactMetadata[] {
   const resolvedRoot = path.resolve(rootPath);
@@ -83,6 +85,12 @@ export function discoverArtifactsSince(
       }
 
       if (!entry.isFile()) continue;
+      if (
+        options?.mentionedIn &&
+        !options.mentionedIn.some((text) => text.includes(entry.name))
+      ) {
+        continue;
+      }
 
       const mimeType = inferArtifactMimeType(absolutePath);
       if (mimeType === 'application/octet-stream') continue;

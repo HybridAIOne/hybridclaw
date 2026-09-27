@@ -14,6 +14,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -1359,16 +1360,6 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
-
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -1399,8 +1390,6 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
-        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
-        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -9724,8 +9713,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model,
-        runtime: resolveTurnRuntimeAuditLabel(model, output),
-        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -10732,8 +10719,10 @@ async function runDelegationTaskWithRetry(
   while (attempt < maxAttempts) {
     attempt += 1;
     const startedAt = Date.now();
+    let output: ContainerOutput | undefined;
+    let toolReported = false;
     try {
-      const output = await runAgent({
+      output = await runAgent({
         sessionId,
         messages: requestMessages,
         chatbotId,
@@ -10742,7 +10731,10 @@ async function runDelegationTaskWithRetry(
         agentId,
         channelId,
         allowedTools,
-        onToolProgress,
+        onToolProgress: (event) => {
+          toolReported = true;
+          onToolProgress?.(event);
+        },
       });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
@@ -10780,7 +10772,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
 
       logger.warn(
         {
@@ -10812,7 +10804,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
       logger.warn(
         {
           parentSessionId,
@@ -14435,11 +14427,6 @@ export async function handleGatewayCommand(
               : 'n/a';
         const sandboxMode = status.sandbox?.mode || 'container';
         const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
-        const turnRuntimeLabel =
-          resolveModelProvider(sessionModel) === 'openai-codex' &&
-          getRuntimeConfig().codex.turnRuntime === 'app-server'
-            ? 'codex'
-            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -14490,7 +14477,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,
