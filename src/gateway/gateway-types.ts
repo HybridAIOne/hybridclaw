@@ -606,8 +606,9 @@ export interface GatewayStatus {
     pairingUri: string | null;
     pairingUpdatedAt: string | null;
     pairingError: string | null;
-    cliAvailable: boolean;
-    cliPath: string;
+    /** Null means the disabled channel was not probed. */
+    cliAvailable: boolean | null;
+    cliPath: string | null;
     cliVersion: string | null;
     cliError: string | null;
   };

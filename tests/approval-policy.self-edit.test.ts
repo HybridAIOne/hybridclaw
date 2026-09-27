@@ -18,7 +18,7 @@ function createRuntime(fullAuto: boolean): TrustedAgentApprovalRuntime {
     undefined,
     path.join(dir, 'pending.json'),
   );
-  runtime.setFullAutoOptions({ enabled: fullAuto });
+  runtime.setApprovalMode({ mode: fullAuto ? 'full' : 'auto' });
   return runtime;
 }
 
@@ -110,7 +110,7 @@ test('host-absolute paths to the approval state wait for a human', async () => {
   const runtime = new WorkspaceRuntime(
     path.join(workspace, 'missing-policy.yaml'),
   );
-  runtime.setFullAutoOptions({ enabled: true });
+  runtime.setApprovalMode({ mode: 'full' });
   const policyPath = path.join(workspace, POLICY);
 
   for (const [toolName, args] of [

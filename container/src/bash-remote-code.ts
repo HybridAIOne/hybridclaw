@@ -61,12 +61,15 @@ type CodeSource =
   | { stdin: true }
   | { substituted: true };
 
-function codeSource({
+export function codeSource({
   words,
   start,
   program,
   args,
-}: ScriptCommand): CodeSource | null {
+}: Pick<
+  ScriptCommand,
+  'words' | 'start' | 'program' | 'args'
+>): CodeSource | null {
   if (program === 'eval') return { inline: args.join(' ') };
   const interpreter = INTERPRETERS.find((entry) => entry.program.test(program));
   if (!interpreter) {

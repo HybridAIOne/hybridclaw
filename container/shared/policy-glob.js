@@ -17,14 +17,15 @@ const WILDCARD_SOURCES_BY_KIND = new Map([
       ['?', '[^/]'],
     ]),
   ],
-  // `*` spans labels, so `*.example.com` covers nested subdomains. `?` stays
-  // inside one label so `ex?mple.com` cannot reach a host under `mple.com`
-  // (fail-closed call, 2026-09-27; an infix `*` still spans labels, deferred).
+  // `*` and `?` stay inside one label and `**` spans labels, so `example.*`
+  // cannot reach `example.attacker.com` (owner call, 2026-09-27: rules that
+  // must span labels write `**`; old rules get no load-time warning).
+  // hostGlobPattern keeps the documented leading `*.` and bare `*` spanning.
   [
     'host',
     new Map([
       ['**', '.*'],
-      ['*', '.*'],
+      ['*', '[^.]*'],
       ['?', '[^.]'],
     ]),
   ],
@@ -39,6 +40,13 @@ const WILDCARD_SOURCES_BY_KIND = new Map([
   ],
 ]);
 
+// A leading `*.` covers subdomains at any depth and a bare `*` covers every
+// host, so both span labels like `**`.
+function hostGlobPattern(pattern) {
+  if (pattern === '*') return '**';
+  return pattern.startsWith('*.') ? `*${pattern}` : pattern;
+}
+
 export function hasGlobWildcard(pattern) {
   return /[*?]/.test(pattern);
 }
@@ -46,7 +54,8 @@ export function hasGlobWildcard(pattern) {
 export function globToRegExp(pattern, kind) {
   const wildcardSources = WILDCARD_SOURCES_BY_KIND.get(kind);
   if (!wildcardSources) throw new Error(`Unknown policy glob kind: ${kind}`);
-  const source = pattern.replace(
+  const expanded = kind === 'host' ? hostGlobPattern(pattern) : pattern;
+  const source = expanded.replace(
     /\*\*|[*?]|[^*?]+/g,
     (token) => wildcardSources.get(token) ?? escapeRegExp(token),
   );

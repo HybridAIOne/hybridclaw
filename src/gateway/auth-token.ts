@@ -171,7 +171,7 @@ function signPayload(payload: Record<string, unknown>, secret: string): string {
   return `${payloadSegment}.${signatureSegment}`;
 }
 
-function extractCookieValue(
+export function extractCookieValue(
   cookieHeader: string | string[] | undefined,
   cookieName: string,
 ): string | null {

@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
+import type { GatewayStatus as RuntimeGatewayStatus } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
 export const LOG_LEVELS = [
   'fatal',
@@ -137,21 +138,7 @@ export interface GatewayStatus {
     secretConfigured: boolean;
     secretSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
-  signal?: {
-    enabled: boolean;
-    daemonUrlConfigured: boolean;
-    accountConfigured: boolean;
-    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
-    pairingQrText: string | null;
-    pairingQrSvg: string | null;
-    pairingUri: string | null;
-    pairingUpdatedAt: string | null;
-    pairingError: string | null;
-    cliAvailable: boolean;
-    cliPath: string;
-    cliVersion: string | null;
-    cliError: string | null;
-  };
+  signal?: RuntimeGatewayStatus['signal'];
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;

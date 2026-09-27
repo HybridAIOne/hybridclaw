@@ -250,7 +250,7 @@ test('handleGatewayMessage can auto-approve tools for eval requests without enab
 
   expect(result.status).toBe('success');
   expect(runAgentMock).toHaveBeenCalledTimes(1);
-  expect(runAgentMock.mock.calls[0]?.[0]?.fullAutoEnabled).toBe(true);
+  expect(runAgentMock.mock.calls[0]?.[0]?.approvalMode).toBe('full');
   expect(runAgentMock.mock.calls[0]?.[0]?.fullAutoNeverApproveTools).toEqual(
     [],
   );

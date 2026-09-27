@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
   type BrowserStealthPolicyAccessEvaluation,
@@ -41,13 +42,14 @@ import {
   deletesFiles,
   deletionTargets,
   optionWriteTargets,
-  runsProgramOption,
   scriptCommands,
   shellCommandsRun,
-  writeTargets,
 } from './bash-commands.js';
+import { fenceCandidates } from './bash-fence.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
+import { runsScript } from './bash-script-run.js';
+import { nextBashCwd } from './bash-session.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -67,6 +69,7 @@ import {
   normalizePathValue,
 } from './pinned-paths.js';
 import {
+  resolveCanonicalPath,
   toWorkspaceRelativePath,
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
@@ -293,7 +296,7 @@ export interface ToolCallContextHelpers {
   hasAgentTrust(actionKey: string, fingerprint: string): boolean;
   hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
   getExplicitApprovalCount(actionKey: string): number;
-  isFullAutoEnabled(): boolean;
+  approvalMode(): SessionApprovalMode;
   shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
   getPendingCount(): number;
   getOrCreatePending(
@@ -390,12 +393,13 @@ const NO_IMPLICIT_DELAY_TOOLS = new Set([
 ]);
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
+// Real paths too: the shell reports `pwd -P`, and macOS links its temp dir.
 const SCRATCH_ROOTS = Array.from(
   new Set(
     ['/tmp', '/private/tmp', os.tmpdir()]
       .map((value) => value.trim())
       .filter(Boolean)
-      .map((value) => path.resolve(value)),
+      .flatMap((value) => [path.resolve(value), resolveCanonicalPath(value)]),
   ),
 );
 // Args naming the local files a tool reads. Pinned path rules only match
@@ -437,14 +441,14 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
+// `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor and write no file,
+// so adding one never changes the tier (owner call, 2026-09-27).
 const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?[^>]|sed\s+-i|perl\s+-pi/i;
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!&(?:\d+|-)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
-const UNKNOWN_SCRIPT_RE =
-  /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
@@ -1100,6 +1104,11 @@ function skillManagedWriteApprovalReason(
     return `${skillName} API write requests require explicit operator approval`;
   }
   return null;
+}
+
+function isReadOnlyCommand(words: string[]): boolean {
+  const text = words.join(' ');
+  return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
 }
 
 function extractAbsolutePaths(input: string): string[] {
@@ -1793,6 +1802,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       context.baseTier = 'red';
       context.tier = 'red';
     }
+    // Ask mode prompts for every side effect; green reads still run.
+    if (context.helpers.approvalMode() === 'ask' && context.tier === 'yellow') {
+      context.baseTier = 'red';
+      context.tier = 'red';
+    }
     return nextRule();
   },
 
@@ -1873,6 +1887,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
     const promotable =
+      context.helpers.approvalMode() !== 'ask' &&
       !requirePinned(context) &&
       classified.promotableRed &&
       context.helpers.getExplicitApprovalCount(classified.actionKey) > 0;
@@ -1889,8 +1904,8 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
     // exemption.
     if (
+      context.helpers.approvalMode() === 'full' &&
       !requirePinned(context) &&
-      context.helpers.isFullAutoEnabled() &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -1954,7 +1969,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (
       context.tier === 'yellow' &&
       context.decision === 'auto' &&
-      context.helpers.isFullAutoEnabled() &&
+      context.helpers.approvalMode() === 'full' &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
@@ -2068,7 +2083,9 @@ export class TrustedAgentApprovalRuntime {
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
-  private fullAutoEnabled = false;
+  private approvalMode: SessionApprovalMode = 'auto';
+  // The bound session: bash commands start where its shell stopped.
+  private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
   private readonly fullAutoNeverApprove = new Set<string>();
@@ -2141,6 +2158,7 @@ export class TrustedAgentApprovalRuntime {
 
   /** Loads the session's persisted state; call before each turn. */
   setSession(sessionId: string): void {
+    this.sessionId = sessionId;
     this.fetchedFiles.bindSession(sessionId);
     const sessionHash = sessionId ? sessionStateKey(sessionId) : '';
     if (sessionHash === this.sessionHash) return;
@@ -2148,11 +2166,11 @@ export class TrustedAgentApprovalRuntime {
     this.loadPersistedPendingApprovals();
   }
 
-  setFullAutoOptions(params?: {
-    enabled?: boolean;
+  setApprovalMode(params?: {
+    mode?: SessionApprovalMode;
     neverApproveTools?: string[];
   }): void {
-    this.fullAutoEnabled = params?.enabled === true;
+    this.approvalMode = params?.mode ?? 'auto';
     this.fullAutoNeverApprove.clear();
     for (const raw of params?.neverApproveTools || []) {
       const value = String(raw || '')
@@ -2206,7 +2224,7 @@ export class TrustedAgentApprovalRuntime {
         this.allowlistedFingerprints.has(fingerprint),
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
-      isFullAutoEnabled: () => this.fullAutoEnabled,
+      approvalMode: () => this.approvalMode,
       shouldNeverAutoApprove: (toolName, actionKey) =>
         this.shouldNeverAutoApprove(toolName, actionKey),
       getPendingCount: () => this.pending.size,
@@ -3069,7 +3087,9 @@ export class TrustedAgentApprovalRuntime {
           intent: `activate stealth browser mode for ${hostScope}`,
           consequenceIfDenied:
             'I will use the standard browser path or avoid that host.',
-          reason: 'browser stealth mode is not allowlisted for this host',
+          reason:
+            stealthAccess.matchedRule?.description ||
+            'browser stealth mode is not allowlisted for this host',
           commandPreview: normalizePreview(rawUrl),
           pathHints: [],
           hostHints: [hostScope],
@@ -3459,8 +3479,12 @@ export class TrustedAgentApprovalRuntime {
     );
     const absPaths = extractAbsolutePaths(inspectionSurface);
     // The inspection surface turns pipes into `;` and keeps `$(...)` inside its
-    // segment; these checks need the commands bash actually runs, parsed once.
-    const shellCommands = scriptCommands(stripHereDocBodies(command));
+    // segment; these checks need the commands bash actually runs, parsed once
+    // from where the session's shell stopped.
+    const shellCommands = scriptCommands(
+      stripHereDocBodies(command),
+      nextBashCwd(this.sessionId),
+    );
     const commandsRun = shellCommandsRun(shellCommands);
     const pinnedReach = findBashPinnedReach(shellCommands, (candidate) =>
       this.namesPinnedPath(candidate),
@@ -3527,15 +3551,11 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (this.loadedPolicy.workspaceFence && writeIntent) {
-      const targets = writeTargets(shellCommands);
-      const absoluteTargets = targets.filter((target) =>
-        target.startsWith('/'),
-      );
-      const outsideWorkspace = [
-        ...(absoluteTargets.length > 0 ? absoluteTargets : absPaths),
-        // Bash starts in the workspace root, so `../x` lands outside it.
-        ...targets.filter((target) => /^\.\.(?:\/|$)/.test(target)),
-      ].find(
+      const outsideWorkspace = fenceCandidates(
+        shellCommands,
+        absPaths,
+        isReadOnlyCommand,
+      ).find(
         (entry) =>
           !entry.startsWith('/') ||
           (!isWorkspacePath(entry) &&
@@ -3545,8 +3565,7 @@ export class TrustedAgentApprovalRuntime {
       if (outsideWorkspace) {
         // Explicit approval even under full-auto (owner call, 2026-09-27): the
         // fence survives every mode, as approvals-v2 plans for `full`, and
-        // evals get no exemption. Human-granted trust still applies. Deferred:
-        // narrowing the absPaths fallback, which also fences outside reads.
+        // evals get no exemption. Human-granted trust still applies.
         return {
           tier: 'red',
           actionKey: 'bash:workspace-fence',
@@ -3588,10 +3607,9 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (
-      UNKNOWN_SCRIPT_RE.test(inspectionSurface) ||
-      commandsRun.some(runsProgramOption)
-    ) {
+    const agentWritable = (file: string) =>
+      isWorkspacePath(file) || isScratchPath(file);
+    if (commandsRun.some((words) => runsScript(words, agentWritable))) {
       return {
         tier: 'red',
         actionKey: 'bash:script',
@@ -3723,10 +3741,7 @@ export class TrustedAgentApprovalRuntime {
     // first segment alone let `ls; tar czf - . | base64` run unnarrated), and
     // the surface's first segment still matches, so forms such as `(ls)` or a
     // quoted command name stay yellow as before.
-    const everyCommandReadOnly = commandsRun.every((words) => {
-      const text = words.join(' ');
-      return READ_ONLY_BASH_RE.test(text) || READ_ONLY_PDF_SCRIPT_RE.test(text);
-    });
+    const everyCommandReadOnly = commandsRun.every(isReadOnlyCommand);
 
     if (everyCommandReadOnly && READ_ONLY_BASH_RE.test(inspectionSurface)) {
       return {

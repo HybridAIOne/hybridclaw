@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 64;
+export const DATABASE_SCHEMA_VERSION = 65;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3656,6 +3656,20 @@ function migrateV64(
   );
 }
 
+function migrateV65(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'approval_mode',
+    ddl: "approval_mode TEXT NOT NULL DEFAULT 'auto'",
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 65, 'Add per-session approval mode column');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3837,6 +3851,7 @@ export function runMigrations(
   if (currentVersion < 62) migrateV62(database, opts);
   if (currentVersion < 63) migrateV63(database, opts);
   if (currentVersion < 64) migrateV64(database, opts);
+  if (currentVersion < 65) migrateV65(database, opts);
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

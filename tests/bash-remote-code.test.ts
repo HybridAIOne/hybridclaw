@@ -21,7 +21,7 @@ function createRuntime(fullAuto: boolean): TrustedAgentApprovalRuntime {
     undefined,
     path.join(dir, 'pending.json'),
   );
-  runtime.setFullAutoOptions({ enabled: fullAuto });
+  runtime.setApprovalMode({ mode: fullAuto ? 'full' : 'auto' });
   return runtime;
 }
 

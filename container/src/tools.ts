@@ -3240,6 +3240,7 @@ async function executeToolInternal(
       }
 
       if (action === 'send') {
+        if (args.from !== undefined) payload.from = args.from;
         const explicitChannelId =
           resolveDiscordMessageExplicitChannelTarget(args);
         const userLookupTarget =
@@ -4258,7 +4259,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           from: {
             type: 'string',
             description:
-              'Optional sender filter for action="read" when supported by the active channel.',
+              'Optional sender filter for action="read" when supported by the active channel. Rejected on WhatsApp sends; sending always uses the linked account.',
           },
           since: {
             type: 'string',

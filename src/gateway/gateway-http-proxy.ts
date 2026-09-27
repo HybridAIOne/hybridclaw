@@ -72,7 +72,11 @@ import {
   resolveSecretInputUnsafe,
   type SecretRef,
 } from '../security/secret-refs.js';
-
+import {
+  type HttpRequestSecretHeader,
+  normalizeSecretHeaderCookie,
+  secretHeaderValue,
+} from './gateway-http-secret-headers.js';
 import {
   parsePositiveInteger,
   readJsonBody,
@@ -141,6 +145,7 @@ type ApiHttpRequestSecretHeaderBody = {
   name?: unknown;
   secretName?: unknown;
   prefix?: unknown;
+  cookie?: unknown;
 };
 
 type GoogleServiceAccountAuthRule = {
@@ -682,10 +687,9 @@ function parseBearerSecretRef(value: unknown): SecretRef {
 
 function normalizeHttpRequestSecretHeaders(
   value: unknown,
-): Array<{ name: string; secretName: string; prefix: string }> {
+): HttpRequestSecretHeader[] {
   if (!Array.isArray(value)) return [];
-  const headers: Array<{ name: string; secretName: string; prefix: string }> =
-    [];
+  const headers: HttpRequestSecretHeader[] = [];
   for (const entry of value) {
     const typed = entry as ApiHttpRequestSecretHeaderBody;
     const name =
@@ -701,6 +705,7 @@ function normalizeHttpRequestSecretHeaders(
       name,
       secretName,
       prefix: !prefix || prefix.toLowerCase() === 'none' ? '' : prefix,
+      cookie: normalizeSecretHeaderCookie(typed?.cookie),
     });
   }
   return headers;
@@ -2452,14 +2457,15 @@ export async function handleApiHttpRequest(
     body.secretHeaders,
   )) {
     assertBearerDomainBinding(secretHeader.secretName, url);
+    const secret = await resolveHttpSecretOrThrow(secretHeader.secretName, {
+      ...secretContext,
+      selector: secretHeader.name,
+    });
     setHeaderValue(
       headers,
       secretHeader.name,
       withAuthPrefix(
-        await resolveHttpSecretOrThrow(secretHeader.secretName, {
-          ...secretContext,
-          selector: secretHeader.name,
-        }),
+        secretHeaderValue(secret, secretHeader, secretContext.sessionId),
         secretHeader.prefix,
       ),
     );
