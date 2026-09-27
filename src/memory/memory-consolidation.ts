@@ -16,6 +16,7 @@ import {
   lockMemoryFile,
   writeMemoryFileAtomic,
 } from '../../container/shared/memory-file.js';
+import { escapeRegExp } from '../../container/shared/regex.js';
 
 import {
   currentDateStampInTimezone,
@@ -128,10 +129,6 @@ function canonicalMemorySectionName(heading: string): string | null {
 
 function sectionKey(name: string): keyof CanonicalMemorySections {
   return name.toLowerCase() as keyof CanonicalMemorySections;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const DAILY_DIGEST_BLOCK_RE = new RegExp(
