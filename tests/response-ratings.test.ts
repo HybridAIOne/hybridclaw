@@ -104,6 +104,49 @@ async function setup(options?: {
 }
 
 describe('response ratings', () => {
+  test.each([
+    ['operator-a', 'operator-a@local'],
+    ['User_A@HybridAI', 'user_a@hybridai'],
+    ['29:operator-a', '29-operator-a@local'],
+    ['  ', 'web@local'],
+  ])('persists the rating actor for operator %j', async (operatorUserId, actorId) => {
+    const service = await setup();
+    const { recordAuditEventStrict } = await vi.importActual<
+      typeof import('../src/audit/audit-events.js')
+    >('../src/audit/audit-events.js');
+    service.recordAuditEvent.mockImplementation(recordAuditEventStrict);
+    const { logger } = await import('../src/logger.js');
+    const warn = vi.spyOn(logger, 'warn');
+
+    for (const rating of ['up', 'down', null] as const) {
+      service.submitResponseRating({
+        sessionId: service.sessionId,
+        messageId: service.assistantMessageId,
+        operatorUserId,
+        rating,
+      });
+    }
+
+    const events = service.getStructuredAuditForSession(service.sessionId);
+    expect(events).toHaveLength(3);
+    expect(events.map((entry) => JSON.parse(entry.payload).rating)).toEqual([
+      'up', 'down', null,
+    ]);
+    for (const entry of events) {
+      expect(entry).toMatchObject({
+        event_type: 'response.rating',
+        actor_type: 'user',
+        actor_id: actorId,
+      });
+      expect(JSON.parse(entry.payload)).toMatchObject({
+        actor: { type: 'user', id: actorId },
+        agentId: 'main',
+        operatorUserId: operatorUserId.trim() || 'web',
+      });
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   test('migrates legacy source-surface rating schema before writing', async () => {
     const dbModule = await import('../src/memory/db.js');
     const dbPath = path.join(makeTempDir(), 'legacy-response-ratings.db');

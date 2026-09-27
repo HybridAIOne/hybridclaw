@@ -4,10 +4,10 @@
  * local guards still apply, and this dispatcher does not grant action approval.
  */
 import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { describeBashStatePersistence } from '../shared/bash-state.js';
 import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
 import {
   waitForMemoryFileLock,
@@ -21,7 +21,7 @@ import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
 } from '../shared/msteams-session-ids.js';
-import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
+import { TOOL_HISTORY_RESULT_MAX_CHARS } from '../shared/tool-history.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -29,11 +29,14 @@ import {
 } from '../shared/workspace-time.js';
 import {
   BASH_DOCKER_CONTAINER,
-  BASH_DOCKER_CWD,
   BASH_EXEC_MAX_BUFFER_BYTES,
-  runBashProcess,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
+import {
+  isPersistentBashStateEnabled,
+  runBash,
+  setPersistentBashStateEnabled as setBashSessionStateEnabled,
+} from './bash-session.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -100,6 +103,8 @@ import {
   type ToolRunResult,
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
+
+export { resetPersistentBashSessions } from './bash-session.js';
 
 const DENY_PATTERNS: RegExp[] = [
   /\brm\s+-[rf]{1,2}\b/, // rm -r, rm -f, rm -rf
@@ -448,188 +453,22 @@ const MESSAGE_TOOL_DESCRIPTION_BASE =
   'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
-let persistentBashStateEnabled = true;
-type PersistentBashSession = {
-  sessionDir: string;
-  snapshotPath: string;
-  cwdPath: string;
-  defaultCwd: string;
-  initialized: boolean;
-};
-let persistentBashSession: PersistentBashSession | null = null;
-const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
-// 2026-09-10, Codex CI review: keep command contents out of process argv.
-// NUL framing preserves whitespace and gives child commands an exhausted stdin.
-const READ_BASH_COMMAND_SCRIPT = `IFS= read -r -d '' __hybridclaw_command || exit 125`;
-const STATELESS_BASH_WRAPPER_SCRIPT = `${READ_BASH_COMMAND_SCRIPT}
-eval "$__hybridclaw_command"`;
-const PERSISTENT_BASH_WRAPPER_SCRIPT = `
-__hybridclaw_session_dir=$1
-__hybridclaw_snapshot=$2
-__hybridclaw_cwd_file=$3
-__hybridclaw_default_cwd=$4
-${READ_BASH_COMMAND_SCRIPT}
-__hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
-__hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
-umask 077
-mkdir -p -- "$__hybridclaw_session_dir" || exit 125
-chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
-__hybridclaw_write_snapshot() {
-  {
-    export -p | grep -vE '^declare -x (${SHELL_RUNTIME_ENV_NAMES.join('|')})(=|$)'
-    alias -p
-    echo 'shopt -s expand_aliases'
-    echo 'set +e'
-    echo 'set +u'
-  } > "$__hybridclaw_snapshot_tmp" &&
-    mv -f -- "$__hybridclaw_snapshot_tmp" "$__hybridclaw_snapshot"
-}
-__hybridclaw_write_cwd() {
-  pwd -P > "$__hybridclaw_cwd_tmp" 2>/dev/null &&
-    mv -f -- "$__hybridclaw_cwd_tmp" "$__hybridclaw_cwd_file"
-}
-if [ -f "$__hybridclaw_snapshot" ]; then
-  source "$__hybridclaw_snapshot" 2>/dev/null || true
-else
-  shopt -s expand_aliases
-  set +e
-  set +u
-fi
-__hybridclaw_cwd="$__hybridclaw_default_cwd"
-if [ -f "$__hybridclaw_cwd_file" ]; then
-  __hybridclaw_saved_cwd="$(cat "$__hybridclaw_cwd_file" 2>/dev/null)"
-  if [ -n "$__hybridclaw_saved_cwd" ]; then
-    __hybridclaw_cwd="$__hybridclaw_saved_cwd"
-  fi
-fi
-if ! cd -- "$__hybridclaw_cwd"; then
-  if [ "$__hybridclaw_cwd" != "$__hybridclaw_default_cwd" ] &&
-    cd -- "$__hybridclaw_default_cwd"; then
-    __hybridclaw_write_cwd || true
-  else
-    exit 126
-  fi
-fi
-eval "$__hybridclaw_command"
-__hybridclaw_ec=$?
-__hybridclaw_write_snapshot || true
-__hybridclaw_write_cwd || true
-exit $__hybridclaw_ec
-`.trim();
-
-function getPersistentBashTempRoot(): string {
-  if (TASK_SANDBOX_FS_ENABLED) return '/tmp';
-  const resolved = String(os.tmpdir() || '').trim();
-  return resolved ? path.resolve(resolved) : '/tmp';
-}
-
-function cleanupPersistentBashSessionArtifacts(
-  session: PersistentBashSession | undefined,
-): void {
-  if (!session) return;
-  try {
-    if (TASK_SANDBOX_FS_ENABLED) {
-      spawnSync(
-        'docker',
-        [
-          'exec',
-          '-i',
-          BASH_DOCKER_CONTAINER,
-          'rm',
-          '-rf',
-          '--',
-          session.sessionDir,
-        ],
-        {
-          encoding: 'utf-8',
-          timeout: 5_000,
-          maxBuffer: 1024 * 1024,
-          env: { ...process.env },
-        },
-      );
-      return;
-    }
-    fs.rmSync(session.sessionDir, { recursive: true, force: true });
-  } catch {
-    // Cleanup is best-effort; execution should not fail if temp artifacts linger.
-  }
-}
-
-export function resetPersistentBashSessions(): void {
-  cleanupPersistentBashSessionArtifacts(persistentBashSession || undefined);
-  persistentBashSession = null;
-}
-
 function buildBashToolDescription(): string {
-  const sessionBehavior = persistentBashStateEnabled
-    ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
-    : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
-  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Search file contents with the grep tool: shell \`grep -r\`, \`rg --hidden\`, \`find -exec\`, and \`find | xargs\` wait for user approval on every run unless they exclude .env* files (for example \`grep -r --exclude='.env*'\`).`;
+  return `Run a shell command and return stdout/stderr. ${describeBashStatePersistence(isPersistentBashStateEnabled())} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring. Search file contents with the grep tool: shell \`grep -r\`, \`rg --hidden\`, \`find -exec\`, and \`find | xargs\` wait for user approval on every run unless they exclude .env* files (for example \`grep -r --exclude='.env*'\`).`;
 }
 
 export function setPersistentBashStateEnabled(enabled: boolean): void {
-  const normalized = enabled !== false;
-  if (normalized !== persistentBashStateEnabled) {
-    persistentBashStateEnabled = normalized;
-    resetPersistentBashSessions();
+  if (setBashSessionStateEnabled(enabled)) {
     BASH_TOOL_DEFINITION.function.description = buildBashToolDescription();
   }
-}
-
-function getPersistentBashSession(): PersistentBashSession {
-  if (persistentBashSession) {
-    return persistentBashSession;
-  }
-
-  const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${randomUUID()}`;
-  const tempRoot = getPersistentBashTempRoot();
-  const joinPath = TASK_SANDBOX_FS_ENABLED ? path.posix.join : path.join;
-  const sessionDir = joinPath(tempRoot, prefix);
-  persistentBashSession = {
-    sessionDir,
-    snapshotPath: joinPath(sessionDir, 'state.snapshot'),
-    cwdPath: joinPath(sessionDir, 'state.cwd'),
-    defaultCwd: TASK_SANDBOX_FS_ENABLED
-      ? BASH_DOCKER_CWD || '/app'
-      : WORKSPACE_ROOT,
-    initialized: false,
-  };
-  return persistentBashSession;
-}
-
-function buildPersistentBashWrapperArgs(
-  session: PersistentBashSession,
-): string[] {
-  return [
-    session.initialized ? '-c' : '-lc',
-    PERSISTENT_BASH_WRAPPER_SCRIPT,
-    'hybridclaw-bash-wrapper',
-    session.sessionDir,
-    session.snapshotPath,
-    session.cwdPath,
-    session.defaultCwd,
-  ];
-}
-
-function runPersistentBash(params: {
-  command: string;
-  timeoutMs: number;
-  runtimeEnv: Record<string, string>;
-}): string {
-  const session = getPersistentBashSession();
-  const wrapperArgs = buildPersistentBashWrapperArgs(session);
-  const result = runBashProcess(wrapperArgs, params);
-  if (result.error === undefined || result.status !== null) {
-    session.initialized = true;
-  }
-
-  return formatBashExecutionResult(result, params.timeoutMs);
 }
 
 function formatBashExecutionResult(
   result: SpawnSyncReturns<string>,
   timeoutMs: number,
+  notice: string | null,
 ): string {
+  const prefix = notice ? `${notice}\n\n` : '';
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
   const formattedStdout = formatBashOutput(
@@ -637,7 +476,7 @@ function formatBashExecutionResult(
   );
 
   if (result.status === 0) {
-    return formattedStdout;
+    return `${prefix}${formattedStdout}`;
   }
 
   const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -648,20 +487,10 @@ function formatBashExecutionResult(
     ? `Command timed out after ${timeoutMs}ms`
     : result.error?.message ||
       `${TASK_SANDBOX_FS_ENABLED ? 'docker exec' : 'bash'} failed with exit code ${result.status ?? 'unknown'}`;
-  if (!combinedOutput) return failTool(`Error: ${summary}`);
+  if (!combinedOutput) return failTool(`${prefix}Error: ${summary}`);
   return failTool(
-    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+    `${prefix}Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
   );
-}
-
-function runStatelessBash(params: {
-  command: string;
-  timeoutMs: number;
-  runtimeEnv: Record<string, string>;
-}): string {
-  const args = ['-lc', STATELESS_BASH_WRAPPER_SCRIPT];
-  const result = runBashProcess(args, params);
-  return formatBashExecutionResult(result, params.timeoutMs);
 }
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
@@ -917,11 +746,7 @@ export function setScheduleSideEffectsEnabled(enabled: boolean): void {
 }
 
 export function setSessionContext(sessionId: string): void {
-  const normalized = String(sessionId || '');
-  if (normalized !== currentSessionId) {
-    resetPersistentBashSessions();
-  }
-  currentSessionId = normalized;
+  currentSessionId = String(sessionId || '');
 }
 
 export function setGatewayContext(
@@ -2121,7 +1946,10 @@ const BASH_EXEC_DEFAULT_TIMEOUT_MS = 4 * 60 * 1000;
 const BASH_EXEC_MIN_TIMEOUT_MS = 1_000;
 const BASH_EXEC_MAX_TIMEOUT_MS = 15 * 60 * 1000;
 const READ_MAX_LINES = 2000;
-const READ_MAX_BYTES = 50 * 1024;
+// A page must fit the live-history cap with room for its trailer: a longer
+// result loses its middle there while "Use offset=N to continue" survives, so
+// the model would skip lines it never saw. Bytes bound the character count.
+const READ_MAX_BYTES = TOOL_HISTORY_RESULT_MAX_CHARS - 1_024;
 type ReadTruncationResult = {
   content: string;
   truncated: boolean;
@@ -3157,17 +2985,16 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
-      const runBash = persistentBashStateEnabled
-        ? runPersistentBash
-        : runStatelessBash;
-      return runBash({
+      const { result, notice } = runBash({
         command: args.command,
         timeoutMs,
         runtimeEnv: await resolveShellRuntimeEnv(
           gatewayBaseUrl,
           gatewayApiToken,
         ),
+        sessionId: currentSessionId,
       });
+      return formatBashExecutionResult(result, timeoutMs, notice);
     }
 
     case 'memory': {
@@ -3650,10 +3477,21 @@ async function executeToolInternal(
         );
       }
 
+      // Newest first: readdir order is arbitrary, and past the cap the
+      // recent sessions are the ones worth searching.
       const files = fs
         .readdirSync(transcriptDir)
         .filter((name) => name.endsWith('.jsonl'))
-        .slice(0, SESSION_SEARCH_MAX_FILES);
+        .map((name) => ({
+          name,
+          mtimeMs:
+            fs.statSync(path.join(transcriptDir, name), {
+              throwIfNoEntry: false,
+            })?.mtimeMs ?? 0,
+        }))
+        .sort((left, right) => right.mtimeMs - left.mtimeMs)
+        .slice(0, SESSION_SEARCH_MAX_FILES)
+        .map((entry) => entry.name);
 
       const candidates: SessionSearchCandidate[] = [];
       for (const filename of files) {
@@ -4186,8 +4024,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description:
-        'Read a file and return its contents. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files.',
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large files.`,
       parameters: {
         type: 'object',
         properties: {

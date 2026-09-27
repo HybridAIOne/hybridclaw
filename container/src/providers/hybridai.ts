@@ -15,6 +15,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
@@ -200,7 +201,11 @@ export async function callHybridAIProvider(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ProviderRequestError(response.status, text);
+    throw new ProviderRequestError(
+      response.status,
+      text,
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
@@ -253,7 +258,11 @@ export async function callHybridAIProviderStream(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ProviderRequestError(response.status, text);
+    throw new ProviderRequestError(
+      response.status,
+      text,
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const contentType = (

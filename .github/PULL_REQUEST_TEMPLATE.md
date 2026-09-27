@@ -7,6 +7,16 @@ Describe the change in 2-5 bullets:
 - What changed:
 - What did not change:
 
+## Release note
+
+<!-- CHANGELOG.md and console/src/release-notes.ts are release-owned; do not
+edit them in ordinary PRs. Write a short user-facing description below, or
+None for internal-only changes. Breaking changes must include migration
+instructions. Maintainers collect these notes when preparing a release. -->
+
+```release-note
+```
+
 ## Size
 
 See `AGENTS.md` §3 and §12.

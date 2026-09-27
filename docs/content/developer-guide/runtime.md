@@ -72,6 +72,47 @@ HybridClaw can execute agent turns in two modes:
   mode; in container mode they also show the configured image name, resolved
   version, short image id, and session count.
 
+## Worker State
+
+A session's turns run in a worker: an agent container in `container` mode, an
+agent process in `host` mode. Workers are disposable, and one can exit between
+any two turns:
+
+- after 5 idle minutes;
+- when a change of provider, credentials, or runtime environment alters the
+  worker signature (switching models within one provider does not);
+- when a new worker needs a slot at `container.maxConcurrent` and the least
+  recently used worker has been idle for 10 seconds;
+- on a crash or a gateway restart.
+
+The next worker is rebuilt from `ContainerInput`, so anything a later turn
+needs lives on the gateway side: gateway storage or the host-mounted
+workspace. Per-session facts go in the session state dir,
+`<workspace>/.hybridclaw-runtime/sessions/<sha256 of the session id>/`, which
+agent archives skip and `reset yes` removes with the workspace.
+
+| State | Lives in | When the worker exits |
+| --- | --- | --- |
+| Conversation, session settings, usage, audit trail | Gateway SQLite and data dir | Kept |
+| Agent files, memory, transcripts, artifacts | Workspace | Kept |
+| Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
+| `yes for session` trust | Worker memory | Lost; the action asks again |
+| Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
+| Bash working directory | Session state dir | Kept |
+| Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
+| Background processes, `/tmp` files | Worker | Lost |
+| Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
+| Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
+| Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
+| Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
+| Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
+| MCP connections | Worker | Reconnected from config on the next turn |
+| Web fetch and search caches, approval counters, seen hosts | Worker memory | Lost; later calls may ask again |
+
+Exported variables stay in the worker on purpose: the shell snapshot holds the
+whole environment, gateway token included, and must not be written to the
+workspace. `AGENTS.md` §3.7 has the rule for adding worker state.
+
 ## Configuration Internals
 
 HybridClaw runtime configuration is typed and validated in
@@ -491,6 +532,24 @@ only:
   down.
 - Requests without an id reply in `output.json`; the gateway also accepts that
   file from agent images built before request ids.
+
+## Agent Shutdown
+
+When the gateway stops an agent process, for example to interrupt a turn, the
+agent receives `SIGTERM` (through `docker stop` in container mode). It writes
+the interrupted reply to its in-flight request's reply file at once, keeping
+the tool calls that already ran, and then closes its browser sessions and MCP
+servers, which can take seconds. From the signal on, the agent starts nothing
+new:
+
+- no model call, tool approval, tool run, or later reply; a model or tool
+  result still in flight when the signal arrives is dropped
+- no `input.json` or `health-input.json` is consumed, because the replacement
+  agent that the runner starts for the next turn can share the session's IPC
+  directory
+
+Each of these entry points checks the latch in
+`container/src/shutdown-latch.ts`; a new entry point must check it too.
 
 ## Session Reset Workflow
 

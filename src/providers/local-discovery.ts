@@ -165,6 +165,26 @@ function readPositiveInteger(value: unknown): number | undefined {
   return Math.floor(parsed);
 }
 
+// 32K (owner call, 2026-09-27): the num_ctx Ollama models run with unless their
+// Modelfile sets one. Ollama sizes the KV cache for the whole window, so a
+// trained maximum of 128K can need many GB, while Ollama's own default of a few
+// thousand tokens cuts off the start of the agent's prompt.
+export const OLLAMA_DEFAULT_CONTEXT_WINDOW = 32_768;
+
+/** The window for an Ollama model that discovery has not seen. */
+export function defaultOllamaContextWindow(): number {
+  return Math.min(LOCAL_DEFAULT_CONTEXT_WINDOW, OLLAMA_DEFAULT_CONTEXT_WINDOW);
+}
+
+function readNumCtxFromShowResponse(payload: unknown): number | undefined {
+  const parameters =
+    isRecord(payload) && typeof payload.parameters === 'string'
+      ? payload.parameters
+      : '';
+  const match = /^\s*num_ctx\s+(\d+)\s*$/m.exec(parameters);
+  return match ? readPositiveInteger(match[1]) : undefined;
+}
+
 function readContextWindowFromShowResponse(
   payload: unknown,
 ): number | undefined {
@@ -317,7 +337,8 @@ async function discoverOllamaModels(
     const record = entry as Record<string, unknown>;
     const modelId = String(record.name || '').trim();
     const details = isRecord(record.details) ? record.details : null;
-    let contextWindow = LOCAL_DEFAULT_CONTEXT_WINDOW;
+    let trainedContextWindow: number | undefined;
+    let modelfileNumCtx: number | undefined;
 
     try {
       const showResponse = await fetchJson(
@@ -329,15 +350,19 @@ async function discoverOllamaModels(
         },
         3_000,
       );
-      contextWindow =
-        readContextWindowFromShowResponse(showResponse) ||
-        LOCAL_DEFAULT_CONTEXT_WINDOW;
+      trainedContextWindow = readContextWindowFromShowResponse(showResponse);
+      modelfileNumCtx = readNumCtxFromShowResponse(showResponse);
     } catch {
       // Best-effort enrichment only.
     }
 
     return createLocalModelInfo('ollama', modelId, {
-      contextWindow,
+      // Sent as num_ctx: the Modelfile's value wins, never above the trained
+      // window.
+      contextWindow: Math.min(
+        trainedContextWindow ?? LOCAL_DEFAULT_CONTEXT_WINDOW,
+        modelfileNumCtx ?? OLLAMA_DEFAULT_CONTEXT_WINDOW,
+      ),
       sizeBytes:
         typeof record.size === 'number' && Number.isFinite(record.size)
           ? Math.floor(record.size)

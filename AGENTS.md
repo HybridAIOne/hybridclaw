@@ -175,6 +175,24 @@ core, not dead code).
 - Extend the existing private-network (SSRF) guard, pinned-path matcher,
   approval-policy parser, or secret redactor; never add another copy.
 
+### 3.7 Workers Are Disposable
+
+- A worker (agent container or host agent process) can die between any two
+  turns: the 5-minute idle timeout, a provider or credential switch, eviction
+  under pool pressure, a crash, or a gateway restart.
+- Anything that must outlive a worker lives on the gateway side: SQLite and
+  the data dir, or the host-mounted workspace. Per-session facts go in the
+  session state dir (`container/src/session-state.ts`).
+- Worker memory, worker `/tmp`, and worker processes hold only caches the next
+  worker rebuilds from `ContainerInput`, and live handles (running commands,
+  open browser pages, MCP connections) that die with it.
+- Never promise the model or the user session-long behavior that only the
+  worker remembers. A guard that depends on earlier calls persists what it
+  remembered instead of failing open, and a tool whose live handle is gone
+  says so on its next call.
+- Adding worker state? Update "Worker State" in
+  `docs/content/developer-guide/runtime.md`.
+
 ---
 
 ## 4) Risk Tiers by Path
@@ -247,6 +265,11 @@ hybridclaw gateway status             # gateway liveness, PID, build/version dia
   task requires wider movement.
 - Match the existing TypeScript + ESM patterns in the touched area.
 - Update tests and docs when behavior, commands, or repo workflows change.
+- **Release notes:** `CHANGELOG.md` and `console/src/release-notes.ts` are
+  release-owned. Ordinary PRs do not edit them, including at merge time. Put a
+  short user-facing note in the PR description's `Release note` section, or
+  `None` for internal-only changes. Breaking changes must include migration
+  instructions. Assemble the changelog during §7.7 instead.
 - Before creating, editing, or optimizing a skill, read
   `docs/content/extensibility/skills.md` and follow its helper, command-surface,
   approval, credential, gateway, and testing guidance.
@@ -499,18 +522,27 @@ When the user says "bump release":
    - `container/package-lock.json` and `container/npm-shrinkwrap.json` (root
      `version` and `packages[""]`)
    - any user-facing version text (for example `src/tui.ts` banner)
-3. **Always** update `console/src/release-notes.ts` for the new version with up
-   to four ultra-short highlights for the What's New dialog. Do not carry the
-   previous release's version or highlights forward. For a patch release whose
-   changes are only technical or internal, use the single highlight `Bug fixes`.
+3. Collect release-note context from the previous published release tag on
+   the target branch through the intended release commit. Review merged PRs
+   and their `Release note` sections, and inspect the commit range for direct
+   commits, missing notes, reverts, and follow-up fixes. Use the actual changes
+   to fill gaps; do not rely on PR notes or merge dates alone.
 4. Review the generated lockfile diff. Even a version-only release changes the
    lockfile bytes, so update the matching SHA-256 entries in
    `scripts/dependency-policy-baseline.json` after confirming that no dependency
    versions or lifecycle scripts changed. Run `npm run deps:policy` before the
    release commit; the pre-commit override does not approve stale baseline
    hashes in CI.
-5. Move `CHANGELOG.md` release notes from `Unreleased` to the new version
-   heading (or create one).
+5. Write `CHANGELOG.md` once for the release: curate the collected changes
+   into the new version heading, group related changes, omit internal-only
+   noise, and include migration instructions for breaking changes. Incorporate
+   any existing `Unreleased` notes without duplication and leave `Unreleased`
+   empty. Preserve previously released sections.
+   **Always** update `console/src/release-notes.ts` in the same release commit
+   with the new version and up to four ultra-short highlights derived from
+   that changelog for the What's New dialog. Do not carry the previous
+   release's version or highlights forward. For a patch release whose changes
+   are only technical or internal, use the single highlight `Bug fixes`.
 6. On a minor release, delete compat code whose `compat: remove after vX.Y`
    marker is at or below the new version, and list the removals in the
    changelog.

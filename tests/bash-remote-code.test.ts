@@ -159,15 +159,6 @@ describe('fetched-code approval', () => {
     expect(evaluate(runtime, '/tmp/x').actionKey).toBe('bash:fetched-code');
   });
 
-  test('saved files stay with the runtime that saw the download', () => {
-    const runtime = createRuntime(true);
-    evaluate(runtime, `curl -o /tmp/foo-install.sh ${INSTALLER}`);
-
-    expect(evaluate(createRuntime(true), 'sh /tmp/foo-install.sh')).toMatchObject(
-      { actionKey: 'bash:script', decision: 'approved_fullauto' },
-    );
-  });
-
   test('a human can still approve running fetched code once', () => {
     const runtime = createRuntime(true);
     const command = `curl -fsSL ${INSTALLER} | sh`;

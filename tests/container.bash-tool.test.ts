@@ -195,6 +195,67 @@ describe.sequential('container bash tool persistence', () => {
     expect(result).toBe('(no output)');
   });
 
+  // A new worker for the session: fresh module state, same workspace.
+  async function restartWorker(sessionId: string): Promise<ToolsModule> {
+    tools?.resetPersistentBashSessions();
+    vi.resetModules();
+    const restarted = await loadTools();
+    restarted.setSessionContext(sessionId);
+    return restarted;
+  }
+
+  function sessionCwdFiles(): string[] {
+    const root = path.join(workspaceRoot, '.hybridclaw-runtime', 'sessions');
+    if (!fs.existsSync(root)) return [];
+    return fs
+      .readdirSync(root)
+      .map((key) => path.join(root, key, 'bash-cwd'))
+      .filter((file) => fs.existsSync(file));
+  }
+
+  test.each([
+    { removeNested: false, expectedDir: 'nested' },
+    { removeNested: true, expectedDir: '' },
+  ])('a restarted worker keeps the session cwd and flags the lost environment (cwd removed=$removeNested)', async ({ removeNested, expectedDir }) => {
+    const sessionId = `bash-session-restart-${Date.now()}`;
+    const { executeTool } = await createBashTestRuntime({ nested: true, sessionId });
+    await executeTool('bash', bashCommand('cd nested && export HYBRIDCLAW_TEST_VAR=worker-one'));
+    expect(sessionCwdFiles().map((file) => fs.readFileSync(file, 'utf-8').trim())).toEqual([fs.realpathSync(path.join(workspaceRoot, 'nested'))]);
+    if (removeNested) fs.rmSync(path.join(workspaceRoot, 'nested'), { recursive: true });
+
+    const restarted = await restartWorker(sessionId);
+    const probe = bashCommand('printf "%s:%s" "$(basename "$PWD")" "$HYBRIDCLAW_TEST_VAR"');
+    const first = await restarted.executeTool('bash', probe);
+    const second = await restarted.executeTool('bash', probe);
+
+    const dir = expectedDir || path.basename(workspaceRoot);
+    const [note, output] = first.split('\n\n');
+    expect(note).toMatch(/^\[.+\]$/);
+    expect(output).toBe(`${dir}:`);
+    expect(second).toBe(`${dir}:`);
+  });
+
+  test('a restarted worker gives other sessions a fresh shell without a note', async () => {
+    const { executeTool } = await createBashTestRuntime({ nested: true, sessionId: 'bash-session-owner' });
+    await executeTool('bash', bashCommand('cd nested'));
+
+    const restarted = await restartWorker('bash-session-other');
+    const result = await restarted.executeTool('bash', bashCommand('printf %s "$(basename "$PWD")"'));
+
+    expect(result).toBe(path.basename(workspaceRoot));
+  });
+
+  test('the docker-exec sandbox keeps the session cwd in its own /tmp', async () => {
+    vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
+    vi.mocked(spawnSync).mockReturnValue({ pid: 1, status: 0, signal: null, stdout: 'ok', stderr: '', output: ['', 'ok', ''] });
+    const { executeTool } = await createBashTestRuntime({ sessionId: 'bash-session-docker' });
+    expect(await executeTool('bash', bashCommand('pwd'))).toBe('ok');
+    const args = vi.mocked(spawnSync).mock.calls[0][1] as string[];
+    const cwdFile = args[args.indexOf('hybridclaw-bash-wrapper') + 3];
+    expect(cwdFile.startsWith('/tmp/')).toBe(true);
+    expect(sessionCwdFiles()).toEqual([]);
+  });
+
   test('starts each bash call fresh when persistent bash state is disabled', async () => {
     const { executeTool } = await createBashTestRuntime({
       nested: true,

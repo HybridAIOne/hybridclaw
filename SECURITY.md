@@ -48,11 +48,11 @@ Tool actions are risk-tiered at runtime:
 
 - Green: execute silently (read/search/status checks)
 - Yellow: execute with narrated intent and a short interrupt window
-- Red: explicit user approval required (`yes` / `yes for session` / `yes for agent` / `skip`, or `1/2/3/4`)
+- Red: explicit user approval required (`yes` / `yes for session` / `yes for agent` / `skip`, or `1/2/3/4`), answered in the session that asked; a reply in another session of the same agent cannot approve it
 - Full-auto: yellow and red run without a prompt, except pinned-sensitive
-  actions (`.env*`, `~/.ssh/**`, `/etc/**`, force pushes, and
-  `approval.pinned_red` rules), shell writes outside the workspace fence,
-  fetched code, and `full_auto.never_approve` entries
+  actions (`.env*`, `~/.ssh/**`, `/etc/**`, force pushes, approval state
+  files, and `approval.pinned_red` rules), shell writes outside the workspace
+  fence, fetched code, and `full_auto.never_approve` entries
 
 The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
 
@@ -62,6 +62,12 @@ The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
   space need a human, even in full-auto)
 - `approval.max_pending_approvals` and `approval.approval_timeout_secs`
 - `audit.log_all_red` and `audit.log_denials`
+
+The policy and the trust stores live in the agent's workspace, so the agent's
+own writes, edits, and deletes of `.hybridclaw/**` and `approval-trust.json`,
+and bash commands naming them, need explicit human approval every time, even
+in full-auto. The check is static and does not replace keeping these files out
+of the sandbox.
 
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 

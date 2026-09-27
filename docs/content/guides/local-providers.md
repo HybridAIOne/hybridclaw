@@ -75,6 +75,11 @@ the runtime can reach those local endpoints directly.
 - Interactive onboarding can skip remote-provider auth completely when you plan
   to use a local backend only.
 - For longer agent sessions, `16k` context is a minimum and `32k` is safer.
+- Ollama models run with a `32k` context window (`num_ctx`), or their trained
+  window when that is smaller. Ollama reserves memory for the whole window. To
+  use another size, set `PARAMETER num_ctx <tokens>` in the model's Modelfile
+  and create the model from it; HybridClaw uses that value, up to the model's
+  trained window.
 - The TUI, web chat, and Discord model pickers come from the live gateway model
   list, so restart the gateway after enabling a new backend or loading a
   different local model.
