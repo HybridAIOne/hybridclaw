@@ -50,6 +50,28 @@ test('discovers recently created artifact files under the workspace root', () =>
   }
 });
 
+test('keeps only files the turn mentions when given its text', () => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-artifacts-'),
+  );
+  try {
+    const createdAtMs = Date.now();
+    const deckPath = path.join(tempDir, 'board-deck.pptx');
+    fs.writeFileSync(deckPath, 'pptx payload');
+    // Written meanwhile by another session sharing the workspace.
+    fs.writeFileSync(path.join(tempDir, 'saas-model.xlsx'), 'xlsx payload');
+
+    const artifacts = discoverArtifactsSince(tempDir, {
+      modifiedAfterMs: createdAtMs - 1_000,
+      mentionedIn: ['Created the deck: [Download](board-deck.pptx)'],
+    });
+
+    expect(artifacts.map((artifact) => artifact.path)).toEqual([deckPath]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('ignores mirrored skill package assets under the workspace skills root', () => {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-artifacts-'),
