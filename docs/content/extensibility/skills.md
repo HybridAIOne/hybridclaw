@@ -29,6 +29,11 @@ Skill roots include:
   `.git` metadata, which is also not copied into the agent workspace, and
   accepts image and font assets only when their leading bytes match the
   extension
+- the scan reads instructions, config, and scripts, including `*.cjs` helpers
+  and the other JavaScript and TypeScript module types (`.mjs`, `.cts`,
+  `.mts`, `.jsx`, `.tsx`), `.zsh` scripts, and any file that starts with a
+  `#!` shebang; a `<secret:NAME>` placeholder or an auth header built from a
+  credential is ordinary use, not exposure
 - skills that reference the runtime secret store
   (`~/.hybridclaw/credentials.json`, the master key) or tell the agent to write
   `AGENTS.md`, `CLAUDE.md`, or `~/.hybridclaw/config.json` are blocked at every
