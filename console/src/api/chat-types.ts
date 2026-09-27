@@ -1,3 +1,4 @@
+import type { ApprovalMode } from '../../../container/shared/approval-mode.js';
 import type { RoutingTrace } from '../../../src/types/routing-trace';
 
 export type { RoutingTrace } from '../../../src/types/routing-trace';
@@ -138,6 +139,8 @@ export interface ChatContextResponse {
   sessionId: string;
   snapshot: ChatContextSnapshot | null;
   routing?: ChatModelRoutingContext | null;
+  /** Effective mode; null until the session exists (the gateway default applies). */
+  approvalMode?: ApprovalMode | null;
 }
 
 export interface ChatCommandSuggestion {

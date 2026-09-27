@@ -49,9 +49,11 @@ You can also start this same linked-device flow from the admin UI:
 3. Click **Start QR link**.
 4. Scan the QR code from Signal mobile under **Settings → Linked Devices**.
 
-The admin UI enables **Start QR link** only when the gateway can run
-`signal-cli --version`. If the probe fails, install `signal-cli` in the gateway
-runtime or use a sidecar daemon and complete the link flow there.
+Gateway startup and status checks probe `signal-cli --version` only when Signal
+is enabled. While Signal is disabled, CLI availability remains unknown. Clicking
+**Start QR link** explicitly checks the CLI before starting pairing. If the check
+fails, install `signal-cli` in the gateway runtime or use a sidecar daemon and
+complete the link flow there.
 
 The bundled amd64 gateway stores this linked-device identity under
 `/workspace/.data/signal-cli`. Keep `/workspace/.data` on the gateway's

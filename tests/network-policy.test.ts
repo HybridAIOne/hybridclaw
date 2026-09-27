@@ -18,6 +18,13 @@ test.each([
   { pattern: 'ex?mple.com', host: 'ex.mple.com', matches: false },
   { pattern: '*.example.com', host: 'a.b.example.com', matches: true },
   { pattern: '*.example.com', host: 'example.com', matches: false },
+  { pattern: '*', host: 'a.b.example.org', matches: true },
+  { pattern: 'example.*', host: 'example.org', matches: true },
+  { pattern: 'example.*', host: 'example.attacker.com', matches: false },
+  { pattern: 'example.*', host: 'example.co.uk', matches: false },
+  { pattern: 'example.**', host: 'example.co.uk', matches: true },
+  { pattern: 'ex*mple.com', host: 'example.com', matches: true },
+  { pattern: 'ex*mple.com', host: 'ex.attacker.mple.com', matches: false },
   { pattern: 'example.com', host: 'api.example.com', matches: true },
   { pattern: '10.0.0.0/8', host: '10.1.2.3', matches: true },
 ])('host $pattern vs $host: $matches', ({ pattern, host, matches }) => {
@@ -70,4 +77,35 @@ test('a deny rule with `?` blocks the hosts its glob names', () => {
   expect(evaluate('evil.example.com')).toBe('deny');
   expect(evaluate('eval.example.com')).toBe('deny');
   expect(evaluate('example.com')).toBe('allow');
+});
+
+test.each([
+  { rule: 'example.*', host: 'example.org', decision: 'allow' },
+  { rule: 'example.*', host: 'example.attacker.com', decision: 'prompt' },
+  { rule: '*.example.com', host: 'a.b.example.com', decision: 'allow' },
+  { rule: '*', host: 'a.b.example.org', decision: 'allow' },
+])('allow rule $rule under default deny: $host gets $decision', ({
+  rule,
+  host,
+  decision,
+}) => {
+  expect(
+    evaluateNetworkPolicyAccess({
+      rules: [
+        {
+          action: 'allow',
+          host: rule,
+          port: '*',
+          methods: ['*'],
+          paths: ['/**'],
+          agent: '*',
+        },
+      ],
+      defaultAction: 'deny',
+      host,
+      port: 443,
+      method: 'GET',
+      path: '/',
+    }).decision,
+  ).toBe(decision);
 });

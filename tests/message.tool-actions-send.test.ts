@@ -1582,7 +1582,8 @@ test('WhatsApp send results describe sender, recipient and unconfirmed delivery'
     ok: true,
     transport: 'whatsapp',
     recipient: '+491234567890',
-    deliveryStatus: 'accepted_by_linked_device',
+    deliveryStatus: 'unknown-recipient',
+    messageIds: [],
     deliveryConfirmed: false,
   });
   expect(result).not.toHaveProperty('note');
@@ -1608,3 +1609,29 @@ test('WhatsApp send results warn when the recipient is the linked account itself
   });
   expect(String(result.note)).toContain('does not send a push notification');
 });
+
+
+test.each(['+15550100200', '', null])(
+  'WhatsApp rejects from=%s before text or media sends',
+  async (from) => {
+    const state = await importFreshMessageToolActions();
+    state.getWhatsAppAuthStatus.mockResolvedValue({
+      linked: true,
+      jid: '15550100100:7@s.whatsapp.net',
+    } as never);
+    for (const filePath of [undefined, 'notes/image.png']) {
+      await expect(
+        state.runMessageToolAction({
+          action: 'send',
+          channelId: 'whatsapp:+15550100200',
+          sessionId: 'wa:test',
+          content: 'hello',
+          from,
+          filePath,
+        }),
+      ).rejects.toThrow('Messages are sent from +15550100100');
+    }
+    expect(state.sendToWhatsAppChat).not.toHaveBeenCalled();
+    expect(state.sendWhatsAppMediaToChat).not.toHaveBeenCalled();
+  },
+);

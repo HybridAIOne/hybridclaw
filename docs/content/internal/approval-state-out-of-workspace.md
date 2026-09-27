@@ -228,7 +228,7 @@ question is still open from the stateless-gateway work.
   approval dir and drops pending approvals. Install writes the policy there as
   part of the operator's install action, never as workspace content. Whether
   install shows or limits the imported sections (for example, refusing
-  `secret.default: allow`) is an owner call.
+  `network.default: allow`) is an owner call.
 - **Compat marker.** The import step carries `// compat: remove after v0.35`,
   assuming it ships in 0.33; the extra minor covers skipped upgrades. After
   removal, a workspace that was never migrated falls back to the default

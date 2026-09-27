@@ -2257,8 +2257,8 @@ async function main(): Promise<void> {
     ? replaceLatestUserPrompt(firstMessages, firstPromptOverride)
     : firstMessages;
   const firstMessagesForRequest = injectSkillCacheHint(firstPreparedMessages);
-  approvalRuntime.setFullAutoOptions({
-    enabled: firstInput.fullAutoEnabled === true,
+  approvalRuntime.setApprovalMode({
+    mode: firstInput.approvalMode,
     neverApproveTools: firstInput.fullAutoNeverApproveTools,
   });
 
@@ -2406,8 +2406,8 @@ async function main(): Promise<void> {
       media: input.media,
       audioTranscriptsPrepended: input.audioTranscriptsPrepended,
     });
-    approvalRuntime.setFullAutoOptions({
-      enabled: input.fullAutoEnabled === true,
+    approvalRuntime.setApprovalMode({
+      mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
     const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);

@@ -8,19 +8,55 @@
  */
 import { firstOnLine, r, type ThreatRule } from './skills-guard-text.js';
 
-// A variable whose name ENDS in a secret word; `$X_API_URL` and `$KEY_FILE`
-// hold no secret. `(?!\w)` rather than `\b`: same match, half the backtracking.
-const SECRET_VAR = String.raw`\$\{?\w*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)S?(?!\w)`;
+// A shell name that ENDS in a secret word; `$X_API_URL` and `$KEY_FILE` hold
+// no secret. `(?!\w)` rather than `\b`: same match, half the backtracking.
+const SECRET_NAME = String.raw`\w*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)S?(?!\w)`;
+const SECRET_VAR = String.raw`\$\{?${SECRET_NAME}`;
+
+// The same test for a JS or Python value (`apiKey`, `self.api_key`,
+// `process.env.X_TOKEN`, `os.environ["X_API_KEY"]`, `os.getenv("X_TOKEN")`).
+// A value follows an operator or bracket, so a dict key, keyword name, call,
+// or word in prose or a URL path does not count. Unlike shell `$KEY`, a bare
+// `key` in code is a map or object key (`requests.get(key)`, `data=key`) and
+// `tokens` counts LLM tokens (`max_tokens`): decided 2026-09-27 at the owner's
+// request, as every bare `key` in the corpora was one; resource names such as
+// `issueKey` still count. `\x60` is a backtick.
+const CODE_NAME_END = String.raw`(?:[\w$]KEYS?|TOKEN|SECRETS?|PASSWORDS?|CREDENTIALS?)`;
+const CODE_SECRET = String.raw`[=:(,{+%?!|&*\[>]\s*(?:[\w$]+\??\.)*(?:[\w$]*?${CODE_NAME_END}(?![\w$'"\x60]|\s*(?:=(?!=)|:(?!:)|\())|(?:[\w$]+\s*\[|(?:getenv|get)\s*\()\s*["'\x60]\w*?${CODE_NAME_END}["'\x60])`;
+
+const FETCH_CALL = String.raw`fetch(?<![\w$]fetch)\s*(?=\()`;
+// `this.requests.get(key)` or `this.http.get(url)` is an object's method, not
+// the requests, http, or httpx module.
+const HTTPX_CALL = String.raw`http(?<![\w$.]http)x?\.(?:get|post|put|patch)\s*(?=\()`;
+const REQUESTS_CALL = String.raw`requests(?<![\w$.]requests)\.(?:get|post|put|patch)\s*(?=\()`;
 
 // Secrets used as intended: an auth header value, a basic-auth or bearer
 // flag, or a URL whose host names the secret's vendor (`$TRELLO_TOKEN` on
 // api.trello.com; a generic prefix such as `API_` or `AUTH_` names no vendor).
 // A body, another header, or an unrelated host still counts as sending it away.
+// A host holds no `$` `{` `}`, which also keeps the lookbehind short.
+const VENDOR_SECRET = String.raw`(?!(?:api|app|access|auth|bearer|bot|client|private|public|refresh|secret|service|session|user)_)([a-z][a-z0-9]{2,})_\w*?(?:key|token|secret|password|credential)s?\b`;
+const ON_VENDOR_HOST = String.raw`(?<=https?://[^\s/?#"'$:{}]{0,253}?\1[^\s"'<>]{0,512})`;
 const SECRET_SENT_HOME = new RegExp(
   [
     String.raw`(?<![\w-])(?:authorization|(?=[\w-]{0,40}?(?:api[-_]?key|token|auth))[\w-]{1,80})\s*:\s*(?:bearer\s+|basic\s+|token\s+)?["']?\$\{?\w+\}?`,
     String.raw`(?:-u|--user|--oauth2-bearer)\s*["']?[^\s"'$]{0,64}\$\{?\w+\}?(?::\$\{?\w+\}?)?`,
-    String.raw`(?=\$\{?(?!(?:api|app|access|auth|bearer|bot|client|private|public|refresh|secret|service|session|user)_)([a-z][a-z0-9]{2,})_\w*?(?:key|token|secret|password|credential)s?\b)(?<=https?://[^\s/?#"'$:]{0,253}?\1[^\s"'<>]{0,512})\$\{?\w+\}?`,
+    String.raw`(?=\$\{?${VENDOR_SECRET})${ON_VENDOR_HOST}\$\{?\w+\}?`,
+  ].join('|'),
+  'gi',
+);
+
+// The same exemptions in JS and Python: a vendor URL interpolating
+// `${process.env.X_KEY}` or f-string `{X_KEY}`; a header entry named
+// `Authorization` or a hyphenated api-key/token/auth name, up to the next `,`
+// `;` `)` (an underscore name such as `api_key:` is a body field);
+// `auth=(user, key)` or `auth=HTTPBasicAuth(...)`; a header builder such as
+// `headers=_bearer(token)`.
+const CODE_SECRET_SENT_HOME = new RegExp(
+  [
+    String.raw`(?=(?:\$\{?|\{)\s*(?:[\w$]+\??\.)*${VENDOR_SECRET})${ON_VENDOR_HOST}(?:\$?\{[\w$.?\s]*\}?|\$\w+)`,
+    String.raw`[{,]\s*["'\x60]?(?:authorization|(?=[\w-]{0,40}?-)(?=[\w-]{0,40}?(?:api[-_]?key|token|auth))[\w-]{1,80})["'\x60]?\s*:\s*[^,;)\n]*`,
+    String.raw`\b(?:auth\s*=\s*(?:[\w.]*\((?:[^()\n]|\([^()\n]*\))*\)|[\w.]+)|headers\s*=\s*[\w.]+\((?:[^()\n]|\([^()\n]*\))*\))`,
   ].join('|'),
   'gi',
 );
@@ -47,31 +83,36 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'wget sends a secret environment variable away from its API',
   },
   {
+    // A `$VAR` (shell-expanded around `node -e`) or a `${...}` holding a code
+    // secret; the `${` scan stops at the next `$`, keeping it linear.
     regex: r(
-      String.raw`fetch\s*\([^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|API)`,
+      String.raw`${firstOnLine(FETCH_CALL)}[^\n]*(?:\$${SECRET_NAME}|\$(?=\{)[^$}\n]*?${CODE_SECRET})`,
     ),
+    ignore: CODE_SECRET_SENT_HOME,
     patternId: 'env_exfil_fetch',
     severity: 'critical',
     category: 'exfiltration',
-    description: 'fetch() call interpolating secret environment variable',
+    description: 'fetch() sends an interpolated secret away from its API',
   },
   {
     regex: r(
-      String.raw`httpx?\.(get|post|put|patch)\s*\([^\n]*(KEY|TOKEN|SECRET|PASSWORD)`,
+      String.raw`${firstOnLine(HTTPX_CALL)}[^\n]*(?:\$${SECRET_NAME}|${CODE_SECRET})`,
     ),
+    ignore: CODE_SECRET_SENT_HOME,
     patternId: 'env_exfil_httpx',
     severity: 'critical',
     category: 'exfiltration',
-    description: 'HTTP library call with secret variable',
+    description: 'httpx or http call sends a secret away from its API',
   },
   {
     regex: r(
-      String.raw`requests\.(get|post|put|patch)\s*\([^\n]*(KEY|TOKEN|SECRET|PASSWORD)`,
+      String.raw`${firstOnLine(REQUESTS_CALL)}[^\n]*(?:\$${SECRET_NAME}|${CODE_SECRET})`,
     ),
+    ignore: CODE_SECRET_SENT_HOME,
     patternId: 'env_exfil_requests',
     severity: 'critical',
     category: 'exfiltration',
-    description: 'requests library call with secret variable',
+    description: 'requests call sends a secret away from its API',
   },
   {
     regex: r(String.raw`base64[^\n]*env`),

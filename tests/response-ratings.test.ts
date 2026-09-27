@@ -554,35 +554,43 @@ describe('response ratings', () => {
     });
   });
 
-  test('uses configured HybridAI bot id when the rated session has no bot id', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 201,
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const service = await setup({
-      apiKey: 'hai-feedback-test-key',
-      hybridAIChatbotId: 'bot-configured',
-      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
-    });
+  test.each([null, '', '   '])(
+    'keeps ratings local when session bot id is %j despite global defaults',
+    async (chatbotId) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const service = await setup({
+        apiKey: 'hai-feedback-test-key',
+        hybridAIChatbotId: 'bot-unrelated',
+        chatbotId,
+      });
+      const { updateRuntimeConfig } = await import(
+        '../src/config/runtime-config.js'
+      );
+      updateRuntimeConfig((draft) => {
+        draft.observability.botId = 'bot-observability';
+      });
 
-    service.submitResponseRating({
-      sessionId: service.sessionId,
-      messageId: service.assistantMessageId,
-      operatorUserId: 'operator-a',
-      rating: 'down',
-    });
+      service.submitResponseRating({
+        sessionId: service.sessionId,
+        messageId: service.assistantMessageId,
+        operatorUserId: 'operator-a',
+        rating: 'down',
+        comment: 'Expected a different answer',
+      });
 
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    const [, request] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit & { body: string },
-    ];
-    expect(JSON.parse(request.body)).toMatchObject({
-      chatbot_id: 'bot-configured',
-      rating: 'down',
-    });
-  });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        service.getResponseRatingsForMessages({
+          sessionId: service.sessionId,
+          messageIds: [service.assistantMessageId],
+          operatorUserId: 'operator-a',
+        }),
+      ).toEqual(new Map([[service.assistantMessageId, 'down']]));
+      expect(service.recordAuditEvent).toHaveBeenCalled();
+      expect(service.recordSkillFeedbackForObservation).toHaveBeenCalled();
+    },
+  );
 
   test('does not forward without a HybridAI key', async () => {
     const fetchMock = vi.fn().mockResolvedValue({

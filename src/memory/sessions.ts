@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+} from '../../container/shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -644,12 +648,13 @@ export function forkSessionBranch(
          full_auto_prompt,
          full_auto_started_at,
          show_mode,
+         approval_mode,
          created_at,
          last_active,
          reset_count,
          reset_at,
          legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       )
       .run(
         nextSessionId,
@@ -666,6 +671,7 @@ export function forkSessionBranch(
         sourceSession.full_auto_prompt,
         sourceSession.full_auto_started_at,
         sourceSession.show_mode,
+        sourceSession.approval_mode,
         nowIso,
         nowIso,
         sourceSession.reset_count,
@@ -766,12 +772,13 @@ export function createFreshSessionInstance(
          full_auto_prompt,
          full_auto_started_at,
          show_mode,
+         approval_mode,
          created_at,
          last_active,
          reset_count,
          reset_at,
          legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextSessionId,
@@ -787,6 +794,9 @@ export function createFreshSessionInstance(
         params?.resetSettings ? null : previousSession.full_auto_prompt,
         params?.resetSettings ? null : previousSession.full_auto_started_at,
         params?.resetSettings ? 'all' : previousSession.show_mode,
+        params?.resetSettings
+          ? DEFAULT_APPROVAL_MODE
+          : previousSession.approval_mode,
         nowIso,
         nowIso,
         previousSession.reset_count + 1,
@@ -956,6 +966,16 @@ export function updateSessionShowMode(
   getSessionDatabase()
     .prepare('UPDATE sessions SET show_mode = ? WHERE id = ?')
     .run(showMode, resolvedSessionId);
+}
+
+export function updateSessionApprovalMode(
+  sessionId: string,
+  approvalMode: ApprovalMode,
+): void {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  getSessionDatabase()
+    .prepare('UPDATE sessions SET approval_mode = ? WHERE id = ?')
+    .run(approvalMode, resolvedSessionId);
 }
 
 export function getSessionTitle(sessionId: string): {

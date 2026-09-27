@@ -560,7 +560,6 @@ async function generateFullAutoLearningState(params: {
       agentId,
       channelId: session.channel_id,
       ralphMaxIterations: 0,
-      fullAutoEnabled: false,
       scheduledTasks: [],
       allowedTools: [],
       blockedTools: [],

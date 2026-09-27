@@ -1,3 +1,4 @@
+import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
@@ -40,7 +41,7 @@ export interface ExecutorRequest {
     | undefined;
   channelId?: string;
   ralphMaxIterations?: number | null;
-  fullAutoEnabled?: boolean;
+  approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   scheduledTasks?: ScheduledTask[];

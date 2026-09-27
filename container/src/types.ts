@@ -1,3 +1,4 @@
+import type { ApprovalMode } from '../shared/approval-mode.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 import type {
@@ -255,7 +256,7 @@ export interface ContainerInput {
   model: string;
   addressEnvelope?: AddressEnvelope;
   ralphMaxIterations?: number | null;
-  fullAutoEnabled?: boolean;
+  approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   skipContainerSystemPrompt?: boolean;
