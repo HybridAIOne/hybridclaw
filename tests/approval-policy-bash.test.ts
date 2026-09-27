@@ -247,6 +247,71 @@ approval:
   });
 
   test.each([
+    './install.sh',
+    'bash x.sh',
+    'sh x.sh',
+    'zsh x.sh',
+    './x.sh args > out',
+    'find . -exec ./x.sh {} \\;',
+    'xargs ./x.sh',
+    'chmod +x ./install.sh && ./install.sh',
+    'timeout 60 ./x.sh',
+    'bash ./cleanup.sh',
+    'bash -x install.sh',
+    'sh < x.sh',
+    "find . -name '*.sh' -exec sh {} \\;",
+    '(./x.sh)',
+    'echo $(./x.sh)',
+    "sh -c './x.sh'",
+    '"./x.sh"',
+    'scripts/x.sh',
+    '../x.sh',
+    '/workspace/x.sh',
+    '/tmp/x.sh',
+    '$PWD/x.sh',
+    // Heredoc bodies are stripped before classification, so the shell runs
+    // code the classifier cannot see.
+    "bash <<'EOF'\necho hi\nEOF",
+  ])('running a script file is script execution: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:script');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    ['ls ./src', 'bash:read-only'],
+    ['cat ./README.md', 'bash:read-only'],
+    ['grep -n TODO ./src/app.ts', 'bash:read-only'],
+    ['cat ./install.sh', 'bash:read-only'],
+    ['cp /tmp/input.csv ./input.csv', 'bash:write-op'],
+    ['chmod +x ./install.sh', 'bash:write-op'],
+    ['echo hi > ./out.txt', 'bash:write-op'],
+    ['test -x ./install.sh', 'bash:other'],
+  ])('a ./ path that no command runs is not script execution: %j', (command, actionKey) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe(actionKey);
+    expect(evaluation.baseTier).not.toBe('red');
+  });
+
+  test.each([
+    'python3 ./x.py',
+    'node ./scripts/build.js',
+    'source ./x.sh',
+    '. ./venv/bin/activate',
+    '/opt/homebrew/bin/tool --help',
+    '/usr/bin/env python3 x.py',
+    '~/bin/tool',
+  ])('other interpreters and installed tools keep their tier: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:other');
+    expect(evaluation.baseTier).toBe('yellow');
+  });
+
+  test.each([
     ['git diff --output=notes.txt', 'bash:write-op'],
     ['git log -p --output=../out.txt', 'bash:workspace-fence'],
     ['git show HEAD --output notes.txt', 'bash:write-op'],
