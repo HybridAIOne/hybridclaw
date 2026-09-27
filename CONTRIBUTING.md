@@ -158,6 +158,22 @@ staged diff.
 The repository includes issue forms and a PR template to keep bug reports,
 feature requests, docs fixes, and validation details consistent. Use them.
 
+### Release Notes
+
+`CHANGELOG.md` and `console/src/release-notes.ts` are release-owned. Do not
+edit them in ordinary PRs or when merging those PRs. In the PR template's
+`Release note` section, write a short user-facing description, or `None` for
+internal-only changes. Include migration instructions for breaking changes.
+When opening a PR through the CLI or API, include this section in its body too.
+
+Maintainers review merged PR notes and direct commits since the previous
+published release tag, then curate the changelog and console highlights in
+one release commit. See [the release procedure](./AGENTS.md#77-bump-release).
+
+For an existing open PR with changelog additions, move those additions into
+its description and remove them from the diff, preserving the changelog
+content inherited from its base.
+
 ## npm Release Publishing
 
 The [Publish Release workflow](./.github/workflows/publish-release.yml) checks
