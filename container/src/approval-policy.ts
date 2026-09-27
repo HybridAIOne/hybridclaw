@@ -1888,7 +1888,11 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   red_full_auto(context) {
     if (!isRedRuleActive(context)) return nextRule();
     const classified = requireClassified(context);
+    // Pinned calls prompt in every mode (owner call, 2026-09-27), as
+    // approvals-v2 plans for `full`. Eval runs (`autoApproveTools`) get no
+    // exemption.
     if (
+      !requirePinned(context) &&
       context.helpers.isFullAutoEnabled() &&
       !context.outOfBoundByAutonomy &&
       !classified.explicitApprovalRequired &&
@@ -3549,6 +3553,10 @@ export class TrustedAgentApprovalRuntime {
             !isScratchPath(entry)),
       );
       if (outsideWorkspace) {
+        // Explicit approval even under full-auto (owner call, 2026-09-27): the
+        // fence survives every mode, as approvals-v2 plans for `full`, and
+        // evals get no exemption. Human-granted trust still applies. Deferred:
+        // narrowing the absPaths fallback, which also fences outside reads.
         return {
           tier: 'red',
           actionKey: 'bash:workspace-fence',
@@ -3561,6 +3569,7 @@ export class TrustedAgentApprovalRuntime {
           writeIntent,
           promotableRed: false,
           stickyYellow: true,
+          explicitApprovalRequired: true,
         };
       }
     }

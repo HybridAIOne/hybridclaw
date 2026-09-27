@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { escapeRegExp } from '../../container/shared/regex.js';
 import {
   parseJsonObject,
   readAuditBoolean as readBoolean,
@@ -683,7 +684,7 @@ function anonymizeExplicitUsernameReferences(
 ): string {
   let next = text;
   for (const username of usernames) {
-    const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(username);
     const replacement = anonymizedPathUsername(username);
     next = next
       .replace(new RegExp(`-Users-${escaped}-`, 'g'), `-Users-${replacement}-`)
