@@ -59,7 +59,7 @@ function normalizeBrowserStealthRule(raw, index) {
     ...(action
       ? {}
       : {
-          description: `Unreadable browser stealth rule #${index + 1}, enforced as deny${problem ? ` (${problem})` : ''}`,
+          description: `Unreadable browser stealth rule #${index + 1}${problem ? ` ${problem}` : ''}, enforced as deny`,
         }),
   };
 }

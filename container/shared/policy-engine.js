@@ -102,14 +102,14 @@ export function checkPolicyText(value) {
 function describePredicateProblem(node, predicates, path) {
   const name = typeof node.predicate === 'string' ? node.predicate.trim() : '';
   if (!Object.hasOwn(predicates, name)) {
-    return `${path} names unknown predicate ${describeValue(node.predicate)}`;
+    return `${path} predicate ${describeValue(node.predicate)} is unknown (known: ${Object.keys(predicates).join(', ')})`;
   }
   const parameters = predicates[name];
   const groups = new Map();
   for (const key of Object.keys(node)) {
     if (key === 'predicate') continue;
     if (!Object.hasOwn(parameters, key)) {
-      return `${path} has unknown ${name} parameter "${key}"`;
+      return `${path} has unknown ${name} parameter "${key}" (allowed: ${Object.keys(parameters).join(', ')})`;
     }
     const group = parameters[key].group ?? key;
     if (groups.has(group)) {
@@ -119,12 +119,19 @@ function describePredicateProblem(node, predicates, path) {
     const problem = parameters[key].check(node[key]);
     if (problem) return `${path}.${key} ${problem}`;
   }
-  const missing = Object.keys(parameters).find(
-    (key) => parameters[key].required && !Object.hasOwn(node, key),
+  // A predicate with required parameters needs at least one of them.
+  const required = Object.keys(parameters).filter(
+    (key) => parameters[key].required,
   );
-  return missing === undefined
-    ? ''
-    : `${path} needs ${name} parameter ${missing}`;
+  if (
+    required.length === 0 ||
+    required.some((key) => Object.hasOwn(node, key))
+  ) {
+    return '';
+  }
+  return required.length === 1
+    ? `${path} needs ${name} parameter ${required[0]}`
+    : `${path} needs one of the ${name} parameters ${required.join(', ')}`;
 }
 
 // `ancestors` holds the nodes above this one: YAML aliases can make a `when`
@@ -153,10 +160,11 @@ function describeExpressionProblem(expression, predicates, path, ancestors) {
   const keys = Object.keys(expression);
   const operator = keys[0];
   if (keys.length !== 1 || !POLICY_OPERATORS.includes(operator)) {
-    return `${path} must set exactly one of predicate, all, any, not`;
+    const got = keys.map((key) => `"${key}"`).join(', ') || 'no keys';
+    return `${path} must set exactly one of predicate, all, any, not (got ${got})`;
   }
   if (operator !== 'not' && !Array.isArray(expression[operator])) {
-    return `${path}.${operator} is not a list`;
+    return `${path}.${operator} is ${describeValue(expression[operator])}, not a list`;
   }
   return describeExpressionProblem(
     expression[operator],
@@ -166,12 +174,17 @@ function describeExpressionProblem(expression, predicates, path, ancestors) {
   );
 }
 
+// Returns a clause without a subject for the rule itself ("has unknown key
+// ...") and one that starts with its path for the `when` tree ("when.all[1]
+// ..."), so a consumer can prefix its own rule label.
 export function describePolicyRuleProblem(rule, predicates) {
-  if (!isMapping(rule)) return `rule is ${describeValue(rule)}, not a mapping`;
+  if (!isMapping(rule)) return `is ${describeValue(rule)}, not a mapping`;
   const unknownKey = Object.keys(rule).find(
     (key) => !POLICY_RULE_KEYS.includes(key) && !key.startsWith('managed_by_'),
   );
-  if (unknownKey !== undefined) return `rule has unknown key "${unknownKey}"`;
+  if (unknownKey !== undefined) {
+    return `has unknown key "${unknownKey}" (allowed: ${POLICY_RULE_KEYS.join(', ')}, managed_by_*)`;
+  }
   if (rule.when === undefined) return '';
   return describeExpressionProblem(rule.when, predicates, 'when', []);
 }

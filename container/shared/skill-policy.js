@@ -77,7 +77,7 @@ function normalizeSkillPolicyRule(raw, index) {
     when: problem ? undefined : record.when,
     action: action ?? {
       type: 'deny',
-      reason: `Unreadable skill rule #${index + 1}, enforced as deny${problem ? ` (${problem})` : ''}`,
+      reason: `Unreadable skill rule #${index + 1}${problem ? ` ${problem}` : ''}, enforced as deny`,
     },
     metadata: { skillRule: raw },
   };

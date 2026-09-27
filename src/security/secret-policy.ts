@@ -12,13 +12,14 @@ import YAML from 'yaml';
 import { globToRegExp } from '../../container/shared/policy-glob.js';
 import { matchesNetworkHostPattern } from '../policy/network-policy.js';
 import {
+  describePolicyRuleProblem,
   evaluatePolicyRules,
   type PolicyPredicateExpression,
+  type PolicyPredicateParameters,
   type PolicyPredicateRegistry,
   type PolicyRule,
 } from '../policy/policy-engine.js';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
-import { asTrimmedString, isRecord } from '../utils/type-guards.js';
 import { SECRET_SINK_KINDS, type SecretSinkKind } from './secret-handles.js';
 import {
   normalizeSecretLower as normalizeLower,
@@ -78,36 +79,23 @@ function readAction(value: unknown, field: string): SecretPolicyDecision {
   );
 }
 
-// `managed_by_*` keys mark rules a command wrote, such as `secret route add`.
-const SECRET_RULE_KEYS = ['id', 'description', 'comment', 'when', 'action'];
-
 function readRule(
   raw: unknown,
   index: number,
 ): PolicyRule<SecretPolicyDecision> {
   const field = `secret rule #${index + 1}`;
-  if (!isRecord(raw)) {
-    throw new Error(`${field} must be a mapping (got ${JSON.stringify(raw)})`);
-  }
-  // A misspelled `when` would otherwise leave a rule that matches everything.
-  const unknownKey = Object.keys(raw).find(
-    (key) => !SECRET_RULE_KEYS.includes(key) && !key.startsWith('managed_by_'),
-  );
-  if (unknownKey !== undefined) {
-    throw new Error(
-      `${field} has unknown key "${unknownKey}" (allowed: ${SECRET_RULE_KEYS.join(', ')}, managed_by_*)`,
-    );
-  }
   // No `when` matches every resolve; a present one, even empty, must parse.
-  if (raw.when !== undefined) readExpression(raw.when, `${field} when`);
-  const id = normalizeString(raw.id);
+  const problem = describePolicyRuleProblem(raw, SECRET_POLICY_PARAMETERS);
+  if (problem) throw new Error(`${field} ${problem}`);
+  const record = raw as Record<string, unknown>;
+  const id = normalizeString(record.id);
   return {
     ...(id ? { id } : {}),
-    when: raw.when as
+    when: record.when as
       | PolicyPredicateExpression
       | PolicyPredicateExpression[]
       | undefined,
-    action: readAction(raw.action, `${field} action`),
+    action: readAction(record.action, `${field} action`),
     metadata: { secretRule: raw },
   };
 }
@@ -331,107 +319,43 @@ const SECRET_POLICY_PREDICATES: PolicyPredicateRegistry<SecretPolicyContext> =
     ]),
   );
 
-// Checks a rule's `when` tree against the engine's grammar and the predicate
-// table; the engine itself skips what it does not know.
-function readExpression(value: unknown, field: string): void {
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      throw new Error(`${field} must not be an empty list`);
-    }
-    value.forEach((entry, index) => {
-      readExpression(entry, `${field}[${index}]`);
-    });
-    return;
-  }
-  if (!isRecord(value)) {
-    throw new Error(
-      `${field} must be a mapping or a list (got ${JSON.stringify(value)})`,
-    );
-  }
-  if (Object.hasOwn(value, 'predicate')) {
-    readPredicate(value, field);
-    return;
-  }
-  const keys = Object.keys(value);
-  const operator = keys[0];
-  if (keys.length !== 1 || !['all', 'any', 'not'].includes(operator)) {
-    throw new Error(
-      `${field} must set predicate, all, any, or not (got ${JSON.stringify(value)})`,
-    );
-  }
-  if (operator !== 'not' && !Array.isArray(value[operator])) {
-    throw new Error(
-      `${field}.${operator} must be a list (got ${JSON.stringify(value[operator])})`,
-    );
-  }
-  readExpression(value[operator], `${field}.${operator}`);
-}
-
-function readPredicate(
-  expression: Record<string, unknown>,
-  field: string,
-): void {
-  const name = asTrimmedString(expression.predicate);
-  if (!Object.hasOwn(SECRET_POLICY_PREDICATE_PARAMS, name)) {
-    throw new Error(
-      `${field} predicate must be one of ${Object.keys(SECRET_POLICY_PREDICATE_PARAMS).join(', ')} (got ${JSON.stringify(expression.predicate)})`,
-    );
-  }
-  const params = SECRET_POLICY_PREDICATE_PARAMS[name];
-  const allowed = Object.keys(params).join(', ');
-  const setParams = Object.keys(expression).filter(
-    (key) => key !== 'predicate',
-  );
-  const unknownParam = setParams.find((key) => !Object.hasOwn(params, key));
-  if (unknownParam !== undefined) {
-    throw new Error(
-      `${field} has unknown ${name} parameter "${unknownParam}" (allowed: ${allowed})`,
-    );
-  }
-  if (setParams.length === 0) {
-    throw new Error(`${field} needs a ${name} parameter (one of ${allowed})`);
-  }
-  const setFields = new Map<SecretPolicyFieldName, string>();
-  for (const param of setParams) {
-    const previous = setFields.get(params[param]);
-    if (previous !== undefined) {
-      throw new Error(`${field} sets both ${previous} and ${param}; use one`);
-    }
-    setFields.set(params[param], param);
-    readParamValue(
-      SECRET_POLICY_FIELDS[params[param]],
-      expression[param],
-      `${field}.${param}`,
-    );
-  }
-}
-
-function readParamValue(
-  spec: SecretPolicyField,
-  value: unknown,
-  field: string,
-): void {
+function checkFieldValue(spec: SecretPolicyField, value: unknown): string {
   const entries: unknown[] =
     Array.isArray(value) && !spec.single ? value : [value];
   if (
     entries.length === 0 ||
     !entries.every((entry) => typeof entry === 'string' && entry.trim())
   ) {
-    throw new Error(
-      `${field} must be a non-empty string${spec.single ? '' : ' or list of strings'} (got ${JSON.stringify(value)})`,
-    );
+    return `must be a non-empty string${spec.single ? '' : ' or list of strings'} (got ${JSON.stringify(value)})`;
   }
-  if (!spec.values) return;
+  if (!spec.values) return '';
   const allowed = [...spec.values, '*'];
   const invalid = entries.find(
     (entry) => !allowed.includes(normalizeLower(entry)),
   );
-  if (invalid !== undefined) {
-    throw new Error(
-      `${field} must be one of ${allowed.join(', ')} (got ${JSON.stringify(invalid)})`,
-    );
-  }
+  return invalid === undefined
+    ? ''
+    : `must be one of ${allowed.join(', ')} (got ${JSON.stringify(invalid)})`;
 }
+
+// What `describePolicyRuleProblem` checks rules against. Every parameter is
+// required, so a predicate must set at least one.
+const SECRET_POLICY_PARAMETERS: PolicyPredicateParameters = Object.fromEntries(
+  Object.entries(SECRET_POLICY_PREDICATE_PARAMS).map(([name, params]) => [
+    name,
+    Object.fromEntries(
+      Object.entries(params).map(([param, field]) => [
+        param,
+        {
+          group: field,
+          required: true,
+          check: (value: unknown) =>
+            checkFieldValue(SECRET_POLICY_FIELDS[field], value),
+        },
+      ]),
+    ),
+  ]),
+);
 
 export function evaluateSecretPolicyAccess(params: {
   state: SecretPolicyState;

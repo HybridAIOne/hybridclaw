@@ -41,7 +41,7 @@ export interface PolicyParameterSpec {
   check: (value: unknown) => string;
   /** Parameters in one group are spellings of one parameter: set at most one. */
   group?: string;
-  /** A predicate node must set this parameter. */
+  /** A predicate node must set at least one of its required parameters. */
   required?: boolean;
 }
 
@@ -81,7 +81,11 @@ export function evaluatePolicyRules<
 
 export function checkPolicyText(value: unknown): string;
 
-/** Why a user-authored rule is unreadable, or '' when it is readable. */
+/**
+ * Why a user-authored rule is unreadable, or '' when it is readable. The
+ * problem reads after a rule label: `has unknown key "wehn" ...` or
+ * `when.all[1] has unknown ... parameter "equal" ...`.
+ */
 export function describePolicyRuleProblem(
   rule: unknown,
   predicates: PolicyPredicateParameters,

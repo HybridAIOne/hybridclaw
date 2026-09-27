@@ -296,21 +296,20 @@ browser:
 
 The `browser_stealth_allowed` predicate requires `host`, a single host
 pattern, and also accepts `skillName` and `agentId`, each a name or a list of
-names. Host matching uses
-the same site-scoped pattern behavior as network policy, so `example.com` also
-covers `login.example.com`. This does not grant network access by itself;
-normal navigation and tool approval rules still apply.
+names. Host matching uses the same site-scoped pattern behavior as network
+policy, so `example.com` also covers `login.example.com`. This does not grant
+network access by itself; normal navigation and tool approval rules still
+apply.
 
 A stealth rule's action is `allow`, `deny`, or `block`. A rule with any other
 action, or with no action, is enforced as `deny` for the hosts its `when`
 matches. A rule the policy cannot read is enforced as `deny` for every host:
 an unknown rule key, predicate, or parameter, a `host` that is missing or not
 a single pattern, an empty value, or a `when` that is not a mapping or a
-non-empty list. Rules
-earlier in the list still apply first. The stealth denial names the rule and
-the problem, for example
-`Unreadable browser stealth rule #1, enforced as deny (when has unknown
-browser_stealth_allowed parameter "skilName")`.
+non-empty list. Rules earlier in the list still apply first. The stealth
+denial names the rule and the problem, for example `Unreadable browser stealth
+rule #1 when has unknown browser_stealth_allowed parameter "skilName"
+(allowed: host, skillName, agentId), enforced as deny`.
 
 ## General Policy Engine
 
@@ -406,9 +405,9 @@ enforced as `deny` for every skill: an unknown rule key, predicate, or
 parameter, two alternative parameters such as `equals` and `matches`, an empty
 value, an invalid regular expression, a score bound that is not a number, or a
 `when` that is not a mapping or a non-empty list. Rules earlier in the list
-still apply first. The skill loader logs such a rule with the reason
-`Unreadable skill rule #N, enforced as deny`, followed by the problem when the
-rule itself cannot be read.
+still apply first. The skill loader logs such a rule with a reason that
+starts with `Unreadable skill rule #N` and, when the rule itself cannot be
+read, names the problem before `enforced as deny`.
 
 Secret resolution is another policy-engine consumer. The gateway evaluates it
 each time it injects a stored secret into an `http_request` call or a browser
