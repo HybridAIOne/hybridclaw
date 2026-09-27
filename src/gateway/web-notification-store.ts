@@ -50,6 +50,8 @@ function writeStore(store: NotificationStore): void {
 }
 
 export function notificationOperatorId(actor: string): string {
+  // lgtm[js/insufficient-password-hash] This is a stable lookup key for operator
+  // identities, sessions and push endpoints, never a password/token verifier.
   return createHash('sha256').update(actor).digest('hex');
 }
 
