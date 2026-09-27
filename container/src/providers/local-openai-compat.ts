@@ -25,6 +25,7 @@ import {
   type NormalizedStreamCallArgs,
   normalizeOpenRouterRuntimeModelName,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 import {
@@ -697,7 +698,11 @@ export async function callLocalOpenAICompatProvider(
   });
 
   if (!response.ok) {
-    throw new ProviderRequestError(response.status, await response.text());
+    throw new ProviderRequestError(
+      response.status,
+      await response.text(),
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
@@ -756,7 +761,11 @@ export async function callLocalOpenAICompatProviderStream(
   });
 
   if (!response.ok) {
-    throw new ProviderRequestError(response.status, await response.text());
+    throw new ProviderRequestError(
+      response.status,
+      await response.text(),
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const contentType = (

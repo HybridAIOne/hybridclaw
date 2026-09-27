@@ -34,6 +34,7 @@ import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isRetryableModelError,
+  retryDelayMs,
   shouldDowngradeStreamToNonStreaming,
 } from './model-retry.js';
 import { createModelTextDeltaForwarder } from './model-text-deltas.js';
@@ -983,14 +984,17 @@ async function callHybridAIWithRetry(params: {
       return response;
     } catch (err) {
       const formattedError = formatModelErrorForLog(err, baseUrl);
-      const retryable =
+      const retryDelay =
         RETRY_ENABLED &&
         isRetryableModelError(err) &&
         canReplayModelRequestAfterStreamError({
           receivedTextDelta,
           textDeltasVisible,
         }) &&
-        attempt < RETRY_MAX_ATTEMPTS;
+        attempt < RETRY_MAX_ATTEMPTS
+          ? retryDelayMs(delayMs, err)
+          : null;
+      const retryable = retryDelay !== null;
       await emitRuntimeEvent({
         event: retryable ? 'model_retry' : 'model_error',
         attempt,
@@ -1000,8 +1004,8 @@ async function callHybridAIWithRetry(params: {
       console.error(
         `[model] call ${retryable ? 'retry' : 'error'} provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} retryable=${retryable} error=${formattedError}`,
       );
-      if (!retryable) throw err;
-      await sleep(delayMs);
+      if (retryDelay === null) throw err;
+      await sleep(retryDelay);
       delayMs = Math.min(delayMs * 2, RETRY_MAX_DELAY_MS);
     }
   }

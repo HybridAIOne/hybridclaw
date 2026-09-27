@@ -115,8 +115,10 @@ export class ProviderRequestError extends Error {
   status: number;
   body: string;
   readonly parsedBody: ParsedProviderErrorBody | null;
+  /** The wait the provider asked for in Retry-After, when it sent one. */
+  readonly retryAfterMs: number | undefined;
 
-  constructor(status: number, body: string) {
+  constructor(status: number, body: string, retryAfterMs?: number) {
     const parsedBody = parseProviderErrorBody(body);
     super(
       `Provider API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
@@ -125,7 +127,22 @@ export class ProviderRequestError extends Error {
     this.status = status;
     this.body = body;
     this.parsedBody = parsedBody;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** `retry-after-ms`, or `retry-after` as delta-seconds or an HTTP date. */
+export function readRetryAfterMs(headers: Headers): number | undefined {
+  const milliseconds = headers.get('retry-after-ms')?.trim();
+  if (milliseconds && Number.isFinite(Number(milliseconds))) {
+    return Math.max(0, Number(milliseconds));
+  }
+  const value = headers.get('retry-after')?.trim();
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
 }
 
 export function isPremiumModelPermissionError(error: unknown): boolean {
