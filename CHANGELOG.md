@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **Changing the approval policy needs a human**: The approval policy,
+  trust grants, and pending approvals live in the agent's workspace
+  (`.hybridclaw/`, `approval-trust.json`). A `write`, `edit`, or bash redirect
+  to them ran as a normal workspace change, auto-approved in full-auto, so a
+  prompt-injected agent could open its network rules or trust itself. Writes,
+  edits, and deletes of these files, and any bash command that names one, now
+  need explicit human approval every time, even in full-auto, and an approval
+  never becomes durable trust. Reading them with `read` is unchanged.
 - **Empty auxiliary model replies use the fallback chain**: Session titles and
   other auxiliary tasks try the next eligible model when a provider returns
   blank text, and record the empty attempt as a failure.

@@ -32,6 +32,11 @@ import {
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import {
+  changesApprovalState,
+  guardApprovalStateChange,
+  matchesApprovalStatePath,
+} from './approval-state-guard.js';
+import {
   DELETE_RE,
   deletesFiles,
   deletionTargets,
@@ -1773,9 +1778,9 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
   },
 
   classify_action(context) {
-    context.classified = context.helpers.classifyAction(
+    context.classified = guardApprovalStateChange(
       context.params.toolName,
-      context.args,
+      context.helpers.classifyAction(context.params.toolName, context.args),
     );
     context.decision = 'auto';
     return nextRule();
@@ -3877,6 +3882,7 @@ export class TrustedAgentApprovalRuntime {
   private namesPinnedPath(candidate: string): boolean {
     return (
       matchesHardPinnedPath(candidate) ||
+      matchesApprovalStatePath(candidate) ||
       this.loadedPolicy.pinnedRed.some((rule) =>
         (rule.paths || []).some((pattern) =>
           matchesPathPattern(candidate, pattern),
@@ -3897,6 +3903,7 @@ export class TrustedAgentApprovalRuntime {
     if (input.pathHints.some((pathHint) => matchesHardPinnedPath(pathHint))) {
       return true;
     }
+    if (changesApprovalState(input.toolName, input.pathHints)) return true;
     if (fullText.includes('git push --force')) return true;
 
     for (const rule of this.loadedPolicy.pinnedRed) {

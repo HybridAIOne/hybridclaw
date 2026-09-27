@@ -57,6 +57,12 @@ The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
 - `approval.max_pending_approvals` and `approval.approval_timeout_secs`
 - `audit.log_all_red` and `audit.log_denials`
 
+The policy and the trust stores live in the agent's workspace, so the agent's
+own writes, edits, and deletes of `.hybridclaw/**` and `approval-trust.json`,
+and bash commands naming them, need explicit human approval every time, even
+in full-auto. The check is static and does not replace keeping these files out
+of the sandbox.
+
 Implementation: [container/src/approval-policy.ts](./container/src/approval-policy.ts)
 
 ### 3) Container Isolation
