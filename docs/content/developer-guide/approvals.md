@@ -15,13 +15,14 @@ user explicitly approves or denies it.
 | Area | Default | Notes |
 | --- | --- | --- |
 | Policy file | `./.hybridclaw/policy.yaml` | Workspace-local approval and network policy |
-| Pending red approvals | `3` | New blocked actions are denied once the queue is full |
+| Pending red approvals | `3` | Counted per session; a session's new blocked actions are denied once its queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
 | Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
 | Workspace fence | `on` | Writes outside the workspace are blocked by default |
 | Agent trust file | `.hybridclaw/approval-agent-trust.json` | Durable `yes for agent` trust |
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |
+| Approval state files | Protected | The agent's own writes, edits, and deletes of `.hybridclaw/**` or `approval-trust.json`, and bash commands naming them, need explicit approval every time, even in full-auto |
 
 ## What Approvals Actually Cover
 
@@ -123,6 +124,7 @@ Two important transitions:
 | Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
 | Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Pinned rules never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
 do not show which files a directory walk will read. `grep` therefore skips
@@ -147,6 +149,17 @@ Like the `grep` tool, walks consider only the built-in pinned paths. The check
 is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
 an earlier bash call are not resolved; it stops accidental shell reads of
 pinned files rather than replacing a sandbox.
+
+The approval policy, the trust grants, the pending approvals, and the
+per-session guard state live in the agent's own workspace, so an agent that
+could rewrite them would approve itself. A `write`, `edit`, or `delete` of
+those paths, or a bash command that names one, therefore waits for a human
+every time: full-auto never approves it, and `yes for session`, `yes for
+agent`, and `yes for all` cover that one call. A static check cannot tell a
+shell read from a shell write, so read these files with the `read` tool, and
+change policy with `hybridclaw policy` or `/policy`. The same limits as above
+apply: a path hidden in a variable, interpreter code, or a symlink escapes the
+check.
 
 ## Network Policy
 
@@ -343,15 +356,18 @@ predicate.
 | Reply or command | Internal scope | Persistence | Stored in | Notes |
 | --- | --- | --- | --- | --- |
 | `yes` or `/approve yes` | Once | Current blocked action only | Not stored | Safest one-off approval |
-| `yes for session` or `/approve session` | Session | Current runtime session only | In-memory only | Best when you are actively iterating in the same session |
+| `yes for session` or `/approve session` | Session | Until the session's worker exits (5 idle minutes, a provider switch, or a crash; see [Worker State](./runtime.md#worker-state)) | Worker memory only | Best when you are actively iterating in the same session |
 | `yes for agent` or `/approve agent` | Agent | Durable for the current agent workspace | `.hybridclaw/approval-agent-trust.json` | Survives runtime restarts |
 | `yes for all` or `/approve all` | Workspace allowlist | Durable for the workspace | `approval-trust.json` | Broader than agent-only trust |
 | `no`, `skip`, or `/approve no` | Deny | Current blocked action only | Not stored as trust | The assistant continues without that action |
 
 Notes:
 
+- A reply answers only the requests of the session it is sent in. An agent's
+  sessions share its workspace, but a `yes` (or an approval id) in one chat
+  never approves an action another chat is waiting on.
 - If there is only one pending approval, the request id is optional. The most
-  recent pending approval is used.
+  recent pending approval in the session is used.
 - If there are multiple pending approvals, include the approval id. The TUI and
   web chat do this for you.
 - In web chat, `Allow once` sends `/approve yes`, `Allow always` sends

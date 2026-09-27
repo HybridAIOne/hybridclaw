@@ -4,6 +4,7 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
+import { describeBashStatePersistence } from '../../container/shared/bash-state.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -537,13 +538,11 @@ function buildSafetyHook(context: PromptHookContext): string {
     CONTAINER_SANDBOX_MODE === 'host'
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
-    CONTAINER_SANDBOX_MODE === 'host'
-      ? CONTAINER_PERSIST_BASH_STATE
-        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
-        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
-      : CONTAINER_PERSIST_BASH_STATE
-        ? 'For `bash`, the first shell starts in the workspace root. Within the active session, `cd`, exported env vars, and aliases persist across later `bash` calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.'
-        : 'For `bash`, each call starts fresh in the workspace root. `cd`, exported env vars, and aliases do not persist across later bash calls. Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.',
+    `For \`bash\`: ${describeBashStatePersistence(CONTAINER_PERSIST_BASH_STATE)} ${
+      CONTAINER_SANDBOX_MODE === 'host'
+        ? 'Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
+        : 'Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.'
+    }`,
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'For final user-visible deliverables such as PDFs, images, videos, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
     'To return a file you wrote, name it in the final reply by its workspace-relative path (for example `reports/prospects.md`); the runtime attaches it. Never use `sandbox:` or absolute host paths in links.',
