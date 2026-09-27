@@ -17,6 +17,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import {
   createThinkingStreamEmitter,
@@ -258,7 +259,11 @@ export async function callOllamaProvider(
   });
 
   if (!response.ok) {
-    throw new ProviderRequestError(response.status, await response.text());
+    throw new ProviderRequestError(
+      response.status,
+      await response.text(),
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const payload = (await response.json()) as OllamaStreamPayload;
@@ -306,7 +311,11 @@ export async function callOllamaProviderStream(
   });
 
   if (!response.ok) {
-    throw new ProviderRequestError(response.status, await response.text());
+    throw new ProviderRequestError(
+      response.status,
+      await response.text(),
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const contentType = (

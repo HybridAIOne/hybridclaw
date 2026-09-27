@@ -179,11 +179,35 @@ export function canReplayModelRequestAfterStreamError(params: {
 
 export function isRetryableModelError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
-    return error.status === 429 || (error.status >= 500 && error.status <= 504);
+    return (
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status === 529 ||
+      (error.status >= 500 && error.status <= 504)
+    );
   }
   const message = error instanceof Error ? error.message : String(error);
   return (
     TRANSIENT_NETWORK_ERROR_RE.test(message) ||
     TRANSIENT_CODEX_STREAM_ERROR_RE.test(message)
   );
+}
+
+// 60 s (agent call, 2026-09-27, pending owner review): a provider that asks for
+// a longer wait fails the call now, so model routing can fall back instead of
+// holding the turn.
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Wait before the next attempt: the backoff with ±20% jitter, so concurrent
+ * sessions do not retry in lockstep, stretched to the provider's Retry-After.
+ * Null when the provider asks for more than MAX_RETRY_AFTER_MS.
+ */
+export function retryDelayMs(backoffMs: number, error: unknown): number | null {
+  const jittered = Math.round(backoffMs * (0.8 + Math.random() * 0.4));
+  const requested =
+    error instanceof ProviderRequestError ? error.retryAfterMs : undefined;
+  if (requested === undefined) return jittered;
+  if (requested > MAX_RETRY_AFTER_MS) return null;
+  return Math.max(jittered, requested);
 }
