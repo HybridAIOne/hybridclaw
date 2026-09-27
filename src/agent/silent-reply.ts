@@ -1,8 +1,6 @@
-export const SILENT_REPLY_TOKEN = '__MESSAGE_SEND_HANDLED__';
+import { escapeRegExp } from '../../container/shared/regex.js';
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+export const SILENT_REPLY_TOKEN = '__MESSAGE_SEND_HANDLED__';
 
 const escapedToken = escapeRegExp(SILENT_REPLY_TOKEN);
 const EXACT_SILENT_REPLY_RE = new RegExp(`^\\s*${escapedToken}\\s*$`);

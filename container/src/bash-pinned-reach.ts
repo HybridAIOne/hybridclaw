@@ -6,6 +6,7 @@
  * `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
+import { escapeRegExp } from '../shared/regex.js';
 import {
   type Cwd,
   FIND_EXEC_ACTIONS,
@@ -169,9 +170,9 @@ function globMatchesName(
       index = close;
     } else if (char === '\\' && index + 1 < glob.length) {
       index += 1;
-      source += glob[index].replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
+      source += escapeRegExp(glob[index]);
     } else {
-      source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      source += escapeRegExp(char);
     }
   }
   try {

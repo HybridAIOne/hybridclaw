@@ -1,3 +1,4 @@
+import { escapeRegExp } from '../../../container/shared/regex.js';
 import type { IMessageInboundBatch } from './debounce.js';
 import { createIMessageInboundDedupeCache } from './inbound-dedupe-cache.js';
 import {
@@ -39,10 +40,6 @@ const SELF_CHAT_REFLECTION_TTL_MS = 15_000;
 const MAX_SELF_CHAT_KEYS = 512;
 const MAX_SELF_CHAT_OBSERVATIONS_PER_KEY = 4;
 const CLEANUP_MIN_INTERVAL_MS = 1_000;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function buildObservationKey(params: {
   channelId?: string | null;

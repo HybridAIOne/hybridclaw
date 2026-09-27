@@ -303,6 +303,41 @@ describe('secret resolution policy', () => {
     ).toBe('allow');
   });
 
+  test.each([
+    { predicate: 'secret.id', pattern: 'KEY_?', value: 'KEY_1', decision: 'allow' },
+    { predicate: 'secret.id', pattern: 'KEY_?', value: 'KEY_12', decision: 'deny' },
+    { predicate: 'secret.id', pattern: '?_TOKEN', value: 'A_TOKEN', decision: 'allow' },
+    { predicate: 'secret.selector', pattern: '#pass?ord', value: '#password', decision: 'allow' },
+    { predicate: 'secret.selector', pattern: '#pass?ord', value: '#passwd', decision: 'deny' },
+  ])('$predicate glob $pattern vs $value: $decision', async ({
+    predicate,
+    pattern,
+    value,
+    decision,
+  }) => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        default: 'deny',
+        rules: [{ when: { predicate, matches: pattern }, action: 'allow' }],
+      },
+    });
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: {
+          secretSource: 'store',
+          secretId: predicate === 'secret.id' ? value : 'KEY_1',
+          sinkKind: 'dom',
+          selector: predicate === 'secret.selector' ? value : '#password',
+        },
+      }).decision,
+    ).toBe(decision);
+  });
+
   test('caches workspace secret policy reads until the policy file changes', async () => {
     const workspacePath = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-secret-policy-cache-'),

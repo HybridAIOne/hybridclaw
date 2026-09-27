@@ -188,6 +188,7 @@ Key behaviors:
 
 - Rules are evaluated in order. The first matching rule wins.
 - Rule matching can scope by `host`, `port`, `methods`, `paths`, and `agent`.
+  `host` and `paths` take globs; see [Policy Patterns](#policy-patterns).
 - Bare site-scope hosts like `github.com` also match subdomains like
   `api.github.com` under the current host-scope rules. There is currently no
   exact-root-only host syntax in `policy.yaml`.
@@ -350,6 +351,26 @@ rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
 `secret.selector`, `skill.name`, and `agent.id`. Use these when the rule needs
 `all`, `any`, or `not` composition that is clearer than one composite
 predicate.
+
+## Policy Patterns
+
+Paths, hosts, and secret names in `policy.yaml` are globs:
+`approval.pinned_red` `paths`, `network.rules` `host` and `paths`, `host` in
+secret and browser stealth rules, and secret `id` and `selector`. A glob must
+match the whole value, ignoring case. `*`, `**`, and `?` are the only
+wildcards; every other character, including `[`, `]`, `{`, and `}`, matches
+itself.
+
+| Pattern | `*` | `**` | `?` |
+| --- | --- | --- | --- |
+| Paths | Any characters except `/` | Any characters, including `/` | One character except `/` |
+| Hosts | Any characters, including `.` | Same as `*` | One character except `.` |
+| Secret `id` and `selector` | Any characters | Same as `*` | One character |
+
+A pinned `dir/**` also covers `dir` itself; a network path `/dir/**` does not
+cover `/dir`. A host with a wildcard covers only the hosts it spells out:
+`ex?mple.com` matches `example.com` but not `api.example.com`, while the bare
+host `example.com` also covers its subdomains.
 
 ## Approval Scopes
 
