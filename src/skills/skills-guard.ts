@@ -4,18 +4,21 @@
  *
  * Critical rules block at every non-builtin trust level, so each must match
  * the threat, not a mention or lookalike syntax; a test holds the bundled
- * skills to zero critical findings. Skill content is decided by the walk in
+ * skills to zero critical findings. The exfiltration rules live in
+ * `skills-guard-exfil-rules.ts`; skill content is decided by the walk in
  * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
  * heuristics, and a loaded skill's actions still go through runtime approvals.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { EXFILTRATION_RULES } from './skills-guard-exfil-rules.js';
 import {
   collectStructure,
   type SkillFileEntry,
   safeRealPath,
 } from './skills-guard-structure.js';
 import {
+  r,
   scanFile,
   scanTextContent,
   type ThreatRule,
@@ -101,10 +104,6 @@ const INSTALL_POLICY: Record<
 
 const scanCache = new Map<string, ScanCacheEntry>();
 
-function r(pattern: string): RegExp {
-  return new RegExp(pattern, 'i');
-}
-
 // `[x](../../tools/REGISTRY.md)`: a cross-reference in the skill's source
 // repo, not file access.
 const RELATIVE_DOC_LINK = /\]\((?:\.\.\/)+[^\s)]*\.md(?:#[^\s)]*)?\)/g;
@@ -115,205 +114,7 @@ const AGENT_CONFIG_FILE = String.raw`(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.cl
 const WRITE_VERB = String.raw`(?:(?:write|append|prepend|insert|overwrit|modif|update)\w*|(?:add|edit)(?:s|ed|ing)?)`;
 
 const THREAT_RULES: ThreatRule[] = [
-  // exfiltration
-  {
-    regex: r(
-      String.raw`curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)`,
-    ),
-    patternId: 'env_exfil_curl',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'curl command interpolating secret environment variable',
-  },
-  {
-    regex: r(
-      String.raw`wget\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)`,
-    ),
-    patternId: 'env_exfil_wget',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'wget command interpolating secret environment variable',
-  },
-  {
-    regex: r(
-      String.raw`fetch\s*\([^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|API)`,
-    ),
-    patternId: 'env_exfil_fetch',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'fetch() call interpolating secret environment variable',
-  },
-  {
-    regex: r(
-      String.raw`httpx?\.(get|post|put|patch)\s*\([^\n]*(KEY|TOKEN|SECRET|PASSWORD)`,
-    ),
-    patternId: 'env_exfil_httpx',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'HTTP library call with secret variable',
-  },
-  {
-    regex: r(
-      String.raw`requests\.(get|post|put|patch)\s*\([^\n]*(KEY|TOKEN|SECRET|PASSWORD)`,
-    ),
-    patternId: 'env_exfil_requests',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'requests library call with secret variable',
-  },
-  {
-    regex: r(String.raw`base64[^\n]*env`),
-    patternId: 'encoded_exfil',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'base64 encoding combined with environment access',
-  },
-  {
-    regex: r(String.raw`\$HOME/\.ssh|\~/\.ssh`),
-    patternId: 'ssh_dir_access',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'references user SSH directory',
-  },
-  {
-    regex: r(String.raw`\$HOME/\.aws|\~/\.aws`),
-    patternId: 'aws_dir_access',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'references user AWS credentials directory',
-  },
-  {
-    regex: r(String.raw`\$HOME/\.gnupg|\~/\.gnupg`),
-    patternId: 'gpg_dir_access',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'references user GPG keyring',
-  },
-  {
-    regex: r(String.raw`\$HOME/\.kube|\~/\.kube`),
-    patternId: 'kube_dir_access',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'references Kubernetes config directory',
-  },
-  {
-    regex: r(String.raw`\$HOME/\.docker|\~/\.docker`),
-    patternId: 'docker_dir_access',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'references Docker config directory',
-  },
-  {
-    // Mirrors runtime-secrets.ts (a test keeps them in sync); importing it
-    // here would break every test that mocks that module partially.
-    regex: r(
-      String.raw`\.hybridclaw/credentials\.json|credentials\.master\.key|hybridclaw_master_key`,
-    ),
-    patternId: 'runtime_secrets_access',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: "references HybridClaw's secret store or master key",
-  },
-  {
-    regex: r(
-      String.raw`cat\s+[^\n]*(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)`,
-    ),
-    patternId: 'read_secrets_file',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'reads known secrets file',
-  },
-  {
-    regex: r(String.raw`printenv|env\s*\|`),
-    patternId: 'dump_all_env',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'dumps all environment variables',
-  },
-  {
-    regex: r(
-      String.raw`os\.environ\b(?!\s*(?:\[|\.(?:get|setdefault|pop)\s*\())`,
-    ),
-    patternId: 'python_os_environ',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'uses the whole os.environ, not one key (potential env dump)',
-  },
-  {
-    regex: r(
-      String.raw`os\.getenv\s*\(\s*[^\)]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)`,
-    ),
-    patternId: 'python_getenv_secret',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'reads secret via os.getenv()',
-  },
-  {
-    regex: r(String.raw`process\.env\[`),
-    patternId: 'node_process_env',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'accesses process.env (Node.js environment)',
-  },
-  {
-    regex: r(String.raw`ENV\[.*(?:KEY|TOKEN|SECRET|PASSWORD)`),
-    patternId: 'ruby_env_secret',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'reads secret via Ruby ENV[]',
-  },
-  {
-    // The queried name (first argument after options) carries the `$`, so
-    // `--host "$HOST"` and the word "host" in prose do not match.
-    regex: r(
-      String.raw`(?<!-)\b(?:dig|nslookup|host)\s+(?:[-+@]\S*(?:\s+[^\s$"'@+-][^\s$]*)?\s+)*["']?[^\s"'$]*\$`,
-    ),
-    patternId: 'dns_exfil',
-    severity: 'critical',
-    category: 'exfiltration',
-    description:
-      'DNS lookup with variable interpolation (possible DNS exfiltration)',
-  },
-  {
-    regex: r(String.raw`>\s*/tmp/[^\s]*\s*&&\s*(curl|wget|nc|python)`),
-    patternId: 'tmp_staging',
-    severity: 'critical',
-    category: 'exfiltration',
-    description: 'writes to /tmp then exfiltrates',
-  },
-  {
-    regex: r(String.raw`!\[.*\]\(https?://[^\)]*\$\{?`),
-    patternId: 'md_image_exfil',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'markdown image URL with variable interpolation',
-  },
-  {
-    regex: r(String.raw`\[.*\]\(https?://[^\)]*\$\{?`),
-    patternId: 'md_link_exfil',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'markdown link with variable interpolation',
-  },
-  {
-    // Bare "context" is everyday advice ("include context in properties").
-    regex: r(
-      String.raw`(include|output|print|send|share)\s+(the\s+)?((entire\s+)?(conversation|chat\s+history|previous\s+messages)|entire\s+context)`,
-    ),
-    patternId: 'context_exfil',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'instructs agent to output/share conversation history',
-  },
-  {
-    regex: r(
-      String.raw`(send|post|upload|transmit)\s+.*\s+(to|at)\s+https?://`,
-    ),
-    patternId: 'send_to_url',
-    severity: 'high',
-    category: 'exfiltration',
-    description: 'instructs agent to send data to a URL',
-  },
+  ...EXFILTRATION_RULES,
 
   // prompt-injection
   {

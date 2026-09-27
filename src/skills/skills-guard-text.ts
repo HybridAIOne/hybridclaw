@@ -26,6 +26,11 @@ export interface ThreatRule {
   skipFiles?: RegExp;
 }
 
+/** Rule patterns match case-insensitively; a rule needing exact case passes its own RegExp. */
+export function r(pattern: string): RegExp {
+  return new RegExp(pattern, 'i');
+}
+
 const SCANNABLE_EXTENSIONS = new Set<string>([
   '.md',
   '.txt',
