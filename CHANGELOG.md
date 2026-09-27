@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`read` pages no longer lose their middle**: A `read` page could be 50 KB,
+  but the agent keeps at most 16,000 characters of a tool result in its working
+  history. Larger pages lost their middle while "Use offset=N to continue"
+  still pointed past the missing lines. Pages now stop at about 14.6 KB, so
+  each page reaches the model whole and the next one starts where it ended.
+- **`session_search` covers recent sessions**: With more than 300 saved
+  transcripts, the search scanned an arbitrary 300 of them and could miss
+  recent conversations. It now scans the 300 most recently updated.
+
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
