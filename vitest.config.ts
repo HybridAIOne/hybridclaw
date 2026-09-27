@@ -8,6 +8,9 @@ const sharedTestConfig = {
   testTimeout: 15_000,
   env: {
     HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
+    // Skill tests run bundled Python helpers in place. Bytecode caches they
+    // leave under skills/ trip the bundled-skills scan in skills-guard.test.ts.
+    PYTHONDONTWRITEBYTECODE: '1',
   },
 };
 

@@ -1,3 +1,8 @@
+/**
+ * Owns the WhatsApp plugin instance and preserves its send results.
+ * Unlike the tool adapter, this facade neither selects a sender nor reports
+ * delivery; transports without send metadata return undefined.
+ */
 import { WHATSAPP_CAPABILITIES } from '../channel.js';
 import { getChannelPluginInstallCommand } from '../channel-plugin-catalog.js';
 import { createChannelRuntime } from '../channel-runtime-factory.js';
@@ -8,6 +13,7 @@ import {
   type ChannelTransportMessageHandler,
   type ChannelTransportPairingSession,
   type ChannelTransportReplyFn,
+  type ChannelTransportSendResult,
   getChannelTransport,
   hasChannelTransport,
 } from '../channel-transport.js';
@@ -93,14 +99,18 @@ export const initWhatsApp = (
 export async function sendToWhatsAppChat(
   jid: string,
   text: string,
-): Promise<void> {
-  await (await ensureTransportInstance()).sendText(jid, text);
+): Promise<ChannelTransportSendResult | undefined> {
+  return (
+    (await (await ensureTransportInstance()).sendText(jid, text)) ?? undefined
+  );
 }
 
 export async function sendWhatsAppMediaToChat(
   params: WhatsAppMediaSendParams,
-): Promise<void> {
-  await (await ensureTransportInstance()).sendMedia(params);
+): Promise<ChannelTransportSendResult | undefined> {
+  return (
+    (await (await ensureTransportInstance()).sendMedia(params)) ?? undefined
+  );
 }
 
 export async function createWhatsAppPairingSession(): Promise<ChannelTransportPairingSession> {

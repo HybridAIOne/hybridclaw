@@ -156,6 +156,9 @@ test.each([
   ['a WOFF2 font', 'fonts/body.woff2', Buffer.from('wOF2\0\0\0\0', 'latin1'), 'safe'],
   ['an executable renamed to .png', 'assets/logo.png', ELF, 'dangerous'],
   ['an extensionless executable', 'bin/tool', ELF, 'dangerous'],
+  // Python imports an unchecked-hash .pyc without checking its .py source, so
+  // a cache in a skill is unreviewed code and must stay flagged.
+  ['a Python bytecode cache', 'scripts/__pycache__/helper.cpython-314.pyc', Buffer.from('+\x0e\r\n\0\0\0\0', 'latin1'), 'dangerous'],
   ['a .cjs helper', 'helper.cjs', EXFIL, 'dangerous'],
   ['a .mjs helper', 'scripts/helper.mjs', EXFIL, 'dangerous'],
   ['a .cts helper', 'helper.cts', EXFIL, 'dangerous'],

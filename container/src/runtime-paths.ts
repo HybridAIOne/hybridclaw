@@ -114,7 +114,8 @@ export function isWithinRoot(candidate: string, root: string): boolean {
   );
 }
 
-function resolveCanonicalPath(rawPath: string): string {
+// The real path, symlinks resolved; the resolved path when it does not exist.
+export function resolveCanonicalPath(rawPath: string): string {
   try {
     return fs.realpathSync.native(rawPath);
   } catch {
