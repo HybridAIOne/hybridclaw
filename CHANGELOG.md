@@ -2,16 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- **MCP tools survive errors a server reports**: A tool call gets its full
-  120-second timeout instead of the SDK's 60-second default. When the server
-  answers with an error (bad arguments, a failure inside the tool), it keeps
-  its tools and the call is not sent again. Before, any error removed the
-  server's tools, reconnected, and re-sent calls marked safe to repeat. A
-  recoverable transport error, such as an SSE stream that reconnects, no
-  longer removes the tools either.
-
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added
