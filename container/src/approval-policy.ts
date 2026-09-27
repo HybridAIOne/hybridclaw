@@ -42,13 +42,13 @@ import {
   deletesFiles,
   deletionTargets,
   optionWriteTargets,
-  runsProgramOption,
   scriptCommands,
   shellCommandsRun,
   writeTargets,
 } from './bash-commands.js';
 import { findBashPinnedReach } from './bash-pinned-reach.js';
 import { findFetchedCode } from './bash-remote-code.js';
+import { runsScript } from './bash-script-run.js';
 import {
   type BehaviorAnomalyInput,
   BehaviorAnomalyReranker,
@@ -444,8 +444,6 @@ const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
   /\bgit\s+(add|commit|checkout\s+-b|branch|merge|rebase|tag|rm)\b/i;
-const UNKNOWN_SCRIPT_RE =
-  /(^|\s)(\.[/\\][^\s]+|bash\s+[^\s]+\.sh|zsh\s+[^\s]+\.sh|sh\s+[^\s]+\.sh)(\s|$)/i;
 const READ_ONLY_PDF_SCRIPT_RE =
   /^\s*node\s+skills\/pdf\/scripts\/(?:extract_pdf_text|check_fillable_fields|extract_form_field_info|extract_form_structure)\.mjs\b/i;
 const READ_ONLY_BASH_RE =
@@ -3595,10 +3593,9 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
-    if (
-      UNKNOWN_SCRIPT_RE.test(inspectionSurface) ||
-      commandsRun.some(runsProgramOption)
-    ) {
+    const agentWritable = (file: string) =>
+      isWorkspacePath(file) || isScratchPath(file);
+    if (commandsRun.some((words) => runsScript(words, agentWritable))) {
       return {
         tier: 'red',
         actionKey: 'bash:script',

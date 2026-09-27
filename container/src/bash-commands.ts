@@ -44,7 +44,7 @@ const XARGS_VALUE_FLAGS = new Set([
   '-n',
   '-s',
 ]);
-const SHELL_PROGRAMS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
+export const SHELL_PROGRAMS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
 export const FIND_EXEC_ACTIONS = new Set([
   '-exec',
   '-execdir',
