@@ -1,6 +1,20 @@
+/**
+ * Skill guard — text rules over a skill's files plus the trust-level policy
+ * that turns the verdict into allow or block.
+ *
+ * Critical rules block at every non-builtin trust level, so they must match
+ * an action (writing an instruction file, piping a download to a shell), not
+ * a mention. What counts as skill content is decided by the structure walk in
+ * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
+ * heuristics, and a loaded skill's actions still go through runtime approvals.
+ */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
+import {
+  collectStructure,
+  type SkillFileEntry,
+  safeRealPath,
+} from './skills-guard-structure.js';
 
 export type SkillGuardTrustLevel =
   | 'builtin'
@@ -54,24 +68,8 @@ interface ThreatRule {
   category: Exclude<SkillGuardCategory, 'structural'>;
   description: string;
   regex: RegExp;
-}
-
-interface SkillFileEntry {
-  absolutePath: string;
-  relativePath: string;
-  extension: string;
-  size: number;
-  mtimeMs: number;
-  mode: number;
-  isBinary: boolean;
-}
-
-interface StructureScanState {
-  files: SkillFileEntry[];
-  findings: SkillGuardFinding[];
-  fileCount: number;
-  totalSize: number;
-  signatureParts: string[];
+  /** Spans removed from a line before `regex` is tested. */
+  ignore?: RegExp;
 }
 
 interface ScanCacheEntry {
@@ -79,10 +77,6 @@ interface ScanCacheEntry {
   contentHash: string;
   result: SkillGuardScanResult;
 }
-
-const MAX_FILE_COUNT = 50;
-const MAX_TOTAL_SIZE_BYTES = 1_024 * 1_024;
-const MAX_SINGLE_FILE_BYTES = 256 * 1_024;
 
 const SCANNABLE_EXTENSIONS = new Set<string>([
   '.md',
@@ -108,29 +102,6 @@ const SCANNABLE_EXTENSIONS = new Set<string>([
   '.jl',
   '.pl',
   '.php',
-]);
-
-const SUSPICIOUS_BINARY_EXTENSIONS = new Set<string>([
-  '.exe',
-  '.dll',
-  '.so',
-  '.dylib',
-  '.bin',
-  '.dat',
-  '.com',
-  '.msi',
-  '.dmg',
-  '.app',
-  '.deb',
-  '.rpm',
-]);
-
-const SCRIPT_EXEC_EXTENSIONS = new Set<string>([
-  '.sh',
-  '.bash',
-  '.py',
-  '.rb',
-  '.pl',
 ]);
 
 const INVISIBLE_CHARS: readonly string[] = [
@@ -204,6 +175,15 @@ const scanCache = new Map<string, ScanCacheEntry>();
 function r(pattern: string): RegExp {
   return new RegExp(pattern, 'i');
 }
+
+// `[x](../../tools/REGISTRY.md)`: a cross-reference in the skill's source
+// repo, not file access.
+const RELATIVE_DOC_LINK = /\]\((?:\.\.\/)+[^\s)]*\.md(?:#[^\s)]*)?\)/g;
+
+// Files agents load as standing instructions, including HybridClaw's own
+// workspace AGENTS.md.
+const AGENT_INSTRUCTION_FILE = String.raw`(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.clinerules)`;
+const WRITE_VERB = String.raw`(?:(?:write|append|prepend|insert|overwrit|modif|update)\w*|(?:add|edit)(?:s|ed|ing)?)`;
 
 const THREAT_RULES: ThreatRule[] = [
   // exfiltration
@@ -377,8 +357,9 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'markdown link with variable interpolation',
   },
   {
+    // Bare "context" is everyday advice ("include context in properties").
     regex: r(
-      String.raw`(include|output|print|send|share)\s+(the\s+)?(entire\s+)?(conversation|chat\s+history|previous\s+messages|context)`,
+      String.raw`(include|output|print|send|share)\s+(the\s+)?((entire\s+)?(conversation|chat\s+history|previous\s+messages)|entire\s+context)`,
     ),
     patternId: 'context_exfil',
     severity: 'high',
@@ -639,6 +620,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(String.raw`\.\./\.\./\.\.`),
+    ignore: RELATIVE_DOC_LINK,
     patternId: 'path_traversal_deep',
     severity: 'high',
     category: 'destructive-ops',
@@ -646,6 +628,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(String.raw`\.\./\.\.`),
+    ignore: RELATIVE_DOC_LINK,
     patternId: 'path_traversal',
     severity: 'medium',
     category: 'destructive-ops',
@@ -789,11 +772,19 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'modifies global git configuration',
   },
   {
-    regex: r(String.raw`AGENTS\.md|CLAUDE\.md|\.cursorrules|\.clinerules`),
+    // Writes only: skills routinely name these files ("do not overwrite
+    // AGENTS.md", install docs), which is not persistence.
+    regex: r(
+      [
+        String.raw`(?<!(?:\bnot|\bnever|n['’]t)\s+)\b${WRITE_VERB}\b.*${AGENT_INSTRUCTION_FILE}`,
+        String.raw`(?:\s>>?|\btee\b(?:\s+-a)?)\s*\S*${AGENT_INSTRUCTION_FILE}`,
+        String.raw`${AGENT_INSTRUCTION_FILE}["']?\s*(?:,\s*["'][wa]|\)\s*\.\s*write)`,
+      ].join('|'),
+    ),
     patternId: 'agent_config_mod',
     severity: 'critical',
     category: 'persistence',
-    description: 'references agent config files (instruction persistence)',
+    description: 'writes to agent instruction files (instruction persistence)',
   },
   {
     regex: r(String.raw`\.hermes/config\.yaml|\.hermes/SOUL\.md`),
@@ -1131,214 +1122,6 @@ const THREAT_RULES: ThreatRule[] = [
   },
 ];
 
-function pathWithin(root: string, target: string): boolean {
-  const rel = path.relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
-function safeRealPath(target: string): string {
-  try {
-    return fs.realpathSync(target);
-  } catch {
-    return path.resolve(target);
-  }
-}
-
-function isLikelyBinary(filePath: string): boolean {
-  try {
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const sample = Buffer.alloc(4096);
-      const bytesRead = fs.readSync(fd, sample, 0, sample.length, 0);
-      if (bytesRead === 0) return false;
-      const chunk = sample.subarray(0, bytesRead);
-      if (chunk.includes(0)) return true;
-      let suspicious = 0;
-      for (const byte of chunk) {
-        if (byte < 9 || (byte > 13 && byte < 32)) suspicious += 1;
-      }
-      return suspicious / chunk.length > 0.3;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return false;
-  }
-}
-
-function collectStructure(skillPath: string): StructureScanState {
-  const rootReal = safeRealPath(skillPath);
-  const state: StructureScanState = {
-    files: [],
-    findings: [],
-    fileCount: 0,
-    totalSize: 0,
-    signatureParts: [],
-  };
-
-  const pendingDirs: string[] = [skillPath];
-  const visitedDirs = new Set<string>([rootReal]);
-
-  while (pendingDirs.length > 0) {
-    const currentDir = pendingDirs.pop() as string;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      const absolutePath = path.join(currentDir, entry.name);
-      const relativePath = path.relative(skillPath, absolutePath) || entry.name;
-
-      let stat: fs.Stats;
-      try {
-        stat = fs.lstatSync(absolutePath);
-      } catch {
-        continue;
-      }
-
-      if (stat.isSymbolicLink()) {
-        state.fileCount += 1;
-        let resolved: string | null = null;
-        try {
-          resolved = fs.realpathSync(absolutePath);
-        } catch {
-          resolved = null;
-        }
-        state.signatureParts.push(
-          `L:${relativePath}:${Math.trunc(stat.mtimeMs)}:${resolved || 'BROKEN'}`,
-        );
-
-        if (!resolved) {
-          state.findings.push({
-            patternId: 'broken_symlink',
-            severity: 'medium',
-            category: 'structural',
-            file: relativePath,
-            line: 0,
-            match: 'broken symlink',
-            description: 'broken or circular symlink',
-          });
-          continue;
-        }
-
-        if (!pathWithin(rootReal, resolved)) {
-          state.findings.push({
-            patternId: 'symlink_escape',
-            severity: 'critical',
-            category: 'structural',
-            file: relativePath,
-            line: 0,
-            match: `symlink -> ${resolved}`,
-            description: 'symlink points outside the skill directory',
-          });
-        }
-        continue;
-      }
-
-      if (stat.isDirectory()) {
-        const resolvedDir = safeRealPath(absolutePath);
-        state.signatureParts.push(
-          `D:${relativePath}:${Math.trunc(stat.mtimeMs)}`,
-        );
-        if (!visitedDirs.has(resolvedDir)) {
-          visitedDirs.add(resolvedDir);
-          pendingDirs.push(absolutePath);
-        }
-        continue;
-      }
-
-      if (!stat.isFile()) continue;
-
-      const ext = path.extname(entry.name).toLowerCase();
-      const isBinary = isLikelyBinary(absolutePath);
-
-      state.fileCount += 1;
-      state.totalSize += stat.size;
-      state.signatureParts.push(
-        `F:${relativePath}:${stat.size}:${Math.trunc(stat.mtimeMs)}:${stat.mode}:${isBinary ? 1 : 0}`,
-      );
-
-      state.files.push({
-        absolutePath,
-        relativePath,
-        extension: ext,
-        size: stat.size,
-        mtimeMs: stat.mtimeMs,
-        mode: stat.mode,
-        isBinary,
-      });
-
-      if (stat.size > MAX_SINGLE_FILE_BYTES) {
-        state.findings.push({
-          patternId: 'oversized_file',
-          severity: 'medium',
-          category: 'structural',
-          file: relativePath,
-          line: 0,
-          match: `${Math.trunc(stat.size / 1024)}KB`,
-          description: `file is ${Math.trunc(stat.size / 1024)}KB (limit: ${Math.trunc(MAX_SINGLE_FILE_BYTES / 1024)}KB)`,
-        });
-      }
-
-      if (SUSPICIOUS_BINARY_EXTENSIONS.has(ext) || isBinary) {
-        state.findings.push({
-          patternId: 'binary_file',
-          severity: 'critical',
-          category: 'structural',
-          file: relativePath,
-          line: 0,
-          match: isBinary
-            ? `binary content${ext ? ` (${ext})` : ''}`
-            : `binary extension: ${ext}`,
-          description: 'binary/executable content should not be in a skill',
-        });
-      }
-
-      if (!SCRIPT_EXEC_EXTENSIONS.has(ext) && (stat.mode & 0o111) !== 0) {
-        state.findings.push({
-          patternId: 'unexpected_executable',
-          severity: 'medium',
-          category: 'structural',
-          file: relativePath,
-          line: 0,
-          match: 'executable bit set',
-          description:
-            'file has executable permission but is not a recognized script type',
-        });
-      }
-    }
-  }
-
-  if (state.fileCount > MAX_FILE_COUNT) {
-    state.findings.push({
-      patternId: 'too_many_files',
-      severity: 'medium',
-      category: 'structural',
-      file: '(directory)',
-      line: 0,
-      match: `${state.fileCount} files`,
-      description: `skill has ${state.fileCount} files (limit: ${MAX_FILE_COUNT})`,
-    });
-  }
-
-  if (state.totalSize > MAX_TOTAL_SIZE_BYTES) {
-    state.findings.push({
-      patternId: 'oversized_skill',
-      severity: 'high',
-      category: 'structural',
-      file: '(directory)',
-      line: 0,
-      match: `${Math.trunc(state.totalSize / 1024)}KB total`,
-      description: `skill is ${Math.trunc(state.totalSize / 1024)}KB total (limit: ${Math.trunc(MAX_TOTAL_SIZE_BYTES / 1024)}KB)`,
-    });
-  }
-
-  return state;
-}
-
 function scanFile(entry: SkillFileEntry): SkillGuardFinding[] {
   if (entry.isBinary) return [];
   if (
@@ -1375,7 +1158,8 @@ function scanTextContent(
       const line = lines[i] || '';
       const dedupeKey = `${rule.patternId}:${lineNo}`;
       if (seen.has(dedupeKey)) continue;
-      if (!rule.regex.test(line)) continue;
+      const text = rule.ignore ? line.replace(rule.ignore, '') : line;
+      if (!rule.regex.test(text)) continue;
       seen.add(dedupeKey);
       const matched = line.trim();
       findings.push({

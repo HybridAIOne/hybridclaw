@@ -25,7 +25,10 @@ Skill roots include:
 - precedence: `extra < bundled < codex < claude < agents-personal < agents-project < workspace`
 - skills merge by `name`
 - higher-precedence definitions override lower-precedence ones
-- trust-aware scanning blocks risky personal or workspace skills
+- trust-aware scanning blocks risky personal or workspace skills; it skips
+  `.git` metadata, which is also not copied into the agent workspace, and
+  accepts image and font assets only when their leading bytes match the
+  extension
 - bundled repo skills are mirrored into `/workspace/skills/<name>` inside the agent runtime so bundled script paths like `skills/pdf/scripts/...` stay valid
 
 ## Runtime Discovery
