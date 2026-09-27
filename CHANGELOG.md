@@ -73,12 +73,6 @@
   also never receives the stopped turn's late shutdown reply, which failed the
   turn and started the stopped turn's queued delegations: each agent request
   now replies in its own IPC file.
-- **Work after an interrupt**: A stopped agent no longer keeps working while it
-  shuts down, which can take seconds with open browser sessions or MCP
-  servers. It starts no further model call, approval, or tool call, sends no
-  reply after the interrupted one, and leaves the session's next message to the
-  agent that replaces it instead of answering that message itself or leaving
-  it unanswered until the timeout.
 - **macOS browser control window isolation**: The `mac-cua` browser provider
   opens a dedicated browser window instead of taking over an existing one, so
   it no longer drives the tab holding the web chat.
