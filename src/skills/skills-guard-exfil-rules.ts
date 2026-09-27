@@ -6,7 +6,7 @@
  * its vendor, is ordinary API use rather than exfiltration. These rules are the
  * first slice of the table in `skills-guard.ts`, which owns the verdict.
  */
-import { r, type ThreatRule } from './skills-guard-text.js';
+import { firstOnLine, r, type ThreatRule } from './skills-guard-text.js';
 
 // A shell name that ENDS in a secret word; `$X_API_URL` and `$KEY_FILE` hold
 // no secret. `(?!\w)` rather than `\b`: same match, half the backtracking.
@@ -24,12 +24,6 @@ const SECRET_VAR = String.raw`\$\{?${SECRET_NAME}`;
 const CODE_NAME_END = String.raw`(?:[\w$]KEYS?|TOKEN|SECRETS?|PASSWORDS?|CREDENTIALS?)`;
 const CODE_SECRET = String.raw`[=:(,{+%?!|&*\[>]\s*(?:[\w$]+\??\.)*(?:[\w$]*?${CODE_NAME_END}(?![\w$'"\x60]|\s*(?:=(?!=)|:(?!:)|\())|(?:[\w$]+\s*\[|(?:getenv|get)\s*\()\s*["'\x60]\w*?${CODE_NAME_END}["'\x60])`;
 
-// Only the first call on a line is tried: a secret after any call also follows
-// the first, and retrying from every call made a line of repeated calls
-// quadratic. Calls match literal-first so the regex engine can skip to them.
-function firstOnLine(call: string): string {
-  return String.raw`${call}(?<!${call}[^\n]*?${call})`;
-}
 const FETCH_CALL = String.raw`fetch(?<![\w$]fetch)\s*(?=\()`;
 // `this.requests.get(key)` or `this.http.get(url)` is an object's method, not
 // the requests, http, or httpx module.
@@ -69,7 +63,9 @@ const CODE_SECRET_SENT_HOME = new RegExp(
 
 export const EXFILTRATION_RULES: ThreatRule[] = [
   {
-    regex: r(String.raw`curl\s+[^\n]*${SECRET_VAR}`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?${SECRET_VAR}`,
+    ),
     ignore: SECRET_SENT_HOME,
     patternId: 'env_exfil_curl',
     severity: 'critical',
@@ -77,7 +73,9 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'curl sends a secret environment variable away from its API',
   },
   {
-    regex: r(String.raw`wget\s+[^\n]*${SECRET_VAR}`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`wget\s`)}[^\n]*?${SECRET_VAR}`,
+    ),
     ignore: SECRET_SENT_HOME,
     patternId: 'env_exfil_wget',
     severity: 'critical',
@@ -208,11 +206,16 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'reads a secret via os.getenv() (usual API-key access)',
   },
   {
-    regex: r(String.raw`process\.env\[`),
+    // As python_os_environ: `process.env[NAME]` is how every helper reads its
+    // config, and spreading the environment into a child process's `env` only
+    // passes on what the child inherits anyway.
+    regex: r(
+      String.raw`(?:JSON\.stringify|Object\.(?:entries|values)|console\.\w+)\s*\(\s*(?:\{\s*\.\.\.\s*)?process\.env\s*[,)}]|for\s*\(\s*(?:const|let|var)\s+[\w$]+\s+in\s+process\.env\b`,
+    ),
     patternId: 'node_process_env',
     severity: 'high',
     category: 'exfiltration',
-    description: 'accesses process.env (Node.js environment)',
+    description: 'uses the whole process.env, not one key (potential env dump)',
   },
   {
     // Case-sensitive, so Python `env[...]` and JS `process.env[key]` do not

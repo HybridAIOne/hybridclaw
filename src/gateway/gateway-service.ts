@@ -481,7 +481,6 @@ import { cacheHitRatio } from '../usage/cache-accounting.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
   estimateModelUsageCostUsd,
-  extractExplicitUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
 } from '../usage/model-cost.js';
 import {
@@ -534,13 +533,22 @@ import {
 } from './fullauto-workspace.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
 import {
+  badCommand,
+  infoCommand,
+  plainCommand,
+} from './gateway-command-results.js';
+import {
   classifyGatewayError,
   type GatewayErrorClass,
 } from './gateway-error-utils.js';
 import {
   abbreviateForUser,
   formatCompactNumber,
+  formatPercent,
+  formatPerformanceTokensPerSecond,
   formatRalphIterations,
+  formatUptime,
+  formatUsd,
 } from './gateway-formatting.js';
 import {
   buildGatewayHybridAIProviderEntry,
@@ -1539,19 +1547,6 @@ export type {
 };
 export { renderGatewayCommand };
 
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const parts: string[] = [];
-  if (d > 0) parts.push(`${d}d`);
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0) parts.push(`${m}m`);
-  parts.push(`${s}s`);
-  return parts.join(' ');
-}
-
 function formatUsageTokenBreakdown(row: {
   total_input_tokens: number;
   total_output_tokens: number;
@@ -2535,12 +2530,6 @@ export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
   return normalized;
 }
 
-export function cloneMediaContextItems(
-  media: MediaContextItem[],
-): MediaContextItem[] {
-  return media.map((item) => ({ ...item }));
-}
-
 function isImageMediaItem(item: MediaContextItem): boolean {
   const mimeType = String(item.mimeType || '')
     .trim()
@@ -3097,40 +3086,6 @@ export async function resolveGatewayChatbotId(params: {
   }
 }
 
-function formatPercent(value: number | null): string {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value))
-    return 'n/a';
-  return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
-}
-
-function formatThroughput(throughput: number): string {
-  const rounded =
-    throughput >= 100
-      ? Math.round(throughput)
-      : Math.round(throughput * 10) / 10;
-  return String(rounded);
-}
-
-function formatTokensPerSecond(value: number | null): string {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value))
-    return 'n/a tok/s';
-  return `${formatThroughput(value)} tok/s`;
-}
-
-function formatPerformanceTokensPerSecond(
-  value: number | null,
-  stddev: number | null,
-): string {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
-    return 'n/a';
-  }
-  const stddevLabel =
-    stddev != null && Number.isFinite(stddev)
-      ? formatThroughput(Math.max(0, stddev))
-      : 'n/a';
-  return `${formatTokensPerSecond(value)} (± ${stddevLabel})`;
-}
-
 function isLocalModelProvider(model: string | null | undefined): boolean {
   const normalized = String(model || '')
     .trim()
@@ -3156,16 +3111,6 @@ function formatArchiveReference(archivePath: string): string {
   }
 
   return path.basename(normalized) || 'archive.json';
-}
-
-function formatUsd(value: number | null): string {
-  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
-    return 'n/a';
-  }
-  if (value <= 0) return '$0.0000';
-  if (value >= 1) return `$${value.toFixed(2)}`;
-  if (value >= 0.01) return `$${value.toFixed(4)}`;
-  return `$${value.toFixed(6)}`;
 }
 
 function resolveModelCostLabel(params: {
@@ -3544,10 +3489,6 @@ export function getGatewayAssistantPresentationForMessageAgent(
     return undefined;
   }
   return getGatewayAssistantPresentationForAgent(normalizedAgentId);
-}
-
-export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
-  return extractExplicitUsageCostUsd(tokenUsage) ?? 0;
 }
 
 function buildHybridAIAuthStatusLines(): string[] {
@@ -4381,29 +4322,6 @@ function normalizeRalphIterations(value: number): number {
   if (truncated === -1) return -1;
   if (truncated < 0) return 0;
   return Math.min(MAX_RALPH_ITERATIONS, truncated);
-}
-
-function badCommand(title: string, text: string): GatewayCommandResult {
-  return { kind: 'error', title, text };
-}
-
-function infoCommand(
-  title: string,
-  text: string,
-  components?: GatewayCommandResult['components'],
-  extra?: Partial<GatewayCommandResult>,
-): GatewayCommandResult {
-  return {
-    kind: 'info',
-    title,
-    text,
-    ...(components === undefined ? {} : { components }),
-    ...(extra || {}),
-  };
-}
-
-function plainCommand(text: string): GatewayCommandResult {
-  return { kind: 'plain', text };
 }
 
 const SESSION_PRUNE_USAGE =
@@ -11244,29 +11162,6 @@ async function publishDelegationCompletion(params: {
       onProactiveMessage,
     });
   }
-}
-
-export function enqueueDelegationFromSideEffect(params: {
-  plan: NormalizedDelegationPlan;
-  parentSessionId: string;
-  channelId: string;
-  chatbotId: string;
-  enableRag: boolean;
-  agentId: string;
-  parentModel?: string;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  parentDepth: number;
-  parentPrompt?: string;
-  parentResult?: string;
-  publicId?: string;
-  ackText?: string;
-}): { publicId: string } | null {
-  return enqueueDelegationBatchFromSideEffects({
-    ...params,
-    plans: [params.plan],
-  });
 }
 
 export function enqueueDelegationBatchFromSideEffects(params: {

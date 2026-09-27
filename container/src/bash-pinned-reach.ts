@@ -2,8 +2,9 @@
  * Pinned-path reach of one bash command: operands that name a pinned path
  * (relative, `~`, or a dotfile glob) and recursive reads (`grep -r`,
  * `find -exec`, `find | xargs`) that reach `.env*`, `/etc`, or `~/.ssh` without
- * naming them. Static: variables, interpreter scripts, and an earlier call's
- * `cd` escape it. NOT a sandbox, NOT the grep tool's walk filter.
+ * naming them. Static: variables and interpreter scripts escape it, and an
+ * earlier call's `cd` counts only through the start directory of the parse.
+ * NOT a sandbox, NOT the grep tool's walk filter.
  */
 import path from 'node:path';
 import { escapeRegExp } from '../shared/regex.js';
@@ -37,7 +38,8 @@ export const PINNED_NAME_SAMPLES: ReadonlyMap<string, readonly string[]> =
   new Map([['.env*', ['.env', '.envrc', '.env.local', '.env.production']]]);
 
 // Programs that print only names or metadata of the files they are handed.
-const NAME_ONLY_PROGRAMS = new Set([
+// They write nothing but their output; bash-fence.ts relies on that.
+export const NAME_ONLY_PROGRAMS = new Set([
   'basename',
   'dirname',
   'du',
@@ -579,8 +581,8 @@ function pinnedMatches(
   const forms = [candidate];
   const resolved = resolvePath(candidate, cwd);
   if (resolved && resolved !== candidate) forms.push(resolved);
-  // Bash starts in the workspace root, so `../../etc/passwd` can land on an
-  // absolute pinned path.
+  // Relative results are relative to the workspace root, so `../../etc/passwd`
+  // can land on an absolute pinned path.
   if (resolved && /^\.\.(?:\/|$)/.test(resolved)) {
     forms.push(path.posix.join(WORKSPACE_ROOT.replace(/\\/g, '/'), resolved));
   }

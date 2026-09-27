@@ -126,7 +126,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
-| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow |
+| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1` and `>&2` write no file, so `git status 2>&1` stays green |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
@@ -136,14 +136,14 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
 | Unmatched external hosts | Yellow | `web_search`, `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget` when no allow/deny rule matches and `network.default: deny` | This is the current “new external host” prompt path |
 | Policy-blocked external hosts | Red | Any HTTP/network target matching a `network.rules` entry with `action: deny` | Hard-blocked by approval policy |
-| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
+| Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved from the shell's working directory and through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
-| Unknown script execution | Red | `./script.sh`, `bash script.sh`, `zsh script.sh`, `sh script.sh`, `rg --pre CMD` | Treated as high risk; ripgrep runs the `--pre` program on every file it searches |
+| Unknown script execution | Red | `./install.sh`, `scripts/build.sh`, `/tmp/x.sh`, `bash -x install.sh`, `sh < x.sh`, `xargs ./x.sh`, `rg --pre CMD` | A shell given a file, or a path the agent could have written (relative, behind a variable, or in the workspace or scratch space) run as the program, including in pipeline stages, `$(...)`, and what `find -exec`, `xargs`, or `sh -c` runs. A path that is only an operand keeps the command's tier, so `cat ./install.sh` is green. Other interpreters (`python3 x.py`, `source x`), installed tools called by absolute path (`/usr/bin/env`), and launchers the check does not follow (`watch`, `make`) are not script execution. Ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) and `~/` targets; reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
@@ -155,7 +155,7 @@ output reports how many files were skipped. Paths added under
 
 `bash` commands get the pinned check for every operand, not only absolute
 paths: relative paths (`cat .env`, `head config/.env.local`), `~` and `$HOME`
-paths, `../` escapes resolved from the workspace root, redirects
+paths, `../` escapes resolved from the shell's working directory, redirects
 (`cat < .env`), option values (`--env-file=.env`), git revisions
 (`git show HEAD:.env`), uploads (`curl -T .env`), and dotfile globs that bash
 expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
@@ -163,12 +163,38 @@ expands to a pinned name (`cat .e*`). Text that `echo` or `printf` prints
 A recursive read that can reach
 pinned files without naming them is pinned red on every run
 (`bash:recursive-read`) unless it excludes `.env*`, as in the table above. A
-walk rooted at `/`, `~`, or `..`, or after a `cd` there in the same command, is
-always pinned: excluding file names cannot keep it out of `/etc` or `~/.ssh`.
-Like the `grep` tool, walks consider only the built-in pinned paths. The check
-is static, so variables, interpreter scripts, heredoc bodies, and a `cd` from
-an earlier bash call are not resolved; it stops accidental shell reads of
-pinned files rather than replacing a sandbox.
+walk rooted at `/`, `~`, or `..`, or run after a `cd` there, is always pinned:
+excluding file names cannot keep it out of `/etc` or `~/.ssh`. Like the `grep`
+tool, walks consider only the built-in pinned paths. The check is static, so
+variables, interpreter scripts, and heredoc bodies are not resolved; it stops
+accidental shell reads of pinned files rather than replacing a sandbox.
+
+The shell keeps its working directory between bash calls and across worker
+restarts, so each command is checked from where the session's shell stopped.
+The classifier reads the directory the shell saved in the session state dir
+and, like the shell, starts from the workspace root when nothing is saved or
+the saved directory is gone. After `cd /etc`, a later `echo x >> hosts` is a
+write to `/etc/hosts` and `rm -rf node_modules` is no cache cleanup. A
+docker-exec task sandbox, as the eval harness uses, keeps its working
+directory inside the sandbox, out of the classifier's sight, so its commands
+are checked from the workspace root. With `container.persistBashState` off,
+every call starts in the workspace root.
+
+The workspace fence looks at what a shell command writes: redirect targets,
+`tee`, `touch`, `mkdir`, `chmod`, and `chown` operands, `cp` and `mv`
+destinations, and write options such as `git --output`, `find -fprint`, and
+`curl -o`, resolved from the shell's working directory and through any `cd`
+in the command. `2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
+`cat /usr/share/dict/words > words.txt`, `cp /opt/data/input.csv .`, and
+`python3 /opt/tools/gen.py > out.txt` keep their usual tier. When none of those
+targets is an absolute path and the command also runs a program whose writes
+are not parsed, such as `rm`, `sed -i`, `mv` (which removes its sources),
+`tar`, an installer, an interpreter, `xargs`, or an unknown program, every
+unquoted absolute path in the command counts as a possible write, except the
+program and the script it runs. That keeps
+`sed -i 's/a/b/' /opt/app.conf > log.txt` and
+`ls /opt/data > files.txt && python3 cleanup.py files.txt` fenced. The fence is
+static too: a path in a variable, or one a script writes, is not seen.
 
 The approval policy, the trust grants, the pending approvals, and the
 per-session guard state live in the agent's own workspace, so an agent that
@@ -214,6 +240,12 @@ Key behaviors:
   exact-root-only host syntax in `policy.yaml`.
 - Omitting `port` means any port. Use `port: 443` only when you want an exact
   port match.
+- Every rule needs `action: allow` or `action: deny`, and a `host`. A rule with
+  any other action, including `block`, or with no action, no host, or an
+  invalid port, is enforced as `deny` for everything it names. A missing host
+  covers every host, and an invalid port covers every port. `policy list`
+  shows the rule as `Unreadable rule #N, enforced as deny`, and
+  `hybridclaw policy` refuses to edit the file until the rule is fixed.
 - `network.default` applies only to HTTP/network actions. It does not
   auto-approve general `bash`, file writes, deletion, or other non-network
   tools.
@@ -345,6 +377,11 @@ skill:
         reason: SAP is finance-only.
 ```
 
+A skill rule's action type is `allow`, `deny`, `block`, `warn`, `log`, or
+`confirm-each`. A rule with any other type, or with no action, is enforced as
+`deny` for the skills its `when` matches. The skill loader logs it with the
+reason `Unreadable skill rule #N, enforced as deny`.
+
 Secret resolution is another policy-engine consumer. The gateway evaluates it
 each time it injects a stored secret into an `http_request` call or a browser
 field. The default is allow: a stored secret resolves unless a deny rule
@@ -376,10 +413,31 @@ secret:
 ```
 
 The secret policy consumer also exposes fine-grained predicates for composed
-rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
-`secret.selector`, `skill.name`, and `agent.id`. Use these when the rule needs
-`all`, `any`, or `not` composition that is clearer than one composite
-predicate.
+rules. Use these when the rule needs `all`, `any`, or `not` composition that is
+clearer than one composite predicate. Each predicate takes only the parameters
+below; where a parameter has several names, set one of them:
+
+| Predicate | Parameters |
+| --- | --- |
+| `secret_resolve_allowed` | `id` (or `secret`, `secretId`), `source`, `sink` (or `sinkKind`, `sinks`), `host`, `selector` (or `selectors`), `skill` (or `skillName`), `agent` (or `agentId`) |
+| `secret.id`, `secret.selector` | `equals`, `matches`, or `in` |
+| `secret.source`, `secret.sink`, `skill.name`, `agent.id` | `equals` or `in` |
+| `secret.host` | `host`, `equals`, or `matches` |
+
+A parameter value is a string or a list of strings, except that a host is one
+pattern. `source` is `store`, `sink` is `dom` for browser fields or `http` for
+HTTP requests, and `*` matches any value.
+
+`secret.default` and each secret rule's `action` accept `allow`, `deny`, or
+`block`, which means the same as `deny`. A rule takes the keys `id`,
+`description`, `comment`, `when`, `action`, and `managed_by_*`, and a rule
+without `when` matches every resolve. Leaving `secret`, `secret.default`, or
+`secret.rules` out, or empty, is the same as not setting it. Anything else the
+parser does not know makes every stored-secret resolve for that workspace fail
+with `Invalid secret policy in <path>` until the file is fixed. That includes
+a typo such as `denied`, a rule without an action, a `secret` section that is
+not a mapping, an unknown rule key, predicate, parameter, or `sink` value, and
+an empty `when`, `all`, `any`, or parameter.
 
 ## Policy Patterns
 

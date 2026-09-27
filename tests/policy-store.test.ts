@@ -274,7 +274,7 @@ test('wildcard-port rules omit the port field when written to YAML', () => {
   });
 });
 
-test('invalid YAML rule ports are rejected instead of defaulting to 443', () => {
+test('invalid YAML rule ports are enforced as deny instead of defaulting to 443', () => {
   const workspacePath = makeWorkspace();
   writePolicy(
     workspacePath,
@@ -289,7 +289,9 @@ network:
   );
 
   const state = readPolicyState(workspacePath);
-  expect(state.rules).toEqual([]);
+  expect(state.rules).toMatchObject([
+    { index: 1, action: 'deny', host: 'example.com', port: '*' },
+  ]);
 });
 
 test('store writes fail fast when policy.yaml contains invalid rules', () => {
@@ -320,6 +322,24 @@ network:
       expect.objectContaining({ host: 'broken.example', port: 'abc' }),
     ],
   });
+});
+
+test.each([
+  { name: 'action block', rule: ['    - action: block', '      host: evil.example'] },
+  { name: 'no action', rule: ['    - host: evil.example'] },
+])('a rule with $name is listed as deny and blocks edits', ({ rule }) => {
+  const workspacePath = makeWorkspace();
+  writePolicy(
+    workspacePath,
+    ['network:', '  default: deny', '  rules:', ...rule].join('\n'),
+  );
+
+  expect(readPolicyState(workspacePath).rules).toMatchObject([
+    { index: 1, action: 'deny', host: 'evil.example' },
+  ]);
+  expect(() => setPolicyDefault(workspacePath, 'allow')).toThrow(
+    'invalid network rule at index 1',
+  );
 });
 
 test('store mutations reject invalid rule ports with a visible error', () => {

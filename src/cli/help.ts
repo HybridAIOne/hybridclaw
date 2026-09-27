@@ -1,4 +1,5 @@
 import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
+import { WHATSAPP_SELF_CHAT_ADVISORY } from '../channels/whatsapp/self-chat.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
 
@@ -348,6 +349,7 @@ Notes:
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
   - Without \`--allow-from\`, setup configures WhatsApp for self-chat only.
+  - ${WHATSAPP_SELF_CHAT_ADVISORY}
   - With one or more \`--allow-from\` values, setup enables only those DMs.
   - Groups stay disabled by default.
   - Email setup saves \`EMAIL_PASSWORD\` only when \`--password\` is provided or pasted interactively.
@@ -456,6 +458,7 @@ export function printWhatsAppUsage(): void {
 
 Notes:
   - Only one running HybridClaw process may own the WhatsApp auth state at a time.
+  - Without \`--allow-from\`, setup configures self-chat only. ${WHATSAPP_SELF_CHAT_ADVISORY}
   - Use \`auth whatsapp reset\` to clear stale linked-device auth before re-pairing.
   - Use \`channels whatsapp setup\` to configure policy and open a fresh QR pairing session.`);
 }
