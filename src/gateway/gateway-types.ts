@@ -265,6 +265,12 @@ export interface GatewayChatRequest {
   abortSignal?: AbortSignal;
   source?: string;
   delegationPublicId?: string;
+  /**
+   * The channel can deliver no reply at all. A bare silent reply token from
+   * the model is then kept, so the channel drops it, instead of being replaced
+   * with a fallback text such as "Done.".
+   */
+  allowSilentReply?: boolean;
 }
 
 export interface GatewayMediaUploadResult {

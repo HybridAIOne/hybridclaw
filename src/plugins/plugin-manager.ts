@@ -37,8 +37,16 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { logger as rootLogger } from '../logger.js';
+import {
+  clearEmbeddingProviders,
+  type EmbeddingProviderRegistration,
+  registerEmbeddingProvider,
+  restoreEmbeddingProviders,
+  snapshotEmbeddingProviders,
+} from '../memory/embeddings.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
+import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
@@ -239,6 +247,7 @@ type PluginRegistrationSnapshot = {
   providers: RegisteredProvider[];
   channels: RegisteredChannel[];
   channelTransports: RegisteredChannelTransport[];
+  embeddingProviders: ReturnType<typeof snapshotEmbeddingProviders>;
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
   hooks: Map<PluginHookName, RegisteredHook[]>;
@@ -251,6 +260,7 @@ export interface ExecutePluginToolParams {
   args: Record<string, unknown>;
   sessionId: string;
   channelId: string;
+  media?: MediaContextItem[];
 }
 
 export interface PluginManagerOptions {
@@ -960,6 +970,7 @@ export class PluginManager {
         unregisterChannelTransport(entry.transport.kind);
       }
       this.channelTransports = [];
+      clearEmbeddingProviders();
       this.cleanupImportSnapshots();
       return;
     }
@@ -997,6 +1008,7 @@ export class PluginManager {
       unregisterChannelTransport(entry.transport.kind);
     }
     this.channelTransports = [];
+    clearEmbeddingProviders();
 
     this.cleanupImportSnapshots();
   }
@@ -1390,6 +1402,13 @@ export class PluginManager {
     this.channelTransports.push({ pluginId, transport });
   }
 
+  registerEmbeddingProvider(
+    pluginId: string,
+    provider: EmbeddingProviderRegistration,
+  ): void {
+    registerEmbeddingProvider(pluginId, provider);
+  }
+
   registerTool(pluginId: string, tool: PluginToolDefinition): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`Plugin tool "${tool.name}" is already registered.`);
@@ -1629,6 +1648,7 @@ export class PluginManager {
       providers: [...this.providers],
       channels: [...this.channels],
       channelTransports: [...this.channelTransports],
+      embeddingProviders: snapshotEmbeddingProviders(),
       tools: new Map(this.tools),
       commands: new Map(this.commands),
       hooks: new Map(
@@ -1661,6 +1681,7 @@ export class PluginManager {
     for (const entry of this.channelTransports) {
       registerChannelTransport(entry.transport);
     }
+    restoreEmbeddingProviders(snapshot.embeddingProviders);
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
     this.commands = new Map(snapshot.commands);
@@ -2494,6 +2515,7 @@ export class PluginManager {
       channelId: params.channelId,
       pluginId: entry.pluginId,
       logger: entry.logger,
+      media: params.media ?? [],
     };
     try {
       const result = normalizeToolResult(

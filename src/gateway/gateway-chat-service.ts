@@ -202,11 +202,7 @@ import {
   trackObservedToolCall,
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
-import {
-  extensionToMimeType,
-  firstNumber,
-  resolveWorkspaceRelativePath,
-} from './gateway-utils.js';
+import { firstNumber } from './gateway-utils.js';
 import {
   type BootstrapHatchingTurnResult,
   recordBootstrapHatchingTerminalAudit,
@@ -217,6 +213,7 @@ import {
   recordBootstrapOnboardingUserReply,
 } from './hatching-completion.js';
 import { isGatewayShuttingDown, trackInFlightTurn } from './in-flight-turns.js';
+import { dropInterruptedDelegations } from './interrupted-delegations.js';
 import {
   executeModelRouting,
   type ModelRoutingAttempt,
@@ -228,6 +225,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { recoverGeneratedMediaArtifactsFromResultText } from './result-text-artifacts.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
   detectCliSecretSetCommand,
@@ -243,16 +241,6 @@ import { classifyRouting } from './unified-routing.js';
 // 500 rows (owner call, 2026-09-21): a safety cap for sessions whose memory
 // plugin replaces built-in compaction; the token budget bounds the prompt.
 const HISTORY_FETCH_LIMIT = 500;
-
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
 
 function persistSpeechTranscriptsToScopedMemory(params: {
   sessionId: string;
@@ -453,180 +441,6 @@ export function buildEmptyAgentResponseFallback(
   const artifactList = Array.isArray(artifacts) ? artifacts : [];
   if (artifactList.length === 0) return 'No response from agent.';
   return '';
-}
-
-const GENERATED_MEDIA_ARTIFACT_RE =
-  /(?:\/workspace\/|\.\/)?(\.generated-(?:images|videos)\/[A-Za-z0-9._@%+=-]+\.(?:png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm))/gi;
-const REFERENCED_WORKSPACE_ARTIFACT_RE =
-  /(?:\/workspace\/|\.\/)?([\p{L}\p{N}._@%+=-]+(?:\/[\p{L}\p{N}._@%+= -]+)*\.(?:docx|gif|jpe?g|m4a|m4v|mov|mp3|mp4|ogg|pdf|png|pptx|svg|wav|webm|webp|xlsx))/giu;
-
-function isGeneratedMediaPath(filePath: string): boolean {
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  return (
-    parts.includes('.generated-images') || parts.includes('.generated-videos')
-  );
-}
-
-function normalizeArtifactTextPath(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
-function decodeArtifactTextVariants(resultText: string): string[] {
-  const variants = [resultText];
-  try {
-    // Web chat artifact URLs encode path separators; recover those when the
-    // model copies an `/api/artifact?path=...` URL into final text.
-    const decoded = decodeURIComponent(resultText);
-    if (decoded !== resultText) variants.push(decoded);
-  } catch {
-    // Leave malformed percent escapes untouched.
-  }
-  return variants;
-}
-
-function extractGeneratedMediaReferences(params: {
-  resultText: string;
-  workspacePath: string;
-}): Array<{ filePath: string; filename: string }> {
-  const references: Array<{
-    filePath: string;
-    filename: string;
-  }> = [];
-  const seen = new Set<string>();
-  for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
-    for (const match of textVariant.matchAll(GENERATED_MEDIA_ARTIFACT_RE)) {
-      const relativePath = match[1];
-      if (!relativePath) continue;
-      const filePath = resolveWorkspaceRelativePath(
-        params.workspacePath,
-        relativePath,
-      );
-      if (!filePath || seen.has(filePath)) continue;
-      seen.add(filePath);
-      references.push({
-        filePath,
-        filename: path.basename(filePath),
-      });
-    }
-  }
-  return references;
-}
-
-function extractReferencedWorkspaceArtifacts(params: {
-  resultText: string;
-  workspacePath: string;
-}): Array<{ filePath: string; filename: string }> {
-  const references: Array<{ filePath: string; filename: string }> = [];
-  const seen = new Set<string>();
-  for (const textVariant of decodeArtifactTextVariants(params.resultText)) {
-    for (const match of textVariant.matchAll(
-      REFERENCED_WORKSPACE_ARTIFACT_RE,
-    )) {
-      const relativePath = match[1];
-      if (!relativePath) continue;
-      const filePath = resolveWorkspaceRelativePath(
-        params.workspacePath,
-        relativePath,
-      );
-      if (!filePath || seen.has(filePath)) continue;
-      seen.add(filePath);
-      references.push({
-        filePath,
-        filename: path.basename(filePath),
-      });
-    }
-  }
-  return references;
-}
-
-function artifactIsMentionedInText(params: {
-  artifact: ArtifactMetadata;
-  resultTextVariants: string[];
-  workspacePath: string;
-}): boolean {
-  const mentionedValues = new Set<string>();
-  const filename = params.artifact.filename.trim();
-  if (filename) mentionedValues.add(filename);
-
-  const artifactPath = normalizeArtifactTextPath(params.artifact.path);
-  if (artifactPath) mentionedValues.add(artifactPath);
-
-  const relativePath = normalizeArtifactTextPath(
-    path.relative(params.workspacePath, params.artifact.path),
-  );
-  if (
-    relativePath &&
-    relativePath !== '..' &&
-    !relativePath.startsWith('../')
-  ) {
-    mentionedValues.add(relativePath);
-    mentionedValues.add(`./${relativePath}`);
-    mentionedValues.add(`/workspace/${relativePath}`);
-  }
-
-  for (const textVariant of params.resultTextVariants) {
-    const normalizedText = normalizeArtifactTextPath(textVariant);
-    for (const value of mentionedValues) {
-      if (value && normalizedText.includes(value)) return true;
-    }
-  }
-  return false;
-}
-
-export function recoverGeneratedMediaArtifactsFromResultText(params: {
-  resultText: string;
-  workspacePath: string;
-  artifacts?: ArtifactMetadata[];
-}): ArtifactMetadata[] | undefined {
-  const existing = Array.isArray(params.artifacts) ? params.artifacts : [];
-  const recovered = [...existing];
-  const seen = new Set(existing.map((artifact) => artifact.path));
-  const references = [
-    ...extractGeneratedMediaReferences({
-      resultText: params.resultText,
-      workspacePath: params.workspacePath,
-    }),
-    ...extractReferencedWorkspaceArtifacts({
-      resultText: params.resultText,
-      workspacePath: params.workspacePath,
-    }),
-  ];
-  for (const reference of references) {
-    if (seen.has(reference.filePath)) continue;
-    seen.add(reference.filePath);
-    recovered.push({
-      path: reference.filePath,
-      filename: reference.filename,
-      mimeType: extensionToMimeType(
-        path.extname(reference.filename),
-        'image/png',
-      ),
-    });
-  }
-  if (recovered.length > 1) {
-    const resultTextVariants = decodeArtifactTextVariants(params.resultText);
-    const mentionedGeneratedArtifacts = new Set(
-      recovered
-        .filter(
-          (artifact) =>
-            isGeneratedMediaPath(artifact.path) &&
-            artifactIsMentionedInText({
-              artifact,
-              resultTextVariants,
-              workspacePath: params.workspacePath,
-            }),
-        )
-        .map((artifact) => path.resolve(artifact.path)),
-    );
-    if (mentionedGeneratedArtifacts.size === 0) {
-      return recovered;
-    }
-    return recovered.filter((artifact) => {
-      if (!isGeneratedMediaPath(artifact.path)) return true;
-      return mentionedGeneratedArtifacts.has(path.resolve(artifact.path));
-    });
-  }
-  return recovered.length > 0 ? recovered : undefined;
 }
 
 function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
@@ -2213,6 +2027,7 @@ async function handleGatewayMessageInner(
     | 'processing-agent-output' = 'pre-agent';
   let hatchingCompletion: BootstrapHatchingTurnResult | null = null;
   const observedToolCalls: ErrorTurnToolRecord[] = [];
+  let delegationAcknowledgement: string | null = null;
   let turnPersisted = false;
   const recordPendingHatchingTerminalAudit = (): void => {
     recordBootstrapHatchingTerminalAudit({
@@ -2351,7 +2166,6 @@ async function handleGatewayMessageInner(
         {
           text: string[];
           thinking: string[];
-          tools: ToolProgressEvent[];
           approvals: PendingApproval[];
           chatbotId: string;
         }
@@ -2371,12 +2185,11 @@ async function handleGatewayMessageInner(
             event: { type: 'route.escalated', ...event },
           });
         },
-        invoke: async (runtime, routedModel) => {
+        invoke: async (runtime, routedModel, markToolStarted) => {
           startRoutingTraceAttempt(routedModel);
           const buffered = {
             text: [] as string[],
             thinking: [] as string[],
-            tools: [] as ToolProgressEvent[],
             approvals: [] as PendingApproval[],
             chatbotId: runtime.chatbotId || chatbotId,
           };
@@ -2385,7 +2198,11 @@ async function handleGatewayMessageInner(
             chatbotId: runtime.chatbotId || chatbotId,
             onTextDelta: (delta) => buffered.text.push(delta),
             onThinkingDelta: (delta) => buffered.thinking.push(delta),
-            onToolProgress: (event) => buffered.tools.push(event),
+            // Reporting a tool makes this attempt final, so tools stream live.
+            onToolProgress: (event) => {
+              markToolStarted();
+              onToolProgress(event);
+            },
             onApprovalProgress: (approval) => buffered.approvals.push(approval),
           });
           bufferedEvents.set(attemptOutput, buffered);
@@ -2402,7 +2219,6 @@ async function handleGatewayMessageInner(
       for (const delta of finalEvents?.thinking || []) {
         emitThinkingDeltas?.(delta);
       }
-      for (const event of finalEvents?.tools || []) onToolProgress(event);
       for (const approval of finalEvents?.approvals || []) {
         onApprovalProgress(approval);
       }
@@ -2462,6 +2278,10 @@ async function handleGatewayMessageInner(
     // before final accounting so comparison usage stays attached to this turn.
     await shadowCompletion;
     agentStage = 'processing-agent-output';
+    // A reply that beat the stop still starts its delegations.
+    const interrupted =
+      output.status === 'error' && activeGatewayRequest.signal.aborted;
+    if (interrupted) output = dropInterruptedDelegations(output);
     const storedUserContent = buildStoredUserTurnContent(
       userTurnContent,
       media,
@@ -2528,8 +2348,6 @@ async function handleGatewayMessageInner(
           type: 'model.usage',
           provider,
           model,
-          runtime: resolveTurnRuntimeAuditLabel(model, output),
-          codexRuntime: output.codexRuntime || null,
           durationMs: Date.now() - startedAt,
           toolCallCount: toolExecutions.length,
           ...usagePayload,
@@ -2594,11 +2412,6 @@ async function handleGatewayMessageInner(
             type: 'model.usage',
             provider: resolveModelProvider(attempt.model),
             model: attempt.model,
-            runtime: resolveTurnRuntimeAuditLabel(
-              attempt.model,
-              attempt.output,
-            ),
-            codexRuntime: attempt.output.codexRuntime || null,
             durationMs: attempt.durationMs,
             toolCallCount: attemptToolExecutions.length,
             routeTier: attempt.tier,
@@ -2782,7 +2595,7 @@ async function handleGatewayMessageInner(
             ackText: ackText || '',
           })
         : null;
-    const delegationAcknowledgement = delegationDescriptor ? ackText : null;
+    delegationAcknowledgement = delegationDescriptor ? ackText : null;
 
     promoteWorkspaceSkills(workspacePath);
 
@@ -2912,13 +2725,16 @@ async function handleGatewayMessageInner(
         ? `${agentResultText}\n\n${sideEffectNotice}`
         : agentResultText);
     const unnormalizedResultText = rawResultText;
-    const normalizedResult = normalizeSilentMessageSendReply({
-      status: 'success',
-      result: unnormalizedResultText,
-      toolsUsed: output.toolsUsed || [],
-      outputPresentation: output.outputPresentation,
-      toolExecutions,
-    });
+    const normalizedResult = normalizeSilentMessageSendReply(
+      {
+        status: 'success',
+        result: unnormalizedResultText,
+        toolsUsed: output.toolsUsed || [],
+        outputPresentation: output.outputPresentation,
+        toolExecutions,
+      },
+      { allowSilentReply: req.allowSilentReply },
+    );
     let resultText = String(normalizedResult.result || unnormalizedResultText);
     if (pluginManager?.hasOutputGuards()) {
       try {
@@ -2970,6 +2786,7 @@ async function handleGatewayMessageInner(
       resultText,
       workspacePath,
       artifacts: output.artifacts,
+      toolExecutions,
     });
     if (recoveredArtifacts) {
       output.artifacts = recoveredArtifacts;
@@ -3173,6 +2990,7 @@ async function handleGatewayMessageInner(
           userMedia: media,
           error: errorMsg,
           tools: observedToolCalls,
+          delegationAcknowledgement,
           replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
         });
       } catch (storeErr) {

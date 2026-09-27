@@ -156,6 +156,10 @@ export function accumulateApiUsage(
   const promptTokenDetails = isRecord(usage.prompt_tokens_details)
     ? usage.prompt_tokens_details
     : null;
+  // The Responses API (Codex) reports the same details as input tokens.
+  const inputTokenDetails = isRecord(usage.input_tokens_details)
+    ? usage.input_tokens_details
+    : null;
   const cacheReadTokens = parseOptionalUsageNumber(
     firstDefined([
       usageRecord.cacheRead,
@@ -167,6 +171,7 @@ export function accumulateApiUsage(
       usageRecord.cached_tokens,
       usage.cached_tokens,
       promptTokenDetails?.cached_tokens,
+      inputTokenDetails?.cached_tokens,
     ]),
   );
   const cacheWriteTokens = parseOptionalUsageNumber(
@@ -178,6 +183,8 @@ export function accumulateApiUsage(
       usageRecord.cacheWriteInputTokens,
       usage.cache_write_input_tokens,
       usage.cache_creation_input_tokens,
+      promptTokenDetails?.cache_write_tokens,
+      inputTokenDetails?.cache_write_tokens,
     ]),
   );
   const hasCacheUsageFields =

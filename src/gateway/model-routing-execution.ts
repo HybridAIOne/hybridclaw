@@ -1,3 +1,14 @@
+/**
+ * Runs one routed turn: provider fallback within a rung, one same-rung retry
+ * for weak output, then escalation to the next rung.
+ *
+ * Only a retry-safe attempt is run again. An attempt that reported a tool,
+ * returned tool executions, or stopped at an approval may have applied effects,
+ * so it is final whether it returns or throws; another run would repeat them.
+ *
+ * NOT the ladder or tier choice (`providers/model-routing.ts`,
+ * `routing/policy.ts`).
+ */
 import { isSilentReply } from '../agent/silent-reply.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type {
@@ -47,9 +58,11 @@ interface ExecuteModelRoutingParams {
   ladder: ResolvedLadder;
   agentId: string;
   chatbotId?: string;
+  /** Must call `markToolStarted` when the attempt reports a tool. */
   invoke: (
     runtime: ResolvedModelRuntimeCredentials,
     model: string,
+    markToolStarted: () => void,
   ) => Promise<ContainerOutput>;
   onEscalation?: (event: ModelRoutingEscalationEvent) => void;
   resolveRuntime?: typeof resolveModelRuntimeCredentials;
@@ -139,6 +152,12 @@ export async function executeModelRouting(
   const attempts: ModelRoutingAttempt[] = [];
   let lastOutput: ContainerOutput | null = null;
   let lastModel = tiers[0]?.models[0] || '';
+  // Covers what `isRetrySafe` cannot see: a thrown attempt, or an output that
+  // omits the executions of tools it reported.
+  let toolStarted = false;
+  const markToolStarted = (): void => {
+    toolStarted = true;
+  };
 
   for (let tierOffset = 0; tierOffset < tiers.length; tierOffset += 1) {
     const tier = tiers[tierOffset];
@@ -159,14 +178,21 @@ export async function executeModelRouting(
         primaryRuntime,
         primaryModel,
         chain: tierFallbackChain(tier, params.agentId, params.chatbotId),
+        shouldFallback: () => !toolStarted,
         onFallback: (_activation, reason) => {
           nextAttemptReason = `provider_${reason}`;
         },
         invoke: async (runtime, model) => {
           for (;;) {
             const startedAt = Date.now();
-            const attemptOutput = await params.invoke(runtime, model);
-            const trigger = classifyModelRoutingOutput(attemptOutput);
+            const attemptOutput = await params.invoke(
+              runtime,
+              model,
+              markToolStarted,
+            );
+            const trigger = toolStarted
+              ? null
+              : classifyModelRoutingOutput(attemptOutput);
             attempts.push({
               tier: tier.name,
               model,
@@ -203,6 +229,7 @@ export async function executeModelRouting(
         escalated: tierOffset > 0,
       };
     } catch (error) {
+      if (toolStarted) throw error;
       if (error instanceof RoutingAttemptError) {
         tierTrigger = error.trigger;
       } else {

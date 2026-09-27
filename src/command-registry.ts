@@ -96,7 +96,6 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
-  'eval',
   'channel',
   'ralph',
   'goal',
@@ -669,9 +668,6 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
-
-    case 'eval':
-      return ['eval', ...parts.slice(1)];
 
     case 'stop':
     case 'abort':
@@ -2501,153 +2497,6 @@ function buildSlashCommandCatalogDefinitions(
               required: true,
             },
           ],
-        },
-      ],
-    },
-    {
-      name: 'eval',
-      description:
-        'Local eval recipes and detached benchmark runs via the OpenAI-compatible gateway',
-      tuiOnly: true,
-      tuiMenu: {
-        label: '/eval [list|env|<suite>|<command...>]',
-        insertText: '/eval ',
-      },
-      tuiMenuEntries: [
-        {
-          id: 'eval.list',
-          label: '/eval list',
-          insertText: '/eval list',
-          description: 'List supported eval suites and starter recipes',
-        },
-        {
-          id: 'eval.env',
-          label: '/eval env',
-          insertText: '/eval env',
-          description:
-            'Show the injected OpenAI-compatible base URL and model without exposing tokens',
-        },
-        {
-          id: 'eval.swebench-verified',
-          label: '/eval swebench-verified',
-          insertText: '/eval swebench-verified',
-          description: 'Stub entry for a planned SWE-bench Verified runner',
-        },
-        {
-          id: 'eval.locomo',
-          label: '/eval locomo',
-          insertText: '/eval locomo',
-          description: 'Show the native LOCOMO memory benchmark commands',
-        },
-        {
-          id: 'eval.locomo.setup',
-          label: '/eval locomo setup',
-          insertText: '/eval locomo setup',
-          description:
-            'Download the official LOCOMO dataset into the local eval workspace',
-        },
-        {
-          id: 'eval.locomo.run',
-          label: '/eval locomo run --budget 4000 --num-samples 2',
-          insertText: '/eval locomo run --budget 4000 --num-samples 2',
-          description:
-            'Run a small native LOCOMO memory benchmark sample with recent-tail and semantic-recall modes',
-        },
-        {
-          id: 'eval.locomo.results',
-          label: '/eval locomo results',
-          insertText: '/eval locomo results',
-          description: 'Show the latest LOCOMO summary and comparison metrics',
-        },
-        {
-          id: 'eval.terminal-bench-2.0',
-          label: '/eval terminal-bench-2.0',
-          insertText: '/eval terminal-bench-2.0',
-          description: 'Show the Terminal-Bench 2.0 starter recipe',
-        },
-        {
-          id: 'eval.terminal-bench-2.0.setup',
-          label: '/eval terminal-bench-2.0 setup',
-          insertText: '/eval terminal-bench-2.0 setup',
-          description:
-            'Install the native Terminal-Bench dataset helper into the local eval workspace',
-        },
-        {
-          id: 'eval.terminal-bench-2.0.run',
-          label: '/eval terminal-bench-2.0 run --num-tasks 10',
-          insertText: '/eval terminal-bench-2.0 run --num-tasks 10',
-          description:
-            'Run 10 Terminal-Bench tasks through the native HybridClaw harness',
-        },
-        {
-          id: 'eval.terminal-bench-2.0.results',
-          label: '/eval terminal-bench-2.0 results',
-          insertText: '/eval terminal-bench-2.0 results',
-          description: 'Show the latest Terminal-Bench summary and score',
-        },
-        {
-          id: 'eval.terminal-bench-2.0.logs',
-          label: '/eval terminal-bench-2.0 logs',
-          insertText: '/eval terminal-bench-2.0 logs',
-          description:
-            'Show tailed stdout/stderr for the latest Terminal-Bench job',
-        },
-        {
-          id: 'eval.tau2',
-          label: '/eval tau2',
-          insertText: '/eval tau2',
-          description: 'Show managed tau2 eval commands',
-        },
-        {
-          id: 'eval.tau2.setup',
-          label: '/eval tau2 setup',
-          insertText: '/eval tau2 setup',
-          description: 'Clone and install tau2 into the local eval workspace',
-        },
-        {
-          id: 'eval.tau2.run',
-          label:
-            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
-          insertText:
-            '/eval tau2 run --domain telecom --num-trials 1 --num-tasks 10',
-          description:
-            'Run a 10-task telecom tau2 sample with default eval models',
-        },
-        {
-          id: 'eval.tau2.status',
-          label: '/eval tau2 status',
-          insertText: '/eval tau2 status',
-          description: 'Show tau2 install state and latest managed run',
-        },
-        {
-          id: 'eval.tau2.results',
-          label: '/eval tau2 results',
-          insertText: '/eval tau2 results',
-          description: 'Show the latest tau2 run log tail and result paths',
-        },
-        {
-          id: 'eval.agentbench',
-          label: '/eval agentbench',
-          insertText: '/eval agentbench',
-          description: 'Stub entry for a planned AgentBench runner',
-        },
-        {
-          id: 'eval.gaia',
-          label: '/eval gaia',
-          insertText: '/eval gaia',
-          description: 'Stub entry for a planned GAIA runner',
-        },
-      ],
-      options: [
-        {
-          kind: 'string',
-          name: 'target',
-          description: 'list, env, run, or a supported eval suite',
-        },
-        {
-          kind: 'string',
-          name: 'args',
-          description: 'Optional shell command tail for `run`',
         },
       ],
     },

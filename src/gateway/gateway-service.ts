@@ -14,6 +14,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
 import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import { isRetrySafeRun } from '../../container/shared/retry-safety.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -168,9 +169,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
-  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
-  GATEWAY_CLIENT_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
@@ -671,6 +670,10 @@ import {
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
+import {
+  interruptedDelegationsNote,
+  withDelegationsNotStarted,
+} from './interrupted-delegations.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -1357,16 +1360,6 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
-function resolveTurnRuntimeAuditLabel(
-  model: string,
-  output: Pick<ContainerOutput, 'codexRuntime'> | undefined,
-): 'codex' | 'hybridclaw' {
-  return resolveModelProvider(model) === 'openai-codex' &&
-    output?.codexRuntime === 'app-server'
-    ? 'codex'
-    : 'hybridclaw';
-}
-
 async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
@@ -1397,8 +1390,6 @@ async function persistDelegationAttempt(params: {
         type: 'model.usage',
         provider: resolveModelProvider(params.model),
         model: params.model,
-        runtime: resolveTurnRuntimeAuditLabel(params.model, params.output),
-        codexRuntime: params.output.codexRuntime || null,
         durationMs: params.durationMs,
         toolCallCount,
         ...usagePayload,
@@ -4228,6 +4219,8 @@ export function buildErrorTurnPlaceholder(params: {
   }
   const ack = params.delegationAcknowledgement?.trim();
   if (ack) lines.push(`Delegations were still started: ${ack}`);
+  const notStarted = !ack && interruptedDelegationsNote(params.tools);
+  if (notStarted) lines.push(notStarted);
   return lines.join('\n');
 }
 
@@ -4244,6 +4237,7 @@ export function recordErrorTurn(opts: {
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
+  /** Present iff delegations were started; without it the turn says none were. */
   delegationAcknowledgement?: string | null;
   replaceBuiltInMemory?: boolean;
 }): {
@@ -4255,6 +4249,9 @@ export function recordErrorTurn(opts: {
     tools: opts.tools,
     delegationAcknowledgement: opts.delegationAcknowledgement,
   });
+  const history = opts.delegationAcknowledgement?.trim()
+    ? opts
+    : withDelegationsNotStarted(opts);
   const storedTurn =
     opts.replaceBuiltInMemory === true
       ? {
@@ -4273,7 +4270,7 @@ export function recordErrorTurn(opts: {
             role: 'assistant',
             content: placeholder,
             agentId: opts.agentId,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           }),
         }
       : memoryService.storeTurn({
@@ -4289,7 +4286,7 @@ export function recordErrorTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: placeholder,
-            toolHistory: opts.toolHistoryForReplay,
+            toolHistory: history.toolHistoryForReplay,
           },
         });
   if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
@@ -4338,7 +4335,7 @@ export function recordErrorTurn(opts: {
     userId: 'assistant',
     username: null,
     content: placeholder,
-    toolHistory: opts.toolHistory,
+    toolHistory: history.toolHistory,
   });
   return storedTurn;
 }
@@ -9716,8 +9713,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         type: 'model.usage',
         provider,
         model,
-        runtime: resolveTurnRuntimeAuditLabel(model, output),
-        codexRuntime: output.codexRuntime || null,
         durationMs: Date.now() - startedAt,
         toolCallCount: (output.toolExecutions || []).length,
         ...usagePayload,
@@ -10724,8 +10719,10 @@ async function runDelegationTaskWithRetry(
   while (attempt < maxAttempts) {
     attempt += 1;
     const startedAt = Date.now();
+    let output: ContainerOutput | undefined;
+    let toolReported = false;
     try {
-      const output = await runAgent({
+      output = await runAgent({
         sessionId,
         messages: requestMessages,
         chatbotId,
@@ -10734,7 +10731,10 @@ async function runDelegationTaskWithRetry(
         agentId,
         channelId,
         allowedTools,
-        onToolProgress,
+        onToolProgress: (event) => {
+          toolReported = true;
+          onToolProgress?.(event);
+        },
       });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
@@ -10772,7 +10772,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
 
       logger.warn(
         {
@@ -10804,7 +10804,7 @@ async function runDelegationTaskWithRetry(
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
-      if (!shouldRetry) break;
+      if (!shouldRetry || !isRetrySafeRun(output, toolReported)) break;
       logger.warn(
         {
           parentSessionId,
@@ -14427,11 +14427,6 @@ export async function handleGatewayCommand(
               : 'n/a';
         const sandboxMode = status.sandbox?.mode || 'container';
         const sandboxLabel = `${sandboxMode} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
-        const turnRuntimeLabel =
-          resolveModelProvider(sessionModel) === 'openai-codex' &&
-          getRuntimeConfig().codex.turnRuntime === 'app-server'
-            ? 'codex'
-            : 'hybridclaw';
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
         const fullAutoState = getFullAutoRuntimeState(session.id);
         const fullAutoLabel = isFullAutoEnabled(session)
@@ -14482,7 +14477,7 @@ export async function handleGatewayCommand(
                   .join(' · ')}`,
               ]
             : []),
-          `⚙️ Runtime: ${turnRuntimeLabel} · Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
+          `⚙️ Sandbox: ${sandboxMode} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
           `🩺 Agents: ${coworkerHealthLabel}`,
@@ -15161,29 +15156,6 @@ export async function handleGatewayCommand(
         }
 
         return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
-      }
-
-      case 'eval': {
-        const localEvalChannelIds = new Set(['web', 'tui', 'cli']);
-        if (req.guildId !== null || !localEvalChannelIds.has(req.channelId)) {
-          return badCommand(
-            'Eval Restricted',
-            'The `eval` command is only available from local TUI, web, or CLI sessions.',
-          );
-        }
-
-        const evalModule = await import('../evals/eval-command.js');
-        const runtime = resolveAgentForRequest({ session });
-        return evalModule.handleEvalCommand({
-          args: req.args.slice(1),
-          channelId: req.channelId,
-          dataDir: DATA_DIR,
-          gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-          webApiToken: WEB_API_TOKEN,
-          gatewayApiToken: GATEWAY_API_TOKEN,
-          effectiveAgentId: runtime.agentId,
-          effectiveModel: runtime.model,
-        });
       }
 
       default: {

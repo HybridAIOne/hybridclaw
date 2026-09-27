@@ -5,11 +5,11 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 import { parseEvalProfileModel } from '../src/evals/eval-profile.ts';
-import { testOnlyLocomoNativeRetrieval } from '../src/evals/locomo-native.ts';
+import { testOnlyLocomoNativeRetrieval } from '../eval-harness/src/locomo-native.ts';
 import {
   scoreOfficialLocomoAnswer,
   testOnlyLocomoOfficialScoring,
-} from '../src/evals/locomo-official-scoring.ts';
+} from '../eval-harness/src/locomo-official-scoring.ts';
 
 const originalFetch = globalThis.fetch;
 const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL;
@@ -244,7 +244,7 @@ function buildCategoryFiveDataset(): string {
 
 test('locomo native caches flattened conversation turns per conversation object', async () => {
   const { testOnlyLocomoNative } = await import(
-    '../src/evals/locomo-native.ts'
+    '../eval-harness/src/locomo-native.ts'
   );
   const [sample] = JSON.parse(buildSampleDataset()) as Array<{
     conversation: Record<string, unknown>;
@@ -264,7 +264,7 @@ test('locomo native caches flattened conversation turns per conversation object'
 test('locomo native setup downloads the dataset and verifies bytes after redirects', async () => {
   const dataset = buildSampleDataset();
   await mockPinnedDatasetDigest(dataset);
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -296,7 +296,7 @@ test('locomo native setup downloads the dataset and verifies bytes after redirec
 });
 
 test('locomo native setup times out stalled dataset downloads', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -321,7 +321,7 @@ test('locomo native setup times out stalled dataset downloads', async () => {
 });
 
 test('locomo native setup rejects downloads that fail the pinned digest check after redirects', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -339,7 +339,7 @@ test('locomo native setup rejects downloads that fail the pinned digest check af
 });
 
 test('locomo native run reports setup guidance that works for cli and slash wrappers', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -350,7 +350,7 @@ test('locomo native run reports setup guidance that works for cli and slash wrap
 });
 
 test('locomo native run reports when the cached dataset is missing', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -363,7 +363,7 @@ test('locomo native run reports when the cached dataset is missing', async () =>
 });
 
 test('locomo native run reports when the setup marker is missing', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -381,7 +381,7 @@ test('locomo native run reports when the setup marker is missing', async () => {
 });
 
 test('locomo native run rejects malformed cached datasets immediately', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -400,7 +400,7 @@ test('locomo native run rejects malformed cached datasets immediately', async ()
 });
 
 test('locomo native run generates answers through the local gateway and scores them', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -512,7 +512,7 @@ test('locomo native run generates answers through the local gateway and scores t
 });
 
 test('locomo native run evaluates QA questions concurrently while preserving question order', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -584,7 +584,7 @@ test('locomo native run evaluates QA questions concurrently while preserving que
 });
 
 test('locomo native run times out stalled model calls', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -628,7 +628,7 @@ test('locomo native run times out stalled model calls', async () => {
 });
 
 test('locomo native run does not echo failed model response bodies', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -665,7 +665,7 @@ test('locomo native run does not echo failed model response bodies', async () =>
 });
 
 test('locomo native default creates one fresh agent per conversation sample', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -733,7 +733,7 @@ test('locomo native default creates one fresh agent per conversation sample', as
 });
 
 test('locomo native run maps category-5 option labels back to the correct answer key', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -817,7 +817,7 @@ test('locomo native run maps category-5 option labels back to the correct answer
 });
 
 test('locomo native run respects max question limits and writes progress metadata', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -903,7 +903,7 @@ test('locomo native run respects max question limits and writes progress metadat
 });
 
 test('locomo native run throttles in-sample progress writes', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -943,7 +943,7 @@ test('locomo native run throttles in-sample progress writes', async () => {
 });
 
 test('locomo retrieval writes ingestion progress before question progress', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1035,7 +1035,7 @@ test('official LOCOMO scoring keeps lexical F1 behavior for paraphrases', () => 
 });
 
 test('locomo native retrieval mode scores native memory hit rate without model calls', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -1127,7 +1127,7 @@ test('locomo native retrieval mode scores native memory hit rate without model c
 });
 
 test('locomo retrieval mode bypasses prompt-memory caps and relies on raw memory recall plus budgeting', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1190,7 +1190,7 @@ test('locomo retrieval mode bypasses prompt-memory caps and relies on raw memory
 });
 
 test('locomo retrieval mode can strip stopwords from the recall query', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1234,7 +1234,7 @@ test('locomo retrieval mode can strip stopwords from the recall query', async ()
 });
 
 test('locomo retrieval mode passes the full-text backend through memoryService', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1288,7 +1288,7 @@ test('locomo retrieval mode passes the full-text backend through memoryService',
 });
 
 test('locomo retrieval mode passes full-text BM25 rerank through memoryService', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1346,7 +1346,7 @@ test('locomo retrieval mode passes full-text BM25 rerank through memoryService',
 });
 
 test('locomo retrieval mode passes BM25 rerank through memoryService', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1464,7 +1464,7 @@ test('locomo retrieval mode passes BM25 rerank through memoryService', async () 
 });
 
 test('locomo retrieval mode passes trigram tokenizer through memoryService', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1507,7 +1507,7 @@ test('locomo retrieval mode passes trigram tokenizer through memoryService', asy
 });
 
 test('locomo retrieval matrix sweeps all retrieval variants and writes a combined summary', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1670,7 +1670,7 @@ test('locomo retrieval matrix sweeps all retrieval variants and writes a combine
 });
 
 test('locomo retrieval backend matrix sweep varies backend only', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1754,7 +1754,7 @@ test('locomo retrieval backend matrix sweep varies backend only', async () => {
 });
 
 test('locomo retrieval rerank matrix sweep varies rerank only', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1839,7 +1839,7 @@ test('locomo retrieval rerank matrix sweep varies rerank only', async () => {
 });
 
 test('locomo retrieval tokenizer matrix sweep varies tokenizer only', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -1923,7 +1923,7 @@ test('locomo retrieval tokenizer matrix sweep varies tokenizer only', async () =
 });
 
 test('locomo retrieval embedding matrix sweep varies embedding provider only', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
@@ -2036,7 +2036,7 @@ test('locomo retrieval embedding matrix sweep varies embedding provider only', a
 });
 
 test('locomo retrieval matrix rejects explicit retrieval overrides', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );
@@ -2056,7 +2056,7 @@ test('locomo retrieval matrix rejects explicit retrieval overrides', async () =>
 });
 
 test('locomo retrieval matrix rejects unknown matrix sweep', async () => {
-  const { runLocomoNativeCli } = await import('../src/evals/locomo-native.ts');
+  const { runLocomoNativeCli } = await import('../eval-harness/src/locomo-native.ts');
   const installDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-locomo-'),
   );

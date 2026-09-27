@@ -33,7 +33,6 @@ jobs:
 
       - name: Install dependencies without lifecycle scripts
         env:
-          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm ci --ignore-scripts --no-audit --fund=false
 
