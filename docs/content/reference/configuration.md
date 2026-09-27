@@ -241,6 +241,9 @@ saved revision history directly.
   SecretRef-backed `apiKey`; `conversationScope` can be `channel` or `user`.
   Proxied turns are still recorded in the local session, so `/thumbs` and
   channel reactions rate them and the feedback is forwarded to that chatbot.
+  Other ratings are forwarded only when the session has an explicit chatbot ID;
+  unlinked local agents keep ratings locally. Global model and observability
+  bot defaults do not determine feedback ownership.
 - `agents.list[].skills` and `agents.list[].tools` restrict which skills that
   agent may load and which tools it may call. Omit either key to leave the
   agent unrestricted, including for skills and tools installed later; an empty
