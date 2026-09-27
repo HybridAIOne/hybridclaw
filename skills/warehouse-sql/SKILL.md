@@ -59,9 +59,10 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
    ```
    `query --execute` always invokes model review before running SQL. Configure
    model review with `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` and
-   `HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
-   `GATEWAY_API_TOKEN`. Execution requires `--question` so the model can check
-   whether the SQL answers the user's request.
+   `HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN` or `GATEWAY_API_TOKEN` (see
+   SQL Review Rules for which credential this needs). Execution requires
+   `--question` so the model can check whether the SQL answers the user's
+   request.
 
 ## Backend Contract
 
@@ -103,9 +104,12 @@ Scheduled refreshes default to `last-channel` delivery. Use
 `--delivery-kind channel --delivery-to <channel-id>` only when the target
 channel id is known.
 
-Set `HYBRIDCLAW_GATEWAY_TOKEN` or `GATEWAY_API_TOKEN` in the environment for
-production scheduler registration. `--gateway-token` is supported for tests, but
-tokens passed as CLI arguments can be visible in process listings.
+`schedule-refresh` registers the job through the gateway's admin scheduler API,
+so it is an operator command: run it from an operator shell with
+`GATEWAY_API_TOKEN` set. The `HYBRIDCLAW_GATEWAY_TOKEN` inside an agent sandbox
+is the worker's credential, which admin routes reject. `--gateway-token` is
+supported for tests, but tokens passed as CLI arguments can be visible in
+process listings.
 
 ## Read/Write Rules
 
@@ -140,8 +144,10 @@ model review pass.
 
 Model review defaults to `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` plus
 `/v1/chat/completions` and model `auxiliary/eval_judge`, with authentication from
-`HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
-`GATEWAY_API_TOKEN`. Use `--model-review-url`, `--model-review-model`,
+`HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN` or `GATEWAY_API_TOKEN`: an
+operator credential with `openai.api` access. The worker credential an agent
+sandbox holds does not reach this endpoint, so review there fails closed and
+the SQL does not run. Use `--model-review-url`, `--model-review-model`,
 `--schema-cache`, and `--question` to make the review explicit in tests or
 operator workflows.
 

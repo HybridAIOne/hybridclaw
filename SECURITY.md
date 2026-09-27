@@ -68,9 +68,13 @@ Tool execution runs inside Docker with sandbox constraints:
 - constrained CPU/memory/timeouts
 - controlled workspace/IPC mounts
 - additional mount allowlist validation
+- a per-worker gateway credential instead of the gateway API token: accepted
+  only on the runtime routes the tools call, acting as the worker's own agent
+  and session, and revoked when the worker stops
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
-[src/security/mount-security.ts](./src/security/mount-security.ts)
+[src/security/mount-security.ts](./src/security/mount-security.ts),
+[src/security/worker-credentials.ts](./src/security/worker-credentials.ts)
 
 ### 4) Session Isolation
 

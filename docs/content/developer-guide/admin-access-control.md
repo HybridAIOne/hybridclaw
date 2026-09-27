@@ -20,6 +20,13 @@ can create them from `hybridclaw token create` or `/admin/credentials?tab=api-to
 shows the token value only once, stores a salted verifier, and keeps later
 lists metadata-only.
 
+Agent workers and the tools they run hold none of these tokens. Each worker
+process gets its own credential at spawn, bound to its agent and session and
+revoked when the worker stops. The gateway accepts it only on the runtime routes
+the tools call, and there it takes the agent and session from the credential,
+not from the request body. The route list lives in
+[`src/security/worker-credentials.ts`](../../../src/security/worker-credentials.ts).
+
 Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must
 be entered manually, the console stores it in `sessionStorage` for the current
 browser tab only and deletes any legacy `localStorage` copy. Live admin event
