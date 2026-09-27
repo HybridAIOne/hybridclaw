@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Replies no longer pick up files from other sessions**: The end-of-turn
+  workspace scan keeps only files the turn names in its reply, tool arguments,
+  or tool output. A file another chat or a scheduled job writes to the same
+  agent workspace during the turn is no longer returned as this turn's
+  artifact.
+
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 
 ### Added

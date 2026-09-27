@@ -575,11 +575,23 @@ function collectRequestedArtifacts(params: {
   artifacts: ArtifactMetadata[];
   artifactPaths: Set<string>;
   startedAtMs: number;
+  finalText: string | null;
+  toolExecutions: ToolExecution[];
 }): void {
+  // Other sessions and scheduled jobs write to the same workspace, so a file
+  // modified during this turn is only this turn's if the turn names it.
+  const mentionedIn = [
+    params.finalText || '',
+    ...params.toolExecutions.flatMap((execution) => [
+      execution.arguments,
+      execution.result,
+    ]),
+  ];
   const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
     modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
     modifiedBeforeMs: Date.now() + 1_000,
     limit: 8,
+    mentionedIn,
   });
 
   for (const artifact of discovered) {
@@ -1712,6 +1724,8 @@ async function processRequestInner(
             artifacts,
             artifactPaths,
             startedAtMs: processStartedAt,
+            finalText: assistantSegment.text,
+            toolExecutions,
           });
           latestFinalAssistantText = assistantSegment.text;
           textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
@@ -1769,6 +1783,8 @@ async function processRequestInner(
         artifacts,
         artifactPaths,
         startedAtMs: processStartedAt,
+        finalText: assistantSegment.text,
+        toolExecutions,
       });
       if (
         shouldRetryEmptyFinalResponse({
@@ -2047,6 +2063,8 @@ async function processRequestInner(
     artifacts,
     artifactPaths,
     startedAtMs: processStartedAt,
+    finalText: latestFinalAssistantText,
+    toolExecutions,
   });
   const completed: ContainerOutput = {
     status: 'success',
