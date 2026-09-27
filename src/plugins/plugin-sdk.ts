@@ -7,6 +7,7 @@ export type {
   ChannelTransportPairingSession,
   ChannelTransportRegistration,
   ChannelTransportReplyFn,
+  ChannelTransportSendResult,
   LineChannelTransportRegistration,
   WhatsAppChannelTransportRegistration,
 } from '../channels/channel-transport.js';
