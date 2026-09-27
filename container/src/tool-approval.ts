@@ -1,3 +1,10 @@
+/**
+ * Agent-loop glue for tool approvals: the process's one approval runtime, the
+ * records a gated call reports, and the resolver that evaluates each call.
+ * After shutdown starts, the resolver evaluates nothing, so a stopped turn's
+ * late tool calls record no pending approval. NOT the policy
+ * (`approval-policy.ts`).
+ */
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ApprovalPrelude,
@@ -5,6 +12,7 @@ import {
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { emitRuntimeEvent } from './extensions.js';
+import { haltIfShuttingDown } from './shutdown-latch.js';
 import type {
   ChatCompletionResponse,
   ContainerInput,
@@ -159,6 +167,7 @@ export function createToolApprovalResolver(params: {
   argsJson: string;
 }) => Promise<ToolApprovalEvaluation> {
   return async (input) => {
+    await haltIfShuttingDown();
     const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
       toolName: input.toolName,
