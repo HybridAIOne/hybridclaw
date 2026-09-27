@@ -386,18 +386,31 @@ secret:
 ```
 
 The secret policy consumer also exposes fine-grained predicates for composed
-rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
-`secret.selector`, `skill.name`, and `agent.id`. Use these when the rule needs
-`all`, `any`, or `not` composition that is clearer than one composite
-predicate.
+rules. Use these when the rule needs `all`, `any`, or `not` composition that is
+clearer than one composite predicate. Each predicate takes only the parameters
+below; where a parameter has several names, set one of them:
+
+| Predicate | Parameters |
+| --- | --- |
+| `secret_resolve_allowed` | `id` (or `secret`, `secretId`), `source`, `sink` (or `sinkKind`, `sinks`), `host`, `selector` (or `selectors`), `skill` (or `skillName`), `agent` (or `agentId`) |
+| `secret.id`, `secret.selector` | `equals`, `matches`, or `in` |
+| `secret.source`, `secret.sink`, `skill.name`, `agent.id` | `equals` or `in` |
+| `secret.host` | `host`, `equals`, or `matches` |
+
+A parameter value is a string or a list of strings, except that a host is one
+pattern. `source` is `store`, `sink` is `dom` for browser fields or `http` for
+HTTP requests, and `*` matches any value.
 
 `secret.default` and each secret rule's `action` accept `allow`, `deny`, or
-`block`, which means the same as `deny`. Leaving `secret`, `secret.default`,
-or `secret.rules` out, or empty, is the same as not setting it. Any other
-value makes every stored-secret resolve for that workspace fail with
-`Invalid secret policy in <path>` until the file is fixed. That includes a
-typo such as `denied`, a rule without an action, and a `secret` section that
-is not a mapping.
+`block`, which means the same as `deny`. A rule takes the keys `id`,
+`description`, `comment`, `when`, `action`, and `managed_by_*`, and a rule
+without `when` matches every resolve. Leaving `secret`, `secret.default`, or
+`secret.rules` out, or empty, is the same as not setting it. Anything else the
+parser does not know makes every stored-secret resolve for that workspace fail
+with `Invalid secret policy in <path>` until the file is fixed. That includes
+a typo such as `denied`, a rule without an action, a `secret` section that is
+not a mapping, an unknown rule key, predicate, parameter, or `sink` value, and
+an empty `when`, `all`, `any`, or parameter.
 
 ## Policy Patterns
 

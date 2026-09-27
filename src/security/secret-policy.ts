@@ -1,9 +1,10 @@
 /**
  * Secret resolution policy: whether a stored secret may reach a sink, read
  * from the workspace `policy.yaml` `secret` section. A missing section or
- * default means allow; anything present that does not parse throws, so the
- * resolve fails instead of allowing it. NOT the network policy (deny by
- * default); `assertSecretResolveAllowed` in the gateway enforces the decision.
+ * default means allow; any present value, rule key, predicate, or parameter
+ * the parser does not know throws, so a typo fails the resolve instead of
+ * widening a rule. NOT the network policy (deny by default);
+ * `assertSecretResolveAllowed` in the gateway enforces the decision.
  */
 import fs from 'node:fs';
 
@@ -17,7 +18,8 @@ import {
   type PolicyRule,
 } from '../policy/policy-engine.js';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
-import type { SecretSinkKind } from './secret-handles.js';
+import { asTrimmedString, isRecord } from '../utils/type-guards.js';
+import { SECRET_SINK_KINDS, type SecretSinkKind } from './secret-handles.js';
 import {
   normalizeSecretLower as normalizeLower,
   normalizeSecretString as normalizeString,
@@ -25,10 +27,13 @@ import {
 
 export type SecretPolicyDecision = 'allow' | 'deny';
 
+// Only stored secrets reach the policy (`assertSecretResolveAllowed`).
+const SECRET_SOURCES = ['store'] as const;
+
 export interface SecretPolicyContext {
   agentId?: string;
   skillName?: string;
-  secretSource: 'store';
+  secretSource: (typeof SECRET_SOURCES)[number];
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -73,19 +78,36 @@ function readAction(value: unknown, field: string): SecretPolicyDecision {
   );
 }
 
+// `managed_by_*` keys mark rules a command wrote, such as `secret route add`.
+const SECRET_RULE_KEYS = ['id', 'description', 'comment', 'when', 'action'];
+
 function readRule(
   raw: unknown,
   index: number,
 ): PolicyRule<SecretPolicyDecision> {
-  const record = asRecord(raw);
-  const id = normalizeString(record.id);
+  const field = `secret rule #${index + 1}`;
+  if (!isRecord(raw)) {
+    throw new Error(`${field} must be a mapping (got ${JSON.stringify(raw)})`);
+  }
+  // A misspelled `when` would otherwise leave a rule that matches everything.
+  const unknownKey = Object.keys(raw).find(
+    (key) => !SECRET_RULE_KEYS.includes(key) && !key.startsWith('managed_by_'),
+  );
+  if (unknownKey !== undefined) {
+    throw new Error(
+      `${field} has unknown key "${unknownKey}" (allowed: ${SECRET_RULE_KEYS.join(', ')}, managed_by_*)`,
+    );
+  }
+  // No `when` matches every resolve; a present one, even empty, must parse.
+  if (raw.when !== undefined) readExpression(raw.when, `${field} when`);
+  const id = normalizeString(raw.id);
   return {
     ...(id ? { id } : {}),
-    when: record.when as
+    when: raw.when as
       | PolicyPredicateExpression
       | PolicyPredicateExpression[]
       | undefined,
-    action: readAction(record.action, `secret rule #${index + 1} action`),
+    action: readAction(raw.action, `${field} action`),
     metadata: { secretRule: raw },
   };
 }
@@ -218,69 +240,198 @@ function matchesGlobText(candidate: unknown, expected: unknown): boolean {
   });
 }
 
-const SECRET_POLICY_PREDICATES: PolicyPredicateRegistry<SecretPolicyContext> = {
-  secret_resolve_allowed: (context, params) => {
-    const ids = params.id ?? params.secret ?? params.secretId;
-    if (ids !== undefined && !matchesGlobText(context.secretId, ids)) {
-      return false;
-    }
-    if (
-      params.source !== undefined &&
-      !matchesText(context.secretSource, params.source)
-    ) {
-      return false;
-    }
-    const sinks = params.sink ?? params.sinkKind ?? params.sinks;
-    if (sinks !== undefined && !matchesText(context.sinkKind, sinks)) {
-      return false;
-    }
-    if (
-      params.host !== undefined &&
-      !matchesNetworkHostPattern(params.host, context.host || '')
-    ) {
-      return false;
-    }
-    const selector = params.selector ?? params.selectors;
-    if (
-      selector !== undefined &&
-      !matchesGlobText(context.selector || '', selector)
-    ) {
-      return false;
-    }
-    const skill = params.skill ?? params.skillName;
-    if (skill !== undefined && !matchesText(context.skillName || '', skill)) {
-      return false;
-    }
-    const agent = params.agent ?? params.agentId;
-    if (agent !== undefined && !matchesText(context.agentId || '', agent)) {
-      return false;
-    }
-    return true;
-  },
-  'secret.id': (context, params) =>
-    matchesGlobText(
-      context.secretId,
-      params.equals ?? params.matches ?? params.in,
-    ),
-  'secret.source': (context, params) =>
-    matchesText(context.secretSource, params.equals ?? params.in),
-  'secret.sink': (context, params) =>
-    matchesText(context.sinkKind, params.equals ?? params.in),
-  'secret.host': (context, params) =>
-    matchesNetworkHostPattern(
-      params.host ?? params.equals ?? params.matches,
-      context.host || '',
-    ),
-  'secret.selector': (context, params) =>
-    matchesGlobText(
-      context.selector || '',
-      params.equals ?? params.matches ?? params.in,
-    ),
-  'skill.name': (context, params) =>
-    matchesText(context.skillName || '', params.equals ?? params.in),
-  'agent.id': (context, params) =>
-    matchesText(context.agentId || '', params.equals ?? params.in),
+type SecretPolicyField = {
+  // A closed set of context values; `*` also matches any value.
+  values?: readonly string[];
+  // The host matcher takes one pattern, not a list.
+  single?: boolean;
+  matches: (context: SecretPolicyContext, expected: unknown) => boolean;
 };
+
+const SECRET_POLICY_FIELDS = {
+  id: {
+    matches: (context, expected) => matchesGlobText(context.secretId, expected),
+  },
+  source: {
+    values: SECRET_SOURCES,
+    matches: (context, expected) => matchesText(context.secretSource, expected),
+  },
+  sink: {
+    values: SECRET_SINK_KINDS,
+    matches: (context, expected) => matchesText(context.sinkKind, expected),
+  },
+  host: {
+    single: true,
+    matches: (context, expected) =>
+      matchesNetworkHostPattern(expected, context.host || ''),
+  },
+  selector: {
+    matches: (context, expected) =>
+      matchesGlobText(context.selector || '', expected),
+  },
+  skill: {
+    matches: (context, expected) =>
+      matchesText(context.skillName || '', expected),
+  },
+  agent: {
+    matches: (context, expected) =>
+      matchesText(context.agentId || '', expected),
+  },
+} satisfies Record<string, SecretPolicyField>;
+
+type SecretPolicyFieldName = keyof typeof SECRET_POLICY_FIELDS;
+
+// Each predicate's parameters and the context field each one matches. The
+// evaluator reads parameters only through this table and the parser rejects
+// any other key, so a typo cannot drop a condition. Spellings of one field are
+// alternatives: a rule may set only one of them.
+const SECRET_POLICY_PREDICATE_PARAMS: Record<
+  string,
+  Record<string, SecretPolicyFieldName>
+> = {
+  secret_resolve_allowed: {
+    id: 'id',
+    secret: 'id',
+    secretId: 'id',
+    source: 'source',
+    sink: 'sink',
+    sinkKind: 'sink',
+    sinks: 'sink',
+    host: 'host',
+    selector: 'selector',
+    selectors: 'selector',
+    skill: 'skill',
+    skillName: 'skill',
+    agent: 'agent',
+    agentId: 'agent',
+  },
+  'secret.id': { equals: 'id', matches: 'id', in: 'id' },
+  'secret.source': { equals: 'source', in: 'source' },
+  'secret.sink': { equals: 'sink', in: 'sink' },
+  'secret.host': { host: 'host', equals: 'host', matches: 'host' },
+  'secret.selector': {
+    equals: 'selector',
+    matches: 'selector',
+    in: 'selector',
+  },
+  'skill.name': { equals: 'skill', in: 'skill' },
+  'agent.id': { equals: 'agent', in: 'agent' },
+};
+
+const SECRET_POLICY_PREDICATES: PolicyPredicateRegistry<SecretPolicyContext> =
+  Object.fromEntries(
+    Object.entries(SECRET_POLICY_PREDICATE_PARAMS).map(([name, params]) => [
+      name,
+      (context: SecretPolicyContext, expression: Record<string, unknown>) =>
+        Object.entries(params).every(
+          ([param, field]) =>
+            !Object.hasOwn(expression, param) ||
+            SECRET_POLICY_FIELDS[field].matches(context, expression[param]),
+        ),
+    ]),
+  );
+
+// Checks a rule's `when` tree against the engine's grammar and the predicate
+// table; the engine itself skips what it does not know.
+function readExpression(value: unknown, field: string): void {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      throw new Error(`${field} must not be an empty list`);
+    }
+    value.forEach((entry, index) => {
+      readExpression(entry, `${field}[${index}]`);
+    });
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new Error(
+      `${field} must be a mapping or a list (got ${JSON.stringify(value)})`,
+    );
+  }
+  if (Object.hasOwn(value, 'predicate')) {
+    readPredicate(value, field);
+    return;
+  }
+  const keys = Object.keys(value);
+  const operator = keys[0];
+  if (keys.length !== 1 || !['all', 'any', 'not'].includes(operator)) {
+    throw new Error(
+      `${field} must set predicate, all, any, or not (got ${JSON.stringify(value)})`,
+    );
+  }
+  if (operator !== 'not' && !Array.isArray(value[operator])) {
+    throw new Error(
+      `${field}.${operator} must be a list (got ${JSON.stringify(value[operator])})`,
+    );
+  }
+  readExpression(value[operator], `${field}.${operator}`);
+}
+
+function readPredicate(
+  expression: Record<string, unknown>,
+  field: string,
+): void {
+  const name = asTrimmedString(expression.predicate);
+  if (!Object.hasOwn(SECRET_POLICY_PREDICATE_PARAMS, name)) {
+    throw new Error(
+      `${field} predicate must be one of ${Object.keys(SECRET_POLICY_PREDICATE_PARAMS).join(', ')} (got ${JSON.stringify(expression.predicate)})`,
+    );
+  }
+  const params = SECRET_POLICY_PREDICATE_PARAMS[name];
+  const allowed = Object.keys(params).join(', ');
+  const setParams = Object.keys(expression).filter(
+    (key) => key !== 'predicate',
+  );
+  const unknownParam = setParams.find((key) => !Object.hasOwn(params, key));
+  if (unknownParam !== undefined) {
+    throw new Error(
+      `${field} has unknown ${name} parameter "${unknownParam}" (allowed: ${allowed})`,
+    );
+  }
+  if (setParams.length === 0) {
+    throw new Error(`${field} needs a ${name} parameter (one of ${allowed})`);
+  }
+  const setFields = new Map<SecretPolicyFieldName, string>();
+  for (const param of setParams) {
+    const previous = setFields.get(params[param]);
+    if (previous !== undefined) {
+      throw new Error(`${field} sets both ${previous} and ${param}; use one`);
+    }
+    setFields.set(params[param], param);
+    readParamValue(
+      SECRET_POLICY_FIELDS[params[param]],
+      expression[param],
+      `${field}.${param}`,
+    );
+  }
+}
+
+function readParamValue(
+  spec: SecretPolicyField,
+  value: unknown,
+  field: string,
+): void {
+  const entries: unknown[] =
+    Array.isArray(value) && !spec.single ? value : [value];
+  if (
+    entries.length === 0 ||
+    !entries.every((entry) => typeof entry === 'string' && entry.trim())
+  ) {
+    throw new Error(
+      `${field} must be a non-empty string${spec.single ? '' : ' or list of strings'} (got ${JSON.stringify(value)})`,
+    );
+  }
+  if (!spec.values) return;
+  const allowed = [...spec.values, '*'];
+  const invalid = entries.find(
+    (entry) => !allowed.includes(normalizeLower(entry)),
+  );
+  if (invalid !== undefined) {
+    throw new Error(
+      `${field} must be one of ${allowed.join(', ')} (got ${JSON.stringify(invalid)})`,
+    );
+  }
+}
 
 export function evaluateSecretPolicyAccess(params: {
   state: SecretPolicyState;
