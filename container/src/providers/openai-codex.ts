@@ -18,6 +18,7 @@ import {
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
+  readRetryAfterMs,
 } from './shared.js';
 import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
 
@@ -852,7 +853,11 @@ async function callOpenAIResponsesProviderStreamInternal(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ProviderRequestError(response.status, text);
+    throw new ProviderRequestError(
+      response.status,
+      text,
+      readRetryAfterMs(response.headers),
+    );
   }
 
   const contentType = (
