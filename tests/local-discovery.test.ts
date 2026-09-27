@@ -147,13 +147,67 @@ describe('local discovery', () => {
       expect.objectContaining({
         id: 'deepseek-r1',
         backend: 'ollama',
-        contextWindow: 131_072,
+        contextWindow: discovery.OLLAMA_DEFAULT_CONTEXT_WINDOW,
         family: 'deepseek',
         parameterSize: '14B',
         isReasoning: true,
       }),
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  test.each<[string, Record<string, unknown>, number | 'default']>([
+    ['a large trained window', { 'llama.context_length': 131_072 }, 'default'],
+    ['a small trained window', { 'llama.context_length': 8_192 }, 8_192],
+    [
+      'a Modelfile num_ctx',
+      {
+        'llama.context_length': 131_072,
+        parameters: 'num_ctx                        65536\nstop "<|eot_id|>"',
+      },
+      65_536,
+    ],
+    [
+      'a Modelfile num_ctx above the trained window',
+      { 'llama.context_length': 16_384, parameters: 'num_ctx 65536' },
+      16_384,
+    ],
+    ['no metadata', {}, 'default'],
+  ])('an Ollama model with %s runs with the expected num_ctx', async (_label, show, expected) => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.local.backends.ollama.enabled = true;
+      config.local.backends.lmstudio.enabled = false;
+      config.local.backends.vllm.enabled = false;
+    });
+    const discovery = await importFreshDiscovery(homeDir);
+    const { parameters, ...modelInfo } = show;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        const body = input.endsWith('/api/tags')
+          ? { models: [{ name: 'qwen3', size: 1 }] }
+          : {
+              model_info: modelInfo,
+              ...(parameters ? { parameters } : {}),
+            };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    const [model] = await discovery.discoverAllLocalModels({ force: true });
+
+    expect(model?.contextWindow).toBe(
+      expected === 'default'
+        ? discovery.defaultOllamaContextWindow()
+        : expected,
+    );
+    expect(discovery.defaultOllamaContextWindow()).toBe(
+      discovery.OLLAMA_DEFAULT_CONTEXT_WINDOW,
+    );
   });
 
   test('discoverLmStudioModels parses LM Studio /api/v1/models output', async () => {

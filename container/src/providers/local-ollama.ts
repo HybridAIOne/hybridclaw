@@ -140,15 +140,25 @@ function buildRequestBody(
   if (args.tools.length > 0) {
     request.tools = convertTools(args.tools);
   }
+  const options: Record<string, number> = {};
   if (
     typeof args.maxTokens === 'number' &&
     Number.isFinite(args.maxTokens) &&
     args.maxTokens > 0
   ) {
-    request.options = {
-      num_predict: Math.floor(args.maxTokens),
-    };
+    options.num_predict = Math.floor(args.maxTokens);
   }
+  // Without num_ctx Ollama runs at its server default of a few thousand tokens
+  // and silently drops the start of longer prompts. The gateway resolves the
+  // window once per model, so every request loads the model the same way.
+  if (
+    typeof args.contextWindow === 'number' &&
+    Number.isFinite(args.contextWindow) &&
+    args.contextWindow > 0
+  ) {
+    options.num_ctx = Math.floor(args.contextWindow);
+  }
+  if (Object.keys(options).length > 0) request.options = options;
   return request;
 }
 
