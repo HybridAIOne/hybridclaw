@@ -697,13 +697,20 @@ test('an allowlisted alert that pings other users is not skipped', () => {
   ).toBe(false);
 });
 
+const LINK_PREVIEW_EMBED = {
+  data: { type: 'article' },
+  title: 'Example article',
+  description: 'Preview text of the linked page',
+  url: 'https://example.com/article',
+};
+
 test('renderMessageText falls back from content to embeds to attachments to system text', () => {
   const base = { botMentionRegex: null, prefix: '!claw' };
   expect(
     renderMessageText({
       ...base,
       content: '!claw hello',
-      embeds: [ALERT_EMBED],
+      embeds: [LINK_PREVIEW_EMBED],
       attachmentNames: ['a.png'],
     }),
   ).toBe('hello');
@@ -735,6 +742,60 @@ test('renderMessageText falls back from content to embeds to attachments to syst
   expect(
     renderMessageText({ ...base, content: '', embeds: [], attachmentNames: [] }),
   ).toBe('');
+});
+
+test('renderMessageText keeps the rich embeds a bot posts under its headline', () => {
+  const base = { botMentionRegex: null, prefix: '!claw', attachmentNames: [] };
+  // A webhook post with a headline in content and the data in embed fields.
+  const report = {
+    data: { type: 'rich' },
+    fields: [
+      { name: 'Totals', value: 'Billed 0.33\nUpstream 11.57' },
+      { name: 'Health', value: 'all green' },
+    ],
+  };
+  expect(
+    renderMessageText({ ...base, content: 'Daily summary', embeds: [report] }),
+  ).toBe(
+    'Daily summary\n[embed] Totals: Billed 0.33\nUpstream 11.57\nHealth: all green',
+  );
+  // Link previews only echo the URL already in the content.
+  expect(
+    renderMessageText({
+      ...base,
+      content: 'see https://example.com/article',
+      embeds: [LINK_PREVIEW_EMBED, report],
+    }),
+  ).toBe(`see https://example.com/article\n[embed] ${summarizeEmbeds([report])}`);
+  expect(
+    renderMessageText({
+      ...base,
+      content: 'see https://example.com/article',
+      embeds: [LINK_PREVIEW_EMBED],
+    }),
+  ).toBe('see https://example.com/article');
+  // Without content a preview is still the only readable text.
+  expect(
+    renderMessageText({ ...base, content: '', embeds: [LINK_PREVIEW_EMBED] }),
+  ).toBe(`[embed] ${summarizeEmbeds([LINK_PREVIEW_EMBED])}`);
+  // The embed part stays bounded by summarizeEmbeds.
+  const huge = renderMessageText({
+    ...base,
+    content: 'headline',
+    embeds: [{ description: 'x'.repeat(5000) }],
+  });
+  expect(huge.length).toBeLessThanOrEqual('headline\n[embed] '.length + 600);
+  // A forwarded post keeps its embeds the same way.
+  expect(
+    renderMessageText({
+      ...base,
+      content: '',
+      embeds: [],
+      forwarded: [
+        { content: 'Daily summary', embeds: [report], attachmentNames: [] },
+      ],
+    }),
+  ).toBe(`[forwarded] Daily summary\n[embed] ${summarizeEmbeds([report])}`);
 });
 
 test('renderMessageText reads a forwarded message when the outer message is empty', () => {
