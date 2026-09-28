@@ -45,6 +45,7 @@ import {
   setBrowserTaskModelPolicies,
   usesGatewayManagedBrowser,
 } from './browser-tools.js';
+import { waitForDelegation } from './delegate-wait.js';
 import {
   type DiagramFixupRequest,
   type DiagramRuntimeOptions,
@@ -342,9 +343,6 @@ let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_DELEGATE_CALLS_PER_TURN = 3;
-// Engineering choice, 2026-09-28: a waiting `delegate` call blocks the turn
-// on its children; matches the longest plugin tool window below.
-const DELEGATE_WAIT_TIMEOUT_MS = 20 * 60_000;
 let memoryTimezoneCache: {
   userPath: string;
   mtimeMs: number | null;
@@ -1329,52 +1327,6 @@ async function callGatewayPluginTool(
     if (result != null) return JSON.stringify(result, null, 2);
   }
   return rawText;
-}
-
-async function callGatewayDelegate(
-  effect: DelegationSideEffect,
-): Promise<string> {
-  const base = gatewayBaseUrl.replace(/\/+$/, '');
-  if (!base) {
-    return failTool(
-      'Error: delegate is unavailable because gatewayBaseUrl is not configured.',
-    );
-  }
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (gatewayApiToken) {
-    headers.Authorization = `Bearer ${gatewayApiToken}`;
-  }
-  let response: GatewayJsonResponse;
-  try {
-    response = await postGatewayJson(
-      `${base}/api/delegate`,
-      headers,
-      { sessionId: currentSessionId, effect },
-      DELEGATE_WAIT_TIMEOUT_MS,
-    );
-  } catch (err) {
-    return failTool(
-      `Error: delegate request failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-  let parsed: { result?: unknown; error?: unknown } | null = null;
-  try {
-    parsed = JSON.parse(response.text) as { result?: unknown; error?: unknown };
-  } catch {
-    parsed = null;
-  }
-  if (!response.ok || typeof parsed?.result !== 'string') {
-    const detail =
-      typeof parsed?.error === 'string'
-        ? parsed.error
-        : response.text || `HTTP ${response.status}`;
-    return failTool(`Error: delegation failed: ${detail}`);
-  }
-  return parsed.result;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -4003,7 +3955,15 @@ async function executeToolInternal(
       }
 
       delegateCallsThisTurn += 1;
-      if (args.background !== true) return callGatewayDelegate(effect);
+      if (args.background !== true) {
+        const waited = await waitForDelegation({
+          gatewayBaseUrl,
+          gatewayApiToken,
+          sessionId: currentSessionId,
+          effect,
+        });
+        return 'result' in waited ? waited.result : failTool(waited.error);
+      }
 
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';

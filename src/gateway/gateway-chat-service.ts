@@ -154,6 +154,10 @@ import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
+import {
+  extractDelegationDepth,
+  normalizeDelegationEffect,
+} from './delegation-plan.js';
 import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -166,11 +170,7 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
-import {
-  enqueueDelegationBatchFromSideEffects,
-  extractDelegationDepth,
-  normalizeDelegationEffect,
-} from './gateway-delegation.js';
+import { enqueueDelegationBatchFromSideEffects } from './gateway-delegation.js';
 import {
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,

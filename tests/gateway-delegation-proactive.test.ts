@@ -142,8 +142,12 @@ test('delegation batch queues status updates and wakes the parent with the resul
     },
   );
 
-  const { enqueueDelegationBatchFromSideEffects, normalizeDelegationEffect } =
-    await import('../src/gateway/gateway-delegation.ts');
+  const { enqueueDelegationBatchFromSideEffects } = await import(
+    '../src/gateway/gateway-delegation.ts'
+  );
+  const { normalizeDelegationEffect } = await import(
+    '../src/gateway/delegation-plan.ts'
+  );
   const {
     getRecentStructuredAuditForSession,
     claimQueuedProactiveMessages,
@@ -495,7 +499,7 @@ test('delegation prefers configured delegate model over echoed parent-model over
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   const { normalizeDelegationEffect } = await import(
-    '../src/gateway/gateway-delegation.ts'
+    '../src/gateway/delegation-plan.ts'
   );
   const { initDatabase } = await import('../src/memory/db.ts');
   const { updateRuntimeConfig } = await import(
@@ -543,8 +547,12 @@ test('delegation disabled returns no descriptor and fails the durable job row', 
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
 
-  const { enqueueDelegationBatchFromSideEffects, normalizeDelegationEffect } =
-    await import('../src/gateway/gateway-delegation.ts');
+  const { enqueueDelegationBatchFromSideEffects } = await import(
+    '../src/gateway/gateway-delegation.ts'
+  );
+  const { normalizeDelegationEffect } = await import(
+    '../src/gateway/delegation-plan.ts'
+  );
   const { getDelegationJob, initDatabase } = await import(
     '../src/memory/db.ts'
   );
