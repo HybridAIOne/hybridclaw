@@ -2,6 +2,7 @@
  * Gateway-owned notification state survives worker and gateway restarts.
  * Unlike agent memory, subscription endpoints and operator bindings are never
  * exposed to tools; browser requests cannot choose another operator's identity.
+ * Recording an alert reads and commits once, returning its delivery snapshot.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -25,6 +26,7 @@ interface NotificationStore {
 }
 
 const storePath = path.join(DATA_DIR, 'web-notifications.json');
+let directoryReady = false;
 
 function readStore(): NotificationStore {
   try {
@@ -36,7 +38,10 @@ function readStore(): NotificationStore {
 }
 
 function writeStore(store: NotificationStore): void {
-  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  if (!directoryReady) {
+    fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    directoryReady = true;
+  }
   const temporary = `${storePath}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(store), {
@@ -80,8 +85,17 @@ export function bindWebNotificationSession(
   writeStore(store);
 }
 
-export function webSessionOperator(sessionId: string): string | undefined {
-  return readStore().sessions[notificationOperatorId(sessionId)];
+export function deleteWebNotificationSession(sessionId: string): void {
+  const store = readStore();
+  const key = notificationOperatorId(sessionId);
+  const operatorId = store.sessions[key];
+  if (!operatorId) return;
+  delete store.sessions[key];
+  const state = operatorState(store, operatorId);
+  state.notifications = state.notifications.filter(
+    (notification) => notification.sessionId !== sessionId,
+  );
+  writeStore(store);
 }
 
 export function readWebNotificationState(
@@ -134,24 +148,32 @@ export function deleteWebPushSubscription(
   writeStore(store);
 }
 
-export function webPushSubscriptions(
-  operatorId: string,
-): WebPushSubscription[] {
-  return Object.values(operatorState(readStore(), operatorId).subscriptions);
-}
-
-export function appendWebNotification(
-  operatorId: string,
+export function recordWebNotification(
   notification: WebNotification,
-): boolean {
+  requestedOperatorId?: string,
+): {
+  state: WebNotificationState;
+  subscriptions: WebPushSubscription[];
+} | null {
   const store = readStore();
+  const key = notificationOperatorId(notification.sessionId);
+  const operatorId = store.sessions[key] ?? requestedOperatorId;
+  if (!operatorId) return null;
+  store.sessions[key] = operatorId;
   const state = operatorState(store, operatorId);
   if (state.notifications.some((item) => item.id === notification.id))
-    return false;
+    return null;
   // 2026-09-27 (#1480): retain the latest 100 unread events per operator.
   state.notifications = [...state.notifications, notification].slice(-100);
   writeStore(store);
-  return true;
+  return {
+    state: {
+      operatorId,
+      preferences: state.preferences,
+      notifications: state.notifications,
+    },
+    subscriptions: Object.values(state.subscriptions),
+  };
 }
 
 export function acknowledgeWebNotifications(

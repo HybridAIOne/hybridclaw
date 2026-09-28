@@ -8,6 +8,8 @@ import type { ServerResponse } from 'node:http';
 import type {
   WebNotification,
   WebNotificationKind,
+  WebNotificationState,
+  WebPushSubscription,
 } from '../../container/shared/web-notifications.js';
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
 import { getConfigSnapshot } from '../config/config.js';
@@ -20,12 +22,10 @@ import {
 } from '../security/runtime-secrets.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
-  appendWebNotification,
   bindWebNotificationSession,
   deleteWebPushSubscription,
   readWebNotificationState,
-  webPushSubscriptions,
-  webSessionOperator,
+  recordWebNotification,
 } from './web-notification-store.js';
 
 const listeners = new Map<string, Set<ServerResponse>>();
@@ -69,8 +69,11 @@ export function closeWebNotificationStreams(): void {
   listeners.clear();
 }
 
-export function broadcastWebNotifications(operatorId: string): void {
-  const payload = `event: notifications\ndata: ${JSON.stringify(readWebNotificationState(operatorId))}\n\n`;
+export function broadcastWebNotifications(
+  operatorId: string,
+  state: WebNotificationState = readWebNotificationState(operatorId),
+): void {
+  const payload = `event: notifications\ndata: ${JSON.stringify(state)}\n\n`;
   for (const response of listeners.get(operatorId) ?? []) {
     if (!response.destroyed && !response.writableEnded) response.write(payload);
   }
@@ -99,13 +102,13 @@ export function streamWebNotifications(
 }
 
 async function sendWebPush(
-  operatorId: string,
+  state: WebNotificationState,
+  subscriptions: WebPushSubscription[],
   notification: WebNotification,
 ): Promise<void> {
+  const { operatorId } = state;
   if (isA2ALocalModeEnabled(getConfigSnapshot())) return;
-  if (!readWebNotificationState(operatorId).preferences[notification.kind])
-    return;
-  const subscriptions = webPushSubscriptions(operatorId);
+  if (!state.preferences[notification.kind]) return;
   if (!subscriptions.length) return;
   const webpush = (await import('web-push')).default;
   const keys = await webPushKeys();
@@ -146,10 +149,9 @@ export function notifyWebSession(
   sessionId: string,
   kind: WebNotificationKind,
   eventId: string = randomUUID(),
+  operatorId?: string,
 ): void {
   try {
-    const operatorId = webSessionOperator(sessionId);
-    if (!operatorId) return;
     const notification: WebNotification = {
       id: `${sessionId}:${kind}:${eventId}`,
       sessionId,
@@ -158,9 +160,14 @@ export function notifyWebSession(
       title: titles[kind],
       createdAt: Date.now(),
     };
-    if (!appendWebNotification(operatorId, notification)) return;
-    broadcastWebNotifications(operatorId);
-    void sendWebPush(operatorId, notification).catch(() =>
+    const delivery = recordWebNotification(notification, operatorId);
+    if (!delivery) return;
+    broadcastWebNotifications(delivery.state.operatorId, delivery.state);
+    void sendWebPush(
+      delivery.state,
+      delivery.subscriptions,
+      notification,
+    ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
   } catch {
@@ -177,10 +184,14 @@ export function notifyWebChatResult(
   if (!operatorId || request.channelId !== 'web' || result.status !== 'success')
     return;
   const sessionId = result.sessionId || request.sessionId;
-  if (!trackWebNotificationSession(sessionId, operatorId)) return;
   if (result.pendingApproval) {
     if (result.pendingApproval.approvalId === notifiedApprovalId) return;
-    notifyWebSession(sessionId, 'approval', result.pendingApproval.approvalId);
+    notifyWebSession(
+      sessionId,
+      'approval',
+      result.pendingApproval.approvalId,
+      operatorId,
+    );
   } else if (
     result.messageRole === 'assistant' &&
     result.outputPresentation?.visible !== false
@@ -189,6 +200,7 @@ export function notifyWebChatResult(
       sessionId,
       'turn',
       String(result.assistantMessageId ?? randomUUID()),
+      operatorId,
     );
   }
 }

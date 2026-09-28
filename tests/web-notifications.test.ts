@@ -34,6 +34,11 @@ function subscription(endpoint = 'https://push.example.com/send/browser-a') {
   return { endpoint, keys: { p256dh: ecdh.getPublicKey().toString('base64url'), auth: Buffer.alloc(16, 1).toString('base64url') } };
 }
 
+function storedSubscriptions(operatorId: string) {
+  const data = JSON.parse(fs.readFileSync(`${directory}/web-notifications.json`, 'utf8'));
+  return Object.values(data.operators[operatorId]?.subscriptions ?? {});
+}
+
 async function modules() {
   const store = await import('../src/gateway/web-notification-store.js');
   const notifications = await import('../src/gateway/web-notifications.js');
@@ -55,14 +60,39 @@ describe('web notification durability and isolation', () => {
     const sub = subscription();
     store.saveWebPushSubscription(operator, sub);
     store.deleteWebPushSubscription(other, sub.endpoint);
-    expect(store.webPushSubscriptions(operator)).toHaveLength(1);
+    expect(storedSubscriptions(operator)).toHaveLength(1);
     store.saveWebPushSubscription(other, sub);
-    expect(store.webPushSubscriptions(operator)).toHaveLength(0);
+    expect(storedSubscriptions(operator)).toHaveLength(0);
     expect(fs.statSync(`${directory}/web-notifications.json`).mode & 0o777).toBe(0o600);
     vi.resetModules();
     const reloaded = await import('../src/gateway/web-notification-store.js');
-    expect(reloaded.webPushSubscriptions(other)).toEqual([sub]);
+    expect(storedSubscriptions(other)).toEqual([sub]);
     expect(reloaded.readWebNotificationState(operator).notifications).toHaveLength(1);
+  });
+
+  test('records and broadcasts a completed turn with one store read and write', async () => {
+    const { notifications, operator } = await modules();
+    const reads = vi.spyOn(fs, 'readFileSync');
+    const writes = vi.spyOn(fs, 'writeFileSync');
+    const mkdir = vi.spyOn(fs, 'mkdirSync');
+    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'user-a', username: null, content: 'test' }, { status: 'success', result: 'reply', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 9 });
+    expect(reads.mock.calls.filter(([file]) => file === `${directory}/web-notifications.json`)).toHaveLength(1);
+    expect(writes.mock.calls.filter(([file]) => String(file).startsWith(`${directory}/web-notifications.json.`))).toHaveLength(1);
+    expect(mkdir).not.toHaveBeenCalled();
+  });
+
+  test('a failed commit publishes nothing and leaves ownership unchanged', async () => {
+    const { notifications, store, operator } = await modules();
+    const other = store.notificationOperatorId('user-b');
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('disk full'); });
+    notifications.notifyWebSession('session-a', 'turn', 'failed', other);
+    rename.mockRestore();
+    expect(store.readWebNotificationState(operator).notifications).toHaveLength(0);
+    expect(store.readWebNotificationState(other).notifications).toHaveLength(0);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    notifications.notifyWebSession('session-a', 'turn', 'retry', other);
+    expect(store.readWebNotificationState(operator).notifications).toHaveLength(1);
+    expect(store.readWebNotificationState(other).notifications).toHaveLength(0);
   });
 
   test('broadcasts only to the owning operator and cleans up disconnected streams', async () => {
@@ -96,7 +126,7 @@ describe('web notification durability and isolation', () => {
     expect(mocks.fetch).toHaveBeenCalledOnce();
     mocks.fetch.mockRejectedValue(new Error('http_410'));
     notifications.notifyWebSession('session-a', 'reminder', '3');
-    await vi.waitFor(() => expect(store.webPushSubscriptions(operator)).toHaveLength(0));
+    await vi.waitFor(() => expect(storedSubscriptions(operator)).toHaveLength(0));
     expect(store.readWebNotificationState(operator).notifications).toHaveLength(3);
     expect(mocks.warn).not.toHaveBeenCalled();
   });
@@ -168,7 +198,7 @@ describe('push subscription boundary', () => {
     const req = Object.assign(Readable.from([JSON.stringify({ ...sub, operatorId: 'attacker' })]), { method: 'POST' });
     const res = { setHeader: vi.fn(), writeHead: vi.fn(), end: vi.fn() };
     await handleWebNotificationRoute(req as IncomingMessage, res as unknown as ServerResponse, '/api/push/subscriptions', operator);
-    expect(store.webPushSubscriptions(operator)).toEqual([sub]);
-    expect(store.webPushSubscriptions('attacker')).toEqual([]);
+    expect(storedSubscriptions(operator)).toEqual([sub]);
+    expect(storedSubscriptions('attacker')).toEqual([]);
   });
 });

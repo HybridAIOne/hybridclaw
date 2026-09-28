@@ -41,6 +41,9 @@ bindings, preferences, and the latest 100 unread alerts per operator persist in
 `web-notifications.json` with owner-only permissions. Each operator can subscribe
 up to 16 browsers. Master-token and local-session access share the local operator;
 signed-in users and scoped API tokens have separate notification identities.
+Deleting a session through the gateway removes its notification binding and
+unread alerts. Recording an alert commits once and reuses that snapshot for
+browser and push delivery.
 
 The authenticated `/api/push/*` endpoints require `chat.send`. Mutations use the
 gateway's same-origin checks for cookie authentication. Bodies cannot select
