@@ -195,13 +195,13 @@ test('buildResponseText appends the memory footer unless disabled', async () => 
   };
 
   expect(buildResponseText('Hello', ['search'], memoryAccess)).toBe(
-    'Hello\n\n*Memory: Recalled 1 memory*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: search*',
+    'Hello\n\n*Memory: Recalled 1 memory*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: `search`*',
   );
   expect(
     buildResponseText('Hello', ['search'], memoryAccess, {
       showMemoryFooter: false,
     }),
-  ).toBe('Hello\n*Tools: search*');
+  ).toBe('Hello\n*Tools: `search`*');
   expect(
     buildResponseText('', undefined, memoryAccess, { showMemoryFooter: false }),
   ).toBe('');
