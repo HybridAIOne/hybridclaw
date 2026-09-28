@@ -9939,6 +9939,7 @@ export function cleanupGatewayNoUserChatSessions(params: {
 export function getGatewayRecentChatSessions(params: {
   userId: string;
   channelId?: string | null;
+  agentId?: string | null;
   limit?: number;
   query?: string | null;
   fallbackToChannelRecent?: boolean;
@@ -9947,6 +9948,7 @@ export function getGatewayRecentChatSessions(params: {
   const sessions = getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
+    agentId: params.agentId,
     limit: params.limit,
     query: params.query,
     includeScheduled: params.includeScheduled,
@@ -9956,6 +9958,7 @@ export function getGatewayRecentChatSessions(params: {
   }
   const channelSessions = getRecentSessionsForChannel({
     channelId: params.channelId || 'web',
+    agentId: params.agentId,
     limit: params.limit,
     query: params.query,
     includeScheduled: params.includeScheduled,

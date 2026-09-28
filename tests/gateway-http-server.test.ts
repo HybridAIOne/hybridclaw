@@ -7779,10 +7779,10 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('passes explicit user chat scope without channel fallback', async () => {
+  test('passes explicit user chat scope and agent filter without channel fallback', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
-      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=user',
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=user&agentId=writer',
       headers: {
         authorization: 'Bearer web-token',
       },
@@ -7796,6 +7796,7 @@ describe('gateway HTTP server', () => {
       userId: 'web-user-a',
       channelId: 'web',
       limit: 10,
+      agentId: 'writer',
       includeScheduled: false,
     });
   });

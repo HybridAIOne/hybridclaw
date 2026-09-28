@@ -4230,6 +4230,7 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const agentId = (url.searchParams.get('agentId') || '').trim();
   const rawScope = (url.searchParams.get('scope') || '').trim().toLowerCase();
   const scope =
     rawScope === 'user' || rawScope === 'all' ? rawScope : undefined;
@@ -4254,6 +4255,7 @@ function handleApiChatRecent(
       userId,
       channelId,
       limit,
+      ...(agentId ? { agentId } : {}),
       ...(query ? { query } : {}),
       ...(scope ? { includeScheduled: scope === 'all' } : {}),
       ...(scope === 'all' ||
