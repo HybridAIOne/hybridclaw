@@ -55,8 +55,13 @@ test('rewriteUserMentions keeps @everyone and @here untouched', () => {
 });
 
 test('buildResponseText appends tool footer when tools were used', () => {
-  const output = buildResponseText('Done.', ['vision_analyze', 'message']);
-  expect(output).toBe('Done.\n*Tools: vision_analyze, message*');
+  const output = buildResponseText('Done.', [
+    'vision_analyze',
+    'langfuse__queryMetrics',
+  ]);
+  expect(output).toBe(
+    'Done.\n*Tools: `vision_analyze`, `langfuse__queryMetrics`*',
+  );
 });
 
 test('buildResponseText leaves text unchanged when no tools were used', () => {
