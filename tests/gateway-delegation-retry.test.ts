@@ -56,7 +56,7 @@ async function runSingleDelegation(): Promise<string> {
   const homeDir = makeTempHome();
   vi.stubEnv('HOME', homeDir);
   const { enqueueDelegationBatchFromSideEffects } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-delegation.ts'
   );
   const { getDelegationJob, initDatabase } = await import(
     '../src/memory/db.ts'

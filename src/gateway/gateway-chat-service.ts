@@ -166,6 +166,11 @@ import {
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
 import {
+  enqueueDelegationBatchFromSideEffects,
+  extractDelegationDepth,
+  normalizeDelegationEffect,
+} from './gateway-delegation.js';
+import {
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
   GATEWAY_TOOLS_MODE_ENV,
@@ -178,15 +183,12 @@ import {
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
   type ErrorTurnToolRecord,
-  enqueueDelegationBatchFromSideEffects,
   errorTurnToolsFromExecutions,
-  extractDelegationDepth,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
   getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
   maybeRecordGatewayRequestLog,
-  normalizeDelegationEffect,
   normalizeMediaContextItems,
   prepareSessionAutoReset,
   readDynamicContextMessage,
