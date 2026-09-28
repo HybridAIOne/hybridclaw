@@ -1,3 +1,4 @@
+import { getChannelPluginInstallCommand } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -601,7 +602,7 @@ async function importFreshGatewayMain(options?: {
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized: vi.fn(async () => ({})),
