@@ -13265,7 +13265,7 @@ describe('gateway HTTP server', () => {
           status: 'success',
           messageRole: 'assistant',
           result:
-            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: `delete`, `read`*',
           sessionId: 'session-web-approve',
         }),
       },
