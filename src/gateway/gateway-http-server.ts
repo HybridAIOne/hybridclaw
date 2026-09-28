@@ -248,6 +248,7 @@ import {
   revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { handleApiDelegate } from './gateway-delegation.js';
 import {
   deleteGatewayAdminDistillCorpusDocument,
   getGatewayAdminDistill,
@@ -11542,6 +11543,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiSchedulerTask(req, res);
+            return;
+          }
+          if (pathname === '/api/delegate' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiDelegate(req, res);
             return;
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {

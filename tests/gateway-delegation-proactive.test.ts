@@ -36,7 +36,7 @@ useCleanMocks({
   },
 });
 
-test('delegation batch queues status updates and a synthesized final answer for local channels', async () => {
+test('delegation batch queues status updates and wakes the parent with the results', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   runAgentMock.mockImplementation(
@@ -60,16 +60,6 @@ test('delegation batch queues status updates and a synthesized final answer for 
           typeof (message as { content?: unknown }).content === 'string',
       );
       const content = userMessage?.content || '';
-      if (content.includes('Delegated results:')) {
-        params.onTextDelta?.('final synthesized ');
-        params.onTextDelta?.('comparison');
-        return {
-          status: 'success',
-          result: 'final synthesized comparison',
-          toolsUsed: [],
-          artifacts: [],
-        };
-      }
       const targetUrl = content.includes('furukama')
         ? 'https://furukama.com'
         : 'https://hybridai.one';
@@ -157,6 +147,7 @@ test('delegation batch queues status updates and a synthesized final answer for 
   const {
     getRecentStructuredAuditForSession,
     claimQueuedProactiveMessages,
+    getOrCreateSession,
     initDatabase,
     listQueuedProactiveMessages,
   } = await import('../src/memory/db.ts');
@@ -188,6 +179,20 @@ test('delegation batch queues status updates and a synthesized final answer for 
   ).plan;
   expect(furukamaPlan?.tasks[0]?.model).toBe('llamacpp/liquidai/lfm');
   expect(hybridaiPlan?.tasks[0]?.model).toBe('llamacpp/liquidai/lfm');
+  getOrCreateSession('parent-session', null, 'tui', 'test-agent');
+  const runParentTurn = vi.fn(
+    async (params: {
+      content: string;
+      onTextDelta?: (delta: string) => void;
+    }) => {
+      params.onTextDelta?.('final synthesized ');
+      params.onTextDelta?.('comparison');
+      return {
+        status: 'success' as const,
+        result: 'final synthesized comparison',
+      };
+    },
+  );
 
   const descriptor = enqueueDelegationBatchFromSideEffects({
     plans: [furukamaPlan!, hybridaiPlan!],
@@ -198,8 +203,7 @@ test('delegation batch queues status updates and a synthesized final answer for 
     agentId: 'test-agent',
     parentModel: 'orchestrator-model',
     parentDepth: 0,
-    parentPrompt: 'Summarize furukama.com and hybridai.one.',
-    parentResult: 'I will synthesize after delegates return.',
+    runParentTurn,
   });
   expect(descriptor?.publicId).toMatch(/^dlg_[a-f0-9]{24}$/);
 
@@ -345,11 +349,23 @@ test('delegation batch queues status updates and a synthesized final answer for 
       model: 'llamacpp/liquidai/lfm',
     }),
   );
-  expect(runAgentMock).toHaveBeenLastCalledWith(
+  expect(runAgentMock).toHaveBeenCalledTimes(2);
+  expect(runAgentMock.mock.calls[0]?.[0]).not.toHaveProperty('allowedTools');
+  expect(runAgentMock).toHaveBeenCalledWith(
     expect.objectContaining({
-      model: 'orchestrator-model',
+      blockedTools: [
+        'cron',
+        'memory',
+        'browser_await_two_factor',
+        'browser_resume_interaction',
+      ],
     }),
   );
+  expect(runParentTurn).toHaveBeenCalledTimes(1);
+  const wakeContent = runParentTurn.mock.calls[0]?.[0]?.content || '';
+  expect(wakeContent).toMatch(/^\[Delegate results\]/);
+  expect(wakeContent).toContain('furukama child summary');
+  expect(wakeContent).toContain('hybridai child summary');
 
   const inspect = new Database(path.join(homeDir, 'hybridclaw.db'), {
     readonly: true,
@@ -394,18 +410,8 @@ test('delegation batch queues status updates and a synthesized final answer for 
   }>;
   inspect.close();
 
-  expect(parentRows).toHaveLength(2);
-  expect(parentRows[0]?.content).toContain('[Delegate:');
-  expect(parentRows[0]?.content).toContain('completed');
-  expect(parentRows[0]?.content).toContain('furukama child summary');
-  expect(parentRows[1]?.content).toBe('final synthesized comparison');
-  expect(JSON.parse(parentRows[1]?.artifacts_json || '[]')).toEqual([
-    {
-      path: '/tmp/furukama-report.md',
-      filename: 'furukama-report.md',
-      mimeType: 'text/markdown',
-    },
-  ]);
+  // The parent turn owns the reply; no raw result block lands in history.
+  expect(parentRows).toEqual([]);
 
   expect(jobRows).toHaveLength(1);
   expect(jobRows[0]).toMatchObject({
@@ -570,9 +576,9 @@ test('delegation disabled returns no descriptor and fails the durable job row', 
     agentId: 'test-agent',
     parentModel: 'orchestrator-model',
     parentDepth: 0,
+    runParentTurn: vi.fn(),
     publicId: 'chatcmpl_disabled',
-    ackText:
-      "Started 1 delegate job. I'll synthesize the final answer when they finish.",
+    ackText: "Started 1 delegate job. I'll follow up when they finish.",
   });
 
   expect(descriptor).toBeNull();
@@ -636,6 +642,7 @@ test('delegation status tracks duplicate task titles independently', async () =>
     agentId: 'test-agent',
     parentModel: 'orchestrator-model',
     parentDepth: 0,
+    runParentTurn: vi.fn(),
   });
 
   await vi.waitFor(() => {

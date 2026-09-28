@@ -2881,6 +2881,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
   }));
+  vi.doMock('../src/gateway/gateway-delegation.js', () => ({
+    handleApiDelegate: vi.fn(),
+  }));
   vi.doMock('../src/agent/conversation.js', () => ({
     buildConversationContext,
   }));
@@ -3190,6 +3193,7 @@ useCleanMocks({
     '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
     '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/gateway-delegation.js',
     '../src/gateway/gateway-admin-tokens.js',
     '../src/security/api-tokens.js',
     '../src/gateway/openai-compatible-model.ts',

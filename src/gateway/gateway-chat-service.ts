@@ -154,6 +154,7 @@ import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
+import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -2580,7 +2581,7 @@ async function handleGatewayMessageInner(
     const sideEffectNotice = formatSideEffectNotice(sideEffectNotices);
     const ackText =
       acceptedDelegations > 0
-        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.${sideEffectNotice ? ` ${sideEffectNotice}` : ''}`
+        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll follow up when they finish.${sideEffectNotice ? ` ${sideEffectNotice}` : ''}`
         : null;
     const delegationDescriptor =
       acceptedDelegationPlans.length > 0
@@ -2594,8 +2595,22 @@ async function handleGatewayMessageInner(
             parentModel: model,
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
-            parentPrompt: req.content,
-            parentResult: ackText || '',
+            runParentTurn: ({ content, onTextDelta }) =>
+              handleGatewayMessage({
+                sessionId: req.sessionId,
+                guildId: req.guildId,
+                channelId: req.channelId,
+                userId: req.userId,
+                username: req.username,
+                content,
+                agentId,
+                chatbotId,
+                model,
+                enableRag,
+                onTextDelta,
+                onProactiveMessage: req.onProactiveMessage,
+                source: DELEGATION_RESULTS_SOURCE,
+              }),
             publicId: req.delegationPublicId,
             ackText: ackText || '',
           })

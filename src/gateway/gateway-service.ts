@@ -486,6 +486,7 @@ import {
 } from './chat-result.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
+import { isDelegationResultsMessage } from './delegation-results-message.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -9604,6 +9605,9 @@ export function getGatewayHistory(
     : new Map();
   const history = page.history
     .filter((message) => {
+      if (message.role === 'user') {
+        return !isDelegationResultsMessage(message.content);
+      }
       if (message.role !== 'assistant') return true;
       return (
         !isSilentReply(message.content) &&
