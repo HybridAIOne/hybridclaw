@@ -45,6 +45,7 @@ import {
   setBrowserTaskModelPolicies,
   usesGatewayManagedBrowser,
 } from './browser-tools.js';
+import { waitForDelegation } from './delegate-wait.js';
 import {
   type DiagramFixupRequest,
   type DiagramRuntimeOptions,
@@ -320,6 +321,7 @@ function describeSchedule(task: {
 }
 
 let pendingDelegations: DelegationSideEffect[] = [];
+let delegateCallsThisTurn = 0;
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
@@ -340,7 +342,7 @@ let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
-const MAX_PENDING_DELEGATIONS = 3;
+const MAX_DELEGATE_CALLS_PER_TURN = 3;
 let memoryTimezoneCache: {
   userPath: string;
   mtimeMs: number | null;
@@ -726,6 +728,7 @@ function cloneTaskModelPolicies(
 
 export function resetSideEffects(): void {
   pendingDelegations = [];
+  delegateCallsThisTurn = 0;
 }
 
 export function getPendingSideEffects():
@@ -3848,9 +3851,9 @@ async function executeToolInternal(
     }
 
     case 'delegate': {
-      if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
+      if (delegateCallsThisTurn >= MAX_DELEGATE_CALLS_PER_TURN) {
         return failTool(
-          `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`,
+          `Error: delegation limit reached for this turn (${MAX_DELEGATE_CALLS_PER_TURN}).`,
         );
       }
 
@@ -3951,9 +3954,20 @@ async function executeToolInternal(
         summary = `${chainResult.tasks.length}-step chain`;
       }
 
+      delegateCallsThisTurn += 1;
+      if (args.background !== true) {
+        const waited = await waitForDelegation({
+          gatewayBaseUrl,
+          gatewayApiToken,
+          sessionId: currentSessionId,
+          effect,
+        });
+        return 'result' in waited ? waited.result : failTool(waited.error);
+      }
+
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';
-      return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
+      return `Delegation accepted in the background (${mode}; results arrive as a new message in this conversation, do not poll): ${labelPrefix}${summary}`;
     }
 
     default:
@@ -4971,10 +4985,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). The gateway collects delegated results and uses them for final synthesis; after spawning delegates, acknowledge start only and do not present final findings or poll/sleep.',
+        'Delegate narrow, self-contained subtasks to subagents that have your tools. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns the subagent reports; check them and finish the answer yourself. Set `background` only for long work the user should not wait for: the reports then arrive later as a new message, so acknowledge the start briefly and do not poll or sleep.',
       parameters: {
         type: 'object',
         properties: {
+          background: {
+            type: 'boolean',
+            description:
+              'Run without waiting; results arrive as a later message. Default false.',
+          },
           mode: {
             type: 'string',
             description:
