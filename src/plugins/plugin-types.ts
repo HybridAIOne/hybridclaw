@@ -479,6 +479,10 @@ export interface PluginDispatchInboundMessageRequest {
   chatbotId?: string | null;
   model?: string | null;
   enableRag?: boolean;
+  /** Narrows the turn's tools; intersected with the agent's own tool list. */
+  allowedTools?: string[];
+  /** Trusted operator text for the system prompt, never caller content. */
+  instructions?: string;
   onProactiveMessage?: (
     message: PluginInboundProactiveMessage,
   ) => void | Promise<void>;

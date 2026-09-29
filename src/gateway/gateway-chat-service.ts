@@ -1839,7 +1839,14 @@ async function handleGatewayMessageInner(
     promptMode: promptPartDefaults.promptMode,
     includePromptParts: promptPartDefaults.includePromptParts,
     omitPromptParts: promptPartDefaults.omitPromptParts,
-    extraSafetyText: fullAutoOperatingContract,
+    extraSafetyText:
+      [
+        fullAutoOperatingContract,
+        req.instructions?.trim() &&
+          `## Operator Instructions\n${req.instructions.trim()}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n') || undefined,
     runtimeInfo: {
       chatbotId,
       model,
@@ -1851,7 +1858,7 @@ async function handleGatewayMessageInner(
       sessionContext,
       workspacePath: workspaceDisplayPath,
     },
-    allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+    allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools: mediaPolicy.blockedTools,
   });
   let historyStart = 0;
@@ -2151,7 +2158,7 @@ async function handleGatewayMessageInner(
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
         skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: params.onTextDelta,
         onThinkingDelta: params.onThinkingDelta,
@@ -2266,7 +2273,7 @@ async function handleGatewayMessageInner(
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
         skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
