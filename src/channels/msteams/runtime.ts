@@ -8,6 +8,7 @@ import {
   type Request as BotFrameworkRequest,
   type Response as BotFrameworkResponse,
   CloudAdapter,
+  TeamsInfo,
 } from 'botbuilder';
 import {
   ConfigurationBotFrameworkAuthentication,
@@ -28,7 +29,10 @@ import {
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
-import { observeMSTeamsUser } from '../../memory/msteams-users.js';
+import {
+  findMSTeamsUserEmail,
+  observeMSTeamsUser,
+} from '../../memory/msteams-users.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
@@ -638,6 +642,23 @@ async function maybeHandleMSTeamsMessageReaction(
   return true;
 }
 
+async function fetchMSTeamsMemberEmail(
+  turnContext: TurnContext,
+  userId: string,
+): Promise<string | null> {
+  if (findMSTeamsUserEmail(userId)) return null;
+  try {
+    const member = await TeamsInfo.getMember(
+      turnContext,
+      normalizeValue(turnContext.activity.from?.id) || userId,
+    );
+    return member.email || member.userPrincipalName || null;
+  } catch (error) {
+    logger.debug({ error, userId }, 'Teams member email lookup failed');
+    return null;
+  }
+}
+
 async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
   if (!messageHandler || !commandHandler) {
     throw new Error('Teams runtime was not initialized with handlers.');
@@ -709,6 +730,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
       teamsUserId: activity.from?.id,
       entraObjectId: actor.aadObjectId,
       displayName: actor.displayName || actor.username,
+      email: await fetchMSTeamsMemberEmail(turnContext, actor.userId),
       isMessage: !parsedCommand.isCommand,
     });
     if (isDm) {
