@@ -44,3 +44,13 @@ test('registration snapshots roll back and reject duplicate or remote ids', () =
  expect(() => registerLocalClassifier(registration)).toThrow(); expect(() => registerLocalClassifier({...registration, model:'https://example.com'})).toThrow();
  restoreLocalClassifiers(empty); expect(getLocalClassifier(registration.model)).toBeUndefined();
 });
+
+test.each([0.79, 0.8])('local selected-option confidence honors the configured boundary at %s', async confidence => {
+ const raw = response();
+ raw.answers.tier.confidence = confidence;
+ raw.answers.tier.probabilities = {small: confidence, large: 1 - confidence};
+ register(vi.fn().mockResolvedValue(raw));
+ const result = await classifyRouting({text: 'Calculate 2+4'});
+ expect(result.evaluation.status).toBe(confidence < 0.8 ? 'fallback' : 'evaluated');
+ expect(result.signals.tier).toBe(confidence < 0.8 ? null : 'small');
+});

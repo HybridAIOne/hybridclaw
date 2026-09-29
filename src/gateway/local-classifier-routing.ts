@@ -7,7 +7,10 @@ import { evaluateRouting } from '../routing/evaluator.js';
 import type { RoutingEvaluatorConfig } from '../routing/evaluator-contract.js';
 import { parseJevResponse } from '../routing/jev-adapter.js';
 import type { LocalClassifierRegistration } from '../routing/local-classifiers.js';
-import { routingTierCriteria, TIER_SELECTION_RULE } from '../routing/policy.js';
+import {
+  routingTierCriteria,
+  TIER_CLASSIFICATION_QUESTION,
+} from '../routing/policy.js';
 import {
   finishRoutingTraceAttempt,
   startRoutingTraceAttempt,
@@ -45,7 +48,7 @@ export async function evaluateLocalClassifier(
             questions: {
               tier: {
                 type: 'choice',
-                instructions: TIER_SELECTION_RULE,
+                instructions: TIER_CLASSIFICATION_QUESTION,
                 criteria: routingTierCriteria(tiers),
               },
             },

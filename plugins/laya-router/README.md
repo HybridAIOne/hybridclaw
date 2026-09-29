@@ -36,11 +36,13 @@ is not needed for this typed-decision model.
 
 An initial Mac smoke test on 2026-09-29 measured 7.6–8.1 ms warm inference on
 three short English/German prompts, excluding model load and gateway overhead.
-These samples all fell below the default 0.8 confidence threshold; this is a
-latency check, not a routing-accuracy benchmark. Laya reports entropy-derived
-confidence, which is not the selected option probability. Evaluate a realistic
-held-out task set before relying on live recommendations. The integration keeps
-the existing confidence threshold and configured-route fallback.
+This is a latency check, not a routing-accuracy benchmark.
+
+The adapter exposes the selected option's probability as routing confidence,
+matching upstream's `answer_confidence` gating semantics. It does not use
+`laya-mlx`'s entropy confidence. The 0.8 threshold is unchanged; uncertain choices
+still preserve the configured route. These probabilities are not calibrated
+accuracy guarantees. See [upstream confidence gating](https://github.com/NandhaKishorM/laya#automated-confidence-gating).
 
 ## Boundaries and failure behavior
 
@@ -77,6 +79,41 @@ routine writing/translation/summarization, programming/debugging/multi-step
 analysis, and specialist reasoning/proofs/system design. Three tiers combine the
 two middle groups. Custom tier names retain this ordering.
 
-Distinct descriptions do not establish model accuracy: local smoke tests still
-produce low-confidence decisions, so the existing confidence gate remains in
-place.
+Typed classifiers receive the short question “How difficult is this task?”
+and concise descriptions without tier-number prefixes. Chat classifiers retain
+the explicit instruction-handling policy. Only the current eligible user text
+is state; conversation history and attachments are not disclosed to classifiers.
+
+### Repeatable routing evaluation
+
+A small English/German evaluation on 2026-09-29 used 16 development examples to
+compare prompts, then 16 fresh validation examples without further tuning:
+
+| Prompt | Development correct | Validation correct | Validation accepted at 0.8 | Correct among accepted |
+| --- | --- | --- | --- | --- |
+| Previous verbose prompt | 7/16 | 11/16 | 2/16 | 1/2 |
+| Short typed question | 12/16 | 14/16 | 9/16 | 9/9 |
+
+Both rows use selected-option probability for a fair comparison. The production
+worker was exercised with the installed FP16 multilingual model. The revised
+prompt selected basic for `Calculate 1+1` (96.77%) and `Calculate 2+4` (92.72%).
+This small, authored set is a regression check, not evidence of production
+accuracy or calibration. The committed validation set is no longer held out
+for future prompt changes. Do not tune temperatures or lower the gate to improve
+coverage on this set.
+
+To repeat after setup, from the checkout root, export the actual shared question:
+
+```bash
+node --import tsx --input-type=module -e '
+import { routingTierCriteria, TIER_CLASSIFICATION_QUESTION } from "./src/routing/policy.ts";
+console.log(JSON.stringify({ tier: {
+  type: "choice", instructions: TIER_CLASSIFICATION_QUESTION,
+  criteria: routingTierCriteria(["basic", "economy", "general", "advanced"].map(name => ({ name })))
+} }));' > /tmp/laya-routing-questions.json
+HF_HUB_OFFLINE=1 ~/.hybridclaw/laya/venv/bin/python plugins/laya-router/runtime/evaluate.py \
+  --model ~/.hybridclaw/laya/model --questions /tmp/laya-routing-questions.json
+```
+
+This runs a separate temporary inference process; it does not change the live
+router or its settings.

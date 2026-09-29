@@ -1,5 +1,6 @@
 """One resident local classifier. Setup alone downloads; serving uses offline weights.
 The pipe accepts bounded choice questions, not executable code or remote model IDs.
+Routing confidence is the selected option probability, not entropy.
 """
 import hashlib
 import json
@@ -41,7 +42,12 @@ def predict(agent, request):
         raise ValueError("Decision choices exceeded")
     if head_tokens + tokens(state) + 4 > agent.cfg["max_len"]:
         raise ValueError("Decision context exceeded")
-    return agent.predict(state, questions)
+    result = agent.predict(state, questions)
+    answer = result["answers"]["tier"]
+    # Upstream answer_confidence semantics (2026-09-29): gate on the selected
+    # option probability, not 1 - normalized entropy from laya-mlx 0.2.0.
+    answer["confidence"] = answer["probabilities"][answer["choice"]]
+    return result
 
 
 def main():
