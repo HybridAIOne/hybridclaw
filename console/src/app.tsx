@@ -5,7 +5,7 @@ import { useAuth } from './auth';
 import { Button } from './components/button';
 import { HybridClaw } from './components/icons';
 import { LoginScreen } from './components/login-screen';
-import { resolveBrowserTitle } from './lib/browser-title';
+import { updateBrowserTitle } from './lib/browser-title';
 import { router } from './router';
 
 export function App() {
@@ -22,7 +22,7 @@ export function App() {
   );
 
   useEffect(() => {
-    document.title = resolveBrowserTitle(window.location.pathname);
+    updateBrowserTitle(window.location.pathname);
   }, []);
 
   if (auth.status === 'checking') {

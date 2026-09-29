@@ -6,3 +6,5 @@ export class SkillImportError extends Error {
 }
 
 export class SkillImportNotFoundError extends SkillImportError {}
+
+export class SkillImportConflictError extends SkillImportError {}

@@ -184,7 +184,11 @@ The workspace fence looks at what a shell command writes: redirect targets,
 `tee`, `touch`, `mkdir`, `chmod`, and `chown` operands, `cp` and `mv`
 destinations, and write options such as `git --output`, `find -fprint`, and
 `curl -o`, resolved from the shell's working directory and through any `cd`
-in the command. `2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
+in the command. When the line also writes in another way, the value of any
+other program's `-o` or `--out` counts as a target too, except for programs
+whose `-o` names no file: `grep`, `egrep`, `fgrep`, `rg`, `ls`, `find`, `ps`,
+`set`, `ssh`, `scp`, `sftp`, and `xargs`, whose command is checked on its own.
+`2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
 `cat /usr/share/dict/words > words.txt`, `cp /opt/data/input.csv .`, and
 `python3 /opt/tools/gen.py > out.txt` keep their usual tier. When none of those
 targets is an absolute path and the command also runs a program whose writes
@@ -294,11 +298,22 @@ browser:
           host: example.com
 ```
 
-The `browser_stealth_allowed` predicate accepts `host`, `skillName`, and
-`agentId`. Host matching uses the same site-scoped pattern behavior as network
+The `browser_stealth_allowed` predicate requires `host`, a single host
+pattern, and also accepts `skillName` and `agentId`, each a name or a list of
+names. Host matching uses the same site-scoped pattern behavior as network
 policy, so `example.com` also covers `login.example.com`. This does not grant
 network access by itself; normal navigation and tool approval rules still
 apply.
+
+A stealth rule's action is `allow`, `deny`, or `block`. A rule with any other
+action, or with no action, is enforced as `deny` for the hosts its `when`
+matches. A rule the policy cannot read is enforced as `deny` for every host:
+an unknown rule key, predicate, or parameter, a `host` that is missing or not
+a single pattern, an empty value, or a `when` that is not a mapping or a
+non-empty list. Rules earlier in the list still apply first. The stealth
+denial names the rule and the problem, for example `Unreadable browser stealth
+rule #1 when has unknown browser_stealth_allowed parameter "skilName"
+(allowed: host, skillName, agentId), enforced as deny`.
 
 ## General Policy Engine
 
@@ -344,7 +359,7 @@ policies:
 Expression operators:
 
 - `predicate`: invokes a consumer-registered predicate with the remaining YAML
-  keys as parameters.
+  keys as parameters, including keys named `all`, `any`, or `not`.
 - `all`: every nested expression must match.
 - `any`: at least one nested expression must match.
 - `not`: the nested expression must not match.
@@ -377,10 +392,26 @@ skill:
         reason: SAP is finance-only.
 ```
 
+Skill predicates take these parameters:
+
+| Predicates | Parameters |
+| --- | --- |
+| `skill.name`, `skill.id`, `skill.source`, `skill.category`, `skill.channel`, `agent.id`, `agent`, `tenant.id` | One of `equals`, `in`, or `oneOf` (a name or a list of names), or `matches` (a regular expression) |
+| `skill.capability`, `actor.role` | One of `includes`, `equals`, or `any` (a name, a comma-separated list, or a list) |
+| `skill.quality_score` | Any of `gte`, `gt`, `lte`, `lt`, and `equals` (numbers) |
+
+A predicate with no parameters matches when the skill has that field set.
+
 A skill rule's action type is `allow`, `deny`, `block`, `warn`, `log`, or
 `confirm-each`. A rule with any other type, or with no action, is enforced as
-`deny` for the skills its `when` matches. The skill loader logs it with the
-reason `Unreadable skill rule #N, enforced as deny`.
+`deny` for the skills its `when` matches. A rule the policy cannot read is
+enforced as `deny` for every skill: an unknown rule key, predicate, or
+parameter, two alternative parameters such as `equals` and `matches`, an empty
+value, an invalid regular expression, a score bound that is not a number, or a
+`when` that is not a mapping or a non-empty list. Rules earlier in the list
+still apply first. The skill loader logs such a rule with a reason that
+starts with `Unreadable skill rule #N` and, when the rule itself cannot be
+read, names the problem before `enforced as deny`.
 
 Secret resolution is another policy-engine consumer. The gateway evaluates it
 each time it injects a stored secret into an `http_request` call or a browser
@@ -427,6 +458,25 @@ below; where a parameter has several names, set one of them:
 A parameter value is a string or a list of strings, except that a host is one
 pattern. `source` is `store`, `sink` is `dom` for browser fields or `http` for
 HTTP requests, and `*` matches any value.
+
+The `selector` says where the secret goes. For `sink: dom` it is the CSS
+selector of the browser field. For `sink: http` it is one of these:
+
+| Secret | Selector |
+| --- | --- |
+| `<secret:NAME>` in the URL | `url` |
+| `<secret:NAME>` in a header, a `secretHeaders` entry, or a `tools.httpRequest.authRules` rule | The header name |
+| `bearerSecretName` or `bearerSecretRef` | `Authorization` |
+| `<secret:NAME>` in a string `body` | `body` |
+| `<secret:NAME>` in a `form` field | `form.<field>` |
+| `<secret:NAME>` anywhere in a `json` body | `json` |
+| `googleServiceAccount` | `googleServiceAccount.clientEmail`, `googleServiceAccount.privateKey`, or `googleServiceAccount.subject` |
+| `otcAkSk` | `otcAkSk.accessKeyId`, `otcAkSk.secretAccessKey`, or `otcAkSk.securityToken` |
+| `tlsCertificateSha256SecretName` | `tlsCertificateSha256` |
+
+A placeholder in a `json` body reports `json` however deeply it is nested, so
+a secret rule cannot tell JSON fields apart: `json.apiKey` and `json.*` match
+nothing. Scope such a secret by `host` instead.
 
 `secret.default` and each secret rule's `action` accept `allow`, `deny`, or
 `block`, which means the same as `deny`. A rule takes the keys `id`,

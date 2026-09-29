@@ -412,7 +412,9 @@ because they change the host dependency state.
   adaptive-skill health and amendment review
 - the admin `Skills` page can create a local skill from a form or upload a
   `.zip` containing a `SKILL.md`; both flows publish into the project
-  `skills/` directory only after the scanner approves the contents
+  `skills/` directory only after the scanner approves the contents. A ZIP
+  upload runs the same import as `hybridclaw skill import <file>.zip`, and
+  its overwrite checkbox is that command's `--force`
 
 ## Availability Controls
 
@@ -449,7 +451,8 @@ are:
 - `<owner>/<repo>/<path>`
 - `https://github.com/<owner>/<repo>[/path]`
 - local directory path (e.g. `./my-skills/brand-voice`)
-- local `.zip` archive (e.g. `./exports/brand-voice.zip`)
+- local `.zip` archive (e.g. `./exports/brand-voice.zip`), with `SKILL.md`
+  at the archive root or inside one top-level folder
 
 Examples:
 

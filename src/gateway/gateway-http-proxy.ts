@@ -174,6 +174,8 @@ type SecretResolveContext = {
   selector?: string;
 };
 
+type PlaceholderResolveContext = SecretResolveContext & { selector: string };
+
 // 198.18.0.0/15 stays blocked here (owner-delegated call, 2026-09-23). The
 // shared table leaves it open because Clash, Surge, and sing-box TUN modes
 // answer DNS from it (fake-IP). Such an answer hides the real destination and
@@ -1044,7 +1046,7 @@ async function acquireGoogleServiceAccountAccessToken(
 
 async function replaceHttpPlaceholdersInString(
   value: string,
-  context: SecretResolveContext,
+  context: PlaceholderResolveContext,
   resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<string> {
   let next = '';
@@ -1055,10 +1057,7 @@ async function replaceHttpPlaceholdersInString(
     const kind = match[1] || '';
     const name = match[2] || '';
     if (kind === 'secret') {
-      next += await resolveSecret(name, {
-        ...context,
-        selector: context.selector || '<secret-placeholder>',
-      });
+      next += await resolveSecret(name, context);
     } else {
       const envValue = readStoredRuntimeEnvValue(name);
       if (!envValue) {
@@ -1075,9 +1074,12 @@ async function replaceHttpPlaceholdersInString(
   return next;
 }
 
+// A placeholder anywhere in a `json` body reports the selector `json` (owner
+// call, 2026-09-27). Per-field selectors are deferred: they need names for
+// nested keys and array items, and `selector: json` rules would stop matching.
 async function replaceHttpPlaceholders(
   value: unknown,
-  context: SecretResolveContext,
+  context: PlaceholderResolveContext,
   resolveSecret: HttpSecretResolver = resolveHttpSecretOrThrow,
 ): Promise<unknown> {
   if (typeof value === 'string') {
@@ -1095,14 +1097,7 @@ async function replaceHttpPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceHttpPlaceholders(
-            entry,
-            {
-              ...context,
-              selector: context.selector || `json.${key}`,
-            },
-            resolveSecret,
-          ),
+          await replaceHttpPlaceholders(entry, context, resolveSecret),
         ]),
       ),
     );
@@ -1112,7 +1107,7 @@ async function replaceHttpPlaceholders(
 
 async function replaceStoredProtocolPlaceholdersInString(
   value: string,
-  context: SecretResolveContext,
+  context: PlaceholderResolveContext,
 ): Promise<string> {
   let next = '';
   let lastIndex = 0;
@@ -1122,10 +1117,7 @@ async function replaceStoredProtocolPlaceholdersInString(
     const kind = match[1] || '';
     const name = match[2] || '';
     if (kind === 'secret') {
-      next += resolveStoredProtocolSecretOrThrow(name, {
-        ...context,
-        selector: context.selector || '<secret-placeholder>',
-      });
+      next += resolveStoredProtocolSecretOrThrow(name, context);
     } else {
       const envValue = readStoredRuntimeEnvValue(name);
       if (!envValue) {
@@ -1144,7 +1136,7 @@ async function replaceStoredProtocolPlaceholdersInString(
 
 async function replaceStoredProtocolPlaceholders(
   value: unknown,
-  context: SecretResolveContext,
+  context: PlaceholderResolveContext,
 ): Promise<unknown> {
   if (typeof value === 'string') {
     return await replaceStoredProtocolPlaceholdersInString(value, context);
@@ -1159,10 +1151,7 @@ async function replaceStoredProtocolPlaceholders(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await replaceStoredProtocolPlaceholders(entry, {
-            ...context,
-            selector: context.selector || `json.${key}`,
-          }),
+          await replaceStoredProtocolPlaceholders(entry, context),
         ]),
       ),
     );

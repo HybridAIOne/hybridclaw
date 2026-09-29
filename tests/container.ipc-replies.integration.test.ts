@@ -5,6 +5,10 @@ import path from 'node:path';
 
 import { afterEach, expect, test } from 'vitest';
 
+import {
+  encodeAuthenticatedInput,
+  generateIpcAuthSecret,
+} from '../container/shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type {
   ChatMessage,
@@ -87,6 +91,7 @@ async function startAgent(reply: ModelReply) {
   child.stderr?.on('data', (chunk) => {
     stderr += chunk;
   });
+  const ipcAuthSecret = generateIpcAuthSecret();
   const input = (requestId: string, content: string): ContainerInput => ({
     sessionId: 'session-ipc-replies',
     requestId,
@@ -113,7 +118,19 @@ async function startAgent(reply: ModelReply) {
     }
     throw new Error(`No reply for ${requestId}: ${stderr}`);
   };
-  return { child, ipc, input, waitForReply };
+  const writeFollowup = (requestId: string, content: string) =>
+    fs.writeFileSync(
+      path.join(ipc, 'input.json'),
+      encodeAuthenticatedInput(
+        ipcAuthSecret,
+        JSON.stringify(input(requestId, content)),
+      ),
+    );
+  const startFirst = (requestId: string, content: string) =>
+    child.stdin?.write(
+      `${JSON.stringify({ ...input(requestId, content), ipcAuthSecret })}\n`,
+    );
+  return { child, ipc, input, waitForReply, writeFollowup, startFirst };
 }
 
 test('the agent answers each request in that request’s reply file', async () => {
@@ -122,17 +139,12 @@ test('the agent answers each request in that request’s reply file', async () =
     content: `answer to ${messages.at(-1)?.content}`,
   }));
 
-  agent.child.stdin?.write(
-    `${JSON.stringify(agent.input('request-1', 'first'))}\n`,
-  );
+  agent.startFirst('request-1', 'first');
   await expect(agent.waitForReply('request-1')).resolves.toMatchObject({
     status: 'success',
     result: 'answer to first',
   });
-  fs.writeFileSync(
-    path.join(agent.ipc, 'input.json'),
-    JSON.stringify(agent.input('request-2', 'second')),
-  );
+  agent.writeFollowup('request-2', 'second');
   await expect(agent.waitForReply('request-2')).resolves.toMatchObject({
     status: 'success',
     result: 'answer to second',
@@ -156,7 +168,10 @@ test('an interrupted request’s SIGTERM reply lands in that request’s reply f
             type: 'function',
             function: {
               name: 'delegate',
-              arguments: JSON.stringify({ prompt: 'research the topic' }),
+              arguments: JSON.stringify({
+                prompt: 'research the topic',
+                background: true,
+              }),
             },
           },
         ],
@@ -166,9 +181,7 @@ test('an interrupted request’s SIGTERM reply lands in that request’s reply f
     return null;
   });
 
-  agent.child.stdin?.write(
-    `${JSON.stringify(agent.input('request-a', 'delegate the research'))}\n`,
-  );
+  agent.startFirst('request-a', 'delegate the research');
   await delegationQueued;
   const exited = new Promise((resolve) => agent.child.once('exit', resolve));
   agent.child.kill('SIGTERM');

@@ -45,6 +45,7 @@ import {
   setBrowserTaskModelPolicies,
   usesGatewayManagedBrowser,
 } from './browser-tools.js';
+import { waitForDelegation } from './delegate-wait.js';
 import {
   type DiagramFixupRequest,
   type DiagramRuntimeOptions,
@@ -152,11 +153,8 @@ type ScheduledTaskInfo = {
   createdAt: string;
 };
 
-// Sessions whose channel cannot receive scheduled-task output. The gateway
-// queues proactive messages for these channels and later drops them, so a
-// task created without an explicit delivery channel would run but never be
-// seen by the user.
-const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['web', 'heartbeat']);
+// Heartbeat has no user-facing conversation for scheduled output.
+const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['heartbeat']);
 
 const CRON_FIELD_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0, 59], // minute
@@ -320,6 +318,7 @@ function describeSchedule(task: {
 }
 
 let pendingDelegations: DelegationSideEffect[] = [];
+let delegateCallsThisTurn = 0;
 let injectedTasks: ScheduledTaskInfo[] = [];
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
@@ -340,7 +339,7 @@ let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
-const MAX_PENDING_DELEGATIONS = 3;
+const MAX_DELEGATE_CALLS_PER_TURN = 3;
 let memoryTimezoneCache: {
   userPath: string;
   mtimeMs: number | null;
@@ -726,6 +725,7 @@ function cloneTaskModelPolicies(
 
 export function resetSideEffects(): void {
   pendingDelegations = [];
+  delegateCallsThisTurn = 0;
 }
 
 export function getPendingSideEffects():
@@ -3771,7 +3771,7 @@ async function executeToolInternal(
           CHANNELS_WITHOUT_PROACTIVE_DELIVERY.has(gatewayChannelId)
         ) {
           return failTool(
-            'Error: scheduled task output cannot be delivered into this web chat session; the task would run but its result would be discarded. Pass "channel" with a configured messaging channel target (for example a Telegram/Discord/Slack target) or an email address. If no such channel is configured, tell the user that one must be set up before scheduling.',
+            'Error: scheduled task output cannot be delivered into this session. Pass "channel" with a configured messaging channel target (for example a Telegram/Discord/Slack target) or an email address. If no such channel is configured, tell the user that one must be set up before scheduling.',
           );
         }
 
@@ -3848,9 +3848,9 @@ async function executeToolInternal(
     }
 
     case 'delegate': {
-      if (pendingDelegations.length >= MAX_PENDING_DELEGATIONS) {
+      if (delegateCallsThisTurn >= MAX_DELEGATE_CALLS_PER_TURN) {
         return failTool(
-          `Error: delegation limit reached for this turn (${MAX_PENDING_DELEGATIONS}).`,
+          `Error: delegation limit reached for this turn (${MAX_DELEGATE_CALLS_PER_TURN}).`,
         );
       }
 
@@ -3951,9 +3951,20 @@ async function executeToolInternal(
         summary = `${chainResult.tasks.length}-step chain`;
       }
 
+      delegateCallsThisTurn += 1;
+      if (args.background !== true) {
+        const waited = await waitForDelegation({
+          gatewayBaseUrl,
+          gatewayApiToken,
+          sessionId: currentSessionId,
+          effect,
+        });
+        return 'result' in waited ? waited.result : failTool(waited.error);
+      }
+
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';
-      return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
+      return `Delegation accepted in the background (${mode}; results arrive as a new message in this conversation, do not poll): ${labelPrefix}${summary}`;
     }
 
     default:
@@ -4971,10 +4982,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). The gateway collects delegated results and uses them for final synthesis; after spawning delegates, acknowledge start only and do not present final findings or poll/sleep.',
+        'Delegate narrow, self-contained subtasks to subagents that have your tools. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). By default the call waits and returns the subagent reports; check them and finish the answer yourself. Set `background` only for long work the user should not wait for: the reports then arrive later as a new message, so acknowledge the start briefly and do not poll or sleep.',
       parameters: {
         type: 'object',
         properties: {
+          background: {
+            type: 'boolean',
+            description:
+              'Run without waiting; results arrive as a later message. Default false.',
+          },
           mode: {
             type: 'string',
             description:
@@ -5052,7 +5068,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       description:
         'Manage scheduled tasks and reminders. Actions:\n' +
         '- "list": show all scheduled tasks\n' +
-        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In web chat and heartbeat sessions "channel" is required because task output cannot be delivered there.\n' +
+        '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In heartbeat sessions "channel" is required. Web chat output is saved in the originating conversation.\n' +
         '- "update": change an existing task by taskId (get it from "list"). Provide any of "prompt", "channel", and at most one schedule field ("at"/"at_seconds", "cron"[+"tz"], or "every") to change; omitted fields keep their current value. Use this instead of "remove" + "add" when changing the time, channel, or prompt of a schedule the user already has, so the task keeps its id and does not duplicate.\n' +
         '- "remove": delete a task by taskId\n' +
         'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',

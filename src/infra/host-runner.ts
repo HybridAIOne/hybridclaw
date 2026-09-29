@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
 import type {
   ExecutorRequest,
@@ -213,6 +214,8 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
+  ipcAuthSecret: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -742,6 +745,7 @@ function getOrSpawnHostProcess(
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    ipcAuthSecret: generateIpcAuthSecret(),
     terminalError: null,
     isReady() {
       return entry.readyForInputAt != null;
@@ -1159,7 +1163,10 @@ async function runHostProcessInner(
     if (isNewProcess) {
       entry.pendingColdStartProbeStartedAt = Date.now();
       try {
-        entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+        // First request carries the per-worker IPC auth secret via stdin only.
+        entry.process.stdin?.write(
+          `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
+        );
       } catch (err) {
         if (isStdinWriteInterrupt(err, entry.process, abortSignal)) {
           logger.info(
@@ -1171,7 +1178,9 @@ async function runHostProcessInner(
         throw err;
       }
     } else {
-      writeInput(entry.ipcSessionId, input, { omitApiKey: true });
+      writeInput(entry.ipcSessionId, input, {
+        authSecret: entry.ipcAuthSecret,
+      });
     }
 
     const output = await readOutput(

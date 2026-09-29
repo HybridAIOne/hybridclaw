@@ -61,6 +61,21 @@ const CODE_SECRET_SENT_HOME = new RegExp(
   'gi',
 );
 
+// Whole-`os.environ` uses that dump nothing. A membership test reads one key,
+// as `os.environ[...]` does, but a `for` loop's `in` still enumerates, as does
+// `in os.environ.items()`. The environment or a copy given to `env` (the
+// subprocess keyword, or the variable holding it) is what the child inherits
+// anyway (call delegated by the owner, 2026-09-27). A copy under another name,
+// or one filtered by iterating `.items()`, still counts: a line scan cannot
+// tell it from a harvest.
+const ENVIRON_NOT_DUMPED = new RegExp(
+  [
+    String.raw`in(?<!\win)\s+os\.environ\b(?<!\bfor\s+\(?\w+(?:\s*,\s*\w+)*\)?\s+in\s+os\.environ)(?!\s*\.)`,
+    String.raw`env(?<!\wenv)\s*=\s*(?:dict\s*\(\s*|\{\s*\*\*\s*)?os\.environ\b(?:\s*\.\s*copy\s*\(\s*\))?(?!\s*\.)`,
+  ].join('|'),
+  'gi',
+);
+
 export const EXFILTRATION_RULES: ThreatRule[] = [
   {
     regex: r(
@@ -177,7 +192,14 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     description: 'reads known secrets file',
   },
   {
-    regex: r(String.raw`printenv|env\s*\|`),
+    // `printenv` without a variable name (`printenv HOME` and the argv form
+    // `"printenv", "HOME"` print one), or `env |`. `.env |` pipes a file,
+    // `venv |` and `ProcessEnv |` are other words, and in a Markdown table row
+    // (a line starting with `|`) an unescaped `|` is a cell border. The `env`
+    // scan must stay anchored at the line start: unanchored it is quadratic.
+    regex: r(
+      String.raw`printenv(?!(?:\s+-[-\w]+)*(?:\s+["']?|["']\s*,\s*["'])[a-z_$])|^(?!\s*\|)[^\n]*?env(?<![\w.]env)\s*\|`,
+    ),
     patternId: 'dump_all_env',
     severity: 'high',
     category: 'exfiltration',
@@ -187,6 +209,7 @@ export const EXFILTRATION_RULES: ThreatRule[] = [
     regex: r(
       String.raw`os\.environ\b(?!\s*(?:\[|\.(?:get|setdefault|pop)\s*\())`,
     ),
+    ignore: ENVIRON_NOT_DUMPED,
     patternId: 'python_os_environ',
     severity: 'high',
     category: 'exfiltration',

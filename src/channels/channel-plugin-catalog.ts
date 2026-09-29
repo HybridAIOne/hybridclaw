@@ -38,7 +38,7 @@ const CHANNEL_PLUGIN_CATALOG = {
     name: 'WhatsApp',
     description: 'Official WhatsApp transport maintained by HybridAIOne.',
     installSource:
-      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.1/hybridaione-hybridclaw-whatsapp-0.1.1.tgz',
   },
 } as const satisfies Partial<
   Record<ChannelKind, Omit<OfficialChannelPluginCatalogEntry, 'channel'>>

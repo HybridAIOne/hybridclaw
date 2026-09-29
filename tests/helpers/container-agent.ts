@@ -10,6 +10,10 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach } from 'vitest';
+import {
+  encodeAuthenticatedInput,
+  generateIpcAuthSecret,
+} from '../../container/shared/ipc-input-auth.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -152,7 +156,10 @@ export function useContainerAgentHarness() {
       }
       throw new Error(`Runtime did not return output: ${stderr}`);
     };
-    child.stdin?.write(`${JSON.stringify(input)}\n`);
+    // The first request carries the per-worker IPC auth secret via stdin, as
+    // the runners do; follow-ups are written as authenticated envelopes.
+    const ipcAuthSecret = generateIpcAuthSecret();
+    child.stdin?.write(`${JSON.stringify({ ...input, ipcAuthSecret })}\n`);
     return {
       requests,
       output: await waitOutput(),
@@ -161,7 +168,10 @@ export function useContainerAgentHarness() {
       followup: async (patch: Partial<ContainerInput>) => {
         fs.writeFileSync(
           path.join(ipc, 'input.json'),
-          JSON.stringify({ ...input, ...patch }),
+          encodeAuthenticatedInput(
+            ipcAuthSecret,
+            JSON.stringify({ ...input, ...patch }),
+          ),
         );
         return waitOutput();
       },

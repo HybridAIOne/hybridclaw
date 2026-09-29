@@ -56,15 +56,16 @@ async function runSingleDelegation(): Promise<string> {
   const homeDir = makeTempHome();
   vi.stubEnv('HOME', homeDir);
   const { enqueueDelegationBatchFromSideEffects } = await import(
-    '../src/gateway/gateway-service.ts'
+    '../src/gateway/gateway-delegation.ts'
   );
-  const { getDelegationJob, initDatabase } = await import(
+  const { getDelegationJob, getOrCreateSession, initDatabase } = await import(
     '../src/memory/db.ts'
   );
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
   initDatabase({ quiet: true, dbPath: path.join(homeDir, 'hybridclaw.db') });
+  getOrCreateSession('retry-parent-session', null, 'tui', 'test-agent');
   updateRuntimeConfig((draft) => {
     draft.proactive.autoRetry.baseDelayMs = 100;
     draft.proactive.autoRetry.maxDelayMs = 100;
@@ -91,6 +92,10 @@ async function runSingleDelegation(): Promise<string> {
     agentId: 'test-agent',
     parentModel: 'orchestrator-model',
     parentDepth: 0,
+    runParentTurn: async ({ content }) => ({
+      status: 'success',
+      result: `parent read: ${content.length} chars`,
+    }),
   });
   const publicId = descriptor?.publicId || '';
   await vi.waitFor(

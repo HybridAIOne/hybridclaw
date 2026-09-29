@@ -139,6 +139,9 @@ ENV NODE_PATH=/opt/hybridclaw-tools/node_modules:/usr/local/lib/node_modules:/ap
 # Operators must set HYBRIDCLAW_ACCEPT_TRUST=true at runtime to accept the
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
+# Agents and bundled skills call `hybridclaw ...` from the shell.
+RUN printf '#!/bin/sh\nexec node /app/dist/cli.js "$@"\n' > /usr/local/bin/hybridclaw \
+  && chmod 755 /usr/local/bin/hybridclaw
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

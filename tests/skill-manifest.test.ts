@@ -322,3 +322,34 @@ Use the skill.
     'Skill manifest for "Invalid Version" has invalid version "latest"; packaged skills must declare a semantic version like 1.2.3.',
   );
 });
+
+test('tolerates an unquoted colon inside a top-level value', () => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---
+name: brand-voice
+description: Write copy for Acme: landing pages, press releases
+manifest:
+  id: brand-voice
+  capabilities: brand.voice
+---
+Use the skill.
+`,
+    { name: 'fallback' },
+  );
+
+  expect(manifest.id).toBe('brand-voice');
+  expect(manifest.capabilities).toEqual(['brand.voice']);
+});
+
+test('still rejects frontmatter that is not valid YAML', () => {
+  expect(() =>
+    parseSkillManifestFromMarkdown(
+      `---
+name: [unclosed
+---
+Use the skill.
+`,
+      { name: 'fallback' },
+    ),
+  ).toThrow('Invalid SKILL.md frontmatter');
+});

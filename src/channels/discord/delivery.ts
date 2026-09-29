@@ -12,6 +12,7 @@ import { chunkMessage } from '../../memory/chunk.js';
 import { formatMemoryAccessMarkdown } from '../../memory/recall-presentation.js';
 import type { MemoryAccess } from '../../types/memory.js';
 import { sleep } from '../../utils/sleep.js';
+import { formatToolsUsedFooter } from '../../utils/text-format.js';
 import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { type MentionLookup, rewriteUserMentions } from './mentions.js';
 import { logDiscordApiError } from './transport-errors.js';
@@ -45,8 +46,7 @@ export function buildResponseText(
     body += `${body ? '\n\n' : ''}${formatMemoryAccessMarkdown(memoryAccess)}`;
   }
   if (toolsUsed && toolsUsed.length > 0) {
-    const toolsLine = `${body ? '\n' : ''}*Tools: ${toolsUsed.join(', ')}*`;
-    body += toolsLine;
+    body += `${body ? '\n' : ''}${formatToolsUsedFooter(toolsUsed)}`;
   }
   return body;
 }

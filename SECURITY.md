@@ -83,10 +83,14 @@ Tool execution runs inside Docker with sandbox constraints:
 - a per-worker gateway credential instead of the gateway API token: accepted
   only on the runtime routes the tools call, acting as the worker's own agent
   and session, and revoked when the worker stops
+- authenticated gateway→agent input: the agent runs a follow-up turn only when
+  it is authenticated with a per-worker secret delivered on stdin, so input in
+  the IPC directory is trusted only when it comes from the gateway
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
 [src/security/mount-security.ts](./src/security/mount-security.ts),
-[src/security/worker-credentials.ts](./src/security/worker-credentials.ts)
+[src/security/worker-credentials.ts](./src/security/worker-credentials.ts),
+[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
 
 ### 4) Session Isolation
 
