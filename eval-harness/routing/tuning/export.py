@@ -9,8 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-def artifact():
-    source = ROOT/'candidate.json'; config = json.loads(source.read_text())
+def artifact(source=ROOT/'candidate.json'):
+    config = json.loads(source.read_text())
     result = {k: config[k] for k in ['repo', 'revision', 'weight_sha256', 'question',
                                   'matrix', 'bias', 'temperature', 'gateway_rubric_sha256']}
     files = ['encoder/config.json', 'rl_agent_config.json',
@@ -24,8 +24,9 @@ def artifact():
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--output', required=True)
+    parser.add_argument('--candidate', default=str(ROOT/'candidate.json'))
     args = parser.parse_args()
-    Path(args.output).write_text(json.dumps(artifact(), indent=2)+'\n')
+    Path(args.output).write_text(json.dumps(artifact(Path(args.candidate)), indent=2)+'\n')
 
 
 if __name__ == '__main__':

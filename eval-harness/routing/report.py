@@ -22,7 +22,7 @@ def percentile(values, p):
     return sorted(values)[max(0, math.ceil(len(values)*p)-1)]
 
 
-lines = ['# Routing comparison: 200 synthetic prompts', '',
+lines = [f"# Routing comparison: {meta['count']} synthetic prompts", '',
          f"Run: {meta['startedAt']} · Source commit: `{meta['commit'][:12]}`", '',
          'Balanced rubric benchmark: 50 cases per tier, 100 English and 100 German. '
          'Labels were authored before inference. Prompts are synthetic and inspired only by aggregate session themes; '
@@ -51,7 +51,7 @@ for engine in engines:
     lines.append(f"| {engine} | {fraction(correct,n)} | {len(valid)}/{n} | {fraction(len(accepted),n)} | {fraction(accepted_correct,len(accepted))} | {fraction(effective_correct,n)} | {s['p50_ms']} / {s['p95_ms']} ms |")
 lines += ['', 'Latency includes the production classifier wrapper and remote round trip; Laya model startup is excluded, '
           'but first inference is included. Default-fallback outcomes simulate tiers before model selection or manual escalation. Calls run concurrently across the three engines and sequentially within each engine. '
-          'Prompts run in dataset order, so tier and run order are confounded. Gemma is hosted through the configured endpoint, not run on the same Mac.', '',
+          'Prompts run in dataset order, so tier and run order are confounded. Gemma resolves through the configured provider endpoint.', '',
           '## Accuracy by language and tier', '',
           '| Slice | JEV | Laya | Gemma |', '|---|---:|---:|---:|']
 for key, value in [('language','en'),('language','de')]+[('expected',t) for t in tiers]:

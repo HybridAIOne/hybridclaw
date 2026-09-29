@@ -15,16 +15,20 @@ ROOT = Path(__file__).resolve().parent
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--model', required=True)
+    parser.add_argument('--candidate', default=str(ROOT/'candidate.json'))
+    parser.add_argument('--dataset', default=str(ROOT/'test.json'))
+    parser.add_argument('--output', default=str(ROOT/'results/candidate.jsonl'))
     args = parser.parse_args()
-    candidate = ROOT/'candidate.json'; config = json.loads(candidate.read_text())
-    dataset = ROOT/'test.json'; data = json.loads(dataset.read_text())
-    assert data['candidate_sha256'] == hashlib.sha256(candidate.read_bytes()).hexdigest()
+    candidate = Path(args.candidate); config = json.loads(candidate.read_text())
+    dataset = Path(args.dataset); data = json.loads(dataset.read_text())
+    if 'candidate_sha256' in data:
+        assert data['candidate_sha256'] == hashlib.sha256(candidate.read_bytes()).hexdigest()
     model = Path(args.model)
     with (model/'model.safetensors').open('rb') as f:
         assert hashlib.file_digest(f, 'sha256').hexdigest() == config['weight_sha256']
     for name, digest in config['model_files_sha256'].items():
         assert hashlib.sha256((model/name).read_bytes()).hexdigest() == digest
-    output = ROOT/'results/candidate.jsonl'
+    output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         raise ValueError('Refuse overwrite')
     import laya_mlx

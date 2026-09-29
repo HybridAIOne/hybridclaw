@@ -1,69 +1,82 @@
-# Specialized multilingual Laya router
+# Refresh the Laya routing head
 
-[Protocol](PROTOCOL.md), [fresh 200-prompt test](test.json), [full report](results/report.md).
+Keep training inputs, code and promoted model artifacts in Git. Put generated
+features, fitted candidates, predictions and reports in ignored `cache/` or
+`results/` directories. The plugin runtime and lockfile remain in
+`plugins/laya-router/runtime`; fitting dependencies are in [requirements.txt](requirements.txt).
 
-The selected 322M multilingual checkpoint supplies frozen encoder features to a
-3,076-parameter linear routing head. Training uses 520 previously inspected
-synthetic prompts; 120 separate old prompts calibrate one temperature. The new
-200 cases are authored after selection is frozen and compared with the previous
-affine Laya plugin, JEV and Gemma through the same gateway gates. No private
-session histories or live settings are used.
+The current candidate uses a frozen multilingual Laya encoder and a linear
+four-class readout. [Checkpoint pins](checkpoints.json) retain the exact three
+repositories, revisions and weight hashes. The activity question comes from the
+frozen [candidate](candidate.json), not a deleted experiment report.
 
-All three checkpoints, three feature representations and four penalties were
-tested in grouped five-fold development comparisons. The selected coefficients
-and temperature reproduce exactly; all 18,720 fold predictions are retained in
-`results/laya-*-cv.jsonl`. The feature caches are local reproducible NumPy files,
-not shipped model assets. Their hashes are recorded with development results.
-The original transformer weights are not trained. Production skips the original
-decision head; this is a specialized classifier, not zero-shot Laya.
+## Inputs and validation boundaries
 
-The final runtime reaches 96% label accuracy, 98.4% accepted precision and 95.5%
-coverage at the existing 0.8 gate on this test. Synthetic paired cases and a
-small calibration set cannot establish quality on all real traffic. See the
-report for class/language results, errors and confidence metrics.
+Development uses `../dataset.json` (200), `../calibration/test.json` (120) and
+`../prompting/validation.json` (200). The separate `../alternatives/holdout.json`
+(120) fits confidence temperature only. Paths and original bytes are retained so
+the candidate's input hashes and split definitions stay valid.
 
-## Reproduction
+`test.json` contains the latest inspected 200-case regression set. It is no longer
+fresh evidence for a new fit. Author a new labelled test before evaluating a
+changed candidate, freeze selection before inference, and never use that test's
+labels for tuning. `author.py` is an authoring template: replace its example pairs
+with new scenarios before generating a new test. See [PROTOCOL.md](PROTOCOL.md).
 
-Inference uses the plugin's `laya-mlx==0.2.0` / MLX 0.32.3 / NumPy 2.5.3 FP16
-environment. Fitting uses NumPy 2.5.3 and SciPy 1.18.1; fitting dependencies are
-unshipped and are not imported by the production worker. The three checkpoint
-identities and hashes are in `../calibration/results/laya-*.metadata.json`.
-Set `--model` to a local checkpoint downloaded at that exact revision.
+## Train and select
 
-Use a fresh output directory/workspace for a new inference run; commands refuse
-to overwrite records. Existing reports can be audited without model execution.
-For each checkpoint:
+Use the plugin's pinned Python/MLX environment for downloads and feature
+extraction. In a separate fitting environment, install `requirements.txt`.
 
 ```sh
-/path/to/laya/python eval-harness/routing/tuning/features.py --model /path/to/checkpoint --output /tmp/laya-tuning-typed.npz
-OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 /path/to/fitting/python eval-harness/routing/tuning/fit.py --features /tmp/laya-tuning-typed.npz --output /tmp/laya-tuning-typed-head.json
-# Repeat for multilingual and English, using matching cache/output names.
-/path/to/fitting/python eval-harness/routing/tuning/select.py --typed /tmp/laya-tuning-typed-head.json --multilingual /tmp/laya-tuning-multilingual-head.json --english /tmp/laya-tuning-english-head.json --output /tmp/selected-candidate.json
+/path/to/laya/python eval-harness/routing/tuning/download.py \
+  --checkpoint typed --output eval-harness/routing/tuning/cache/models/typed
+/path/to/laya/python eval-harness/routing/tuning/features.py \
+  --model eval-harness/routing/tuning/cache/models/typed --output eval-harness/routing/tuning/cache/typed.npz
+OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 /path/to/fitting/python \
+  eval-harness/routing/tuning/fit.py --features eval-harness/routing/tuning/cache/typed.npz \
+  --output eval-harness/routing/tuning/cache/typed-head.json
+# Repeat for multilingual and English, with distinct output names.
+/path/to/fitting/python eval-harness/routing/tuning/select.py \
+  --typed eval-harness/routing/tuning/cache/typed-head.json \
+  --multilingual eval-harness/routing/tuning/cache/multilingual-head.json \
+  --english eval-harness/routing/tuning/cache/english-head.json \
+  --output eval-harness/routing/tuning/cache/candidate.json
 ```
 
-Place the selected candidate in a fresh copy of this workspace as `candidate.json`
-and format it before freezing its byte hash and authoring new test inputs.
-`author.py` rejects exact overlap with all earlier cases. Do not reuse the current
-test as independent evidence for a later fit. To audit the retained evidence:
+Selection compares grouped development predictions across three representations
+and four penalties. The calibration slice is excluded from selection. Production
+currently supports the encoder-state representation; selection fails explicitly
+if another representation wins. Inspect the generated fold predictions and
+candidate before promotion. Commands refuse to overwrite existing run records.
+
+## Validate and export
 
 ```sh
-python3 eval-harness/routing/tuning/report.py
+/path/to/laya/python eval-harness/routing/tuning/validate.py \
+  --model /path/to/selected-checkpoint \
+  --candidate eval-harness/routing/tuning/cache/candidate.json \
+  --dataset /path/to/new-frozen-test.json \
+  --output eval-harness/routing/tuning/results/candidate.jsonl
+python3 eval-harness/routing/tuning/export.py \
+  --candidate eval-harness/routing/tuning/cache/candidate.json \
+  --output eval-harness/routing/tuning/cache/routing-calibration.json
+```
+
+Check matched [production router comparisons](../README.md) and actual pipe
+decisions before promoting the candidate and generated artifact together.
+`validate.py` also accepts the retained test for regression, but its recorded
+candidate hash must match; a different frozen candidate needs a newly authored
+test or a regression dataset without that historical candidate binding.
+
+To verify that the shipped artifact still reproduces without inference:
+
+```sh
+python3 eval-harness/routing/tuning/export.py --output /tmp/routing-calibration.json
+cmp /tmp/routing-calibration.json plugins/laya-router/runtime/routing-calibration.json
 python3 -m unittest discover -s plugins/laya-router/runtime -p 'test_*.py'
 ```
 
-To reproduce inference in a fresh workspace:
-
-```sh
-/path/to/laya/python eval-harness/routing/tuning/validate.py --model /path/to/multilingual-checkpoint
-node --import tsx eval-harness/routing/alternatives/remote.mjs --dataset eval-harness/routing/tuning/test.json --output eval-harness/routing/tuning/results
-python3 eval-harness/routing/tuning/export.py --output /tmp/routing-calibration.json
-# Install the generated artifact in a temporary plugin checkout before pipe verification.
-node --import tsx eval-harness/routing/prompting/production.mjs --python /path/to/laya/python --model /path/to/multilingual-checkpoint --dataset eval-harness/routing/tuning/test.json --output eval-harness/routing/tuning/results/production-final.jsonl
-```
-
-The old affine baseline record binds to commit `603f1f136`; its plugin must be
-run at that commit to reproduce that baseline. Intermediate/final pipe runs are
-retained and differ only in which metadata files the artifact requires for setup.
-The final export pins only the weights and four config/tokenizer files serving
-actually reads. Explicit setup was also exercised against a new temporary model
-directory and completed its weight/config integrity checks.
+The runtime uses offline pinned weights and does not import fitting dependencies.
+Reload/setup/start are explicit user actions; training does not change the live
+gateway or installed configuration.

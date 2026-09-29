@@ -13,7 +13,7 @@
       "!skills",
       "!community-skills",
       "!tests",
-      "!eval-harness/routing/prompting/**/*.json",
+      "!eval-harness/routing/prompting/validation.json",
       "!plugins/laya-router/runtime/routing-calibration.json",
       "!desktop/icon"
     ]

@@ -61,9 +61,8 @@ def main():
     output = Path(args.output)
     if output.exists():
         raise ValueError('Refuse overwrite')
-    variant = json.loads((ROOT/'prompting/affine.json').read_text())['variant']
-    question = {'instructions': variant['instructions'],
-                'criteria': dict(zip(variant['labels'], variant['descriptions'])), 'type': 'choice'}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    question = json.loads((ROOT/'tuning/candidate.json').read_text())['question']
     import laya_mlx
     agent = laya_mlx.load(args.model, dtype='float16')
     rows = cases(); features = [[], [], []]; durations = []
@@ -83,8 +82,9 @@ def main():
                 'feature_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
                 'question': question, 'durations_ms': durations,
                 'inputs': {s: hashlib.sha256((ROOT/s).read_bytes()).hexdigest() for s in SOURCES}}
-    metadata['model_files_sha256'] = {str(p.relative_to(model)): hashlib.sha256(p.read_bytes()).hexdigest()
-                                     for p in sorted(model.rglob('*.json')) if '.cache' not in p.parts}
+    artifact = json.loads((ROOT.parents[1]/'plugins/laya-router/runtime/routing-calibration.json').read_text())
+    metadata['model_files_sha256'] = {name: hashlib.sha256((model/name).read_bytes()).hexdigest()
+                                     for name in artifact['model_files_sha256']}
     output.with_suffix('.json').write_text(json.dumps(metadata, indent=2)+'\n')
 
 

@@ -53,24 +53,16 @@ prompts; one temperature is fitted on 120 separate calibration prompts. The
 original encoder weights are unchanged. All three checkpoints and 36 fixed
 representation/regularization combinations were compared before fresh testing.
 
-## Evaluation
+## Training and evaluation
 
-The frozen candidate was compared with JEV and Gemma on 200 fresh English/German rubric
-prompts, then exercised through the actual plugin pipe and gateway:
-
-| Router | Overall label accuracy | Accepted precision | Coverage | Median gateway time |
-| --- | --- | --- | --- | --- |
-| Laya routing head | 96.0% | 98.4% (188/191) | 95.5% | 6 ms |
-| JEV | 96.0% | 100% (158/158) | 79.0% | 250 ms |
-| Gemma | 90.5% | 91.4% (181/198) | 99.0% | 270 ms |
-| Earlier Laya affine fit | 82.0% | 91.5% (118/129) | 64.5% | 14 ms |
-
-The same disclosure guards exclude two prompts for all routers. Temperature
-calibration reduced the head's selected-confidence ECE from 12.1% to 1.6% on
-the direct test predictions. Three-tier grouping is a separate regression check. These are small,
-same-author synthetic rubric cases with correlated bilingual scenarios; they do
-not establish quality on real traffic or downstream answers. See the [full report](../../eval-harness/routing/tuning/results/report.md)
-for per-class metrics, coverage, model selection and limitations.
+The unshipped [training workflow](../../eval-harness/routing/tuning/README.md)
+retains datasets, checkpoint pins, feature extraction, fitting, calibration and
+artifact export. [Comparison runners](../../eval-harness/routing/README.md)
+exercise the actual plugin pipe and JEV/Gemma under the shared routing gates.
+Generated reports, caches and prediction logs stay outside version control.
+Retained test cases are regression inputs; new fits need a fresh labelled test
+before claiming improved accuracy. Synthetic rubric labels do not establish
+quality on all real traffic or downstream answers.
 
 ## Boundaries and verification
 

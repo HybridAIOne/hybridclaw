@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 ENGINES = ['typed', 'multilingual', 'english']
-NAMES = {'typed': 'laya-typed-decisions', 'multilingual': 'laya-multilingual', 'english': 'laya-english'}
 
 
 def main():
@@ -23,10 +22,10 @@ def main():
     config = configs[selected]
     if config['representation'] != 'encoder_state':
         raise ValueError('The production export supports encoder-state readouts only')
-    provenance = json.loads((ROOT.parent/'calibration/results'/f'{NAMES[selected]}.metadata.json').read_text())['model']
+    provenance = json.loads((ROOT/'checkpoints.json').read_text())[selected]
     if config['weight_sha256'] != provenance['weight_sha256']:
         raise ValueError('Checkpoint differs from recorded provenance')
-    config['repo'], config['revision'] = provenance['checkpoint'].split('@')
+    config['repo'], config['revision'] = provenance['repo'], provenance['revision']
     config['gateway_rubric_sha256'] = json.loads((ROOT.parents[2]/'plugins/laya-router/runtime/routing-calibration.json').read_text())['gateway_rubric_sha256']
     config['method'] = 'L2-normalized mean FP16 encoder state features; four-class linear softmax readout; separate temperature calibration'
     config['provenance'] = 'eval-harness/routing/tuning/PROTOCOL.md'

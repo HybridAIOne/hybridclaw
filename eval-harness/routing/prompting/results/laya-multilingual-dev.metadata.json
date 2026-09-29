@@ -1,8 +1,0 @@
-{
-  "model": {
-    "checkpoint": "aac6fef/laya-multilingual-mlx@ba40c87fcb357f1643d04d71323af9cdc3b9e591",
-    "weight_sha256": "7fc5834af4d8fdfb268d272a9d1a66e5819a0daac98241651c4c888cc43adff1",
-    "runtime": "laya-mlx==0.2.0"
-  },
-  "design_sha256": "62a02f9d04cc965b873241929deb04811486bc07f4417433f20a2d79971664c0"
-}

@@ -30,6 +30,7 @@ if (!values.python || !values.model)
   throw new Error('Explicit local Python and checkpoint required');
 const root = path.dirname(fileURLToPath(import.meta.url));
 const output = values.output ?? path.join(root, 'results', 'production.jsonl');
+fs.mkdirSync(path.dirname(output), { recursive: true });
 const bytes = fs.readFileSync(
   values.dataset ?? path.join(root, 'validation.json'),
 );

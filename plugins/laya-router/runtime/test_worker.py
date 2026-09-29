@@ -1,9 +1,10 @@
 """Routing input and numerical boundaries without downloading a model.
-Fresh-test pipe records independently verify the actual MLX encoder integration.
+The unshipped production runner separately verifies actual MLX pipe decisions.
 """
 import json
 import math
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -21,8 +22,9 @@ class FakeTokenizer:
 
 class WorkerBoundaryTests(unittest.TestCase):
     def setUp(self):
-        baseline = json.loads((ROOT/'eval-harness/routing/results/2026-09-29T17-32-52.218Z/metadata.json').read_text())
-        self.criteria = baseline['criteria']
+        code = "import { routingTierCriteria } from './src/routing/policy.ts'; console.log(JSON.stringify(routingTierCriteria(['basic','economy','general','advanced'].map(name=>({name})))));"
+        self.criteria = json.loads(subprocess.check_output(
+            ['node', '--import', 'tsx', '--input-type=module', '-e', code], cwd=ROOT, text=True))
         self.features = [row[0] for row in CALIBRATION['matrix']]
         self.agent = SimpleNamespace(tok=FakeTokenizer(), cfg={'max_len': 1024, 'head_max_len': 256})
         self.request = {'text': 'Hello', 'questions': {'tier': {

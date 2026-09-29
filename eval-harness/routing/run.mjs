@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { LayaRuntime } from '../../plugins/laya-router/src/runtime.js';
 import { getRuntimeConfig } from '../../src/config/runtime-config.ts';
 import { classifyRouting } from '../../src/gateway/unified-routing.ts';
@@ -21,7 +22,14 @@ import {
 } from '../../src/routing/policy.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bytes = fs.readFileSync(path.join(here, 'dataset.json'));
+const { values } = parseArgs({
+  options: {
+    dataset: { type: 'string', default: path.join(here, 'dataset.json') },
+    output: { type: 'string' },
+    smoke: { type: 'boolean', default: false },
+  },
+});
+const bytes = fs.readFileSync(values.dataset);
 const dataset = JSON.parse(bytes);
 const tiers = ['basic', 'economy', 'general', 'advanced'];
 if (
@@ -51,16 +59,20 @@ const models = {
   laya: 'local-decision/laya',
   gemma: 'haigpu2/google/gemma-4-e4b-it',
 };
-const smoke = process.argv.includes('--smoke');
+const smoke = values.smoke;
 const cases = smoke
   ? [0, 50, 100, 150].map((i) => dataset.cases[i])
   : dataset.cases;
-const output = path.join(
-  here,
-  'results',
-  `${new Date().toISOString().replaceAll(':', '-')}${smoke ? '-smoke' : ''}`,
-);
+const output =
+  values.output ??
+  path.join(
+    here,
+    'results',
+    `${new Date().toISOString().replaceAll(':', '-')}${smoke ? '-smoke' : ''}`,
+  );
 fs.mkdirSync(output, { recursive: true });
+if (fs.existsSync(path.join(output, 'metadata.json')))
+  throw new Error('Refuse overwrite');
 fs.writeFileSync(
   path.join(output, 'metadata.json'),
   JSON.stringify(

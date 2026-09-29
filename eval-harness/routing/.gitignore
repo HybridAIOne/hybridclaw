@@ -1,3 +1,0 @@
-# Smoke runs are operational checks, not benchmark evidence.
-results/*-smoke/
-__pycache__/
