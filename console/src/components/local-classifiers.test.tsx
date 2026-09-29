@@ -46,3 +46,37 @@ it('links to optional plugin installation when absent', async () => {
     (await screen.findByRole('link', { name: 'Plugins' })).getAttribute('href'),
   ).toBe('/admin/extensions?tab=plugins');
 });
+
+it.each([
+  ['setup', 'Preparing runtime', 0],
+  ['downloading', 'Downloading model', 1],
+  ['starting', 'Loading model', 2],
+] as const)(
+  'shows the active phase for %s without a duplicate setup action',
+  async (status, label, step) => {
+    mocks.request.mockResolvedValue({
+      classifiers: [
+        {
+          model: 'local-decision/laya',
+          label: 'Laya',
+          supported: true,
+          status,
+          installed: false,
+        },
+      ],
+    });
+    renderWithProviders(<LocalClassifiers />);
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain(label),
+    );
+    const steps = screen.getAllByRole('listitem');
+    expect(steps[step].getAttribute('aria-current')).toBe('step');
+    expect(
+      steps.filter((item) => item.getAttribute('data-complete') === 'true'),
+    ).toHaveLength(step);
+    expect(
+      screen.queryByRole('button', { name: /Download & set up/ }),
+    ).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDefined();
+  },
+);

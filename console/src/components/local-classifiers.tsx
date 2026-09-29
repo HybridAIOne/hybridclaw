@@ -11,6 +11,133 @@ import { requestJson } from '../api/client';
 import { useAuth } from '../auth';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
+import styles from './local-classifiers.module.css';
+
+const SETUP_STEPS = [
+  ['setup', 'Prepare runtime'],
+  ['downloading', 'Download & verify'],
+  ['starting', 'Load model'],
+] as const;
+const STATUS = {
+  stopped: {
+    label: 'Stopped',
+    detail: 'Start the model when you need it. Stopping frees its memory.',
+  },
+  setup: {
+    label: 'Preparing runtime',
+    detail:
+      'Installing the isolated runtime. This can take a few minutes on first setup.',
+  },
+  downloading: {
+    label: 'Downloading model',
+    detail:
+      'Downloading and verifying model weights. You can leave this page and come back.',
+  },
+  starting: {
+    label: 'Loading model',
+    detail: 'Checking the local model files and loading them into memory.',
+  },
+  running: {
+    label: 'Running locally',
+    detail:
+      'Ready for routing. Choose it as your live or comparison router in Routing.',
+  },
+  error: {
+    label: 'Needs attention',
+    detail: 'The model is unavailable. Review the error below, then retry.',
+  },
+};
+
+function DecisionModel({
+  model,
+  pending,
+  command,
+}: {
+  model: LocalClassifierInfo;
+  pending: boolean;
+  command: (action: LocalClassifierAction) => void;
+}) {
+  const step = SETUP_STEPS.findIndex(([status]) => status === model.status);
+  const busy = step !== -1;
+  const status = STATUS[model.status];
+  const uninstalled = model.status === 'stopped' && !model.installed;
+  return (
+    <section className={styles.model} aria-label={model.label} aria-busy={busy}>
+      <div className={styles.heading}>
+        <h3>{model.label}</h3>
+        <span className={styles.badge} data-status={model.status} role="status">
+          <span className={styles.dot} data-busy={busy} aria-hidden="true" />
+          {uninstalled ? 'Not installed' : status.label}
+        </span>
+      </div>
+      <p className={styles.description}>
+        {uninstalled
+          ? 'Set up once to run routing decisions on this Mac. Requires uv; runtime and model files are downloaded during setup.'
+          : status.detail}
+      </p>
+      {busy && (
+        <ol className={styles.steps} aria-label="Decision model setup">
+          {SETUP_STEPS.map(([id, label], index) => (
+            <li
+              key={id}
+              aria-current={index === step ? 'step' : undefined}
+              data-complete={index < step}
+            >
+              <span className={styles.stepNumber} aria-hidden="true">
+                {index < step ? '✓' : index + 1}
+              </span>
+              {label}
+            </li>
+          ))}
+        </ol>
+      )}
+      {model.error && (
+        <p className={styles.error} role="alert">
+          {model.error}
+        </p>
+      )}
+      {!model.supported ? (
+        <p>Requires Apple silicon on the gateway host.</p>
+      ) : (
+        <div className={styles.actions}>
+          {busy ? (
+            <Button
+              variant="outline"
+              disabled={pending}
+              onClick={() => command('stop')}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <Button
+              disabled={pending}
+              onClick={() =>
+                command(
+                  model.status === 'running'
+                    ? 'stop'
+                    : model.installed
+                      ? 'start'
+                      : 'setup',
+                )
+              }
+            >
+              {model.status === 'running'
+                ? 'Stop decision model'
+                : model.installed
+                  ? 'Start decision model'
+                  : 'Download & set up decision model'}
+            </Button>
+          )}
+          <span className={styles.hint}>
+            {busy
+              ? 'Setup runs on the gateway Mac'
+              : 'Local inference · separate from your chat model'}
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
 export function LocalClassifiers() {
   const { token } = useAuth();
   const client = useQueryClient();
@@ -38,7 +165,7 @@ export function LocalClassifiers() {
       <CardHeader>
         <CardTitle>Local decision models</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className={styles.content}>
         <p>
           Run a small routing model alongside your local chat model. Choose it
           as the live or comparison router in{' '}
@@ -59,55 +186,12 @@ export function LocalClassifiers() {
           </p>
         )}
         {query.data?.classifiers.map((model) => (
-          <div key={model.model}>
-            <h3>{model.label}</h3>
-            <p role="status">{model.status}</p>
-            {model.error && <p role="alert">{model.error}</p>}
-            {!model.supported ? (
-              <p>Requires Apple silicon on the gateway host.</p>
-            ) : (
-              <>
-                <p>
-                  Setup requires uv and downloads the runtime and weights.
-                  Inference stays local. Stopping frees memory; start it again
-                  after a gateway restart.
-                </p>
-                <Button
-                  disabled={
-                    control.isPending ||
-                    ['setup', 'starting'].includes(model.status)
-                  }
-                  onClick={() =>
-                    control.mutate({
-                      model: model.model,
-                      action:
-                        model.status === 'running'
-                          ? 'stop'
-                          : model.installed
-                            ? 'start'
-                            : 'setup',
-                    })
-                  }
-                >
-                  {model.status === 'running'
-                    ? 'Stop decision model'
-                    : model.installed
-                      ? 'Start decision model'
-                      : 'Download & set up decision model'}
-                </Button>
-                {['setup', 'starting'].includes(model.status) && (
-                  <Button
-                    disabled={control.isPending}
-                    onClick={() =>
-                      control.mutate({ model: model.model, action: 'stop' })
-                    }
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
+          <DecisionModel
+            key={model.model}
+            model={model}
+            pending={control.isPending || query.isError}
+            command={(action) => control.mutate({ model: model.model, action })}
+          />
         ))}
       </CardContent>
     </Card>

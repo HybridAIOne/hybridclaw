@@ -7,7 +7,13 @@ export type LocalClassifierAction = 'setup' | 'start' | 'stop';
 export interface LocalClassifierState {
   supported: boolean;
   installed: boolean;
-  status: 'stopped' | 'setup' | 'starting' | 'running' | 'error';
+  status:
+    | 'stopped'
+    | 'setup'
+    | 'downloading'
+    | 'starting'
+    | 'running'
+    | 'error';
   error?: string;
 }
 export interface LocalClassifierRegistration {

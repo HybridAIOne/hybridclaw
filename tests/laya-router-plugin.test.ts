@@ -55,3 +55,20 @@ test('startup timeout kills the child and exposes a retryable error state', asyn
     expect(runtime.status().status).toBe('error');
   } finally { vi.useRealTimers(); }
 });
+
+test('setup publishes actual runtime, download and loading phases', async () => {
+ const runtime = new LayaRuntime({ home: '/tmp/example', component: '/tmp/plugin' });
+ // Reuse the real setup sequencing without installing packages or writing files.
+ const fs = (await import('node:fs')).default;
+ const mkdir = vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+ const remove = vi.spyOn(fs, 'rmSync').mockImplementation(() => {});
+ const write = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+ try {
+   const states: string[] = [];
+   vi.spyOn(runtime, 'run').mockImplementation(async () => { states.push(runtime.status().status); });
+   vi.spyOn(runtime, 'start').mockImplementation(async () => { states.push(runtime.status().status); });
+   runtime.state = 'setup';
+   await runtime.setup();
+   expect(states).toEqual(['setup', 'downloading', 'starting']);
+ } finally { mkdir.mockRestore(); remove.mockRestore(); write.mockRestore(); }
+});

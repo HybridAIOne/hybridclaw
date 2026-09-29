@@ -91,6 +91,7 @@ export class LayaRuntime {
       '--python',
       '3.12',
     ]);
+    this.state = 'downloading';
     await this.run(this.python(), [
       path.join(this.component, 'worker.py'),
       'setup',
