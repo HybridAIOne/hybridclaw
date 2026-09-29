@@ -413,15 +413,36 @@ function normalizeSupportedChannels(value: unknown): ChannelKind[] {
   return channels.length > 0 ? channels : [...DEFAULT_SKILL_SUPPORTED_CHANNELS];
 }
 
+// Skills written for other runtimes often leave a `: ` inside a top-level
+// value (`description: Use for Acme: landing pages`), which YAML reads as a
+// nested mapping. Quote only those values, only after strict parsing failed.
+function quoteTopLevelScalarsWithColons(block: string): string {
+  return block
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^([\w-]+):[ \t]+(.+)$/);
+      if (!match?.[1] || !match[2]) return line;
+      const value = match[2].trim();
+      if (!value.includes(': ') || /^["'[{|>&*!]/.test(value)) return line;
+      return `${match[1]}: ${JSON.stringify(value)}`;
+    })
+    .join('\n');
+}
+
 function parseFrontmatterBlockObject(block: string): Record<string, unknown> {
+  let parsed: unknown;
   try {
-    const parsed = YAML.parse(block) as unknown;
-    return isRecord(parsed) ? parsed : {};
+    parsed = YAML.parse(block);
   } catch (error) {
-    throw new Error(
-      `Invalid SKILL.md frontmatter: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    try {
+      parsed = YAML.parse(quoteTopLevelScalarsWithColons(block));
+    } catch {
+      throw new Error(
+        `Invalid SKILL.md frontmatter: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
+  return isRecord(parsed) ? parsed : {};
 }
 
 function parseFrontmatterObject(raw: string): Record<string, unknown> {

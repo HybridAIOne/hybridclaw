@@ -1,3 +1,4 @@
+import { getChannelPluginInstallCommand } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -601,7 +602,7 @@ async function importFreshGatewayMain(options?: {
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
     shutdownWhatsApp: state.shutdownWhatsApp,
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized: vi.fn(async () => ({})),
@@ -2301,7 +2302,7 @@ describe('gateway bootstrap', () => {
       turnContext,
     });
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Hello from gateway\n*Tools: search*',
+      'Hello from gateway\n*Tools: `search`*',
       [
         {
           contentType: 'image/png',
@@ -2475,7 +2476,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Screenshot captured.\n*Tools: browser_screenshot*',
+      'Screenshot captured.\n*Tools: `browser_screenshot`*',
     );
     expect(reply).toHaveBeenCalledWith('', [
       {
@@ -2532,7 +2533,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Created dog_with_image.pdf.\n*Tools: bash*\n\nThe artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.',
+      'Created dog_with_image.pdf.\n*Tools: `bash`*\n\nThe artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.',
       undefined,
     );
   });

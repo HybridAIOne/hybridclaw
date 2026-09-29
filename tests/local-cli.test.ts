@@ -1,3 +1,4 @@
+import { getChannelPluginInstallCommand } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,7 +48,7 @@ async function importFreshCli(
     }),
     isWhatsAppTransportInstalled: () => true,
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
   }));
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
     ensurePluginManagerInitialized: async () => ({}),

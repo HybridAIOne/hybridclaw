@@ -115,6 +115,8 @@ Common locations:
 
 If precedence differs in your runtime, state the exact order in project docs and keep this skill focused on authoring quality.
 
+To install a skill someone hands you (a folder or a `.zip`), run `hybridclaw skill import <path>`. It runs the security scanner before installing. Never unzip or copy it into a skills folder yourself.
+
 ## Skill Creation Workflow
 
 Follow this sequence unless there is a clear reason to skip a step.

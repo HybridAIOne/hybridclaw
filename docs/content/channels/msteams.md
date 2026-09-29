@@ -271,7 +271,10 @@ Two ways to rate a HybridClaw answer from Teams:
 
 Ratings are stored per user and feed the same response-rating pipeline as the
 web console thumbs (audit trail, adaptive-skill feedback, and HybridAI chat
-feedback forwarding).
+feedback forwarding). Forwarded Teams ratings identify the rater by the email
+Teams reports for the member (looked up once per user), falling back to the
+Entra object ID. They go to the agent's upstream bot for proxy agents, otherwise
+to the session's bot, otherwise to the agent's configured `chatbotId`.
 
 Teams has no slash-command menu. In a team channel or group chat, mention the
 bot so the command reaches it, for example `@BotName /thumbs down Wrong total`.

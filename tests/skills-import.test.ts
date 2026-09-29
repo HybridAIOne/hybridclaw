@@ -1287,6 +1287,67 @@ description: Skill from a zip file.
     }
   });
 
+  test('imports a local .zip that wraps the skill in one folder', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const archiveBytes = await createZipArchive([
+      {
+        name: 'wrapped-skill/SKILL.md',
+        content: `---
+name: wrapped-skill
+description: Use for Acme: landing pages.
+---
+
+# Wrapped Skill
+`,
+      },
+      { name: 'wrapped-skill/references/examples.md', content: '# Examples\n' },
+      { name: '__MACOSX/wrapped-skill/._SKILL.md', content: 'metadata' },
+    ]);
+
+    const tempZipPath = path.join(
+      os.tmpdir(),
+      `hybridclaw-wrapped-skill-${Date.now()}.zip`,
+    );
+    fs.writeFileSync(tempZipPath, archiveBytes);
+
+    try {
+      const result = await importSkill(tempZipPath, { skipGuard: true });
+
+      expect(result.skillName).toBe('wrapped-skill');
+      expect(
+        fs.existsSync(path.join(result.skillDir, 'references', 'examples.md')),
+      ).toBe(true);
+      expect(fs.existsSync(path.join(result.skillDir, 'wrapped-skill'))).toBe(
+        false,
+      );
+    } finally {
+      fs.rmSync(tempZipPath, { force: true });
+    }
+  });
+
+  test('rejects a skill whose frontmatter the loader cannot parse', async () => {
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    const skillDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-bad-frontmatter-'),
+    );
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: bad-frontmatter\ntags: [unclosed\n---\n\n# Bad\n',
+    );
+
+    try {
+      await expect(
+        importSkill(skillDir, { skipGuard: true }),
+      ).rejects.toThrow(
+        'Imported skill "bad-frontmatter": Invalid SKILL.md frontmatter',
+      );
+    } finally {
+      fs.rmSync(skillDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects a local source that does not exist', async () => {
     const { importSkill } = await import('../src/skills/skills-import.ts');
 

@@ -522,6 +522,49 @@ describe('response ratings', () => {
     });
   });
 
+  test.each([
+    ['operator-a', 'operator-a'],
+    ['entra-a', 'member@example.com'],
+  ])('forwards %s Teams ratings to the agent bot as %s', async (operatorUserId, externalUserId) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201 });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: null,
+    });
+    const { initAgentRegistry } = await import(
+      '../src/agents/agent-registry.js'
+    );
+    initAgentRegistry({ list: [{ id: 'main', chatbotId: 'bot-agent' }] });
+    const { observeMSTeamsUser } = await import(
+      '../src/memory/msteams-users.js'
+    );
+    observeMSTeamsUser({
+      tenantId: 'tenant-a',
+      userId: 'entra-a',
+      email: 'member@example.com',
+      isMessage: true,
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId,
+      rating: 'up',
+      sourceSurface: 'msteams',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      chatbot_id: 'bot-agent',
+      external_user_id: externalUserId,
+    });
+  });
+
   test('forwards non-HybridAI model ratings when a HybridAI bot is active', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

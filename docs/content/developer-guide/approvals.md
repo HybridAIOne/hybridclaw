@@ -455,6 +455,25 @@ A parameter value is a string or a list of strings, except that a host is one
 pattern. `source` is `store`, `sink` is `dom` for browser fields or `http` for
 HTTP requests, and `*` matches any value.
 
+The `selector` says where the secret goes. For `sink: dom` it is the CSS
+selector of the browser field. For `sink: http` it is one of these:
+
+| Secret | Selector |
+| --- | --- |
+| `<secret:NAME>` in the URL | `url` |
+| `<secret:NAME>` in a header, a `secretHeaders` entry, or a `tools.httpRequest.authRules` rule | The header name |
+| `bearerSecretName` or `bearerSecretRef` | `Authorization` |
+| `<secret:NAME>` in a string `body` | `body` |
+| `<secret:NAME>` in a `form` field | `form.<field>` |
+| `<secret:NAME>` anywhere in a `json` body | `json` |
+| `googleServiceAccount` | `googleServiceAccount.clientEmail`, `googleServiceAccount.privateKey`, or `googleServiceAccount.subject` |
+| `otcAkSk` | `otcAkSk.accessKeyId`, `otcAkSk.secretAccessKey`, or `otcAkSk.securityToken` |
+| `tlsCertificateSha256SecretName` | `tlsCertificateSha256` |
+
+A placeholder in a `json` body reports `json` however deeply it is nested, so
+a secret rule cannot tell JSON fields apart: `json.apiKey` and `json.*` match
+nothing. Scope such a secret by `host` instead.
+
 `secret.default` and each secret rule's `action` accept `allow`, `deny`, or
 `block`, which means the same as `deny`. A rule takes the keys `id`,
 `description`, `comment`, `when`, `action`, and `managed_by_*`, and a rule
