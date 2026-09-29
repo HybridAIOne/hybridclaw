@@ -19,13 +19,20 @@ import {
 } from '../../../src/routing/local-classifiers.ts';
 
 const { values } = parseArgs({
-  options: { python: { type: 'string' }, model: { type: 'string' } },
+  options: {
+    python: { type: 'string' },
+    model: { type: 'string' },
+    dataset: { type: 'string' },
+    output: { type: 'string' },
+  },
 });
 if (!values.python || !values.model)
   throw new Error('Explicit local Python and checkpoint required');
 const root = path.dirname(fileURLToPath(import.meta.url));
-const output = path.join(root, 'results', 'production.jsonl');
-const bytes = fs.readFileSync(path.join(root, 'validation.json'));
+const output = values.output ?? path.join(root, 'results', 'production.jsonl');
+const bytes = fs.readFileSync(
+  values.dataset ?? path.join(root, 'validation.json'),
+);
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'laya-routing-validation-'));
 fs.symlinkSync(path.resolve(values.model), path.join(home, 'model'));
 const runtime = new LayaRuntime({
@@ -69,7 +76,7 @@ try {
     );
   }
   fs.writeFileSync(
-    path.join(root, 'results', 'production.metadata.json'),
+    output.replace(/\.jsonl$/, '.metadata.json'),
     JSON.stringify(
       {
         dataset_sha256: createHash('sha256').update(bytes).digest('hex'),

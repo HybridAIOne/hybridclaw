@@ -11,9 +11,9 @@ hybridclaw plugin install ./plugins/laya-router
 Enable/reload the plugin in Extensions → Plugins (or `/plugin reload`). Install
 [uv](https://docs.astral.sh/uv/getting-started/installation/), then choose
 **Download & set up decision model** in **Labs → Local Models**. Setup installs
-the frozen Python 3.12 environment, downloads the pinned typed-decisions
-checkpoint, verifies its weight hash and loads it before marking setup complete.
-Select **Laya · Typed decisions 421M** under **Models → Routing** as the live or
+the frozen Python 3.12 environment, downloads the pinned multilingual
+checkpoint, verifies its weights/config/tokenizer hashes and loads it before marking setup complete.
+Select **Laya · Multilingual 322M · Routing head** under **Models → Routing** as the live or
 comparison router. An installation containing an earlier experimental checkpoint
 needs setup again before loading this source version.
 
@@ -36,36 +36,40 @@ the two middle bands by summing their probabilities. Custom tier names map by
 configured order. The plugin rejects unsupported tier counts or changed shared
 capability rubrics instead of applying a fit to a different task.
 
-A frozen affine calibration adjusts the four class scores, addressing systematic
-label bias. A separately fitted monotone map estimates correctness of the chosen
-tier. The displayed confidence is this estimate; the displayed class distribution
-is the normalized adjusted distribution. Neither is an accuracy guarantee. Laya
-classifies in a forward pass and generates zero output tokens. The configured
-0.8 acceptance gate remains in force.
+A trained linear routing head reads the mean encoder features of the task state,
+rather than the original decision head's four scores. Separate temperature
+calibration supplies the class probabilities and selected-class confidence.
+This is a specialized routing classifier using Laya's frozen encoder, not the
+checkpoint's zero-shot predictions or entropy-derived confidence. Neither
+probabilities nor confidence are accuracy guarantees. It classifies in a forward
+pass and generates zero output tokens. The configured 0.8 acceptance gate remains
+in force.
 
 The generated [calibration artifact](runtime/routing-calibration.json) pins the
 checkpoint, wording and coefficients. It is reproduced by the unshipped
-[evaluation exporter](../../eval-harness/routing/prompting/export.py), rather than
-maintained by hand. Training uses 200 development prompts for class calibration
-and 120 old calibration prompts for correctness confidence. Neural model weights
-are unchanged.
+[evaluation exporter](../../eval-harness/routing/tuning/export.py), rather than
+maintained by hand. The 3,076-parameter head is fitted on 520 synthetic development
+prompts; one temperature is fitted on 120 separate calibration prompts. The
+original encoder weights are unchanged. All three checkpoints and 36 fixed
+representation/regularization combinations were compared before fresh testing.
 
 ## Evaluation
 
-The frozen candidate was compared with JEV on 200 fresh English/German rubric
+The frozen candidate was compared with JEV and Gemma on 200 fresh English/German rubric
 prompts, then exercised through the actual plugin pipe and gateway:
 
 | Router | Overall label accuracy | Accepted precision | Coverage | Median gateway time |
 | --- | --- | --- | --- | --- |
-| Laya | 87.0% | 94.9% (131/138) | 69.0% | 15 ms |
-| JEV | 96.5% | 100% (170/170) | 85.0% | 242 ms |
+| Laya routing head | 96.0% | 98.4% (188/191) | 95.5% | 6 ms |
+| JEV | 96.0% | 100% (158/158) | 79.0% | 250 ms |
+| Gemma | 90.5% | 91.4% (181/198) | 99.0% | 270 ms |
+| Earlier Laya affine fit | 82.0% | 91.5% (118/129) | 64.5% | 14 ms |
 
-Accepted precision, macro class precision and overall accuracy were within 10%
-of JEV on this dataset. The same disclosure guards exclude two prompts for both
-routers. Three-tier grouping is a separate regression check. These are small,
+The same disclosure guards exclude two prompts for all routers. Temperature
+calibration reduced the head's selected-confidence ECE from 12.1% to 1.6% on
+the direct test predictions. Three-tier grouping is a separate regression check. These are small,
 same-author synthetic rubric cases with correlated bilingual scenarios; they do
-not establish quality on real traffic or downstream answers. Economy remains
-the weakest class. See the [full report](../../eval-harness/routing/prompting/results/report.md)
+not establish quality on real traffic or downstream answers. See the [full report](../../eval-harness/routing/tuning/results/report.md)
 for per-class metrics, coverage, model selection and limitations.
 
 ## Boundaries and verification

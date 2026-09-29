@@ -1,0 +1,16 @@
+{
+  "candidate_sha256": "448cc9a0f5a782864f2726b47acc049822f35a21feaf7ce57cde16ee1aa99890",
+  "dataset_sha256": "d220498df3df1bc5a19c9b7dbe398b4f5bcd6336e778f1050bb97671763ebbe6",
+  "feature_extractor_sha256": "64155eff32e0ff97a76a2e30ba01490f86d57f4bfedf1a2a9c1cf7bd245637dd",
+  "model_files_sha256": {
+    "encoder/config.json": "83f6916d13ef0f556ac461f28308dc2bffa7ebeadee8ec9e2db5812020ea5bb4",
+    "manifest.json": "babce5883ff7bd9b96ad9bd77bcbc5c89bf512f0e9bebd791f2050b8d21b245c",
+    "mlx_config.json": "20ec723e1365a268597cc7e8cd39495c5e2eb58311b925f8e8c165ec5855cc28",
+    "rl_agent_config.json": "9a669a70961064c3c6cc76d2afb8bc5fb10dcd8349bb66e5f7b9b1afb74440d5",
+    "tokenizer/tokenizer.json": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+    "tokenizer/tokenizer_config.json": "6c6b2d8e3c84ce0e671c129cd6b374b235d6f9863042a5836358d00a89bbb5a1",
+    "validation.json": "f64ef4e455afb2dc3d183f2bf0f2edfded8297e5573334caf462c2d89dab7966"
+  },
+  "weight_sha256": "7fc5834af4d8fdfb268d272a9d1a66e5819a0daac98241651c4c888cc43adff1",
+  "latency_note": "Includes unused frozen transformer head for experiment parity; production readout only needs the encoder."
+}

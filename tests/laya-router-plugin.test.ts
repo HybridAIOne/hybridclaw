@@ -15,6 +15,18 @@ test.each([3,4])('calibration binds to the shared %s-tier rubric', n => {
  const hash=createHash('sha256').update(JSON.stringify(Object.values(criteria))).digest('hex');
  expect(hash).toBe(calibration.gateway_rubric_sha256[n]);
 });
+test('production routing head is generated from the frozen evaluated candidate', () => {
+ const candidatePath=new URL('../eval-harness/routing/tuning/candidate.json',import.meta.url);
+ const bytes=fs.readFileSync(candidatePath);
+ const candidate=JSON.parse(bytes.toString());
+ const calibration=JSON.parse(fs.readFileSync(new URL('../plugins/laya-router/runtime/routing-calibration.json',import.meta.url),'utf8'));
+ expect(calibration.provenance.candidate_sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+ for(const key of ['repo','revision','weight_sha256','question','matrix','bias','temperature','gateway_rubric_sha256']) {
+  expect(calibration[key]).toEqual(candidate[key]);
+ }
+ expect(calibration.matrix).toHaveLength(768);
+ expect(Object.keys(calibration.model_files_sha256).sort()).toEqual(['encoder/config.json','rl_agent_config.json','tokenizer/tokenizer.json','tokenizer/tokenizer_config.json']);
+});
 test('installed status requires the selected checkpoint setup marker', () => {
  const calibration=JSON.parse(fs.readFileSync(new URL('../plugins/laya-router/runtime/routing-calibration.json',import.meta.url),'utf8'));
  const exists=vi.spyOn(fs,'existsSync').mockReturnValue(true);

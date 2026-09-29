@@ -1,0 +1,86 @@
+[
+  {
+    "text": "Calculate 1+1",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.9999956364029784,
+      "economy": 6.111934951574394e-8,
+      "general": 4.3024720480753446e-6,
+      "advanced": 5.623949504637488e-12
+    },
+    "choice": "basic",
+    "confidence": 0.9999956364029784
+  },
+  {
+    "text": "Berechne 2+4",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.9961518983446719,
+      "economy": 0.0006577444385063748,
+      "general": 0.00319012635761695,
+      "advanced": 2.3085920471893424e-7
+    },
+    "choice": "basic",
+    "confidence": 0.9961518983446719
+  },
+  {
+    "text": "Hallo",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.9999869496376701,
+      "economy": 1.3044997276140215e-5,
+      "general": 5.362176590113455e-9,
+      "advanced": 2.8772803448417314e-12
+    },
+    "choice": "basic",
+    "confidence": 0.9999869496376701
+  },
+  {
+    "text": "Hello",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.9999429779853164,
+      "economy": 5.689940654814003e-5,
+      "general": 1.2260540010236078e-7,
+      "advanced": 2.7352644859028693e-12
+    },
+    "choice": "basic",
+    "confidence": 0.9999429779853164
+  },
+  {
+    "text": "Write a friendly reminder email.",
+    "type": "choice",
+    "probabilities": {
+      "basic": 1.6360241606446075e-5,
+      "economy": 0.9999835380577856,
+      "general": 1.0169044396393208e-7,
+      "advanced": 1.0163913327836863e-11
+    },
+    "choice": "economy",
+    "confidence": 0.9999835380577856
+  },
+  {
+    "text": "Debug this Python error.",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.5628374231004395,
+      "economy": 0.002912626405226908,
+      "general": 0.43424702018742334,
+      "advanced": 2.9303069102124337e-6
+    },
+    "choice": "basic",
+    "confidence": 0.5628374231004395
+  },
+  {
+    "text": "Prove the Riemann hypothesis.",
+    "type": "choice",
+    "probabilities": {
+      "basic": 0.10557415637632024,
+      "economy": 0.0001508705728883518,
+      "general": 0.0036689321859837472,
+      "advanced": 0.8906060408648077
+    },
+    "choice": "advanced",
+    "confidence": 0.8906060408648077
+  }
+]

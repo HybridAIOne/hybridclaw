@@ -1,0 +1,301 @@
+{
+  "laya": {
+    "n": 200,
+    "correct": 192,
+    "accuracy": 0.96,
+    "accepted": 191,
+    "accepted_correct": 188,
+    "precision": 0.9842931937172775,
+    "coverage": 0.955,
+    "median_ms": 6.0,
+    "per_class": {
+      "basic": {
+        "correct": 49,
+        "predicted": 49,
+        "expected": 50
+      },
+      "economy": {
+        "correct": 49,
+        "predicted": 51,
+        "expected": 50
+      },
+      "general": {
+        "correct": 47,
+        "predicted": 49,
+        "expected": 50
+      },
+      "advanced": {
+        "correct": 47,
+        "predicted": 49,
+        "expected": 50
+      }
+    },
+    "per_language": {
+      "en": {
+        "n": 100,
+        "correct": 95,
+        "accepted": 93,
+        "accepted_correct": 92
+      },
+      "de": {
+        "n": 100,
+        "correct": 97,
+        "accepted": 98,
+        "accepted_correct": 96
+      }
+    }
+  },
+  "jev": {
+    "n": 200,
+    "correct": 192,
+    "accuracy": 0.96,
+    "accepted": 158,
+    "accepted_correct": 158,
+    "precision": 1.0,
+    "coverage": 0.79,
+    "median_ms": 250.0,
+    "per_class": {
+      "basic": {
+        "correct": 50,
+        "predicted": 55,
+        "expected": 50
+      },
+      "economy": {
+        "correct": 45,
+        "predicted": 45,
+        "expected": 50
+      },
+      "general": {
+        "correct": 49,
+        "predicted": 49,
+        "expected": 50
+      },
+      "advanced": {
+        "correct": 48,
+        "predicted": 48,
+        "expected": 50
+      }
+    },
+    "per_language": {
+      "en": {
+        "n": 100,
+        "correct": 95,
+        "accepted": 75,
+        "accepted_correct": 75
+      },
+      "de": {
+        "n": 100,
+        "correct": 97,
+        "accepted": 83,
+        "accepted_correct": 83
+      }
+    }
+  },
+  "gemma": {
+    "n": 200,
+    "correct": 181,
+    "accuracy": 0.905,
+    "accepted": 198,
+    "accepted_correct": 181,
+    "precision": 0.9141414141414141,
+    "coverage": 0.99,
+    "median_ms": 269.5,
+    "per_class": {
+      "basic": {
+        "correct": 38,
+        "predicted": 38,
+        "expected": 50
+      },
+      "economy": {
+        "correct": 50,
+        "predicted": 67,
+        "expected": 50
+      },
+      "general": {
+        "correct": 45,
+        "predicted": 45,
+        "expected": 50
+      },
+      "advanced": {
+        "correct": 48,
+        "predicted": 48,
+        "expected": 50
+      }
+    },
+    "per_language": {
+      "en": {
+        "n": 100,
+        "correct": 95,
+        "accepted": 98,
+        "accepted_correct": 95
+      },
+      "de": {
+        "n": 100,
+        "correct": 86,
+        "accepted": 100,
+        "accepted_correct": 86
+      }
+    }
+  },
+  "laya_affine_baseline": {
+    "n": 200,
+    "correct": 164,
+    "accuracy": 0.82,
+    "accepted": 129,
+    "accepted_correct": 118,
+    "precision": 0.9147286821705426,
+    "coverage": 0.645,
+    "median_ms": 14.0,
+    "per_class": {
+      "basic": {
+        "correct": 35,
+        "predicted": 40,
+        "expected": 50
+      },
+      "economy": {
+        "correct": 44,
+        "predicted": 59,
+        "expected": 50
+      },
+      "general": {
+        "correct": 42,
+        "predicted": 50,
+        "expected": 50
+      },
+      "advanced": {
+        "correct": 43,
+        "predicted": 49,
+        "expected": 50
+      }
+    },
+    "per_language": {
+      "en": {
+        "n": 100,
+        "correct": 91,
+        "accepted": 69,
+        "accepted_correct": 66
+      },
+      "de": {
+        "n": 100,
+        "correct": 73,
+        "accepted": 60,
+        "accepted_correct": 52
+      }
+    }
+  },
+  "calibration": {
+    "before_temperature": {
+      "ece_10_equal_width": 0.12107758160206938,
+      "selected_correctness_brier": 0.045568847850577805,
+      "mean_confidence": 0.8489224183979306,
+      "accepted_at_0_8": 143,
+      "bins": [
+        {
+          "n": 2,
+          "confidence": 0.47807291242379824,
+          "accuracy": 0.5
+        },
+        {
+          "n": 11,
+          "confidence": 0.5504855603423193,
+          "accuracy": 0.8181818181818182
+        },
+        {
+          "n": 16,
+          "confidence": 0.6577396951183483,
+          "accuracy": 0.875
+        },
+        {
+          "n": 28,
+          "confidence": 0.7519830929199793,
+          "accuracy": 1
+        },
+        {
+          "n": 51,
+          "confidence": 0.856675367456185,
+          "accuracy": 0.9803921568627451
+        },
+        {
+          "n": 92,
+          "confidence": 0.9511216437723324,
+          "accuracy": 1
+        }
+      ]
+    },
+    "after_temperature": {
+      "ece_10_equal_width": 0.015715686770197586,
+      "selected_correctness_brier": 0.022145507930297487,
+      "mean_confidence": 0.9770047336653537,
+      "accepted_at_0_8": 193,
+      "bins": [
+        {
+          "n": 2,
+          "confidence": 0.5869621227858879,
+          "accuracy": 0
+        },
+        {
+          "n": 2,
+          "confidence": 0.6263574424477931,
+          "accuracy": 1
+        },
+        {
+          "n": 3,
+          "confidence": 0.756314639679069,
+          "accuracy": 0.6666666666666666
+        },
+        {
+          "n": 8,
+          "confidence": 0.859523725577503,
+          "accuracy": 0.875
+        },
+        {
+          "n": 185,
+          "confidence": 0.9936712101564656,
+          "accuracy": 0.9891891891891892
+        }
+      ]
+    }
+  },
+  "three_tiers": {
+    "n": 200,
+    "correct": 194,
+    "accuracy": 0.97,
+    "accepted": 193,
+    "accepted_correct": 190,
+    "precision": 0.9844559585492227,
+    "coverage": 0.965,
+    "median_ms": 6.0,
+    "per_class": {
+      "basic": {
+        "correct": 49,
+        "predicted": 49,
+        "expected": 50
+      },
+      "middle": {
+        "correct": 98,
+        "predicted": 100,
+        "expected": 100
+      },
+      "advanced": {
+        "correct": 47,
+        "predicted": 49,
+        "expected": 50
+      }
+    },
+    "per_language": {
+      "en": {
+        "n": 100,
+        "correct": 96,
+        "accepted": 94,
+        "accepted_correct": 93
+      },
+      "de": {
+        "n": 100,
+        "correct": 98,
+        "accepted": 99,
+        "accepted_correct": 97
+      }
+    }
+  },
+  "target_met_on_this_test": true
+}

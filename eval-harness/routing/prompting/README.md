@@ -2,6 +2,10 @@
 
 [Protocol](PROTOCOL.md), [fresh-test report](results/report.md), [200 fresh prompts](validation.json).
 
+This is the historical affine experiment, verified at commit `603f1f136`.
+Its audit binds to that commit's worker/artifact; reproduce it at that commit.
+The source plugin uses the subsequent [frozen encoder experiment](../tuning/README.md).
+
 Development: 16 declared choice variants × 200 original prompts × three pinned checkpoints. Typed-decisions with JSON state and the activity/category variant wins. Preserve every outcome. Fit a 20-coefficient affine map on centered log probabilities using the original 200 cases; penalty 0.01 was selected using deterministic five-fold development comparisons. This map changes predicted labels, unlike the earlier selected-correctness calibration. Fit the separate positive-slope correctness map on 120 old calibration predictions, then freeze both before fresh validation inference.
 
 No final test labels fit coefficients or select prompts. The fresh 200-case four-tier comparison audits direct predictions and the actual plugin child process, gateway disclosure checks and confidence gate. It includes JEV and Gemma through the same production classifiers. Three-tier grouping was added after four-tier testing and is identified as a regression check, not independent model selection. See the report for synthetic labels, correlation, coverage, weak economy precision and other limitations.

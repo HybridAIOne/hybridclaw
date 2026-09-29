@@ -1,0 +1,6 @@
+{
+  "dataset_sha256": "d220498df3df1bc5a19c9b7dbe398b4f5bcd6336e778f1050bb97671763ebbe6",
+  "worker_sha256": "40ccf6aa815e0c269aeb02d46fe42996ae976598238518af97d8561bfd8bb679",
+  "calibration_sha256": "448cc9a0f5a782864f2726b47acc049822f35a21feaf7ce57cde16ee1aa99890",
+  "protocol": "Four-tier full classifyRouting and three-tier shared evaluator; identical disclosure guards, 0.8 gate; no live settings written."
+}

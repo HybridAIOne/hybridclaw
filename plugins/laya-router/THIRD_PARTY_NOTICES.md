@@ -26,6 +26,6 @@ The exact artifacts and hashes are recorded in `runtime/uv.lock`.
 | tqdm | 4.70.1 | MPL-2.0 AND MIT |
 | typing_extensions | 4.16.0 | PSF-2.0 |
 
-Laya typed-decisions weights: Convai Innovations and contributors, Apache-2.0.
+Laya multilingual weights: Convai Innovations and contributors, Apache-2.0.
 MLX conversion: mizorewww / aac6fef, Apache-2.0.
 Model provenance and revision are pinned in `runtime/routing-calibration.json`.
