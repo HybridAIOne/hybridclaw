@@ -30,6 +30,7 @@ import { McpPage } from './routes/mcp';
 import { ModelRoutingPage } from './routes/model-routing';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
+import { PublishedToolsPage } from './routes/published-tools';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
@@ -420,6 +421,12 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+const publishedToolsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/published-tools',
+  component: PublishedToolsPage,
+});
+
 function ConnectorsRouteComponent() {
   const hash = useRouterState({
     select: (state) => state.location.hash.replace(/^#/, ''),
@@ -630,6 +637,7 @@ const routeTree = rootRoute.addChildren([
     localModelsRoute,
     connectorsRoute,
     mcpRoute,
+    publishedToolsRoute,
     auditRoute,
     skillsRoute,
     skillDetailRoute,

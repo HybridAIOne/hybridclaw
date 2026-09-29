@@ -1187,6 +1187,9 @@ async function processRequestInner(
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
       : (toolCatalog?.tools ?? availableTools);
+  const availableToolNames = new Set(
+    availableTools.map((tool) => tool.function.name),
+  );
   setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -1283,6 +1286,14 @@ async function processRequestInner(
 
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
+    if (!availableToolNames.has(approvedToolCall.toolName)) {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: 'The approved tool is no longer available in this request.',
+      };
+    }
     if (toolCatalog) {
       try {
         toolCatalog.resolveCall({
@@ -1603,6 +1614,15 @@ async function processRequestInner(
           catalogCorrection =
             toolCatalog.recoverArgumentError(error)?.output ?? null;
         }
+      }
+    } else if (!invalidToolCallError) {
+      // Without a catalog, the offered schemas are the request's tool policy:
+      // a call to any other name fails the turn instead of reaching dispatch.
+      const unavailable = toolCalls.find(
+        (call) => !availableToolNames.has(call.function.name),
+      );
+      if (unavailable) {
+        invalidToolCallError = `Tool is not available in this request: ${unavailable.function.name}`;
       }
     }
     const correction =

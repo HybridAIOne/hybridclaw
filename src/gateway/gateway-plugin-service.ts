@@ -628,20 +628,35 @@ export async function handlePluginGatewayCommand(params: {
     }
 
     const previousConfig = getRuntimeConfig();
+    const loadedBefore = Boolean(
+      pluginManager
+        ?.listPluginSummary()
+        .some((summary) => summary.id === pluginId && !summary.error),
+    );
     try {
       const result =
         rawValue === '--unset'
           ? await unsetPluginConfigValue(pluginId, key)
           : await writePluginConfigValue(pluginId, key, rawValue);
       const reloadResult = await reloadPluginRuntime();
-      if (!reloadResult.ok) {
+      // A config that breaks a plugin which loaded before is rolled back too,
+      // instead of leaving it failed behind a "config updated" message.
+      const loadError =
+        reloadResult.ok && loadedBefore
+          ? (await ensurePluginManagerInitialized())
+              .listPluginSummary()
+              .find((summary) => summary.id === result.pluginId)?.error
+          : undefined;
+      if (!reloadResult.ok || loadError) {
         const rollbackLines = await rollbackPluginRuntimeConfigChange(
           previousConfig,
           {
             action: 'plugin config',
             pluginId: result.pluginId,
             key: result.key,
-            reloadMessage: reloadResult.message,
+            reloadMessage: loadError
+              ? `Plugin failed to load: ${loadError}`
+              : reloadResult.message,
           },
         );
         return badCommand(
@@ -649,7 +664,9 @@ export async function handlePluginGatewayCommand(params: {
           [
             `Plugin: ${result.pluginId}`,
             `Key: ${result.key}`,
-            `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
+            loadError
+              ? `Plugin failed to load with this config: ${loadError}`
+              : `Updated runtime config at \`${result.configPath}\`, but plugin reload failed.`,
             ...rollbackLines,
           ].join('\n'),
         );
