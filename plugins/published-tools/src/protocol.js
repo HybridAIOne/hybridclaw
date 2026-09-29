@@ -61,12 +61,15 @@ function decodeHeaderValue(name, raw) {
   return encoded ? Buffer.from(encoded[1], 'base64').toString('utf8') : raw;
 }
 
-function isBearerTokenValid(req, token) {
-  const match = String(header(req, 'authorization') || '').match(
+// `X-Api-Key` is for hosts that reserve Authorization for their own OAuth,
+// such as Claude custom connectors; it carries the same token.
+function isTokenValid(req, token) {
+  const bearer = String(header(req, 'authorization') || '').match(
     /^Bearer\s+(\S+)$/i,
-  );
-  if (!token || !match) return false;
-  const provided = Buffer.from(match[1]);
+  )?.[1];
+  const candidate = bearer ?? header(req, 'x-api-key')?.trim();
+  if (!token || !candidate) return false;
+  const provided = Buffer.from(candidate);
   const expected = Buffer.from(token);
   return (
     provided.length === expected.length && timingSafeEqual(provided, expected)
@@ -169,7 +172,7 @@ export async function handleMcpPost(ctx, server) {
     if (origin && !server.allowedOrigins.has(origin)) {
       throw new RpcError(403, RPC.INVALID_REQUEST, 'Origin not allowed.');
     }
-    if (!isBearerTokenValid(req, server.token)) {
+    if (!isTokenValid(req, server.token)) {
       res.setHeader('www-authenticate', 'Bearer');
       throw new RpcError(401, RPC.INVALID_REQUEST, 'Unauthorized.');
     }

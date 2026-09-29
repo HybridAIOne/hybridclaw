@@ -175,7 +175,8 @@ export function PublishedToolsPage() {
           <CardTitle>MCP endpoint</CardTitle>
           <CardDescription>
             Add this URL as a Model Context Protocol tool in Copilot Studio,
-            with the token as a Bearer API key. Protocol version 2026-07-28.
+            with the token sent as <code>Authorization: Bearer</code> or{' '}
+            <code>X-Api-Key</code>. Protocol version 2026-07-28.
           </CardDescription>
         </CardHeader>
         <CardContent>

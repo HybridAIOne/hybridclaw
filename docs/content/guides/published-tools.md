@@ -25,8 +25,9 @@ hybridclaw secret set PUBLISHED_TOOLS_TOKEN "replace-with-a-long-random-token"
 
 The endpoint is `POST /api/plugin-webhooks/published-tools/mcp` on your
 gateway's public URL. Every request must send
-`Authorization: Bearer <PUBLISHED_TOOLS_TOKEN>`. Without the secret, the
-endpoint rejects every request.
+`Authorization: Bearer <PUBLISHED_TOOLS_TOKEN>`, or `X-Api-Key:
+<PUBLISHED_TOOLS_TOKEN>` for hosts that reserve the `Authorization` header for
+their own OAuth. Without the secret, the endpoint rejects every request.
 
 ## Define Tools
 
@@ -84,6 +85,12 @@ for good, so a later "yes" on it cannot approve the action. Keep published
 tools to actions that need no approval, narrow them with `allowedTools`, and
 point write-capable work at channels where a person answers approval
 prompts.
+
+## Claude Custom Connectors
+
+In Claude, add a custom connector with the endpoint URL, choose **No
+sign-in**, and add the request header `X-Api-Key` with the
+`PUBLISHED_TOOLS_TOKEN` value. Claude reserves `Authorization` for OAuth.
 
 ## Microsoft Copilot Studio
 

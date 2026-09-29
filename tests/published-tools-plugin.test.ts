@@ -172,6 +172,11 @@ test.each([
 test.each([
   ['a missing token', { authorization: undefined }, 401],
   ['a wrong token', { authorization: 'Bearer nope' }, 401],
+  [
+    'a wrong X-Api-Key',
+    { authorization: undefined, 'x-api-key': 'nope' },
+    401,
+  ],
   ['a foreign browser origin', { origin: 'https://evil.example.com' }, 403],
 ])('%s is rejected before the body is read', async (_label, headers, status) => {
   const { url, dispatch } = await startPlugin();
@@ -185,6 +190,18 @@ test.each([
   if (status === 401) {
     expect(response.headers.get('www-authenticate')).toBe('Bearer');
   }
+});
+
+test('the token is also accepted as X-Api-Key for hosts that reserve Authorization', async () => {
+  const { url, dispatch } = await startPlugin();
+  const response = await post(
+    url,
+    rpcBody('tools/call', { name: 'ask_anything', arguments: { question: 'x' } }),
+    { authorization: undefined, 'x-api-key': TOKEN },
+  );
+  expect(response.status).toBe(200);
+  expect(response.json.result.structuredContent.status).toBe('completed');
+  expect(dispatch).toHaveBeenCalledTimes(1);
 });
 
 test.each([
