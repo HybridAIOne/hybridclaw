@@ -61,7 +61,10 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
-import { buildEarlierAttachmentsPrompt } from '../media/earlier-attachments.js';
+import {
+  buildEarlierAttachmentsPrompt,
+  collectEarlierAttachments,
+} from '../media/earlier-attachments.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
@@ -2159,6 +2162,9 @@ async function handleGatewayMessageInner(
         onApprovalProgress: params.onApprovalProgress,
         abortSignal: activeGatewayRequest.signal,
         media,
+        readableMediaPaths: collectEarlierAttachments(history).map(
+          (item) => item.path,
+        ),
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
@@ -2274,6 +2280,9 @@ async function handleGatewayMessageInner(
         onApprovalProgress,
         abortSignal: activeGatewayRequest.signal,
         media,
+        readableMediaPaths: collectEarlierAttachments(history).map(
+          (item) => item.path,
+        ),
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),

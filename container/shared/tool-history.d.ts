@@ -1,4 +1,6 @@
-interface HistoryMessage {
+import type { PdfAttachmentMessage } from './pdf-attachments.js';
+
+interface HistoryMessage extends PdfAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{

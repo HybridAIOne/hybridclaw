@@ -95,6 +95,7 @@ function convertContentPart(
   if (part.type === 'text') {
     return { type: 'input_text', text: part.text };
   }
+  if (part.type === 'file') return { type: 'input_file', ...part.file };
   if (part.type === 'image_url') {
     return { type: 'input_image', image_url: part.image_url.url };
   }

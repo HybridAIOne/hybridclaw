@@ -1,176 +1,150 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-
-import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { afterEach, describe, expect, test } from 'vitest';
-
+import { PDFDocument } from 'pdf-lib';
+import { describe, expect, test } from 'vitest';
 import { setSandboxModeOverride } from '../src/config/config.js';
-import {
-  clampText,
-  injectPdfContextMessages,
-} from '../src/media/pdf-context.js';
+import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import type { ChatMessage } from '../src/types/api.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
 
-async function createPdf(filePath: string, text: string): Promise<void> {
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([400, 400]);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  page.drawText(text, {
-    x: 40,
-    y: 340,
-    size: 18,
-    font,
-  });
-  await fs.writeFile(filePath, await pdf.save());
+const tempDir = useTempDir();
+useCleanMocks({ cleanup: () => setSandboxModeOverride(null) });
+
+async function pdf(root: string, name = 'document.pdf', pageCount = 6) {
+  const document = await PDFDocument.create();
+  for (let index = 0; index < pageCount; index += 1) {
+    const page = document.addPage([400, 400]);
+    if (index !== 1) page.drawText(`Page ${index + 1} evidence`);
+  }
+  const file = path.join(root, name);
+  await fs.writeFile(file, await document.save());
+  return file;
 }
 
-function latestSystemMessage(messages: ChatMessage[]): ChatMessage | undefined {
-  return [...messages].reverse().find((message) => message.role === 'system');
+function preview(messages: ChatMessage[]) {
+  const content = messages.at(-1)?.content;
+  if (!Array.isArray(content)) throw new Error('Expected user content parts');
+  const part = content.at(-1);
+  if (part?.type !== 'text') throw new Error('Expected preview text');
+  return JSON.parse(part.text.slice(part.text.indexOf('\n') + 1));
 }
 
-describe('injectPdfContextMessages', () => {
-  afterEach(() => {
-    setSandboxModeOverride(null);
-  });
-
-  test('clampText respects small caps including the truncation suffix', () => {
-    const clamped = clampText('x'.repeat(2_000), 80);
-
-    expect(clamped.length).toBeLessThanOrEqual(80);
-    expect(clamped.endsWith('...[truncated]')).toBe(true);
-  });
-
-  test('clampText does not exceed tiny caps', () => {
-    const clamped = clampText('x'.repeat(2_000), 10);
-
-    expect(clamped).toHaveLength(10);
-  });
-
-  test('injects current-turn PDF text for an explicit local file path', async () => {
-    const workspaceRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'hybridclaw-pdf-context-'),
+describe('PDF attachment preview', () => {
+  test('preserves original history and images, adds bounded user data with page coverage', async () => {
+    const root = tempDir();
+    await pdf(root);
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'System rules' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Read "./document.pdf"' },
+          {
+            type: 'image_url',
+            image_url: { url: 'data:image/png;base64,example' },
+          },
+        ],
+      },
+    ];
+    const before = structuredClone(messages);
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages,
+    });
+    expect(messages).toEqual(before);
+    expect(result.map((message) => message.role)).toEqual(['system', 'user']);
+    expect(result[0]).toEqual(before[0]);
+    expect((result[1].content as unknown[])[1]).toEqual(
+      (before[1].content as unknown[])[1],
     );
-    const pdfPath = path.join(workspaceRoot, 'invoice.pdf');
-    await createPdf(pdfPath, 'Invoice Number 5868229');
+    expect(preview(result).previews[0]).toMatchObject({
+      pageCount: 6,
+      processedPages: [1, 2, 3, 4],
+      omittedPages: 2,
+      renderedPages: [],
+    });
+    expect(preview(result).previews[0].pages[1]).toMatchObject({
+      page: 2,
+      text: '',
+      needsVisualInspection: true,
+    });
+  });
 
-    const messages = await injectPdfContextMessages({
-      sessionId: 'session-explicit-path',
-      workspaceRoot,
+  test('deduplicates an attachment also named in the prompt', async () => {
+    const root = tempDir();
+    const file = await pdf(root);
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
+      media: [
+        { path: file, filename: 'document.pdf', mimeType: 'application/pdf' },
+      ],
+      messages: [{ role: 'user', content: `Read "${file}"` }],
+    });
+    expect(preview(result).previews).toHaveLength(1);
+  });
+
+  test('bounds the number of files and reports omissions', async () => {
+    const root = tempDir();
+    const files = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => pdf(root, `${i}.pdf`, 1)),
+    );
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
       messages: [
-        {
-          role: 'user',
-          content: 'Please summarize "./invoice.pdf".',
-        },
+        { role: 'user', content: files.map((file) => `"${file}"`).join(' ') },
       ],
     });
-
-    expect(messages).toHaveLength(2);
-    const systemMessage = latestSystemMessage(messages);
-    expect(systemMessage?.content).toContain('[PDFContext]');
-    expect(systemMessage?.content).toContain(
-      '<file name="invoice.pdf" mime="application/pdf">',
-    );
-    expect(systemMessage?.content).toContain('Invoice Number 5868229');
-    expect(messages.at(-1)?.content).toBe('Please summarize "./invoice.pdf".');
+    expect(preview(result).previews).toHaveLength(4);
+    expect(preview(result).omittedFiles).toBe(1);
   });
 
-  test('reuses cached PDF context for approval replay turns', async () => {
-    const workspaceRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'hybridclaw-pdf-approval-'),
-    );
-    const pdfPath = path.join(workspaceRoot, 'receipt.pdf');
-    await createPdf(pdfPath, 'Approved invoice summary');
-
+  test('does not resurrect cached text on approval-only turns', async () => {
+    const root = tempDir();
+    await pdf(root);
     await injectPdfContextMessages({
-      sessionId: 'session-approval-replay',
-      workspaceRoot,
-      messages: [
-        {
-          role: 'user',
-          content: 'Extract the fields from "./receipt.pdf".',
-        },
-      ],
+      workspaceRoot: root,
+      messages: [{ role: 'user', content: 'Read "./document.pdf"' }],
     });
-
-    const replayMessages = await injectPdfContextMessages({
-      sessionId: 'session-approval-replay',
-      workspaceRoot,
-      messages: [
-        {
-          role: 'user',
-          content: 'yes',
-        },
-      ],
-    });
-
-    expect(replayMessages).toHaveLength(2);
-    expect(latestSystemMessage(replayMessages)?.content).toContain(
-      'Approved invoice summary',
-    );
+    const messages: ChatMessage[] = [{ role: 'user', content: 'yes' }];
+    expect(
+      await injectPdfContextMessages({
+          workspaceRoot: root,
+        messages,
+      }),
+    ).toBe(messages);
   });
 
-  test('reuses cached PDF context for "yes for all" approval replay turns', async () => {
-    const workspaceRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'hybridclaw-pdf-approval-all-'),
-    );
-    const pdfPath = path.join(workspaceRoot, 'receipt.pdf');
-    await createPdf(pdfPath, 'Allowlist replay summary');
-
-    await injectPdfContextMessages({
-      sessionId: 'session-approval-replay-all',
-      workspaceRoot,
+  test('reports missing and corrupt PDFs without fabricating content', async () => {
+    const root = tempDir();
+    await fs.writeFile(path.join(root, 'broken.pdf'), 'not a PDF');
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
       messages: [
-        {
-          role: 'user',
-          content: 'Extract the fields from "./receipt.pdf".',
-        },
+        { role: 'user', content: 'Read "./missing.pdf" and "./broken.pdf"' },
       ],
     });
-
-    const replayMessages = await injectPdfContextMessages({
-      sessionId: 'session-approval-replay-all',
-      workspaceRoot,
-      messages: [
-        {
-          role: 'user',
-          content: 'yes for all',
-        },
-      ],
-    });
-
-    expect(replayMessages).toHaveLength(2);
-    expect(latestSystemMessage(replayMessages)?.content).toContain(
-      'Allowlist replay summary',
-    );
+    expect(
+      preview(result).previews.every(
+        (item: { status?: string }) => item.status,
+      ),
+    ).toBe(true);
   });
 
-  test('allows explicit absolute PDF paths in host mode', async () => {
+  test('rejects symlink escapes in container mode, allows explicit host paths in host mode', async () => {
+    const root = tempDir();
+    const outside = await pdf(tempDir());
+    await fs.symlink(outside, path.join(root, 'escape.pdf'));
+    setSandboxModeOverride('container');
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages: [{ role: 'user', content: 'Read "./escape.pdf"' }],
+    });
+    expect(preview(result).previews[0].pageCount).toBeUndefined();
     setSandboxModeOverride('host');
-
-    const workspaceRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'hybridclaw-pdf-host-mode-'),
-    );
-    const externalRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), 'hybridclaw-pdf-external-'),
-    );
-    const pdfPath = path.join(externalRoot, 'outside-workspace.pdf');
-    await createPdf(pdfPath, 'Host mode absolute path');
-
-    const messages = await injectPdfContextMessages({
-      sessionId: 'session-host-absolute',
-      workspaceRoot,
-      messages: [
-        {
-          role: 'user',
-          content: `Please extract "${pdfPath}".`,
-        },
-      ],
+    const allowed = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages: [{ role: 'user', content: `Read "${outside}"` }],
     });
-
-    expect(messages).toHaveLength(2);
-    expect(latestSystemMessage(messages)?.content).toContain(
-      'Host mode absolute path',
-    );
+    expect(preview(allowed).previews[0].pageCount).toBe(6);
   });
 });

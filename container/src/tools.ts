@@ -63,14 +63,17 @@ import {
 } from './gateway-json-post.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
+import { PDF_READ_PARAMETERS, readPdfFile } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import { setPdfMediaAllowed } from './providers/pdf-content.js';
 import {
   type RuntimeProvider,
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
 import {
-  resolveCurrentTurnMediaReadPath,
-  resolveCurrentTurnMediaSandboxPath,
+  resolveSessionMediaReadPath,
+  resolveSessionMediaSandboxPath,
+  setReadableMediaPaths,
 } from './read-path.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
@@ -820,8 +823,14 @@ export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
   setBrowserTaskModelPolicies(currentTaskModelPolicies);
 }
 
-export function setMediaContext(media?: MediaContextItem[]): void {
+export function setMediaContext(
+  media?: MediaContextItem[],
+  readableMediaPaths: string[] = [],
+  pdfMediaAllowed = false,
+): void {
   currentMediaContext = Array.isArray(media) ? media : [];
+  setReadableMediaPaths(readableMediaPaths);
+  setPdfMediaAllowed(pdfMediaAllowed);
 }
 
 function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
@@ -2706,7 +2715,7 @@ async function executeToolInternal(
   name: string,
   argsJson: string,
   sentFiles: FileReferenceExpansion[],
-): Promise<string> {
+): Promise<string | ToolRunResult> {
   let parsedArgs: unknown;
   try {
     parsedArgs = JSON.parse(argsJson);
@@ -2764,22 +2773,24 @@ async function executeToolInternal(
         let content = '';
         if (TASK_SANDBOX_FS_ENABLED) {
           const sandboxPath =
-            resolveCurrentTurnMediaSandboxPath(
-              args.path,
-              currentMediaContext,
-            ) || resolveTaskSandboxPath(args.path);
+            resolveSessionMediaSandboxPath(args.path, currentMediaContext) ||
+            resolveTaskSandboxPath(args.path);
           if (!sandboxPath) {
             return failTool(`Error: Path escapes workspace: ${args.path}`);
           }
           const copied = copyTaskSandboxFileToTemp(sandboxPath);
           tempDirToCleanup = copied.tempDir;
+          if (/\.pdf$/i.test(args.path))
+            return await readPdfFile(copied.localPath, args);
           content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
           const filePath =
-            resolveCurrentTurnMediaReadPath(args.path, currentMediaContext) ||
+            resolveSessionMediaReadPath(args.path, currentMediaContext) ||
             safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
+          if (/\.pdf$/i.test(args.path))
+            return await readPdfFile(filePath, args);
           content = fs.readFileSync(filePath, 'utf-8');
         }
         const lines = content.split('\n');
@@ -3981,10 +3992,12 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
-    const output = await executeToolInternal(name, argsJson, sentFiles);
+    const result = await executeToolInternal(name, argsJson, sentFiles);
+    const metadata =
+      typeof result === 'string' ? { output: result, isError: false } : result;
     return {
-      output: appendFileReferenceReceipt(output, sentFiles),
-      isError: false,
+      ...metadata,
+      output: appendFileReferenceReceipt(metadata.output, sentFiles),
     };
   } catch (err) {
     if (err instanceof ToolExecutionFailure) {
@@ -4039,11 +4052,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large files.`,
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. PDFs return page text and attach selected pages directly to the model; use pages/render.`,
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
+          ...PDF_READ_PARAMETERS,
           offset: {
             type: 'number',
             description:

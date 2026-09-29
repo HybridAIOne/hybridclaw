@@ -100,6 +100,8 @@ agent archives skip and `reset yes` removes with the workspace.
 | Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
+| Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
+| PDF page snapshots | Workspace `.pdf-pages/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Background processes, `/tmp` files | Worker | Lost |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
@@ -618,3 +620,47 @@ Prompt and runtime internals:
   result; with `background: true` the parent turn ends and a later
   `delegate:results` turn wakes the parent with the reports, hidden from
   history views
+
+## PDF reading
+
+Current-turn PDF attachments and explicit local PDF paths receive a bounded
+`[PDFPreview]` in user content, before confidential text redaction. The preview
+contains up to four files, four pages per file and 6,000 text characters per
+file, with original page numbers, omitted-page counts and truncation flags.
+The preview is never a system instruction. Selected pages accompany it as native
+PDF content on the official OpenAI Responses and Anthropic Messages endpoints.
+Other endpoints, including Qwen/vLLM, Ollama, Codex and Gemini's OpenAI-compatible
+API, receive rendered page images. Claude CLI receives text only. Vision support
+and native PDF endpoint support are separate: known text-only models receive
+text; unknown models negotiate image support through the endpoint. Explicit
+media rejection retries native PDF → images → text, never after a streamed text
+or thinking delta. Authentication, network and unrelated errors are not retried
+by this fallback. Text-only delivery always reports unavailable visual coverage.
+
+The existing `read` tool accepts `pages` (up to four pages per call) and `render`
+(`auto`, `never`) for PDFs. Reads are capped at 50 MiB and 24,000 text
+characters. `auto` delivers every selected page directly to the active
+model, preserving charts even on text-rich pages; `never` requests text only.
+No separate vision-model call is needed. Native uploads contain only selected
+pages, with a mapping back to original page numbers. For full-document tasks,
+read every relevant page batch. A page is not empty merely because extraction
+returned no text.
+
+Page snapshots live in workspace `.pdf-pages/`, addressed by SHA-256. Tool
+history stores validated references, not base64 payloads. Worker replacement
+and provider changes reconstruct the appropriate representation from these
+snapshots. Missing, modified or oversized snapshots produce an explicit coverage
+warning and require re-reading the source. Each snapshot and each request's PDF
+visual payload are limited to 20 MiB; token estimates reserve 4,000 tokens per
+selected page. Snapshots follow workspace retention and may be deleted when
+retiring its history; deleting live snapshots makes those references unavailable.
+Earlier attachment access is reconstructed from stored conversation metadata.
+
+PDF reads use the normal read approval and sandbox boundary. Gateway-supplied
+media paths are scoped to the session, never the entire media cache. Snapshot
+loads accept hashes rather than paths, reject symlinks, validate size and verify
+content integrity. Parsing uses the bundled, lazily loaded PDF skill runtime.
+Document text and visuals remain untrusted user data. Confidential text redaction
+disables binary PDF/image delivery, including historical snapshots, because text
+redaction cannot sanitize document bytes or pixels. Rendering or delivery alone
+does not prove model accuracy; coverage and extraction/render errors stay explicit.

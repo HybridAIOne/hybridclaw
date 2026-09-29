@@ -9,7 +9,8 @@
  *
  * NOT the current turn's `[MediaContext]` block (`buildMediaPromptContext`):
  * history is read before the current turn is stored, so this turn's uploads
- * never appear here.
+ * never appear here. The same collected references authorize worker reads;
+ * document contents never supply those capabilities.
  */
 import {
   type MessageMediaItem,
@@ -27,22 +28,14 @@ export async function buildEarlierAttachmentsPrompt(params: {
   history: readonly Pick<StoredMessage, 'role' | 'media_json'>[];
   workspaceRoot: string;
 }): Promise<string> {
-  const attachments = new Map<string, MessageMediaItem>();
-  for (const message of params.history) {
-    if (attachments.size >= MAX_EARLIER_ATTACHMENTS) break;
-    if (message.role !== 'user') continue;
-    for (const item of parseMessageMedia(message.media_json)) {
-      if (attachments.size >= MAX_EARLIER_ATTACHMENTS) break;
-      if (!attachments.has(item.path)) attachments.set(item.path, item);
-    }
-  }
-  if (attachments.size === 0) return '';
+  const attachments = collectEarlierAttachments(params.history);
+  if (attachments.length === 0) return '';
 
   const resolveHostPath = createMediaHostPathResolver(params.workspaceRoot);
   // JSON keeps a user-chosen filename inside one quoted value, so it cannot
   // add lines or headings to the surrounding context.
   const entries = await Promise.all(
-    [...attachments.values()].map(async (item) =>
+    attachments.map(async (item) =>
       JSON.stringify({
         filename: item.filename,
         mime: item.mimeType || 'unknown',
@@ -59,4 +52,19 @@ export async function buildEarlierAttachmentsPrompt(params: {
     'An entry with status "no longer available" can no longer be read, usually because media cleanup removed it: do not reuse a path for it from earlier messages or tool calls, do not guess its contents, and do not create a placeholder file; ask the user to attach it again.',
     ...entries,
   ].join('\n');
+}
+
+export function collectEarlierAttachments(
+  history: readonly Pick<StoredMessage, 'role' | 'media_json'>[],
+): MessageMediaItem[] {
+  const attachments = new Map<string, MessageMediaItem>();
+  for (const message of history) {
+    if (attachments.size >= MAX_EARLIER_ATTACHMENTS) break;
+    if (message.role !== 'user') continue;
+    for (const item of parseMessageMedia(message.media_json)) {
+      if (attachments.size >= MAX_EARLIER_ATTACHMENTS) break;
+      if (!attachments.has(item.path)) attachments.set(item.path, item);
+    }
+  }
+  return [...attachments.values()];
 }

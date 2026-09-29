@@ -1,5 +1,6 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
   AddressEnvelope,
@@ -15,7 +16,7 @@ import type {
 } from '../types/execution.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 
-export interface ExecutorRequest {
+export interface ExecutorRequest extends SessionAttachmentAccess {
   sessionId: string;
   runId?: string;
   messages: ChatMessage[];

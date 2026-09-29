@@ -1,5 +1,10 @@
 import type { ApprovalMode } from '../shared/approval-mode.js';
+import type {
+  PdfAttachmentMessage,
+  PdfFilePart,
+} from '../shared/pdf-attachments.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 import type {
   StakesScore as CanonicalStakesScore,
@@ -31,7 +36,8 @@ export interface ChatContentAudioUrlPart {
 export type ChatContentPart =
   | ChatContentTextPart
   | ChatContentImageUrlPart
-  | ChatContentAudioUrlPart;
+  | ChatContentAudioUrlPart
+  | PdfFilePart;
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
 export interface AnthropicContentBlock {
@@ -39,7 +45,7 @@ export interface AnthropicContentBlock {
   [key: string]: unknown;
 }
 
-export interface ChatMessage {
+export interface ChatMessage extends PdfAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];
@@ -109,7 +115,7 @@ export interface ToolDefinition {
   };
 }
 
-export interface ToolRunResult {
+export interface ToolRunResult extends PdfAttachmentMessage {
   output: string;
   isError: boolean;
 }
@@ -215,7 +221,7 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput {
+export interface ContainerInput extends SessionAttachmentAccess {
   healthCheck?: {
     nonce: string;
   };

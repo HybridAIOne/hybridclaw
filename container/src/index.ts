@@ -829,6 +829,9 @@ async function executePreparedToolCall(
       content: result,
       tool_call_id: call.id,
       ...(isError ? { is_error: true } : {}),
+      ...('pdfAttachments' in runtimeResult
+        ? { pdfAttachments: runtimeResult.pdfAttachments }
+        : {}),
     },
     artifacts: extractToolArtifacts(toolName, result),
   };
@@ -2238,7 +2241,11 @@ async function main(): Promise<void> {
     firstInput.debugModelResponses === true,
   );
   setTaskModelPolicies(firstTaskModels);
-  setMediaContext(firstInput.media);
+  setMediaContext(
+    firstInput.media,
+    firstInput.readableMediaPaths,
+    firstInput.pdfMediaAllowed,
+  );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
     model: firstInput.model,
@@ -2394,7 +2401,11 @@ async function main(): Promise<void> {
       input.debugModelResponses === true,
     );
     setTaskModelPolicies(taskModels);
-    setMediaContext(input.media);
+    setMediaContext(
+      input.media,
+      input.readableMediaPaths,
+      input.pdfMediaAllowed,
+    );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,
       model: input.model,

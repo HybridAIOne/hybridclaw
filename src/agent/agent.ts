@@ -1,7 +1,8 @@
 /**
  * Agent execution validates replayable tool history at the worker boundary and
  * applies confidential placeholders across turns. Executors run tools; this
- * layer does not grant permissions or turn audit records into instructions.
+ * layer blocks binary PDF delivery under confidentiality and never turns audit
+ * records into instructions.
  */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -10,6 +11,8 @@ import { HYBRIDAI_MODEL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
+import { isModelVisionCapable } from '../providers/model-catalog.js';
+import { resolveStaticModelCatalogMetadata } from '../providers/model-metadata.js';
 import {
   createConfidentialRuntimeContext,
   getConfidentialRuleSet,
@@ -157,11 +160,18 @@ async function runAgentInner(
   const executor = getExecutor(params.executorModeOverride);
   const workspaceRoot =
     params.workspacePathOverride || executor.getWorkspacePath(agentId);
+  // Unknown model capabilities are negotiated through the endpoint; explicit
+  // media rejection falls back to text. Confidential text redaction cannot
+  // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
+  const pdfMediaAllowed =
+    !isConfidentialRedactionEnabled() &&
+    (isModelVisionCapable(model) ||
+      !resolveStaticModelCatalogMetadata(model).known);
   const preparedMessages = await injectPdfContextMessages({
-    sessionId,
     messages: params.messages,
     workspaceRoot,
     media,
+    pdfMediaAllowed,
   });
   const confidentialRuleSet = isConfidentialRedactionEnabled()
     ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
@@ -182,6 +192,7 @@ async function runAgentInner(
     ...params,
     sessionId,
     messages: dehydratedMessages,
+    pdfMediaAllowed,
     chatbotId,
     model,
     agentId,

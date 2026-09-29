@@ -106,7 +106,14 @@ export function estimateChatMessageTokens(
     if (cached !== undefined) return cached;
   }
 
-  let total = 4;
+  // Agent decision, 2026-09-29: reserve 4k tokens per selected page for pixels
+  // and native PDF text; exact usage remains provider-reported.
+  let total =
+    4 +
+    (message.pdfAttachments?.reduce(
+      (sum, ref) => sum + ref.pages.length * 4_000,
+      0,
+    ) ?? 0);
   total += estimateTextTokens(message.role);
   total +=
     message.role === 'tool'
