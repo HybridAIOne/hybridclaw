@@ -155,7 +155,7 @@
   opacity: 0;
 }
 
-.idea:hover:not(:disabled) .ideaChevron,
+.idea:hover .ideaChevron,
 .idea:focus-visible .ideaChevron {
   opacity: 1;
 }
