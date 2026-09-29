@@ -8,9 +8,9 @@ vi.mock('../api/client', () => ({ requestJson: mocks.request }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 beforeEach(() => vi.clearAllMocks());
 it.each([
-  ['stopped', false, 'Download & set up decision model', 'setup'],
-  ['stopped', true, 'Start decision model', 'start'],
-  ['running', true, 'Stop decision model', 'stop'],
+  ['stopped', false, 'Download & set up', 'setup'],
+  ['stopped', true, 'Start model', 'start'],
+  ['running', true, 'Stop model', 'stop'],
   ['starting', true, 'Cancel', 'stop'],
 ] as const)(
   'controls a %s decision process independently',

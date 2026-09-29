@@ -1,58 +1,24 @@
 .content {
   display: grid;
-  gap: 24px;
+  gap: 22px;
   min-width: 0;
 }
 .content p {
   margin: 0;
   line-height: 1.6;
 }
-.model {
-  display: grid;
-  gap: 18px;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 22px;
-}
-.heading,
-.actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.actions {
-  gap: 16px;
-}
-.heading {
-  gap: 12px;
-  justify-content: space-between;
-}
-.heading h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
+.content a {
+  color: var(--primary);
 }
 .badge {
-  display: inline-flex;
   align-items: center;
   gap: 7px;
-  border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--muted);
-  color: var(--muted-foreground);
 }
 .badge[data-status="setup"],
 .badge[data-status="downloading"],
 .badge[data-status="starting"] {
   background: var(--accent-soft);
   color: var(--primary);
-}
-.badge[data-status="running"] {
-  background: var(--success-soft);
-  color: var(--success);
 }
 .badge[data-status="error"] {
   color: var(--danger);
@@ -62,14 +28,7 @@
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-}
-.dot[data-busy="true"] {
   animation: pulse 1.6s ease-in-out infinite;
-}
-.description,
-.hint {
-  color: var(--muted-foreground);
-  font-size: 13px;
 }
 .steps {
   display: grid;
@@ -113,14 +72,11 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dot[data-busy="true"] {
+  .dot {
     animation: none;
   }
 }
 @media (max-width: 600px) {
-  .model {
-    padding: 16px;
-  }
   .steps {
     grid-template-columns: 1fr;
   }
