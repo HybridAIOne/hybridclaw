@@ -4,6 +4,7 @@ import type {
   ChatCommandsResponse,
   ChatContextResponse,
   ChatHistoryResponse,
+  ChatIdeasResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
   ChatVoiceCapabilityResponse,
@@ -89,6 +90,19 @@ export function fetchChatContext(
   const params = new URLSearchParams({ sessionId });
   return requestJson<ChatContextResponse>(
     `/api/chat/context?${params.toString()}`,
+    { token },
+  );
+}
+
+export function fetchChatIdeas(
+  token: string,
+  userId: string,
+  agentId?: string,
+): Promise<ChatIdeasResponse> {
+  const params = new URLSearchParams({ userId });
+  if (agentId?.trim()) params.set('agentId', agentId.trim());
+  return requestJson<ChatIdeasResponse>(
+    `/api/chat/ideas?${params.toString()}`,
     { token },
   );
 }

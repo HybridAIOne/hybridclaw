@@ -22,8 +22,8 @@ import { getErrorMessage } from '../lib/error-message';
 import { ChatSidebarPanel } from './chat/chat-sidebar';
 
 /**
- * The chat recents sidebar, wired for the Apps page. It reuses the chat
- * conversation list so the left rail is continuous between /chat and /apps;
+ * The chat recents sidebar, wired for the Apps and Ideas pages. It reuses the
+ * chat conversation list so the left rail is continuous with /chat;
  * opening a conversation or starting a new one navigates back into chat.
  */
 export function AppsChatSidebar() {

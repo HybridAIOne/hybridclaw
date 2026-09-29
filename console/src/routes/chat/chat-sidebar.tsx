@@ -2,7 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { Trash } from '../../components/icons';
+import { Lightbulb, Trash } from '../../components/icons';
 import {
   SidebarBrand,
   SidebarMeta,
@@ -39,6 +39,8 @@ export interface ChatSidebarProps {
   onRecentScopeChange: (scope: 'user' | 'all') => void;
   isLoading: boolean;
   onRefreshRecent?: () => void;
+  /** Agent the Ideas page opens with; omitted, the gateway default is used. */
+  activeAgentId?: string;
 }
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
@@ -76,6 +78,21 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
             <AppsGridIcon />
           </span>
           <span>Apps</span>
+        </button>
+        <button
+          type="button"
+          className={css.newChatButton}
+          onClick={() =>
+            navigate({
+              to: '/chat/ideas',
+              search: props.activeAgentId ? { agent: props.activeAgentId } : {},
+            })
+          }
+        >
+          <span aria-hidden="true" className={css.navLinkIcon}>
+            <Lightbulb />
+          </span>
+          <span>Ideas</span>
         </button>
         <div className={css.sidebarSearchWrap}>
           <input

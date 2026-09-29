@@ -159,6 +159,9 @@ Other built-in surfaces on the running gateway (`http://127.0.0.1:9090`):
 
 - `/admin/agents` — agent scoreboard and workspace files; the `/chat` sidebar
   also searches past sessions by title
+- `/chat/ideas` — five suggestions for what the selected agent could help with
+  next, generated from its persona files and your recent chats; picking one
+  prefills the chat composer
 - `/apps` — generated app gallery for self-contained HTML apps, documents,
   games, tools, and live connector-backed views
 - `/admin` — channels, agents, and skills, plus saved-revision editing

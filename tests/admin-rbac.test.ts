@@ -199,6 +199,9 @@ describe('admin RBAC role bundles', () => {
       'voice.session',
     );
     expect(resolveAdminRbacAction('/api/chat/voice/token', 'GET')).toBeNull();
+    // Unmapped on purpose: scoped API tokens must not read chat history and
+    // spend model calls through the ideas page.
+    expect(resolveAdminRbacAction('/api/chat/ideas', 'GET')).toBeNull();
     expect(resolveAdminRbacAction('/api/command', 'POST')).toBe('chat.send');
     expect(resolveAdminRbacAction('/api/status', 'GET')).toBe('status.read');
     expect(resolveAdminRbacAction('/api/agents', 'GET')).toBe('agents.read');

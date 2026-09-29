@@ -220,6 +220,7 @@ import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
+import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -11440,6 +11441,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/context' && method === 'GET') {
             handleApiChatContext(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/ideas' && method === 'GET') {
+            const userId = resolveGatewayRequestUserId({
+              req,
+              channelId: 'web',
+              requestedUserId: url.searchParams.get('userId'),
+            });
+            await handleApiChatIdeas(res, url, userId);
             return;
           }
           if (pathname === '/api/chat/voice' && method === 'GET') {

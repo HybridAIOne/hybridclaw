@@ -277,6 +277,10 @@ saved revision history directly.
   `auxiliaryModels.session_title.provider` to `"disabled"` to skip this
   forwarding and leave recent-session titles derived locally from conversation
   previews.
+- `auxiliaryModels.btw` routes `/btw` side questions and the web chat
+  `/chat/ideas` page. Ideas send the agent's `SOUL.md`, `IDENTITY.md`,
+  `USER.md`, and `MEMORY.md` plus excerpts from the requesting user's six most
+  recent web chats with that agent to this provider on each generation.
 - `auxiliaryModels.second_opinion` controls the default stronger model used by
   `/second-opinion`. Set its `provider`, `model`, and `maxTokens` when the
   automatic strongest-model selection is not the desired validator.

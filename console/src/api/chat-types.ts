@@ -14,6 +14,17 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatIdea {
+  title: string;
+  description: string;
+  prompt: string;
+}
+
+export interface ChatIdeasResponse {
+  agentId: string;
+  ideas: ChatIdea[];
+}
+
 export interface ChatVoiceCapabilityResponse {
   available: boolean;
   provider: 'hybridai' | 'openai' | null;
