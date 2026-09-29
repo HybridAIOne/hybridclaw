@@ -64,3 +64,35 @@ A post-hoc replay using JEV above its threshold and Gemma otherwise matches
 180/200. These are simulations, not live serial-fallback latency measurements
 or independently validated new policies. The current Laya checkpoint is not a
 reliable replacement for either remote router on this corpus.
+
+## Laya type/state/question ablation
+
+[Twenty-variant report](results/laya-variations-2026-09-29/report.md) and
+[exact experiment design](results/laya-variations-2026-09-29/design.json).
+
+The same 200 cases were evaluated with `choice` and ordinal `score`, three
+state formats (raw text, `{"task": text}`, and a prose prefix), and three question
+wordings. Additional controls replaced choice keys with A/B/C/D or reversed
+option order. All 20 variants were specified before inference: 4,000 local
+predictions, no cloud calls. Score was decoded by modal level, with rounded
+expected score reported separately. Noul is a yes/no proposition interface,
+not a direct four-tier selection primitive, and was not tested here.
+
+Choice with JSON state reached 128/200 (64%), versus 115/200 (57.5%) for the
+current raw-state choice. Best ordinal score reached 112/200 (56%). The JSON
+state/difficulty question accepted 69 decisions, of which 55 were correct;
+14 confident errors remain. This is exploratory reuse of the existing corpus,
+not fresh validation. No production prompt/type/state change was made.
+
+Repeat locally after setup:
+
+```bash
+HF_HUB_OFFLINE=1 ~/.hybridclaw/laya/venv/bin/python eval-harness/routing/laya-variations.py \
+  --model ~/.hybridclaw/laya/model \
+  --baseline eval-harness/routing/results/2026-09-29T17-32-52.218Z/metadata.json \
+  --output /tmp/laya-variations-new-run
+```
+
+The output directory must not exist. Results include every variant, not only
+winners. Confidence is the chosen option/level probability; no entropy gate,
+probability rescaling, or threshold tuning is applied.

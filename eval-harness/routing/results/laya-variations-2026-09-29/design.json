@@ -1,0 +1,256 @@
+{
+  "dataset_sha256": "6a9e09544c6b3fabbc09b3174df0acb487e7acdb36136e0ecccdd1593d36c9b2",
+  "variants": [
+    {
+      "name": "choice-raw-difficulty",
+      "kind": "choice",
+      "state": "raw",
+      "instructions": "How difficult is this task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-raw-category",
+      "kind": "choice",
+      "state": "raw",
+      "instructions": "Which category best describes the task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-raw-capability",
+      "kind": "choice",
+      "state": "raw",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-json-difficulty",
+      "kind": "choice",
+      "state": "json",
+      "instructions": "How difficult is this task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-json-category",
+      "kind": "choice",
+      "state": "json",
+      "instructions": "Which category best describes the task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-json-capability",
+      "kind": "choice",
+      "state": "json",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-prefixed-difficulty",
+      "kind": "choice",
+      "state": "prefixed",
+      "instructions": "How difficult is this task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-prefixed-category",
+      "kind": "choice",
+      "state": "prefixed",
+      "instructions": "Which category best describes the task?",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "choice-prefixed-capability",
+      "kind": "choice",
+      "state": "prefixed",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": {
+        "basic": "Trivial arithmetic, greetings, simple facts.",
+        "economy": "Everyday writing, translation or summarization.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "advanced": "Research-level reasoning, hard proofs, complex system design."
+      }
+    },
+    {
+      "name": "score-raw-difficulty",
+      "kind": "score",
+      "state": "raw",
+      "instructions": "How difficult is this task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-raw-category",
+      "kind": "score",
+      "state": "raw",
+      "instructions": "Which category best describes the task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-raw-capability",
+      "kind": "score",
+      "state": "raw",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-json-difficulty",
+      "kind": "score",
+      "state": "json",
+      "instructions": "How difficult is this task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-json-category",
+      "kind": "score",
+      "state": "json",
+      "instructions": "Which category best describes the task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-json-capability",
+      "kind": "score",
+      "state": "json",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-prefixed-difficulty",
+      "kind": "score",
+      "state": "prefixed",
+      "instructions": "How difficult is this task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-prefixed-category",
+      "kind": "score",
+      "state": "prefixed",
+      "instructions": "Which category best describes the task?",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "score-prefixed-capability",
+      "kind": "score",
+      "state": "prefixed",
+      "instructions": "Choose the lowest capability level needed to complete the user's task.",
+      "criteria": [
+        "Trivial arithmetic, greetings, simple facts.",
+        "Everyday writing, translation or summarization.",
+        "Programming, debugging, multi-step analysis.",
+        "Research-level reasoning, hard proofs, complex system design."
+      ]
+    },
+    {
+      "name": "choice-raw-neutral-labels",
+      "kind": "choice",
+      "state": "raw",
+      "instructions": "How difficult is this task?",
+      "criteria": {
+        "A": "Trivial arithmetic, greetings, simple facts.",
+        "B": "Everyday writing, translation or summarization.",
+        "C": "Programming, debugging, multi-step analysis.",
+        "D": "Research-level reasoning, hard proofs, complex system design."
+      },
+      "labels": {
+        "A": "basic",
+        "B": "economy",
+        "C": "general",
+        "D": "advanced"
+      }
+    },
+    {
+      "name": "choice-raw-reversed-options",
+      "kind": "choice",
+      "state": "raw",
+      "instructions": "How difficult is this task?",
+      "criteria": {
+        "advanced": "Research-level reasoning, hard proofs, complex system design.",
+        "general": "Programming, debugging, multi-step analysis.",
+        "economy": "Everyday writing, translation or summarization.",
+        "basic": "Trivial arithmetic, greetings, simple facts."
+      }
+    }
+  ],
+  "threshold": 0.8,
+  "note": "20 variants fixed before inference. Existing 200-case corpus is exploratory, not fresh validation. No tuning during the run. Choice gate uses selected probability; score gate uses modal level probability. Rounded score is a separate diagnostic.",
+  "checkpoint": "aac6fef/laya-multilingual-mlx@ba40c87fcb357f1643d04d71323af9cdc3b9e591",
+  "runtime": "laya-mlx==0.2.0",
+  "dtype": "float16"
+}
