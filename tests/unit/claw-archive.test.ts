@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import * as yazl from 'yazl';
+import { writeZipArchive } from '../helpers/zip-archive.ts';
 import { useCleanMocks, useTempDir } from '../test-utils.ts';
 
 const originalCwd = process.cwd();
@@ -90,29 +90,6 @@ function installBundledPluginForTest(
     requiresEnv: [],
     requiredConfigKeys: [],
   };
-}
-
-async function writeZipArchive(
-  archivePath: string,
-  entries: Array<{ name: string; content: string | Buffer; mode?: number }>,
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const zipFile = new yazl.ZipFile();
-    const output = fs.createWriteStream(archivePath);
-    output.on('close', resolve);
-    output.on('error', reject);
-    zipFile.outputStream.on('error', reject).pipe(output);
-    for (const entry of entries) {
-      zipFile.addBuffer(
-        Buffer.isBuffer(entry.content)
-          ? entry.content
-          : Buffer.from(entry.content, 'utf-8'),
-        entry.name,
-        entry.mode ? { mode: entry.mode } : undefined,
-      );
-    }
-    zipFile.end();
-  });
 }
 
 function setZipGeneralPurposeBitFlag(
