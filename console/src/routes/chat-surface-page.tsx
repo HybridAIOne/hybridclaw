@@ -3,8 +3,7 @@
  * chat recents sidebar, the same top-right view switch the chat page shows,
  * and a titled header with page actions.
  *
- * Owns layout only; each page keeps its own data, dialogs, and content width
- * (`narrow` for reading lists, full width for galleries).
+ * Owns layout only; each page keeps its own data, dialogs, and list styling.
  */
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth';
@@ -13,7 +12,6 @@ import {
   useConfiguredViewSwitchItems,
   ViewSwitchNav,
 } from '../components/view-switch';
-import { cx } from '../lib/cx';
 import { AppsChatSidebar } from './apps-chat-sidebar';
 import chatCss from './chat/chat-page.module.css';
 import {
@@ -28,7 +26,6 @@ export function ChatSurfacePage(props: {
   /** One line under the title saying what the page shows. */
   subtitle?: ReactNode;
   actions?: ReactNode;
-  narrow?: boolean;
   children: ReactNode;
   /** Dialogs and other overlays rendered outside the scroll area. */
   overlays?: ReactNode;
@@ -45,7 +42,7 @@ export function ChatSurfacePage(props: {
             <ViewSwitchNav items={viewSwitchItems} />
           </div>
           <div className={css.scroll}>
-            <div className={cx(css.page, props.narrow && css.pageNarrow)}>
+            <div className={css.page}>
               <header className={css.header}>
                 <div className={css.heading}>
                   <h1 className={css.title}>{props.title}</h1>

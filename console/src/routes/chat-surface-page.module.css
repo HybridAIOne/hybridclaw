@@ -15,10 +15,6 @@
   box-sizing: border-box;
 }
 
-.pageNarrow {
-  max-width: 760px;
-}
-
 .header {
   display: flex;
   align-items: flex-end;

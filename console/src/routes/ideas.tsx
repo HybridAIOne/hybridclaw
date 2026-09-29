@@ -15,6 +15,7 @@ import type { ChatIdeasResponse } from '../api/chat-types';
 import { fetchAgentList } from '../api/client';
 import { isAuthReadyForApi, useAuth } from '../auth';
 import { Button } from '../components/button';
+import { ChevronRight, Lightbulb } from '../components/icons';
 import { NativeSelect } from '../components/native-select';
 import { Skeleton } from '../components/skeleton';
 import { readStoredUserId } from '../lib/chat-helpers';
@@ -146,13 +147,25 @@ export function IdeasPage() {
       </NativeSelect>
     ) : null;
 
+  const subtitle = generating
+    ? data
+      ? `Coming up with new ideas from your recent chats with ${agentName}…`
+      : `Looking through your recent chats with ${agentName}. This can take a minute.`
+    : data
+      ? `What ${agentName} can take on next, from your recent chats. Updated ${formatRelativeTime(data.generatedAt)}.`
+      : `What ${agentName} can take on next, based on your recent chats.`;
+
   return (
     <ChatSurfacePage
       page="ideas"
-      narrow
       title="Ideas"
-      subtitle={`Things ${agentName} could help with next, based on your recent chats and what it knows about you.`}
-      actions={agentPicker}
+      subtitle={<span aria-live="polite">{subtitle}</span>}
+      actions={
+        <>
+          {agentPicker}
+          {refreshButton}
+        </>
+      }
     >
       {ideasQuery.isError && !generating ? (
         <div className={css.error} role="alert">
@@ -173,53 +186,47 @@ export function IdeasPage() {
       ) : null}
 
       {data ? (
-        <section className={css.board} aria-busy={generating}>
-          <div className={css.statusRow}>
-            <p className={css.status} aria-live="polite">
-              {generating
-                ? `Generating fresh ideas with ${agentName}…`
-                : `Generated ${formatRelativeTime(data.generatedAt)}. Pick one to start a chat.`}
-            </p>
-            {refreshButton}
-          </div>
-          <ul className={cx(css.list, generating && css.listStale)}>
-            {data.ideas.map((idea) => (
-              <li key={`${idea.title}-${idea.prompt}`}>
-                <button
-                  type="button"
-                  className={css.idea}
-                  onClick={() => openIdea(idea.prompt)}
-                  disabled={generating}
-                >
-                  <span className={css.ideaText}>
-                    <span className={css.ideaTitle}>{idea.title}</span>
-                    {idea.description ? (
-                      <span className={css.ideaDescription}>
-                        {idea.description}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className={css.prompt}>{idea.prompt}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <ul
+          className={cx(css.list, generating && css.listStale)}
+          aria-busy={generating}
+        >
+          {data.ideas.map((idea) => (
+            <li key={`${idea.title}-${idea.prompt}`}>
+              <button
+                type="button"
+                className={css.idea}
+                onClick={() => openIdea(idea.prompt)}
+                disabled={generating}
+              >
+                <span className={css.ideaIcon} aria-hidden="true">
+                  {idea.emoji || <Lightbulb />}
+                </span>
+                <span className={css.ideaText}>
+                  <span className={css.ideaTitle}>{idea.title}</span>
+                  {idea.description ? (
+                    <span className={css.ideaDescription}>
+                      {idea.description}
+                    </span>
+                  ) : null}
+                </span>
+                <ChevronRight className={css.ideaChevron} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
       ) : generating ? (
-        <section className={css.board} aria-busy="true">
-          <p className={css.status} aria-live="polite">
-            Reading your recent chats with {agentName}. This can take a minute.
-          </p>
-          <ul className={css.list}>
-            {IDEA_SKELETON_KEYS.map((key) => (
-              <li key={key} className={css.skeletonRow}>
+        <ul className={css.list} aria-busy="true">
+          {IDEA_SKELETON_KEYS.map((key) => (
+            <li key={key} className={css.skeletonRow}>
+              <Skeleton className={css.skeletonIcon} />
+              <span className={css.skeletonText}>
                 <Skeleton className={css.skeletonTitle} />
-                <Skeleton className={css.skeletonText} />
-                <Skeleton className={css.skeletonPrompt} />
-              </li>
-            ))}
-          </ul>
-        </section>
+                <Skeleton className={css.skeletonLine} />
+                <Skeleton className={css.skeletonLineShort} />
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </ChatSurfacePage>
   );

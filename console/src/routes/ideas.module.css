@@ -63,33 +63,12 @@
   line-height: 1.45;
 }
 
-.board {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.statusRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.status {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-}
-
 .list {
   list-style: none;
-  margin: 0;
+  /* Rows bleed into the gutter so their text lines up with the page title
+     while the hover surface still has room around it. */
+  margin: 0 -12px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--card);
-  overflow: hidden;
   transition: opacity 160ms ease;
 }
 
@@ -103,10 +82,13 @@
 
 .idea {
   display: grid;
-  gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr) 20px;
+  align-items: start;
+  column-gap: 16px;
   width: 100%;
-  padding: 18px 20px;
+  padding: 18px 12px;
   border: none;
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -127,62 +109,89 @@
   cursor: progress;
 }
 
+.ideaIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--muted-foreground);
+}
+
+.ideaIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
 .ideaText {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  padding-top: 2px;
 }
 
 .ideaTitle {
-  font-size: 1rem;
+  font-size: 1.0625rem;
   font-weight: 600;
   line-height: 1.35;
   color: var(--foreground);
 }
 
 .ideaDescription {
-  font-size: 0.875rem;
-  line-height: 1.5;
+  max-width: 75ch;
+  font-size: 0.9375rem;
+  line-height: 1.55;
   color: var(--muted-foreground);
 }
 
-/* The prompt reads as the message you would send: same shape and colour as
-   your own bubble in chat. */
-.prompt {
-  justify-self: end;
-  max-width: min(85%, 52ch);
-  padding: 9px 14px;
-  border-radius: 14px;
-  border-bottom-right-radius: 4px;
-  background: linear-gradient(135deg, var(--primary), var(--ring));
-  color: var(--primary-foreground);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+.ideaChevron {
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+
+.idea:hover:not(:disabled) .ideaChevron,
+.idea:focus-visible .ideaChevron {
+  opacity: 1;
 }
 
 .skeletonRow {
   display: grid;
-  gap: 10px;
-  padding: 18px 20px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 18px 12px;
 }
 
-.skeletonTitle {
-  width: 38%;
-  height: 16px;
+.skeletonIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
 }
 
 .skeletonText {
-  width: 72%;
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.skeletonTitle {
+  width: min(360px, 60%);
+  height: 16px;
+}
+
+.skeletonLine {
+  width: min(640px, 90%);
   height: 12px;
 }
 
-.skeletonPrompt {
-  justify-self: end;
-  width: 55%;
-  height: 38px;
-  border-radius: 14px 14px 4px 14px;
+.skeletonLineShort {
+  width: min(420px, 60%);
+  height: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -201,12 +210,19 @@
     min-width: 0;
   }
 
-  .idea,
-  .skeletonRow {
-    padding: 16px;
+  .idea {
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 12px;
+    padding: 16px 12px;
   }
 
-  .prompt {
-    max-width: 92%;
+  .ideaIcon {
+    width: 36px;
+    height: 36px;
+    font-size: 1.625rem;
+  }
+
+  .ideaChevron {
+    display: none;
   }
 }

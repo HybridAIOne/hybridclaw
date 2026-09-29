@@ -15,6 +15,8 @@ export interface ChatRecentResponse {
 }
 
 export interface ChatIdea {
+  /** One emoji, or '' when the model did not supply a usable one. */
+  emoji: string;
   title: string;
   description: string;
   prompt: string;

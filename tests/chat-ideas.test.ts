@@ -9,7 +9,7 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-chat-ideas-',
 });
 
-const IDEA = { title: 'Plan', description: 'Why', prompt: 'Do it' };
+const IDEA = { emoji: '📘', title: 'Plan', description: 'Why', prompt: 'Do it' };
 
 async function loadFixture(content: string) {
   const callAuxiliaryModelMock = vi.fn(async () => ({
@@ -106,6 +106,17 @@ test.each([
       ideas: [{ title: 'x' }, { prompt: 'y' }, { ...IDEA, description: 3 }],
     }),
     [{ ...IDEA, description: '' }],
+  ],
+  [
+    'an emoji slot holding text or several emoji',
+    JSON.stringify({
+      ideas: [
+        { ...IDEA, emoji: 'book' },
+        { ...IDEA, emoji: '📘📘' },
+        { ...IDEA, emoji: '👩‍💻' },
+      ],
+    }),
+    [{ ...IDEA, emoji: '' }, { ...IDEA, emoji: '' }, { ...IDEA, emoji: '👩‍💻' }],
   ],
 ])('parseChatIdeas handles %s', async (_label, content, expected) => {
   const { parseChatIdeas } = await import('../src/gateway/chat-ideas.ts');
