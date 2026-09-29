@@ -89,7 +89,7 @@ For requests like:
 follow this order:
 
 1. Use the supplied path and preview; do not rediscover an attachment.
-2. For a figure/table follow-up, locate it with `read({"path":"document.pdf","query":"Figure 3"})`, then read its matching pages. Search covers extracted text; scanned pages still require visual inspection.
+2. Choose search terms relevant to the request and pass them to `read` using `query`; inspect the results and choose the pages to read. Automatic previews do not search for requested content. Search covers extracted text; scanned pages still require visual inspection.
 3. Read specific pages, at most four per call:
    `read({"path":"document.pdf","pages":"5-8","render":"auto"})`.
    Without `pages`, the first four pages are returned. `auto`

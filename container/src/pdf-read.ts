@@ -20,7 +20,7 @@ export const PDF_READ_PARAMETERS = {
   query: {
     type: 'string',
     description:
-      'Search PDF text/captions literally, e.g. "Figure 3". Returns page numbers and snippets; then read with pages to inspect them visually. Cannot combine with pages/render.',
+      'Search extracted PDF text using a literal query you choose. Returns page numbers and snippets; then read with pages to inspect them visually. Cannot combine with pages/render.',
   },
   pages: {
     type: 'string',
@@ -58,7 +58,7 @@ export async function readPdfFile(
       isError: false,
       output: JSON.stringify({
         ...(await searchPdfPages(filePath, args.query, runtimeUrl)),
-        next: 'Read matching pages with pages to inspect figures. Search covers extracted text, not scanned text. No shell conversion or cleanup is needed.',
+        next: 'Choose relevant pages from these results and read them with pages. Search covers extracted text, not scanned text. No shell conversion or cleanup is needed.',
       }),
     };
   }

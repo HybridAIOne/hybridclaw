@@ -1,16 +1,15 @@
 /**
  * Bounded PDF previews are untrusted user content, never system instructions.
- * Unlike the PDF read tool this only previews the current request; persisted
- * conversation/attachment references provide continuity, not a process cache.
+ * Unlike the PDF read tool this only previews the current request's first pages.
+ * The model chooses search queries and page selections through read; user wording
+ * never selects document content here.
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
   PDF_PREVIEW_MAX_CHARS,
-  PDF_READ_MAX_PAGES,
   readPdfPages,
-  searchPdfPages,
 } from '../../container/shared/pdf-reader.js';
 import type { VisualAttachment } from '../../container/shared/visual-snapshots.js';
 import type {
@@ -100,7 +99,6 @@ export async function injectPdfContextMessages(params: {
   workspaceRoot: string;
   media?: MediaContextItem[];
   visualMediaAllowed?: boolean;
-  readableMediaPaths?: string[];
 }): Promise<ChatMessage[]> {
   const { messages, workspaceRoot } = params;
   let latestUserIndex = messages.length - 1;
@@ -119,28 +117,6 @@ export async function injectPdfContextMessages(params: {
       .filter((value): value is string => Boolean(value)),
     ...detectPdfReferences(text),
   ];
-  // Figure/table follow-ups need their pixels even when the model skips read.
-  const caption = text.match(
-    /\b(?:figure|fig\.|table|abbildung|abb\.|tabelle)\s+\d+[a-z]?\b/i,
-  )?.[0];
-  if (caption && references.length === 0) {
-    for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-      if (messages[index].role !== 'user') continue;
-      const earlier = detectPdfReferences(
-        normalizeMessageContentToText(messages[index].content),
-      );
-      if (earlier.length) {
-        references.push(...earlier);
-        break;
-      }
-    }
-  }
-  if (caption && references.length === 0) {
-    // Stored uploads may only have a display filename in conversation text.
-    references.push(
-      ...(params.readableMediaPaths || []).filter(looksLikePdfReference),
-    );
-  }
   if (references.length === 0) return messages;
   const resolvePath = createMediaHostPathResolver(workspaceRoot);
   const seen = new Set<string>();
@@ -163,28 +139,11 @@ export async function injectPdfContextMessages(params: {
       ? await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-pdf-preview-'))
       : undefined;
     try {
-      const search = caption
-        ? await searchPdfPages(filePath, caption)
-        : undefined;
-      const matchingPages = search?.matches
-        .slice(0, PDF_READ_MAX_PAGES)
-        .map((match) => match.page);
-      if (search && !matchingPages?.length) {
-        previews.push({
-          path: reference,
-          query: caption,
-          ...search,
-          status:
-            'No matching caption in extracted text. Use read with pages to locate and inspect the figure visually; do not guess its contents.',
-        });
-        continue;
-      }
       const {
         visualAttachments: attachments,
         images,
         ...preview
       } = await readPdfPages(filePath, {
-        pages: matchingPages?.join(','),
         render: params.visualMediaAllowed ? 'always' : 'never',
         maxChars: PDF_PREVIEW_MAX_CHARS,
         workspaceRoot: params.visualMediaAllowed ? workspaceRoot : undefined,
@@ -193,7 +152,6 @@ export async function injectPdfContextMessages(params: {
       visualAttachments.push(...(attachments || []));
       previews.push({
         path: reference,
-        ...(search ? { query: caption, search } : {}),
         ...preview,
         snapshotId: attachments?.[0]?.id.slice(0, 12),
         renderedPages: images.map((image) => image.page),

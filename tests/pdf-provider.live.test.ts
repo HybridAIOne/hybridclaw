@@ -2,6 +2,7 @@
 import './helpers/isolate-runtime-home.js';
 import { expect, test, vi } from 'vitest';
 import type { ChatMessage } from '../container/src/types.js';
+import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
 import { buildAnthropicSupportingHeaders } from '../src/providers/anthropic-utils.js';
 import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import { writeVisualPdfFixture } from './helpers/pdf-visual-fixture.js';
@@ -76,6 +77,18 @@ for (const config of cases) {
       );
       const initial: ChatMessage[] = [
         {
+          role: 'system',
+          content: buildSystemPromptFromHooks({
+            agentId: 'test-agent',
+            skills: [],
+            runtimeInfo: {
+              model: `${config.provider}/${config.model}`,
+              channelType: 'web',
+              workspacePath: root,
+            },
+          }),
+        },
+        {
           role: 'user',
           content: 'Summarize ./workshop.pdf in five main ideas.',
         },
@@ -102,16 +115,46 @@ for (const config of cases) {
           },
         ],
       });
-      expect(followupMessages.at(-1)?.visualAttachments?.[0].pages).toEqual([
-        7,
-      ]);
-      const followup = await callRoutedModel({
-        ...context,
-        messages: followupMessages,
-      });
-      const figureAnswer = String(
-        followup.choices[0]?.message.content,
-      ).toLowerCase();
+      expect(followupMessages.at(-1)?.visualAttachments).toBeUndefined();
+      const readTools = tools.TOOL_DEFINITIONS.filter(
+        (tool) => tool.function.name === 'read',
+      );
+      let followup: ChatMessage | undefined;
+      for (let turn = 0; turn < 8; turn++) {
+        const response = await callRoutedModel({
+          ...context,
+          messages: followupMessages,
+          tools: readTools,
+        });
+        const message = response.choices[0]?.message;
+        if (!message) throw new Error('Provider returned no message');
+        followupMessages.push(message);
+        if (!message.tool_calls?.length) {
+          followup = message;
+          break;
+        }
+        for (const call of message.tool_calls) {
+          expect(call.function.name).toBe('read');
+          const result = await tools.executeToolWithMetadata(
+            call.function.name,
+            call.function.arguments,
+          );
+          expect(result.isError).toBe(false);
+          followupMessages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result.output,
+            visualAttachments: result.visualAttachments,
+          });
+        }
+      }
+      expect(followup).toBeDefined();
+      expect(
+        followupMessages.some((message) =>
+          message.visualAttachments?.some((ref) => ref.pages.includes(7)),
+        ),
+      ).toBe(true);
+      const figureAnswer = String(followup?.content).toLowerCase();
       expect(figureAnswer).toMatch(
         /red[\s\S]{0,80}circle[\s\S]*blue[\s\S]{0,80}(?:square|rectangle)[\s\S]*green[\s\S]{0,80}triangle/,
       );
@@ -147,7 +190,7 @@ for (const config of cases) {
       const standalone = await callRoutedModel({
         ...context,
         messages: imageMessages,
-        tools: tools.TOOL_DEFINITIONS.filter((t) => t.function.name === 'read'),
+        tools: readTools,
       });
       const imageAnswer = String(
         standalone.choices[0]?.message.content,
@@ -155,11 +198,14 @@ for (const config of cases) {
       expect(imageAnswer).toMatch(
         /red[\s\S]{0,80}circle[\s\S]*blue[\s\S]{0,80}(?:square|rectangle)[\s\S]*green[\s\S]{0,80}triangle/,
       );
-      expect(requests).toEqual([
-        { pdfs: 1, images: 0 },
-        { pdfs: 1, images: 0 },
-        { pdfs: 0, images: 1 },
-      ]);
+      expect(requests[0]).toEqual({ pdfs: 1, images: 0 });
+      expect(requests.slice(1, -1).some((request) => request.pdfs > 0)).toBe(
+        true,
+      );
+      expect(requests.slice(0, -1).every((request) => request.images === 0)).toBe(
+        true,
+      );
+      expect(requests.at(-1)).toEqual({ pdfs: 0, images: 1 });
       process.stdout.write(
         JSON.stringify({
           provider: config.provider,

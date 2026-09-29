@@ -171,7 +171,6 @@ async function runAgentInner(
     messages: params.messages,
     workspaceRoot,
     media,
-    readableMediaPaths: params.readableMediaPaths,
     visualMediaAllowed,
   });
   const confidentialRuleSet = isConfidentialRedactionEnabled()

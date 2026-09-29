@@ -31,55 +31,61 @@ function preview(messages: ChatMessage[]) {
 }
 
 describe('PDF attachment preview', () => {
-  test('follow-up supplies the matching figure page from the nearest earlier PDF reference without altering history', async () => {
+  test('leaves follow-up questions and history untouched for the model to choose reads', async () => {
     const root = tempDir();
     await writeVisualPdfFixture(root);
-    const messages: ChatMessage[] = [
-      { role: 'user', content: 'Summarize ./workshop.pdf' },
-      { role: 'assistant', content: 'Five ideas.' },
-      { role: 'user', content: 'What does Figure 3 depict?' },
-    ];
-    const original = structuredClone(messages);
-    const result = await injectPdfContextMessages({
-      workspaceRoot: root,
-      messages,
-      visualMediaAllowed: true,
-    });
-    expect(messages).toEqual(original);
-    expect(result.slice(0, -1)).toEqual(original.slice(0, -1));
-    expect(result.at(-1)?.visualAttachments?.[0].pages).toEqual([7]);
-    const upload = await injectPdfContextMessages({
+    for (const question of [
+      'What does Figure 3 depict?',
+      'Explain the sequence of symbols.',
+      'Que montre cette illustration ?',
+      'yes',
+    ]) {
+      const messages: ChatMessage[] = [
+        { role: 'user', content: 'Summarize ./workshop.pdf' },
+        { role: 'assistant', content: 'Five ideas.' },
+        { role: 'user', content: question },
+      ];
+      const original = structuredClone(messages);
+      expect(
+        await injectPdfContextMessages({
+          workspaceRoot: root,
+          messages,
+          visualMediaAllowed: true,
+        }),
+      ).toBe(messages);
+      expect(messages).toEqual(original);
+    }
+  });
+
+  test('previews the same initial pages regardless of the attachment question', async () => {
+    const root = tempDir();
+    await writeVisualPdfFixture(root);
+    for (const question of [
+      'Describe Figure 3',
+      'Explain the sequence of symbols',
+      'Describe page 7',
+    ]) {
+      const result = await injectPdfContextMessages({
+        workspaceRoot: root,
+        messages: [{ role: 'user', content: question }],
+        media: [{ path: './workshop.pdf', mimeType: 'application/pdf' }],
+        visualMediaAllowed: false,
+      });
+      const item = preview(result).previews[0];
+      expect(item.processedPages).toEqual([1, 2, 3, 4]);
+      expect(item.renderedPages).toEqual([]);
+      expect(item).not.toHaveProperty('query');
+      expect(item).not.toHaveProperty('search');
+      expect(result.at(-1)?.visualAttachments).toBeUndefined();
+    }
+    const visual = await injectPdfContextMessages({
       workspaceRoot: root,
       messages: [{ role: 'user', content: 'Describe Figure 3' }],
-      readableMediaPaths: ['./workshop.pdf'],
+      media: [{ path: './workshop.pdf', mimeType: 'application/pdf' }],
       visualMediaAllowed: true,
     });
-    expect(upload.at(-1)?.visualAttachments?.[0].pages).toEqual([7]);
-    expect(preview(result).previews[0]).toMatchObject({
-      query: 'Figure 3',
-      processedPages: [7],
-      renderedPages: [7],
-    });
-    const denied = await injectPdfContextMessages({
-      workspaceRoot: root,
-      messages,
-      visualMediaAllowed: false,
-    });
-    expect(denied.at(-1)?.visualAttachments).toBeUndefined();
-    expect(preview(denied).previews[0].renderedPages).toEqual([]);
-    const missing = await injectPdfContextMessages({
-      workspaceRoot: root,
-      messages: [
-        ...messages.slice(0, -1),
-        { role: 'user', content: 'Describe Figure 99' },
-      ],
-      visualMediaAllowed: true,
-    });
-    expect(missing.at(-1)?.visualAttachments).toBeUndefined();
-    expect(preview(missing).previews[0]).toMatchObject({
-      query: 'Figure 99',
-      matches: [],
-    });
+    expect(visual.at(-1)?.visualAttachments?.[0].pages).toEqual([1, 2, 3, 4]);
+    expect(preview(visual).previews[0].renderedPages).toEqual([1, 2, 3, 4]);
   });
   test.each(['?', '!'])(
     'detects a PDF path followed by %s',

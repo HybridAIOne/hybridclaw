@@ -18,7 +18,7 @@ test('real worker delivers preview, searched PDF page and image pixels through m
   const run = await runAgent(
     [
       { role: 'assistant', content: 'Five workshop ideas.' },
-      read('search', { path: 'workshop.pdf', query: 'Figure 3' }),
+      read('search', { path: 'workshop.pdf', query: 'sequence of symbols' }),
       read('page', { path: 'workshop.pdf', pages: '7' }),
       read('image', { path: 'figure.png' }),
       { role: 'assistant', content: 'Figure inspected.' },
@@ -41,7 +41,7 @@ test('real worker delivers preview, searched PDF page and image pixels through m
   expect(run.output.status).toBe('success');
   const result = await run.followup({
     messages: [
-      { role: 'user', content: 'Describe Figure 3 from ./workshop.pdf.' },
+      { role: 'user', content: 'Describe the sequence of symbols.' },
     ],
   });
   expect(result.status).toBe('success');

@@ -683,12 +683,12 @@ does not prove model accuracy; coverage and extraction/render errors stay explic
 `read` searches PDF text with `query` (literal text, up to 256 characters),
 returning page numbers and snippets before a separate `pages` read. Each search
 covers at most 500 pages and 20 matching pages, reporting unsearched and sparse
-pages. It does not OCR scans. A numbered figure/table follow-up searches the
-current PDF reference, or the nearest earlier user message with PDF references,
-falling back to session-authorized upload paths, and previews up to four matching
-pages in the current user turn. Missing captions
-report incomplete coverage; other searches use `read` without shell conversion
-or optional cleanup.
+pages. It does not OCR scans. The model chooses search queries and page selections
+through `read`, using the attachment paths and conversation context. Automatic
+previews cover the first four pages of current-request PDFs; they do not interpret
+the user's question, search for captions, or select pages for follow-ups. Further
+reads use the session-authorized attachment paths without shell conversion or
+optional cleanup.
 
 PNG, JPEG, GIF and WebP reads deliver normalized PNG pixels directly to the main
 model using the same visual snapshot, replay and confidentiality boundary.
