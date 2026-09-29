@@ -79,7 +79,6 @@ import {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import { safeExtractZip } from '../agents/claw-security.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
@@ -418,6 +417,10 @@ import {
 } from '../skills/agent-scoreboard.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { loadSkillDocsCatalog } from '../skills/skill-docs.js';
+import {
+  SkillImportConflictError,
+  SkillImportError,
+} from '../skills/skill-errors.js';
 import {
   type BlockedSkillCatalogEntry,
   loadSkillCatalog,
@@ -8548,65 +8551,32 @@ export function createGatewayAdminSkill(input: {
 }
 
 const SKILL_ZIP_MAX_BYTES = 10 * 1024 * 1024;
-const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
-const SKILL_ZIP_MAX_FILES = 200;
-const SKILL_ZIP_IGNORED_TOP_LEVEL_FILES = new Set(['.DS_Store', 'Thumbs.db']);
-const SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES = new Set(['__MACOSX']);
-const SKILL_ZIP_SERVER_ERROR_CODES = new Set([
-  'EACCES',
-  'EBUSY',
-  'EIO',
-  'EMFILE',
-  'ENFILE',
-  'ENOENT',
-  'ENOSPC',
-  'EPERM',
-  'EROFS',
-]);
 
-function toSkillZipArchiveRequestError(error: unknown): GatewayRequestError {
-  if (error instanceof GatewayRequestError) {
-    return error;
+function validateUploadedSkillName(
+  skillFilePath: string,
+  skillName: string,
+): void {
+  // importSkill falls back to the folder name; an upload must declare one.
+  if (
+    !/^---[\s\S]*?^name:\s*\S/m.test(fs.readFileSync(skillFilePath, 'utf-8'))
+  ) {
+    throw new GatewayRequestError(
+      400,
+      'SKILL.md is missing a `name` field in its frontmatter.',
+    );
   }
-  const code =
-    error &&
-    typeof error === 'object' &&
-    'code' in error &&
-    typeof (error as { code?: unknown }).code === 'string'
-      ? (error as { code: string }).code
-      : '';
-  if (SKILL_ZIP_SERVER_ERROR_CODES.has(code)) {
-    throw error;
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(skillName)) {
+    throw new GatewayRequestError(
+      400,
+      `Skill name "${skillName}" must be lowercase alphanumeric with hyphens.`,
+    );
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return new GatewayRequestError(
-    400,
-    message.startsWith('ZIP ')
-      ? message
-      : 'Uploaded file is not a valid skill ZIP archive.',
-  );
-}
-
-function isIgnoredSkillZipTopLevelEntry(entry: fs.Dirent): boolean {
-  return entry.isDirectory()
-    ? SKILL_ZIP_IGNORED_TOP_LEVEL_DIRECTORIES.has(entry.name)
-    : SKILL_ZIP_IGNORED_TOP_LEVEL_FILES.has(entry.name);
-}
-
-function resolveUploadedSkillZipRoot(extractedDir: string): string {
-  if (fs.existsSync(path.join(extractedDir, 'SKILL.md'))) {
-    return extractedDir;
+  if (skillName.length > 64) {
+    throw new GatewayRequestError(
+      400,
+      'Skill name must be 64 characters or fewer.',
+    );
   }
-
-  const topEntries = fs
-    .readdirSync(extractedDir, { withFileTypes: true })
-    .filter((entry) => !isIgnoredSkillZipTopLevelEntry(entry));
-
-  if (topEntries.length === 1 && topEntries[0].isDirectory()) {
-    return path.join(extractedDir, topEntries[0].name);
-  }
-
-  return extractedDir;
 }
 
 export async function uploadGatewayAdminSkillZip(
@@ -8623,162 +8593,30 @@ export async function uploadGatewayAdminSkillZip(
     );
   }
 
-  // Write buffer to a temp file for yauzl
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-skill-'));
-  const tmpZipPath = path.join(tmpDir, 'upload.zip');
-  const tmpExtractDir = path.join(tmpDir, 'extracted');
+  const zipPath = path.join(tmpDir, 'upload.zip');
   try {
-    fs.writeFileSync(tmpZipPath, zipBuffer);
-
-    // safeExtractZip handles structural security: symlinks, path traversal,
-    // encrypted entries, null bytes, absolute paths
-    try {
-      await safeExtractZip(tmpZipPath, tmpExtractDir);
-    } catch (error) {
-      throw toSkillZipArchiveRequestError(error);
+    fs.writeFileSync(zipPath, zipBuffer);
+    const { importSkill } = await import('../skills/skills-import.js');
+    // The upload's force checkbox is the CLI's --force plus overwrite.
+    await importSkill(zipPath, {
+      force: options.force === true,
+      replaceExisting: options.force === true,
+      validateSkillFile: validateUploadedSkillName,
+    });
+  } catch (error) {
+    if (error instanceof SkillImportConflictError) {
+      throw new GatewayRequestError(409, error.message);
     }
-
-    // Enforce skill-specific size and file count limits (safeExtractZip's
-    // 512MB / 10k-entry budget is for CLAW archives — too generous here)
-    let totalBytes = 0;
-    let fileCount = 0;
-    const walk = (dir: string): void => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          walk(path.join(dir, entry.name));
-        } else {
-          fileCount += 1;
-          totalBytes += fs.statSync(path.join(dir, entry.name)).size;
-        }
-        if (fileCount > SKILL_ZIP_MAX_FILES) {
-          throw new GatewayRequestError(
-            400,
-            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_FILES} file limit.`,
-          );
-        }
-        if (totalBytes > SKILL_ZIP_MAX_UNCOMPRESSED_BYTES) {
-          throw new GatewayRequestError(
-            400,
-            `Skill ZIP exceeds the ${SKILL_ZIP_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
-          );
-        }
-      }
-    };
-    walk(tmpExtractDir);
-
-    // ZIP may contain a top-level wrapper directory plus archive metadata
-    // such as __MACOSX/ or .DS_Store — ignore those when unwrapping.
-    const skillRoot = resolveUploadedSkillZipRoot(tmpExtractDir);
-
-    // Validate SKILL.md exists
-    const manifestPath = path.join(skillRoot, 'SKILL.md');
-    if (!fs.existsSync(manifestPath)) {
-      throw new GatewayRequestError(
-        400,
-        'ZIP archive does not contain a SKILL.md file at the root.',
-      );
+    if (error instanceof SkillImportError) {
+      throw new GatewayRequestError(400, error.message);
     }
-
-    // Extract skill name from frontmatter
-    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
-    const nameMatch = manifestContent.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
-    const skillName = nameMatch
-      ? nameMatch[1].trim().replace(/^["']|["']$/g, '')
-      : '';
-    if (!skillName) {
-      throw new GatewayRequestError(
-        400,
-        'SKILL.md is missing a `name` field in its frontmatter.',
-      );
-    }
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(skillName)) {
-      throw new GatewayRequestError(
-        400,
-        `Skill name "${skillName}" must be lowercase alphanumeric with hyphens.`,
-      );
-    }
-    if (skillName.length > 64) {
-      throw new GatewayRequestError(
-        400,
-        'Skill name must be 64 characters or fewer.',
-      );
-    }
-    assertGatewayAdminSkillAllowed(skillName, skillRoot);
-
-    const projectSkillsDir = resolveManagedCommunitySkillsDir();
-    const targetDir = path.join(projectSkillsDir, skillName);
-    const targetExists = fs.existsSync(targetDir);
-    if (targetExists && !options.force) {
-      throw new GatewayRequestError(
-        409,
-        `Skill \`${skillName}\` already exists at ${targetDir}.`,
-      );
-    }
-    // Copy extracted skill to a sibling staging directory first (copy instead
-    // of rename to avoid EXDEV when tmp and skills/ are on different mounts).
-    // The existing skill is moved aside only after the copy succeeds.
-    fs.mkdirSync(projectSkillsDir, { recursive: true });
-    const stagedParentDir = fs.mkdtempSync(
-      path.join(projectSkillsDir, `.${skillName}.upload-`),
-    );
-    const stagedSkillDir = path.join(stagedParentDir, skillName);
-    let replacedParentDir: string | undefined;
-    let replacedSkillDir: string | undefined;
-    try {
-      fs.cpSync(skillRoot, stagedSkillDir, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-      });
-
-      if (targetExists) {
-        replacedParentDir = fs.mkdtempSync(
-          path.join(projectSkillsDir, `.${skillName}.replace-`),
-        );
-        replacedSkillDir = path.join(replacedParentDir, skillName);
-        fs.renameSync(targetDir, replacedSkillDir);
-      }
-
-      try {
-        fs.renameSync(stagedSkillDir, targetDir);
-      } catch (error) {
-        if (replacedSkillDir && fs.existsSync(replacedSkillDir)) {
-          if (fs.existsSync(targetDir)) {
-            fs.rmSync(targetDir, { recursive: true, force: true });
-          }
-          fs.renameSync(replacedSkillDir, targetDir);
-        }
-        const code = (error as NodeJS.ErrnoException).code;
-        if (
-          code === 'EEXIST' ||
-          code === 'ENOTEMPTY' ||
-          fs.existsSync(targetDir)
-        ) {
-          throw new GatewayRequestError(
-            409,
-            `Skill \`${skillName}\` already exists at ${targetDir}.`,
-          );
-        }
-        throw error;
-      }
-
-      if (replacedParentDir) {
-        fs.rmSync(replacedParentDir, { recursive: true, force: true });
-      }
-    } finally {
-      fs.rmSync(stagedParentDir, { recursive: true, force: true });
-      if (
-        replacedParentDir &&
-        (!replacedSkillDir || !fs.existsSync(replacedSkillDir))
-      ) {
-        fs.rmSync(replacedParentDir, { recursive: true, force: true });
-      }
-    }
-
-    return getGatewayAdminSkills();
+    throw error;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+
+  return getGatewayAdminSkills();
 }
 
 function resolveBootstrapAutostartChannelId(
