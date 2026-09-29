@@ -79,6 +79,15 @@
   justify-content: center;
 }
 
+.navButtonActive,
+.navButtonActive .navLinkIcon {
+  color: var(--primary);
+}
+
+.navButtonActive {
+  background: var(--chat-hover-bg);
+}
+
 .navLinkIcon {
   align-items: center;
   color: var(--muted-foreground);

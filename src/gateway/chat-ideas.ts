@@ -6,7 +6,8 @@
  * Suggestions are advisory text only: the web chat prefills a chosen prompt
  * into the composer and the user still sends it, so nothing here runs a tool,
  * starts a turn, or touches another user's sessions. Generated per request and
- * not stored; the console caches the result.
+ * not stored; the console caches the result in the browser until the user
+ * asks for fresh ideas.
  */
 
 import type { ServerResponse } from 'node:http';
@@ -33,6 +34,7 @@ export interface ChatIdea {
 export interface ChatIdeasResult {
   agentId: string;
   ideas: ChatIdea[];
+  generatedAt: string;
 }
 
 const IDEA_COUNT = 5;
@@ -184,6 +186,7 @@ export async function generateChatIdeas(params: {
   return {
     agentId: resolved.agentId,
     ideas: parseChatIdeas(result.content),
+    generatedAt: new Date().toISOString(),
   };
 }
 

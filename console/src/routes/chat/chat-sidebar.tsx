@@ -41,7 +41,11 @@ export interface ChatSidebarProps {
   onRefreshRecent?: () => void;
   /** Agent the Ideas page opens with; omitted, the gateway default is used. */
   activeAgentId?: string;
+  /** Page beside chat that is open, highlighted in the sidebar nav. */
+  activePage?: ChatSurfacePageId;
 }
+
+export type ChatSurfacePageId = 'apps' | 'ideas';
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
@@ -71,7 +75,11 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         </button>
         <button
           type="button"
-          className={css.newChatButton}
+          className={cx(
+            css.newChatButton,
+            props.activePage === 'apps' && css.navButtonActive,
+          )}
+          aria-current={props.activePage === 'apps' ? 'page' : undefined}
           onClick={() => navigate({ to: '/apps' })}
         >
           <span aria-hidden="true" className={css.navLinkIcon}>
@@ -81,7 +89,11 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         </button>
         <button
           type="button"
-          className={css.newChatButton}
+          className={cx(
+            css.newChatButton,
+            props.activePage === 'ideas' && css.navButtonActive,
+          )}
+          aria-current={props.activePage === 'ideas' ? 'page' : undefined}
           onClick={() =>
             navigate({
               to: '/chat/ideas',

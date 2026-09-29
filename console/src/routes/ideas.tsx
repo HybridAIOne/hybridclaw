@@ -4,29 +4,60 @@
  * this user's recent chats with it.
  *
  * Picking an idea only prefills the chat composer; the user still sends it.
- * Results are cached per agent for the page's lifetime and regenerated only
- * on an explicit refresh, because each generation is a model call.
+ * Each generation is a model call, so the last result per user and agent is
+ * kept in this browser and replaced only when the user refreshes.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useRef, useState } from 'react';
 import { fetchChatIdeas } from '../api/chat';
+import type { ChatIdeasResponse } from '../api/chat-types';
 import { fetchAgentList } from '../api/client';
 import { isAuthReadyForApi, useAuth } from '../auth';
-import { Lightbulb } from '../components/icons';
+import { Button } from '../components/button';
 import { NativeSelect } from '../components/native-select';
-import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { Skeleton } from '../components/skeleton';
 import { readStoredUserId } from '../lib/chat-helpers';
+import { cx } from '../lib/cx';
 import { getErrorMessage } from '../lib/error-message';
-import styles from './apps.module.css';
-import { AppsChatSidebar } from './apps-chat-sidebar';
+import { formatRelativeTime } from '../lib/format';
 import { RefreshIcon } from './apps-icons';
-import chatCss from './chat/chat-page.module.css';
-import { ChatSidebarProvider } from './chat/chat-sidebar';
-import ideasCss from './ideas.module.css';
+import { ChatSurfacePage } from './chat-surface-page';
+import css from './ideas.module.css';
 
 const IDEA_SKELETON_KEYS = ['a', 'b', 'c', 'd', 'e'] as const;
+const IDEAS_CACHE_PREFIX = 'hybridclaw.chat-ideas.v1';
+
+function ideasCacheKey(userId: string, agentId: string): string {
+  return `${IDEAS_CACHE_PREFIX}:${userId}:${agentId || 'default'}`;
+}
+
+function readCachedIdeas(key: string): ChatIdeasResponse | undefined {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<ChatIdeasResponse>;
+    if (
+      typeof parsed.agentId !== 'string' ||
+      typeof parsed.generatedAt !== 'string' ||
+      !Array.isArray(parsed.ideas) ||
+      parsed.ideas.length === 0
+    ) {
+      return undefined;
+    }
+    return parsed as ChatIdeasResponse;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedIdeas(key: string, value: ChatIdeasResponse): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: ideas still show, they just won't survive a reload.
+  }
+}
 
 export function IdeasPage() {
   const auth = useAuth();
@@ -35,6 +66,7 @@ export function IdeasPage() {
   const search = useSearch({ strict: false }) as { agent?: string };
   const [agentId, setAgentId] = useState(search.agent?.toLowerCase() ?? '');
   const apiReady = isAuthReadyForApi(auth);
+  const cacheKey = ideasCacheKey(userId, agentId);
 
   const agentsQuery = useQuery({
     queryKey: ['agents-list', auth.token],
@@ -48,16 +80,29 @@ export function IdeasPage() {
 
   const ideasQuery = useQuery({
     queryKey: ['chat-ideas', auth.token, userId, agentId],
-    queryFn: () => fetchChatIdeas(auth.token, userId, agentId || undefined),
+    queryFn: async () => {
+      const result = await fetchChatIdeas(
+        auth.token,
+        userId,
+        agentId || undefined,
+      );
+      writeCachedIdeas(cacheKey, result);
+      return result;
+    },
+    initialData: () => readCachedIdeas(cacheKey),
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
     refetchOnWindowFocus: false,
     enabled: apiReady,
   });
-  const resolvedAgentId = ideasQuery.data?.agentId ?? agentId;
-  const showSkeleton =
-    ideasQuery.isFetching || (!ideasQuery.data && !ideasQuery.isError);
+
+  const data = ideasQuery.data;
+  const resolvedAgentId = data?.agentId ?? agentId;
+  const agentName =
+    localAgents.find((agent) => agent.id.toLowerCase() === resolvedAgentId)
+      ?.name || 'your agent';
+  const generating = ideasQuery.isFetching;
 
   const openIdea = (prompt: string) => {
     void navigate({
@@ -69,95 +114,113 @@ export function IdeasPage() {
     });
   };
 
+  const refreshButton = (
+    <button
+      type="button"
+      className={css.refresh}
+      onClick={() => void ideasQuery.refetch()}
+      disabled={generating}
+    >
+      <RefreshIcon
+        aria-hidden="true"
+        className={cx(generating && css.spinning)}
+      />
+      <span>{generating ? 'Generating…' : 'Refresh ideas'}</span>
+    </button>
+  );
+
+  const agentPicker =
+    localAgents.length > 1 ? (
+      <NativeSelect
+        size="sm"
+        aria-label="Agent"
+        className={css.agentSelect}
+        value={resolvedAgentId}
+        onChange={(event) => setAgentId(event.target.value)}
+      >
+        {localAgents.map((agent) => (
+          <option key={agent.id} value={agent.id.toLowerCase()}>
+            {agent.name || agent.id}
+          </option>
+        ))}
+      </NativeSelect>
+    ) : null;
+
   return (
-    <ChatSidebarProvider>
-      <div className={chatCss.chatPage}>
-        <AppsChatSidebar />
-        <div className={chatCss.chatMain}>
-          <div className={styles.scroll}>
-            <div className={styles.page}>
-              <header className={styles.topbar}>
-                <div className={styles.topbarLeft}>
-                  <MobileTopbarTrigger className={styles.mobileTrigger} />
-                  <h1 className={styles.title}>Ideas</h1>
-                </div>
-                <div className={ideasCss.controls}>
-                  {localAgents.length > 1 ? (
-                    <NativeSelect
-                      size="sm"
-                      aria-label="Agent"
-                      value={resolvedAgentId}
-                      onChange={(event) => setAgentId(event.target.value)}
-                    >
-                      {localAgents.map((agent) => (
-                        <option key={agent.id} value={agent.id.toLowerCase()}>
-                          {agent.name || agent.id}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  ) : null}
-                  <button
-                    type="button"
-                    className={ideasCss.refresh}
-                    onClick={() => void ideasQuery.refetch()}
-                    disabled={ideasQuery.isFetching}
-                  >
-                    <RefreshIcon aria-hidden="true" />
-                    <span>
-                      {ideasQuery.isFetching ? 'Thinking…' : 'New ideas'}
-                    </span>
-                  </button>
-                </div>
-              </header>
-              <p className={ideasCss.lede}>
-                Suggestions based on your recent chats and what this agent knows
-                about you. Pick one to start a conversation.
-              </p>
-
-              {ideasQuery.isError && !showSkeleton ? (
-                <div className={ideasCss.error} role="alert">
-                  {getErrorMessage(ideasQuery.error)}
-                </div>
-              ) : null}
-
-              <ul className={ideasCss.list} aria-busy={ideasQuery.isFetching}>
-                {showSkeleton
-                  ? IDEA_SKELETON_KEYS.map((key) => (
-                      <li key={key}>
-                        <Skeleton className={ideasCss.skeleton} />
-                      </li>
-                    ))
-                  : (ideasQuery.data?.ideas ?? []).map((idea) => (
-                      <li key={`${idea.title}-${idea.prompt}`}>
-                        <button
-                          type="button"
-                          className={ideasCss.idea}
-                          onClick={() => openIdea(idea.prompt)}
-                        >
-                          <span className={ideasCss.ideaGlyph}>
-                            <Lightbulb aria-hidden="true" />
-                          </span>
-                          <span className={ideasCss.ideaBody}>
-                            <span className={ideasCss.ideaTitle}>
-                              {idea.title}
-                            </span>
-                            {idea.description ? (
-                              <span className={ideasCss.ideaDescription}>
-                                {idea.description}
-                              </span>
-                            ) : null}
-                            <span className={ideasCss.ideaPrompt}>
-                              “{idea.prompt}”
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-              </ul>
-            </div>
-          </div>
+    <ChatSurfacePage
+      page="ideas"
+      narrow
+      title="Ideas"
+      subtitle={`Things ${agentName} could help with next, based on your recent chats and what it knows about you.`}
+      actions={agentPicker}
+    >
+      {ideasQuery.isError && !generating ? (
+        <div className={css.error} role="alert">
+          <span>
+            {data ? 'Could not refresh ideas: ' : 'Could not generate ideas: '}
+            {getErrorMessage(ideasQuery.error)}
+          </span>
+          {data ? null : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void ideasQuery.refetch()}
+            >
+              Try again
+            </Button>
+          )}
         </div>
-      </div>
-    </ChatSidebarProvider>
+      ) : null}
+
+      {data ? (
+        <section className={css.board} aria-busy={generating}>
+          <div className={css.statusRow}>
+            <p className={css.status} aria-live="polite">
+              {generating
+                ? `Generating fresh ideas with ${agentName}…`
+                : `Generated ${formatRelativeTime(data.generatedAt)}. Pick one to start a chat.`}
+            </p>
+            {refreshButton}
+          </div>
+          <ul className={cx(css.list, generating && css.listStale)}>
+            {data.ideas.map((idea) => (
+              <li key={`${idea.title}-${idea.prompt}`}>
+                <button
+                  type="button"
+                  className={css.idea}
+                  onClick={() => openIdea(idea.prompt)}
+                  disabled={generating}
+                >
+                  <span className={css.ideaText}>
+                    <span className={css.ideaTitle}>{idea.title}</span>
+                    {idea.description ? (
+                      <span className={css.ideaDescription}>
+                        {idea.description}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className={css.prompt}>{idea.prompt}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : generating ? (
+        <section className={css.board} aria-busy="true">
+          <p className={css.status} aria-live="polite">
+            Reading your recent chats with {agentName}. This can take a minute.
+          </p>
+          <ul className={css.list}>
+            {IDEA_SKELETON_KEYS.map((key) => (
+              <li key={key} className={css.skeletonRow}>
+                <Skeleton className={css.skeletonTitle} />
+                <Skeleton className={css.skeletonText} />
+                <Skeleton className={css.skeletonPrompt} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </ChatSurfacePage>
   );
 }

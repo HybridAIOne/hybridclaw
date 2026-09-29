@@ -23,6 +23,7 @@ export interface ChatIdea {
 export interface ChatIdeasResponse {
   agentId: string;
   ideas: ChatIdea[];
+  generatedAt: string;
 }
 
 export interface ChatVoiceCapabilityResponse {

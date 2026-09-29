@@ -19,14 +19,14 @@ import { useToast } from '../components/toast';
 import { readStoredUserId } from '../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../lib/chat-ui-config';
 import { getErrorMessage } from '../lib/error-message';
-import { ChatSidebarPanel } from './chat/chat-sidebar';
+import { ChatSidebarPanel, type ChatSurfacePageId } from './chat/chat-sidebar';
 
 /**
  * The chat recents sidebar, wired for the Apps and Ideas pages. It reuses the
  * chat conversation list so the left rail is continuous with /chat;
  * opening a conversation or starting a new one navigates back into chat.
  */
-export function AppsChatSidebar() {
+export function AppsChatSidebar(props: { activePage: ChatSurfacePageId }) {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
@@ -74,6 +74,7 @@ export function AppsChatSidebar() {
       <ChatSidebarPanel
         sessions={recentQuery.data?.sessions ?? []}
         activeSessionId=""
+        activePage={props.activePage}
         onNewChat={() => navigate({ to: '/chat' })}
         onOpenSession={(sessionId) =>
           navigate({ to: '/chat/$sessionId', params: { sessionId } })

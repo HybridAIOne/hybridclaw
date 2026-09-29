@@ -73,6 +73,7 @@ test('grounds ideas in the agent persona and only the requesting user chats', as
 
   expect(result.agentId).toBe('main');
   expect(result.ideas).toHaveLength(5);
+  expect(Number.isNaN(Date.parse(result.generatedAt))).toBe(false);
   expect(fixture.callAuxiliaryModelMock).toHaveBeenCalledWith(
     expect.objectContaining({ task: 'btw', tools: [], agentId: 'main' }),
   );
