@@ -149,6 +149,11 @@ This also applies to unregistered phone numbers: acceptance does not prove
 that the recipient exists or received the message.
 
 Results include `sentFrom`, `recipient`, and `messageIds`. Transport-provided
-IDs are preserved for text chunks and attachments. The pinned WhatsApp
-plugin returns no IDs, so its `messageIds` is empty. Recipient lookup, ID
-production, and receipt tracking require support in the WhatsApp plugin.
+With WhatsApp plugin v0.1.1 or later, IDs are returned in text-chunk order
+and for attachments. Missing socket IDs are omitted; older plugin versions
+return an empty array. These IDs identify accepted sends, not delivery receipts.
+Recipient lookup and receipt tracking are not provided by this plugin.
+
+To update an existing installation, run
+`hybridclaw plugin reinstall <release-archive-url>` with the `.tgz` asset URL
+from the [WhatsApp plugin releases](https://github.com/HybridAIOne/hybridclaw-whatsapp/releases).
