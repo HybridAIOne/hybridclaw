@@ -535,6 +535,21 @@ only:
 - Requests without an id reply in `output.json`; the gateway also accepts that
   file from agent images built before request ids.
 
+## Authenticated Agent Input
+
+The agent's first request arrives on stdin, a channel the agent's own tools
+cannot write. It carries a random per-worker secret that the gateway keeps in
+memory and never writes to disk or the environment.
+
+Every later turn arrives as `input.json` in the session IPC directory, which the
+agent can also reach. So the gateway wraps each follow-up in an authenticity
+envelope keyed by that secret (`container/shared/ipc-input-auth.js`), and the
+agent runs a follow-up only when the envelope verifies against the secret it
+received on stdin. Input it cannot verify is dropped, never run.
+
+`health-input.json` is a liveness probe only: the agent reads just the nonce to
+echo and never turns a health file into a turn, so it needs no envelope.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the

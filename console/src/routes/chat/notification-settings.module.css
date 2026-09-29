@@ -1,0 +1,31 @@
+/* Notification controls occupy the expanded chat footer, not its icon rail.
+ * Shared sidebar and button styling remains owned by those components. */
+.settings {
+  padding: 8px 4px;
+  font-size: 0.8rem;
+}
+
+.settings summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.settings p {
+  margin: 8px 0;
+  color: var(--muted-foreground);
+  line-height: 1.4;
+}
+
+.settings fieldset {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.preference {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  margin: 6px 0;
+}

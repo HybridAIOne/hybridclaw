@@ -67,6 +67,27 @@ export const OPERAND_WRITERS = new Set([
   'tee',
   'touch',
 ]);
+// Programs whose `-o` names no file: grep and rg print only the match, find's
+// `-o` is OR, ls's a long listing, ps's picks columns, `set -o` sets a shell
+// option, ssh, scp, and sftp take a config option, and xargs reopens the tty
+// (the command it runs is checked on its own). Every other program's
+// `-o`/`--out` value counts as a write (owner call, 2026-09-29): an allow list
+// of programs that write through `-o` was rejected, since a program it lacks
+// writes unchecked while a false positive shows up as a prompt.
+const NON_OUTPUT_O_PROGRAMS = new Set([
+  'egrep',
+  'fgrep',
+  'find',
+  'grep',
+  'ls',
+  'ps',
+  'rg',
+  'scp',
+  'set',
+  'sftp',
+  'ssh',
+  'xargs',
+]);
 
 interface ShellCommand {
   words: string[];
@@ -654,16 +675,19 @@ function copyDestination(args: string[]): string | undefined {
   return commandOperands(args).at(-1);
 }
 
-// What one command writes, as written: redirect targets, `-o`/`--out` values,
-// option writes, the operands of tee/mkdir/touch/chmod/chown, cp/mv
-// destinations, and what xargs or `find -exec` runs.
+// What one command writes, as written: redirect targets, `-o`/`--out` values
+// unless the program's `-o` names no file, option writes, the operands of
+// tee/mkdir/touch/chmod/chown, cp/mv destinations, and what xargs or
+// `find -exec` runs.
 export function commandWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   const targets = [...redirectTargets(words), ...optionWriteTargets(words)];
-  for (let index = 0; index < args.length; index += 1) {
-    const value = args[index + 1];
-    if (/^(?:-o|--out)$/.test(args[index]) && !value?.startsWith('-')) {
-      targets.push(value ?? '');
+  if (!NON_OUTPUT_O_PROGRAMS.has(program)) {
+    for (let index = 0; index < args.length; index += 1) {
+      const value = args[index + 1];
+      if (/^(?:-o|--out)$/.test(args[index]) && !value?.startsWith('-')) {
+        targets.push(value ?? '');
+      }
     }
   }
   if (OPERAND_WRITERS.has(program)) targets.push(...commandOperands(args));

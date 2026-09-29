@@ -7,6 +7,7 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
+import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -39,10 +40,7 @@ export async function runIsolatedScheduledTask(params: {
   sessionId?: string;
   sessionKey?: string;
   mainSessionKey?: string;
-  onResult: (result: {
-    text: string;
-    artifacts?: Array<{ path: string; filename: string; mimeType: string }>;
-  }) => void | Promise<void>;
+  onResult: (result: ProactiveMessagePayload) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {
   const {
@@ -187,7 +185,7 @@ export async function runIsolatedScheduledTask(params: {
     }
 
     if (output.status === 'success' && output.result) {
-      memoryService.storeTurn({
+      const storedTurn = memoryService.storeTurn({
         sessionId: activeSessionId,
         user: {
           userId: 'scheduler',
@@ -199,6 +197,7 @@ export async function runIsolatedScheduledTask(params: {
           username: null,
           agentId,
           content: output.result,
+          artifacts: output.artifacts,
         },
       });
       appendSessionTranscript(agentId, {
@@ -220,6 +219,10 @@ export async function runIsolatedScheduledTask(params: {
       if (!isSilentReply(output.result)) {
         await onResult({
           text: output.result,
+          storedMessage: {
+            sessionId: activeSessionId,
+            id: storedTurn.assistantMessageId,
+          },
           artifacts: output.artifacts,
         });
       }

@@ -1,5 +1,5 @@
 /**
- * SSRF-guarded HTTPS GET for gateway fetches of URLs that came from a model,
+ * SSRF-guarded HTTPS requests for gateway URLs that came from a model,
  * a user, or a provider response. Every DNS answer, including the connect-time
  * lookup, must be public, so a rebinding host cannot slip through.
  *
@@ -8,7 +8,7 @@
  */
 import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
-import type { IncomingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http';
 import https from 'node:https';
 import type { LookupFunction } from 'node:net';
 import { URL } from 'node:url';
@@ -16,6 +16,9 @@ import { URL } from 'node:url';
 import { isPrivateNetworkAddress } from '../../container/shared/private-network.js';
 
 export interface PublicHttpsFetchOptions {
+  method?: 'GET' | 'POST';
+  headers?: OutgoingHttpHeaders;
+  body?: Buffer;
   timeoutMs?: number;
   readIdleTimeoutMs?: number;
   maxBytes?: number | null;
@@ -169,7 +172,8 @@ export async function fetchPublicHttpsBuffer(
       parsed,
       {
         lookup: createSsrfGuardedLookup(),
-        method: 'GET',
+        method: options.method ?? 'GET',
+        headers: options.headers,
       },
       (response) => {
         const statusCode = response.statusCode ?? 0;
@@ -233,6 +237,6 @@ export async function fetchPublicHttpsBuffer(
     });
     request.on('close', clearReadIdleTimeout);
     request.on('error', rejectOnce);
-    request.end();
+    request.end(options.body);
   });
 }

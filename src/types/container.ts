@@ -60,6 +60,12 @@ export interface ContainerInput extends SessionAttachmentAccess {
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;
+  /**
+   * Per-worker secret that authenticates later IPC inputs. Delivered only in
+   * the first stdin payload and never written to a file (see
+   * container/shared/ipc-input-auth.js); stripped by buildRedactedInput.
+   */
+  ipcAuthSecret?: string;
   baseUrl: string;
   provider?: ProviderKind;
   providerMethod?: string;

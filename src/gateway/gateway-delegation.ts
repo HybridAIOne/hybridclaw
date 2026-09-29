@@ -46,6 +46,7 @@ import {
 import { buildDelegationResultsMessage } from './delegation-results-message.js';
 import type { ProactiveMessagePayload } from './fullauto-runtime.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import { notifyWebSession } from './web-notifications.js';
 
 const MAX_QUEUED_DELEGATION_MESSAGES = 500;
 const DELEGATION_STREAM_DELTA_FLUSH_CHARS = 96;
@@ -589,13 +590,17 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           !replyText ||
           (!isSilentReply(replyText) && !replyStream?.started())
         ) {
-          await publishDelegationLifecycleMessage({
-            parentSessionId,
-            channelId,
-            text: resultText,
-            artifacts,
-            onProactiveMessage,
-          });
+          if (channelId === 'web') {
+            notifyWebSession(parentSessionId, 'turn', publicId);
+          } else {
+            await publishDelegationLifecycleMessage({
+              parentSessionId,
+              channelId,
+              text: resultText,
+              artifacts,
+              onProactiveMessage,
+            });
+          }
         }
         completeDelegationJob(publicId, {
           resultText,

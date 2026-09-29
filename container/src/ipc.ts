@@ -7,6 +7,13 @@
  * guarantee, so the input reader treats unparseable JSON as not yet written
  * and polls again.
  *
+ * `input.json` lives where this agent's own tools can write, so a follow-up is
+ * honored only when its authenticity envelope verifies against the per-worker
+ * secret received on stdin (`setIpcAuthSecret`, see shared/ipc-input-auth.js);
+ * an input that fails to verify is dropped, not run. `health-input.json` is
+ * read as a liveness probe only: it yields a turn's input never — just the
+ * nonce to echo — so an unauthenticated health file cannot become a turn.
+ *
  * The IPC directory can outlive this process: the session's replacement agent
  * may share it while this one shuts down, so once shutdown starts this agent
  * consumes no input file and leaves it for the replacement.
@@ -14,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../shared/ipc-output-files.js';
 import { writeMemoryFileAtomic } from '../shared/memory-file.js';
 import { IPC_DIR } from './runtime-paths.js';
@@ -28,17 +36,85 @@ const MAX_INPUT_POLL_INTERVAL_MS = 200;
 // Keep the backoff formula aligned with src/infra/ipc.ts; max differs by side.
 const INPUT_POLL_BACKOFF_FACTOR = 1.5;
 
+// The per-worker secret from the first stdin payload. Held only in memory here;
+// never read from or written to a file.
+let ipcAuthSecret = '';
+
+/** Record the secret received on stdin so follow-up inputs can be verified. */
+export function setIpcAuthSecret(secret: string): void {
+  ipcAuthSecret = secret || '';
+}
+
 function readInputFile(inputPath: string): ContainerInput | null {
+  let raw: string;
   try {
-    const raw = fs.readFileSync(inputPath, 'utf-8');
-    const input = JSON.parse(raw) as ContainerInput;
-    // Remove input file to signal we've consumed it
+    raw = fs.readFileSync(inputPath, 'utf-8');
+  } catch {
+    // Not present yet, retry.
+    return null;
+  }
+  const decoded = decodeAuthenticatedInput(ipcAuthSecret, raw);
+  if (decoded.status === 'incomplete') {
+    // Partially written, retry without deleting.
+    return null;
+  }
+  if (decoded.status === 'rejected') {
+    // A complete but unauthenticated input reached the IPC directory. Drop it
+    // so it never becomes a turn, and do not report the reason (untrusted).
+    console.error('[ipc] rejected unauthenticated input');
+    try {
+      fs.unlinkSync(inputPath);
+    } catch {
+      // already gone
+    }
+    return null;
+  }
+  try {
+    const input = JSON.parse(decoded.body) as ContainerInput;
     fs.unlinkSync(inputPath);
     return input;
   } catch {
-    // Partially written, retry
+    // Verified envelope with an unparseable body: drop it rather than loop.
+    try {
+      fs.unlinkSync(inputPath);
+    } catch {
+      // already gone
+    }
     return null;
   }
+}
+
+/**
+ * Read a health probe. The health path never carries a turn: only a liveness
+ * nonce is honored, so an unauthenticated `health-input.json` cannot drive the
+ * agent. A file without a nonce is dropped.
+ */
+function readHealthInputFile(inputPath: string): ContainerInput | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(inputPath, 'utf-8');
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Partially written, retry without deleting.
+    return null;
+  }
+  const nonce =
+    parsed && typeof parsed === 'object'
+      ? (parsed as { healthCheck?: { nonce?: unknown } }).healthCheck?.nonce
+      : undefined;
+  try {
+    fs.unlinkSync(inputPath);
+  } catch {
+    // already gone
+  }
+  if (typeof nonce !== 'string' || !nonce) return null;
+  // Only the nonce is trusted; nothing else in the file reaches a turn.
+  return { healthCheck: { nonce } } as ContainerInput;
 }
 
 /**
@@ -54,7 +130,7 @@ export async function waitForInput(
 
   while (!isShuttingDown() && Date.now() < deadline) {
     if (fs.existsSync(HEALTH_INPUT_PATH)) {
-      const input = readInputFile(HEALTH_INPUT_PATH);
+      const input = readHealthInputFile(HEALTH_INPUT_PATH);
       if (input) return input;
     }
     if (fs.existsSync(INPUT_PATH)) {

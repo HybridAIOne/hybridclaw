@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import type {
   ExecutorRequest,
@@ -169,6 +170,8 @@ interface PoolEntry extends WarmRunnerEntry {
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
+  /** Per-worker secret sent once via stdin; authenticates later IPC inputs. */
+  ipcAuthSecret: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
@@ -894,6 +897,7 @@ function getOrSpawnContainer(
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
+    ipcAuthSecret: generateIpcAuthSecret(),
     terminalError: null,
     isReady() {
       return entry.readyForInputAt != null;
@@ -1334,13 +1338,19 @@ async function runContainerInner(
   try {
     if (isNewContainer) {
       entry.pendingColdStartProbeStartedAt = Date.now();
-      // First request: send full input (including apiKey) via stdin — no file on disk.
-      // Write JSON on a single line followed by newline as delimiter.
-      // Do NOT end stdin — closing stdin can cause docker -i to terminate the container.
-      entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
+      // First request: send full input (including apiKey and the per-worker IPC
+      // auth secret) via stdin — no file on disk. Write JSON on a single line
+      // followed by newline as delimiter. Do NOT end stdin — closing stdin can
+      // cause docker -i to terminate the container.
+      entry.process.stdin?.write(
+        `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
+      );
     } else {
-      // Follow-up requests: write to IPC file, omitting apiKey
-      writeInput(entry.ipcSessionId, input, { omitApiKey: true });
+      // Follow-up requests: write to IPC file (credentials dropped, reused from
+      // stdin) authenticated with the secret the agent received on stdin.
+      writeInput(entry.ipcSessionId, input, {
+        authSecret: entry.ipcAuthSecret,
+      });
     }
 
     const output = await readOutput(

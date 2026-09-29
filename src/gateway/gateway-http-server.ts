@@ -469,6 +469,17 @@ import {
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
 import {
+  handleWebNotificationRoute,
+  resolveWebNotificationOperator,
+} from './web-notification-routes.js';
+
+import {
+  closeWebNotificationStreams,
+  notifyWebChatResult,
+  notifyWebSession,
+  trackWebNotificationSession,
+} from './web-notifications.js';
+import {
   isSupportedDictationMimeType,
   isWebchatDictationAvailable,
   transcribeWebchatDictation,
@@ -550,6 +561,7 @@ const SITE_MIME_TYPES: Record<string, string> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.m4v': extensionToMimeType('.m4v'),
@@ -3281,9 +3293,10 @@ function serveConsoleFile(
   const isIndex = filePath.endsWith('index.html');
   res.writeHead(200, {
     'Content-Type': mimeType,
-    'Cache-Control': isIndex
-      ? 'no-cache'
-      : 'public, max-age=31536000, immutable',
+    'Cache-Control':
+      isIndex || /(?:sw\.js|manifest\.webmanifest)$/.test(filePath)
+        ? 'no-cache'
+        : 'public, max-age=31536000, immutable',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Cross-Origin-Opener-Policy': 'same-origin',
@@ -3326,6 +3339,7 @@ function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
 async function handleApiChat(
   req: IncomingMessage,
   res: ServerResponse,
+  operatorId: string | null,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
@@ -3400,8 +3414,10 @@ async function handleApiChat(
     'Received gateway API chat request',
   );
 
+  if (channelId === 'web' && operatorId)
+    trackWebNotificationSession(chatRequest.sessionId, operatorId);
   if (wantsStream) {
-    await handleApiChatStream(req, res, chatRequest);
+    await handleApiChatStream(req, res, chatRequest, operatorId);
     return;
   }
 
@@ -3420,6 +3436,7 @@ async function handleApiChat(
   );
   const capturedApps = await maybeCaptureChatArtifacts(chatRequest, result);
   if (capturedApps.length > 0) result.apps = capturedApps;
+  notifyWebChatResult(operatorId, chatRequest, result);
   sendJson(res, result.status === 'success' ? 200 : 500, result);
 }
 
@@ -3757,6 +3774,7 @@ async function handleApiChatStream(
   req: IncomingMessage,
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
+  operatorId: string | null,
 ): Promise<void> {
   const sendEvent = (payload: object): void => {
     if (res.writableEnded) return;
@@ -3839,6 +3857,8 @@ async function handleApiChatStream(
   let streamedApprovalId: string | null = null;
   const onApprovalProgress = (approval: PendingApproval): void => {
     streamedApprovalId = approval.approvalId;
+    if (chatRequest.channelId === 'web')
+      notifyWebSession(chatRequest.sessionId, 'approval', approval.approvalId);
     sendEvent({
       type: 'approval',
       ...approval,
@@ -3889,6 +3909,12 @@ async function handleApiChatStream(
       filteredResult,
     );
     if (capturedApps.length > 0) filteredResult.apps = capturedApps;
+    notifyWebChatResult(
+      operatorId,
+      chatRequest,
+      filteredResult,
+      streamedApprovalId,
+    );
     sendEvent({
       type: 'result',
       result: filteredResult,
@@ -10749,6 +10775,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       void (async () => {
         try {
+          const operatorId = resolveWebNotificationOperator(
+            authContext.kind,
+            normalizeOptionalString(authContext.payload?.sub) ||
+              resolveAdminSessionActor(authContext.payload),
+            authContext.tokenId,
+          );
+          if (pathname.startsWith('/api/push/')) {
+            if (!operatorId) {
+              sendJson(res, 403, {
+                error:
+                  'Notifications require an authenticated operator identity.',
+              });
+              return;
+            }
+            await handleWebNotificationRoute(req, res, pathname, operatorId);
+            return;
+          }
           if (pathname === '/api/events' && method === 'GET') {
             handleApiEvents(req, res, activeSseResponses);
             return;
@@ -11484,7 +11527,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
-            await handleApiChat(req, res);
+            await handleApiChat(req, res, operatorId);
             return;
           }
           if (pathname === '/api/chat/branch' && method === 'POST') {
@@ -11658,6 +11701,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/sw.js' || pathname === '/manifest.webmanifest') {
+      if (serveConsoleAsset(pathname, res)) return;
+      sendText(res, 404, 'Not Found');
+      return;
+    }
     if (pathname.startsWith('/assets/')) {
       if (serveConsoleAsset(pathname, res)) return;
       sendText(res, 404, 'Not Found');
@@ -11875,6 +11923,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       gatewayReady = true;
     },
     broadcastShutdown(): void {
+      closeWebNotificationStreams();
       void localModels.close();
       const shutdownMessage: AdminTerminalServerMessage = {
         type: 'shutdown',

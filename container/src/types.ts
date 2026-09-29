@@ -234,6 +234,12 @@ export interface ContainerInput extends SessionAttachmentAccess {
   chatbotId: string;
   enableRag: boolean;
   apiKey: string;
+  /**
+   * Per-worker secret that authenticates later IPC inputs. Delivered only in
+   * the first stdin payload and never written to a file (see
+   * shared/ipc-input-auth.js).
+   */
+  ipcAuthSecret?: string;
   baseUrl: string;
   provider?:
     | 'hybridai'

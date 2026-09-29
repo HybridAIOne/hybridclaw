@@ -475,10 +475,10 @@ describe.sequential('container cron tool', () => {
     expect(result).toContain('0 9 * * * (Europe/Berlin)');
   });
 
-  test('requires an explicit delivery channel in web chat and heartbeat sessions', async () => {
+  test('requires an explicit delivery channel in heartbeat sessions', async () => {
     const calls = installGatewayFetch();
 
-    for (const channel of ['web', 'heartbeat']) {
+    for (const channel of ['heartbeat']) {
       setGatewayContext(GATEWAY_URL, 'gateway-token', channel);
       const withoutChannel = await executeTool(
         'cron',
@@ -504,6 +504,15 @@ describe.sequential('container cron tool', () => {
     );
     expect(withChannel).toContain('Scheduled recurring task #42');
     expect(calls).toHaveLength(1);
+  });
+
+  test('schedules web reminders in the originating channel without an override', async () => {
+    const calls = installGatewayFetch();
+    setGatewayContext(GATEWAY_URL, 'gateway-token', 'web');
+    const result = await executeTool('cron', JSON.stringify({ action: 'add', at_seconds: 60, prompt: 'Remind me to check the report.' }));
+    expect(result).not.toContain('Error:');
+    expect(calls).toHaveLength(1);
+    expect(readRequestBody(calls[0])).toMatchObject({ channelId: 'web' });
   });
 
   test('validateCronExpression covers ranges, lists, steps and names', () => {
