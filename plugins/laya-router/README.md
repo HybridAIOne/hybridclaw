@@ -68,3 +68,15 @@ python3 -m unittest discover -s plugins/laya-router/runtime -p 'test_*.py'
 
 Upstream model/runtime: Apache-2.0. Runtime dependencies are frozen in
 `runtime/uv.lock`; see `THIRD_PARTY_NOTICES.md`.
+
+### Routing tier descriptions
+
+Laya and JEV receive the same capability descriptions, assigned by configured
+order rather than tier name. Four tiers separate simple facts and arithmetic,
+routine writing/translation/summarization, programming/debugging/multi-step
+analysis, and specialist reasoning/proofs/system design. Three tiers combine the
+two middle groups. Custom tier names retain this ordering.
+
+Distinct descriptions do not establish model accuracy: local smoke tests still
+produce low-confidence decisions, so the existing confidence gate remains in
+place.

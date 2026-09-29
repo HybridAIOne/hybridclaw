@@ -19,12 +19,34 @@ export interface RoutingSignals {
 }
 export const UNKNOWN_SIGNALS: RoutingSignals = { tier: null };
 
+// Owner request, 2026-09-29: distinct capability bands for three/four-tier
+// ladders. Three tiers combine routine and technical work in the middle.
+const TIER_CAPABILITIES = {
+  basic: 'Greetings, simple factual questions and basic arithmetic.',
+  routine: 'Routine writing, rewriting, translation and summarization.',
+  technical: 'Programming, debugging and multi-step analysis.',
+  advanced:
+    'Research-level reasoning, difficult proofs and complex system design.',
+};
+
 export function routingTierCriteria(tiers: { name: string }[]) {
   return Object.fromEntries(
-    tiers.map((tier, index) => [
-      tier.name,
-      `Tier ${index + 1} of ${tiers.length}, ordered from least to most capable. ${index === 0 ? 'Simple factual questions, short writing and everyday conversation.' : index === tiers.length - 1 ? 'The most difficult specialist work, complex debugging and deep reasoning.' : 'Increasingly demanding writing, coding, research and analysis.'}`,
-    ]),
+    tiers.map((tier, index) => {
+      const description =
+        index === 0
+          ? TIER_CAPABILITIES.basic
+          : index === tiers.length - 1
+            ? TIER_CAPABILITIES.advanced
+            : tiers.length === 3
+              ? `${TIER_CAPABILITIES.routine} ${TIER_CAPABILITIES.technical}`
+              : index === 1
+                ? TIER_CAPABILITIES.routine
+                : TIER_CAPABILITIES.technical;
+      return [
+        tier.name,
+        `Tier ${index + 1} of ${tiers.length}. ${description}`,
+      ];
+    }),
   );
 }
 export const TIER_SELECTION_RULE =
