@@ -156,7 +156,10 @@ test('an interrupted request’s SIGTERM reply lands in that request’s reply f
             type: 'function',
             function: {
               name: 'delegate',
-              arguments: JSON.stringify({ prompt: 'research the topic' }),
+              arguments: JSON.stringify({
+                prompt: 'research the topic',
+                background: true,
+              }),
             },
           },
         ],

@@ -731,15 +731,21 @@ description: Forced skill upload test
     },
   ]);
 
-  const cpSpy = vi.spyOn(fs, 'cpSync').mockImplementationOnce(() => {
-    throw new Error('copy failed');
-  });
+  const copyFileSync = fs.copyFileSync;
+  const copySpy = vi
+    .spyOn(fs, 'copyFileSync')
+    .mockImplementation((source, target, mode) => {
+      if (String(target).startsWith(managedSkillsDir)) {
+        throw new Error('copy failed');
+      }
+      copyFileSync(source, target, mode);
+    });
   try {
     await expect(
       uploadGatewayAdminSkillZip(zipBuffer, { force: true }),
     ).rejects.toThrow('copy failed');
   } finally {
-    cpSpy.mockRestore();
+    copySpy.mockRestore();
   }
 
   expect(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')).toBe(
@@ -748,11 +754,7 @@ description: Forced skill upload test
   expect(
     fs
       .readdirSync(managedSkillsDir)
-      .filter(
-        (entry) =>
-          entry.startsWith('.my-skill.upload-') ||
-          entry.startsWith('.my-skill.replace-'),
-      ),
+      .filter((entry) => entry.startsWith('.my-skill.import-')),
   ).toEqual([]);
 });
 
@@ -814,8 +816,8 @@ description: Blocked skill upload test
     expect((error as InstanceType<typeof GatewayRequestError>).statusCode).toBe(
       400,
     );
-    expect((error as Error).message).toBe(
-      'Skill `my-skill` was blocked by the security scanner: blocked (workspace source + dangerous verdict, 2 finding(s)).',
+    expect((error as Error).message).toContain(
+      'Imported skill "my-skill" was blocked by the security scanner: blocked (workspace source + dangerous verdict, 2 finding(s)).',
     );
   }
 

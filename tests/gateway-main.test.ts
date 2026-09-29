@@ -2302,7 +2302,7 @@ describe('gateway bootstrap', () => {
       turnContext,
     });
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Hello from gateway\n*Tools: search*',
+      'Hello from gateway\n*Tools: `search`*',
       [
         {
           contentType: 'image/png',
@@ -2476,7 +2476,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Screenshot captured.\n*Tools: browser_screenshot*',
+      'Screenshot captured.\n*Tools: `browser_screenshot`*',
     );
     expect(reply).toHaveBeenCalledWith('', [
       {
@@ -2533,7 +2533,7 @@ describe('gateway bootstrap', () => {
     );
 
     expect(stream.finalize).toHaveBeenCalledWith(
-      'Created dog_with_image.pdf.\n*Tools: bash*\n\nThe artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.',
+      'Created dog_with_image.pdf.\n*Tools: `bash`*\n\nThe artifact was created, but Teams could not deliver the file. Try the bot’s direct chat; if this already is a direct chat, enable file support (`supportsFiles`) in the Teams app manifest.',
       undefined,
     );
   });

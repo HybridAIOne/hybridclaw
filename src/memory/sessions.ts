@@ -1305,9 +1305,24 @@ function buildRecentSessionSummaries(params: {
     .slice(0, params.limit);
 }
 
+// Sessions stored without an agent belong to the default agent.
+function recentSessionAgentFilter(agentId: string | null | undefined): {
+  sql: string;
+  params: string[];
+} {
+  const normalized = String(agentId || '').trim();
+  return normalized
+    ? {
+        sql: " AND COALESCE(NULLIF(TRIM(s.agent_id), ''), ?) = ?",
+        params: [resolveDefaultAgentId(getRuntimeConfig()), normalized],
+      }
+    : { sql: '', params: [] };
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
+  agentId?: string | null;
   limit?: number;
   query?: string | null;
   includeScheduled?: boolean;
@@ -1323,50 +1338,35 @@ export function getRecentSessionsForUser(params: {
     params.includeScheduled === false
       ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
       : '';
+  const channelFilter = channelId
+    ? { sql: ' AND s.channel_id = ?', params: [channelId] }
+    : { sql: '', params: [] };
+  const agentFilter = recentSessionAgentFilter(params.agentId);
 
-  const rows = channelId
-    ? queryAll<RecentUserSessionRow, [string, string]>(
-        getSessionDatabase(),
-        `SELECT
-           s.id,
-           s.last_active,
-           s.message_count,
-           s.title,
-           (
-             SELECT MAX(all_messages.created_at)
-               FROM messages all_messages
-              WHERE all_messages.session_id = s.id
-           ) AS last_message_at
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?
-             AND s.channel_id = ?
-             ${scheduledWhere}
-           GROUP BY s.id`,
-        userId,
-        channelId,
-      )
-    : queryAll<RecentUserSessionRow, [string]>(
-        getSessionDatabase(),
-        `SELECT
-           s.id,
-           s.last_active,
-           s.message_count,
-           s.title,
-           (
-             SELECT MAX(all_messages.created_at)
-               FROM messages all_messages
-              WHERE all_messages.session_id = s.id
-           ) AS last_message_at
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?
-             ${scheduledWhere}
-           GROUP BY s.id`,
-        userId,
-      );
+  const rows = queryAll<RecentUserSessionRow, string[]>(
+    getSessionDatabase(),
+    `SELECT
+       s.id,
+       s.last_active,
+       s.message_count,
+       s.title,
+       (
+         SELECT MAX(all_messages.created_at)
+           FROM messages all_messages
+          WHERE all_messages.session_id = s.id
+       ) AS last_message_at
+       FROM sessions s
+       INNER JOIN messages m
+         ON m.session_id = s.id
+       WHERE m.user_id = ?
+         ${channelFilter.sql}
+         ${agentFilter.sql}
+         ${scheduledWhere}
+       GROUP BY s.id`,
+    userId,
+    ...channelFilter.params,
+    ...agentFilter.params,
+  );
 
   return buildRecentSessionSummaries({
     rows,
@@ -1505,6 +1505,7 @@ export function discoverActorData(params: {
 
 export function getRecentSessionsForChannel(params: {
   channelId: string;
+  agentId?: string | null;
   limit?: number;
   query?: string | null;
   includeScheduled?: boolean;
@@ -1521,7 +1522,9 @@ export function getRecentSessionsForChannel(params: {
       ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
       : '';
 
-  const rows = queryAll<RecentUserSessionRow, [string, number]>(
+  const agentFilter = recentSessionAgentFilter(params.agentId);
+
+  const rows = queryAll<RecentUserSessionRow, Array<string | number>>(
     getSessionDatabase(),
     `SELECT
        s.id,
@@ -1533,11 +1536,13 @@ export function getRecentSessionsForChannel(params: {
        INNER JOIN messages m
           ON m.session_id = s.id
       WHERE s.channel_id = ?
+        ${agentFilter.sql}
         ${scheduledWhere}
       GROUP BY s.id
       ORDER BY last_message_at DESC
       LIMIT ?`,
     channelId,
+    ...agentFilter.params,
     sqlLimit,
   );
 

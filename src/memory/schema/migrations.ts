@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 65;
+export const DATABASE_SCHEMA_VERSION = 66;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3670,6 +3670,20 @@ function migrateV65(
   recordMigration(database, 65, 'Add per-session approval mode column');
 }
 
+function migrateV66(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'msteams_users',
+    column: 'email',
+    ddl: 'email TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 66, 'Track Teams user emails');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3852,6 +3866,7 @@ export function runMigrations(
   if (currentVersion < 63) migrateV63(database, opts);
   if (currentVersion < 64) migrateV64(database, opts);
   if (currentVersion < 65) migrateV65(database, opts);
+  if (currentVersion < 66) migrateV66(database, opts);
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(
