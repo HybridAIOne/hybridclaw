@@ -53,6 +53,7 @@ import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { isRecord } from '../utils/type-guards.js';
 import { createPluginApi } from './plugin-api.js';
+import { linkPluginSdk } from './plugin-sdk-link.js';
 import type {
   HybridClawPluginDefinition,
   LoadedPlugin,
@@ -749,6 +750,7 @@ function createPluginImportSnapshot(pluginDir: string): {
       process.platform === 'win32' ? 'junction' : 'dir',
     );
   }
+  linkPluginSdk(rootDir);
 
   return { rootDir, snapshotDir };
 }

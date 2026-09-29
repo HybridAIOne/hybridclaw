@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-vi.mock('hybridclaw/plugin-sdk', () => ({}));
+vi.mock('@hybridaione/hybridclaw/plugin-sdk', () => ({}));
 
 import { createSendEmailToolHandler } from '../plugins/brevo-email/src/index.js';
 

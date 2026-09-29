@@ -107,7 +107,7 @@ function describeApproval(pendingApproval) {
 
 /**
  * @param {{
- *   api: import('hybridclaw/plugin-sdk').HybridClawPluginApi,
+ *   api: import('@hybridaione/hybridclaw/plugin-sdk').HybridClawPluginApi,
  *   config: import('./config.js').PublishedToolsConfig,
  *   store: import('./conversation-store.js').ConversationStore,
  *   now?: () => number,

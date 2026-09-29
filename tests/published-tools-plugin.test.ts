@@ -7,6 +7,9 @@ import type {
 } from '../src/plugins/plugin-sdk.js';
 import { useTempDir } from './test-utils.js';
 
+vi.mock('@hybridaione/hybridclaw/plugin-sdk', () =>
+  import('../src/plugins/plugin-sdk.ts'),
+);
 
 const TOKEN = 'test-token-0123456789';
 const VERSION = '2026-07-28';

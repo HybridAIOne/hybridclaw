@@ -9,6 +9,11 @@
  * NOT the tool semantics (`tool-server.js`).
  */
 import { timingSafeEqual } from 'node:crypto';
+import {
+  readWebhookJsonBody,
+  sendWebhookJson,
+  WebhookHttpError,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 export const PROTOCOL_VERSION = '2026-07-28';
 export const SUPPORTED_VERSIONS = [PROTOCOL_VERSION];
@@ -120,28 +125,22 @@ function validateRequest(req, message) {
   }
 }
 
-// The body helpers are local because an installed plugin cannot import
-// hybridclaw/plugin-sdk at runtime; only its types are available.
 function sendRpc(res, status, id, payload) {
-  res.statusCode = status;
-  res.setHeader('content-type', 'application/json; charset=utf-8');
-  res.end(JSON.stringify({ jsonrpc: '2.0', id, ...payload }));
+  sendWebhookJson(res, status, { jsonrpc: '2.0', id, ...payload });
 }
 
 async function readMessage(req) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > MAX_BODY_BYTES) {
-      throw new RpcError(413, RPC.INVALID_REQUEST, 'Request body too large.');
-    }
-    chunks.push(chunk);
-  }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new RpcError(400, RPC.PARSE_ERROR, 'Parse error.');
+    return await readWebhookJsonBody(req, {
+      maxBytes: MAX_BODY_BYTES,
+      tooLargeMessage: 'Request body too large.',
+      invalidJsonMessage: 'Parse error.',
+    });
+  } catch (error) {
+    if (!(error instanceof WebhookHttpError)) throw error;
+    const code =
+      error.statusCode === 413 ? RPC.INVALID_REQUEST : RPC.PARSE_ERROR;
+    throw new RpcError(error.statusCode, code, error.message);
   }
 }
 
@@ -154,7 +153,7 @@ function readId(message) {
 /**
  * Serves one MCP POST.
  *
- * @param {import('hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
+ * @param {import('@hybridaione/hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
  * @param {{
  *   token: string | undefined,
  *   allowedOrigins: Set<string>,
