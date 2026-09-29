@@ -74,9 +74,13 @@ Tool execution runs inside Docker with sandbox constraints:
 - constrained CPU/memory/timeouts
 - controlled workspace/IPC mounts
 - additional mount allowlist validation
+- authenticated gateway→agent input: the agent runs a follow-up turn only when
+  it is authenticated with a per-worker secret delivered on stdin, so input in
+  the IPC directory is trusted only when it comes from the gateway
 
 Implementation: [src/infra/container-runner.ts](./src/infra/container-runner.ts),
-[src/security/mount-security.ts](./src/security/mount-security.ts)
+[src/security/mount-security.ts](./src/security/mount-security.ts),
+[container/shared/ipc-input-auth.js](./container/shared/ipc-input-auth.js)
 
 ### 4) Session Isolation
 

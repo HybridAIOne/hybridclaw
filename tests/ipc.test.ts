@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+import { decodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -54,6 +55,7 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     chatbotId: '',
     enableRag: false,
     apiKey: 'token_secret',
+    ipcAuthSecret: 'secret-should-not-persist',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     provider: 'openai-codex' as const,
     requestHeaders: {
@@ -95,12 +97,22 @@ test('writeInput omits auth material from IPC files when requested', async () =>
   };
 
   ensureSessionDirs('session-1');
-  const filePath = writeInput('session-1', input, { omitApiKey: true });
-  const written = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<
-    string,
-    unknown
-  >;
+  const authSecret = 'worker-secret';
+  const filePath = writeInput('session-1', input, {
+    omitApiKey: true,
+    authSecret,
+  });
+  // The file is an authenticity envelope; verify it and read the body back.
+  const decoded = decodeAuthenticatedInput(
+    authSecret,
+    fs.readFileSync(filePath, 'utf-8'),
+  );
+  expect(decoded.status).toBe('ok');
+  if (decoded.status !== 'ok') throw new Error('expected authentic input');
+  const written = JSON.parse(decoded.body) as Record<string, unknown>;
 
+  // The per-worker secret must never reach the file.
+  expect(written.ipcAuthSecret).toBeUndefined();
   expect(written.apiKey).toBe('');
   expect(written.requestHeaders).toEqual({});
   expect(written.runtimeEnv).toEqual({

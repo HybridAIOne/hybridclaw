@@ -28,7 +28,12 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
+import {
+  setIpcAuthSecret,
+  waitForInput,
+  writeHealthOutput,
+  writeOutput,
+} from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -2186,6 +2191,9 @@ async function main(): Promise<void> {
   await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   inFlightInput = firstInput;
+  // The stdin payload is the one input not on a tool-writable path; the secret
+  // it carries authenticates every later input.json.
+  setIpcAuthSecret(firstInput.ipcAuthSecret || '');
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
