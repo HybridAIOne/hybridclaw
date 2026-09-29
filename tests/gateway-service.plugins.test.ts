@@ -1023,6 +1023,16 @@ test('handleGatewayCommand disables a plugin from a local TUI/web session and re
   );
 
   initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'qmd-memory',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-disable',
