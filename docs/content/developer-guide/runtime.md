@@ -72,6 +72,14 @@ HybridClaw can execute agent turns in two modes:
   mode; in container mode they also show the configured image name, resolved
   version, short image id, and session count.
 
+Dream consolidation always runs semantic-memory decay. Model cleanup runs only
+when a workspace's `MEMORY.md`, selected daily-note content, or consolidation
+language differs from its last completed cleanup. A `.memory-cleanup.sha256`
+fingerprint in the host-mounted workspace survives gateway and worker restarts;
+it records the resulting memory content so dream's own rewrite does not trigger
+another cleanup. The first run without a fingerprint establishes this baseline.
+Daily notes are preserved. Failed model calls use deterministic consolidation.
+
 ## Worker State
 
 A session's turns run in a worker: an agent container in `container` mode, an
