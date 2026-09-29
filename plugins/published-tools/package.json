@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-published-tools",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw plugin that publishes admin-defined tools on an MCP endpoint",
+  "engines": {
+    "node": "22.x"
+  }
+}

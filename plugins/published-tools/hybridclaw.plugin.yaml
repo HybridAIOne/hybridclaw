@@ -1,0 +1,76 @@
+id: published-tools
+name: Published Tools
+version: 0.1.0
+kind: channel
+description: Publishes admin-defined tools on an MCP (2026-07-28) endpoint so hosts such as Microsoft Copilot can hand tasks to a HybridClaw agent.
+entrypoint: src/index.js
+credentials:
+  - PUBLISHED_TOOLS_TOKEN
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    instructions:
+      type: string
+      default: ''
+      maxLength: 4000
+    # 20s (engineering choice, 2026-09-29): stays under common MCP host
+    # tool-call timeouts; Copilot's exact limit is unverified. Longer runs
+    # return a run_id for hybridclaw_get_result.
+    syncWaitSeconds:
+      type: number
+      default: 20
+      minimum: 0
+      maximum: 110
+    allowedOrigins:
+      type: array
+      default: []
+      items:
+        type: string
+    tools:
+      type: array
+      default: []
+      maxItems: 64
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - name
+          - description
+          - allowedTools
+        properties:
+          name:
+            type: string
+            pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'
+          title:
+            type: string
+            maxLength: 120
+          description:
+            type: string
+            minLength: 1
+            maxLength: 4000
+          instructions:
+            type: string
+            default: ''
+            maxLength: 20000
+          agentId:
+            type: string
+          allowedTools:
+            type: array
+            minItems: 1
+            items:
+              type: string
+              minLength: 1
+configUiHints:
+  instructions:
+    label: Server Instructions
+    help: Optional guidance the MCP host shows its model about this server as a whole. Tool descriptions carry the per-tool routing text.
+  syncWaitSeconds:
+    label: Synchronous Wait (seconds)
+    help: How long a tool call waits for the answer before returning a run_id to poll with hybridclaw_get_result.
+  allowedOrigins:
+    label: Allowed Origins
+    help: Browser origins allowed to call the endpoint. Server-to-server hosts send no Origin header and need no entry.
+  tools:
+    label: Published Tools
+    help: 'Each entry: name, description (read by the host model to decide when to call it), instructions (read only by HybridClaw), optional agentId, and allowedTools (tool names this tool may use; ["*"] keeps the agent''s own tool list).'
