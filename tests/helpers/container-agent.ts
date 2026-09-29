@@ -58,9 +58,15 @@ export function useContainerAgentHarness() {
   });
 
   return async function runContainerAgent(
-    replies: Array<Record<string, unknown>>,
+    replies:
+      | Array<Record<string, unknown>>
+      | ((body: ModelRequestBody) => Promise<Record<string, unknown>>),
     overrides: Partial<ContainerInput> = {},
-    files: Record<string, string> = {},
+    files: Record<string, string | Uint8Array> = {},
+    options: {
+      prepare?: (dir: string) => Promise<Partial<ContainerInput>>;
+      timeoutMs?: number;
+    } = {},
   ) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-container-agent-'));
     dirs.push(dir);
@@ -74,7 +80,17 @@ export function useContainerAgentHarness() {
       let text = '';
       for await (const chunk of req) text += chunk;
       requests.push(JSON.parse(text));
-      const message = replies.shift() ?? { role: 'assistant', content: 'done' };
+      let message: Record<string, unknown>;
+      try {
+        message =
+          typeof replies === 'function'
+            ? await replies(requests.at(-1)!)
+            : (replies.shift() ?? { role: 'assistant', content: 'done' });
+      } catch (error) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: String(error) } }));
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -137,10 +153,11 @@ export function useContainerAgentHarness() {
       persistBashState: false,
       messages: [{ role: 'user', content: 'Read the synthetic notes' }],
       ...overrides,
+      ...(await options.prepare?.(dir)),
     };
     const waitOutput = async (): Promise<ContainerOutput> => {
       const outputPath = path.join(ipc, 'output.json');
-      const until = Date.now() + 10000;
+      const until = Date.now() + (options.timeoutMs ?? 10000);
       while (Date.now() < until) {
         // Missing and unparseable both mean not ready yet, as in readOutput
         // (src/infra/ipc.ts).

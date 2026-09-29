@@ -95,6 +95,9 @@ test('a follow-up turn after an upload sees the attachment path', async () => {
 
   expect(logo.path).toMatch(/^\/uploaded-media-cache\/.+-Logo\.png$/);
   const followUp = promptOfCall(1);
+  expect(runAgentMock.mock.calls[0][0].readableMediaPaths).toEqual([]);
+  expect(runAgentMock.mock.calls[1][0].readableMediaPaths).toEqual([logo.path]);
+  expect(runAgentMock.mock.calls[1][0].media ?? []).toEqual([]);
   expect(earlierAttachmentEntries(followUp.dynamicContext)).toEqual([
     {
       filename: 'Logo.png',
@@ -246,4 +249,23 @@ test('an attachment removed by media cleanup reads as no longer available', asyn
     },
   ]);
   expect(followUp.dynamicContext).not.toContain(String(logo.path));
+});
+
+test('another session receives no attachment read capability', async () => {
+  const { logo, request } = await setupUploadedLogo();
+  runAgentMock.mockResolvedValue(SUCCESS);
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.js'
+  );
+  await handleGatewayMessage({
+    ...request,
+    content: 'Attachment',
+    media: [logo],
+  });
+  await handleGatewayMessage({
+    ...request,
+    sessionId: 'web:other-session',
+    content: 'Read earlier attachment',
+  });
+  expect(runAgentMock.mock.calls[1][0].readableMediaPaths).toEqual([]);
 });

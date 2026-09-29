@@ -1,5 +1,6 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
@@ -46,7 +47,7 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput {
+export interface ContainerInput extends SessionAttachmentAccess {
   healthCheck?: {
     nonce: string;
   };

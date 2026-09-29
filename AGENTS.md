@@ -118,6 +118,10 @@ core, not dead code).
 - Dispatch from a table, not an if-chain with a fall-through default. An
   unknown key must fail, not run another key's branch.
 - Three similar lines of code is better than a premature helper.
+- Do not infer task intent from keyword or language-specific regexes over user
+  prose (owner instruction, 2026-09-29). The model chooses search queries and
+  relevant content through tool arguments; deterministic code validates those
+  arguments and enforces access and resource limits.
 
 ### 3.2 YAGNI
 

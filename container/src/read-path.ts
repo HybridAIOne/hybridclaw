@@ -1,5 +1,5 @@
 /**
- * Read-tool media paths — resolves only files attached to the current turn.
+ * Read-tool media paths — resolves only files attached to this session.
  *
  * Unlike the general media resolver, this does not expose the whole cache;
  * unlike workspace resolution, it authorizes no writes or directory searches.
@@ -16,13 +16,27 @@ import {
 } from './runtime-paths.js';
 import type { MediaContextItem } from './types.js';
 
-function resolveCurrentTurnMediaPath(
+let sessionMediaPaths = new Set<string>();
+
+// Rebuilt from gateway-owned conversation metadata on every input. Never read
+// an agent-writable allowlist from the workspace to authorize cache access.
+export function setReadableMediaPaths(paths: readonly string[]): void {
+  sessionMediaPaths = new Set(
+    paths.flatMap((value) => {
+      const resolved = resolveMediaPath(value);
+      return resolved ? [resolveCanonicalPath(resolved)] : [];
+    }),
+  );
+}
+
+function resolveSessionMediaPath(
   rawPath: string,
   media: readonly MediaContextItem[],
 ): string | null {
   const requestedPath = resolveMediaPath(rawPath);
   if (!requestedPath) return null;
   const requestedCanonical = resolveCanonicalPath(requestedPath);
+  if (sessionMediaPaths.has(requestedCanonical)) return requestedCanonical;
 
   for (const item of media) {
     const itemPath = typeof item.path === 'string' ? item.path.trim() : '';
@@ -58,18 +72,18 @@ function mapHostRootToDisplay(
     : displayRoot;
 }
 
-export function resolveCurrentTurnMediaReadPath(
+export function resolveSessionMediaReadPath(
   rawPath: string,
   media: readonly MediaContextItem[],
 ): string | null {
-  return resolveCurrentTurnMediaPath(rawPath, media);
+  return resolveSessionMediaPath(rawPath, media);
 }
 
-export function resolveCurrentTurnMediaSandboxPath(
+export function resolveSessionMediaSandboxPath(
   rawPath: string,
   media: readonly MediaContextItem[],
 ): string | null {
-  const mediaPath = resolveCurrentTurnMediaPath(rawPath, media);
+  const mediaPath = resolveSessionMediaPath(rawPath, media);
   if (!mediaPath) return null;
   return (
     mapHostRootToDisplay(

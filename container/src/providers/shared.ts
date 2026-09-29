@@ -220,14 +220,28 @@ export function logLastPrompt(params: {
   request: unknown;
 }): void {
   try {
-    const text = `${JSON.stringify({
-      ts: new Date().toISOString(),
-      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-      provider: params.provider || 'hybridai',
-      model: params.model,
-      kind: params.kind,
-      request: params.request,
-    })}\n`;
+    const text = `${JSON.stringify(
+      {
+        ts: new Date().toISOString(),
+        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+        provider: params.provider || 'hybridai',
+        model: params.model,
+        kind: params.kind,
+        request: params.request,
+      },
+      function (key, value: unknown) {
+        // Binary documents and pixels are not useful in diagnostic prompt dumps.
+        if (
+          typeof value === 'string' &&
+          (/^data:[^,]*;base64,/i.test(value) ||
+            (key === 'data' && this.type === 'base64'))
+        )
+          return '[binary omitted]';
+        if (key === 'images' && Array.isArray(value))
+          return value.map(() => '[binary omitted]');
+        return value;
+      },
+    )}\n`;
     console.error(
       `[last-prompt-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
     );
