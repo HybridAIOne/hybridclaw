@@ -32,6 +32,8 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
     '.docx',
+  'application/x-zip-compressed': '.zip',
+  'application/zip': '.zip',
   'image/gif': '.gif',
   'image/jpeg': '.jpg',
   'image/png': '.png',

@@ -13694,6 +13694,30 @@ describe('gateway HTTP server', () => {
     expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
   });
 
+  test('accepts ZIP uploads so a skill archive can be attached in chat', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'application/zip',
+        'x-hybridclaw-filename': encodeURIComponent('brand-voice.zip'),
+      },
+      body: Buffer.from('zip-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).media).toMatchObject({
+      filename: 'brand-voice.zip',
+      mimeType: 'application/zip',
+    });
+  });
+
   test('rejects unsupported upload media types like text/html', async () => {
     const dataDir = makeTempDataDir();
     const state = await importFreshHealth({ dataDir });
