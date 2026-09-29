@@ -1,0 +1,59 @@
+{
+  "model": {
+    "checkpoint": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717",
+    "weight_sha256": "b9c07bf14be2fa5c78a9193a3e6d840ac80e89e62fc40f425834c3d8a6eaa3de",
+    "model_config": {
+      "encoder": "answerdotai/ModernBERT-large",
+      "head_layers": 2,
+      "max_len": 512,
+      "head_max_len": 192,
+      "max_prefixes": 6,
+      "act_costs": {
+        "escalate": 0.5
+      },
+      "cost_wrong_act": 3.0,
+      "amp_dtype": "bf16",
+      "model_name": "rl-agent",
+      "temperature": [
+        1.6369030475616455, 1.2514300346374512, 1.983399510383606
+      ],
+      "temperature_by_options": {
+        "choice:3-5": 1.7601518630981445,
+        "choice:6-10": 1.0000158548355103,
+        "score:3-5": 1.2514300346374512,
+        "noul:2": 1.983399510383606,
+        "choice:11+": 0.10058280825614929,
+        "choice:2": 1.9063563346862793
+      },
+      "training": {
+        "updates": 7313,
+        "epochs_completed": 1,
+        "hours": 1.96,
+        "world_size": 1,
+        "fine_tuned_from_checkpoint": true
+      }
+    },
+    "runtime": "laya-mlx==0.2.0"
+  },
+  "variant": {
+    "name": "json-capability",
+    "state": "json",
+    "question": "Choose the lowest capability level needed to complete the user's task."
+  },
+  "criteria": {
+    "basic": "Trivial arithmetic, greetings, simple facts.",
+    "economy": "Everyday writing, translation or summarization.",
+    "general": "Programming, debugging, multi-step analysis.",
+    "advanced": "Research-level reasoning, hard proofs, complex system design."
+  },
+  "runtime": "mlx-float16",
+  "calibration": {
+    "a": 2.0043293284325023,
+    "b": 0.7078759291098731,
+    "objective": 0.5275434692674641,
+    "n": 120,
+    "source_sha256": "8f4a333b5309a18097f3a7eb26b5a6c144855a5a6e467dfa239c5059d52ac482"
+  },
+  "frozen_sha256": "128b9fd445b9232ea646d07801ba0684682ceb9414922cf9cce01d5dd19930bb",
+  "test_sha256": "355b642a8b153e66b8f864966d2e2327fc700c058d770f6ea6d0be7db68279bc"
+}
