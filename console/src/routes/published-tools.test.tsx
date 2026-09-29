@@ -57,7 +57,9 @@ describe('PublishedToolsPage', () => {
     fetchPublishedToolsMock.mockResolvedValue(makeState({ plugin: null }));
     renderWithProviders(<PublishedToolsPage />);
     expect(
-      await screen.findByText('hybridclaw plugin install ./plugins/published-tools'),
+      await screen.findByText(
+        'hybridclaw plugin install ./plugins/published-tools',
+      ),
     ).toBeTruthy();
   });
 
@@ -109,9 +111,12 @@ describe('PublishedToolsPage', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: /Sales pipeline/ }),
     );
-    fireEvent.change(await screen.findByDisplayValue('Use the salesforce skill.'), {
-      target: { value: 'Answer in one sentence.' },
-    });
+    fireEvent.change(
+      await screen.findByDisplayValue('Use the salesforce skill.'),
+      {
+        target: { value: 'Answer in one sentence.' },
+      },
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Save tool' }));
     await waitFor(() =>
       expect(savePublishedToolsMock.mock.calls[0]?.[1]).toEqual([
@@ -128,7 +133,9 @@ describe('PublishedToolsPage', () => {
   it('shows the gateway reason when a save is rejected', async () => {
     fetchPublishedToolsMock.mockResolvedValue(makeState());
     savePublishedToolsMock.mockRejectedValue(
-      new Error('Plugin failed to load with this config: unknown agent "ghost".'),
+      new Error(
+        'Plugin failed to load with this config: unknown agent "ghost".',
+      ),
     );
     renderWithProviders(<PublishedToolsPage />);
     await screen.findByRole('button', { name: /Sales pipeline/ });
