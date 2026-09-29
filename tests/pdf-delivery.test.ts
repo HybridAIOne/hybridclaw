@@ -82,6 +82,62 @@ const base = { apiKey: 'test-key', chatbotId: '', tools: [], maxTokens: 128 };
 
 describe('direct PDF delivery', () => {
   test.each([
+    ['openai', 'https://api.openai.com/v1', 'gpt-4.1-mini', 'input_image'],
+    ['anthropic', 'https://api.anthropic.com/v1', 'claude-haiku-4-5', 'image'],
+    [
+      'openai-codex',
+      'https://chatgpt.com/backend-api/codex',
+      'gpt-5.4',
+      'input_image',
+    ],
+  ] as const)(
+    'standalone read pixels use %s native image content',
+    async (provider, baseUrl, model, partType) => {
+      const { root, ref } = await fixture();
+      const snapshot = await loadVisualSnapshot(root, ref);
+      const image = await saveVisualSnapshot(
+        root,
+        { pdf: '', images: [snapshot.images[0]] },
+        [],
+      );
+      const { setVisualMediaAllowed } = await import(
+        '../container/src/providers/visual-content.js'
+      );
+      setVisualMediaAllowed(true);
+      const { callRoutedModel } = await import(
+        '../container/src/providers/router.js'
+      );
+      const requests: Record<string, unknown>[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url, init) => {
+          requests.push(JSON.parse(String(init.body)));
+          return response(provider);
+        }),
+      );
+      await callRoutedModel({
+        ...base,
+        provider,
+        baseUrl,
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: 'Describe this image',
+            visualAttachments: [image],
+          },
+        ],
+      });
+      expect(requests).toHaveLength(1);
+      const wire = JSON.stringify(requests[0]);
+      expect(wire).toContain(`"type":"${partType}"`);
+      expect(wire).toContain(snapshot.images[0]);
+      expect(wire).not.toContain('visualAttachments');
+      expect(wire).not.toContain('input_file');
+      expect(wire).not.toContain('"type":"document"');
+    },
+  );
+  test.each([
     ['openai', 'https://api.openai.com/v1', 'gpt-5', 'input_file'],
     [
       'anthropic',
@@ -97,6 +153,12 @@ describe('direct PDF delivery', () => {
       'image_url',
     ],
     ['openai', 'https://example.com/v1', 'gpt-5', 'input_image'],
+    [
+      'openai-codex',
+      'https://chatgpt.com/backend-api/codex',
+      'gpt-5.4',
+      'input_image',
+    ],
   ] as const)(
     'sends selected pages to %s as %s',
     async (provider, baseUrl, model, partType) => {
@@ -279,7 +341,9 @@ describe('direct PDF delivery', () => {
           provider: 'openai',
           baseUrl: 'https://api.openai.com/v1',
           model: 'gpt-5',
-          messages: [{ role: 'user', content: 'read', visualAttachments: [ref] }],
+          messages: [
+            { role: 'user', content: 'read', visualAttachments: [ref] },
+          ],
         }),
       ).rejects.toThrow();
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -323,7 +387,11 @@ describe('PDF snapshot boundaries', () => {
 
   test('rejects changed snapshots and symlinked directories/files', async () => {
     const root = tempDir();
-    const ref = await saveVisualSnapshot(root, { pdf: 'test', images: [] }, [1]);
+    const ref = await saveVisualSnapshot(
+      root,
+      { pdf: 'test', images: [] },
+      [1],
+    );
     const file = path.join(root, '.visual-snapshots', `${ref.id}.json`);
     await fs.writeFile(file, 'changed');
     await expect(loadVisualSnapshot(root, ref)).rejects.toThrow('integrity');
