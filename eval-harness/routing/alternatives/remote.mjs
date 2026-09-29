@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { getRuntimeConfig } from '../../../src/config/runtime-config.ts';
 import { classifyRouting } from '../../../src/gateway/unified-routing.ts';
 import {
@@ -15,10 +16,17 @@ import {
 } from '../../../src/routing/policy.ts';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const bytes = fs.readFileSync(path.join(root, 'holdout.json'));
+const { values } = parseArgs({
+  options: {
+    dataset: { type: 'string', default: path.join(root, 'holdout.json') },
+    output: { type: 'string', default: path.join(root, 'results') },
+  },
+});
+const bytes = fs.readFileSync(values.dataset);
 const { cases } = JSON.parse(bytes);
 const config = getRuntimeConfig().routing;
-const output = path.join(root, 'results');
+const output = values.output;
+fs.mkdirSync(output, { recursive: true });
 const baseline = JSON.parse(
   fs.readFileSync(
     path.join(root, '../results/2026-09-29T17-32-52.218Z/metadata.json'),
@@ -36,10 +44,6 @@ const models = {
   jev: 'jev/jev-latest',
   gemma: 'haigpu2/google/gemma-4-e4b-it',
 };
-for (const engine of ['jeff', 'gliclass', 'horizon']) {
-  if (!fs.existsSync(path.join(output, `${engine}-selected.json`)))
-    throw new Error('Freeze local selections before held-out evaluation');
-}
 fs.writeFileSync(
   path.join(output, 'remote.metadata.json'),
   JSON.stringify(

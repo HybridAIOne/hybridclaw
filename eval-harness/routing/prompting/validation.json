@@ -1,0 +1,1205 @@
+{
+  "description": "Fresh same-author synthetic English/German four-tier rubric cases; bilingual scenario pairs are correlated; no real session text. Labels fixed before inference.",
+  "cases": [
+    {
+      "id": "newval-001",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 19 plus 23?"
+    },
+    {
+      "id": "newval-002",
+      "language": "en",
+      "expected": "basic",
+      "text": "Divide 144 by 12."
+    },
+    {
+      "id": "newval-003",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many centimeters are in 0.8 meters?"
+    },
+    {
+      "id": "newval-004",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 12 percent of 250?"
+    },
+    {
+      "id": "newval-005",
+      "language": "en",
+      "expected": "basic",
+      "text": "Is 3/8 smaller than one half?"
+    },
+    {
+      "id": "newval-006",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the capital of Portugal?"
+    },
+    {
+      "id": "newval-007",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the chemical symbol for sodium."
+    },
+    {
+      "id": "newval-008",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many edges does a pentagon have?"
+    },
+    {
+      "id": "newval-009",
+      "language": "en",
+      "expected": "basic",
+      "text": "What comes after Thursday?"
+    },
+    {
+      "id": "newval-010",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the opposite of north?"
+    },
+    {
+      "id": "newval-011",
+      "language": "en",
+      "expected": "basic",
+      "text": "Give the plural of mouse."
+    },
+    {
+      "id": "newval-012",
+      "language": "en",
+      "expected": "basic",
+      "text": "Expand the abbreviation HTML."
+    },
+    {
+      "id": "newval-013",
+      "language": "en",
+      "expected": "basic",
+      "text": "Convert 180 seconds to minutes."
+    },
+    {
+      "id": "newval-014",
+      "language": "en",
+      "expected": "basic",
+      "text": "Round 6.47 to one decimal place."
+    },
+    {
+      "id": "newval-015",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many grams are in three kilograms?"
+    },
+    {
+      "id": "newval-016",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 11 squared?"
+    },
+    {
+      "id": "newval-017",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which month follows September?"
+    },
+    {
+      "id": "newval-018",
+      "language": "en",
+      "expected": "basic",
+      "text": "Translate just the word bread into German."
+    },
+    {
+      "id": "newval-019",
+      "language": "en",
+      "expected": "basic",
+      "text": "Does a leap year contain 366 days?"
+    },
+    {
+      "id": "newval-020",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the planet closest to the Sun."
+    },
+    {
+      "id": "newval-021",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 8 times 9?"
+    },
+    {
+      "id": "newval-022",
+      "language": "en",
+      "expected": "basic",
+      "text": "Say hello in one sentence."
+    },
+    {
+      "id": "newval-023",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the square root of 121?"
+    },
+    {
+      "id": "newval-024",
+      "language": "en",
+      "expected": "basic",
+      "text": "Spell the number 40 in English."
+    },
+    {
+      "id": "newval-025",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many hours are in three days?"
+    },
+    {
+      "id": "newval-026",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt 19 plus 23?"
+    },
+    {
+      "id": "newval-027",
+      "language": "de",
+      "expected": "basic",
+      "text": "Teile 144 durch 12."
+    },
+    {
+      "id": "newval-028",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Zentimeter sind 0,8 Meter?"
+    },
+    {
+      "id": "newval-029",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was sind 12 Prozent von 250?"
+    },
+    {
+      "id": "newval-030",
+      "language": "de",
+      "expected": "basic",
+      "text": "Ist 3/8 kleiner als ein Halb?"
+    },
+    {
+      "id": "newval-031",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie heißt die Hauptstadt von Portugal?"
+    },
+    {
+      "id": "newval-032",
+      "language": "de",
+      "expected": "basic",
+      "text": "Nenne das chemische Symbol für Natrium."
+    },
+    {
+      "id": "newval-033",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Seiten hat ein Sechseck?"
+    },
+    {
+      "id": "newval-034",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Wochentag kommt nach Donnerstag?"
+    },
+    {
+      "id": "newval-035",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist die Gegenrichtung von Norden?"
+    },
+    {
+      "id": "newval-036",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie lautet die Mehrzahl von Maus?"
+    },
+    {
+      "id": "newval-037",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wofür steht die Abkürzung CPU?"
+    },
+    {
+      "id": "newval-038",
+      "language": "de",
+      "expected": "basic",
+      "text": "Rechne 180 Sekunden in Minuten um."
+    },
+    {
+      "id": "newval-039",
+      "language": "de",
+      "expected": "basic",
+      "text": "Runde 6,47 auf eine Nachkommastelle."
+    },
+    {
+      "id": "newval-040",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Gramm sind drei Kilogramm?"
+    },
+    {
+      "id": "newval-041",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt elf zum Quadrat?"
+    },
+    {
+      "id": "newval-042",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Monat folgt auf September?"
+    },
+    {
+      "id": "newval-043",
+      "language": "de",
+      "expected": "basic",
+      "text": "Übersetze nur das Wort Brot ins Englische."
+    },
+    {
+      "id": "newval-044",
+      "language": "de",
+      "expected": "basic",
+      "text": "Hat ein Schaltjahr 366 Tage?"
+    },
+    {
+      "id": "newval-045",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Planet liegt der Sonne am nächsten?"
+    },
+    {
+      "id": "newval-046",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt acht mal neun?"
+    },
+    {
+      "id": "newval-047",
+      "language": "de",
+      "expected": "basic",
+      "text": "Begrüße mich mit einem Satz."
+    },
+    {
+      "id": "newval-048",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist die Quadratwurzel von 121?"
+    },
+    {
+      "id": "newval-049",
+      "language": "de",
+      "expected": "basic",
+      "text": "Schreibe die Zahl 40 auf Englisch aus."
+    },
+    {
+      "id": "newval-050",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Stunden haben drei Tage?"
+    },
+    {
+      "id": "newval-051",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a friendly note asking a neighbor to water my plants this weekend."
+    },
+    {
+      "id": "newval-052",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this more politely: Send the invoice by Friday."
+    },
+    {
+      "id": "newval-053",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into German: We can meet at the station tomorrow morning."
+    },
+    {
+      "id": "newval-054",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize this in one sentence: The library is closed on Monday. It opens at noon on Tuesday. Borrowed books can be returned through the slot."
+    },
+    {
+      "id": "newval-055",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest four names for a weekend hiking group."
+    },
+    {
+      "id": "newval-056",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make a grocery list for a simple vegetarian picnic for two."
+    },
+    {
+      "id": "newval-057",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a brief thank-you message after a helpful customer support call."
+    },
+    {
+      "id": "newval-058",
+      "language": "en",
+      "expected": "economy",
+      "text": "Turn these notes into a short meeting update: draft finished, photos missing, review Wednesday."
+    },
+    {
+      "id": "newval-059",
+      "language": "en",
+      "expected": "economy",
+      "text": "Plan a relaxed rainy Sunday at home with a child."
+    },
+    {
+      "id": "newval-060",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a warm birthday greeting for a colleague without jokes about age."
+    },
+    {
+      "id": "newval-061",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate this into English: Bitte bestätige den Termin bis morgen Mittag."
+    },
+    {
+      "id": "newval-062",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make this sentence clearer: The plan concerning the changes in the timings needs consideration."
+    },
+    {
+      "id": "newval-063",
+      "language": "en",
+      "expected": "economy",
+      "text": "Give me five low-effort lunch ideas using lentils."
+    },
+    {
+      "id": "newval-064",
+      "language": "en",
+      "expected": "economy",
+      "text": "Prepare a packing checklist for a two-night train trip."
+    },
+    {
+      "id": "newval-065",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a short notice that our office will close early on Friday."
+    },
+    {
+      "id": "newval-066",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize these notes: Shipment arrived Tuesday; two boxes were damaged; replacements requested; customer informed."
+    },
+    {
+      "id": "newval-067",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a casual invitation to a board-game evening next Saturday."
+    },
+    {
+      "id": "newval-068",
+      "language": "en",
+      "expected": "economy",
+      "text": "Create a three-day study timetable for reviewing basic vocabulary."
+    },
+    {
+      "id": "newval-069",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this product description to be shorter: This lightweight reusable bottle keeps your drink cool during everyday trips."
+    },
+    {
+      "id": "newval-070",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest a simple agenda for a thirty-minute team catch-up."
+    },
+    {
+      "id": "newval-071",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate a short message into French: Thank you for your patience. Your order will arrive next week."
+    },
+    {
+      "id": "newval-072",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a calm reply declining a party invitation because I already have plans."
+    },
+    {
+      "id": "newval-073",
+      "language": "en",
+      "expected": "economy",
+      "text": "Organize these chores into a weekend checklist: vacuum, wash towels, buy vegetables, clean kitchen."
+    },
+    {
+      "id": "newval-074",
+      "language": "en",
+      "expected": "economy",
+      "text": "Give me six questions to ask at a book club about a novel's characters."
+    },
+    {
+      "id": "newval-075",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a friendly reminder to bring a reusable cup to the community breakfast."
+    },
+    {
+      "id": "newval-076",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine freundliche Nachricht an einen Nachbarn, der am Wochenende meine Pflanzen gießen soll."
+    },
+    {
+      "id": "newval-077",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere höflicher: Schick die Rechnung bis Freitag."
+    },
+    {
+      "id": "newval-078",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Wir können uns morgen früh am Bahnhof treffen."
+    },
+    {
+      "id": "newval-079",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse in einem Satz zusammen: Die Bibliothek ist montags geschlossen. Dienstags öffnet sie mittags. Bücher können durch den Rückgabeschlitz abgegeben werden."
+    },
+    {
+      "id": "newval-080",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage vier Namen für eine Wandergruppe am Wochenende vor."
+    },
+    {
+      "id": "newval-081",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine Einkaufsliste für ein einfaches vegetarisches Picknick zu zweit."
+    },
+    {
+      "id": "newval-082",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Dankesnachricht nach einem hilfreichen Kundendienstgespräch."
+    },
+    {
+      "id": "newval-083",
+      "language": "de",
+      "expected": "economy",
+      "text": "Mache aus diesen Notizen eine kurze Besprechungsnotiz: Entwurf fertig, Fotos fehlen, Prüfung Mittwoch."
+    },
+    {
+      "id": "newval-084",
+      "language": "de",
+      "expected": "economy",
+      "text": "Plane einen entspannten verregneten Sonntag zu Hause mit einem Kind."
+    },
+    {
+      "id": "newval-085",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe einen herzlichen Geburtstagsgruß für einen Kollegen ohne Witze über das Alter."
+    },
+    {
+      "id": "newval-086",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Bitte bestätige die Reservierung bis morgen Mittag."
+    },
+    {
+      "id": "newval-087",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere verständlicher: Die Planung bezüglich der Veränderungen der Zeitabläufe bedarf einer Betrachtung."
+    },
+    {
+      "id": "newval-088",
+      "language": "de",
+      "expected": "economy",
+      "text": "Nenne fünf einfache Mittagessen mit Linsen."
+    },
+    {
+      "id": "newval-089",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine Packliste für eine zweitägige Zugreise mit zwei Übernachtungen."
+    },
+    {
+      "id": "newval-090",
+      "language": "de",
+      "expected": "economy",
+      "text": "Entwirf einen kurzen Hinweis, dass unser Büro freitags früher schließt."
+    },
+    {
+      "id": "newval-091",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse diese Notizen zusammen: Lieferung Dienstag angekommen; zwei Kartons beschädigt; Ersatz angefordert; Kunde informiert."
+    },
+    {
+      "id": "newval-092",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine lockere Einladung zu einem Brettspielabend am kommenden Samstag."
+    },
+    {
+      "id": "newval-093",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle einen Lernplan für drei Tage zum Wiederholen einfacher Vokabeln."
+    },
+    {
+      "id": "newval-094",
+      "language": "de",
+      "expected": "economy",
+      "text": "Kürze diesen Produkttext: Diese leichte wiederverwendbare Flasche hält dein Getränk unterwegs im Alltag kühl."
+    },
+    {
+      "id": "newval-095",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage eine einfache Tagesordnung für einen halbstündigen Austausch im Team vor."
+    },
+    {
+      "id": "newval-096",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Französische: Danke für deine Geduld. Deine Bestellung kommt nächste Woche an."
+    },
+    {
+      "id": "newval-097",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine ruhige Absage auf eine Partyeinladung, weil ich bereits etwas vorhabe."
+    },
+    {
+      "id": "newval-098",
+      "language": "de",
+      "expected": "economy",
+      "text": "Ordne diese Aufgaben als Wochenendcheckliste: Staubsaugen, Handtücher waschen, Gemüse kaufen, Küche putzen."
+    },
+    {
+      "id": "newval-099",
+      "language": "de",
+      "expected": "economy",
+      "text": "Nenne sechs Fragen für einen Buchclub über die Figuren eines Romans."
+    },
+    {
+      "id": "newval-100",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine freundliche Erinnerung, zum Nachbarschaftsfrühstück einen Mehrwegbecher mitzubringen."
+    },
+    {
+      "id": "newval-101",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python function that merges two sorted lists without sorting the combined result."
+    },
+    {
+      "id": "newval-102",
+      "language": "en",
+      "expected": "general",
+      "text": "Why does this JavaScript code print undefined: const obj = {x: 3}; console.log(obj.y)? Show a safe default."
+    },
+    {
+      "id": "newval-103",
+      "language": "en",
+      "expected": "general",
+      "text": "Create an SQL query to return customers with no orders using a left join."
+    },
+    {
+      "id": "newval-104",
+      "language": "en",
+      "expected": "general",
+      "text": "Debug a React effect that fetches forever because its dependency is a freshly created object."
+    },
+    {
+      "id": "newval-105",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain how to resolve a Git conflict when both branches changed the same function."
+    },
+    {
+      "id": "newval-106",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a shell command that finds CSV files modified in the last two days."
+    },
+    {
+      "id": "newval-107",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement a bounded queue in TypeScript and explain its behavior when full."
+    },
+    {
+      "id": "newval-108",
+      "language": "en",
+      "expected": "general",
+      "text": "Help debug a Docker container whose server listens on localhost and cannot be reached through a published port."
+    },
+    {
+      "id": "newval-109",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare hash maps and balanced search trees for ordered range queries."
+    },
+    {
+      "id": "newval-110",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python script to combine CSV files with matching headers and preserve one header row."
+    },
+    {
+      "id": "newval-111",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain why floating-point addition gives 0.30000000000000004 for 0.1 plus 0.2."
+    },
+    {
+      "id": "newval-112",
+      "language": "en",
+      "expected": "general",
+      "text": "Diagnose an HTTP client that retries POST requests and creates duplicate records."
+    },
+    {
+      "id": "newval-113",
+      "language": "en",
+      "expected": "general",
+      "text": "Show a safe pattern for cancelling an asynchronous fetch when a UI component unmounts."
+    },
+    {
+      "id": "newval-114",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a unit test for a function that rejects invalid dates and accepts leap-day dates."
+    },
+    {
+      "id": "newval-115",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain how a database index changes the execution of a query with a selective filter."
+    },
+    {
+      "id": "newval-116",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement an iterative binary search and describe the loop invariant."
+    },
+    {
+      "id": "newval-117",
+      "language": "en",
+      "expected": "general",
+      "text": "Find the bug in this code: for (let i = 0; i <= items.length; i++) console.log(items[i].name)."
+    },
+    {
+      "id": "newval-118",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a regex and validation function for a simple version string with three numeric parts."
+    },
+    {
+      "id": "newval-119",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare exponential backoff with a fixed retry delay for a rate-limited API."
+    },
+    {
+      "id": "newval-120",
+      "language": "en",
+      "expected": "general",
+      "text": "Help diagnose a Node process that gradually accumulates event listeners after reconnecting."
+    },
+    {
+      "id": "newval-121",
+      "language": "en",
+      "expected": "general",
+      "text": "Create an SQL window-function query ranking sales within each region."
+    },
+    {
+      "id": "newval-122",
+      "language": "en",
+      "expected": "general",
+      "text": "Refactor nested callbacks in a file-reading workflow into async functions with explicit error handling."
+    },
+    {
+      "id": "newval-123",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain the difference between a database transaction and a mutex in an application."
+    },
+    {
+      "id": "newval-124",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python function that groups words by anagram and analyzes its complexity."
+    },
+    {
+      "id": "newval-125",
+      "language": "en",
+      "expected": "general",
+      "text": "Design a practical migration plan from a nullable column to a required column without interrupting writes."
+    },
+    {
+      "id": "newval-126",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Python-Funktion, die zwei sortierte Listen zusammenführt, ohne das Ergebnis erneut zu sortieren."
+    },
+    {
+      "id": "newval-127",
+      "language": "de",
+      "expected": "general",
+      "text": "Warum gibt dieser JavaScript-Code undefined aus: const obj = {x: 3}; console.log(obj.y)? Zeige einen sicheren Standardwert."
+    },
+    {
+      "id": "newval-128",
+      "language": "de",
+      "expected": "general",
+      "text": "Erstelle eine SQL-Abfrage, die mit einem Left Join Kunden ohne Bestellungen findet."
+    },
+    {
+      "id": "newval-129",
+      "language": "de",
+      "expected": "general",
+      "text": "Behebe einen React-Effekt, der ständig neu lädt, weil seine Abhängigkeit ein neu erzeugtes Objekt ist."
+    },
+    {
+      "id": "newval-130",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, wie ich einen Git-Konflikt löse, wenn beide Branches dieselbe Funktion geändert haben."
+    },
+    {
+      "id": "newval-131",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen Shell-Befehl, der in den letzten zwei Tagen geänderte CSV-Dateien findet."
+    },
+    {
+      "id": "newval-132",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere eine begrenzte Warteschlange in TypeScript und erkläre das Verhalten bei voller Schlange."
+    },
+    {
+      "id": "newval-133",
+      "language": "de",
+      "expected": "general",
+      "text": "Hilf beim Debuggen eines Docker-Containers, dessen Server auf localhost lauscht und über den veröffentlichten Port nicht erreichbar ist."
+    },
+    {
+      "id": "newval-134",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche Hash-Maps und balancierte Suchbäume für Bereichsabfragen mit sortierten Ergebnissen."
+    },
+    {
+      "id": "newval-135",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe ein Python-Skript zum Zusammenführen von CSV-Dateien mit identischen Spaltennamen und genau einer Kopfzeile."
+    },
+    {
+      "id": "newval-136",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, warum die Gleitkommaaddition von 0,1 und 0,2 den Wert 0,30000000000000004 liefert."
+    },
+    {
+      "id": "newval-137",
+      "language": "de",
+      "expected": "general",
+      "text": "Diagnostiziere einen HTTP-Client, der POST-Anfragen wiederholt und doppelte Datensätze erzeugt."
+    },
+    {
+      "id": "newval-138",
+      "language": "de",
+      "expected": "general",
+      "text": "Zeige ein sicheres Muster zum Abbrechen eines asynchronen Fetch-Aufrufs beim Entfernen einer UI-Komponente."
+    },
+    {
+      "id": "newval-139",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen Unit-Test für eine Funktion, die ungültige Daten ablehnt und gültige Schalttage annimmt."
+    },
+    {
+      "id": "newval-140",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, wie ein Datenbankindex die Ausführung einer Abfrage mit einem selektiven Filter verändert."
+    },
+    {
+      "id": "newval-141",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere eine iterative binäre Suche und beschreibe die Schleifeninvariante."
+    },
+    {
+      "id": "newval-142",
+      "language": "de",
+      "expected": "general",
+      "text": "Finde den Fehler: for (let i = 0; i <= items.length; i++) console.log(items[i].name)."
+    },
+    {
+      "id": "newval-143",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen regulären Ausdruck samt Validierungsfunktion für eine Versionsnummer mit drei numerischen Teilen."
+    },
+    {
+      "id": "newval-144",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche exponentielles Backoff mit einer festen Wartezeit bei einer API mit Ratenbegrenzung."
+    },
+    {
+      "id": "newval-145",
+      "language": "de",
+      "expected": "general",
+      "text": "Hilf beim Diagnostizieren eines Node-Prozesses, der nach jedem Neuverbinden mehr Event-Listener behält."
+    },
+    {
+      "id": "newval-146",
+      "language": "de",
+      "expected": "general",
+      "text": "Erstelle eine SQL-Abfrage mit Fensterfunktion, die Verkäufe innerhalb jeder Region rangiert."
+    },
+    {
+      "id": "newval-147",
+      "language": "de",
+      "expected": "general",
+      "text": "Refaktorisiere verschachtelte Callbacks beim Dateilesen zu asynchronen Funktionen mit expliziter Fehlerbehandlung."
+    },
+    {
+      "id": "newval-148",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre den Unterschied zwischen einer Datenbanktransaktion und einem Mutex in einer Anwendung."
+    },
+    {
+      "id": "newval-149",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Python-Funktion, die Wörter nach Anagrammen gruppiert, und analysiere ihre Komplexität."
+    },
+    {
+      "id": "newval-150",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf einen praktischen Migrationsplan von einer optionalen zu einer erforderlichen Spalte ohne Unterbrechung laufender Schreibzugriffe."
+    },
+    {
+      "id": "newval-151",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the spectral theorem for compact self-adjoint operators on a Hilbert space, including the infinite-dimensional case."
+    },
+    {
+      "id": "newval-152",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a tight lower bound for randomized consensus under an asynchronous adversarial scheduler."
+    },
+    {
+      "id": "newval-153",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a globally distributed ledger with Byzantine nodes, formal safety invariants and a liveness argument under partial synchrony."
+    },
+    {
+      "id": "newval-154",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Give a rigorous proof of the martingale convergence theorem with its integrability assumptions."
+    },
+    {
+      "id": "newval-155",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a novel privacy-preserving federated-learning protocol and analyze convergence under malicious participants."
+    },
+    {
+      "id": "newval-156",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the soundness and completeness of a modal logic over its corresponding frame class."
+    },
+    {
+      "id": "newval-157",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a multi-region storage architecture that reconciles regulatory locality, linearizable writes and regional disaster recovery; justify the unavoidable tradeoffs."
+    },
+    {
+      "id": "newval-158",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a finite-sample generalization bound for a dependent-data learning process using explicit mixing assumptions."
+    },
+    {
+      "id": "newval-159",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct a verified lock-free memory reclamation algorithm and prove absence of use-after-free under a weak memory model."
+    },
+    {
+      "id": "newval-160",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Research whether a proposed cryptographic commitment remains binding against quantum adversaries and supply a reduction or counterexample."
+    },
+    {
+      "id": "newval-161",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove a nontrivial characterization of compact subsets in an infinite-dimensional function space."
+    },
+    {
+      "id": "newval-162",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a distributed database protocol combining dynamic membership, Byzantine fault tolerance and cross-shard atomic commits, with safety and liveness proofs."
+    },
+    {
+      "id": "newval-163",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the asymptotic distribution of an estimator when observations have long-range dependence."
+    },
+    {
+      "id": "newval-164",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct a rigorous counterexample to a claimed interchange of a limit and an integral when uniform integrability fails."
+    },
+    {
+      "id": "newval-165",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design an end-to-end architecture for a worldwide real-time collaborative editor with offline edits, causal consistency and formally specified merge invariants."
+    },
+    {
+      "id": "newval-166",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove a new approximation guarantee for a constrained combinatorial optimization method."
+    },
+    {
+      "id": "newval-167",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze the security of a novel threshold signature scheme under adaptive corruptions and provide a formal attack model."
+    },
+    {
+      "id": "newval-168",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive conditions for identifiability in a causal model with latent confounders and incomplete observations."
+    },
+    {
+      "id": "newval-169",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a formally verified consensus upgrade that allows mixed protocol versions without violating quorum intersection during rolling migration."
+    },
+    {
+      "id": "newval-170",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a rigorous convergence proof for a nonconvex optimization algorithm with stochastic delayed gradients."
+    },
+    {
+      "id": "newval-171",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Research a memory-safe zero-copy architecture spanning several runtimes and prove the ownership invariants across cancellation and process failure."
+    },
+    {
+      "id": "newval-172",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive an impossibility result for simultaneously achieving specified consistency and availability guarantees under network partitions."
+    },
+    {
+      "id": "newval-173",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct and prove a compositional verification method for a distributed workflow with retries, compensation and partial failures."
+    },
+    {
+      "id": "newval-174",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Investigate a new numerical method for stiff differential equations and prove stability and convergence over the stated domain."
+    },
+    {
+      "id": "newval-175",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a national-scale emergency communications system resilient to coordinated regional failures, and analyze its security, capacity and recovery tradeoffs."
+    },
+    {
+      "id": "newval-176",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Spektralsatz für kompakte selbstadjungierte Operatoren auf einem Hilbertraum einschließlich des unendlichdimensionalen Falls."
+    },
+    {
+      "id": "newval-177",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine scharfe untere Schranke für randomisierten Konsens unter einem asynchronen adversarialen Scheduler her."
+    },
+    {
+      "id": "newval-178",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein global verteiltes Ledger mit byzantinischen Knoten, formalen Sicherheitsinvarianten und einem Lebendigkeitsbeweis bei partieller Synchronität."
+    },
+    {
+      "id": "newval-179",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Gib einen strengen Beweis des Martingalkonvergenzsatzes einschließlich der nötigen Integrierbarkeitsannahmen."
+    },
+    {
+      "id": "newval-180",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle ein neuartiges datenschutzwahrendes Federated-Learning-Protokoll und analysiere die Konvergenz bei bösartigen Teilnehmern."
+    },
+    {
+      "id": "newval-181",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise Korrektheit und Vollständigkeit einer modalen Logik bezüglich ihrer zugehörigen Rahmenklasse."
+    },
+    {
+      "id": "newval-182",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine Speicherarchitektur über mehrere Regionen, die regulatorische Datenlokalität, linearisierbare Schreibzugriffe und Katastrophenwiederherstellung verbindet; begründe die unvermeidbaren Zielkonflikte."
+    },
+    {
+      "id": "newval-183",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Generalisierungsschranke für endliche Stichproben eines Lernverfahrens mit abhängigen Daten unter expliziten Mischungsannahmen her."
+    },
+    {
+      "id": "newval-184",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Konstruiere einen verifizierten lockfreien Algorithmus zur Speicherfreigabe und beweise die Abwesenheit von Zugriffen auf freigegebenen Speicher bei schwacher Speicherordnung."
+    },
+    {
+      "id": "newval-185",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Untersuche, ob ein vorgeschlagenes kryptografisches Commitment gegen Quantenangreifer bindend bleibt, und liefere eine Reduktion oder ein Gegenbeispiel."
+    },
+    {
+      "id": "newval-186",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise eine nichttriviale Charakterisierung kompakter Teilmengen in einem unendlichdimensionalen Funktionenraum."
+    },
+    {
+      "id": "newval-187",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle ein verteiltes Datenbankprotokoll mit dynamischer Mitgliedschaft, byzantinischer Fehlertoleranz und atomaren shardübergreifenden Commits samt Sicherheits- und Lebendigkeitsbeweisen."
+    },
+    {
+      "id": "newval-188",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite die asymptotische Verteilung eines Schätzers bei Beobachtungen mit langreichweitiger Abhängigkeit her."
+    },
+    {
+      "id": "newval-189",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Konstruiere ein strenges Gegenbeispiel zum behaupteten Vertauschen von Grenzwert und Integral bei fehlender gleichmäßiger Integrierbarkeit."
+    },
+    {
+      "id": "newval-190",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf die Gesamtarchitektur eines weltweiten kollaborativen Echtzeiteditors mit Offline-Änderungen, kausaler Konsistenz und formal spezifizierten Zusammenführungsinvarianten."
+    },
+    {
+      "id": "newval-191",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise eine neue Approximationsgarantie für ein kombinatorisches Optimierungsverfahren mit Nebenbedingungen."
+    },
+    {
+      "id": "newval-192",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Analysiere die Sicherheit eines neuartigen Schwellwertsignaturverfahrens bei adaptiven Korruptionen und definiere das Angriffsmodell formal."
+    },
+    {
+      "id": "newval-193",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite Bedingungen für Identifizierbarkeit in einem kausalen Modell mit latenten Störgrößen und unvollständigen Beobachtungen her."
+    },
+    {
+      "id": "newval-194",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein formal verifiziertes Konsensupgrade, bei dem verschiedene Protokollversionen während einer rollierenden Migration die Quorumüberschneidung erhalten."
+    },
+    {
+      "id": "newval-195",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle einen strengen Konvergenzbeweis für einen nichtkonvexen Optimierungsalgorithmus mit stochastischen verzögerten Gradienten."
+    },
+    {
+      "id": "newval-196",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Untersuche eine speichersichere Zero-Copy-Architektur über mehrere Laufzeiten und beweise die Eigentumsinvarianten bei Abbruch und Prozessausfall."
+    },
+    {
+      "id": "newval-197",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite ein Unmöglichkeitsergebnis zum gleichzeitigen Erreichen vorgegebener Konsistenz- und Verfügbarkeitsgarantien bei Netzwerkpartitionen her."
+    },
+    {
+      "id": "newval-198",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Konstruiere und beweise ein kompositionelles Verifikationsverfahren für einen verteilten Workflow mit Wiederholungen, Kompensation und Teilausfällen."
+    },
+    {
+      "id": "newval-199",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Untersuche ein neues numerisches Verfahren für steife Differentialgleichungen und beweise Stabilität und Konvergenz im angegebenen Bereich."
+    },
+    {
+      "id": "newval-200",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein landesweites Notfallkommunikationssystem, das koordinierte regionale Ausfälle übersteht, und analysiere Sicherheit, Kapazität und Wiederherstellung."
+    }
+  ]
+}

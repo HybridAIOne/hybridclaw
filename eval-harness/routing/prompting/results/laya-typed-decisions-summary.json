@@ -1,0 +1,82 @@
+[
+  {
+    "variant": "baseline-configured-category",
+    "correct": 129,
+    "n": 200
+  },
+  {
+    "variant": "baseline-configured-capability",
+    "correct": 137,
+    "n": 200
+  },
+  {
+    "variant": "baseline-semantic-category",
+    "correct": 114,
+    "n": 200
+  },
+  {
+    "variant": "baseline-semantic-capability",
+    "correct": 116,
+    "n": 200
+  },
+  {
+    "variant": "activities-configured-category",
+    "correct": 152,
+    "n": 200
+  },
+  {
+    "variant": "activities-configured-capability",
+    "correct": 152,
+    "n": 200
+  },
+  {
+    "variant": "activities-semantic-category",
+    "correct": 110,
+    "n": 200
+  },
+  {
+    "variant": "activities-semantic-capability",
+    "correct": 104,
+    "n": 200
+  },
+  {
+    "variant": "boundaries-configured-category",
+    "correct": 128,
+    "n": 200
+  },
+  {
+    "variant": "boundaries-configured-capability",
+    "correct": 131,
+    "n": 200
+  },
+  {
+    "variant": "boundaries-semantic-category",
+    "correct": 117,
+    "n": 200
+  },
+  {
+    "variant": "boundaries-semantic-capability",
+    "correct": 115,
+    "n": 200
+  },
+  {
+    "variant": "examples-configured-category",
+    "correct": 119,
+    "n": 200
+  },
+  {
+    "variant": "examples-configured-capability",
+    "correct": 119,
+    "n": 200
+  },
+  {
+    "variant": "examples-semantic-category",
+    "correct": 110,
+    "n": 200
+  },
+  {
+    "variant": "examples-semantic-capability",
+    "correct": 104,
+    "n": 200
+  }
+]

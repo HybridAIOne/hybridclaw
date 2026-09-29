@@ -1,0 +1,190 @@
+{
+  "models": {
+    "laya": {
+      "n": 200,
+      "correct": 174,
+      "accuracy": 0.87,
+      "accepted": 138,
+      "accepted_correct": 131,
+      "accepted_wrong": 7,
+      "precision": 0.9492753623188406,
+      "coverage": 0.69,
+      "wilson95": [
+        0.8990009106342065,
+        0.9752145763677424
+      ],
+      "macro_precision": 0.8878036437246963,
+      "classes": {
+        "basic": {
+          "predicted": 38,
+          "correct": 36,
+          "precision": 0.9473684210526315,
+          "recall": 0.72
+        },
+        "economy": {
+          "predicted": 60,
+          "correct": 47,
+          "precision": 0.7833333333333333,
+          "recall": 0.94
+        },
+        "general": {
+          "predicted": 48,
+          "correct": 44,
+          "precision": 0.9166666666666666,
+          "recall": 0.88
+        },
+        "advanced": {
+          "predicted": 52,
+          "correct": 47,
+          "precision": 0.9038461538461539,
+          "recall": 0.94
+        }
+      },
+      "p50_ms": 15.0,
+      "languages": {
+        "en": {
+          "n": 100,
+          "correct": 91,
+          "accepted": 81,
+          "accepted_correct": 78
+        },
+        "de": {
+          "n": 100,
+          "correct": 83,
+          "accepted": 57,
+          "accepted_correct": 53
+        }
+      }
+    },
+    "jev": {
+      "n": 200,
+      "correct": 193,
+      "accuracy": 0.965,
+      "accepted": 170,
+      "accepted_correct": 170,
+      "accepted_wrong": 0,
+      "precision": 1.0,
+      "coverage": 0.85,
+      "wilson95": [
+        0.9779025161963444,
+        0.9999999999999998
+      ],
+      "macro_precision": 0.9814814814814815,
+      "classes": {
+        "basic": {
+          "predicted": 54,
+          "correct": 50,
+          "precision": 0.9259259259259259,
+          "recall": 1.0
+        },
+        "economy": {
+          "predicted": 47,
+          "correct": 47,
+          "precision": 1.0,
+          "recall": 0.94
+        },
+        "general": {
+          "predicted": 46,
+          "correct": 46,
+          "precision": 1.0,
+          "recall": 0.92
+        },
+        "advanced": {
+          "predicted": 50,
+          "correct": 50,
+          "precision": 1.0,
+          "recall": 1.0
+        }
+      },
+      "p50_ms": 242.0,
+      "languages": {
+        "en": {
+          "n": 100,
+          "correct": 95,
+          "accepted": 83,
+          "accepted_correct": 83
+        },
+        "de": {
+          "n": 100,
+          "correct": 98,
+          "accepted": 87,
+          "accepted_correct": 87
+        }
+      }
+    },
+    "gemma": {
+      "n": 200,
+      "correct": 185,
+      "accuracy": 0.925,
+      "accepted": 198,
+      "accepted_correct": 185,
+      "accepted_wrong": 13,
+      "precision": 0.9343434343434344,
+      "coverage": 0.99,
+      "wilson95": [
+        0.8909220296452623,
+        0.9612319381517908
+      ],
+      "macro_precision": 0.9484126984126984,
+      "classes": {
+        "basic": {
+          "predicted": 38,
+          "correct": 38,
+          "precision": 1.0,
+          "recall": 0.76
+        },
+        "economy": {
+          "predicted": 63,
+          "correct": 50,
+          "precision": 0.7936507936507936,
+          "recall": 1.0
+        },
+        "general": {
+          "predicted": 47,
+          "correct": 47,
+          "precision": 1.0,
+          "recall": 0.94
+        },
+        "advanced": {
+          "predicted": 50,
+          "correct": 50,
+          "precision": 1.0,
+          "recall": 1.0
+        }
+      },
+      "p50_ms": 267.0,
+      "languages": {
+        "en": {
+          "n": 100,
+          "correct": 97,
+          "accepted": 99,
+          "accepted_correct": 97
+        },
+        "de": {
+          "n": 100,
+          "correct": 88,
+          "accepted": 99,
+          "accepted_correct": 88
+        }
+      }
+    }
+  },
+  "gaps": {
+    "precision": {
+      "percentage_points": 5.072463768115942,
+      "relative_percent": 5.072463768115942
+    },
+    "macro_precision": {
+      "percentage_points": 9.367783775678518,
+      "relative_percent": 9.544534412955471
+    },
+    "accuracy": {
+      "percentage_points": 9.499999999999996,
+      "relative_percent": 9.844559585492224
+    }
+  },
+  "blocked_ids": [
+    "newval-111",
+    "newval-136"
+  ]
+}

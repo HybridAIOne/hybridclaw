@@ -1,0 +1,13 @@
+# Routing specialization protocol
+
+2026-09-29: the previous goal turn made progress by freezing and validating checkpoint-specific correctness calibration. This experiment addresses both selected-decision precision and the remaining classification/coverage gap.
+
+Sixteen rubric/label/question variants were declared in `run.py` before their inference. Evaluate all three pinned checkpoints on the original 200 development cases. Choose the checkpoint and variant with highest development accuracy; ties retain engine order typed-decisions, English, multilingual and declared variant order. This is development selection, not independent evidence.
+
+Additional exploration on the selected typed-decisions activity/category variant compares bias, positive vector scaling and affine matrix scaling of centered log probabilities. Five deterministic development folds (`numeric case ID modulo 5`); fixed penalties 0.001, 0.01, 0.1, 1 on mean squared departure from identity. Matrix scaling with penalty 0.01 scores 165/200 cross-validated (82.5%); it is selected and frozen here. Prompt and calibration selection reuse the same development corpus, so even these folds do not constitute an unbiased final estimate. No encoder or neural decision-head weights change.
+
+Fit the selected affine mapping on all 200 development cases. Generate predictions on the earlier alternatives 120 cases and fit a monotone correctness map using the previous fixed method (binary NLL plus 0.001 L2). Neither the calibration test of 120 prompts nor future validation labels enter either fit. Freeze model, variant, affine coefficients and correctness map before new validation inference. Keep the 0.8 correctness gate fixed; report all predictions, class precision/recall, accuracy, accepted precision and coverage. Retain per-case evidence, hashes, false positives and errors.
+
+The user target is within 10% of JEV precision. Report both percentage-point and relative gaps on identical examples, alongside all-case accuracy and coverage. Do not declare parity from a high precision tiny accepted subset, and do not claim production capability ground truth from this same-author synthetic rubric task. A production candidate must use the exact verified inference and mapping, with no privacy-policy changes. No gateway restart or live settings change is authorized.
+
+The next validation set is authored after model/variant selection but before its inference. It is balanced across four tiers and English/German and must have no exact text overlap with earlier sets. Bilingual counterparts share scenarios; report that correlation and the lack of independent annotation.

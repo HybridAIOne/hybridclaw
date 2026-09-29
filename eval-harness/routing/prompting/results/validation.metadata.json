@@ -1,0 +1,46 @@
+{
+  "model": {
+    "checkpoint": "aac6fef/laya-typed-decisions-mlx@f9e501c2080cc57c13d6887820329758f5351125",
+    "weight_sha256": "804ef8802b4cac7a67913b0cfb8448659e934a50284aaa867b98d7d9a6e7d1e0",
+    "model_config": {
+      "encoder": "answerdotai/ModernBERT-large",
+      "head_layers": 2,
+      "max_len": 1024,
+      "head_max_len": 256,
+      "max_prefixes": 6,
+      "act_costs": {
+        "escalate": 0.5
+      },
+      "cost_wrong_act": 3.0,
+      "amp_dtype": "bf16",
+      "model_name": "laya-typed-decisions",
+      "temperature": [
+        1.0148024559020996,
+        1.0374259948730469,
+        1.0575125217437744
+      ],
+      "temperature_by_options": {
+        "choice:3-5": 1.7601518630981445,
+        "choice:6-10": 1.0000158548355103,
+        "score:3-5": 1.2514300346374512,
+        "noul:2": 1.983399510383606,
+        "choice:11+": 0.10058280825614929,
+        "choice:2": 1.9063563346862793
+      },
+      "training": {
+        "updates": 7313,
+        "epochs_completed": 1,
+        "hours": 1.96,
+        "world_size": 1,
+        "fine_tuned_from_checkpoint": true
+      },
+      "gradient_checkpointing": true,
+      "max_tokens_per_batch": 4096,
+      "fine_tuned": true
+    },
+    "runtime": "laya-mlx==0.2.0"
+  },
+  "affine_sha256": "9e197ad6c688f777d3d510704cd1f8cd48ecf48632be2fdad02c182e80064690",
+  "dataset_sha256": "0bae92b299d64104618ff79cd1408f0fb5593dbb51083f530dce197307c259fe",
+  "candidate_sha256": "3327f54376dcbf7dc3d16c2e97ccb997ea4318bbeb5ceefdcddb158fe524f3c4"
+}

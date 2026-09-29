@@ -10,7 +10,7 @@ export default {
     });
     api.registerLocalClassifier({
       model: 'local-decision/laya',
-      label: 'Laya · Multilingual 322M',
+      label: 'Laya · Typed decisions 421M',
       status: () => runtime.status(),
       command: (action) => runtime.command(action),
       predict: (input) => runtime.predict(input),

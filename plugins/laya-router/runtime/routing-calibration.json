@@ -1,0 +1,65 @@
+{
+  "repo": "aac6fef/laya-typed-decisions-mlx",
+  "revision": "f9e501c2080cc57c13d6887820329758f5351125",
+  "weight_sha256": "804ef8802b4cac7a67913b0cfb8448659e934a50284aaa867b98d7d9a6e7d1e0",
+  "instructions": "Which category best describes the task?",
+  "criteria": {
+    "basic": "Answer a simple factual question, greeting, unit conversion or short arithmetic calculation.",
+    "economy": "Write or rewrite everyday text, translate, summarize, brainstorm or plan ordinary activities.",
+    "general": "Write code, debug software, explain a technical mechanism or analyze a multi-step practical problem.",
+    "advanced": "Prove a difficult theorem, conduct research or design a complex distributed system with rigorous tradeoffs."
+  },
+  "matrix": [
+    [
+      4.87714334001664,
+      -0.758758695173048,
+      0.010353859723066253,
+      -3.1287380008209813
+    ],
+    [
+      -2.7208422500187215,
+      3.9995493062314296,
+      -1.1723153628545655,
+      0.8936082100779718
+    ],
+    [
+      -0.7898723272975303,
+      0.6564067798605644,
+      2.614492433108055,
+      -1.4810281297679935
+    ],
+    [
+      -0.3664286487759063,
+      -2.8971948217788777,
+      -0.45253333003865015,
+      4.716160894793454
+    ]
+  ],
+  "bias": [
+    -0.7843712217802589,
+    0.6969710283706206,
+    1.059578987261206,
+    -0.9721832824525634
+  ],
+  "correctness": {
+    "4": {
+      "a": 1.311445048885227,
+      "b": -0.25860654786160536,
+      "objective": 0.30651406238621093
+    },
+    "3": {
+      "a": 1.2481610865178865,
+      "b": -0.2536241409206734,
+      "objective": 0.2727127809999275
+    }
+  },
+  "gateway_rubric_sha256": {
+    "3": "89e73779492217436aad6f8c2ad94702696a2721636509bc55b6b0cc588e27c6",
+    "4": "86cb4b79685feede160b8696face9b6260f0f9a0afc4448c237ed1360800b66e"
+  },
+  "provenance": {
+    "affine_sha256": "9e197ad6c688f777d3d510704cd1f8cd48ecf48632be2fdad02c182e80064690",
+    "calibration_sha256": "c6beff60ed01d7aaf4f48afff8e23f8d0c76a784688f0256eb8c363670fcf678",
+    "validation_sha256": "0bae92b299d64104618ff79cd1408f0fb5593dbb51083f530dce197307c259fe"
+  }
+}

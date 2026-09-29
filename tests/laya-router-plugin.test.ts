@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { PassThrough } from 'node:stream';
 import { afterEach, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(()=>({spawn:vi.fn()}));
@@ -6,6 +8,26 @@ vi.mock('node:child_process',()=>({spawn:mocks.spawn}));
 // Plugin JS is intentionally shipped outside the gateway TypeScript startup graph.
 import { LayaRuntime } from '../plugins/laya-router/src/runtime.js';
 import plugin from '../plugins/laya-router/src/index.js';
+import { routingTierCriteria } from '../src/routing/policy.js';
+test.each([3,4])('calibration binds to the shared %s-tier rubric', n => {
+ const calibration=JSON.parse(fs.readFileSync(new URL('../plugins/laya-router/runtime/routing-calibration.json',import.meta.url),'utf8'));
+ const criteria=routingTierCriteria(Array.from({length:n},(_,i)=>({name:String(i)})));
+ const hash=createHash('sha256').update(JSON.stringify(Object.values(criteria))).digest('hex');
+ expect(hash).toBe(calibration.gateway_rubric_sha256[n]);
+});
+test('installed status requires the selected checkpoint setup marker', () => {
+ const calibration=JSON.parse(fs.readFileSync(new URL('../plugins/laya-router/runtime/routing-calibration.json',import.meta.url),'utf8'));
+ const exists=vi.spyOn(fs,'existsSync').mockReturnValue(true);
+ const read=vi.spyOn(fs,'readFileSync').mockReturnValue('older-checkpoint');
+ try {
+  const runtime=new LayaRuntime({home:'/tmp/example',component:'/tmp/plugin'});
+  expect(runtime.status().installed).toBe(false);
+  read.mockReturnValue(calibration.weight_sha256);
+  expect(runtime.status().installed).toBe(true);
+  exists.mockReturnValue(false);
+  expect(runtime.status().installed).toBe(false);
+ } finally {exists.mockRestore();read.mockRestore();}
+});
 afterEach(()=>vi.clearAllMocks());
 function child() {
  const process = Object.assign(new EventEmitter(), {stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),exitCode:null,signalCode:null,kill:vi.fn()});

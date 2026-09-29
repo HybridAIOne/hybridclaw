@@ -2,11 +2,15 @@
  * Owns one resident MLX process independently of the chat model and workers.
  * Serving is offline; only explicit setup installs the pinned Python environment
  * and model. Lost or timed-out pipes fail the decision instead of retrying elsewhere.
+ * The setup marker names the selected checkpoint; another marker requires setup.
  */
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import calibration from '../runtime/routing-calibration.json' with {
+  type: 'json',
+};
 
 export class LayaRuntime {
   constructor({ home, component }) {
@@ -24,7 +28,9 @@ export class LayaRuntime {
       supported: process.platform === 'darwin' && process.arch === 'arm64',
       installed:
         fs.existsSync(path.join(this.home, 'ready')) &&
-        fs.existsSync(this.python()),
+        fs.existsSync(this.python()) &&
+        fs.readFileSync(path.join(this.home, 'ready'), 'utf8') ===
+          calibration.weight_sha256,
       status: this.state,
       ...(this.error ? { error: this.error } : {}),
     };
@@ -99,7 +105,9 @@ export class LayaRuntime {
     ]);
     this.state = 'starting';
     await this.start();
-    fs.writeFileSync(path.join(this.home, 'ready'), '', { mode: 0o600 });
+    fs.writeFileSync(path.join(this.home, 'ready'), calibration.weight_sha256, {
+      mode: 0o600,
+    });
   }
   async start() {
     this.state = 'starting';
