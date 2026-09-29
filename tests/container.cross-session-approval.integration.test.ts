@@ -4,6 +4,10 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test } from 'vitest';
+import {
+  encodeAuthenticatedInput,
+  generateIpcAuthSecret,
+} from '../container/shared/ipc-input-auth.js';
 import type {
   ContainerInput,
   ContainerOutput,
@@ -129,16 +133,20 @@ async function startWorker(params: {
     }
     throw new Error(`Worker did not answer: ${errors}`);
   };
-  child.stdin?.write(`${JSON.stringify(input)}\n`);
+  const ipcAuthSecret = generateIpcAuthSecret();
+  child.stdin?.write(`${JSON.stringify({ ...input, ipcAuthSecret })}\n`);
   return {
     output: await output(),
     reply: async (text: string) => {
       fs.writeFileSync(
         path.join(ipc, 'input.json'),
-        JSON.stringify({
-          ...input,
-          messages: [...input.messages, { role: 'user', content: text }],
-        }),
+        encodeAuthenticatedInput(
+          ipcAuthSecret,
+          JSON.stringify({
+            ...input,
+            messages: [...input.messages, { role: 'user', content: text }],
+          }),
+        ),
       );
       return output();
     },
