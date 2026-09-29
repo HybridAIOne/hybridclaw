@@ -1,0 +1,47 @@
+{
+  "jev": {
+    "total": 200,
+    "valid": 199,
+    "correct": 183,
+    "accepted": 167,
+    "accepted_correct": 164,
+    "effective_correct": 166,
+    "p50_ms": 251,
+    "p95_ms": 303,
+    "failures": 1,
+    "reasons": {
+      "tier-recommendation": 167,
+      "invalid-response": 1,
+      "low-confidence": 32
+    }
+  },
+  "laya": {
+    "total": 200,
+    "valid": 200,
+    "correct": 115,
+    "accepted": 47,
+    "accepted_correct": 37,
+    "effective_correct": 61,
+    "p50_ms": 16,
+    "p95_ms": 20,
+    "failures": 0,
+    "reasons": {
+      "tier-recommendation": 47,
+      "low-confidence": 153
+    }
+  },
+  "gemma": {
+    "total": 200,
+    "valid": 200,
+    "correct": 183,
+    "accepted": 200,
+    "accepted_correct": 183,
+    "effective_correct": 183,
+    "p50_ms": 264,
+    "p95_ms": 294,
+    "failures": 0,
+    "reasons": {
+      "classified": 200
+    }
+  }
+}

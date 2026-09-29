@@ -1,0 +1,1206 @@
+{
+  "version": 1,
+  "description": "Synthetic English/German routing rubric benchmark; history-inspired themes only, no session text. Labels authored before inference; not model-capability ground truth.",
+  "cases": [
+    {
+      "id": "route-001",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 3 + 5?"
+    },
+    {
+      "id": "route-002",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 24 divided by 6?"
+    },
+    {
+      "id": "route-003",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many minutes are in two hours?"
+    },
+    {
+      "id": "route-004",
+      "language": "en",
+      "expected": "basic",
+      "text": "Convert 2.5 kilometers to meters."
+    },
+    {
+      "id": "route-005",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 15 percent of 200?"
+    },
+    {
+      "id": "route-006",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which is larger: 0.7 or 0.65?"
+    },
+    {
+      "id": "route-007",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the square root of 81?"
+    },
+    {
+      "id": "route-008",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many days are in a non-leap year?"
+    },
+    {
+      "id": "route-009",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the capital of Italy?"
+    },
+    {
+      "id": "route-010",
+      "language": "en",
+      "expected": "basic",
+      "text": "What currency is used in Japan?"
+    },
+    {
+      "id": "route-011",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which planet is closest to the Sun?"
+    },
+    {
+      "id": "route-012",
+      "language": "en",
+      "expected": "basic",
+      "text": "What does CPU stand for?"
+    },
+    {
+      "id": "route-013",
+      "language": "en",
+      "expected": "basic",
+      "text": "What does PDF stand for?"
+    },
+    {
+      "id": "route-014",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the file extension commonly used for a Python script?"
+    },
+    {
+      "id": "route-015",
+      "language": "en",
+      "expected": "basic",
+      "text": "Is JSON a programming language or a data format?"
+    },
+    {
+      "id": "route-016",
+      "language": "en",
+      "expected": "basic",
+      "text": "What keyboard shortcut commonly copies selected text on a Mac?"
+    },
+    {
+      "id": "route-017",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which HTTP status code means not found?"
+    },
+    {
+      "id": "route-018",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many bits are in one byte?"
+    },
+    {
+      "id": "route-019",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the opposite of ascending order?"
+    },
+    {
+      "id": "route-020",
+      "language": "en",
+      "expected": "basic",
+      "text": "What does a spreadsheet cell reference B3 mean?"
+    },
+    {
+      "id": "route-021",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the plural of mouse when referring to animals?"
+    },
+    {
+      "id": "route-022",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the primary language spoken in Brazil."
+    },
+    {
+      "id": "route-023",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the freezing point of pure water in degrees Celsius at standard pressure?"
+    },
+    {
+      "id": "route-024",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many sides does a hexagon have?"
+    },
+    {
+      "id": "route-025",
+      "language": "en",
+      "expected": "basic",
+      "text": "What does UTC stand for?"
+    },
+    {
+      "id": "route-026",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viel ist 6 plus 9?"
+    },
+    {
+      "id": "route-027",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt 8 mal 7?"
+    },
+    {
+      "id": "route-028",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viel ist 100 minus 37?"
+    },
+    {
+      "id": "route-029",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Sekunden hat eine Minute?"
+    },
+    {
+      "id": "route-030",
+      "language": "de",
+      "expected": "basic",
+      "text": "Rechne 350 Zentimeter in Meter um."
+    },
+    {
+      "id": "route-031",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viel sind 10 Prozent von 90?"
+    },
+    {
+      "id": "route-032",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Zahl ist kleiner: 0,4 oder 0,04?"
+    },
+    {
+      "id": "route-033",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist die Quadratwurzel von 144?"
+    },
+    {
+      "id": "route-034",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Monate hat ein Jahr?"
+    },
+    {
+      "id": "route-035",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist die Hauptstadt von Österreich?"
+    },
+    {
+      "id": "route-036",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Währung verwendet die Schweiz?"
+    },
+    {
+      "id": "route-037",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Planet wird als roter Planet bezeichnet?"
+    },
+    {
+      "id": "route-038",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wofür steht die Abkürzung RAM?"
+    },
+    {
+      "id": "route-039",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wofür steht die Abkürzung CSV?"
+    },
+    {
+      "id": "route-040",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Dateiendung haben üblicherweise Markdown-Dateien?"
+    },
+    {
+      "id": "route-041",
+      "language": "de",
+      "expected": "basic",
+      "text": "Ist eine PNG-Datei ein Bildformat oder ein Tabellenformat?"
+    },
+    {
+      "id": "route-042",
+      "language": "de",
+      "expected": "basic",
+      "text": "Mit welcher üblichen Tastenkombination fügt man auf dem Mac kopierten Text ein?"
+    },
+    {
+      "id": "route-043",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher HTTP-Statuscode steht für einen internen Serverfehler?"
+    },
+    {
+      "id": "route-044",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Bytes sind ein Kibibyte?"
+    },
+    {
+      "id": "route-045",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist das Gegenteil von aufsteigend?"
+    },
+    {
+      "id": "route-046",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was bedeutet die Tabellenzelle C5?"
+    },
+    {
+      "id": "route-047",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie lautet der Plural von Haus?"
+    },
+    {
+      "id": "route-048",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Sprache wird überwiegend in Argentinien gesprochen?"
+    },
+    {
+      "id": "route-049",
+      "language": "de",
+      "expected": "basic",
+      "text": "Bei wie viel Grad Celsius siedet reines Wasser bei normalem Luftdruck?"
+    },
+    {
+      "id": "route-050",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Ecken hat ein Würfel?"
+    },
+    {
+      "id": "route-051",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a friendly email asking a colleague to send the meeting agenda by Friday."
+    },
+    {
+      "id": "route-052",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this more politely: Your attachment is missing. Send it again."
+    },
+    {
+      "id": "route-053",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into German: Please confirm whether the invoice has been received."
+    },
+    {
+      "id": "route-054",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize in one sentence: The deployment was postponed. A dependency failed validation. The team will retry tomorrow."
+    },
+    {
+      "id": "route-055",
+      "language": "en",
+      "expected": "economy",
+      "text": "Turn these notes into three bullets: venue booked, invitations pending, catering confirmed."
+    },
+    {
+      "id": "route-056",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a short welcome message for a new teammate joining the support team."
+    },
+    {
+      "id": "route-057",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a brief reminder that timesheets are due tomorrow afternoon."
+    },
+    {
+      "id": "route-058",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make this sentence shorter: At this point in time we are currently unable to proceed with the requested action."
+    },
+    {
+      "id": "route-059",
+      "language": "en",
+      "expected": "economy",
+      "text": "Extract the dates from this text: The workshop is on 4 May and the review is on 9 May."
+    },
+    {
+      "id": "route-060",
+      "language": "en",
+      "expected": "economy",
+      "text": "Convert this list into a Markdown table with item and quantity columns: notebooks 3, pens 8, folders 2."
+    },
+    {
+      "id": "route-061",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write an out-of-office reply saying I return next Monday and will respond afterward."
+    },
+    {
+      "id": "route-062",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into English: Bitte legen Sie die Rechnung dem Paket bei."
+    },
+    {
+      "id": "route-063",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest five neutral titles for an internal guide about keeping project notes organized."
+    },
+    {
+      "id": "route-064",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this announcement in a warmer tone: The office will be closed on Monday."
+    },
+    {
+      "id": "route-065",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize this feedback: The app starts quickly, the text is too small, and finding archived chats is confusing."
+    },
+    {
+      "id": "route-066",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a two-sentence thank-you note after a helpful product demonstration."
+    },
+    {
+      "id": "route-067",
+      "language": "en",
+      "expected": "economy",
+      "text": "Turn this sentence into a checklist: Open the report, verify the totals, attach the receipt, and submit the form."
+    },
+    {
+      "id": "route-068",
+      "language": "en",
+      "expected": "economy",
+      "text": "Proofread: Their is two files attached and each contain the updated figures."
+    },
+    {
+      "id": "route-069",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a short meeting invitation for a 30-minute project check-in on Tuesday at 10:00."
+    },
+    {
+      "id": "route-070",
+      "language": "en",
+      "expected": "economy",
+      "text": "Extract the product names only: We ordered a blue notebook, a red pen, and a green folder."
+    },
+    {
+      "id": "route-071",
+      "language": "en",
+      "expected": "economy",
+      "text": "Describe in plain language that stopping a local model releases its memory."
+    },
+    {
+      "id": "route-072",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write three concise button labels for downloading and installing a local model."
+    },
+    {
+      "id": "route-073",
+      "language": "en",
+      "expected": "economy",
+      "text": "Reformat these names as one per line: Ada, Linus, Grace."
+    },
+    {
+      "id": "route-074",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a neutral status update: testing complete, documentation pending, release scheduled for Thursday."
+    },
+    {
+      "id": "route-075",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate this short UI label into German: Download complete. Ready to start."
+    },
+    {
+      "id": "route-076",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine freundliche E-Mail mit der Bitte, die Tagesordnung bis Donnerstag zu schicken."
+    },
+    {
+      "id": "route-077",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere höflicher: Der Anhang fehlt. Bitte erneut senden."
+    },
+    {
+      "id": "route-078",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Bitte bestätigen Sie den Eingang der Bestellung."
+    },
+    {
+      "id": "route-079",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse in einem Satz zusammen: Der Termin wurde verschoben. Der Raum ist belegt. Ein neuer Vorschlag folgt morgen."
+    },
+    {
+      "id": "route-080",
+      "language": "de",
+      "expected": "economy",
+      "text": "Mache aus diesen Notizen drei Stichpunkte: Angebot fertig, Prüfung offen, Versand geplant."
+    },
+    {
+      "id": "route-081",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Begrüßung für eine neue Kollegin im Projektteam."
+    },
+    {
+      "id": "route-082",
+      "language": "de",
+      "expected": "economy",
+      "text": "Entwirf eine freundliche Erinnerung an die Abgabe der Reisekostenbelege."
+    },
+    {
+      "id": "route-083",
+      "language": "de",
+      "expected": "economy",
+      "text": "Kürze den Satz: Zum gegenwärtigen Zeitpunkt besteht derzeit keine Möglichkeit, die Änderung vorzunehmen."
+    },
+    {
+      "id": "route-084",
+      "language": "de",
+      "expected": "economy",
+      "text": "Extrahiere die Uhrzeiten: Das Gespräch beginnt um 09:30 Uhr und die Pause um 11:00 Uhr."
+    },
+    {
+      "id": "route-085",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine Markdown-Tabelle mit Artikel und Anzahl: Ordner 4, Stifte 12, Hefte 6."
+    },
+    {
+      "id": "route-086",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine Abwesenheitsnotiz: Rückkehr am Mittwoch, Antworten nach der Rückkehr."
+    },
+    {
+      "id": "route-087",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Deutsche: The revised schedule is attached for your review."
+    },
+    {
+      "id": "route-088",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage fünf sachliche Überschriften für eine Anleitung zur Ablage von Belegen vor."
+    },
+    {
+      "id": "route-089",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere freundlicher: Wartungsarbeiten verhindern heute Abend den Zugriff."
+    },
+    {
+      "id": "route-090",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse dieses Feedback zusammen: Die Suche ist schnell, die Farben sind schlecht lesbar und der Export ist schwer zu finden."
+    },
+    {
+      "id": "route-091",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe zwei Sätze als Dank für eine hilfreiche Einführung in ein neues Werkzeug."
+    },
+    {
+      "id": "route-092",
+      "language": "de",
+      "expected": "economy",
+      "text": "Wandle in eine Checkliste um: Datei öffnen, Namen prüfen, Änderungen speichern, Kopie versenden."
+    },
+    {
+      "id": "route-093",
+      "language": "de",
+      "expected": "economy",
+      "text": "Korrigiere die Rechtschreibung: Im Anhang finden sie die aktuelisierten Unterlagen für das nähste Treffen."
+    },
+    {
+      "id": "route-094",
+      "language": "de",
+      "expected": "economy",
+      "text": "Entwirf eine kurze Einladung zu einem halbstündigen Teamgespräch am Freitag um 14 Uhr."
+    },
+    {
+      "id": "route-095",
+      "language": "de",
+      "expected": "economy",
+      "text": "Extrahiere nur die Städtenamen: Die Workshops finden in Bonn, Mainz und Ulm statt."
+    },
+    {
+      "id": "route-096",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erkläre in einem kurzen Satz, dass ein lokales Modell ohne Cloud-Anfrage auf dem Rechner läuft."
+    },
+    {
+      "id": "route-097",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage drei kurze Beschriftungen für eine Schaltfläche zum Stoppen eines Modells vor."
+    },
+    {
+      "id": "route-098",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formatiere diese Begriffe jeweils in einer eigenen Zeile: Planung, Umsetzung, Prüfung."
+    },
+    {
+      "id": "route-099",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe einen neutralen Projektstatus: Entwurf fertig, Freigabe offen, Veröffentlichung nächste Woche."
+    },
+    {
+      "id": "route-100",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Einrichtung abgeschlossen. Modell kann gestartet werden."
+    },
+    {
+      "id": "route-101",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python function that groups a list of orders by customer ID and sums their amounts."
+    },
+    {
+      "id": "route-102",
+      "language": "en",
+      "expected": "general",
+      "text": "Fix this JavaScript bug and explain it: for (var i = 0; i < 3; i++) setTimeout(() => console.log(i), 10)."
+    },
+    {
+      "id": "route-103",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a SQL query that returns customers with more than three orders during a given month."
+    },
+    {
+      "id": "route-104",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain how to prevent a React effect from overwriting newer search results with an older response."
+    },
+    {
+      "id": "route-105",
+      "language": "en",
+      "expected": "general",
+      "text": "Design a small test plan for a file upload form with size, type, and network-error validation."
+    },
+    {
+      "id": "route-106",
+      "language": "en",
+      "expected": "general",
+      "text": "Given sales of 120, 150, and 180 and costs of 80, 110, and 100, calculate monthly margins and explain the trend."
+    },
+    {
+      "id": "route-107",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a TypeScript function that validates an object with required name and optional positive age fields."
+    },
+    {
+      "id": "route-108",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain why a LEFT JOIN can produce duplicate customer rows and show two ways to avoid that."
+    },
+    {
+      "id": "route-109",
+      "language": "en",
+      "expected": "general",
+      "text": "Create an Excel formula that sums amounts for a selected category and date interval."
+    },
+    {
+      "id": "route-110",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare a normalized orders table with a JSON column for storing line items in a small reporting application."
+    },
+    {
+      "id": "route-111",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a shell script that finds log files older than 14 days and prints them without deleting them."
+    },
+    {
+      "id": "route-112",
+      "language": "en",
+      "expected": "general",
+      "text": "Debug a pagination implementation that repeats the last row from the previous page."
+    },
+    {
+      "id": "route-113",
+      "language": "en",
+      "expected": "general",
+      "text": "Design a retry policy with exponential backoff for idempotent HTTP GET requests."
+    },
+    {
+      "id": "route-114",
+      "language": "en",
+      "expected": "general",
+      "text": "Write unit tests for a function that merges overlapping numeric intervals."
+    },
+    {
+      "id": "route-115",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain the difference between read committed and repeatable read using a concrete transaction example."
+    },
+    {
+      "id": "route-116",
+      "language": "en",
+      "expected": "general",
+      "text": "Plan the steps to migrate a small application from SQLite to PostgreSQL with a maintenance window."
+    },
+    {
+      "id": "route-117",
+      "language": "en",
+      "expected": "general",
+      "text": "Given precision 0.8 and recall 0.5, calculate F1 and explain which error types remain common."
+    },
+    {
+      "id": "route-118",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python script that combines CSV files with identical headers and reports malformed rows."
+    },
+    {
+      "id": "route-119",
+      "language": "en",
+      "expected": "general",
+      "text": "Investigate why an API call succeeds in curl but fails in a browser because of CORS, and propose a debugging sequence."
+    },
+    {
+      "id": "route-120",
+      "language": "en",
+      "expected": "general",
+      "text": "Design a simple database schema for projects, tasks, assignees, and task status history."
+    },
+    {
+      "id": "route-121",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain and fix this Python issue: functions created in a loop all capture the final loop variable."
+    },
+    {
+      "id": "route-122",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare sequential and concurrent execution for 20 independent API calls with a concurrency limit of four."
+    },
+    {
+      "id": "route-123",
+      "language": "en",
+      "expected": "general",
+      "text": "Create a test matrix for a router with valid responses, timeouts, malformed JSON, and unknown tier labels."
+    },
+    {
+      "id": "route-124",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a function that converts local meeting times to UTC while handling daylight-saving transitions explicitly."
+    },
+    {
+      "id": "route-125",
+      "language": "en",
+      "expected": "general",
+      "text": "Analyze an A/B test with 100 conversions out of 1000 visits versus 130 out of 1000 and explain the uncertainty."
+    },
+    {
+      "id": "route-126",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Python-Funktion, die Rechnungspositionen nach Kategorie gruppiert und die Beträge summiert."
+    },
+    {
+      "id": "route-127",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre und behebe einen JavaScript-Fehler, bei dem eine Promise nicht abgewartet wird und deshalb undefined zurückkommt."
+    },
+    {
+      "id": "route-128",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine SQL-Abfrage für die fünf Kunden mit dem höchsten Umsatz im letzten abgeschlossenen Quartal."
+    },
+    {
+      "id": "route-129",
+      "language": "de",
+      "expected": "general",
+      "text": "Zeige, wie ein React-Suchfeld veraltete Netzwerkanfragen abbricht und nur aktuelle Ergebnisse anzeigt."
+    },
+    {
+      "id": "route-130",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf einen Testplan für ein Anmeldeformular mit ungültigen Eingaben, abgelaufener Sitzung und Netzwerkausfall."
+    },
+    {
+      "id": "route-131",
+      "language": "de",
+      "expected": "general",
+      "text": "Berechne für Umsätze von 200, 250 und 300 sowie Kosten von 150, 180 und 190 die Gewinnmargen und erkläre die Entwicklung."
+    },
+    {
+      "id": "route-132",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere in TypeScript eine Funktion, die doppelte Datensätze anhand einer ID zusammenführt."
+    },
+    {
+      "id": "route-133",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre anhand eines Beispiels, warum eine WHERE-Bedingung einen LEFT JOIN faktisch zum INNER JOIN machen kann."
+    },
+    {
+      "id": "route-134",
+      "language": "de",
+      "expected": "general",
+      "text": "Erstelle eine Excel-Formel, die überfällige Rechnungen nach Kundengruppe summiert."
+    },
+    {
+      "id": "route-135",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche zwei Ansätze zur Speicherung von Änderungsprotokollen: separate Ereignistabelle und JSON-Feld je Datensatz."
+    },
+    {
+      "id": "route-136",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe ein Shell-Skript, das große Dateien auflistet und Dateinamen mit Leerzeichen korrekt behandelt."
+    },
+    {
+      "id": "route-137",
+      "language": "de",
+      "expected": "general",
+      "text": "Analysiere einen Off-by-one-Fehler beim Aufteilen einer Liste in Seiten mit je 20 Einträgen."
+    },
+    {
+      "id": "route-138",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf eine Fehlerbehandlung für einen Dateiimport, die ungültige Zeilen protokolliert und gültige Zeilen übernimmt."
+    },
+    {
+      "id": "route-139",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe Tests für eine Funktion zur Berechnung von Datumsintervallen, einschließlich Schaltjahren."
+    },
+    {
+      "id": "route-140",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre optimistisches und pessimistisches Locking mit einem Beispiel zur Bearbeitung einer Bestellung."
+    },
+    {
+      "id": "route-141",
+      "language": "de",
+      "expected": "general",
+      "text": "Plane ein Datenbankschema-Update mit neuer Pflichtspalte und sicherer Rückrollmöglichkeit."
+    },
+    {
+      "id": "route-142",
+      "language": "de",
+      "expected": "general",
+      "text": "Berechne Precision und Recall bei 40 richtigen Treffern, 10 falschen Treffern und 20 übersehenen Treffern."
+    },
+    {
+      "id": "route-143",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe ein Python-Skript, das zwei CSV-Dateien anhand einer Schlüsselspalte vergleicht und Unterschiede ausgibt."
+    },
+    {
+      "id": "route-144",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf eine systematische Fehlersuche für einen Dienst, der lokal erreichbar ist, aber über den Reverse Proxy nicht."
+    },
+    {
+      "id": "route-145",
+      "language": "de",
+      "expected": "general",
+      "text": "Modelliere Tabellen für Veranstaltungen, Teilnehmer, Anmeldungen und Wartelisten."
+    },
+    {
+      "id": "route-146",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre und korrigiere eine Python-Funktion mit einer veränderlichen Liste als Standardargument."
+    },
+    {
+      "id": "route-147",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche Stapelverarbeitung und einzelne API-Aufrufe hinsichtlich Laufzeit, Fehlerbehandlung und Speicherbedarf."
+    },
+    {
+      "id": "route-148",
+      "language": "de",
+      "expected": "general",
+      "text": "Erstelle eine Testmatrix für einen Modell-Download mit Abbruch, Wiederaufnahme, Prüfsummenfehler und fehlendem Speicherplatz."
+    },
+    {
+      "id": "route-149",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere eine Validierung für Zeitintervalle, die Überschneidungen und ungültige Endzeiten erkennt."
+    },
+    {
+      "id": "route-150",
+      "language": "de",
+      "expected": "general",
+      "text": "Analysiere zwei Varianten mit 60 von 600 und 78 von 600 erfolgreichen Vorgängen und erkläre, was man daraus ableiten kann."
+    },
+    {
+      "id": "route-151",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the compactness theorem for first-order logic using ultraproducts, including the role of the ultrafilter lemma."
+    },
+    {
+      "id": "route-152",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a multi-region payment ledger that tolerates partitions and prove its balance and double-spend invariants."
+    },
+    {
+      "id": "route-153",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive an optimal off-policy estimator for a contextual bandit with delayed rewards and analyze its bias and variance."
+    },
+    {
+      "id": "route-154",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct a formal proof of convergence for an asynchronous distributed optimization method with bounded stale gradients."
+    },
+    {
+      "id": "route-155",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a zero-downtime migration of a sharded financial ledger while preserving serializability across old and new schemas."
+    },
+    {
+      "id": "route-156",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the equivalence of the spectral-radius condition and convergence of a stationary linear iterative method."
+    },
+    {
+      "id": "route-157",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a Byzantine fault-tolerant membership-change protocol and prove safety during overlapping reconfigurations."
+    },
+    {
+      "id": "route-158",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a minimax lower bound for estimating a sparse high-dimensional parameter under adversarial contamination."
+    },
+    {
+      "id": "route-159",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a capability-secure plugin architecture and formally analyze confused-deputy and revocation races."
+    },
+    {
+      "id": "route-160",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove that a proposed lock-free memory reclamation algorithm is safe under the C++ relaxed memory model."
+    },
+    {
+      "id": "route-161",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the Black-Scholes equation from a self-financing hedge and analyze precisely where the assumptions fail with jumps."
+    },
+    {
+      "id": "route-162",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a causal identification strategy for a policy rollout with spillovers, staggered adoption, and endogenous treatment timing."
+    },
+    {
+      "id": "route-163",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct a proof of correctness for a compiler optimization that reorders atomic operations under a weak memory model."
+    },
+    {
+      "id": "route-164",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a cross-region transaction protocol that combines escrow and consensus, with a formal account of which operations remain available during partitions."
+    },
+    {
+      "id": "route-165",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a posterior contraction rate for a hierarchical Bayesian model with a growing number of groups."
+    },
+    {
+      "id": "route-166",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze the stability of a nonlinear feedback controller with time-varying delay and construct a Lyapunov functional."
+    },
+    {
+      "id": "route-167",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove an approximation guarantee for a new scheduling heuristic on unrelated parallel machines with precedence constraints."
+    },
+    {
+      "id": "route-168",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a privacy-preserving record linkage protocol and prove leakage bounds under a malicious adversary model."
+    },
+    {
+      "id": "route-169",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a consistent estimator for a survival model with informative censoring and time-dependent confounders."
+    },
+    {
+      "id": "route-170",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Formalize the safety invariants of a distributed authorization cache with revocation and prove them across failures and retries."
+    },
+    {
+      "id": "route-171",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a low-latency global model router with capacity constraints and derive regret bounds under nonstationary request distributions."
+    },
+    {
+      "id": "route-172",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove a central limit theorem for a dependent triangular array under explicitly stated mixing conditions."
+    },
+    {
+      "id": "route-173",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a schema evolution protocol for an event-sourced system and prove replay equivalence across three interacting version changes."
+    },
+    {
+      "id": "route-174",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze whether a randomized consensus variant satisfies almost-sure termination under an adaptive scheduler and provide a proof or counterexample."
+    },
+    {
+      "id": "route-175",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a robust calibration method for a classifier under label shift and prove conditions under which risk guarantees transfer."
+    },
+    {
+      "id": "route-176",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Satz von Arzelà-Ascoli und erläutere genau die Rolle von Gleichgradigkeit und punktweiser Beschränktheit."
+    },
+    {
+      "id": "route-177",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein verteiltes Buchungssystem über mehrere Regionen und beweise, dass bei Netzpartitionen keine doppelte Abbuchung entsteht."
+    },
+    {
+      "id": "route-178",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite einen unverzerrten Schätzer für einen kontextuellen Banditen mit verzögerten Rückmeldungen her und analysiere seine Varianz."
+    },
+    {
+      "id": "route-179",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise die Konvergenz eines asynchronen Optimierungsverfahrens mit begrenzt veralteten Gradienten."
+    },
+    {
+      "id": "route-180",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine unterbrechungsfreie Migration eines geshardeten Hauptbuchs und beweise die Erhaltung der Serialisierbarkeit."
+    },
+    {
+      "id": "route-181",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Zusammenhang zwischen Spektralradius und Konvergenz eines stationären linearen Iterationsverfahrens."
+    },
+    {
+      "id": "route-182",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle ein byzantinisch fehlertolerantes Protokoll für wechselnde Teilnehmergruppen und beweise seine Sicherheit während der Rekonfiguration."
+    },
+    {
+      "id": "route-183",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Minimax-Untergrenze für robuste Parameterschätzung bei adversarial verunreinigten Daten her."
+    },
+    {
+      "id": "route-184",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine sichere Capability-Architektur für Erweiterungen und analysiere formal Widerruf und Confused-Deputy-Angriffe."
+    },
+    {
+      "id": "route-185",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise die Speichersicherheit eines lockfreien Reclamation-Verfahrens unter einem schwachen Speichermodell."
+    },
+    {
+      "id": "route-186",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Optionsbewertung mit Sprungprozessen her und erkläre, welche Teile der klassischen Replikationsargumentation scheitern."
+    },
+    {
+      "id": "route-187",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle eine kausale Identifikationsstrategie für eine zeitversetzte Maßnahme mit Spillover-Effekten und endogener Teilnahme."
+    },
+    {
+      "id": "route-188",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise die Korrektheit einer Compileroptimierung, die atomare Speicherzugriffe umordnet."
+    },
+    {
+      "id": "route-189",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein regionsübergreifendes Transaktionsprotokoll mit Escrow und Konsens und formalisiere dessen Verfügbarkeit bei Partitionen."
+    },
+    {
+      "id": "route-190",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Kontraktionsrate für die Posteriorverteilung eines hierarchischen Bayes-Modells mit wachsender Gruppenzahl her."
+    },
+    {
+      "id": "route-191",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Analysiere die Stabilität eines nichtlinearen Regelkreises mit zeitabhängiger Verzögerung mithilfe eines Lyapunov-Funktionals."
+    },
+    {
+      "id": "route-192",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise eine Approximationsgarantie für ein Scheduling-Verfahren auf heterogenen Maschinen mit Vorrangbedingungen."
+    },
+    {
+      "id": "route-193",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein datenschutzfreundliches Verfahren zum Abgleich von Datensätzen und beweise eine Schranke für dessen Informationsleckage."
+    },
+    {
+      "id": "route-194",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite einen konsistenten Schätzer für ein Überlebenszeitmodell mit informativer Zensierung und zeitabhängigen Störgrößen her."
+    },
+    {
+      "id": "route-195",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Formalisiere die Sicherheitsinvarianten eines verteilten Berechtigungscaches und beweise ihre Erhaltung bei Widerruf, Wiederholungen und Ausfällen."
+    },
+    {
+      "id": "route-196",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf einen globalen Modellrouter mit Kapazitätsgrenzen und leite Regret-Schranken bei nichtstationärer Anfrageverteilung her."
+    },
+    {
+      "id": "route-197",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise einen zentralen Grenzwertsatz für abhängige Dreiecksschemata unter geeigneten Mischungsbedingungen."
+    },
+    {
+      "id": "route-198",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle ein Protokoll zur Schemaentwicklung in einem Event-Sourcing-System und beweise die Äquivalenz der Wiedergabe über mehrere Versionen."
+    },
+    {
+      "id": "route-199",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Untersuche ein randomisiertes Konsensprotokoll unter einem adaptiven Scheduler und beweise fast sichere Terminierung oder konstruiere ein Gegenbeispiel."
+    },
+    {
+      "id": "route-200",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine robuste Kalibrierungsmethode bei Label-Shift her und beweise Bedingungen für die Übertragbarkeit ihrer Risikoschranken."
+    }
+  ]
+}
