@@ -589,6 +589,8 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/x-zip-compressed',
+  'application/zip',
   'text/csv',
   'text/markdown',
   'text/plain',
