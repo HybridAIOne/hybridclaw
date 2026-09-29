@@ -1402,6 +1402,7 @@ export function ChatPage() {
     onRecentScopeChange: setRecentChatScope,
     isLoading: recentQuery.isFetching,
     onRefreshRecent: handleRefreshRecent,
+    activeAgentId: effectiveAgentId,
   } as const;
 
   return (
