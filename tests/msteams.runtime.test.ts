@@ -4,6 +4,8 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const observeUserMock = vi.fn();
+const findUserEmailMock = vi.fn((_userId: string): string | null => null);
+const getMemberMock = vi.fn(async (..._args: unknown[]) => ({ email: 'user@example.com' }));
 const resolveUserAgentMock = vi.fn(() => 'main');
 const ensurePersonalAgentMock = vi.fn(() => null);
 const channelPolicyMock = vi.fn(() => ({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] }));
@@ -118,6 +120,7 @@ async function importRuntime() {
   vi.resetModules();
 
   vi.doMock('botbuilder', () => ({
+    TeamsInfo: { getMember: getMemberMock },
     CloudAdapter: class {
       onTurnError?: unknown;
 
@@ -175,7 +178,7 @@ async function importRuntime() {
       setMemoryValue: setMemoryValueMock,
     };
   });
-  vi.doMock('../src/memory/msteams-users.js', () => ({ observeMSTeamsUser: observeUserMock }));
+  vi.doMock('../src/memory/msteams-users.js', () => ({ observeMSTeamsUser: observeUserMock, findMSTeamsUserEmail: findUserEmailMock }));
   vi.doMock('../src/channels/msteams/user-routing.js', () => ({ resolveMSTeamsUserAgent: resolveUserAgentMock, ensureMSTeamsPersonalAgent: ensurePersonalAgentMock }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
@@ -259,6 +262,8 @@ afterEach(() => {
   loggerWarnMock.mockReset();
   cloudAdapters.length = 0;
   observeUserMock.mockClear();
+  findUserEmailMock.mockReset().mockReturnValue(null);
+  getMemberMock.mockReset().mockResolvedValue({ email: 'user@example.com' });
   resolveUserAgentMock.mockReset().mockReturnValue('main');
   ensurePersonalAgentMock.mockReset().mockReturnValue(null);
   channelPolicyMock.mockReset().mockReturnValue({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] });
@@ -285,9 +290,26 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     expect(resolveUserAgentMock).toHaveBeenCalledWith('teams-tenant-id', 'user-id', 'personal');
     expect(ensurePersonalAgentMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'teams-tenant-id', userId: 'user-id', entraObjectId: 'user-aad-id', teamsUserId: '29:user-a' }));
     expect(buildSessionIdMock).toHaveBeenCalledWith(expect.anything(), 'sales');
-    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ teamsUserId: '29:user-a', entraObjectId: 'user-aad-id', isMessage: kind === 'message' }));
+    expect(getMemberMock).toHaveBeenCalledWith(expect.anything(), '29:user-a');
+    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ teamsUserId: '29:user-a', entraObjectId: 'user-aad-id', email: 'user@example.com', isMessage: kind === 'message' }));
     if (kind === 'message') expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'sales' });
     else expect(onCommand.mock.calls[0]?.at(-1)).toEqual({ agentId: 'sales', tenantId: 'teams-tenant-id' });
+  });
+
+  test.each(['known', 'failed'])('records no email when the member lookup is %s', async (reason) => {
+    if (reason === 'known') findUserEmailMock.mockReturnValue('user@example.com');
+    else getMemberMock.mockRejectedValue(new Error('member not found'));
+    processMock.mockImplementation(async (_req, _res, logic) => logic({
+      activity: { type: 'message', text: 'Hi', conversation: { id: 'conversation-a' }, from: { id: '29:user-a' } },
+      turnState: new Map(),
+    }));
+    const runtime = await importRuntime();
+    const onMessage = vi.fn(async () => {});
+    runtime.initMSTeams(onMessage, vi.fn(async () => {}));
+    await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
+    expect(getMemberMock).toHaveBeenCalledTimes(reason === 'known' ? 0 : 1);
+    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ email: null }));
+    expect(onMessage).toHaveBeenCalled();
   });
 
   test.each(['denied', 'wrong-tenant', 'unmentioned'])('does not record or route a %s activity', async (reason) => {

@@ -27,16 +27,18 @@ export function observeMSTeamsUser(params: {
   teamsUserId?: string | null;
   entraObjectId?: string | null;
   displayName?: string | null;
+  email?: string | null;
   isMessage: boolean;
 }): void {
   withMemoryDatabase((db) => {
     db.prepare(`INSERT INTO msteams_users
-      (tenant_id, user_id, teams_user_id, entra_object_id, display_name, message_count)
-      VALUES (?, ?, ?, ?, ?, ?)
+      (tenant_id, user_id, teams_user_id, entra_object_id, display_name, email, message_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(tenant_id, user_id) DO UPDATE SET
         teams_user_id = COALESCE(excluded.teams_user_id, teams_user_id),
         entra_object_id = COALESCE(excluded.entra_object_id, entra_object_id),
         display_name = COALESCE(excluded.display_name, display_name),
+        email = COALESCE(excluded.email, email),
         message_count = message_count + excluded.message_count,
         last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).run(
       params.tenantId.trim().toLowerCase(),
@@ -44,6 +46,7 @@ export function observeMSTeamsUser(params: {
       params.teamsUserId?.trim() || null,
       params.entraObjectId?.trim().toLowerCase() || null,
       params.displayName?.trim() || null,
+      params.email?.trim() || null,
       params.isMessage ? 1 : 0,
     );
   });
@@ -63,6 +66,18 @@ export function getMSTeamsUserMapping(
       | { agent_id: string | null }
       | undefined;
     return row ? { agentId: row.agent_id ?? null } : null;
+  });
+}
+
+/** Email of an observed sender; user ids are Entra object ids, unique across tenants. */
+export function findMSTeamsUserEmail(userId: string): string | null {
+  return withMemoryDatabase((db) => {
+    const row = db
+      .prepare(
+        'SELECT email FROM msteams_users WHERE user_id = ? AND email IS NOT NULL ORDER BY last_seen DESC LIMIT 1',
+      )
+      .get(userId.trim()) as { email: string } | undefined;
+    return row?.email ?? null;
   });
 }
 
