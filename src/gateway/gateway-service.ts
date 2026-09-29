@@ -1,3 +1,4 @@
+import { deleteWebNotificationSession } from './web-notification-store.js';
 /**
  * Gateway application service — authoritative host operations shared by transports.
  *
@@ -6093,7 +6094,9 @@ export function deleteGatewayAdminSession(
     };
   }
   interruptGatewaySessionExecution(sessionId);
-  return deleteSessionData(sessionId);
+  const result = deleteSessionData(sessionId);
+  deleteWebNotificationSession(sessionId);
+  return result;
 }
 
 export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
