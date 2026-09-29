@@ -7,10 +7,12 @@ import { IdeasPage } from './ideas';
 const fetchChatIdeasMock = vi.fn();
 const fetchAgentListMock = vi.fn();
 const navigateMock = vi.fn(() => Promise.resolve());
+let searchParams: { agent?: string } = {};
+let gatewayStatus: { defaultAgentId: string } | null = null;
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigateMock,
-  useSearch: () => ({ agent: 'Writer' }),
+  useSearch: () => searchParams,
 }));
 
 vi.mock('../api/chat', () => ({
@@ -22,11 +24,12 @@ vi.mock('../api/client', () => ({
 }));
 
 vi.mock('../auth', () => ({
-  useAuth: () => ({ token: 'test-token' }),
+  useAuth: () => ({ token: 'test-token', gatewayStatus }),
   isAuthReadyForApi: () => true,
 }));
 
 vi.mock('../lib/chat-helpers', () => ({
+  DEFAULT_AGENT_ID: 'main',
   readStoredUserId: () => 'user_a',
 }));
 
@@ -39,7 +42,12 @@ vi.mock('./chat-surface-page', () => ({
   ),
 }));
 
-const IDEA = { title: 'Weekly digest', description: 'Why', prompt: 'Draft it' };
+const IDEA = {
+  emoji: '📰',
+  title: 'Weekly digest',
+  description: 'Why',
+  prompt: 'Draft it',
+};
 const CACHE_KEY = 'hybridclaw.chat-ideas.v1:user_a:writer';
 
 function ideasResponse(title: string) {
@@ -53,6 +61,8 @@ function ideasResponse(title: string) {
 describe('IdeasPage', () => {
   beforeEach(() => {
     localStorage.clear();
+    searchParams = { agent: 'Writer' };
+    gatewayStatus = null;
     fetchChatIdeasMock.mockReset();
     fetchAgentListMock.mockReset();
     navigateMock.mockClear();
@@ -106,8 +116,30 @@ describe('IdeasPage', () => {
     expect(localStorage.getItem(CACHE_KEY)).toContain('Fresh idea');
   });
 
+  it('uses the default agent cache entry when no agent is linked', async () => {
+    searchParams = {};
+    gatewayStatus = { defaultAgentId: 'Writer' };
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify(ideasResponse('Cached idea')),
+    );
+    renderWithProviders(<IdeasPage />);
+
+    await screen.findByRole('button', { name: /Cached idea/ });
+    expect(fetchChatIdeasMock).not.toHaveBeenCalled();
+  });
+
   it('ignores a malformed cache entry and generates', async () => {
-    localStorage.setItem(CACHE_KEY, '{"ideas":"nope"}');
+    // An entry from before ideas carried an emoji counts as malformed.
+    const { emoji: _emoji, ...ideaWithoutEmoji } = IDEA;
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({
+        agentId: 'writer',
+        generatedAt: new Date().toISOString(),
+        ideas: [ideaWithoutEmoji],
+      }),
+    );
     renderWithProviders(<IdeasPage />);
 
     await screen.findByRole('button', { name: /Weekly digest/ });

@@ -23,6 +23,8 @@ import css from './chat-surface-page.module.css';
 export function ChatSurfacePage(props: {
   page: ChatSurfacePageId;
   title: string;
+  /** Image shown before the title, e.g. the agent the page is about. */
+  titleIcon?: ReactNode;
   /** One line under the title saying what the page shows. */
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -45,7 +47,12 @@ export function ChatSurfacePage(props: {
             <div className={css.page}>
               <header className={css.header}>
                 <div className={css.heading}>
-                  <h1 className={css.title}>{props.title}</h1>
+                  <h1 className={css.title}>
+                    {props.titleIcon ? (
+                      <span className={css.titleIcon}>{props.titleIcon}</span>
+                    ) : null}
+                    {props.title}
+                  </h1>
                   {props.subtitle ? (
                     <p className={css.subtitle}>{props.subtitle}</p>
                   ) : null}

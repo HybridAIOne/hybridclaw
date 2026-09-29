@@ -15,14 +15,15 @@ import type { ChatIdeasResponse } from '../api/chat-types';
 import { fetchAgentList } from '../api/client';
 import { isAuthReadyForApi, useAuth } from '../auth';
 import { Button } from '../components/button';
-import { ChevronRight, Lightbulb } from '../components/icons';
+import { ChevronRight, HybridClaw, Lightbulb } from '../components/icons';
 import { NativeSelect } from '../components/native-select';
 import { Skeleton } from '../components/skeleton';
-import { readStoredUserId } from '../lib/chat-helpers';
+import { DEFAULT_AGENT_ID, readStoredUserId } from '../lib/chat-helpers';
 import { cx } from '../lib/cx';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import { RefreshIcon } from './apps-icons';
+import { useAgentAvatarUrl } from './chat/agent-avatar-url';
 import { ChatSurfacePage } from './chat-surface-page';
 import css from './ideas.module.css';
 
@@ -30,7 +31,18 @@ const IDEA_SKELETON_KEYS = ['a', 'b', 'c', 'd', 'e'] as const;
 const IDEAS_CACHE_PREFIX = 'hybridclaw.chat-ideas.v1';
 
 function ideasCacheKey(userId: string, agentId: string): string {
-  return `${IDEAS_CACHE_PREFIX}:${userId}:${agentId || 'default'}`;
+  return `${IDEAS_CACHE_PREFIX}:${userId}:${agentId}`;
+}
+
+function isCachedIdea(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const idea = value as Record<string, unknown>;
+  return (
+    typeof idea.emoji === 'string' &&
+    typeof idea.title === 'string' &&
+    typeof idea.description === 'string' &&
+    typeof idea.prompt === 'string'
+  );
 }
 
 function readCachedIdeas(key: string): ChatIdeasResponse | undefined {
@@ -42,7 +54,8 @@ function readCachedIdeas(key: string): ChatIdeasResponse | undefined {
       typeof parsed.agentId !== 'string' ||
       typeof parsed.generatedAt !== 'string' ||
       !Array.isArray(parsed.ideas) ||
-      parsed.ideas.length === 0
+      parsed.ideas.length === 0 ||
+      !parsed.ideas.every(isCachedIdea)
     ) {
       return undefined;
     }
@@ -65,7 +78,15 @@ export function IdeasPage() {
   const navigate = useNavigate();
   const userId = useRef(readStoredUserId()).current;
   const search = useSearch({ strict: false }) as { agent?: string };
-  const [agentId, setAgentId] = useState(search.agent?.toLowerCase() ?? '');
+  const [pickedAgentId, setAgentId] = useState(
+    search.agent?.toLowerCase() ?? '',
+  );
+  // One cache entry per agent however the page was reached: arriving from
+  // Apps (no agent in the URL) means the gateway's default agent.
+  const agentId =
+    pickedAgentId ||
+    auth.gatewayStatus?.defaultAgentId?.toLowerCase() ||
+    DEFAULT_AGENT_ID;
   const apiReady = isAuthReadyForApi(auth);
   const cacheKey = ideasCacheKey(userId, agentId);
 
@@ -82,11 +103,7 @@ export function IdeasPage() {
   const ideasQuery = useQuery({
     queryKey: ['chat-ideas', auth.token, userId, agentId],
     queryFn: async () => {
-      const result = await fetchChatIdeas(
-        auth.token,
-        userId,
-        agentId || undefined,
-      );
+      const result = await fetchChatIdeas(auth.token, userId, agentId);
       writeCachedIdeas(cacheKey, result);
       return result;
     },
@@ -99,10 +116,14 @@ export function IdeasPage() {
   });
 
   const data = ideasQuery.data;
-  const resolvedAgentId = data?.agentId ?? agentId;
-  const agentName =
-    localAgents.find((agent) => agent.id.toLowerCase() === resolvedAgentId)
-      ?.name || 'your agent';
+  const agent = localAgents.find(
+    (candidate) => candidate.id.toLowerCase() === agentId,
+  );
+  const agentName = agent?.name || 'your agent';
+  const avatar = useAgentAvatarUrl({
+    token: auth.token,
+    imageUrl: agent?.imageUrl,
+  });
   const generating = ideasQuery.isFetching;
 
   const openIdea = (prompt: string) => {
@@ -110,7 +131,7 @@ export function IdeasPage() {
       to: '/chat',
       search: {
         prompt,
-        ...(resolvedAgentId ? { agent: resolvedAgentId } : {}),
+        agent: agentId,
       },
     });
   };
@@ -136,7 +157,7 @@ export function IdeasPage() {
         size="sm"
         aria-label="Agent"
         className={css.agentSelect}
-        value={resolvedAgentId}
+        value={agentId}
         onChange={(event) => setAgentId(event.target.value)}
       >
         {localAgents.map((agent) => (
@@ -159,6 +180,13 @@ export function IdeasPage() {
     <ChatSurfacePage
       page="ideas"
       title="Ideas"
+      titleIcon={
+        avatar.objectUrl ? (
+          <img src={avatar.objectUrl} alt="" />
+        ) : avatar.loading ? null : (
+          <HybridClaw aria-hidden="true" />
+        )
+      }
       subtitle={<span aria-live="polite">{subtitle}</span>}
       actions={
         <>
