@@ -1,0 +1,23 @@
+[
+  {
+    "variant": "json-category",
+    "n": 120,
+    "valid": 120,
+    "correct": 68,
+    "accepted": 0,
+    "accepted_correct": 0,
+    "accepted_wrong": 0,
+    "p50_ms": 86.9795,
+    "p95_ms": 106.947,
+    "languages": {
+      "en": {
+        "n": 60,
+        "correct": 33
+      },
+      "de": {
+        "n": 60,
+        "correct": 35
+      }
+    }
+  }
+]

@@ -1,0 +1,128 @@
+[
+  {
+    "variant": "raw-difficulty",
+    "n": 200,
+    "valid": 200,
+    "correct": 81,
+    "accepted": 65,
+    "accepted_correct": 56,
+    "accepted_wrong": 9,
+    "p50_ms": 58.683,
+    "p95_ms": 80.071,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 41
+      },
+      "de": {
+        "n": 100,
+        "correct": 40
+      }
+    }
+  },
+  {
+    "variant": "raw-category",
+    "n": 200,
+    "valid": 200,
+    "correct": 114,
+    "accepted": 46,
+    "accepted_correct": 42,
+    "accepted_wrong": 4,
+    "p50_ms": 45.0985,
+    "p95_ms": 57.17,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 58
+      },
+      "de": {
+        "n": 100,
+        "correct": 56
+      }
+    }
+  },
+  {
+    "variant": "raw-capability",
+    "n": 200,
+    "valid": 200,
+    "correct": 105,
+    "accepted": 37,
+    "accepted_correct": 33,
+    "accepted_wrong": 4,
+    "p50_ms": 44.602000000000004,
+    "p95_ms": 49.449,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 54
+      },
+      "de": {
+        "n": 100,
+        "correct": 51
+      }
+    }
+  },
+  {
+    "variant": "json-difficulty",
+    "n": 200,
+    "valid": 200,
+    "correct": 96,
+    "accepted": 59,
+    "accepted_correct": 54,
+    "accepted_wrong": 5,
+    "p50_ms": 49.375,
+    "p95_ms": 81.345,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 47
+      },
+      "de": {
+        "n": 100,
+        "correct": 49
+      }
+    }
+  },
+  {
+    "variant": "json-category",
+    "n": 200,
+    "valid": 200,
+    "correct": 118,
+    "accepted": 45,
+    "accepted_correct": 42,
+    "accepted_wrong": 3,
+    "p50_ms": 45.8625,
+    "p95_ms": 62.923,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 60
+      },
+      "de": {
+        "n": 100,
+        "correct": 58
+      }
+    }
+  },
+  {
+    "variant": "json-capability",
+    "n": 200,
+    "valid": 200,
+    "correct": 117,
+    "accepted": 21,
+    "accepted_correct": 21,
+    "accepted_wrong": 0,
+    "p50_ms": 46.3205,
+    "p95_ms": 82.595,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 59
+      },
+      "de": {
+        "n": 100,
+        "correct": 58
+      }
+    }
+  }
+]

@@ -1,0 +1,64 @@
+{
+  "engine": "gliclass",
+  "phase": "dev",
+  "dataset_sha256": "6a9e09544c6b3fabbc09b3174df0acb487e7acdb36136e0ecccdd1593d36c9b2",
+  "variants": [
+    {
+      "name": "raw-difficulty",
+      "state": "raw",
+      "question": "How difficult is this task?"
+    },
+    {
+      "name": "raw-category",
+      "state": "raw",
+      "question": "Which category best describes the task?"
+    },
+    {
+      "name": "raw-capability",
+      "state": "raw",
+      "question": "Choose the lowest capability level needed to complete the user's task."
+    },
+    {
+      "name": "json-difficulty",
+      "state": "json",
+      "question": "How difficult is this task?"
+    },
+    {
+      "name": "json-category",
+      "state": "json",
+      "question": "Which category best describes the task?"
+    },
+    {
+      "name": "json-capability",
+      "state": "json",
+      "question": "Choose the lowest capability level needed to complete the user's task."
+    }
+  ],
+  "criteria": {
+    "basic": "Trivial arithmetic, greetings, simple facts.",
+    "economy": "Everyday writing, translation or summarization.",
+    "general": "Programming, debugging, multi-step analysis.",
+    "advanced": "Research-level reasoning, hard proofs, complex system design."
+  },
+  "threshold": 0.8,
+  "packages": {
+    "torch": "2.14.0",
+    "transformers": "5.16.1",
+    "gliclass": "0.1.20",
+    "gliformer": "0.1.2",
+    "numpy": "2.5.3"
+  },
+  "model": {
+    "repo": "knowledgator/gliclass-multilang-mini",
+    "revision": "0bd888b6c3ef9fca5f0a9d407bddfbbc7623486b",
+    "sha256": {
+      "model.safetensors": "440d8f17603d3e6f7d13a4fe7ffa7e9ef2c5a2581cceccb2f643334b92c8aea8",
+      "spm.model": "13c8d666d62a7bc4ac8f040aab68e942c861f93303156cc28f5c7e885d86d6e3",
+      "tokenizer.json": "77e1661635eafe733781f83318eececcdf1190bc4c3199b32e5abb9def39daf4"
+    }
+  },
+  "jeff_source_revision": null,
+  "protocol": "Serial, one request at a time, no retries or threshold fitting. Highest dev accuracy selects; ties retain declared order. Errors count wrong. One dev warmup excluded.",
+  "runtime": "torch-mps-bfloat16",
+  "diagnostic": "Initial loader inherited checkpoint BF16. CPU reproduced quantized scores whose sum deviated by >0.002. Superseded by full FP32 development run before holdout; retained without retrying individual cases."
+}

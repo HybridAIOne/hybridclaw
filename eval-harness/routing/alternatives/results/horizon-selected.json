@@ -1,0 +1,29 @@
+{
+  "development_sha256": "6a9e09544c6b3fabbc09b3174df0acb487e7acdb36136e0ecccdd1593d36c9b2",
+  "variant": {
+    "name": "json-difficulty",
+    "state": "json",
+    "question": "The complexity of this task is best described as {}."
+  },
+  "summary": {
+    "variant": "json-difficulty",
+    "n": 200,
+    "valid": 200,
+    "correct": 136,
+    "accepted": 0,
+    "accepted_correct": 0,
+    "accepted_wrong": 0,
+    "p50_ms": 13.607,
+    "p95_ms": 18.17,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 75
+      },
+      "de": {
+        "n": 100,
+        "correct": 61
+      }
+    }
+  }
+}

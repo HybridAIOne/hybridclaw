@@ -1,0 +1,97 @@
+{
+  "runtime": "torch-cpu-bfloat16",
+  "variant": "raw-difficulty",
+  "note": "Nine development-only diagnostic cases; unchanged inherited BF16 loader. No held-out input used. These reproduce rounded scores, not GPU-specific NaNs.",
+  "rows": [
+    {
+      "id": "route-001",
+      "probabilities": {
+        "basic": 0.94140625,
+        "economy": 0.00506591796875,
+        "general": 0.003173828125,
+        "advanced": 0.05126953125
+      },
+      "sum": 1.00091552734375
+    },
+    {
+      "id": "route-025",
+      "probabilities": {
+        "basic": 0.345703125,
+        "economy": 0.035888671875,
+        "general": 0.0419921875,
+        "advanced": 0.57421875
+      },
+      "sum": 0.997802734375
+    },
+    {
+      "id": "route-033",
+      "probabilities": {
+        "basic": 0.921875,
+        "economy": 0.002960205078125,
+        "general": 0.002960205078125,
+        "advanced": 0.07421875
+      },
+      "sum": 1.00201416015625
+    },
+    {
+      "id": "route-056",
+      "probabilities": {
+        "basic": 0.7890625,
+        "economy": 0.0247802734375,
+        "general": 0.1298828125,
+        "advanced": 0.05419921875
+      },
+      "sum": 0.9979248046875
+    },
+    {
+      "id": "route-081",
+      "probabilities": {
+        "basic": 0.75,
+        "economy": 0.052978515625,
+        "general": 0.08349609375,
+        "advanced": 0.11572265625
+      },
+      "sum": 1.002197265625
+    },
+    {
+      "id": "route-088",
+      "probabilities": {
+        "basic": 0.51953125,
+        "economy": 0.123046875,
+        "general": 0.01422119140625,
+        "advanced": 0.345703125
+      },
+      "sum": 1.00250244140625
+    },
+    {
+      "id": "route-142",
+      "probabilities": {
+        "basic": 0.6171875,
+        "economy": 0.0076904296875,
+        "general": 0.017822265625,
+        "advanced": 0.359375
+      },
+      "sum": 1.0020751953125
+    },
+    {
+      "id": "route-153",
+      "probabilities": {
+        "basic": 0.0390625,
+        "economy": 0.003570556640625,
+        "general": 0.006256103515625,
+        "advanced": 0.953125
+      },
+      "sum": 1.00201416015625
+    },
+    {
+      "id": "route-195",
+      "probabilities": {
+        "basic": 0.0120849609375,
+        "economy": 0.00537109375,
+        "general": 0.109375,
+        "advanced": 0.87109375
+      },
+      "sum": 0.9979248046875
+    }
+  ]
+}

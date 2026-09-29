@@ -1,0 +1,29 @@
+{
+  "development_sha256": "6a9e09544c6b3fabbc09b3174df0acb487e7acdb36136e0ecccdd1593d36c9b2",
+  "variant": {
+    "name": "json-category",
+    "state": "json",
+    "question": "Which category best describes the task?"
+  },
+  "summary": {
+    "variant": "json-category",
+    "n": 200,
+    "valid": 200,
+    "correct": 118,
+    "accepted": 45,
+    "accepted_correct": 42,
+    "accepted_wrong": 3,
+    "p50_ms": 45.8625,
+    "p95_ms": 62.923,
+    "languages": {
+      "en": {
+        "n": 100,
+        "correct": 60
+      },
+      "de": {
+        "n": 100,
+        "correct": 58
+      }
+    }
+  }
+}
