@@ -1,0 +1,222 @@
+[
+  {
+    "variant": "choice-raw-difficulty",
+    "correct": 114,
+    "en": 61,
+    "de": 53,
+    "accepted": 0,
+    "accepted_correct": 0,
+    "basic": 39,
+    "rounded_score_correct": null,
+    "p50_ms": 12.989
+  },
+  {
+    "variant": "choice-raw-category",
+    "correct": 112,
+    "en": 63,
+    "de": 49,
+    "accepted": 2,
+    "accepted_correct": 2,
+    "basic": 38,
+    "rounded_score_correct": null,
+    "p50_ms": 13.073
+  },
+  {
+    "variant": "choice-raw-capability",
+    "correct": 116,
+    "en": 62,
+    "de": 54,
+    "accepted": 0,
+    "accepted_correct": 0,
+    "basic": 41,
+    "rounded_score_correct": null,
+    "p50_ms": 13.119
+  },
+  {
+    "variant": "choice-json-difficulty",
+    "correct": 122,
+    "en": 63,
+    "de": 59,
+    "accepted": 6,
+    "accepted_correct": 6,
+    "basic": 36,
+    "rounded_score_correct": null,
+    "p50_ms": 13.071
+  },
+  {
+    "variant": "choice-json-category",
+    "correct": 121,
+    "en": 62,
+    "de": 59,
+    "accepted": 11,
+    "accepted_correct": 11,
+    "basic": 39,
+    "rounded_score_correct": null,
+    "p50_ms": 13.253
+  },
+  {
+    "variant": "choice-json-capability",
+    "correct": 133,
+    "en": 65,
+    "de": 68,
+    "accepted": 7,
+    "accepted_correct": 7,
+    "basic": 41,
+    "rounded_score_correct": null,
+    "p50_ms": 13.402
+  },
+  {
+    "variant": "choice-prefixed-difficulty",
+    "correct": 116,
+    "en": 60,
+    "de": 56,
+    "accepted": 4,
+    "accepted_correct": 4,
+    "basic": 42,
+    "rounded_score_correct": null,
+    "p50_ms": 13.265
+  },
+  {
+    "variant": "choice-prefixed-category",
+    "correct": 110,
+    "en": 57,
+    "de": 53,
+    "accepted": 5,
+    "accepted_correct": 5,
+    "basic": 41,
+    "rounded_score_correct": null,
+    "p50_ms": 13.423
+  },
+  {
+    "variant": "choice-prefixed-capability",
+    "correct": 119,
+    "en": 62,
+    "de": 57,
+    "accepted": 4,
+    "accepted_correct": 4,
+    "basic": 42,
+    "rounded_score_correct": null,
+    "p50_ms": 13.678
+  },
+  {
+    "variant": "score-raw-difficulty",
+    "correct": 125,
+    "en": 66,
+    "de": 59,
+    "accepted": 32,
+    "accepted_correct": 31,
+    "basic": 28,
+    "rounded_score_correct": 100,
+    "p50_ms": 13.524
+  },
+  {
+    "variant": "score-raw-category",
+    "correct": 124,
+    "en": 66,
+    "de": 58,
+    "accepted": 36,
+    "accepted_correct": 33,
+    "basic": 28,
+    "rounded_score_correct": 98,
+    "p50_ms": 13.586
+  },
+  {
+    "variant": "score-raw-capability",
+    "correct": 120,
+    "en": 65,
+    "de": 55,
+    "accepted": 26,
+    "accepted_correct": 25,
+    "basic": 27,
+    "rounded_score_correct": 93,
+    "p50_ms": 13.748
+  },
+  {
+    "variant": "score-json-difficulty",
+    "correct": 130,
+    "en": 67,
+    "de": 63,
+    "accepted": 55,
+    "accepted_correct": 53,
+    "basic": 29,
+    "rounded_score_correct": 106,
+    "p50_ms": 13.762
+  },
+  {
+    "variant": "score-json-category",
+    "correct": 125,
+    "en": 63,
+    "de": 62,
+    "accepted": 62,
+    "accepted_correct": 55,
+    "basic": 31,
+    "rounded_score_correct": 107,
+    "p50_ms": 13.858
+  },
+  {
+    "variant": "score-json-capability",
+    "correct": 130,
+    "en": 67,
+    "de": 63,
+    "accepted": 50,
+    "accepted_correct": 46,
+    "basic": 32,
+    "rounded_score_correct": 105,
+    "p50_ms": 14.009
+  },
+  {
+    "variant": "score-prefixed-difficulty",
+    "correct": 125,
+    "en": 65,
+    "de": 60,
+    "accepted": 43,
+    "accepted_correct": 42,
+    "basic": 36,
+    "rounded_score_correct": 103,
+    "p50_ms": 13.836
+  },
+  {
+    "variant": "score-prefixed-category",
+    "correct": 125,
+    "en": 65,
+    "de": 60,
+    "accepted": 51,
+    "accepted_correct": 46,
+    "basic": 38,
+    "rounded_score_correct": 102,
+    "p50_ms": 13.899
+  },
+  {
+    "variant": "score-prefixed-capability",
+    "correct": 127,
+    "en": 67,
+    "de": 60,
+    "accepted": 40,
+    "accepted_correct": 37,
+    "basic": 38,
+    "rounded_score_correct": 101,
+    "p50_ms": 14.198
+  },
+  {
+    "variant": "choice-raw-neutral-labels",
+    "correct": 118,
+    "en": 62,
+    "de": 56,
+    "accepted": 10,
+    "accepted_correct": 10,
+    "basic": 33,
+    "rounded_score_correct": null,
+    "p50_ms": 13.477
+  },
+  {
+    "variant": "choice-raw-reversed-options",
+    "correct": 108,
+    "en": 63,
+    "de": 45,
+    "accepted": 4,
+    "accepted_correct": 4,
+    "basic": 33,
+    "rounded_score_correct": null,
+    "p50_ms": 13.72
+  }
+]

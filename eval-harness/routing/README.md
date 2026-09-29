@@ -89,6 +89,7 @@ Repeat locally after setup:
 ```bash
 HF_HUB_OFFLINE=1 ~/.hybridclaw/laya/venv/bin/python eval-harness/routing/laya-variations.py \
   --model ~/.hybridclaw/laya/model \
+  --checkpoint aac6fef/laya-multilingual-mlx@ba40c87fcb357f1643d04d71323af9cdc3b9e591 \
   --baseline eval-harness/routing/results/2026-09-29T17-32-52.218Z/metadata.json \
   --output /tmp/laya-variations-new-run
 ```
@@ -96,3 +97,29 @@ HF_HUB_OFFLINE=1 ~/.hybridclaw/laya/venv/bin/python eval-harness/routing/laya-va
 The output directory must not exist. Results include every variant, not only
 winners. Confidence is the chosen option/level probability; no entropy gate,
 probability rescaling, or threshold tuning is applied.
+
+## Three-checkpoint comparison
+
+[Matched comparison and all variants](results/laya-checkpoints-report.md).
+The English and typed-decisions MLX checkpoints were downloaded to a temporary
+cache at pinned revisions and their weights verified against Hub LFS SHA-256
+metadata. The installed multilingual checkpoint and live router were unchanged.
+The same 20 variants were run on both additional models, producing 8,000 new
+predictions and 12,000 total across the three checkpoints. Checkpoint-specific
+calibration temperatures were retained.
+
+With the identical difficulty question, JSON state scored 64% for multilingual,
+61% for English, and 64.5% for typed-decisions. Best observed choice variants
+reached 64%, 66.5% and 68.5% respectively. These maxima are exploratory selection
+on the same corpus; none approaches the earlier JEV/Gemma 91.5% rubric match.
+The best English choice accepted only 7/200 at 0.8; the best typed-decisions
+choice accepted none. English score was more useful than multilingual score:
+its best variant matched 130/200, accepting 55 decisions with 53 correct.
+Fresh validation would be needed before selecting that variant for deployment.
+
+To reproduce, use the same `laya-variations.py` command with each downloaded
+model directory and its `--checkpoint repository@revision` from the saved design.
+The runner records weight SHA-256, runtime version and model configuration. Run
+`python3 eval-harness/routing/compare-laya-checkpoints.py` to regenerate the
+combined report from the three saved result directories. No new model calls
+are made by the report generator.

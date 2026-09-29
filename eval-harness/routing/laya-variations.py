@@ -4,6 +4,7 @@ Score decoding is explicit: argmax is primary, rounded expectation is diagnostic
 import argparse
 import hashlib
 import json
+from importlib.metadata import version
 import math
 from pathlib import Path
 import time
@@ -14,6 +15,7 @@ def main():
     parser.add_argument('--model', required=True)
     parser.add_argument('--baseline', required=True, help='Recorded production metadata.json')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--checkpoint', required=True, help='Repository and pinned revision for provenance')
     args = parser.parse_args()
     root = Path(__file__).parent
     dataset = json.loads((root / 'dataset.json').read_text())
@@ -41,10 +43,14 @@ def main():
     ]
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
+    with (Path(args.model) / 'model.safetensors').open('rb') as weights:
+        weight_hash = hashlib.file_digest(weights, 'sha256').hexdigest()
     (output / 'design.json').write_text(json.dumps({
         'dataset_sha256': hashlib.sha256((root / 'dataset.json').read_bytes()).hexdigest(),
         'variants': variants, 'threshold': .8,
-        'checkpoint': baseline.get('layaCheckpoint'), 'runtime': baseline.get('layaRuntime'),
+        'checkpoint': args.checkpoint, 'runtime': f'laya-mlx=={version("laya-mlx")}',
+        'weight_sha256': weight_hash,
+        'model_config': json.loads((Path(args.model) / 'rl_agent_config.json').read_text()),
         'dtype': 'float16',
         'note': '20 variants fixed before inference. Existing 200-case corpus is exploratory, not fresh validation. No tuning during the run. Choice gate uses selected probability; score gate uses modal level probability. Rounded score is a separate diagnostic.'
     }, indent=2))
@@ -94,7 +100,7 @@ def main():
             print(json.dumps(summary), flush=True)
     (output / 'summary.json').write_text(json.dumps(summaries, indent=2)+'\n')
     lines = ['# Laya: decision type, state and question ablation', '',
-             'Same multilingual FP16 checkpoint and 200 labeled prompts. Twenty variants specified before this run. '
+             f'Checkpoint: {args.checkpoint}. FP16, same 200 labeled prompts. Twenty variants specified before this run. '
              'This reuses an inspected corpus and is exploratory; ranking variants on it is not independent validation.', '',
              'State formats: raw text, JSON object with a task field, and text prefixed with User request. '
              'Choice receives named criteria; score receives the same descriptions as an ordered list. '
