@@ -20,7 +20,7 @@ export interface ThreatRule {
   category: Exclude<SkillGuardCategory, 'structural'>;
   description: string;
   regex: RegExp;
-  /** Spans removed from a line before `regex` is tested. */
+  /** Spans removed from a matching line before `regex` is tested again. */
   ignore?: RegExp;
   /** Paths the rule skips because its syntax means something else there. */
   skipFiles?: RegExp;
@@ -31,14 +31,38 @@ export function r(pattern: string): RegExp {
   return new RegExp(pattern, 'i');
 }
 
+/**
+ * `call` at its first occurrence on the line only. `firstOnLine(call)[^\n]*X`
+ * flags the same lines as `call[^\n]*X`, since an X after any later call also
+ * follows the first, but looks for X once rather than once per call, which
+ * was quadratic on a line of repeated calls; a lazy `[^\n]*?X` also reads the
+ * line once instead of to its end and back. `call` leads so the regex engine
+ * can skip to it. End it in something fixed (`curl\s`, not `curl\s+`): the
+ * lookbehind matches it backward from every earlier position on the line.
+ */
+export function firstOnLine(call: string): string {
+  return String.raw`${call}(?<!${call}[^\n]*?${call})`;
+}
+
+// Instructions, config, and scripts. Every JavaScript and TypeScript module
+// type is listed: the documented skill helper is a `.cjs` file, and `node`,
+// `tsx`, or `bun` runs each of them directly. A shebang script is read
+// whatever its name.
 const SCANNABLE_EXTENSIONS = new Set<string>([
   '.md',
   '.txt',
   '.py',
   '.sh',
   '.bash',
+  '.zsh',
   '.js',
+  '.cjs',
+  '.mjs',
+  '.jsx',
   '.ts',
+  '.cts',
+  '.mts',
+  '.tsx',
   '.rb',
   '.yaml',
   '.yml',
@@ -102,11 +126,7 @@ export function scanFile(
   rules: readonly ThreatRule[],
 ): SkillGuardFinding[] {
   if (entry.isBinary) return [];
-  if (
-    entry.extension !== '.md' &&
-    entry.relativePath !== 'SKILL.md' &&
-    !SCANNABLE_EXTENSIONS.has(entry.extension)
-  ) {
+  if (!entry.hasShebang && !SCANNABLE_EXTENSIONS.has(entry.extension)) {
     return [];
   }
 
@@ -138,8 +158,11 @@ export function scanTextContent(
       const line = lines[i] || '';
       const dedupeKey = `${rule.patternId}:${lineNo}`;
       if (seen.has(dedupeKey)) continue;
-      const text = rule.ignore ? line.replace(rule.ignore, '') : line;
-      if (!rule.regex.test(text)) continue;
+      if (!rule.regex.test(line)) continue;
+      // Only lines that match pay for `ignore`; stripping every line cost
+      // several times more than the rules themselves.
+      if (rule.ignore && !rule.regex.test(line.replace(rule.ignore, '')))
+        continue;
       seen.add(dedupeKey);
       const matched = line.trim();
       findings.push({

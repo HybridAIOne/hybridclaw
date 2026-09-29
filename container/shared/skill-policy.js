@@ -1,4 +1,16 @@
-import { evaluatePolicyRules } from './policy-engine.js';
+/**
+ * Skill policy: the `skill.rules` section of `policy.yaml`, deciding whether
+ * an agent may load a skill. The default is allow, so an unreadable rule is
+ * enforced as deny and never throws (the loader treats a throw as "no rules"):
+ * an unknown action keeps the rule's `when`, anything else denies every skill.
+ * NOT the static `skills.disabled` config, which is applied before these rules.
+ */
+import {
+  checkPolicyText,
+  describePolicyRuleProblem,
+  evaluatePolicyRules,
+} from './policy-engine.js';
+import { readFiniteNumber } from './primitive-values.js';
 
 const SKILL_POLICY_ACTION_TYPES = new Set([
   'allow',
@@ -52,17 +64,21 @@ function normalizeSkillPolicyAction(raw) {
   };
 }
 
-function normalizeSkillPolicyRule(raw) {
+function normalizeSkillPolicyRule(raw, index) {
   const record = asRecord(raw);
-  const action = normalizeSkillPolicyAction(record.action);
-  if (!action) return null;
   const id = normalizeString(record.id);
   const description = normalizeString(record.description);
+  const problem = describePolicyRuleProblem(raw, SKILL_POLICY_PARAMETERS);
+  const action = problem ? null : normalizeSkillPolicyAction(record.action);
   return {
     ...(id ? { id } : {}),
     ...(description ? { description } : {}),
-    when: record.when,
-    action,
+    // An unreadable rule covers every skill; an unknown action keeps `when`.
+    when: problem ? undefined : record.when,
+    action: action ?? {
+      type: 'deny',
+      reason: `Unreadable skill rule #${index + 1}${problem ? ` ${problem}` : ''}, enforced as deny`,
+    },
     metadata: { skillRule: raw },
   };
 }
@@ -71,9 +87,7 @@ export function readSkillPolicyState(document) {
   const skill = asRecord(document?.skill);
   const rawRules = Array.isArray(skill.rules) ? skill.rules : [];
   return {
-    rules: rawRules
-      .map((rule) => normalizeSkillPolicyRule(rule))
-      .filter(Boolean),
+    rules: rawRules.map(normalizeSkillPolicyRule),
   };
 }
 
@@ -91,64 +105,111 @@ function equalsText(candidate, expected) {
   );
 }
 
-function matchesText(candidate, params) {
-  if (Object.hasOwn(params, 'equals'))
-    return equalsText(candidate, params.equals);
-  if (Object.hasOwn(params, 'in')) return equalsText(candidate, params.in);
-  if (Object.hasOwn(params, 'oneOf'))
-    return equalsText(candidate, params.oneOf);
-  if (Object.hasOwn(params, 'matches')) {
-    try {
-      return new RegExp(String(params.matches), 'i').test(
-        normalizeString(candidate),
-      );
-    } catch {
-      return false;
-    }
+function matchesPattern(candidate, pattern) {
+  try {
+    return new RegExp(String(pattern), 'i').test(normalizeString(candidate));
+  } catch {
+    return false;
   }
-  return Boolean(normalizeString(candidate));
 }
 
-function listContains(values, params) {
-  const normalized = values.map(normalizeStringLower).filter(Boolean);
-  const candidates = normalizeStringList(
-    params.includes ?? params.equals ?? params.any,
-  );
+function checkPattern(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'must be a regular expression';
+  }
+  try {
+    new RegExp(value, 'i');
+    return '';
+  } catch {
+    return 'must be a valid regular expression';
+  }
+}
+
+function listContains(values, expected) {
+  const normalized = (values || []).map(normalizeStringLower).filter(Boolean);
+  const candidates = normalizeStringList(expected);
   if (candidates.length === 0) return normalized.length > 0;
   return candidates.some((candidate) =>
     normalized.includes(normalizeStringLower(candidate)),
   );
 }
 
-function compareNumber(value, params) {
-  if (!Number.isFinite(value)) return false;
-  if (Object.hasOwn(params, 'gte') && !(value >= Number(params.gte)))
-    return false;
-  if (Object.hasOwn(params, 'gt') && !(value > Number(params.gt))) return false;
-  if (Object.hasOwn(params, 'lte') && !(value <= Number(params.lte)))
-    return false;
-  if (Object.hasOwn(params, 'lt') && !(value < Number(params.lt))) return false;
-  if (Object.hasOwn(params, 'equals') && !(value === Number(params.equals))) {
-    return false;
-  }
-  return true;
+function numberBound(compare) {
+  return {
+    check: (value) =>
+      readFiniteNumber(value) === null ? 'must be a number' : '',
+    match: (value, bound) =>
+      Number.isFinite(value) && compare(value, Number(bound)),
+  };
 }
 
-const SKILL_POLICY_PREDICATES = {
-  'skill.name': (context, params) => matchesText(context.skillName, params),
-  'skill.id': (context, params) => matchesText(context.skillId, params),
-  'skill.source': (context, params) => matchesText(context.source, params),
-  'skill.category': (context, params) => matchesText(context.category, params),
-  'skill.channel': (context, params) => matchesText(context.channel, params),
-  'skill.capability': (context, params) =>
-    listContains(context.capabilities || [], params),
-  'agent.id': (context, params) => matchesText(context.agentId, params),
-  agent: (context, params) => matchesText(context.agentId, params),
-  'actor.role': (context, params) => listContains(context.roles || [], params),
-  'tenant.id': (context, params) => matchesText(context.tenantId, params),
-  'skill.quality_score': (context, params) =>
-    compareNumber(context.qualityScore, params),
+// Parameters per kind of context field. Keys in one group are alternatives. A
+// predicate that sets none of its parameters matches when the field is set.
+const TEXT = {
+  bare: (value) => Boolean(normalizeString(value)),
+  parameters: {
+    equals: { group: 'value', check: checkPolicyText, match: equalsText },
+    in: { group: 'value', check: checkPolicyText, match: equalsText },
+    oneOf: { group: 'value', check: checkPolicyText, match: equalsText },
+    matches: { group: 'value', check: checkPattern, match: matchesPattern },
+  },
 };
+const LIST = {
+  bare: (values) => listContains(values),
+  parameters: {
+    includes: { group: 'value', check: checkPolicyText, match: listContains },
+    equals: { group: 'value', check: checkPolicyText, match: listContains },
+    any: { group: 'value', check: checkPolicyText, match: listContains },
+  },
+};
+const NUMBER = {
+  bare: Number.isFinite,
+  parameters: {
+    gte: numberBound((value, bound) => value >= bound),
+    gt: numberBound((value, bound) => value > bound),
+    lte: numberBound((value, bound) => value <= bound),
+    lt: numberBound((value, bound) => value < bound),
+    equals: numberBound((value, bound) => value === bound),
+  },
+};
+
+const SKILL_POLICY_PREDICATES = {
+  'skill.name': { field: 'skillName', kind: TEXT },
+  'skill.id': { field: 'skillId', kind: TEXT },
+  'skill.source': { field: 'source', kind: TEXT },
+  'skill.category': { field: 'category', kind: TEXT },
+  'skill.channel': { field: 'channel', kind: TEXT },
+  'skill.capability': { field: 'capabilities', kind: LIST },
+  'agent.id': { field: 'agentId', kind: TEXT },
+  agent: { field: 'agentId', kind: TEXT },
+  'actor.role': { field: 'roles', kind: LIST },
+  'tenant.id': { field: 'tenantId', kind: TEXT },
+  'skill.quality_score': { field: 'qualityScore', kind: NUMBER },
+};
+
+// The parser accepts exactly the parameters the evaluator reads.
+const SKILL_POLICY_PARAMETERS = Object.fromEntries(
+  Object.entries(SKILL_POLICY_PREDICATES).map(([name, { kind }]) => [
+    name,
+    kind.parameters,
+  ]),
+);
+
+const SKILL_POLICY_EVALUATORS = Object.fromEntries(
+  Object.entries(SKILL_POLICY_PREDICATES).map(([name, { field, kind }]) => [
+    name,
+    (context, node) => {
+      const set = Object.keys(kind.parameters).filter((key) =>
+        Object.hasOwn(node, key),
+      );
+      return set.length === 0
+        ? kind.bare(context[field])
+        : set.every((key) =>
+            kind.parameters[key].match(context[field], node[key]),
+          );
+    },
+  ]),
+);
 
 export function evaluateSkillPolicyAccess(params) {
   const context = {
@@ -166,7 +227,7 @@ export function evaluateSkillPolicyAccess(params) {
   const evaluation = evaluatePolicyRules({
     rules: params.rules || [],
     context,
-    predicates: SKILL_POLICY_PREDICATES,
+    predicates: SKILL_POLICY_EVALUATORS,
     defaultAction: DEFAULT_SKILL_POLICY_ACTION,
   });
   const type = normalizeStringLower(evaluation.action?.type);

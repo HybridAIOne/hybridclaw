@@ -1,0 +1,76 @@
+.trigger {
+  flex-shrink: 0;
+  max-width: none;
+  gap: 6px;
+}
+
+.trigger > svg {
+  flex-shrink: 0;
+}
+
+.trigger[data-mode="full"],
+.trigger.trigger[data-mode="full"]:is(:hover, :focus, [data-state="open"]) {
+  color: var(--danger);
+}
+
+.trigger[data-mode="full"] {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.popup {
+  width: min(360px, calc(100vw - 16px));
+  height: auto;
+  max-height: min(380px, calc(100vh - 32px));
+}
+
+.item {
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.item:has(> .check) {
+  padding-left: 12px;
+}
+
+.icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--muted-foreground);
+}
+
+.item[data-state="checked"] .icon {
+  color: var(--text);
+}
+
+.title {
+  font-weight: 500;
+}
+
+.item .subtitle {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.item[data-mode="full"] .icon,
+.item[data-mode="full"] .title,
+.item[data-mode="full"] .subtitle {
+  color: var(--danger);
+}
+
+.check {
+  position: static;
+  align-self: center;
+  margin-left: 4px;
+}
+
+@media (max-width: 480px) {
+  .trigger {
+    padding: 0 10px;
+  }
+
+  .label {
+    display: none;
+  }
+}

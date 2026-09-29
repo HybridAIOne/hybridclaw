@@ -1,3 +1,4 @@
+import { escapeRegExp } from '../../container/shared/regex.js';
 import type {
   ConfidentialRule,
   ConfidentialRuleSet,
@@ -102,17 +103,13 @@ function classCountsToArray(
     .sort((a, b) => a.class.localeCompare(b.class));
 }
 
-function escapeForRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function literalRegex(rule: ConfidentialRule): RegExp | null {
   const variants = [rule.literal, ...(rule.literalAliases || [])].filter(
     (entry): entry is string => Boolean(entry),
   );
   if (variants.length === 0) return null;
   variants.sort((a, b) => b.length - a.length);
-  const pattern = variants.map(escapeForRegex).join('|');
+  const pattern = variants.map(escapeRegExp).join('|');
   const flags = rule.caseInsensitive ? 'giu' : 'gu';
   return new RegExp(
     `(?<![\\p{L}\\p{N}_])(${pattern})(?![\\p{L}\\p{N}_])`,

@@ -1,4 +1,13 @@
+/**
+ * Network policy: the `network` section of `policy.yaml`, read by both the
+ * gateway and the container. A rule it cannot read is enforced as deny, never
+ * dropped, while normalizeNetworkRule still rejects it so editors refuse the
+ * file. It never throws on a bad rule: the container would fall back to the
+ * built-in policy. Actions are allow and deny only; NOT the secret or skill
+ * policy, which also accept `block`.
+ */
 import { evaluatePolicyRules } from './policy-engine.js';
+import { globToRegExp, hasGlobWildcard } from './policy-glob.js';
 
 export const DEFAULT_NETWORK_DEFAULT = 'deny';
 
@@ -32,11 +41,13 @@ export function asRecord(value) {
   return value;
 }
 
+// allow and deny only (owner call, 2026-09-27): `block`, a typo, and a missing
+// action are unreadable, so readNetworkRule enforces the rule as deny.
 function normalizeNetworkAction(raw) {
   const normalized = String(raw || '')
     .trim()
     .toLowerCase();
-  return normalized === 'deny' ? 'deny' : 'allow';
+  return normalized === 'allow' || normalized === 'deny' ? normalized : null;
 }
 
 function normalizeCsvOrList(raw) {
@@ -146,28 +157,12 @@ export function doesNetworkHostPatternExpandToSubdomains(host) {
     .trim()
     .toLowerCase()
     .replace(/\.$/, '');
-  if (!normalized || normalized.includes('*')) return false;
+  if (!normalized || hasGlobWildcard(normalized)) return false;
   if (parseIpv4Cidr(normalized)) return false;
   if (IPV4_HOST_RE.test(normalized) || normalized.includes(':')) return false;
   const labels = normalized.split('.').filter(Boolean);
   if (labels.length < 2) return false;
   return normalized === normalizeNetworkHostScope(normalized);
-}
-
-function globPatternToRegExp(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '::DOUBLE_STAR::')
-    .replace(/\*/g, '[^/]*')
-    .replace(/::DOUBLE_STAR::/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function globHostPatternToRegExp(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
 }
 
 export function matchesNetworkHostPattern(pattern, candidateHost) {
@@ -186,8 +181,8 @@ export function matchesNetworkHostPattern(pattern, candidateHost) {
     const candidate = parseIpv4Address(normalizedCandidate);
     return candidate != null && (candidate & cidr.mask) >>> 0 === cidr.base;
   }
-  if (normalizedPattern.includes('*')) {
-    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
+  if (hasGlobWildcard(normalizedPattern)) {
+    return globToRegExp(normalizedPattern, 'host').test(normalizedCandidate);
   }
   if (IPV4_HOST_RE.test(normalizedPattern) || normalizedPattern.includes(':')) {
     return false;
@@ -210,7 +205,7 @@ export function matchesNetworkMethodPattern(allowedMethods, candidateMethod) {
 export function matchesNetworkPathPatterns(allowedPaths, candidatePath) {
   const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
   return allowedPaths.some((pattern) =>
-    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
+    globToRegExp(normalizeNetworkPathPattern(pattern), 'path').test(
       normalizedCandidate,
     ),
   );
@@ -221,17 +216,21 @@ export function matchesNetworkAgentPattern(ruleAgent, candidateAgent) {
   return ruleAgent === normalizeNetworkAgent(candidateAgent);
 }
 
-export function normalizeNetworkRule(raw) {
-  const host = String(raw?.host || '')
+function normalizeNetworkRuleHost(raw) {
+  return String(raw || '')
     .trim()
     .toLowerCase()
     .replace(/\.$/, '');
-  if (!host) return null;
+}
+
+export function normalizeNetworkRule(raw) {
+  const action = normalizeNetworkAction(raw?.action);
+  const host = normalizeNetworkRuleHost(raw?.host);
   const port = normalizeNetworkPort(raw?.port);
-  if (port == null) return null;
+  if (!action || !host || port == null) return null;
   const comment = String(raw?.comment || '').trim();
   return {
-    action: normalizeNetworkAction(raw?.action),
+    action,
     host,
     port,
     methods: normalizeNetworkMethods(raw?.methods),
@@ -239,6 +238,22 @@ export function normalizeNetworkRule(raw) {
     agent: normalizeNetworkAgent(raw?.agent),
     ...(comment ? { comment } : {}),
   };
+}
+
+// A rule normalizeNetworkRule rejects is enforced as deny over everything it
+// names: a missing host covers every host and a bad port every port.
+function readNetworkRule(raw, index) {
+  return (
+    normalizeNetworkRule(raw) ?? {
+      action: 'deny',
+      host: normalizeNetworkRuleHost(raw.host) || '*',
+      port: normalizeNetworkPort(raw.port) ?? '*',
+      methods: normalizeNetworkMethods(raw.methods),
+      paths: normalizeNetworkPaths(raw.paths),
+      agent: normalizeNetworkAgent(raw.agent),
+      comment: `Unreadable rule #${index + 1}, enforced as deny`,
+    }
+  );
 }
 
 export function normalizePresetNames(presets) {
@@ -261,9 +276,7 @@ export function readNetworkPolicyState(document) {
   const approval = asRecord(document?.approval);
   const rulesDeclared = Array.isArray(network.rules);
   const networkRules = rulesDeclared
-    ? network.rules
-        .map((rule) => normalizeNetworkRule(asRecord(rule)))
-        .filter(Boolean)
+    ? network.rules.map((rule, index) => readNetworkRule(asRecord(rule), index))
     : [];
   const legacyTrustedHosts =
     !rulesDeclared && Array.isArray(approval.trusted_network_hosts)

@@ -522,6 +522,49 @@ describe('response ratings', () => {
     });
   });
 
+  test.each([
+    ['operator-a', 'operator-a'],
+    ['entra-a', 'member@example.com'],
+  ])('forwards %s Teams ratings to the agent bot as %s', async (operatorUserId, externalUserId) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201 });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      chatbotId: null,
+    });
+    const { initAgentRegistry } = await import(
+      '../src/agents/agent-registry.js'
+    );
+    initAgentRegistry({ list: [{ id: 'main', chatbotId: 'bot-agent' }] });
+    const { observeMSTeamsUser } = await import(
+      '../src/memory/msteams-users.js'
+    );
+    observeMSTeamsUser({
+      tenantId: 'tenant-a',
+      userId: 'entra-a',
+      email: 'member@example.com',
+      isMessage: true,
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId,
+      rating: 'up',
+      sourceSurface: 'msteams',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [, request] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { body: string },
+    ];
+    expect(JSON.parse(request.body)).toMatchObject({
+      chatbot_id: 'bot-agent',
+      external_user_id: externalUserId,
+    });
+  });
+
   test('forwards non-HybridAI model ratings when a HybridAI bot is active', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -554,35 +597,43 @@ describe('response ratings', () => {
     });
   });
 
-  test('uses configured HybridAI bot id when the rated session has no bot id', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 201,
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const service = await setup({
-      apiKey: 'hai-feedback-test-key',
-      hybridAIChatbotId: 'bot-configured',
-      model: 'vllm/Qwen/Qwen3.6-27B-FP8',
-    });
+  test.each([null, '', '   '])(
+    'keeps ratings local when session bot id is %j despite global defaults',
+    async (chatbotId) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const service = await setup({
+        apiKey: 'hai-feedback-test-key',
+        hybridAIChatbotId: 'bot-unrelated',
+        chatbotId,
+      });
+      const { updateRuntimeConfig } = await import(
+        '../src/config/runtime-config.js'
+      );
+      updateRuntimeConfig((draft) => {
+        draft.observability.botId = 'bot-observability';
+      });
 
-    service.submitResponseRating({
-      sessionId: service.sessionId,
-      messageId: service.assistantMessageId,
-      operatorUserId: 'operator-a',
-      rating: 'down',
-    });
+      service.submitResponseRating({
+        sessionId: service.sessionId,
+        messageId: service.assistantMessageId,
+        operatorUserId: 'operator-a',
+        rating: 'down',
+        comment: 'Expected a different answer',
+      });
 
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    const [, request] = fetchMock.mock.calls[0] as [
-      string,
-      RequestInit & { body: string },
-    ];
-    expect(JSON.parse(request.body)).toMatchObject({
-      chatbot_id: 'bot-configured',
-      rating: 'down',
-    });
-  });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        service.getResponseRatingsForMessages({
+          sessionId: service.sessionId,
+          messageIds: [service.assistantMessageId],
+          operatorUserId: 'operator-a',
+        }),
+      ).toEqual(new Map([[service.assistantMessageId, 'down']]));
+      expect(service.recordAuditEvent).toHaveBeenCalled();
+      expect(service.recordSkillFeedbackForObservation).toHaveBeenCalled();
+    },
+  );
 
   test('does not forward without a HybridAI key', async () => {
     const fetchMock = vi.fn().mockResolvedValue({

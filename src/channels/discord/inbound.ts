@@ -1,4 +1,5 @@
 import type { MessageMentions, UserResolvable } from 'discord.js';
+import { escapeRegExp } from '../../../container/shared/regex.js';
 import { SILENT_REPLY_TOKEN } from '../../agent/silent-reply.js';
 import { isRegisteredTextCommandName } from '../../command-registry.js';
 import { buildSessionKey } from '../../session/session-key.js';
@@ -27,10 +28,6 @@ const URL_ONLY_RE = /^https?:\/\/\S+$/i;
 const FREE_MODE_CHANNEL_ADDRESS_RE =
   /\b(?:all|everyone|anyone|team|folks|guys|channel|chat|alle|zusammen|jemand)\b/i;
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function normalizeAlias(raw: string): string {
   return raw.trim().replace(/^@+/, '').toLowerCase();
 }
@@ -47,7 +44,7 @@ export function hasLooseBotMention(
     if (!alias || alias.length < 2) continue;
     if (!/^[\p{L}\p{N}._-]+$/u.test(alias)) continue;
 
-    const escapedAlias = escapeRegex(alias);
+    const escapedAlias = escapeRegExp(alias);
     const mentionRe = new RegExp(
       `(?:^|[^\\p{L}\\p{N}_-])${escapedAlias}(?=$|[^\\p{L}\\p{N}_-])`,
       'iu',
@@ -267,8 +264,9 @@ export function isAuthorizedCommandUser(params: {
 
 /**
  * `content` is the raw message content and drives command detection. `text`
- * is the rendered message text (content, else embeds, else attachments) and
- * drives suppress patterns, so an embed-only alert can be suppressed too.
+ * is the rendered message text (content with its rich embeds, else embeds,
+ * else attachments) and drives suppress patterns, so an alert whose details
+ * sit in an embed can be suppressed too.
  */
 export function isTrigger(params: {
   content: string;
@@ -338,6 +336,8 @@ export function shouldIgnoreBotAuthoredMessage(params: {
 }
 
 export interface DiscordEmbedLike {
+  /** discord.js keeps the embed type (`rich`, `link`, ...) only on the raw data. */
+  data?: { type?: string | null } | null;
   title?: string | null;
   description?: string | null;
   url?: string | null;
@@ -377,6 +377,15 @@ function summarizeEmbed(embed: DiscordEmbedLike): string {
   return `${text.slice(0, EMBED_SUMMARY_MAX_CHARS_PER_EMBED - 1).trimEnd()}…`;
 }
 
+/**
+ * Rich embeds are the ones a bot or webhook wrote. Link previews (`link`,
+ * `article`, `video`, ...) only echo a URL that is already in the content.
+ * Discord always sends a type; an embed without one is treated as rich.
+ */
+function isRichEmbed(embed: DiscordEmbedLike): boolean {
+  return (embed.data?.type ?? 'rich') === 'rich';
+}
+
 /** Plain-text rendering of a message's embeds; '' when they carry no text. */
 export function summarizeEmbeds(embeds: readonly DiscordEmbedLike[]): string {
   return embeds
@@ -401,10 +410,28 @@ export interface DiscordForwardedMessageLike {
 }
 
 /**
+ * Content plus the rich embeds posted with it. A bot or webhook often puts a
+ * headline in the content and the data in embed fields; dropping the embeds
+ * would hide the data. Without content, any embed (a bare link preview too)
+ * is the text. '' when neither carries text.
+ */
+function renderContentWithEmbeds(
+  content: string,
+  embeds: readonly DiscordEmbedLike[],
+): string {
+  if (!content) {
+    const embedSummary = summarizeEmbeds(embeds);
+    return embedSummary ? `[embed] ${embedSummary}` : '';
+  }
+  const richSummary = summarizeEmbeds(embeds.filter(isRichEmbed));
+  return richSummary ? `${content}\n[embed] ${richSummary}` : content;
+}
+
+/**
  * Single text projection of an inbound message, used for triggering, history
- * snapshots and reply context alike: cleaned content, else forwarded message
- * text, else embeds, else attachment names, else system text. '' when nothing
- * is readable.
+ * snapshots and reply context alike: cleaned content with its rich embeds,
+ * else forwarded message text, else embeds, else attachment names, else system
+ * text. '' when nothing is readable.
  */
 export function renderMessageText(params: {
   content: string | null | undefined;
@@ -420,7 +447,7 @@ export function renderMessageText(params: {
     params.botMentionRegex,
     params.prefix,
   ).trim();
-  if (plainText) return plainText;
+  if (plainText) return renderContentWithEmbeds(plainText, params.embeds);
 
   const forwardedText = renderForwardedMessages(
     params.forwarded ?? [],
@@ -452,8 +479,8 @@ function summarizeAttachmentNames(
 
 /**
  * Plain-text rendering of forwarded messages, each with the same
- * content → embeds → attachments fallback as a normal message; '' when none
- * of them carry anything readable.
+ * content (with rich embeds) → embeds → attachments fallback as a normal
+ * message; '' when none of them carry anything readable.
  */
 function renderForwardedMessages(
   forwarded: readonly DiscordForwardedMessageLike[],
@@ -468,9 +495,8 @@ function renderForwardedMessages(
         botMentionRegex,
         prefix,
       ).trim();
-      if (content) return content;
-      const embedSummary = summarizeEmbeds(snapshot.embeds);
-      if (embedSummary) return `[embed] ${embedSummary}`;
+      const text = renderContentWithEmbeds(content, snapshot.embeds);
+      if (text) return text;
       const attachmentNames = summarizeAttachmentNames(
         snapshot.attachmentNames,
       );

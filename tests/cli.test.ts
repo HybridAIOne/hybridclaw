@@ -1,3 +1,4 @@
+import { getChannelPluginInstallCommand, getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -1344,7 +1345,7 @@ async function importFreshCli(options?: {
     createWhatsAppPairingSession,
     isWhatsAppTransportInstalled: vi.fn(() => true),
     WHATSAPP_PLUGIN_INSTALL_HINT:
-      'Install it with: hybridclaw plugin install https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
   }));
   vi.doMock('node:readline/promises', () => ({
     default: {
@@ -3101,7 +3102,7 @@ describe('CLI hybridai commands', () => {
         pluginId: 'whatsapp',
         pluginDir: '/tmp/.hybridclaw/plugins/whatsapp',
         source:
-          'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+          getChannelPluginCatalogEntry('whatsapp')?.installSource,
         alreadyInstalled: false,
         dependenciesInstalled: true,
         dependencySummary: {
@@ -3120,7 +3121,7 @@ describe('CLI hybridai commands', () => {
     await cli.main(['plugin', 'enable', 'whatsapp', '--yes']);
 
     expect(installPlugin).toHaveBeenCalledWith(
-      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      getChannelPluginCatalogEntry('whatsapp')?.installSource,
       {
         approveDependencyInstall: true,
         onDependenciesAlreadySatisfied: expect.any(Function),

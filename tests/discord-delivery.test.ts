@@ -59,7 +59,7 @@ describe('discord delivery', () => {
 
     expect(delivery.buildResponseText('Hello')).toBe('Hello');
     expect(delivery.buildResponseText('Hello', ['search', 'read'])).toBe(
-      'Hello\n*Tools: search, read*',
+      'Hello\n*Tools: `search`, `read`*',
     );
     expect(
       delivery.buildResponseText('', undefined, {
@@ -86,7 +86,7 @@ describe('discord delivery', () => {
         },
       ),
     ).toBe(
-      'Hello\n\n*Memory: Recalled 1 memory*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: search*',
+      'Hello\n\n*Memory: Recalled 1 memory*\n[mem:1]: User prefers concise changelog entries. (90%)\n*Tools: `search`*',
     );
     expect(delivery.formatInfo('Status', 'Ready')).toBe('**Status**\nReady');
     expect(delivery.formatError('Oops', 'Failed')).toBe('**Oops:** Failed');

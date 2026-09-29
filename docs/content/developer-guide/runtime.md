@@ -626,3 +626,10 @@ Prompt and runtime internals:
 - hook config lives in `config.promptHooks`
 - delegated agent runs persist request logs, audit tool events, and model
   usage under `delegate:d<depth>:<parentSessionId>:...` child session ids
+- a delegated agent gets its parent's tools, MCP and plugin tools included,
+  except `cron`, `memory` and the browser tools that wait on a user; a child
+  that hits an approval gate reports `blocked` instead of asking
+- `delegate` waits for its children and returns their reports as the tool
+  result; with `background: true` the parent turn ends and a later
+  `delegate:results` turn wakes the parent with the reports, hidden from
+  history views

@@ -123,13 +123,19 @@ clean for OpenAI SDKs that validate it:
 
 > **Tools are auto-approved when an agent profile is present.** The marker and
 > the header both flag the request as an eval-profile request, which runs the
-> turn with tool approvals bypassed. Only hand out tokens for agent-selected
-> integrations to callers you would also trust to approve that agent's tools.
+> turn with [full-auto approvals](../developer-guide/approvals.md#full-auto).
+> Pinned-sensitive actions, such as reading `.env` files or force pushing, and
+> shell writes outside the workspace still need a human; the reply is then the
+> approval request. Only hand out
+> tokens for agent-selected integrations to callers you would also trust to
+> approve that agent's tools.
 
 ## 5. Handle delegated answers
 
-When the agent hands work to sub-agents, the completion returns an
-acknowledgement instead of the final answer, plus a delegation descriptor:
+A `delegate` call waits for its sub-agents by default, so the completion
+already carries the final answer. When the agent runs sub-agents in the
+background instead, the completion returns an acknowledgement plus a
+delegation descriptor:
 
 ```json
 {
@@ -149,9 +155,9 @@ curl https://gateway.example/v1/chat/completions/<completion-id> \
 - top-level `status` is one of `queued`, `in_progress`, `completed`, `failed`,
   or `cancelled`
 - while queued or running, the retrieval returns the acknowledgement with
-  `finish_reason: null`; when completed it returns the synthesized final answer
-  with `finish_reason: "stop"`; a failed job carries a top-level OpenAI-shaped
-  `error`
+  `finish_reason: null`; when completed it returns the agent's answer from the
+  sub-agent results with `finish_reason: "stop"`; a failed job carries a
+  top-level OpenAI-shaped `error`
 - poll every 1–5 seconds — a job may wait behind the delegation concurrency
   limit before it starts
 

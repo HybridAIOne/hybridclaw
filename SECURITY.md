@@ -49,11 +49,17 @@ Tool actions are risk-tiered at runtime:
 - Green: execute silently (read/search/status checks)
 - Yellow: execute with narrated intent and a short interrupt window
 - Red: explicit user approval required (`yes` / `yes for session` / `yes for agent` / `skip`, or `1/2/3/4`), answered in the session that asked; a reply in another session of the same agent cannot approve it
+- Full-auto: yellow and red run without a prompt, except pinned-sensitive
+  actions (`.env*`, `~/.ssh/**`, `/etc/**`, force pushes, approval state
+  files, and `approval.pinned_red` rules), shell writes outside the workspace
+  fence, fetched code, and `full_auto.never_approve` entries
 
 The policy layer is repo-controlled through `.hybridclaw/policy.yaml`:
 
-- `approval.pinned_red` (never auto-promoted high-risk actions)
-- `approval.workspace_fence` (no writes outside workspace fence)
+- `approval.pinned_red` (high-risk actions that always need a human, even in
+  full-auto: never promoted, one-time approval only)
+- `approval.workspace_fence` (shell writes outside the workspace and scratch
+  space need a human, even in full-auto)
 - `approval.max_pending_approvals` and `approval.approval_timeout_secs`
 - `audit.log_all_red` and `audit.log_denials`
 

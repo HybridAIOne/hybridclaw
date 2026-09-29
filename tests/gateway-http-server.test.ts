@@ -2881,6 +2881,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage,
   }));
+  vi.doMock('../src/gateway/gateway-delegation.js', () => ({
+    handleApiDelegate: vi.fn(),
+  }));
   vi.doMock('../src/agent/conversation.js', () => ({
     buildConversationContext,
   }));
@@ -3190,6 +3193,7 @@ useCleanMocks({
     '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
     '../src/gateway/gateway-chat-service.js',
+    '../src/gateway/gateway-delegation.js',
     '../src/gateway/gateway-admin-tokens.js',
     '../src/security/api-tokens.js',
     '../src/gateway/openai-compatible-model.ts',
@@ -7775,10 +7779,10 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('passes explicit user chat scope without channel fallback', async () => {
+  test('passes explicit user chat scope and agent filter without channel fallback', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
-      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=user',
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=user&agentId=writer',
       headers: {
         authorization: 'Bearer web-token',
       },
@@ -7792,6 +7796,7 @@ describe('gateway HTTP server', () => {
       userId: 'web-user-a',
       channelId: 'web',
       limit: 10,
+      agentId: 'writer',
       includeScheduled: false,
     });
   });
@@ -13260,7 +13265,7 @@ describe('gateway HTTP server', () => {
           status: 'success',
           messageRole: 'assistant',
           result:
-            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: delete, read*',
+            'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: `delete`, `read`*',
           sessionId: 'session-web-approve',
         }),
       },
@@ -13687,6 +13692,30 @@ describe('gateway HTTP server', () => {
       ),
     );
     expect(fs.readFileSync(storedPath, 'utf8')).toBe('png-bytes');
+  });
+
+  test('accepts ZIP uploads so a skill archive can be attached in chat', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({ dataDir });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        'content-type': 'application/zip',
+        'x-hybridclaw-filename': encodeURIComponent('brand-voice.zip'),
+      },
+      body: Buffer.from('zip-bytes'),
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).media).toMatchObject({
+      filename: 'brand-voice.zip',
+      mimeType: 'application/zip',
+    });
   });
 
   test('rejects unsupported upload media types like text/html', async () => {

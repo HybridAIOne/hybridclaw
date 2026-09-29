@@ -22,7 +22,7 @@ async function startWorker(workspace: string, sessionId: string) {
     undefined,
     path.join(workspace, 'pending.json'),
   );
-  runtime.setFullAutoOptions({ enabled: true });
+  runtime.setApprovalMode({ mode: 'full' });
   runtime.setSession(sessionId);
   return (command: string) =>
     runtime.evaluateToolCall({

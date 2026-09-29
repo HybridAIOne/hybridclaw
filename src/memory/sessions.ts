@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+} from '../../container/shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
@@ -644,12 +648,13 @@ export function forkSessionBranch(
          full_auto_prompt,
          full_auto_started_at,
          show_mode,
+         approval_mode,
          created_at,
          last_active,
          reset_count,
          reset_at,
          legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       )
       .run(
         nextSessionId,
@@ -666,6 +671,7 @@ export function forkSessionBranch(
         sourceSession.full_auto_prompt,
         sourceSession.full_auto_started_at,
         sourceSession.show_mode,
+        sourceSession.approval_mode,
         nowIso,
         nowIso,
         sourceSession.reset_count,
@@ -766,12 +772,13 @@ export function createFreshSessionInstance(
          full_auto_prompt,
          full_auto_started_at,
          show_mode,
+         approval_mode,
          created_at,
          last_active,
          reset_count,
          reset_at,
          legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextSessionId,
@@ -787,6 +794,9 @@ export function createFreshSessionInstance(
         params?.resetSettings ? null : previousSession.full_auto_prompt,
         params?.resetSettings ? null : previousSession.full_auto_started_at,
         params?.resetSettings ? 'all' : previousSession.show_mode,
+        params?.resetSettings
+          ? DEFAULT_APPROVAL_MODE
+          : previousSession.approval_mode,
         nowIso,
         nowIso,
         previousSession.reset_count + 1,
@@ -956,6 +966,16 @@ export function updateSessionShowMode(
   getSessionDatabase()
     .prepare('UPDATE sessions SET show_mode = ? WHERE id = ?')
     .run(showMode, resolvedSessionId);
+}
+
+export function updateSessionApprovalMode(
+  sessionId: string,
+  approvalMode: ApprovalMode,
+): void {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  getSessionDatabase()
+    .prepare('UPDATE sessions SET approval_mode = ? WHERE id = ?')
+    .run(approvalMode, resolvedSessionId);
 }
 
 export function getSessionTitle(sessionId: string): {
@@ -1285,9 +1305,24 @@ function buildRecentSessionSummaries(params: {
     .slice(0, params.limit);
 }
 
+// Sessions stored without an agent belong to the default agent.
+function recentSessionAgentFilter(agentId: string | null | undefined): {
+  sql: string;
+  params: string[];
+} {
+  const normalized = String(agentId || '').trim();
+  return normalized
+    ? {
+        sql: " AND COALESCE(NULLIF(TRIM(s.agent_id), ''), ?) = ?",
+        params: [resolveDefaultAgentId(getRuntimeConfig()), normalized],
+      }
+    : { sql: '', params: [] };
+}
+
 export function getRecentSessionsForUser(params: {
   userId: string;
   channelId?: string | null;
+  agentId?: string | null;
   limit?: number;
   query?: string | null;
   includeScheduled?: boolean;
@@ -1303,50 +1338,35 @@ export function getRecentSessionsForUser(params: {
     params.includeScheduled === false
       ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
       : '';
+  const channelFilter = channelId
+    ? { sql: ' AND s.channel_id = ?', params: [channelId] }
+    : { sql: '', params: [] };
+  const agentFilter = recentSessionAgentFilter(params.agentId);
 
-  const rows = channelId
-    ? queryAll<RecentUserSessionRow, [string, string]>(
-        getSessionDatabase(),
-        `SELECT
-           s.id,
-           s.last_active,
-           s.message_count,
-           s.title,
-           (
-             SELECT MAX(all_messages.created_at)
-               FROM messages all_messages
-              WHERE all_messages.session_id = s.id
-           ) AS last_message_at
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?
-             AND s.channel_id = ?
-             ${scheduledWhere}
-           GROUP BY s.id`,
-        userId,
-        channelId,
-      )
-    : queryAll<RecentUserSessionRow, [string]>(
-        getSessionDatabase(),
-        `SELECT
-           s.id,
-           s.last_active,
-           s.message_count,
-           s.title,
-           (
-             SELECT MAX(all_messages.created_at)
-               FROM messages all_messages
-              WHERE all_messages.session_id = s.id
-           ) AS last_message_at
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?
-             ${scheduledWhere}
-           GROUP BY s.id`,
-        userId,
-      );
+  const rows = queryAll<RecentUserSessionRow, string[]>(
+    getSessionDatabase(),
+    `SELECT
+       s.id,
+       s.last_active,
+       s.message_count,
+       s.title,
+       (
+         SELECT MAX(all_messages.created_at)
+           FROM messages all_messages
+          WHERE all_messages.session_id = s.id
+       ) AS last_message_at
+       FROM sessions s
+       INNER JOIN messages m
+         ON m.session_id = s.id
+       WHERE m.user_id = ?
+         ${channelFilter.sql}
+         ${agentFilter.sql}
+         ${scheduledWhere}
+       GROUP BY s.id`,
+    userId,
+    ...channelFilter.params,
+    ...agentFilter.params,
+  );
 
   return buildRecentSessionSummaries({
     rows,
@@ -1485,6 +1505,7 @@ export function discoverActorData(params: {
 
 export function getRecentSessionsForChannel(params: {
   channelId: string;
+  agentId?: string | null;
   limit?: number;
   query?: string | null;
   includeScheduled?: boolean;
@@ -1501,7 +1522,9 @@ export function getRecentSessionsForChannel(params: {
       ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
       : '';
 
-  const rows = queryAll<RecentUserSessionRow, [string, number]>(
+  const agentFilter = recentSessionAgentFilter(params.agentId);
+
+  const rows = queryAll<RecentUserSessionRow, Array<string | number>>(
     getSessionDatabase(),
     `SELECT
        s.id,
@@ -1513,11 +1536,13 @@ export function getRecentSessionsForChannel(params: {
        INNER JOIN messages m
           ON m.session_id = s.id
       WHERE s.channel_id = ?
+        ${agentFilter.sql}
         ${scheduledWhere}
       GROUP BY s.id
       ORDER BY last_message_at DESC
       LIMIT ?`,
     channelId,
+    ...agentFilter.params,
     sqlLimit,
   );
 

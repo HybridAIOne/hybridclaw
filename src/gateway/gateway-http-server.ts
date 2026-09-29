@@ -248,6 +248,7 @@ import {
   revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import { handleApiDelegate } from './gateway-delegation.js';
 import {
   deleteGatewayAdminDistillCorpusDocument,
   getGatewayAdminDistill,
@@ -588,6 +589,8 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/x-zip-compressed',
+  'application/zip',
   'text/csv',
   'text/markdown',
   'text/plain',
@@ -4229,6 +4232,7 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const agentId = (url.searchParams.get('agentId') || '').trim();
   const rawScope = (url.searchParams.get('scope') || '').trim().toLowerCase();
   const scope =
     rawScope === 'user' || rawScope === 'all' ? rawScope : undefined;
@@ -4253,6 +4257,7 @@ function handleApiChatRecent(
       userId,
       channelId,
       limit,
+      ...(agentId ? { agentId } : {}),
       ...(query ? { query } : {}),
       ...(scope ? { includeScheduled: scope === 'all' } : {}),
       ...(scope === 'all' ||
@@ -4400,13 +4405,18 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
   }
   const result = getGatewaySessionContextUsage(sessionId);
   if (result.status === 'not_found' || !result.snapshot) {
-    sendJson(res, 200, { sessionId, snapshot: null });
+    sendJson(res, 200, {
+      sessionId,
+      snapshot: null,
+      approvalMode: result.approvalMode,
+    });
     return;
   }
   sendJson(res, 200, {
     sessionId: result.sessionId,
     snapshot: result.snapshot,
     routing: result.routing,
+    approvalMode: result.approvalMode,
   });
 }
 
@@ -8635,7 +8645,6 @@ async function runLiveAppBridgeTool(params: {
     ],
     allowedTools: [params.toolName],
     scheduledTasks: [],
-    fullAutoEnabled: false,
     scheduleSideEffectsEnabled: false,
     maxTokens: 512,
     maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,
@@ -11538,6 +11547,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiSchedulerTask(req, res);
+            return;
+          }
+          if (pathname === '/api/delegate' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiDelegate(req, res);
             return;
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {

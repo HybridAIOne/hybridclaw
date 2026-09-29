@@ -1,3 +1,5 @@
+import { escapeRegExp } from '../container/shared/regex.js';
+
 export function normalizeModelCandidates(models: string[]): string[] {
   const deduped = new Set<string>();
   for (const model of models) {
@@ -43,10 +45,6 @@ export interface ParsedModelInfoSummary {
   defaultModel: string | null;
 }
 
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function normalizeModelInfoValue(value: string): string | null {
   const trimmed = String(value || '').trim();
   if (!trimmed) return null;
@@ -56,7 +54,7 @@ function normalizeModelInfoValue(value: string): string | null {
 
 function findLabeledLineValue(text: string, label: string): string | null {
   const match = text.match(
-    new RegExp(`^${escapeRegex(label)}:\\s*([^\\n\\r]+)$`, 'im'),
+    new RegExp(`^${escapeRegExp(label)}:\\s*([^\\n\\r]+)$`, 'im'),
   );
   return normalizeModelInfoValue(match?.[1] || '');
 }

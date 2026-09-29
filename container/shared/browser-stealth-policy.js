@@ -1,5 +1,16 @@
+/**
+ * Browser stealth policy: the `browser.stealth` section of `policy.yaml`,
+ * allowlisting Camofox stealth mode per host (default deny). An unreadable rule
+ * is enforced as deny and never throws, since the container falls back to its
+ * built-in approval policy on a throw: an unknown action keeps the rule's
+ * `when`, anything else denies every host. NOT the network reachability policy.
+ */
 import { matchesNetworkHostPattern } from './network-policy.js';
-import { evaluatePolicyRules } from './policy-engine.js';
+import {
+  checkPolicyText,
+  describePolicyRuleProblem,
+  evaluatePolicyRules,
+} from './policy-engine.js';
 
 export function asRecord(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -35,15 +46,21 @@ function normalizeAction(value) {
   return null;
 }
 
-function normalizeBrowserStealthRule(raw) {
+function normalizeBrowserStealthRule(raw, index) {
   const record = asRecord(raw);
-  const action = normalizeAction(record.action);
-  if (!action) return null;
   const id = normalizeString(record.id);
+  const problem = describePolicyRuleProblem(raw, BROWSER_STEALTH_PARAMETERS);
+  const action = problem ? null : normalizeAction(record.action);
   return {
     ...(id ? { id } : {}),
-    when: record.when,
-    action,
+    // An unreadable rule covers every host; an unknown action keeps `when`.
+    when: problem ? undefined : record.when,
+    action: action ?? 'deny',
+    ...(action
+      ? {}
+      : {
+          description: `Unreadable browser stealth rule #${index + 1}${problem ? ` ${problem}` : ''}, enforced as deny`,
+        }),
   };
 }
 
@@ -51,9 +68,7 @@ export function readBrowserStealthPolicyStateFromDocument(document) {
   const browser = asRecord(document.browser);
   const stealth = asRecord(browser.stealth);
   const rules = Array.isArray(stealth.rules)
-    ? stealth.rules
-        .map((rule) => normalizeBrowserStealthRule(rule))
-        .filter(Boolean)
+    ? stealth.rules.map(normalizeBrowserStealthRule)
     : [];
   return { rules };
 }
@@ -71,24 +86,36 @@ function matchesText(candidate, expected) {
   });
 }
 
-const BROWSER_STEALTH_POLICY_PREDICATES = {
-  browser_stealth_allowed: (context, params) => {
-    if (params.host === undefined) return false;
-    if (!matchesNetworkHostPattern(params.host, context.host)) return false;
-    if (
-      params.skillName !== undefined &&
-      !matchesText(context.skillName || '', params.skillName)
-    ) {
-      return false;
-    }
-    if (
-      params.agentId !== undefined &&
-      !matchesText(context.agentId || '', params.agentId)
-    ) {
-      return false;
-    }
-    return true;
+const STEALTH_ALLOWED_PARAMETERS = {
+  host: {
+    required: true,
+    check: (value) =>
+      typeof value === 'string' && value.trim() ? '' : 'must be a host pattern',
+    match: (context, host) => matchesNetworkHostPattern(host, context.host),
   },
+  skillName: {
+    check: checkPolicyText,
+    match: (context, expected) =>
+      matchesText(context.skillName || '', expected),
+  },
+  agentId: {
+    check: checkPolicyText,
+    match: (context, expected) => matchesText(context.agentId || '', expected),
+  },
+};
+
+// The parser accepts exactly the parameters the evaluator reads.
+const BROWSER_STEALTH_PARAMETERS = {
+  browser_stealth_allowed: STEALTH_ALLOWED_PARAMETERS,
+};
+
+const BROWSER_STEALTH_POLICY_PREDICATES = {
+  browser_stealth_allowed: (context, node) =>
+    Object.entries(STEALTH_ALLOWED_PARAMETERS).every(([key, parameter]) =>
+      Object.hasOwn(node, key)
+        ? parameter.match(context, node[key])
+        : !parameter.required,
+    ),
 };
 
 export function evaluateBrowserStealthPolicyAccess(params) {

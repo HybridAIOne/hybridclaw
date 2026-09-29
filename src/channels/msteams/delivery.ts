@@ -11,7 +11,7 @@ import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
 import { formatMemoryAccessMarkdown } from '../../memory/recall-presentation.js';
 import type { MemoryAccess } from '../../types/memory.js';
-import { formatError } from '../../utils/text-format.js';
+import { formatError, formatToolsUsedFooter } from '../../utils/text-format.js';
 import { sendMSTeamsActivityWithRetry } from './retry.js';
 
 export { formatError };
@@ -45,7 +45,7 @@ export function buildResponseText(
     body += `${body ? '\n\n' : ''}${formatMemoryAccessMarkdown(memoryAccess)}`;
   }
   if (toolsUsed && toolsUsed.length > 0) {
-    body = `${body}${body ? '\n' : ''}*Tools: ${toolsUsed.join(', ')}*`;
+    body = `${body}${body ? '\n' : ''}${formatToolsUsedFooter(toolsUsed)}`;
   }
   return body;
 }

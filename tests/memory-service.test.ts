@@ -1464,6 +1464,57 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser filters by agent, treating unset agents as the default', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-main', null, 'web');
+    getOrCreateSession('web-legacy', null, 'web');
+    getOrCreateSession('web-writer', null, 'web', 'writer');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare('UPDATE sessions SET agent_id = NULL WHERE id = ?')
+      .run('web-legacy');
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-main',
+      'web-user-a',
+      'web',
+      'user',
+      'Main agent chat',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-legacy',
+      'web-user-a',
+      'web',
+      'user',
+      'Legacy chat',
+      '2026-03-24T10:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-writer',
+      'web-user-a',
+      'web',
+      'user',
+      'Writer chat',
+      '2026-03-24T11:00:00.000Z',
+    );
+    inspect.close();
+
+    const ids = (agentId: string) =>
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        agentId,
+      }).map((session) => session.sessionId);
+    expect(ids('main')).toEqual(['web-legacy', 'web-main']);
+    expect(ids('writer')).toEqual(['web-writer']);
+  });
+
   test('getRecentSessionsForUser can exclude scheduled cron sessions', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

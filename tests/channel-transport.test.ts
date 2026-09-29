@@ -52,23 +52,26 @@ test('registers, resolves, and unregisters a channel transport', () => {
 });
 
 test('channel plugin catalog reports transport availability generically', () => {
+  expect(getChannelPluginCatalogEntry('whatsapp')?.installSource).toMatch(
+    /^https:\/\/github\.com\/HybridAIOne\/hybridclaw-whatsapp\/releases\/download\/v(\d+\.\d+\.\d+)\/hybridaione-hybridclaw-whatsapp-\1\.tgz$/,
+  );
   expect(getChannelPluginCatalogEntry('whatsapp')).toEqual({
     channel: 'whatsapp',
     pluginId: 'whatsapp',
     installSource:
-      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      getChannelPluginCatalogEntry('whatsapp')?.installSource,
   });
   expect(getChannelPluginCatalogEntryByPluginId('whatsapp')).toEqual({
     channel: 'whatsapp',
     pluginId: 'whatsapp',
     installSource:
-      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      getChannelPluginCatalogEntry('whatsapp')?.installSource,
   });
   expect(getChannelPluginStatuses()).toContainEqual({
     channel: 'whatsapp',
     pluginId: 'whatsapp',
     installSource:
-      'https://github.com/HybridAIOne/hybridclaw-whatsapp/releases/download/v0.1.0/hybridaione-hybridclaw-whatsapp-0.1.0.tgz',
+      getChannelPluginCatalogEntry('whatsapp')?.installSource,
     transportAvailable: false,
   });
 

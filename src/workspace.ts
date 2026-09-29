@@ -9,6 +9,7 @@ import {
   readDailyMemoryFile,
   truncateDailyMemoryText,
 } from '../container/shared/daily-memory.js';
+import { escapeRegExp } from '../container/shared/regex.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
@@ -470,7 +471,7 @@ function replaceMarkdownField(
   nextValue: string,
   options: { onlyIfMissing?: boolean } = {},
 ): string {
-  const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegExp(fieldName);
   const fieldPattern = new RegExp(
     `^(\\s*-\\s*\\*\\*${escaped}:\\*\\*[ \\t]*)([^\\r\\n]*)$`,
     'im',

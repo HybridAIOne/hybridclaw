@@ -6,8 +6,9 @@ import path from 'node:path';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { expandHomePath } from '../utils/path.js';
-import { SkillImportError } from './skill-errors.js';
+import { SkillImportConflictError, SkillImportError } from './skill-errors.js';
 import { normalizeImportedSkillRelativePath } from './skill-import-commons.js';
+import { parseSkillManifestFromMarkdown } from './skill-manifest.js';
 import type {
   SkillGuardDecision,
   SkillGuardFinding,
@@ -219,14 +220,93 @@ function validateLocalSource(resolved: string): { isZip: boolean } {
   return { isZip };
 }
 
+// safeExtractZip's budget is sized for .claw packages; skills are far smaller.
+const SKILL_ZIP_MAX_FILES = 200;
+const SKILL_ZIP_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+const SKILL_ZIP_IGNORED_TOP_LEVEL_ENTRIES = new Set([
+  '__MACOSX',
+  '.DS_Store',
+  'Thumbs.db',
+]);
+// Local filesystem failures stay real errors; anything else is a bad archive.
+const SKILL_ZIP_SERVER_ERROR_CODES = new Set([
+  'EACCES',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENFILE',
+  'ENOENT',
+  'ENOSPC',
+  'EPERM',
+  'EROFS',
+]);
+
+async function extractSkillZip(
+  archivePath: string,
+  outputDir: string,
+): Promise<void> {
+  const { safeExtractZip } = await import('../agents/claw-security.js');
+  try {
+    await safeExtractZip(archivePath, outputDir);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    if (code && SKILL_ZIP_SERVER_ERROR_CODES.has(code)) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new SkillImportError(
+      message.startsWith('ZIP ')
+        ? message
+        : 'Uploaded file is not a valid skill ZIP archive.',
+      { cause: error },
+    );
+  }
+
+  let fileCount = 0;
+  let totalBytes = 0;
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(entryPath);
+        continue;
+      }
+      fileCount += 1;
+      totalBytes += fs.statSync(entryPath).size;
+      if (fileCount > SKILL_ZIP_MAX_FILES) {
+        throw new SkillImportError(
+          `Skill ZIP exceeds the ${SKILL_ZIP_MAX_FILES} file limit.`,
+        );
+      }
+      if (totalBytes > SKILL_ZIP_MAX_UNCOMPRESSED_BYTES) {
+        throw new SkillImportError(
+          `Skill ZIP exceeds the ${SKILL_ZIP_MAX_UNCOMPRESSED_BYTES} byte uncompressed limit.`,
+        );
+      }
+    }
+  };
+  walk(outputDir);
+}
+
+// `zip -r name.zip name/` wraps the skill in one folder; unwrap it.
+function resolveSkillZipRoot(extractedDir: string): string {
+  if (fs.existsSync(path.join(extractedDir, 'SKILL.md'))) return extractedDir;
+  const topEntries = fs
+    .readdirSync(extractedDir, { withFileTypes: true })
+    .filter((entry) => !SKILL_ZIP_IGNORED_TOP_LEVEL_ENTRIES.has(entry.name));
+  if (topEntries.length === 1 && topEntries[0]?.isDirectory()) {
+    return path.join(extractedDir, topEntries[0].name);
+  }
+  return extractedDir;
+}
+
 async function populateFromLocalSource(
   source: LocalSkillImportSource,
   targetDir: string,
 ): Promise<string> {
   const { isZip } = validateLocalSource(source.resolvedPath);
   if (isZip) {
-    const { safeExtractZip } = await import('../agents/claw-security.js');
-    await safeExtractZip(source.resolvedPath, targetDir);
+    const extractedDir = path.join(path.dirname(targetDir), 'archive');
+    await extractSkillZip(source.resolvedPath, extractedDir);
+    copyDirectoryContents(resolveSkillZipRoot(extractedDir), targetDir);
   } else {
     copyDirectoryContents(source.resolvedPath, targetDir);
   }
@@ -689,6 +769,16 @@ export async function importSkill(
     }
 
     const skillName = readSkillNameFromFile(skillFilePath);
+    try {
+      parseSkillManifestFromMarkdown(fs.readFileSync(skillFilePath, 'utf-8'), {
+        name: skillName,
+      });
+    } catch (error) {
+      throw new SkillImportError(
+        `Imported skill "${skillName}": ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
     options.validateSkillFile?.(skillFilePath, skillName);
     let guardDecision: SkillGuardDecision | null = null;
     let guardVerdict: SkillGuardVerdict | undefined;
@@ -748,7 +838,7 @@ export async function importSkill(
     const replacedExisting = fs.existsSync(targetDir);
     if (replacedExisting) {
       if (options.replaceExisting === false) {
-        throw new SkillImportError(
+        throw new SkillImportConflictError(
           `Imported skill "${skillName}" would overwrite existing content at ${targetDir}.`,
         );
       }

@@ -44,7 +44,7 @@ const XARGS_VALUE_FLAGS = new Set([
   '-n',
   '-s',
 ]);
-const SHELL_PROGRAMS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
+export const SHELL_PROGRAMS = new Set(['bash', 'dash', 'ksh', 'sh', 'zsh']);
 export const FIND_EXEC_ACTIONS = new Set([
   '-exec',
   '-execdir',
@@ -60,7 +60,13 @@ export const DELETE_RE =
 const RG_PROGRAM_OPTION_RE = /^--(?:pre|hostname-bin)(?:=|$)/;
 const FIND_WRITE_ACTIONS = new Set(['-fls', '-fprint', '-fprint0', '-fprintf']);
 // Programs that write every path operand they are given.
-const OPERAND_WRITERS = new Set(['chmod', 'chown', 'mkdir', 'tee', 'touch']);
+export const OPERAND_WRITERS = new Set([
+  'chmod',
+  'chown',
+  'mkdir',
+  'tee',
+  'touch',
+]);
 
 interface ShellCommand {
   words: string[];
@@ -178,6 +184,8 @@ export function splitShellCommands(input: string): ShellCommand[] {
     } else if (char === '(' || char === ')') {
       depth = Math.max(0, depth + (char === '(' ? 1 : -1));
       endCommand();
+    } else if (char === '|' && inWord && /^\d*>$/.test(word)) {
+      // `>|` writes like `>`, overriding noclobber; it is not a pipe.
     } else if (char === '|') {
       if (next === '|') index += 1;
       else if (next === '&') index += 1;
@@ -328,7 +336,8 @@ export function shellCommandsRun(
   return commands.flatMap(({ words }) => commandsRun(words, depth));
 }
 
-// '' is the starting directory (the workspace); null is unknown (`cd -`).
+// '' is the workspace root and a relative path is relative to it; null is
+// unknown (after `cd -`).
 export type Cwd = string | null;
 
 // `$HOME/x` and `${HOME}/x` name the same path as `~/x`.
@@ -336,7 +345,7 @@ export const HOME_VARIABLE_RE = /^\$(?:HOME|\{HOME\})(?=\/|$)/;
 
 // null when the path is unknown: after `cd -`, or through another variable or
 // a command substitution the classifier cannot expand. Relative results stay
-// relative to the starting directory.
+// relative to the workspace root.
 export function resolvePath(value: string, cwd: Cwd): string | null {
   const withHome = value.replace(HOME_VARIABLE_RE, '~');
   if (withHome.includes('$')) return null;
@@ -369,7 +378,8 @@ export interface ScriptCommand {
 }
 
 // A script parsed once for every check: each simple command with its program
-// and the directory it runs in. `script` should have heredoc bodies removed.
+// and the directory it runs in, starting from `startCwd`, where the shell is
+// before the script runs. `script` should have heredoc bodies removed.
 export function scriptCommands(
   script: string,
   startCwd: Cwd = '',
@@ -672,9 +682,9 @@ export function commandWriteTargets(words: string[]): string[] {
 }
 
 // Every path a script writes, resolved against the directory each command
-// runs in (bash starts in the workspace, and `cd` moves it). Relative results
-// stay relative to that start, so `../out.txt` climbs out; targets behind a
-// variable or an unknown `cd` are left out.
+// runs in. Relative results stay relative to the workspace root, so
+// `../out.txt` run there climbs out; targets behind a variable or an unknown
+// directory are left out.
 export function writeTargets(commands: ScriptCommand[], depth = 0): string[] {
   const targets: string[] = [];
   for (const { words, program, args, cwd } of commands) {

@@ -29,6 +29,11 @@ Skill roots include:
   `.git` metadata, which is also not copied into the agent workspace, and
   accepts image and font assets only when their leading bytes match the
   extension
+- the scan reads instructions, config, and scripts, including `*.cjs` helpers
+  and the other JavaScript and TypeScript module types (`.mjs`, `.cts`,
+  `.mts`, `.jsx`, `.tsx`), `.zsh` scripts, and any file that starts with a
+  `#!` shebang; a `<secret:NAME>` placeholder or an auth header built from a
+  credential is ordinary use, not exposure
 - skills that reference the runtime secret store
   (`~/.hybridclaw/credentials.json`, the master key) or tell the agent to write
   `AGENTS.md`, `CLAUDE.md`, or `~/.hybridclaw/config.json` are blocked at every
@@ -236,7 +241,10 @@ Never ask the model to paste raw credentials into prose or helper arguments.
 Use runtime secret references:
 
 - `bearerSecretName` for bearer tokens
-- `secretHeaders` for named headers
+- `secretHeaders` for named headers; an entry with `cookie: NAME` sends only
+  that cookie's value from a secret that stores a Cookie header, for APIs that
+  expect a cookie repeated in a header (double-submit CSRF), and fails if the
+  cookie is missing
 - `<secret:NAME>` placeholders for URLs or bodies when the gateway must
   replace values
 - `captureResponseFields` when an OAuth/token exchange should save a returned
@@ -397,7 +405,9 @@ because they change the host dependency state.
   adaptive-skill health and amendment review
 - the admin `Skills` page can create a local skill from a form or upload a
   `.zip` containing a `SKILL.md`; both flows publish into the project
-  `skills/` directory only after the scanner approves the contents
+  `skills/` directory only after the scanner approves the contents. A ZIP
+  upload runs the same import as `hybridclaw skill import <file>.zip`, and
+  its overwrite checkbox is that command's `--force`
 
 ## Availability Controls
 
@@ -434,7 +444,8 @@ are:
 - `<owner>/<repo>/<path>`
 - `https://github.com/<owner>/<repo>[/path]`
 - local directory path (e.g. `./my-skills/brand-voice`)
-- local `.zip` archive (e.g. `./exports/brand-voice.zip`)
+- local `.zip` archive (e.g. `./exports/brand-voice.zip`), with `SKILL.md`
+  at the archive root or inside one top-level folder
 
 Examples:
 

@@ -4,13 +4,15 @@
  *
  * Critical rules block at every non-builtin trust level, so each must match
  * the threat, not a mention or lookalike syntax; a test holds the bundled
- * skills to zero critical findings. The exfiltration rules live in
- * `skills-guard-exfil-rules.ts`; skill content is decided by the walk in
+ * skills to zero critical findings beyond the real ones it lists. The
+ * exfiltration and credential rules live in `skills-guard-exfil-rules.ts` and
+ * `skills-guard-credential-rules.ts`; skill content is decided by the walk in
  * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
  * heuristics, and a loaded skill's actions still go through runtime approvals.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { CREDENTIAL_RULES } from './skills-guard-credential-rules.js';
 import { EXFILTRATION_RULES } from './skills-guard-exfil-rules.js';
 import {
   collectStructure,
@@ -18,6 +20,7 @@ import {
   safeRealPath,
 } from './skills-guard-structure.js';
 import {
+  firstOnLine,
   r,
   scanFile,
   scanTextContent,
@@ -357,7 +360,8 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r('\\`[^\\`]*\\$\\([^)]+\\)[^\\`]*\\`'),
-    skipFiles: /\.md$/i, // backticks delimit code spans in Markdown
+    // Backticks delimit code spans in Markdown and template literals in JS/TS.
+    skipFiles: /\.(?:md|[cm]?[jt]sx?)$/i,
     patternId: 'backtick_subshell',
     severity: 'medium',
     category: 'destructive-ops',
@@ -718,21 +722,23 @@ const THREAT_RULES: ThreatRule[] = [
 
   // supply-chain
   {
-    regex: r(String.raw`curl\s+[^\n]*\|\s*(ba)?sh`),
+    regex: r(String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?\|\s*(ba)?sh`),
     patternId: 'curl_pipe_shell',
     severity: 'critical',
     category: 'supply-chain',
     description: 'curl piped to shell (download-and-execute)',
   },
   {
-    regex: r(String.raw`wget\s+[^\n]*-O\s*-\s*\|\s*(ba)?sh`),
+    regex: r(
+      String.raw`${firstOnLine(String.raw`wget\s`)}[^\n]*?-O\s*-\s*\|\s*(ba)?sh`,
+    ),
     patternId: 'wget_pipe_shell',
     severity: 'critical',
     category: 'supply-chain',
     description: 'wget piped to shell (download-and-execute)',
   },
   {
-    regex: r(String.raw`curl\s+[^\n]*\|\s*python`),
+    regex: r(String.raw`${firstOnLine(String.raw`curl\s`)}[^\n]*?\|\s*python`),
     patternId: 'curl_pipe_python',
     severity: 'critical',
     category: 'supply-chain',
@@ -790,83 +796,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'pulls Docker image at runtime',
   },
 
-  // credential-exposure
-  {
-    regex: r(
-      String.raw`(?:api[_-]?key|token|secret|password)\s*[=:]\s*["'][A-Za-z0-9+/=_-]{20,}`,
-    ),
-    // A quoted SHOUTY_SNAKE value names an env var; it embeds no secret.
-    ignore: /["'][A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+["']/g,
-    patternId: 'hardcoded_secret',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'possible hardcoded API key/token/secret',
-  },
-  {
-    regex: r(String.raw`-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----`),
-    patternId: 'embedded_private_key',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'embedded private key',
-  },
-  {
-    regex: r(`ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{80,}`),
-    patternId: 'github_token_leaked',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'GitHub personal access token in skill content',
-  },
-  {
-    regex: r(`sk-[A-Za-z0-9]{20,}`),
-    patternId: 'openai_key_leaked',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'possible OpenAI API key in skill content',
-  },
-  {
-    regex: r(`sk-ant-[A-Za-z0-9_-]{90,}`),
-    patternId: 'anthropic_key_leaked',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'possible Anthropic API key in skill content',
-  },
-  {
-    regex: r(`AKIA[0-9A-Z]{16}`),
-    patternId: 'aws_access_key_leaked',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'AWS access key ID in skill content',
-  },
-  {
-    regex: r(
-      String.raw`\bString\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\)`,
-    ),
-    patternId: 'secret_ref_string_coercion',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'string coercion of a SecretRef or credential ref',
-  },
-  {
-    regex: r(
-      String.raw`JSON\.stringify\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*`,
-    ),
-    patternId: 'secret_ref_json_stringify',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'JSON.stringify() of a SecretRef or credential ref',
-  },
-  {
-    regex: r(
-      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token(?!s\b))[\w$]*\s*\}`,
-    ),
-    // SecretRefs are JS objects: `${...}` in shell and Markdown examples is
-    // parameter expansion, and `${totalTokens}` counts LLM tokens.
-    skipFiles: /\.(?:md|sh|bash)$/i,
-    patternId: 'secret_ref_template_interpolation',
-    severity: 'critical',
-    category: 'credential-exposure',
-    description: 'template interpolation of a SecretRef or credential ref',
-  },
+  ...CREDENTIAL_RULES,
 ];
 
 function determineVerdict(findings: SkillGuardFinding[]): SkillGuardVerdict {

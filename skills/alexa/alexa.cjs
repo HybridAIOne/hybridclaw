@@ -4,8 +4,6 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const https = require('node:https');
-const os = require('node:os');
-const path = require('node:path');
 
 const SKILL_NAME = 'alexa';
 const ASK_SIGNATURE_WINDOW_SECONDS = 150;
@@ -27,18 +25,26 @@ const AUTH_STOP = {
   stopOnStatuses: [401, 403],
   stopOnErrorTypes: ['INVALID_AUTHORIZATION_CREDENTIAL'],
 };
-const RUNTIME_SECRETS_FILE = 'credentials.json';
-const RUNTIME_MASTER_KEY_FILE = 'credentials.master.key';
-const RUNTIME_MASTER_KEY_SECRET_PATH = '/run/secrets/hybridclaw_master_key';
-const PASSPHRASE_KDF_SALT = 'hybridclaw-master-key-v1';
-const SECRET_STORE_ALGORITHM = 'aes-256-gcm';
-const SECRET_STORE_TAG_BYTES = 16;
 
 function communityCookieSecretHeaders() {
   return [
     {
       name: 'Cookie',
       secretName: COMMUNITY_COOKIE_SECRET,
+      prefix: 'none',
+    },
+  ];
+}
+
+// Alexa Remote writes echo the cookie's csrf value in a csrf header. The
+// gateway derives it from the stored cookie; the helper never sees either.
+function communityWriteSecretHeaders() {
+  return [
+    ...communityCookieSecretHeaders(),
+    {
+      name: 'csrf',
+      secretName: COMMUNITY_COOKIE_SECRET,
+      cookie: 'csrf',
       prefix: 'none',
     },
   ];
@@ -244,6 +250,10 @@ Commands:
   http-request smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   plan smarthome-control|announce|shopping-list-add|shopping-list-complete|todo-list-add|todo-list-complete|music-play|voice-command|routine-trigger
   relink-required
+
+Environment:
+  HYBRIDCLAW_GATEWAY_URL   gateway base URL for run and smart-home commands (default: ${DEFAULT_GATEWAY_URL})
+  HYBRIDCLAW_GATEWAY_TOKEN gateway bearer token for run and smart-home commands
 
 Secret values are not accepted on the command line. Store Alexa credentials with:
   hybridclaw secret set ALEXA_ASK_SKILL_ID "amzn1.ask.skill.<uuid>"
@@ -1234,7 +1244,7 @@ function resolveGatewayToken() {
 }
 
 function gatewayHttpRequest(httpRequest) {
-  const out = { ...httpRequest };
+  const out = { ...httpRequest, skillName: SKILL_NAME };
   if (Object.hasOwn(out, 'bodyJson')) {
     out.json = out.bodyJson;
     delete out.bodyJson;
@@ -1248,14 +1258,6 @@ function usesCommunityCookie(httpRequest) {
         (entry) => entry?.secretName === COMMUNITY_COOKIE_SECRET,
       )
     : false;
-}
-
-function csrfFromCookieHeader(cookieHeader) {
-  const csrf = String(cookieHeader || '')
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.toLowerCase().startsWith('csrf='));
-  return csrf ? csrf.slice('csrf='.length) : null;
 }
 
 async function executeGatewayHttpRequest(httpRequest, gatewayUrl) {
@@ -1360,40 +1362,23 @@ async function run(commandArgs) {
   const { args, gatewayUrl: rawGatewayUrl } = splitRunOptions(commandArgs);
   const requestPayload = httpRequest(args);
   const request = requestPayload.httpRequest;
+  const gatewayUrl = resolveGatewayUrl(rawGatewayUrl);
   if (usesCommunityCookie(request)) {
-    const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
-    const csrf = csrfFromCookieHeader(cookie);
-    const headers = { ...request.headers };
-    if (String(request.method || 'GET').toUpperCase() !== 'GET') {
-      if (!csrf) {
-        fail(
-          `Missing csrf in ${COMMUNITY_COOKIE_SECRET}; re-import the Alexa cookie.`,
-          1,
-        );
-      }
-      headers.csrf = csrf;
-    }
-    const response = await executeHttpsJson(
-      {
-        ...request,
-        headers,
-      },
-      cookie,
+    const response = await executeCommunityRequest(
+      request,
+      requestPayload.operation,
+      gatewayUrl,
     );
-    assertAlexaJsonOk(response, requestPayload.operation);
     return runResultPayload({
       requestPayload,
-      transport: 'direct-community-cookie',
+      transport: 'gateway-http-request',
       status: response.statusCode,
-      ok: response.statusCode >= 200 && response.statusCode < 300,
+      ok: true,
       response: response.json,
     });
   }
 
-  const response = await executeGatewayHttpRequest(
-    request,
-    resolveGatewayUrl(rawGatewayUrl),
-  );
+  const response = await executeGatewayHttpRequest(request, gatewayUrl);
   return runResultPayload({
     requestPayload,
     transport: 'gateway-http-request',
@@ -1606,7 +1591,7 @@ function announceHttpRequest(opts, device, text) {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1720,7 +1705,7 @@ function musicPlayHttpRequest(opts, target) {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1821,7 +1806,7 @@ function voiceCommandHttpRequest(opts, target) {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       behaviorId: 'PREVIEW',
       sequenceJson: JSON.stringify({
@@ -1887,7 +1872,7 @@ function listAddHttpRequest(listType, opts, item) {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       value: item,
       completed: false,
@@ -1935,7 +1920,7 @@ function listCompleteHttpRequest(listType, opts, itemId) {
     method: 'PUT',
     url: `https://${communityHost(opts.amazonDomain)}/api/namedLists/${listType}/items/${encodeURIComponent(itemId)}`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       completed: true,
     },
@@ -1982,7 +1967,7 @@ function routineTriggerHttpRequest(opts, routine) {
     method: 'POST',
     url: `https://${communityHost(opts.amazonDomain)}/api/behaviors/preview`,
     headers: communityJsonHeaders(opts.amazonDomain),
-    secretHeaders: communityCookieSecretHeaders(),
+    secretHeaders: communityWriteSecretHeaders(),
     bodyJson: {
       behaviorId: routine,
       status: 'ENABLED',
@@ -2065,180 +2050,37 @@ function amazonAppSmartHomeControlHttpRequest(opts, target) {
   };
 }
 
-function runtimeHomeDir() {
-  const envDir = normalizeText(process.env.HYBRIDCLAW_DATA_DIR);
-  if (envDir) {
-    if (!path.isAbsolute(envDir)) {
-      fail(`HYBRIDCLAW_DATA_DIR must be an absolute path, got: ${envDir}.`);
-    }
-    return envDir;
-  }
-  return path.join(os.homedir(), '.hybridclaw');
-}
-
-function parseMasterKey(raw) {
-  const trimmed = normalizeText(raw);
-  if (!trimmed) fail('HybridClaw master key source is empty.');
-  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
-    return Buffer.from(trimmed, 'hex');
-  }
-  const decoded = Buffer.from(trimmed, 'base64');
-  if (decoded.length === 32) return decoded;
-  return crypto.scryptSync(trimmed, PASSPHRASE_KDF_SALT, 32);
-}
-
-function readMasterKey() {
-  const envKey = normalizeText(process.env.HYBRIDCLAW_MASTER_KEY);
-  if (envKey) return parseMasterKey(envKey);
-
-  for (const filePath of [
-    RUNTIME_MASTER_KEY_SECRET_PATH,
-    path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE),
-  ]) {
-    if (fs.existsSync(filePath)) {
-      return parseMasterKey(fs.readFileSync(filePath, 'utf8'));
-    }
-  }
-  fail(
-    `No HybridClaw master key available; restore ${path.join(runtimeHomeDir(), RUNTIME_MASTER_KEY_FILE)}.`,
-  );
-}
-
-function decryptRuntimeSecret(masterKey, secretName, entry) {
-  const nonce = Buffer.from(entry.nonce, 'base64');
-  const payload = Buffer.from(entry.ciphertext, 'base64');
-  if (payload.length < SECRET_STORE_TAG_BYTES) {
-    fail(`Stored ${secretName} ciphertext is truncated.`);
-  }
-  const ciphertext = payload.subarray(0, -SECRET_STORE_TAG_BYTES);
-  const authTag = payload.subarray(-SECRET_STORE_TAG_BYTES);
-  const decipher = crypto.createDecipheriv(
-    SECRET_STORE_ALGORITHM,
-    masterKey,
-    nonce,
-  );
-  decipher.setAAD(Buffer.from(secretName, 'utf8'));
-  decipher.setAuthTag(authTag);
-  return Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]).toString('utf8');
-}
-
-function readRuntimeSecret(secretName) {
-  const envValue = normalizeText(process.env[secretName]);
-  if (envValue) return envValue;
-
-  const secretsPath = path.join(runtimeHomeDir(), RUNTIME_SECRETS_FILE);
-  if (!fs.existsSync(secretsPath)) {
-    fail(
-      `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
-    );
-  }
-
-  const parsed = JSON.parse(fs.readFileSync(secretsPath, 'utf8'));
-  const encryptedEntry = parsed?.entries?.[secretName];
-  if (encryptedEntry?.alg === SECRET_STORE_ALGORITHM) {
-    const value = normalizeText(
-      decryptRuntimeSecret(readMasterKey(), secretName, encryptedEntry),
-    );
-    if (value) return value;
-  }
-
-  const plaintext = normalizeText(parsed?.[secretName]);
-  if (plaintext) return plaintext;
-  fail(
-    `Missing ${secretName}; store it with hybridclaw secret set ${secretName} "<value>".`,
-  );
-}
-
-function executeHttpsJson(httpRequest, cookie) {
+// Alexa Remote answers some failures with HTML pages or auth errors inside a
+// 200 body, so community calls fail instead of returning those as results.
+async function executeCommunityRequest(httpRequest, target, gatewayUrl) {
+  const response = await executeGatewayHttpRequest(httpRequest, gatewayUrl);
   const url = new URL(httpRequest.url);
-  const body =
-    httpRequest.bodyJson === undefined
-      ? null
-      : JSON.stringify(httpRequest.bodyJson);
-  const headers = {
-    ...httpRequest.headers,
-    Cookie: cookie,
-  };
-  if (body) headers['Content-Length'] = Buffer.byteLength(body);
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      url,
-      {
-        method: httpRequest.method,
-        headers,
-      },
-      (res) => {
-        const chunks = [];
-        let totalBytes = 0;
-        let truncated = false;
-        const maxBytes = httpRequest.maxResponseBytes || 200_000;
-        res.on('data', (chunk) => {
-          totalBytes += chunk.length;
-          if (totalBytes <= maxBytes) {
-            chunks.push(chunk);
-          } else {
-            truncated = true;
-          }
-        });
-        res.on('end', () => {
-          const bodyText = Buffer.concat(chunks).toString('utf8');
-          if (truncated) {
-            reject(
-              new Error(
-                `Alexa response from ${url.hostname}${url.pathname} exceeded ${maxBytes} bytes.`,
-              ),
-            );
-            return;
-          }
-          const statusCode = Number(res.statusCode || 0);
-          let json = null;
-          if (!bodyText.trim() && statusCode >= 200 && statusCode < 300) {
-            json = {};
-          } else {
-            try {
-              json = JSON.parse(bodyText);
-            } catch {
-              if (AUTH_STOP.stopOnStatuses.includes(statusCode)) {
-                reject(
-                  new Error(
-                    `Alexa authorization failed for ${url.hostname}${url.pathname} with HTTP ${statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
-                  ),
-                );
-                return;
-              }
-              const contentType = res.headers['content-type'] || '(none)';
-              const snippet = bodyText
-                .replace(/\s+/g, ' ')
-                .trim()
-                .slice(0, 240);
-              reject(
-                new Error(
-                  `Alexa returned non-JSON response from ${url.hostname}${url.pathname} with HTTP ${statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
-                ),
-              );
-              return;
-            }
-          }
-          resolve({
-            bodyText,
-            headers: res.headers,
-            json,
-            statusCode,
-          });
-        });
-      },
+  const source = `${url.hostname}${url.pathname}`;
+  if (response.bodyTruncated) {
+    throw new Error(
+      `Alexa response from ${source} exceeded ${response.maxResponseBytes} bytes.`,
     );
-    req.on('error', reject);
-    req.setTimeout(30_000, () => {
-      req.destroy(new Error(`Alexa request timed out for ${url.hostname}.`));
-    });
-    if (body) req.write(body);
-    req.end();
-  });
+  }
+  const statusCode = responseStatus(response);
+  let json = response.json;
+  if (json === undefined) {
+    const bodyText = String(response.body || '');
+    if (!bodyText.trim() && statusCode >= 200 && statusCode < 300) {
+      json = {};
+    } else if (AUTH_STOP.stopOnStatuses.includes(statusCode)) {
+      throw new Error(
+        `Alexa authorization failed for ${source} with HTTP ${statusCode}. Re-import ${COMMUNITY_COOKIE_SECRET}.`,
+      );
+    } else {
+      const contentType = response.headers?.['content-type'] || '(none)';
+      const snippet = bodyText.replace(/\s+/g, ' ').trim().slice(0, 240);
+      throw new Error(
+        `Alexa returned non-JSON response from ${source} with HTTP ${statusCode}, content-type ${contentType}. Body starts: ${snippet || '(empty)'}`,
+      );
+    }
+  }
+  assertAlexaJsonOk({ statusCode, json }, target);
+  return { statusCode, json };
 }
 
 function assertAlexaJsonOk(response, target) {
@@ -2387,22 +2229,20 @@ function smartHomeAction(opts) {
   }).action;
 }
 
-async function discoverSmartHomeByName(opts) {
+async function discoverSmartHomeByName(opts, gatewayUrl) {
   const name = requireBoundedText(opts.name, '--name', 256);
-  const cookie = readRuntimeSecret(COMMUNITY_COOKIE_SECRET);
-  const discoveryPayload = amazonAppSmartHomeDevicesRequest(opts);
-  const discoveryResponse = await executeHttpsJson(
-    discoveryPayload.httpRequest,
-    cookie,
+  const discoveryResponse = await executeCommunityRequest(
+    amazonAppSmartHomeDevicesRequest(opts).httpRequest,
+    'Alexa smart-home discovery',
+    gatewayUrl,
   );
-  assertAlexaJsonOk(discoveryResponse, 'Alexa smart-home discovery');
   const appliances = extractSmartHomeAppliances(discoveryResponse.json);
   const appliance = resolveSmartHomeAppliance(appliances, name);
-  return { appliance, appliances, cookie, discoveryResponse, name };
+  return { appliance, name };
 }
 
-async function smartHomeStatus(opts) {
-  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+async function smartHomeStatus(opts, gatewayUrl) {
+  const { appliance, name } = await discoverSmartHomeByName(opts, gatewayUrl);
   const applianceSummary = summarizeSmartHomeAppliance(appliance);
   const entityId = applianceSummary.entityId;
   if (!entityId) fail(`Alexa smart-home device "${name}" has no entityId.`);
@@ -2411,8 +2251,11 @@ async function smartHomeStatus(opts) {
     entityId,
     entityType: applianceSummary.entityType || 'ENTITY',
   });
-  const stateResponse = await executeHttpsJson(statePayload.httpRequest, cookie);
-  assertAlexaJsonOk(stateResponse, `Alexa smart-home status for ${name}`);
+  const stateResponse = await executeCommunityRequest(
+    statePayload.httpRequest,
+    `Alexa smart-home status for ${name}`,
+    gatewayUrl,
+  );
   return {
     ...endpointBasePayload('community', 'smart-home-status', 'green'),
     domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
@@ -2449,10 +2292,10 @@ function planSmartHomeControl(opts) {
   };
 }
 
-async function controlSmartHome(opts) {
+async function controlSmartHome(opts, gatewayUrl) {
   const action = smartHomeAction(opts);
   requireOperatorGrant('smart-home control', 'red', opts.operatorGrant);
-  const { appliance, cookie, name } = await discoverSmartHomeByName(opts);
+  const { appliance, name } = await discoverSmartHomeByName(opts, gatewayUrl);
   const applianceSummary = summarizeSmartHomeAppliance(appliance);
   if (!applianceSummary.entityId) {
     fail(`Alexa smart-home device "${name}" has no entityId.`);
@@ -2462,8 +2305,11 @@ async function controlSmartHome(opts) {
     entityType: applianceSummary.entityType || 'ENTITY',
     action,
   });
-  const controlResponse = await executeHttpsJson(request, cookie);
-  assertAlexaJsonOk(controlResponse, `Alexa smart-home control for ${name}`);
+  const controlResponse = await executeCommunityRequest(
+    request,
+    `Alexa smart-home control for ${name}`,
+    gatewayUrl,
+  );
   return {
     ...endpointBasePayload('community', 'smart-home-control', 'red'),
     domain: opts.amazonDomain || DEFAULT_AMAZON_DOMAIN,
@@ -2483,9 +2329,10 @@ async function smartHome(commandArgs) {
   const opts = parseCommandOptions(commandArgs.slice(1), {
     values: [...COMMAND_OPTION_FLAGS, '--operator-grant'],
   });
-  if (operation === 'status') return smartHomeStatus(opts);
   if (operation === 'plan-control') return planSmartHomeControl(opts);
-  return controlSmartHome(opts);
+  const gatewayUrl = resolveGatewayUrl();
+  if (operation === 'status') return smartHomeStatus(opts, gatewayUrl);
+  return controlSmartHome(opts, gatewayUrl);
 }
 
 function approvedCommand(base, flags) {
@@ -2568,7 +2415,6 @@ if (require.main === module) {
 module.exports = {
   ASK_SIGNATURE_WINDOW_SECONDS,
   buildResponse,
-  csrfFromCookieHeader,
   extractSmartHomeAppliances,
   gatewayHttpRequest,
   parseRequest,

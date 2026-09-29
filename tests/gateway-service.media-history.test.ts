@@ -336,6 +336,58 @@ test('getGatewayHistory omits stored approval request messages', async () => {
   ]);
 });
 
+test('getGatewayHistory omits the delegate results turn but keeps its reply', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { buildDelegationResultsMessage } = await import(
+    '../src/gateway/delegation-results-message.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const sessionId = 'web:delegate-results-history';
+  memoryService.getOrCreateSession(sessionId, null, 'web');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'web',
+    role: 'user',
+    content: 'Check the logs in the background',
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'user-1',
+    username: 'web',
+    role: 'user',
+    content: buildDelegationResultsMessage('## logs\nstatus: completed'),
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'The logs are clean.',
+  });
+
+  const history = getGatewayHistory(sessionId, 10).history;
+
+  expect(history).toEqual([
+    expect.objectContaining({
+      role: 'user',
+      content: 'Check the logs in the background',
+    }),
+    expect.objectContaining({
+      role: 'assistant',
+      content: 'The logs are clean.',
+    }),
+  ]);
+});
+
 test('getGatewayHistory reconstructs branch families for reload-safe paging', async () => {
   setupHome();
 

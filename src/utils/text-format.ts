@@ -6,6 +6,10 @@ export function formatError(title: string, detail: string): string {
   return `**${title}:** ${detail}`;
 }
 
+export function formatToolsUsedFooter(toolsUsed: string[]): string {
+  return `*Tools: ${toolsUsed.map((name) => `\`${name}\``).join(', ')}*`;
+}
+
 export function formatDurationMs(value: number): string {
   if (value < 1_000) return `${Math.round(value)}ms`;
   return `${(value / 1_000).toFixed(1)}s`;

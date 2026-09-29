@@ -151,8 +151,14 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
+import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
+import {
+  extractDelegationDepth,
+  normalizeDelegationEffect,
+} from './delegation-plan.js';
+import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -164,6 +170,7 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
+import { enqueueDelegationBatchFromSideEffects } from './gateway-delegation.js';
 import {
   GATEWAY_SYSTEM_PROMPT_MODE_ENV,
   GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
@@ -177,15 +184,12 @@ import {
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
   type ErrorTurnToolRecord,
-  enqueueDelegationBatchFromSideEffects,
   errorTurnToolsFromExecutions,
-  extractDelegationDepth,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
   getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
   maybeRecordGatewayRequestLog,
-  normalizeDelegationEffect,
   normalizeMediaContextItems,
   prepareSessionAutoReset,
   readDynamicContextMessage,
@@ -1072,10 +1076,12 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
-  const fullAutoEnabled = autoApproveTools || isFullAutoEnabled(session);
+  const approvalMode = autoApproveTools
+    ? 'full'
+    : resolveSessionApprovalMode(session);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools
-    : fullAutoEnabled
+    : approvalMode === 'full'
       ? [
           ...FULLAUTO_NEVER_APPROVE_TOOLS,
           ...loadPolicyFullAutoNeverApprove(workspacePath),
@@ -2140,7 +2146,7 @@ async function handleGatewayMessageInner(
         bashProxy: req.bashProxy,
         channelId: req.channelId,
         ralphMaxIterations: resolveSessionRalphIterations(session),
-        fullAutoEnabled,
+        approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
@@ -2255,7 +2261,7 @@ async function handleGatewayMessageInner(
         bashProxy: req.bashProxy,
         channelId: req.channelId,
         ralphMaxIterations: resolveSessionRalphIterations(session),
-        fullAutoEnabled,
+        approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
@@ -2575,7 +2581,7 @@ async function handleGatewayMessageInner(
     const sideEffectNotice = formatSideEffectNotice(sideEffectNotices);
     const ackText =
       acceptedDelegations > 0
-        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.${sideEffectNotice ? ` ${sideEffectNotice}` : ''}`
+        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll follow up when they finish.${sideEffectNotice ? ` ${sideEffectNotice}` : ''}`
         : null;
     const delegationDescriptor =
       acceptedDelegationPlans.length > 0
@@ -2589,8 +2595,22 @@ async function handleGatewayMessageInner(
             parentModel: model,
             onProactiveMessage: req.onProactiveMessage,
             parentDepth,
-            parentPrompt: req.content,
-            parentResult: ackText || '',
+            runParentTurn: ({ content, onTextDelta }) =>
+              handleGatewayMessage({
+                sessionId: req.sessionId,
+                guildId: req.guildId,
+                channelId: req.channelId,
+                userId: req.userId,
+                username: req.username,
+                content,
+                agentId,
+                chatbotId,
+                model,
+                enableRag,
+                onTextDelta,
+                onProactiveMessage: req.onProactiveMessage,
+                source: DELEGATION_RESULTS_SOURCE,
+              }),
             publicId: req.delegationPublicId,
             ackText: ackText || '',
           })
