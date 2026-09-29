@@ -6,12 +6,13 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PdfAttachment } from '../../container/shared/pdf-attachments.js';
-
 import {
   PDF_PREVIEW_MAX_CHARS,
+  PDF_READ_MAX_PAGES,
   readPdfPages,
+  searchPdfPages,
 } from '../../container/shared/pdf-reader.js';
+import type { VisualAttachment } from '../../container/shared/visual-snapshots.js';
 import type {
   ChatContentPart,
   ChatMessage,
@@ -27,7 +28,7 @@ const PDF_FILE_URL_RE = /file:\/\/[^\s<>"'`\\\]]+\.pdf\b/gi;
 const QUOTED_PDF_PATH_RE =
   /(["'`])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^\n"'`]*?\.pdf)\1/gi;
 const BARE_PDF_PATH_RE =
-  /(?:^|[\s([{'"])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^"'`\s)\]}<>,;]*?\.pdf)(?=$|[\s)\]}<>,;:'"])/gi;
+  /(?:^|[\s([{'"])((?:\.{1,2}[\\/]|~[\\/]|\/|[A-Za-z]:[\\/])[^"'`\s)\]}<>,;]*?\.pdf)(?=$|[\s)\]}<>,;:!?'"])/gi;
 const QUOTED_BARE_PDF_FILENAME_RE = /(["'`])([^"'`\n/\\]+\.pdf)\1/gi;
 
 function normalizeMessageContentToText(content: ChatMessageContent): string {
@@ -98,7 +99,8 @@ export async function injectPdfContextMessages(params: {
   messages: ChatMessage[];
   workspaceRoot: string;
   media?: MediaContextItem[];
-  pdfMediaAllowed?: boolean;
+  visualMediaAllowed?: boolean;
+  readableMediaPaths?: string[];
 }): Promise<ChatMessage[]> {
   const { messages, workspaceRoot } = params;
   let latestUserIndex = messages.length - 1;
@@ -117,11 +119,33 @@ export async function injectPdfContextMessages(params: {
       .filter((value): value is string => Boolean(value)),
     ...detectPdfReferences(text),
   ];
+  // Figure/table follow-ups need their pixels even when the model skips read.
+  const caption = text.match(
+    /\b(?:figure|fig\.|table|abbildung|abb\.|tabelle)\s+\d+[a-z]?\b/i,
+  )?.[0];
+  if (caption && references.length === 0) {
+    for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+      if (messages[index].role !== 'user') continue;
+      const earlier = detectPdfReferences(
+        normalizeMessageContentToText(messages[index].content),
+      );
+      if (earlier.length) {
+        references.push(...earlier);
+        break;
+      }
+    }
+  }
+  if (caption && references.length === 0) {
+    // Stored uploads may only have a display filename in conversation text.
+    references.push(
+      ...(params.readableMediaPaths || []).filter(looksLikePdfReference),
+    );
+  }
   if (references.length === 0) return messages;
   const resolvePath = createMediaHostPathResolver(workspaceRoot);
   const seen = new Set<string>();
   const previews: unknown[] = [];
-  const pdfAttachments: PdfAttachment[] = [];
+  const visualAttachments: VisualAttachment[] = [];
   const candidates = [...new Set(references)];
   const omittedFiles = Math.max(0, candidates.length - MAX_PREVIEW_FILES);
   for (const reference of candidates.slice(0, MAX_PREVIEW_FILES)) {
@@ -135,23 +159,41 @@ export async function injectPdfContextMessages(params: {
     }
     if (seen.has(filePath)) continue;
     seen.add(filePath);
-    const outputDir = params.pdfMediaAllowed
+    const outputDir = params.visualMediaAllowed
       ? await fs.mkdtemp(path.join(os.tmpdir(), 'hybridclaw-pdf-preview-'))
       : undefined;
     try {
+      const search = caption
+        ? await searchPdfPages(filePath, caption)
+        : undefined;
+      const matchingPages = search?.matches
+        .slice(0, PDF_READ_MAX_PAGES)
+        .map((match) => match.page);
+      if (search && !matchingPages?.length) {
+        previews.push({
+          path: reference,
+          query: caption,
+          ...search,
+          status:
+            'No matching caption in extracted text. Use read with pages to locate and inspect the figure visually; do not guess its contents.',
+        });
+        continue;
+      }
       const {
-        pdfAttachments: attachments,
+        visualAttachments: attachments,
         images,
         ...preview
       } = await readPdfPages(filePath, {
-        render: params.pdfMediaAllowed ? 'always' : 'never',
+        pages: matchingPages?.join(','),
+        render: params.visualMediaAllowed ? 'always' : 'never',
         maxChars: PDF_PREVIEW_MAX_CHARS,
-        workspaceRoot: params.pdfMediaAllowed ? workspaceRoot : undefined,
+        workspaceRoot: params.visualMediaAllowed ? workspaceRoot : undefined,
         outputDir,
       });
-      pdfAttachments.push(...(attachments || []));
+      visualAttachments.push(...(attachments || []));
       previews.push({
         path: reference,
+        ...(search ? { query: caption, search } : {}),
         ...preview,
         snapshotId: attachments?.[0]?.id.slice(0, 12),
         renderedPages: images.map((image) => image.page),
@@ -181,7 +223,7 @@ export async function injectPdfContextMessages(params: {
       ? {
           ...message,
           content: parts,
-          ...(pdfAttachments.length ? { pdfAttachments } : {}),
+          ...(visualAttachments.length ? { visualAttachments } : {}),
         }
       : message,
   );

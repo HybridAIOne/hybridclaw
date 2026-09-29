@@ -4,10 +4,10 @@ import { pathToFileURL } from 'node:url';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, test, vi } from 'vitest';
 import {
-  loadPdfSnapshot,
-  savePdfSnapshot,
-  validatePdfAttachments,
-} from '../container/shared/pdf-attachments.js';
+  loadVisualSnapshot,
+  saveVisualSnapshot,
+  validateVisualAttachments,
+} from '../container/shared/visual-snapshots.js';
 import { readPdfPages } from '../container/shared/pdf-reader.js';
 import { validateToolHistory } from '../container/shared/tool-history.js';
 import type { ChatMessage } from '../container/src/types.js';
@@ -40,8 +40,8 @@ async function fixture() {
     outputDir: path.join(root, 'rendered'),
     runtimeUrl,
   });
-  expect(result.pdfAttachments).toHaveLength(1);
-  return { root, file, ref: result.pdfAttachments![0] };
+  expect(result.visualAttachments).toHaveLength(1);
+  return { root, file, ref: result.visualAttachments![0] };
 }
 function response(provider: string) {
   const payload =
@@ -101,17 +101,17 @@ describe('direct PDF delivery', () => {
     'sends selected pages to %s as %s',
     async (provider, baseUrl, model, partType) => {
       const { root, ref } = await fixture();
-      const snapshot = await loadPdfSnapshot(root, ref);
+      const snapshot = await loadVisualSnapshot(root, ref);
       expect(
         (
           await PDFDocument.load(Buffer.from(snapshot.pdf, 'base64'))
         ).getPageCount(),
       ).toBe(2);
       expect(snapshot.images).toHaveLength(2);
-      const { setPdfMediaAllowed } = await import(
-        '../container/src/providers/pdf-content.js'
+      const { setVisualMediaAllowed } = await import(
+        '../container/src/providers/visual-content.js'
       );
-      setPdfMediaAllowed(true);
+      setVisualMediaAllowed(true);
       const { callRoutedModel } = await import(
         '../container/src/providers/router.js'
       );
@@ -124,13 +124,13 @@ describe('direct PDF delivery', () => {
         }),
       );
       const messages: ChatMessage[] = [
-        { role: 'user', content: 'Read these pages', pdfAttachments: [ref] },
+        { role: 'user', content: 'Read these pages', visualAttachments: [ref] },
       ];
       const before = structuredClone(messages);
       await callRoutedModel({ ...base, provider, baseUrl, model, messages });
       const wire = JSON.stringify(calls[0]);
       expect(wire).toContain(`"type":"${partType}"`);
-      expect(wire).not.toContain('pdfAttachments');
+      expect(wire).not.toContain('visualAttachments');
       expect(wire).toContain('original pages 2, 4');
       expect(messages).toEqual(before);
       expect(calls).toHaveLength(1);
@@ -145,7 +145,7 @@ describe('direct PDF delivery', () => {
       JSON.stringify({ path: file, pages: '2,4' }),
     );
     expect(result.isError).toBe(false);
-    expect(result.pdfAttachments).toHaveLength(1);
+    expect(result.visualAttachments).toHaveLength(1);
     expect(result.output).not.toContain('base64');
     const history = validateToolHistory([
       {
@@ -161,15 +161,15 @@ describe('direct PDF delivery', () => {
         role: 'tool',
         tool_call_id: 'a',
         content: result.output,
-        pdfAttachments: result.pdfAttachments,
+        visualAttachments: result.visualAttachments,
       },
       { role: 'tool', tool_call_id: 'b', content: 'Other result' },
     ]);
     vi.resetModules();
-    const { setPdfMediaAllowed } = await import(
-      '../container/src/providers/pdf-content.js'
+    const { setVisualMediaAllowed } = await import(
+      '../container/src/providers/visual-content.js'
     );
-    setPdfMediaAllowed(true);
+    setVisualMediaAllowed(true);
     const { callRoutedModel } = await import(
       '../container/src/providers/router.js'
     );
@@ -207,18 +207,18 @@ describe('direct PDF delivery', () => {
     const preview = await injectPdfContextMessages({
       messages,
       workspaceRoot: root,
-      pdfMediaAllowed: true,
+      visualMediaAllowed: true,
     });
-    expect(preview[0].pdfAttachments?.[0].pages).toEqual([1, 2, 3, 4]);
-    expect(messages[0].pdfAttachments).toBeUndefined();
+    expect(preview[0].visualAttachments?.[0].pages).toEqual([1, 2, 3, 4]);
+    expect(messages[0].visualAttachments).toBeUndefined();
   });
 
   test('retries explicit native rejection as images, then reports text-only coverage', async () => {
     const { ref } = await fixture();
-    const { setPdfMediaAllowed } = await import(
-      '../container/src/providers/pdf-content.js'
+    const { setVisualMediaAllowed } = await import(
+      '../container/src/providers/visual-content.js'
     );
-    setPdfMediaAllowed(true);
+    setVisualMediaAllowed(true);
     const { callRoutedModelStream } = await import(
       '../container/src/providers/router.js'
     );
@@ -248,7 +248,7 @@ describe('direct PDF delivery', () => {
       provider: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-5',
-      messages: [{ role: 'user', content: 'read', pdfAttachments: [ref] }],
+      messages: [{ role: 'user', content: 'read', visualAttachments: [ref] }],
       onTextDelta: delta,
     });
     expect(bodies[0]).toContain('input_file');
@@ -262,10 +262,10 @@ describe('direct PDF delivery', () => {
     'does not downgrade on unrelated HTTP %s errors',
     async (status) => {
       const { ref } = await fixture();
-      const { setPdfMediaAllowed } = await import(
-        '../container/src/providers/pdf-content.js'
+      const { setVisualMediaAllowed } = await import(
+        '../container/src/providers/visual-content.js'
       );
-      setPdfMediaAllowed(true);
+      setVisualMediaAllowed(true);
       const { callRoutedModel } = await import(
         '../container/src/providers/router.js'
       );
@@ -279,7 +279,7 @@ describe('direct PDF delivery', () => {
           provider: 'openai',
           baseUrl: 'https://api.openai.com/v1',
           model: 'gpt-5',
-          messages: [{ role: 'user', content: 'read', pdfAttachments: [ref] }],
+          messages: [{ role: 'user', content: 'read', visualAttachments: [ref] }],
         }),
       ).rejects.toThrow();
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -288,7 +288,7 @@ describe('direct PDF delivery', () => {
 
   test('disallowed binary replay emits a coverage warning without reading the snapshot', async () => {
     const { ref, root } = await fixture();
-    await fs.rm(path.join(root, '.pdf-pages'), { recursive: true });
+    await fs.rm(path.join(root, '.visual-snapshots'), { recursive: true });
     const { callRoutedModel } = await import(
       '../container/src/providers/router.js'
     );
@@ -306,7 +306,7 @@ describe('direct PDF delivery', () => {
       provider: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-5',
-      messages: [{ role: 'user', content: 'read', pdfAttachments: [ref] }],
+      messages: [{ role: 'user', content: 'read', visualAttachments: [ref] }],
     });
   });
 });
@@ -318,26 +318,26 @@ describe('PDF snapshot boundaries', () => {
     [{ id: 'a'.repeat(64), pages: [1, 1] }],
     [{ id: 'a'.repeat(64), pages: [1, 2, 3, 4, 5] }],
   ])('rejects malformed references %j', (ref) =>
-    expect(() => validatePdfAttachments(ref)).toThrow(),
+    expect(() => validateVisualAttachments(ref)).toThrow(),
   );
 
   test('rejects changed snapshots and symlinked directories/files', async () => {
     const root = tempDir();
-    const ref = await savePdfSnapshot(root, { pdf: 'test', images: [] }, [1]);
-    const file = path.join(root, '.pdf-pages', `${ref.id}.json`);
+    const ref = await saveVisualSnapshot(root, { pdf: 'test', images: [] }, [1]);
+    const file = path.join(root, '.visual-snapshots', `${ref.id}.json`);
     await fs.writeFile(file, 'changed');
-    await expect(loadPdfSnapshot(root, ref)).rejects.toThrow('integrity');
+    await expect(loadVisualSnapshot(root, ref)).rejects.toThrow('integrity');
     await fs.rm(file);
     await fs.symlink(path.join(root, 'secret'), file);
     await fs.writeFile(path.join(root, 'secret'), 'private');
-    await expect(loadPdfSnapshot(root, ref)).rejects.toThrow('symlink');
+    await expect(loadVisualSnapshot(root, ref)).rejects.toThrow('symlink');
     const other = tempDir();
     await fs.symlink(
-      path.join(root, '.pdf-pages'),
-      path.join(other, '.pdf-pages'),
+      path.join(root, '.visual-snapshots'),
+      path.join(other, '.visual-snapshots'),
     );
     await expect(
-      savePdfSnapshot(other, { pdf: 'test', images: [] }, [1]),
+      saveVisualSnapshot(other, { pdf: 'test', images: [] }, [1]),
     ).rejects.toThrow('symlink');
   });
 });
@@ -350,23 +350,23 @@ test('identical page reads reuse deterministic snapshots', async () => {
     outputDir: path.join(root, 'rendered-again'),
     runtimeUrl,
   });
-  expect(repeated.pdfAttachments).toEqual([ref]);
+  expect(repeated.visualAttachments).toEqual([ref]);
 });
 
 test('does not retry a rejected request after visible stream output', async () => {
   const { ref } = await fixture();
-  const { callWithPdfContent, setPdfMediaAllowed } = await import(
-    '../container/src/providers/pdf-content.js'
+  const { callWithVisualContent, setVisualMediaAllowed } = await import(
+    '../container/src/providers/visual-content.js'
   );
   const { ProviderRequestError } = await import(
     '../container/src/providers/shared.js'
   );
-  setPdfMediaAllowed(true);
+  setVisualMediaAllowed(true);
   const call = vi.fn(async () => {
     throw new ProviderRequestError(400, 'Unsupported PDF');
   });
   await expect(
-    callWithPdfContent(
+    callWithVisualContent(
       {
         ...base,
         provider: 'openai',
@@ -377,7 +377,7 @@ test('does not retry a rejected request after visible stream output', async () =
         isLocal: false,
         contextWindow: undefined,
         thinkingFormat: undefined,
-        messages: [{ role: 'user', content: 'read', pdfAttachments: [ref] }],
+        messages: [{ role: 'user', content: 'read', visualAttachments: [ref] }],
       },
       call,
       () => true,
@@ -388,11 +388,11 @@ test('does not retry a rejected request after visible stream output', async () =
 
 test('missing snapshots report unavailable visuals and keep text', async () => {
   const { root, ref } = await fixture();
-  await fs.rm(path.join(root, '.pdf-pages'), { recursive: true });
-  const { setPdfMediaAllowed } = await import(
-    '../container/src/providers/pdf-content.js'
+  await fs.rm(path.join(root, '.visual-snapshots'), { recursive: true });
+  const { setVisualMediaAllowed } = await import(
+    '../container/src/providers/visual-content.js'
   );
-  setPdfMediaAllowed(true);
+  setVisualMediaAllowed(true);
   const { callRoutedModel } = await import(
     '../container/src/providers/router.js'
   );
@@ -412,7 +412,7 @@ test('missing snapshots report unavailable visuals and keep text', async () => {
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-5',
     messages: [
-      { role: 'user', content: 'extracted evidence', pdfAttachments: [ref] },
+      { role: 'user', content: 'extracted evidence', visualAttachments: [ref] },
     ],
   });
 });
@@ -447,11 +447,11 @@ test('concurrent snapshots are atomic and a fresh read repairs incomplete storag
   const root = tempDir();
   const snapshot = { pdf: 'test', images: [] };
   const refs = await Promise.all(
-    Array.from({ length: 4 }, () => savePdfSnapshot(root, snapshot, [1])),
+    Array.from({ length: 4 }, () => saveVisualSnapshot(root, snapshot, [1])),
   );
   expect(new Set(refs.map((ref) => ref.id)).size).toBe(1);
-  const file = path.join(root, '.pdf-pages', `${refs[0].id}.json`);
+  const file = path.join(root, '.visual-snapshots', `${refs[0].id}.json`);
   await fs.writeFile(file, '{');
-  const repaired = await savePdfSnapshot(root, snapshot, [1]);
-  expect(await loadPdfSnapshot(root, repaired)).toMatchObject(snapshot);
+  const repaired = await saveVisualSnapshot(root, snapshot, [1]);
+  expect(await loadVisualSnapshot(root, repaired)).toMatchObject(snapshot);
 });

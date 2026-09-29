@@ -835,8 +835,8 @@ async function executePreparedToolCall(
       content: result,
       tool_call_id: call.id,
       ...(isError ? { is_error: true } : {}),
-      ...('pdfAttachments' in runtimeResult
-        ? { pdfAttachments: runtimeResult.pdfAttachments }
+      ...('visualAttachments' in runtimeResult
+        ? { visualAttachments: runtimeResult.visualAttachments }
         : {}),
     },
     artifacts: extractToolArtifacts(toolName, result),
@@ -2254,7 +2254,7 @@ async function main(): Promise<void> {
   setMediaContext(
     firstInput.media,
     firstInput.readableMediaPaths,
-    firstInput.pdfMediaAllowed,
+    firstInput.visualMediaAllowed,
   );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
@@ -2417,7 +2417,7 @@ async function main(): Promise<void> {
     setMediaContext(
       input.media,
       input.readableMediaPaths,
-      input.pdfMediaAllowed,
+      input.visualMediaAllowed,
     );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,

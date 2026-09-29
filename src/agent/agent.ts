@@ -163,7 +163,7 @@ async function runAgentInner(
   // Unknown model capabilities are negotiated through the endpoint; explicit
   // media rejection falls back to text. Confidential text redaction cannot
   // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
-  const pdfMediaAllowed =
+  const visualMediaAllowed =
     !isConfidentialRedactionEnabled() &&
     (isModelVisionCapable(model) ||
       !resolveStaticModelCatalogMetadata(model).known);
@@ -171,7 +171,8 @@ async function runAgentInner(
     messages: params.messages,
     workspaceRoot,
     media,
-    pdfMediaAllowed,
+    readableMediaPaths: params.readableMediaPaths,
+    visualMediaAllowed,
   });
   const confidentialRuleSet = isConfidentialRedactionEnabled()
     ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
@@ -192,7 +193,7 @@ async function runAgentInner(
     ...params,
     sessionId,
     messages: dehydratedMessages,
-    pdfMediaAllowed,
+    visualMediaAllowed,
     chatbotId,
     model,
     agentId,

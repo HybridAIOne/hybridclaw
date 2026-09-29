@@ -4,9 +4,9 @@
  * or the transport-facing conversation presentation.
  */
 import type {
-  PdfAttachmentMessage,
   PdfFilePart,
-} from '../../container/shared/pdf-attachments.js';
+  VisualAttachmentMessage,
+} from '../../container/shared/visual-snapshots.js';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -35,7 +35,7 @@ export type ChatContentPart =
 
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
-export interface ChatMessage extends PdfAttachmentMessage {
+export interface ChatMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];

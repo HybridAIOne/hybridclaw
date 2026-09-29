@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { setSandboxModeOverride } from '../src/config/config.js';
 import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import type { ChatMessage } from '../src/types/api.js';
+import { writeVisualPdfFixture } from './helpers/pdf-visual-fixture.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
@@ -30,6 +31,73 @@ function preview(messages: ChatMessage[]) {
 }
 
 describe('PDF attachment preview', () => {
+  test('follow-up supplies the matching figure page from the nearest earlier PDF reference without altering history', async () => {
+    const root = tempDir();
+    await writeVisualPdfFixture(root);
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'Summarize ./workshop.pdf' },
+      { role: 'assistant', content: 'Five ideas.' },
+      { role: 'user', content: 'What does Figure 3 depict?' },
+    ];
+    const original = structuredClone(messages);
+    const result = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages,
+      visualMediaAllowed: true,
+    });
+    expect(messages).toEqual(original);
+    expect(result.slice(0, -1)).toEqual(original.slice(0, -1));
+    expect(result.at(-1)?.visualAttachments?.[0].pages).toEqual([7]);
+    const upload = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages: [{ role: 'user', content: 'Describe Figure 3' }],
+      readableMediaPaths: ['./workshop.pdf'],
+      visualMediaAllowed: true,
+    });
+    expect(upload.at(-1)?.visualAttachments?.[0].pages).toEqual([7]);
+    expect(preview(result).previews[0]).toMatchObject({
+      query: 'Figure 3',
+      processedPages: [7],
+      renderedPages: [7],
+    });
+    const denied = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages,
+      visualMediaAllowed: false,
+    });
+    expect(denied.at(-1)?.visualAttachments).toBeUndefined();
+    expect(preview(denied).previews[0].renderedPages).toEqual([]);
+    const missing = await injectPdfContextMessages({
+      workspaceRoot: root,
+      messages: [
+        ...messages.slice(0, -1),
+        { role: 'user', content: 'Describe Figure 99' },
+      ],
+      visualMediaAllowed: true,
+    });
+    expect(missing.at(-1)?.visualAttachments).toBeUndefined();
+    expect(preview(missing).previews[0]).toMatchObject({
+      query: 'Figure 99',
+      matches: [],
+    });
+  });
+  test.each(['?', '!'])(
+    'detects a PDF path followed by %s',
+    async (punctuation) => {
+      const root = tempDir();
+      await pdf(root);
+      const result = await injectPdfContextMessages({
+        workspaceRoot: root,
+        messages: [
+          {
+            role: 'user',
+            content: `What is inside ./document.pdf${punctuation}`,
+          },
+        ],
+      });
+      expect(preview(result).previews[0].pageCount).toBe(6);
+    },
+  );
   test('preserves original history and images, adds bounded user data with page coverage', async () => {
     const root = tempDir();
     await pdf(root);
@@ -108,7 +176,7 @@ describe('PDF attachment preview', () => {
     const messages: ChatMessage[] = [{ role: 'user', content: 'yes' }];
     expect(
       await injectPdfContextMessages({
-          workspaceRoot: root,
+        workspaceRoot: root,
         messages,
       }),
     ).toBe(messages);

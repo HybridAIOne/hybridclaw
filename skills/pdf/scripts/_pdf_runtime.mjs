@@ -270,3 +270,46 @@ export async function subsetPdfBytes(inputPath, pages) {
   }
   return Buffer.from(await selected.save());
 }
+
+// Literal search returns page locations without filling context with the document.
+export async function searchPdfText(inputPath, query) {
+  const pdf = await openPdfDocument(inputPath);
+  try {
+    const needle = query.replace(/\s+/g, ' ').toLowerCase();
+    const matches = [];
+    let searchedPages = 0;
+    // Agent decision, 2026-09-29: cap a search at 500 pages / 20 matching pages;
+    // large or scanned documents retain explicit unsearched/sparse coverage.
+    let sparsePages = 0;
+    for (let number = 1; number <= Math.min(pdf.numPages, 500); number++) {
+      const page = await pdf.getPage(number);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item) => item.str || '')
+        .join(' ')
+        .replace(/\s+/g, ' ');
+      searchedPages = number;
+      if (text.trim().length < 50) sparsePages++;
+      const index = text.toLowerCase().indexOf(needle);
+      if (index >= 0)
+        matches.push({
+          page: number,
+          snippet: text.slice(
+            Math.max(0, index - 100),
+            index + needle.length + 300,
+          ),
+        });
+      page.cleanup();
+      if (matches.length >= 20) break;
+    }
+    return {
+      pageCount: pdf.numPages,
+      searchedPages,
+      omittedPages: pdf.numPages - searchedPages,
+      sparsePages,
+      matches,
+    };
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
+}

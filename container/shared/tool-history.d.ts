@@ -1,6 +1,6 @@
-import type { PdfAttachmentMessage } from './pdf-attachments.js';
+import type { VisualAttachmentMessage } from './visual-snapshots.js';
 
-interface HistoryMessage extends PdfAttachmentMessage {
+interface HistoryMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: Array<{

@@ -7,7 +7,7 @@ import type {
   ChatMessage,
   ToolDefinition,
 } from '../types.js';
-import { callWithPdfContent } from './pdf-content.js';
+import { callWithVisualContent } from './visual-content.js';
 
 export { extractResponseTextContent } from '../../shared/response-text.js';
 
@@ -181,7 +181,7 @@ export async function callRoutedModel(
   params: RoutedModelCallParams,
 ): Promise<ChatCompletionResponse> {
   const args = buildCallArgs(params);
-  const response = await callWithPdfContent(args, callProviderModel);
+  const response = await callWithVisualContent(args, callProviderModel);
   if (args.debugModelResponses) {
     logModelResponseDebug({
       provider: args.provider,
@@ -198,7 +198,7 @@ export async function callRoutedModelStream(
 ): Promise<ChatCompletionResponse> {
   const args = buildStreamCallArgs(params);
   let emitted = false;
-  const response = await callWithPdfContent(
+  const response = await callWithVisualContent(
     {
       ...args,
       onTextDelta: (delta: string) => {

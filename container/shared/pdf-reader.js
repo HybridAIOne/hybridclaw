@@ -4,9 +4,9 @@
  * calls a model. The bundled PDF skill remains the extraction/render engine.
  */
 import fs from 'node:fs/promises';
-import { PDF_READ_MAX_PAGES, savePdfSnapshot } from './pdf-attachments.js';
+import { PDF_READ_MAX_PAGES, saveVisualSnapshot } from './visual-snapshots.js';
 
-export { PDF_READ_MAX_PAGES } from './pdf-attachments.js';
+export { PDF_READ_MAX_PAGES } from './visual-snapshots.js';
 
 // Agent decision, 2026-09-29: four pages / 24k text / 50 MiB per read bound
 // ingestion; larger documents are read in batches. Selected pages are also the native transport boundary.
@@ -119,8 +119,8 @@ export async function readPdfPages(filePath, options = {}) {
           (await fs.readFile(image.path)).toString('base64'),
         ),
       );
-      result.pdfAttachments = [
-        await savePdfSnapshot(
+      result.visualAttachments = [
+        await saveVisualSnapshot(
           options.workspaceRoot,
           {
             pdf: pdf.toString('base64'),
@@ -135,4 +135,19 @@ export async function readPdfPages(filePath, options = {}) {
     }
   }
   return result;
+}
+
+export async function searchPdfPages(filePath, query, runtimeUrl) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 256)
+    throw new Error(
+      'PDF query must be literal text between 1 and 256 characters',
+    );
+  const stat = await fs.stat(filePath);
+  if (!stat.isFile() || stat.size > MAX_BYTES)
+    throw new Error('PDF must be a regular file of at most 50 MiB');
+  const runtime = await import(
+    runtimeUrl ??
+      new URL('../../skills/pdf/scripts/_pdf_runtime.mjs', import.meta.url).href
+  );
+  return runtime.searchPdfText(filePath, query.trim());
 }

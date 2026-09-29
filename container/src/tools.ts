@@ -52,6 +52,7 @@ import {
   runDiagramTool,
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
+import { readDocumentFile } from './document-read.js';
 import {
   appendFileReferenceReceipt,
   type FileReferenceExpansion,
@@ -63,13 +64,13 @@ import {
 } from './gateway-json-post.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
-import { PDF_READ_PARAMETERS, readPdfFile } from './pdf-read.js';
+import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import { setPdfMediaAllowed } from './providers/pdf-content.js';
 import {
   type RuntimeProvider,
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
+import { setVisualMediaAllowed } from './providers/visual-content.js';
 import {
   resolveSessionMediaReadPath,
   resolveSessionMediaSandboxPath,
@@ -823,11 +824,11 @@ export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
 export function setMediaContext(
   media?: MediaContextItem[],
   readableMediaPaths: string[] = [],
-  pdfMediaAllowed = false,
+  visualMediaAllowed = false,
 ): void {
   currentMediaContext = Array.isArray(media) ? media : [];
   setReadableMediaPaths(readableMediaPaths);
-  setPdfMediaAllowed(pdfMediaAllowed);
+  setVisualMediaAllowed(visualMediaAllowed);
 }
 
 function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
@@ -2777,8 +2778,8 @@ async function executeToolInternal(
           }
           const copied = copyTaskSandboxFileToTemp(sandboxPath);
           tempDirToCleanup = copied.tempDir;
-          if (/\.pdf$/i.test(args.path))
-            return await readPdfFile(copied.localPath, args);
+          const document = await readDocumentFile(copied.localPath, args);
+          if (document) return document;
           content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
           const filePath =
@@ -2786,8 +2787,8 @@ async function executeToolInternal(
             safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
-          if (/\.pdf$/i.test(args.path))
-            return await readPdfFile(filePath, args);
+          const document = await readDocumentFile(filePath, args);
+          if (document) return document;
           content = fs.readFileSync(filePath, 'utf-8');
         }
         const lines = content.split('\n');
@@ -4049,7 +4050,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. PDFs return page text and attach selected pages directly to the model; use pages/render.`,
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are delivered visually, never as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools; no separate vision call or cleanup is needed.`,
       parameters: {
         type: 'object',
         properties: {

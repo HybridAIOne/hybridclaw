@@ -101,7 +101,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
-| PDF page snapshots | Workspace `.pdf-pages/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
+| PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Background processes, `/tmp` files | Worker | Lost |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
@@ -661,11 +661,11 @@ pages, with a mapping back to original page numbers. For full-document tasks,
 read every relevant page batch. A page is not empty merely because extraction
 returned no text.
 
-Page snapshots live in workspace `.pdf-pages/`, addressed by SHA-256. Tool
+PDF page and standalone-image snapshots live in workspace `.visual-snapshots/`, addressed by SHA-256. Tool
 history stores validated references, not base64 payloads. Worker replacement
 and provider changes reconstruct the appropriate representation from these
 snapshots. Missing, modified or oversized snapshots produce an explicit coverage
-warning and require re-reading the source. Each snapshot and each request's PDF
+warning and require re-reading the source. Each snapshot and each request's
 visual payload are limited to 20 MiB; token estimates reserve 4,000 tokens per
 selected page. Snapshots follow workspace retention and may be deleted when
 retiring its history; deleting live snapshots makes those references unavailable.
@@ -679,3 +679,20 @@ Document text and visuals remain untrusted user data. Confidential text redactio
 disables binary PDF/image delivery, including historical snapshots, because text
 redaction cannot sanitize document bytes or pixels. Rendering or delivery alone
 does not prove model accuracy; coverage and extraction/render errors stay explicit.
+
+`read` searches PDF text with `query` (literal text, up to 256 characters),
+returning page numbers and snippets before a separate `pages` read. Each search
+covers at most 500 pages and 20 matching pages, reporting unsearched and sparse
+pages. It does not OCR scans. A numbered figure/table follow-up searches the
+current PDF reference, or the nearest earlier user message with PDF references,
+falling back to session-authorized upload paths, and previews up to four matching
+pages in the current user turn. Missing captions
+report incomplete coverage; other searches use `read` without shell conversion
+or optional cleanup.
+
+PNG, JPEG, GIF and WebP reads deliver normalized PNG pixels directly to the main
+model using the same visual snapshot, replay and confidentiality boundary.
+Inputs are capped at 10 MiB and output at 1600px; animated GIF reads cover only the
+first frame. Unsupported binary files fail instead of producing UTF-8 garbage.
+vLLM's “At most 0 image(s)” rejection is treated as unavailable vision; the
+text-only response explicitly reports that the image could not be inspected.

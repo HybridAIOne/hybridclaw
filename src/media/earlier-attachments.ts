@@ -48,7 +48,7 @@ export async function buildEarlierAttachmentsPrompt(params: {
   );
   return [
     '## Earlier Attachments',
-    'Files the user attached in earlier turns of this session, newest first, one JSON object per line. When the user refers to one of them, use its `path` directly (for example with `vision_analyze` or `read`) instead of asking for it again.',
+    'Files the user attached in earlier turns of this session, newest first, one JSON object per line. When the user refers to one of them, use its `path` directly (use `read`; for PDFs, `query` locates captions and `pages` delivers the selected pages) instead of asking for it again.',
     'An entry with status "no longer available" can no longer be read, usually because media cleanup removed it: do not reuse a path for it from earlier messages or tool calls, do not guess its contents, and do not create a placeholder file; ask the user to attach it again.',
     ...entries,
   ].join('\n');

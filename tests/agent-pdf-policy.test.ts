@@ -51,8 +51,8 @@ test.each([
       model: 'test-model',
       messages: [{ role: 'user', content: 'Hello' }],
       // A caller cannot override the gateway confidentiality decision.
-      pdfMediaAllowed: !allowed,
+      visualMediaAllowed: !allowed,
     });
-    expect(exec.mock.calls[0][0].pdfMediaAllowed).toBe(allowed);
+    expect(exec.mock.calls[0][0].visualMediaAllowed).toBe(allowed);
   },
 );
