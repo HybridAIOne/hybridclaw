@@ -79,15 +79,6 @@
   justify-content: center;
 }
 
-.navButtonActive,
-.navButtonActive .navLinkIcon {
-  color: var(--primary);
-}
-
-.navButtonActive {
-  background: var(--chat-hover-bg);
-}
-
 .navLinkIcon {
   align-items: center;
   color: var(--muted-foreground);
@@ -96,6 +87,15 @@
 .navLinkIcon svg {
   width: 18px;
   height: 18px;
+}
+
+.navButtonActive,
+.navButtonActive .navLinkIcon {
+  color: var(--primary);
+}
+
+.navButtonActive {
+  background: var(--chat-hover-bg);
 }
 
 .appPreviewDialog {
