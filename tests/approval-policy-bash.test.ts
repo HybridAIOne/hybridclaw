@@ -477,6 +477,18 @@ approval:
     'touch ../out.txt',
     'chmod 644 ../out.txt',
     'echo x > a && gcc -o ../bin main.c',
+    // `2>/dev/null` makes the line a write, and its absolute target turns the
+    // absolute-path fallback off, so only the `-o` value fences these.
+    'gcc -o /opt/bin/x main.c 2>/dev/null',
+    'sort -o /opt/out.txt in.txt 2>/dev/null',
+    'pandoc in.md -o /opt/out.pdf 2>/dev/null',
+    'cc -o ../bin main.c > build.log',
+    'sips -s format jpeg in.png --out /opt/out.jpg 2>/dev/null',
+    // Programs the check does not know keep their `-o`, also behind npx.
+    'npx -y @mermaid-js/mermaid-cli -i chart.mmd -o /opt/out.png 2>/dev/null',
+    // xargs and find are skipped for their own `-o`, not what they run.
+    "find . -name '*.c' | xargs gcc -o /opt/bin/x 2>/dev/null",
+    'find . -name main.c -exec gcc -o /opt/bin/x {} + 2>/dev/null',
     'find . -fprint ../list.txt',
     'cd .. && echo x > out.txt',
     'cd sub && echo x > ../../out.txt',
@@ -531,6 +543,49 @@ approval:
     ['cd /opt/data && npx some-tool check 2>&1', 'bash:other'],
     ['grep -c key /opt/data/app.log >&2', 'bash:read-only'],
   ])('reading from outside the workspace is not a fence write: %j', (command, actionKey) => {
+    expect(evaluateBash(command).actionKey).toBe(actionKey);
+  });
+
+  test.each([
+    ['grep -o PATTERN file', 'bash:read-only'],
+    ["grep -oE '[a-z]+' notes.txt | sort", 'bash:other'],
+    ['rg -o PATTERN', 'bash:read-only'],
+    ['cd /opt/data && grep -o x y', 'bash:other'],
+    // `2>/dev/null` makes these lines writes, which the fence checks.
+    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:write-op'],
+    [
+      'cd /opt/data && grep -o \'"type":"[^"]*"\' wire.jsonl 2>/dev/null | sort | uniq -c',
+      'bash:write-op',
+    ],
+    ['grep -o /api/v2/items app.log 2>/dev/null', 'bash:write-op'],
+    [
+      "cd /opt/data && grep -E -o '[a-z]+' notes.txt 2>/dev/null | sort",
+      'bash:write-op',
+    ],
+    ['cd /opt/data && egrep -o x y 2>/dev/null', 'bash:write-op'],
+    [
+      'cd /opt/data && rg -o \'src="[^"]+"\' page.html 2>/dev/null',
+      'bash:write-op',
+    ],
+    ['ls -o /opt/data > listing.txt', 'bash:write-op'],
+    [
+      "cd /opt/data && find . -name '*.md' -o \\( -name '*.txt' \\) 2>/dev/null",
+      'bash:write-op',
+    ],
+    ['cd /opt/data && ps -o pid,comm 2>/dev/null', 'bash:write-op'],
+    [
+      'cd /opt/data && set -o pipefail && sort in.txt 2>/dev/null',
+      'bash:write-op',
+    ],
+    [
+      'cd /opt/data && ssh -o BatchMode=yes host uptime 2>/dev/null',
+      'bash:write-op',
+    ],
+    [
+      "cd /opt/data && find . -name '*.log' | xargs grep -o x 2>/dev/null",
+      'bash:write-op',
+    ],
+  ])('a -o flag that names no output is not a fence write: %j', (command, actionKey) => {
     expect(evaluateBash(command).actionKey).toBe(actionKey);
   });
 

@@ -5,6 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
+import {
+  encodeAuthenticatedInput,
+  generateIpcAuthSecret,
+} from '../container/shared/ipc-input-auth.js';
 import type {
   ChatMessage,
   ContainerInput,
@@ -158,6 +162,7 @@ async function startWorker(reply: (messages: ChatMessage[]) => ModelReply) {
     stderr += String(chunk);
   });
 
+  const ipcAuthSecret = generateIpcAuthSecret();
   const base: ContainerInput = {
     sessionId: 'test-session',
     agentId: 'test-agent',
@@ -216,14 +221,19 @@ async function startWorker(reply: (messages: ChatMessage[]) => ModelReply) {
     toolStarts: () => stderr.match(/^\[tool\] read: /gm)?.length ?? 0,
     runMediaTurn: async (site: RequestSite): Promise<ContainerOutput> => {
       if (site === 'first') {
-        child.stdin?.write(`${JSON.stringify({ ...base, ...mediaTurn })}\n`);
+        child.stdin?.write(
+          `${JSON.stringify({ ...base, ...mediaTurn, ipcAuthSecret })}\n`,
+        );
         return waitOutput();
       }
-      child.stdin?.write(`${JSON.stringify(base)}\n`);
+      child.stdin?.write(`${JSON.stringify({ ...base, ipcAuthSecret })}\n`);
       expect((await waitOutput()).status).toBe('success');
       fs.writeFileSync(
         path.join(ipc, 'input.json'),
-        JSON.stringify({ ...base, ...mediaTurn }),
+        encodeAuthenticatedInput(
+          ipcAuthSecret,
+          JSON.stringify({ ...base, ...mediaTurn }),
+        ),
       );
       return waitOutput();
     },

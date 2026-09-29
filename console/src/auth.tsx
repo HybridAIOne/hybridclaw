@@ -16,6 +16,7 @@ import {
   validateToken,
 } from './api/client';
 import type { GatewayStatus } from './api/types';
+import { disableWebPush } from './lib/web-push';
 
 type AuthState =
   | {
@@ -218,6 +219,10 @@ export function AuthProvider(props: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback((): void => {
+    void disableWebPush(state.token).catch(() => {});
+    try {
+      localStorage.removeItem('hybridclaw.notifications.enabled');
+    } catch {}
     clearStoredToken();
     setState((prev) => {
       if (prev.gatewayStatus?.webAuthConfigured) {
@@ -243,7 +248,7 @@ export function AuthProvider(props: { children: ReactNode }) {
         error: null,
       };
     });
-  }, []);
+  }, [state.token]);
 
   const retry = useCallback(async (): Promise<void> => {
     window.location.reload();

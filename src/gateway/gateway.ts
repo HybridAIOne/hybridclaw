@@ -213,11 +213,7 @@ import {
 } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
-import {
-  type SchedulerDispatchRequest,
-  startScheduler,
-  stopScheduler,
-} from '../scheduler/scheduler.js';
+import { startScheduler, stopScheduler } from '../scheduler/scheduler.js';
 import { persistThirdPartySkillDiscoveryDefaults } from '../skills/skills.js';
 import {
   type ArtifactMetadata,
@@ -260,10 +256,8 @@ import {
   setChannelPluginAvailabilityListener,
   stopGatewayPlugins,
 } from './gateway-plugin-service.js';
-import {
-  migrateConfigSchedulerJobsToDatabase,
-  runGatewayScheduledTask,
-} from './gateway-scheduled-task-service.js';
+import { runScheduledTask } from './gateway-scheduled-dispatch.js';
+import { migrateConfigSchedulerJobsToDatabase } from './gateway-scheduled-task-service.js';
 import {
   getGatewayStatus,
   handleGatewayCommand,
@@ -291,7 +285,6 @@ import {
   hasQueuedProactiveDeliveryPath,
   isDiscordChannelId,
   isEmailAddress,
-  isHeartbeatOkText,
   resolveHeartbeatDeliveryChannelId,
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
@@ -4129,187 +4122,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
   });
 }
 
-async function runScheduledTask(
-  request: SchedulerDispatchRequest,
-): Promise<void> {
-  const sourceLabel =
-    request.source === 'scheduled-task'
-      ? `schedule:${request.taskId ?? 'unknown'}`
-      : `schedule-job:${request.jobId ?? 'unknown'}`;
-  const resolvedDeliveryChannelId =
-    request.delivery.kind === 'channel'
-      ? request.delivery.channelId
-      : request.delivery.kind === 'last-channel'
-        ? resolveLastUsedDeliverableChannelId()
-        : null;
-
-  if (request.delivery.kind === 'last-channel' && !resolvedDeliveryChannelId) {
-    logger.warn(
-      {
-        jobId: request.jobId,
-        taskId: request.taskId,
-        source: request.source,
-        actionKind: request.actionKind,
-        delivery: request.delivery.kind,
-      },
-      'Scheduled task skipped: no delivery channel available',
-    );
-    throw new Error(
-      'No delivery channel available: no recently used channel supports proactive delivery.',
-    );
-  }
-
-  if (request.actionKind === 'system_event') {
-    if (request.delivery.kind === 'webhook') {
-      await deliverWebhookMessage(
-        request.delivery.webhookUrl,
-        request.prompt,
-        `${sourceLabel}:system`,
-      );
-      return;
-    }
-    if (!resolvedDeliveryChannelId) {
-      throw new Error(
-        'No delivery channel available for scheduled system event delivery.',
-      );
-    }
-    const outcome = await deliverProactiveMessage(
-      resolvedDeliveryChannelId,
-      request.prompt,
-      `${sourceLabel}:system`,
-    );
-    if (outcome.status === 'failed') {
-      throw new Error(
-        `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
-      );
-    }
-    return;
-  }
-
-  const runChannelId =
-    request.channelId || resolvedDeliveryChannelId || 'scheduler';
-  const taskId = request.taskId ?? -1;
-  const runKey =
-    request.source === 'scheduler-job'
-      ? request.sessionId
-      : request.taskId != null
-        ? `cron:${request.taskId}`
-        : undefined;
-
-  let runError: unknown = null;
-  await runGatewayScheduledTask(
-    request.sessionId,
-    runChannelId,
-    request.prompt,
-    taskId,
-    async (result) => {
-      if (request.delivery.kind === 'webhook') {
-        await deliverWebhookMessage(
-          request.delivery.webhookUrl,
-          result.text,
-          sourceLabel,
-          result.artifacts,
-        );
-        logger.info(
-          {
-            jobId: request.jobId,
-            taskId: request.taskId,
-            source: request.source,
-            delivery: 'webhook',
-            result: result.text,
-            artifactCount: result.artifacts?.length || 0,
-          },
-          'Scheduled task completed',
-        );
-        return;
-      }
-
-      if (!resolvedDeliveryChannelId) {
-        throw new Error(
-          'No delivery channel available for scheduled delivery.',
-        );
-      }
-      if (
-        resolvedDeliveryChannelId === 'tui' &&
-        (result.artifacts?.length || 0) === 0 &&
-        isSchedulerNoopTuiResult(result.text)
-      ) {
-        logger.info(
-          {
-            jobId: request.jobId,
-            taskId: request.taskId,
-            source: request.source,
-            channelId: resolvedDeliveryChannelId,
-            result: result.text,
-          },
-          'Scheduled task completed without TUI delivery',
-        );
-        return;
-      }
-      const outcome = await deliverProactiveMessage(
-        resolvedDeliveryChannelId,
-        result.text,
-        sourceLabel,
-        result.artifacts,
-      );
-      if (outcome.status === 'failed') {
-        throw new Error(
-          `Delivery to ${resolvedDeliveryChannelId} failed: ${outcome.reason || 'unknown error'}`,
-        );
-      }
-      logger.info(
-        {
-          jobId: request.jobId,
-          taskId: request.taskId,
-          source: request.source,
-          channelId: resolvedDeliveryChannelId,
-          result: result.text,
-          artifactCount: result.artifacts?.length || 0,
-        },
-        'Scheduled task completed',
-      );
-    },
-    (error) => {
-      runError = error ?? new Error('Scheduled task failed.');
-      logger.error(
-        {
-          jobId: request.jobId,
-          taskId: request.taskId,
-          source: request.source,
-          delivery: request.delivery.kind,
-          error,
-        },
-        'Scheduled task failed',
-      );
-    },
-    runKey,
-    request.agentId,
-  );
-  if (runError !== null) {
-    throw runError instanceof Error ? runError : new Error(String(runError));
-  }
-}
-
-function isSchedulerNoopTuiResult(text: string): boolean {
-  if (isHeartbeatOkText(text)) return true;
-
-  const normalized = text.trim().replace(/\s+/g, ' ').toLowerCase();
-  if (!normalized) return true;
-
-  const reportsNoWork =
-    normalized.startsWith('nothing to report') ||
-    normalized.startsWith('no work to report') ||
-    normalized.startsWith('no pending work');
-  if (!reportsNoWork) return false;
-
-  return (
-    normalized.includes('no pending') ||
-    normalized.includes('no queued') ||
-    normalized.includes('no changes') ||
-    normalized.includes('idle')
-  );
-}
-
 function startOrRestartHeartbeat(): void {
   stopHeartbeat();
   const { agentId } = resolveAgentForRequest({});
@@ -4618,7 +4430,13 @@ async function main(): Promise<void> {
   detachSecretsRefreshListener = onRuntimeSecretsRefresh(() => {
     void refreshVoiceIntegration();
   });
-  startScheduler(runScheduledTask);
+  startScheduler((request) =>
+    runScheduledTask(request, {
+      deliverProactiveMessage,
+      deliverWebhookMessage,
+      resolveLastUsedDeliverableChannelId,
+    }),
+  );
   startOrRestartMemoryConsolidationScheduler();
   proactiveFlushTimer = setInterval(() => {
     void flushQueuedProactiveMessages().catch((err) => {

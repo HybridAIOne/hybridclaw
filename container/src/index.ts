@@ -28,7 +28,12 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
+import {
+  setIpcAuthSecret,
+  waitForInput,
+  writeHealthOutput,
+  writeOutput,
+} from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -205,6 +210,7 @@ let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
+let storedGatewayApiToken = '';
 let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
@@ -2186,8 +2192,12 @@ async function main(): Promise<void> {
   await haltIfShuttingDown();
   const firstInput: ContainerInput = JSON.parse(stdinData);
   inFlightInput = firstInput;
+  // The stdin payload is the one input not on a tool-writable path; the secret
+  // it carries authenticates every later input.json.
+  setIpcAuthSecret(firstInput.ipcAuthSecret || '');
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
+  storedGatewayApiToken = firstInput.gatewayApiToken || '';
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstRequestHeaders = withHybridAICorrelationHeaders({
     provider: firstInput.provider,
@@ -2370,9 +2380,12 @@ async function main(): Promise<void> {
     approvalRuntime.setSession(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
+    // Follow-up files carry no gateway token; reuse the one from stdin (a change
+    // re-spawns the worker with a fresh stdin payload).
+    if (input.gatewayApiToken) storedGatewayApiToken = input.gatewayApiToken;
     setGatewayContext(
       input.gatewayBaseUrl,
-      input.gatewayApiToken,
+      storedGatewayApiToken,
       input.channelId,
       input.configuredDiscordChannels,
       input.browserProvider,

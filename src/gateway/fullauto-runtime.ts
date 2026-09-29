@@ -1,3 +1,8 @@
+/**
+ * Gateway-owned full-auto session bookkeeping, separate from worker execution.
+ * Proactive payloads may reference an already-persisted reply so transport
+ * delivery never needs to store the same assistant message a second time.
+ */
 import {
   FULLAUTO_COOLDOWN_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
@@ -16,6 +21,7 @@ const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
 export interface ProactiveMessagePayload {
+  storedMessage?: { sessionId: string; id: number };
   channelId?: string;
   text: string;
   artifacts?: ArtifactMetadata[];

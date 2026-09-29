@@ -401,6 +401,7 @@ export function resolveAdminRbacAction(
   if (pathname.startsWith('/v1/')) {
     return 'openai.api';
   }
+  if (pathname.startsWith('/api/push/')) return 'chat.send';
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
   }

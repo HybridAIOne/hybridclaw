@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { resolveBrowserTitle } from './browser-title';
+import {
+  resolveBrowserTitle,
+  setChatUnreadCount,
+  updateBrowserTitle,
+} from './browser-title';
 
 describe('resolveBrowserTitle', () => {
+  it('keeps unread badges across chat navigation and clears them outside chat', () => {
+    setChatUnreadCount(2);
+    updateBrowserTitle('/chat/session-b');
+    expect(document.title).toMatch(/^\(2\) /);
+    updateBrowserTitle('/admin');
+    expect(document.title).not.toMatch(/^\(/);
+    setChatUnreadCount(0);
+  });
   it('uses chat title for chat routes', () => {
     expect(resolveBrowserTitle('/chat')).toBe('HybridClaw Chat');
     expect(resolveBrowserTitle('/chat/session-1')).toBe('HybridClaw Chat');

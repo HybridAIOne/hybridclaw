@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
+import { encodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type { ContainerOutput } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
+
+const WORKER_SECRET = 'worker-secret';
 
 const makeTempDir = useTempDir('hybridclaw-container-ipc-');
 useCleanMocks({
@@ -49,27 +52,45 @@ test.each([
 );
 
 test.each([
-  'input.json',
-  'health-input.json',
-])('once shutdown starts, waitForInput leaves %s for the replacement agent', async (name) => {
-  const ipcDir = makeTempDir();
-  vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
-  const { waitForInput } = await import('../container/src/ipc.js');
-  const { startShutdown } = await import('../container/src/shutdown-latch.js');
-  const writeInput = () =>
-    fs.writeFileSync(
-      path.join(ipcDir, name),
-      JSON.stringify({ sessionId: 'session-a', messages: [] }),
+  {
+    name: 'input.json',
+    write: (ipcDir: string) =>
+      fs.writeFileSync(
+        path.join(ipcDir, 'input.json'),
+        encodeAuthenticatedInput(
+          WORKER_SECRET,
+          JSON.stringify({ sessionId: 'session-a', messages: [] }),
+        ),
+      ),
+    expected: { sessionId: 'session-a' },
+  },
+  {
+    name: 'health-input.json',
+    write: (ipcDir: string) =>
+      fs.writeFileSync(
+        path.join(ipcDir, 'health-input.json'),
+        JSON.stringify({ healthCheck: { nonce: 'n1' } }),
+      ),
+    expected: { healthCheck: { nonce: 'n1' } },
+  },
+])(
+  'once shutdown starts, waitForInput leaves $name for the replacement agent',
+  async ({ name, write, expected }) => {
+    const ipcDir = makeTempDir();
+    vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
+    const { waitForInput, setIpcAuthSecret } = await import(
+      '../container/src/ipc.js'
     );
-  writeInput();
-  await expect(waitForInput(1_000)).resolves.toMatchObject({
-    sessionId: 'session-a',
-  });
+    const { startShutdown } = await import('../container/src/shutdown-latch.js');
+    setIpcAuthSecret(WORKER_SECRET);
+    write(ipcDir);
+    await expect(waitForInput(1_000)).resolves.toMatchObject(expected);
 
-  const waiting = waitForInput(5_000);
-  void startShutdown(() => new Promise<never>(() => {}));
-  writeInput();
+    const waiting = waitForInput(5_000);
+    void startShutdown(() => new Promise<never>(() => {}));
+    write(ipcDir);
 
-  await expect(waiting).resolves.toBeNull();
-  expect(fs.readdirSync(ipcDir)).toEqual([name]);
-});
+    await expect(waiting).resolves.toBeNull();
+    expect(fs.readdirSync(ipcDir)).toEqual([name]);
+  },
+);

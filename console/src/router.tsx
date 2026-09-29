@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { AppShell } from './components/app-shell';
-import { resolveBrowserTitle } from './lib/browser-title';
+import { updateBrowserTitle } from './lib/browser-title';
 import { ActivityPage } from './routes/activity';
 import { AgentsHubPage } from './routes/agents-hub';
 import { ApprovalsPage } from './routes/approvals';
@@ -97,7 +97,7 @@ function BrowserTitle() {
   });
 
   useEffect(() => {
-    document.title = resolveBrowserTitle(pathname);
+    updateBrowserTitle(pathname);
   }, [pathname]);
 
   return null;

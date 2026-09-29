@@ -4,6 +4,12 @@
  * `container/shared/ipc-output-files.js`) in the session's `ipc/` dir; auth
  * material from the first stdin request is never written to disk.
  *
+ * Follow-up inputs live in a directory the agent's own tools can reach, so
+ * `writeInput` wraps each one in an authenticity envelope keyed by the
+ * per-worker secret the agent holds from stdin (container/shared/
+ * ipc-input-auth.js). Health input carries only a liveness nonce and never
+ * drives a turn, so it is written plain.
+ *
  * `readOutput` always settles, with the reply to its own request id, a
  * timeout, or an interrupt, so a stopped agent's late reply never answers a
  * later request. An interrupted read keeps only the tool history the agent
@@ -13,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { encodeAuthenticatedInput } from '../../container/shared/ipc-input-auth.js';
 import {
   ipcOutputFileName,
   isIpcOutputFileName,
@@ -47,6 +54,12 @@ function agentDir(agentId: string): string {
   return path.join(DATA_DIR, 'agents', safe);
 }
 
+// Each redactor drops the secret-bearing fields by destructuring them out and
+// rebuilding from the rest, rather than spreading the source and overwriting.
+// The follow-up file the agent verifies then carries no credential values at
+// all — the agent reuses the ones it received on stdin — which also keeps
+// credentials out of the input that `writeInput` authenticates.
+
 function redactTaskModelSecrets(
   taskModels: ContainerInput['taskModels'],
 ): ContainerInput['taskModels'] | undefined {
@@ -54,11 +67,12 @@ function redactTaskModelSecrets(
   for (const key of TASK_MODEL_KEYS) {
     const taskModel = taskModels?.[key];
     if (!taskModel) continue;
-    redacted[key] = {
-      ...taskModel,
-      apiKey: '',
-      requestHeaders: {},
-    };
+    const {
+      apiKey: _apiKey,
+      requestHeaders: _requestHeaders,
+      ...routing
+    } = taskModel;
+    redacted[key] = { ...routing, apiKey: '', requestHeaders: {} };
   }
   return Object.keys(redacted).length > 0 ? redacted : undefined;
 }
@@ -67,21 +81,35 @@ function redactWebSearchSecrets(
   webSearch: ContainerInput['webSearch'],
 ): ContainerInput['webSearch'] | undefined {
   if (!webSearch) return undefined;
-  return {
-    ...webSearch,
-    braveApiKey: undefined,
-    perplexityApiKey: undefined,
-    tavilyApiKey: undefined,
-  };
+  const {
+    braveApiKey: _brave,
+    perplexityApiKey: _perplexity,
+    tavilyApiKey: _tavily,
+    ...rest
+  } = webSearch;
+  return { ...rest };
 }
 
 function buildRedactedInput(input: ContainerInput): ContainerInput {
+  // Credentials are established once on stdin and remembered by the worker; a
+  // change to any of them re-spawns the worker (they are part of its signature)
+  // with a fresh stdin payload, so follow-up files never need to carry them.
+  const {
+    apiKey: _apiKey,
+    ipcAuthSecret: _ipcAuthSecret,
+    requestHeaders: _requestHeaders,
+    gatewayApiToken: _gatewayApiToken,
+    runtimeEnv: _runtimeEnv,
+    taskModels,
+    webSearch,
+    ...rest
+  } = input;
   return {
-    ...input,
+    ...rest,
     apiKey: '',
     requestHeaders: {},
-    taskModels: redactTaskModelSecrets(input.taskModels),
-    webSearch: redactWebSearchSecrets(input.webSearch),
+    taskModels: redactTaskModelSecrets(taskModels),
+    webSearch: redactWebSearchSecrets(webSearch),
   };
 }
 
@@ -104,19 +132,26 @@ export function ensureAgentDirs(agentId: string): void {
 }
 
 /**
- * Write input for the container agent.
- * When omitApiKey is set, auth material is excluded from the file on disk
- * (the agent already has it in memory from the initial stdin payload). Runtime
- * env is preserved so short-lived host-minted tokens can refresh per request.
+ * Write a follow-up input for the container agent.
+ *
+ * The file lives in a directory the agent's own tools can reach, so every input
+ * is wrapped in an authenticity envelope keyed by the per-worker `authSecret`
+ * the agent received on stdin (see container/shared/ipc-input-auth.js). The
+ * agent rejects any input.json it cannot verify, so a follow-up forged by the
+ * agent never becomes a turn.
+ *
+ * The body carries no credentials: `buildRedactedInput` drops them, and the
+ * agent reuses the ones it received on stdin. A credential change re-spawns the
+ * worker with a fresh stdin payload.
  */
 export function writeInput(
   sessionId: string,
   input: ContainerInput,
-  opts?: { omitApiKey?: boolean },
+  opts: { authSecret: string },
 ): string {
   const inputPath = ipcFilePath(sessionId, 'input.json');
-  const toWrite = opts?.omitApiKey ? buildRedactedInput(input) : input;
-  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
+  const body = JSON.stringify(buildRedactedInput(input), null, 2);
+  fs.writeFileSync(inputPath, encodeAuthenticatedInput(opts.authSecret, body), {
     mode: 0o600,
   });
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');

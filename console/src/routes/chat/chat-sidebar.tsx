@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
 import { Lightbulb, Trash } from '../../components/icons';
@@ -26,6 +26,8 @@ export { SidebarProvider as ChatSidebarProvider } from '../../components/sidebar
 
 export interface ChatSidebarProps {
   sessions: ChatRecentSession[];
+  unreadSessions?: ReadonlySet<string>;
+  notificationSettings?: ReactNode;
   activeSessionId: string;
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -121,6 +123,8 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         <ChatSessionList {...props} isSearching={isSearching} />
       </SidebarContent>
       <SidebarFooter>
+        {(sidebar.isMobile || sidebar.state === 'expanded') &&
+          props.notificationSettings}
         <div className={sidebarStyles.footerBlock}>
           <SidebarMeta version={auth.gatewayStatus?.version} />
           <ThemeToggle labelClassName={sidebarStyles.themeToggleLabel} />
@@ -185,6 +189,12 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
                 >
                   <span className={css.sessionTitle}>
                     {s.title || 'Untitled'}
+                    {props.unreadSessions?.has(s.sessionId) && (
+                      <span role="img" aria-label="Unread messages">
+                        {' '}
+                        ●
+                      </span>
+                    )}
                   </span>
                   {s.searchSnippet ? (
                     <span className={css.sessionSnippet}>

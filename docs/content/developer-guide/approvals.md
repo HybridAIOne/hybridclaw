@@ -184,7 +184,11 @@ The workspace fence looks at what a shell command writes: redirect targets,
 `tee`, `touch`, `mkdir`, `chmod`, and `chown` operands, `cp` and `mv`
 destinations, and write options such as `git --output`, `find -fprint`, and
 `curl -o`, resolved from the shell's working directory and through any `cd`
-in the command. `2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
+in the command. When the line also writes in another way, the value of any
+other program's `-o` or `--out` counts as a target too, except for programs
+whose `-o` names no file: `grep`, `egrep`, `fgrep`, `rg`, `ls`, `find`, `ps`,
+`set`, `ssh`, `scp`, `sftp`, and `xargs`, whose command is checked on its own.
+`2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
 `cat /usr/share/dict/words > words.txt`, `cp /opt/data/input.csv .`, and
 `python3 /opt/tools/gen.py > out.txt` keep their usual tier. When none of those
 targets is an absolute path and the command also runs a program whose writes
