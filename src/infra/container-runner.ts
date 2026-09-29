@@ -1342,10 +1342,9 @@ async function runContainerInner(
         `${JSON.stringify({ ...input, ipcAuthSecret: entry.ipcAuthSecret })}\n`,
       );
     } else {
-      // Follow-up requests: write to IPC file, omitting apiKey and authenticating
-      // with the secret the agent received on stdin.
+      // Follow-up requests: write to IPC file (credentials dropped, reused from
+      // stdin) authenticated with the secret the agent received on stdin.
       writeInput(entry.ipcSessionId, input, {
-        omitApiKey: true,
         authSecret: entry.ipcAuthSecret,
       });
     }

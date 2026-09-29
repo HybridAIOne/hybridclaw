@@ -1172,7 +1172,6 @@ async function runHostProcessInner(
       }
     } else {
       writeInput(entry.ipcSessionId, input, {
-        omitApiKey: true,
         authSecret: entry.ipcAuthSecret,
       });
     }

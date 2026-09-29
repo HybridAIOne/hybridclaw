@@ -210,6 +210,7 @@ let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
 let storedApiKey = '';
+let storedGatewayApiToken = '';
 let storedRequestHeaders: Record<string, string> = {};
 let storedTaskModels: ContainerInput['taskModels'];
 let mcpClientManager: McpClientManager | null = null;
@@ -2196,6 +2197,7 @@ async function main(): Promise<void> {
   setIpcAuthSecret(firstInput.ipcAuthSecret || '');
   applyRuntimeEnv(firstInput.runtimeEnv);
   storedApiKey = firstInput.apiKey;
+  storedGatewayApiToken = firstInput.gatewayApiToken || '';
   storedRequestHeaders = { ...(firstInput.requestHeaders || {}) };
   const firstRequestHeaders = withHybridAICorrelationHeaders({
     provider: firstInput.provider,
@@ -2378,9 +2380,12 @@ async function main(): Promise<void> {
     approvalRuntime.setSession(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
+    // Follow-up files carry no gateway token; reuse the one from stdin (a change
+    // re-spawns the worker with a fresh stdin payload).
+    if (input.gatewayApiToken) storedGatewayApiToken = input.gatewayApiToken;
     setGatewayContext(
       input.gatewayBaseUrl,
-      input.gatewayApiToken,
+      storedGatewayApiToken,
       input.channelId,
       input.configuredDiscordChannels,
       input.browserProvider,

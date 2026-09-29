@@ -43,7 +43,7 @@ afterEach(() => {
   restoreEnvVar('HOME', ORIGINAL_HOME);
 });
 
-test('writeInput omits auth material from IPC files when requested', async () => {
+test('writeInput omits auth material from IPC files', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -56,6 +56,7 @@ test('writeInput omits auth material from IPC files when requested', async () =>
     enableRag: false,
     apiKey: 'token_secret',
     ipcAuthSecret: 'secret-should-not-persist',
+    gatewayApiToken: 'gateway-secret',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
     provider: 'openai-codex' as const,
     requestHeaders: {
@@ -98,10 +99,7 @@ test('writeInput omits auth material from IPC files when requested', async () =>
 
   ensureSessionDirs('session-1');
   const authSecret = 'worker-secret';
-  const filePath = writeInput('session-1', input, {
-    omitApiKey: true,
-    authSecret,
-  });
+  const filePath = writeInput('session-1', input, { authSecret });
   // The file is an authenticity envelope; verify it and read the body back.
   const decoded = decodeAuthenticatedInput(
     authSecret,
@@ -111,15 +109,13 @@ test('writeInput omits auth material from IPC files when requested', async () =>
   if (decoded.status !== 'ok') throw new Error('expected authentic input');
   const written = JSON.parse(decoded.body) as Record<string, unknown>;
 
-  // The per-worker secret must never reach the file.
+  // Credentials never reach the follow-up file: the per-worker secret, the
+  // gateway token, and the runtime env are all delivered on stdin instead.
   expect(written.ipcAuthSecret).toBeUndefined();
+  expect(written.gatewayApiToken).toBeUndefined();
+  expect(written.runtimeEnv).toBeUndefined();
   expect(written.apiKey).toBe('');
   expect(written.requestHeaders).toEqual({});
-  expect(written.runtimeEnv).toEqual({
-    GOG_ACCESS_TOKEN: 'short-lived-access-token',
-    GOOGLE_WORKSPACE_CLI_TOKEN: 'short-lived-access-token',
-    GOG_ACCOUNT: 'user@example.com',
-  });
   expect(written.taskModels).toEqual({
     compression: {
       provider: 'openrouter',
