@@ -21,6 +21,7 @@ import {
   type ResponseRatingTarget,
   upsertResponseRating,
 } from '../memory/db.js';
+import { findMSTeamsUserEmail } from '../memory/msteams-users.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import { recordSkillFeedbackForObservation } from '../skills/skills-observation.js';
 import type { ResponseRatingValue } from '../types/session.js';
@@ -55,14 +56,12 @@ const HYBRIDAI_CHAT_FEEDBACK_URL = `${normalizeBaseUrl(
   HYBRIDAI_BASE_URL,
 )}/api/chat_feedback`;
 
-function resolveProxyAgentChatbotId(
-  agentId: string | null | undefined,
-): string {
-  if (!agentId?.trim()) return '';
+function findRatedAgentConfig(agentId: string | null | undefined) {
+  if (!agentId?.trim()) return null;
   try {
-    return findAgentConfig(agentId)?.proxy?.chatbotId?.trim() || '';
+    return findAgentConfig(agentId) ?? null;
   } catch {
-    return '';
+    return null;
   }
 }
 
@@ -71,11 +70,22 @@ function resolveHybridAIChatFeedbackBotId(
 ): string {
   // A proxy agent's answers come from its upstream chatbot, so feedback has
   // to land there rather than on the session's (usually unset) chatbot.
+  const agent = findRatedAgentConfig(target.agent_id);
   return (
-    resolveProxyAgentChatbotId(target.agent_id) ||
+    agent?.proxy?.chatbotId?.trim() ||
     target.chatbot_id?.trim() ||
+    agent?.chatbotId?.trim() ||
     ''
   );
+}
+
+function resolveHybridAIChatFeedbackUserId(
+  operatorUserId: string,
+  sourceSurface: string,
+): string {
+  // Teams ids are opaque Entra object ids; reviewers need the member's email.
+  if (sourceSurface !== 'msteams') return operatorUserId;
+  return findMSTeamsUserEmail(operatorUserId) || operatorUserId;
 }
 
 function warnHybridAIChatFeedbackForwardingFailed(
@@ -95,6 +105,7 @@ async function forwardHybridAIChatFeedbackForRating(input: {
   sessionId: string;
   messageId: number;
   operatorUserId: string;
+  sourceSurface: string;
   rating: ResponseRatingValue;
   comment: string | null;
   target: ResponseRatingTarget;
@@ -119,7 +130,10 @@ async function forwardHybridAIChatFeedbackForRating(input: {
     bot_response: agentId
       ? `[${agentId}] ${input.target.assistant_content}`
       : input.target.assistant_content,
-    external_user_id: input.operatorUserId,
+    external_user_id: resolveHybridAIChatFeedbackUserId(
+      input.operatorUserId,
+      input.sourceSurface,
+    ),
     ...(input.rating === 'down' && input.comment
       ? { better_response: input.comment }
       : {}),
@@ -271,6 +285,7 @@ export function submitResponseRating(
       sessionId,
       messageId: input.messageId,
       operatorUserId,
+      sourceSurface,
       rating: input.rating,
       comment,
       target,
