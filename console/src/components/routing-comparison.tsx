@@ -5,6 +5,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { RoutingComparison as Comparison } from '../../../src/gateway/routing-comparison';
+import type { LocalClassifierInfo } from '../../../src/routing/local-classifiers';
 import { fetchModels, requestJson } from '../api/client';
 import { useAuth } from '../auth';
 import { Button } from './button';
@@ -17,6 +18,14 @@ export function RoutingComparison() {
   const models = useQuery({
     queryKey: ['models', token],
     queryFn: () => fetchModels(token),
+  });
+  const local = useQuery({
+    queryKey: ['local-classifiers', token],
+    queryFn: () =>
+      requestJson<{ classifiers: LocalClassifierInfo[] }>(
+        '/api/admin/local-classifiers',
+        { token },
+      ),
   });
   const [model, setModel] = useState('');
   const [text, setText] = useState(
@@ -52,6 +61,16 @@ export function RoutingComparison() {
               }}
             >
               <option value="">Choose a model…</option>
+              {local.data?.classifiers?.map((item) => (
+                <option
+                  key={item.model}
+                  value={item.model}
+                  disabled={item.status !== 'running'}
+                >
+                  {item.label}
+                  {item.status === 'running' ? '' : ' · start in Labs'}
+                </option>
+              ))}
               {models.data?.models
                 .filter((item) => !item.id.startsWith('jev/'))
                 .map((item) => (

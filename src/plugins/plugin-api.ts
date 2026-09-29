@@ -17,6 +17,7 @@ import { getRecentMessages, getSessionById } from '../memory/db.js';
 import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
+import { registerLocalClassifier } from '../routing/local-classifiers.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
 import type { McpServerConfig } from '../types/models.js';
@@ -145,6 +146,7 @@ export function createPluginApi(params: {
     registerEmbeddingProvider(provider: EmbeddingProviderRegistration): void {
       params.manager.registerEmbeddingProvider(params.pluginId, provider);
     },
+    registerLocalClassifier,
     registerProvider(provider: AIProvider): void {
       params.manager.registerProvider(params.pluginId, provider);
     },

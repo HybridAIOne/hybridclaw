@@ -3,6 +3,7 @@
  * Live routing reads return copies of current policy; registration snapshots
  * remain separate and this manager does not decide which tier executes.
  */
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,11 @@ import {
   snapshotEmbeddingProviders,
 } from '../memory/embeddings.js';
 import type { AIProvider } from '../providers/types.js';
+import {
+  clearLocalClassifiers,
+  restoreLocalClassifiers,
+  snapshotLocalClassifiers,
+} from '../routing/local-classifiers.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
@@ -247,6 +253,7 @@ type PluginRegistrationSnapshot = {
   providers: RegisteredProvider[];
   channels: RegisteredChannel[];
   channelTransports: RegisteredChannelTransport[];
+  localClassifiers: ReturnType<typeof snapshotLocalClassifiers>;
   embeddingProviders: ReturnType<typeof snapshotEmbeddingProviders>;
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
@@ -971,6 +978,7 @@ export class PluginManager {
       }
       this.channelTransports = [];
       clearEmbeddingProviders();
+      clearLocalClassifiers();
       this.cleanupImportSnapshots();
       return;
     }
@@ -1009,6 +1017,7 @@ export class PluginManager {
     }
     this.channelTransports = [];
     clearEmbeddingProviders();
+    clearLocalClassifiers();
 
     this.cleanupImportSnapshots();
   }
@@ -1648,6 +1657,7 @@ export class PluginManager {
       providers: [...this.providers],
       channels: [...this.channels],
       channelTransports: [...this.channelTransports],
+      localClassifiers: snapshotLocalClassifiers(),
       embeddingProviders: snapshotEmbeddingProviders(),
       tools: new Map(this.tools),
       commands: new Map(this.commands),
@@ -1682,6 +1692,7 @@ export class PluginManager {
       registerChannelTransport(entry.transport);
     }
     restoreEmbeddingProviders(snapshot.embeddingProviders);
+    restoreLocalClassifiers(snapshot.localClassifiers);
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
     this.commands = new Map(snapshot.commands);

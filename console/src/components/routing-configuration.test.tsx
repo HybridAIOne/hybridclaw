@@ -8,11 +8,17 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   save: vi.fn(),
   available: true,
+  classifiers: [] as { model: string; label: string; status: string }[],
 }));
 vi.mock('../api/client', () => ({
   fetchConfig: mocks.fetch,
   saveConfig: mocks.save,
-  requestJson: () => Promise.resolve({ jevAvailable: mocks.available }),
+  requestJson: (url: string) =>
+    Promise.resolve(
+      url === '/api/admin/local-classifiers'
+        ? { classifiers: mocks.classifiers }
+        : { jevAvailable: mocks.available },
+    ),
 }));
 vi.mock('../auth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
 const models = [
@@ -36,6 +42,7 @@ const routing = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.available = true;
+  mocks.classifiers = [];
   mocks.fetch.mockResolvedValue({ config: { routing } });
   mocks.save.mockImplementation((_token, config) =>
     Promise.resolve({ config }),
@@ -598,4 +605,27 @@ it('an active Mistral language model makes the EU-provider level selectable', as
       }) as HTMLInputElement
     ).value,
   ).toBe('2');
+});
+
+it('offers an installed local decision router under local privacy without a JEV key', async () => {
+  mocks.available = false;
+  mocks.classifiers = [
+    { model: 'local-decision/laya', label: 'Laya', status: 'running' },
+  ];
+  mocks.fetch.mockResolvedValue({
+    config: {
+      routing: {
+        ...routing,
+        maximumZone: 'local',
+        tiers: [{ name: 'Local', models: ['local-model'] }],
+      },
+    },
+  });
+  await renderEditor();
+  await waitFor(() =>
+    expect(screen.getAllByRole('option', { name: 'Laya' })).toHaveLength(2),
+  );
+  const live = screen.getByLabelText('1st router · Live');
+  fireEvent.change(live, { target: { value: 'local-decision/laya' } });
+  expect((live as HTMLSelectElement).value).toBe('local-decision/laya');
 });

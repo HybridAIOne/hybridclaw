@@ -4,12 +4,14 @@
  * Disclosure guards never redefine the saved execution privacy boundary.
  * Neither JEV nor a text model may return an executable model identifier.
  */
+
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { getModelCatalogMetadata } from '../providers/model-catalog.js';
 import { modelRoutingZoneAllows } from '../providers/model-routing.js';
 import { evaluatorDisclosureReason } from '../routing/evaluator.js';
 import type { TypedRoutingEvaluation } from '../routing/evaluator-contract.js';
+import { getLocalClassifier } from '../routing/local-classifiers.js';
 import {
   type RoutingSignals,
   routingTierCriteria,
@@ -17,6 +19,7 @@ import {
   UNKNOWN_SIGNALS,
 } from '../routing/policy.js';
 import { estimateModelUsageCostUsd } from '../usage/model-cost.js';
+import { evaluateLocalClassifier } from './local-classifier-routing.js';
 import { evaluateConfiguredRouting } from './routing-evaluator.js';
 
 export async function classifyRouting(input: {
@@ -30,6 +33,7 @@ export async function classifyRouting(input: {
 }) {
   const routing = getRuntimeConfig().routing;
   const model = input.model ?? routing.concierge.model;
+  const localClassifier = getLocalClassifier(model);
   const comparisonApproved = Boolean(
     input.configuredComparison &&
       routing.enabled &&
@@ -81,7 +85,11 @@ export async function classifyRouting(input: {
   if (
     !modelRoutingZoneAllows(
       localOnly ? 'local' : routing.maximumZone,
-      model.startsWith('jev/') ? 'cloud' : getModelCatalogMetadata(model).zone,
+      localClassifier
+        ? 'local'
+        : model.startsWith('jev/')
+          ? 'cloud'
+          : getModelCatalogMetadata(model).zone,
     )
   )
     return {
@@ -101,6 +109,26 @@ export async function classifyRouting(input: {
       evaluation: { ...evaluation, reason: disclosure },
       localOnly,
     };
+  if (model.startsWith('local-decision/')) {
+    if (!localClassifier)
+      return {
+        signals,
+        evaluation: {
+          ...evaluation,
+          status: 'fallback' as const,
+          reason: 'classifier-unavailable',
+        },
+        localOnly,
+      };
+    const local = await evaluateLocalClassifier(
+      input,
+      localClassifier,
+      routing.evaluator,
+      routing.tiers,
+    );
+    if (local.status === 'evaluated') signals.tier = local.recommendedTier;
+    return { signals, evaluation: local, localOnly };
+  }
   if (model.startsWith('jev/')) {
     const jev = await evaluateConfiguredRouting({
       ...input,

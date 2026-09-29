@@ -108,6 +108,7 @@ import {
   normalizeRoutingEvaluator,
   type RoutingEvaluatorConfig,
 } from '../routing/evaluator-contract.js';
+import { getLocalClassifier } from '../routing/local-classifiers.js';
 import { parseLegacyAdditionalMountBinds } from '../security/mount-config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
@@ -9778,10 +9779,11 @@ function validateRoutingForSave(config: RuntimeConfig): void {
     routing.concierge.model,
     routing.concierge.comparisonModel,
   ]) {
+    const modelZone = getLocalClassifier(model) ? 'local' : zone(model);
     if (
       model &&
-      (zone(model) === null ||
-        !modelRoutingZoneAllows(routing.maximumZone, zone(model) ?? undefined))
+      (modelZone === null ||
+        !modelRoutingZoneAllows(routing.maximumZone, modelZone ?? undefined))
     )
       throw new Error(
         `Routing model "${model}" is disabled or outside the selected privacy limit. Select an eligible router first.`,
