@@ -982,7 +982,6 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       return;
     }
     this.startPromise = (async () => {
-      // Loaded on first use: the MCP SDK (and zod) is only needed on macOS.
       const [{ Client }, { getDefaultEnvironment, StdioClientTransport }] =
         await Promise.all([
           import('@modelcontextprotocol/sdk/client/index.js'),

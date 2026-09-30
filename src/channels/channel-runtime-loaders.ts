@@ -38,7 +38,6 @@ export const emailAdminMailbox = lazyModule(
 );
 export const slackRuntime = lazyModule(() => import('./slack/runtime.js'));
 
-// Stopping a runtime that never loaded is a no-op, and must not load its SDK.
 export async function stopDiscordRuntime(): Promise<void> {
   await discordRuntime.current()?.shutdownDiscord();
 }

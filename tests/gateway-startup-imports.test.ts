@@ -76,7 +76,6 @@ function collectStartupPackages(entry: string): Map<string, string> {
 test('gateway startup graph does not statically load optional channel SDKs', () => {
   const importers = collectStartupPackages(GATEWAY_ENTRY);
 
-  // Sanity check that the walk reaches real dependencies.
   expect(importers.has('better-sqlite3')).toBe(true);
   const leaked = LAZY_ONLY_PACKAGES.filter((name) => importers.has(name)).map(
     (name) => `${name} (imported by ${importers.get(name)})`,
