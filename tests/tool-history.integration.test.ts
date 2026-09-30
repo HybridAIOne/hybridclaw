@@ -361,6 +361,90 @@ test('a file reference reaches the outbound request but never the recorded call'
   }
 }, 60_000);
 
+test('a large tool result crosses IPC once, as a preview the gateway restores', async () => {
+  // Two full copies of a 6 MB result used to exceed the 10 MB output limit.
+  const session = memory.getOrCreateSession('large-result', null, 'test-channel');
+  const body = 'row,value\n'.repeat(600_000);
+  const server = http.createServer(async (req, res) => {
+    let text = '';
+    for await (const chunk of req) text += String(chunk);
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/http/request') {
+      res.end(JSON.stringify({ ok: true, status: 200, body }));
+      return;
+    }
+    const messages = JSON.parse(text).messages as ChatMessage[];
+    const answered = messages.some((message) => message.role === 'tool');
+    res.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: answered
+              ? { role: 'assistant', content: 'Fetched the export.' }
+              : {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'export-get',
+                      type: 'function',
+                      function: {
+                        name: 'http_request',
+                        arguments: '{"url":"https://example.com/export.csv"}',
+                      },
+                    },
+                  ],
+                },
+            finish_reason: answered ? 'stop' : 'tool_calls',
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string')
+    throw new Error('Missing test server address');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const output = await runFreshWorker(
+      session.id,
+      [{ role: 'user', content: 'Fetch the export' }],
+      baseUrl,
+      {
+        allowedTools: ['http_request'],
+        gatewayBaseUrl: baseUrl,
+        gatewayApiToken: 'test-token',
+        approvalMode: 'full',
+      },
+    );
+
+    expect(output.status).toBe('success');
+    expect(JSON.stringify(output).length).toBeLessThan(100_000);
+    expect(output.spilledToolCallIds).toEqual(['export-get']);
+
+    const { restoreSpilledToolResults } = await import(
+      '../src/agent/spilled-tool-results.js'
+    );
+    const restored = restoreSpilledToolResults(output, {
+      sessionId: session.id,
+      workspaceRoot: workspace,
+    });
+    const saved = fs.readFileSync(
+      path.join(workspace, '.tool-results', session.id, 'export-get.txt'),
+      'utf8',
+    );
+    expect(JSON.parse(saved).body === body).toBe(true);
+    expect(restored.toolExecutions?.[0].result === saved).toBe(true);
+    expect(restored.toolHistory?.[1].content === saved).toBe(true);
+    expect(restored.toolHistoryForReplay).toEqual(output.toolHistoryForReplay);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}, 60_000);
+
 test('forks retain exchanges and other sessions never inherit them', () => {
   const session = memory.getOrCreateSession('fork-tools', null, 'fork-channel');
   const toolHistory: ChatMessage[] = [

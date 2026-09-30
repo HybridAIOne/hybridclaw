@@ -75,6 +75,7 @@ export interface ToolExecution {
   name: string;
   arguments: string;
   result: string;
+  toolCallId?: string;
   durationMs: number;
   isError?: boolean;
   blocked?: boolean;

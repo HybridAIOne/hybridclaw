@@ -21,14 +21,14 @@ export function buildInterruptedShutdownOutput(
   };
   const openCallReason = `the agent process received ${reason} before this call returned; it may not have run, or may have run partially.`;
   const toolHistory = turnToolHistory?.finishInterrupted(openCallReason);
-  return toolHistory?.length
-    ? {
+  return turnToolHistory && toolHistory?.length
+    ? turnToolHistory.withSpilledPreviews({
         ...output,
         toolHistory,
-        toolHistoryForReplay: turnToolHistory?.finishInterrupted(
+        toolHistoryForReplay: turnToolHistory.finishInterrupted(
           openCallReason,
           true,
         ),
-      }
+      })
     : output;
 }

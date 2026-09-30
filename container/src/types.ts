@@ -354,6 +354,7 @@ export interface ToolExecution {
   name: string;
   arguments: string;
   result: string;
+  toolCallId?: string;
   durationMs: number;
   isError?: boolean;
   blocked?: boolean;
@@ -461,6 +462,8 @@ export interface ContainerOutput {
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
+  /** Results sent as previews; the full text is in their saved result files. */
+  spilledToolCallIds?: string[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

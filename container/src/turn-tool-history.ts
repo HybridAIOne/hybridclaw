@@ -3,6 +3,8 @@
  * Unlike loop detection, it retains ordered model messages for later replay;
  * unexecuted calls receive explicit terminal results, never fabricated success,
  * and calls a signal cut off are marked "outcome unknown", never "not run".
+ * A result saved to a file leaves the worker only as its preview: the gateway
+ * reads the full text back from that file, so no reply grows with result size.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,13 +15,15 @@ import {
   toolResultForHistory,
   validateToolHistory,
 } from '../shared/tool-history.js';
-import type { ChatMessage } from './types.js';
+import type { ChatMessage, ContainerOutput } from './types.js';
 
 const TOOL_RESULT_FILE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class TurnToolHistory {
   private readonly messages: ChatMessage[] = [];
   private readonly replayMessages: ChatMessage[] = [];
+  /** Preview per tool call whose full result was saved to a file. */
+  private readonly savedPreviews = new Map<string, string>();
   private activeHistory: ChatMessage[] | undefined;
   private prunedStaleResults = false;
 
@@ -40,14 +44,33 @@ export class TurnToolHistory {
   }
 
   recordResult(message: ChatMessage): ChatMessage {
-    this.messages.push(structuredClone(message));
-    const visible = toolResultForHistory(
-      message,
-      this.sessionId,
-      this.saveFullResult(message),
-    );
+    const savedPath = this.saveFullResult(message);
+    const visible = toolResultForHistory(message, this.sessionId, savedPath);
+    if (savedPath && message.tool_call_id) {
+      this.savedPreviews.set(message.tool_call_id, String(visible.content));
+    }
+    this.messages.push(structuredClone(savedPath ? visible : message));
     this.replayMessages.push(visible);
     return visible;
+  }
+
+  /** Sends saved results as previews and names them for the gateway to restore. */
+  withSpilledPreviews(output: ContainerOutput): ContainerOutput {
+    if (!this.savedPreviews.size) return output;
+    return {
+      ...output,
+      ...(output.toolExecutions
+        ? {
+            toolExecutions: output.toolExecutions.map((execution) => {
+              const preview =
+                execution.toolCallId &&
+                this.savedPreviews.get(execution.toolCallId);
+              return preview ? { ...execution, result: preview } : execution;
+            }),
+          }
+        : {}),
+      spilledToolCallIds: [...this.savedPreviews.keys()],
+    };
   }
 
   private saveFullResult(message: ChatMessage): string | undefined {
