@@ -33,8 +33,8 @@ export function emptyCursor() {
 export function emptyState() {
   return {
     version: 1,
-    // Whose connectors the gateway's HybridAI credential reads, and a
-    // fingerprint of that credential, so a changed sign-in is noticed.
+    // Whose connectors the gateway's HybridAI credential reads, so another
+    // account signing in does not inherit the feed.
     account: null,
     // Bumped by every settings change; a check that started before it
     // discards its result.

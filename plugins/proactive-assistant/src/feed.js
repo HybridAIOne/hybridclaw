@@ -16,7 +16,7 @@
  * check reads envelopes through two read-only connector tools and makes one
  * model request without tools (`assessment.js`).
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { buildMessages, parseProposals } from './assessment.js';
 import { CALENDAR_TOOL, GMAIL_TOOL } from './platform.js';
@@ -158,12 +158,14 @@ export function createFeed({
   const save = () => store.save(state());
   const failure = (code) => ({ version: 1, failure: code });
 
+  // The credential last confirmed, in memory only: nothing about it is stored.
+  let confirmedKey = null;
+
   async function account() {
     const apiKey = getApiKey();
     if (!apiKey) return { failure: 'not_signed_in' };
-    const key = createHash('sha256').update(apiKey).digest('hex');
     const known = state().account;
-    if (known?.key === key) return { id: known.id };
+    if (known && apiKey === confirmedKey) return { id: known.id };
     let id;
     try {
       id = await platform.accountId();
@@ -179,8 +181,11 @@ export function createFeed({
       loaded = emptyState();
       sourcesAt = 0;
     }
-    state().account = { id, key };
-    save();
+    confirmedKey = apiKey;
+    if (state().account?.id !== id) {
+      state().account = { id };
+      save();
+    }
     return { id };
   }
 

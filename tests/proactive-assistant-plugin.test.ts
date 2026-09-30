@@ -451,8 +451,8 @@ test('the feed resumes after a restart', async () => {
   expect((await second.run('feed')).suggestions).toHaveLength(1);
   await second.feed.check();
   expect(second.platform.calls[0].args).toEqual({ history_id: '100' });
-  // The credential is the same, so whose it is was not asked again.
-  expect(second.platform.accountId).not.toHaveBeenCalled();
+  // A restart asks once whose the credential is; the feed stays with that account.
+  expect(second.platform.accountId).toHaveBeenCalledOnce();
 
   const state = path.join(first.homeDir, 'proactive-assistant', 'state.json');
   expect(fs.statSync(state).mode & 0o777).toBe(0o600);
