@@ -38,10 +38,10 @@ import {
   matchesApprovalStatePath,
 } from './approval-state-guard.js';
 import {
+  commandWriteTargets,
   DELETE_RE,
   deletesFiles,
   deletionTargets,
-  optionWriteTargets,
   scriptCommands,
   shellCommandsRun,
 } from './bash-commands.js';
@@ -441,10 +441,11 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
 const CRITICAL_BASH_RE =
   /\b(sudo|mkfs(?:\.[a-z0-9_+-]+)?|shutdown|reboot|poweroff)\b|:\(\)\s*\{.*\};\s*:|\bchmod\s+777\b/i;
 const FORCE_PUSH_RE = /\bgit\s+push\s+--force(?:-with-lease)?\b/i;
-// `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor and write no file,
-// so adding one never changes the tier (owner call, 2026-09-27).
+// `2>&1`, `>&2`, and `2>&-` duplicate or close a descriptor, and a redirect to
+// /dev/null discards output. None writes a file, so adding one never changes
+// the tier (owner calls, 2026-09-27 and 2026-09-29).
 const WRITE_INTENT_RE =
-  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!&(?:\d+|-)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
+  /\b(mkdir|touch|mv|cp|chmod|chown|tee)\b|(^|[^>])>>?(?!(?:&(?:\d+|-)|&?\s*\/dev\/null)(?:$|[\s;|&)]))[^>]|sed\s+-i|perl\s+-pi/i;
 const INSTALL_RE =
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add)\b|\b(?:pip|pip3)\s+install\b|\bpython(?:3)?\s+-m\s+pip\s+install\b|\buv\s+pip\s+install\b/i;
 const GIT_WRITE_RE =
@@ -3502,13 +3503,15 @@ export class TrustedAgentApprovalRuntime {
     // Recorded before the decision: a partial or failed download still leaves
     // a file, and a denied one only costs a later prompt.
     for (const file of fetchedCode.saved) this.fetchedFiles.add(file);
-    const optionWrites = commandsRun.flatMap(optionWriteTargets);
+    // Every write target the parser finds is write intent (owner call,
+    // 2026-09-30), so a bare `gcc -o /opt/bin/x main.c` reaches the fence.
+    const parsedWrites = commandsRun.flatMap(commandWriteTargets);
     const deletes =
       DELETE_RE.test(inspectionSurface) || commandsRun.some(deletesFiles);
     const writeIntent =
       WRITE_INTENT_RE.test(inspectionSurface) ||
       deletes ||
-      optionWrites.length > 0 ||
+      parsedWrites.length > 0 ||
       INSTALL_RE.test(inspectionSurface) ||
       GIT_WRITE_RE.test(inspectionSurface);
 
@@ -3720,7 +3723,7 @@ export class TrustedAgentApprovalRuntime {
     if (
       GIT_WRITE_RE.test(inspectionSurface) ||
       WRITE_INTENT_RE.test(inspectionSurface) ||
-      optionWrites.length > 0
+      parsedWrites.length > 0
     ) {
       return {
         tier: 'yellow',
