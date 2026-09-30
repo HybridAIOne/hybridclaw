@@ -26,6 +26,8 @@ packages/
 plugins/*
 !plugins/media-tools/
 !plugins/media-tools/**
+!plugins/proactive-assistant/
+!plugins/proactive-assistant/**
 !plugins/tier-router/
 !plugins/tier-router/**
 !plugins/transformers-embeddings/

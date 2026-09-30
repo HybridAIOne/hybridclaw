@@ -129,6 +129,7 @@ COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 # Install-on-demand plugin sources, so `hybridclaw plugin install <id>` works
 # in the image; their dependencies are fetched only when installed.
 COPY --link --from=builder /app/plugins/media-tools ./plugins/media-tools
+COPY --link --from=builder /app/plugins/proactive-assistant ./plugins/proactive-assistant
 COPY --link --from=builder /app/plugins/transformers-embeddings ./plugins/transformers-embeddings
 COPY --link SECURITY.md TRUST_MODEL.md ./
 

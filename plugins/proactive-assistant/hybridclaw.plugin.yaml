@@ -1,0 +1,12 @@
+id: proactive-assistant
+name: Proactive Assistant
+version: 0.1.0
+kind: tool
+description: Watches the mail and calendar of the connected HybridAI account and prepares suggestions for the user to review.
+entrypoint: src/index.js
+credentials:
+  - HYBRIDAI_API_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

@@ -28,6 +28,7 @@ hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
+hybridclaw plugin install ./plugins/proactive-assistant
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -138,6 +139,11 @@ or change one top-level `plugins.list[].config` key without editing
 - `published-tools` serves admin-defined tools on an MCP endpoint (protocol
   `2026-07-28`) so hosts such as Microsoft Copilot can hand tasks to an agent;
   see [Published Tools (MCP)](../guides/published-tools.md).
+- `proactive-assistant` watches the mail and calendar of the connected
+  HybridAI account through two read-only connector tools, lets the auxiliary
+  model (without tools) propose next steps, and serves them to the user's app
+  through the `/proactive` command. Off until the account owner switches it
+  on; see `plugins/proactive-assistant/README.md`.
 
 Example config writes:
 
