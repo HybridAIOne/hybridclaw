@@ -142,6 +142,60 @@ export async function notifySessionPhones(
   return sendMobilePush(readMobilePushDevices(operatorId), message);
 }
 
+/**
+ * The items of a reply that is a JSON array of objects with a `title`, read
+ * from its first `[` to its last `]` so a sentence or fence around it does
+ * not matter. Anything else lists nothing.
+ */
+export function listedTitles(text: string): string[] {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((item) =>
+    item && typeof item.title === 'string' && item.title.trim()
+      ? [item.title.trim()]
+      : [],
+  );
+}
+
+/**
+ * A scheduled reply with `--alert <kind>`: rings the phones of whoever opened
+ * the chat with the first listed item, and says nothing for a reply that
+ * lists none. Unlike the generic reminder, the item's title is on the lock
+ * screen: the task's creator asked for that.
+ */
+export async function alertListedItems(options: {
+  sessionId: string;
+  kind: string;
+  assistant: string;
+  text: string;
+  messageId: number;
+}): Promise<MobilePushResult> {
+  const titles = listedTitles(options.text);
+  if (!titles.length) return { devices: 0, sent: 0 };
+  return notifySessionPhones(options.sessionId, {
+    kind: options.kind,
+    title: options.assistant,
+    body:
+      titles.length > 1
+        ? `${titles[0]} (+${titles.length - 1} more)`
+        : titles[0],
+    threadId: options.sessionId,
+    data: {
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+      count: titles.length,
+    },
+  });
+}
+
 function reply(value: Record<string, unknown>): string {
   return JSON.stringify(value);
 }

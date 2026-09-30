@@ -46,7 +46,8 @@ belongs to the operator who opened that conversation, like a browser:
 Each answers one line of JSON. Without kinds a phone gets the three browser
 kinds, `turn`, `reminder` and `approval`, each only while the operator's
 preference for it is on. An app that names other kinds, such as `proactive`,
-gets those from plugins that send them. Each operator can register up to 16
+gets those from plugins that send them, or from tasks added with
+`/schedule add --alert <kind>`, whose alert shows the first item a run lists. Each operator can register up to 16
 phones; registering a phone another operator holds moves it.
 
 Alerts carry the same generic titles as in the browser. The payload holds
