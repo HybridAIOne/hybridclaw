@@ -523,10 +523,14 @@ export async function runGatewayScheduledTask(
   if (autoResetSession) {
     currentSessionId = autoResetSession.id;
   }
+  // `channelId` is where the result is delivered, not where the session lives.
+  // Rebinding a web chat to its delivery address would hide the task from the
+  // web chats allowed to manage it (see scheduled-task-access.ts).
+  const originSession = memoryService.getSessionById(currentSessionId);
   const session = memoryService.getOrCreateSession(
     currentSessionId,
-    null,
-    channelId,
+    originSession?.guild_id ?? null,
+    originSession?.channel_id || channelId,
     preferredAgentId,
   );
   if (preferredAgentId && session.agent_id !== preferredAgentId) {
