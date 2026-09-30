@@ -32,6 +32,51 @@ also disables its service worker alerts. Permission can be revoked in browser
 site settings. Expired push subscriptions are removed when the push service
 returns 404 or 410; reopening chat attempts to restore enabled subscriptions.
 
+## Phones
+
+A phone app registers itself by sending a command in web chat. The phone
+belongs to the operator who opened that conversation, like a browser:
+
+```
+/push register <APNs token in hex> <sandbox|production> [kind,kind]
+/push unregister <APNs token in hex>
+/push status
+```
+
+Each answers one line of JSON. Without kinds a phone gets the three browser
+kinds, `turn`, `reminder` and `approval`, each only while the operator's
+preference for it is on. An app that names other kinds, such as `proactive`,
+gets those from plugins that send them, or from tasks added with
+`/schedule add --alert <kind>`, whose alert shows the first item a run lists. Each operator can register up to 16
+phones; registering a phone another operator holds moves it.
+
+Finished-request and approval alerts carry the same generic titles as in the
+browser. A reminder shows the assistant's name as its title and the reminder
+itself as its body (up to 240 characters), and its badge counts the
+operator's reminders not yet read (`/api/push/read`). Unlike browser alerts,
+the reminder's text is on the lock screen, which iOS hides while locked unless
+previews are set to always show. The payload holds `kind`, `id`, `sessionId`
+and `agentId` next to `aps`, and `thread-id` is the conversation. A reminder
+adds `messageId`, the stored reply (also the last part of `id`), which the app
+reads with `GET /api/chat/message?sessionId=…&id=…`. A reply of a task added
+with `--alert` rings with its listed items instead of as a reminder.
+
+Apple's signing key is not on the gateway. The gateway hands each alert to
+HybridAI (`POST /v1/push` on `hybridai.baseUrl`), authenticated with the
+configured HybridAI key; HybridAI signs it for the HybridClaw app and forwards
+it to APNs. Without a HybridAI key, phones get nothing, and `/push status`
+says `"relay": false`. When APNs reports a phone gone, the gateway forgets it.
+Tokens are stored with the browser subscriptions and are never logged.
+
+HybridAI forwards only to phones bound to the key's account, so `/push
+register` binds the phone first (`POST /v1/push/devices`). A phone bound to
+another account is not kept and the command answers
+`{"registered": false, "reason": "taken", "error": "…"}`. If HybridAI cannot
+be reached, the phone is kept and bound on its first alert, which is then
+retried once. `/push unregister` releases the binding (`DELETE
+/v1/push/devices`) once no operator on the gateway holds the phone; that is
+best effort. In A2A local mode nothing is sent to HybridAI.
+
 ## Operations and security
 
 The gateway creates one VAPID keypair on first enablement and stores it as

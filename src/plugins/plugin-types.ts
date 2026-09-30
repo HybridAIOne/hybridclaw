@@ -596,6 +596,31 @@ export interface PluginRealtimeVoiceSession {
   readonly isOpen: boolean;
 }
 
+/**
+ * An alert for the phones of whoever opened `sessionId` in web chat. Phones
+ * register the kinds they handle with `/push register`; others are skipped.
+ * The gateway does not deduplicate plugin alerts.
+ */
+export interface PluginPhoneNotification {
+  sessionId: string;
+  /** Routing key the app understands, e.g. `proactive`. */
+  kind: string;
+  /** Shown on the lock screen, like `body`. */
+  title: string;
+  body?: string;
+  /** App icon count; omit to leave it unchanged. */
+  badge?: number;
+  /** Flat keys delivered next to `aps`; `aps` and `kind` are reserved. */
+  data?: Record<string, string | number | boolean>;
+}
+
+export interface PluginPhoneNotificationResult {
+  /** Registered phones that accept this kind. */
+  devices: number;
+  /** Phones the alert was handed to APNs for. */
+  sent: number;
+}
+
 export interface HybridClawPluginApi {
   readonly pluginId: string;
   readonly pluginDir: string;
@@ -659,6 +684,9 @@ export interface HybridClawPluginApi {
     workspaceRoot: string;
   };
   getSessionMessages(sessionId: string, limit?: number): StoredMessage[];
+  notifyPhones(
+    notification: PluginPhoneNotification,
+  ): Promise<PluginPhoneNotificationResult>;
 }
 
 export interface HybridClawPluginDefinition {

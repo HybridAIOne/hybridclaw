@@ -311,6 +311,17 @@ Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
 
+### Phone notifications
+
+`api.notifyPhones({ sessionId, kind, title, body, badge, data })` alerts the
+phones registered by whoever opened `sessionId` in web chat, for example the
+session an app sends the plugin's command from. Only phones that registered
+`kind` with `/push register` get it. `title` and `body` show on the lock
+screen; `data` holds flat keys delivered next to `aps` for the app to route
+by. The result counts the phones that take `kind` (`devices`) and those the
+alert reached APNs for (`sent`). The gateway does not deduplicate plugin
+alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
+
 ### Tools that read or write media
 
 Plugin tool handlers receive `context.media`, the attachments of the turn that
