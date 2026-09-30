@@ -235,6 +235,10 @@ import {
   handleDeviceGrantRoute,
   parseAdminDeviceUserCode,
 } from './device-grants.js';
+import {
+  DEVICE_MESSAGE_PATH,
+  handleDeviceMessageRoute,
+} from './device-messages.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
   completeGatewayAdminConnectorOAuthCallback,
@@ -10809,6 +10813,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleWebNotificationRoute(req, res, pathname, operatorId);
+            return;
+          }
+          if (pathname === DEVICE_MESSAGE_PATH && method === 'GET') {
+            if (operatorId) handleDeviceMessageRoute(res, url, operatorId);
+            else sendJson(res, 404, { error: 'Message not found.' });
             return;
           }
           if (pathname === '/api/events' && method === 'GET') {

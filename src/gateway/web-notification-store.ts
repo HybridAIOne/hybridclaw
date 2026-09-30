@@ -85,6 +85,14 @@ export function bindWebNotificationSession(
   writeStore(store);
 }
 
+// The operator that first chatted in a session owns it; reading its replies
+// back is limited to that operator (see device-messages.ts).
+export function webNotificationSessionOperator(
+  sessionId: string,
+): string | null {
+  return readStore().sessions[notificationOperatorId(sessionId)] ?? null;
+}
+
 export function deleteWebNotificationSession(sessionId: string): void {
   const store = readStore();
   const key = notificationOperatorId(sessionId);
