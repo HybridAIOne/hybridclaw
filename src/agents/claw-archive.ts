@@ -24,6 +24,7 @@ import {
   validatePluginConfig,
 } from '../plugins/plugin-manager.js';
 import type { PluginManifest } from '../plugins/plugin-types.js';
+import { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 import {
   importSkill,
   type SkillImportResult,
@@ -634,6 +635,8 @@ function copyDirectoryContents(
     fs.cpSync(sourcePath, destinationPath, {
       recursive: true,
       force: true,
+      // Skills installed here load in place, never through the workspace sync.
+      filter: isSkillContentEntry,
     });
   }
 }

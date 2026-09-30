@@ -438,8 +438,9 @@ reuses one readline session for the whole export flow.
    `manifest.name`
 6. registers the agent in the normal agent registry
 7. copies `workspace/` into the agent workspace path without adding missing
-   bootstrap templates
-8. restores manifest-declared bundled skills into `workspace/skills/`
+   bootstrap templates or any `.git/` directory
+8. restores manifest-declared bundled skills into `workspace/skills/`, also
+   without `.git/`
 9. installs manifest-declared skill imports into `workspace/skills/`
 10. installs manifest-declared bundled plugins with the normal plugin installer
 11. merges packaged skill config and validated bundled-plugin overrides into

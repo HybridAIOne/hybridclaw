@@ -15,6 +15,7 @@ import type {
   SkillGuardVerdict,
 } from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
+import { isSkillContentEntry } from './skills-guard-structure.js';
 import {
   type GitHubSkillImportSource,
   populateFromGitHubSource,
@@ -645,6 +646,7 @@ function resolveSkillImportSource(input: string): SkillImportSource {
 function copyDirectoryContents(sourceDir: string, targetDir: string): void {
   fs.mkdirSync(targetDir, { recursive: true });
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!isSkillContentEntry(entry.name)) continue;
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(targetDir, entry.name);
 

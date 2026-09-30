@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 import { emitDistillAuditEvent } from './audit.js';
 import { loadConsentArtefact } from './consent.js';
 import type { DistillPaths } from './paths.js';
@@ -229,7 +230,10 @@ export function importCoworkerBundle(
       manifest.skillName,
     );
     fs.rmSync(skillTarget, { recursive: true, force: true });
-    fs.cpSync(skillSource, skillTarget, { recursive: true });
+    fs.cpSync(skillSource, skillTarget, {
+      recursive: true,
+      filter: isSkillContentEntry,
+    });
   }
   const state = readJsonFile<DistillState>(path.join(bundleDir, 'state.json'));
   if (state) {

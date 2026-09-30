@@ -490,12 +490,29 @@ test('export bundles persona + skill, installs per host, and round-trips via imp
     path.join(fakeHome, '.codex', 'skills', 'maya-playbook'),
   );
 
+  // The imported skill loads in place, so what the scanner skips stays out.
+  const bundledSkillGitDir = path.join(
+    bundleDir,
+    'skills',
+    'maya-playbook',
+    '.git',
+  );
+  fs.mkdirSync(bundledSkillGitDir, { recursive: true });
+  fs.writeFileSync(path.join(bundledSkillGitDir, 'config'), '[core]\n');
+
   const importPaths = modules.paths.resolveDistillPaths('maya-clone', 'maya');
   const imported = modules.exportMod.importCoworkerBundle(
     bundleDir,
     importPaths,
   );
   expect(imported.claims).toBe(manifest.claims);
+  const importedSkillDir = path.join(
+    importPaths.workspaceDir,
+    'skills',
+    'maya-playbook',
+  );
+  expect(fs.existsSync(path.join(importedSkillDir, 'SKILL.md'))).toBe(true);
+  expect(fs.existsSync(path.join(importedSkillDir, '.git'))).toBe(false);
   const importedState = modules.state.loadDistillState(importPaths);
   expect(
     importedState.claims.filter((claim) => claim.status === 'standing'),
