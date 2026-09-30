@@ -2,20 +2,6 @@
 
 ## Unreleased
 
-### Added
-
-- **Phone notifications**: A phone app registers with
-  `/push register <APNs token> <sandbox|production> [kinds]` from web chat
-  and then gets the same finished-request, reminder, and approval alerts as
-  the operator's browsers, limited to the kinds it names. Plugins alert the
-  same phones with `api.notifyPhones`, and a task added with
-  `/schedule add --alert <kind>` rings them with the first item its run lists.
-  A reminder shows the assistant's name and the reminder itself, badged with
-  the unread reminders. Apple's signing key is not on the gateway: HybridAI
-  signs and forwards each alert for the account of the configured HybridAI
-  key, to phones bound to that account, and without that key phones get
-  nothing. A phone bound to another account is refused.
-
 ### Fixed
 
 - **Approvals stay in their session**: An agent's sessions share one store of
