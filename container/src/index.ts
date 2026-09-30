@@ -2238,7 +2238,10 @@ async function main(): Promise<void> {
 
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
-  setScheduledTasks(firstInput.scheduledTasks);
+  setScheduledTasks(
+    firstInput.scheduledTasks,
+    firstInput.hiddenScheduledTaskCount,
+  );
   setEligibleSkillsCatalog(firstInput.skillCatalog);
   setScheduleSideEffectsEnabled(
     firstInput.scheduleSideEffectsEnabled !== false,
@@ -2400,7 +2403,7 @@ async function main(): Promise<void> {
 
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
-    setScheduledTasks(input.scheduledTasks);
+    setScheduledTasks(input.scheduledTasks, input.hiddenScheduledTaskCount);
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);

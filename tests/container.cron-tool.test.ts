@@ -257,6 +257,39 @@ describe.sequential('container cron tool', () => {
     expect(result).toContain('#16');
   });
 
+  test.each([
+    { tasks: [], expected: /^No scheduled tasks in this chat\. 2 more task\(s\)/ },
+    {
+      tasks: [
+        {
+          id: 16,
+          channelId: 'ops@example.com',
+          cronExpr: '0 9 * * *',
+          tz: '',
+          runAt: null,
+          everyMs: null,
+          prompt: 'Morning briefing',
+          enabled: 1,
+          lastRun: null,
+          createdAt: '2026-04-11T12:58:18.861Z',
+        },
+      ],
+      expected: /^#16 .*\n2 more task\(s\)/,
+    },
+  ])(
+    'says when other conversations hold tasks this chat cannot see ($tasks.length visible)',
+    async ({ tasks, expected }) => {
+      setScheduledTasks(tasks, 2);
+
+      const result = await executeTool(
+        'cron',
+        JSON.stringify({ action: 'list' }),
+      );
+
+      expect(result).toMatch(expected);
+    },
+  );
+
   test('lists the last failure for tasks that errored or were disabled', async () => {
     setScheduledTasks([
       {

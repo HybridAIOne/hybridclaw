@@ -2054,7 +2054,8 @@ async function handleGatewayMessageInner(
   };
 
   try {
-    const scheduledTasks = listManageableScheduledTasks(session);
+    const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
+      listManageableScheduledTasks(session);
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {
@@ -2160,6 +2161,7 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
@@ -2278,6 +2280,7 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,

@@ -925,6 +925,7 @@ async function runHostProcessInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     scheduledTasks,
+    hiddenScheduledTaskCount,
     allowedTools,
     blockedTools,
     onTextDelta,
@@ -1029,6 +1030,7 @@ async function runHostProcessInner(
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
+    hiddenScheduledTaskCount,
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,

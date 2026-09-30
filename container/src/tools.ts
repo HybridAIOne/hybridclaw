@@ -324,6 +324,7 @@ function describeSchedule(task: {
 let pendingDelegations: DelegationSideEffect[] = [];
 let delegateCallsThisTurn = 0;
 let injectedTasks: ScheduledTaskInfo[] = [];
+let hiddenTaskCount = 0;
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let currentAgentId = '';
@@ -741,8 +742,10 @@ export function getPendingSideEffects():
 
 export function setScheduledTasks(
   tasks: ScheduledTaskInfo[] | undefined,
+  hiddenCount = 0,
 ): void {
   injectedTasks = tasks || [];
+  hiddenTaskCount = hiddenCount;
 }
 
 export function setScheduleSideEffectsEnabled(enabled: boolean): void {
@@ -3743,7 +3746,15 @@ async function executeToolInternal(
       const action = args.action;
 
       if (action === 'list') {
-        if (injectedTasks.length === 0) return 'No scheduled tasks.';
+        const hiddenNote =
+          hiddenTaskCount > 0
+            ? `${hiddenTaskCount} more task(s) of this agent belong to other conversations. This chat cannot list or change them; Automation → Scheduler in the console can. Ask the user before adding a task that may duplicate one.`
+            : '';
+        if (injectedTasks.length === 0) {
+          return hiddenNote
+            ? `No scheduled tasks in this chat. ${hiddenNote}`
+            : 'No scheduled tasks.';
+        }
         const lines = injectedTasks.map((t) => {
           let schedule: string;
           if (t.runAt) schedule = `at ${t.runAt}`;
@@ -3761,6 +3772,7 @@ async function executeToolInternal(
               : '';
           return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
         });
+        if (hiddenNote) lines.push(hiddenNote);
         return lines.join('\n');
       }
 

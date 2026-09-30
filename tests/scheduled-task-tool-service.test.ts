@@ -349,9 +349,9 @@ test('web chats of the same agent can list, update, and remove prior web tasks',
     prompt: 'Check competitors.',
   }).taskId;
 
-  expect(listManageableScheduledTasks(second).map((task) => task.id)).toContain(
-    taskId,
-  );
+  expect(
+    listManageableScheduledTasks(second).tasks.map((task) => task.id),
+  ).toContain(taskId);
   expect(
     runScheduledTaskToolAction({
       action: 'update',
@@ -408,12 +408,16 @@ test('web cron access excludes other agents and messaging sessions', async () =>
     prompt: 'discord peer',
   });
 
-  expect(listManageableScheduledTasks(ownWeb).map((task) => task.id)).toEqual([
-    ownTaskId,
-  ]);
-  expect(listManageableScheduledTasks(discord).map((task) => task.id)).toEqual([
-    discordTaskId,
-  ]);
+  // The Discord task is the same agent's, so the web chat learns it exists;
+  // the Discord peer never learns about the web chat's task.
+  expect(listManageableScheduledTasks(ownWeb)).toMatchObject({
+    tasks: [{ id: ownTaskId }],
+    hiddenCount: 1,
+  });
+  expect(listManageableScheduledTasks(discord)).toMatchObject({
+    tasks: [{ id: discordTaskId }],
+    hiddenCount: 0,
+  });
   for (const taskId of [otherTaskId, discordTaskId]) {
     expect(
       statusOf(() =>

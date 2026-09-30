@@ -279,6 +279,8 @@ export interface ContainerInput extends SessionAttachmentAccess {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
+  /** Tasks of this agent that this chat may not list or change. */
+  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
