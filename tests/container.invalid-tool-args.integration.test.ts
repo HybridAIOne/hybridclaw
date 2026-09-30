@@ -172,3 +172,31 @@ test('a model that keeps sending broken arguments still fails the turn', async (
   expect(output.error).toBe(VALIDATION_ERROR);
   expect(requests).toHaveLength(MAX_INVALID_TOOL_CALL_RETRIES + 1);
 }, 40_000);
+
+test('a call to a tool outside the request allowlist fails the turn without running', async () => {
+  const { output, requests } = await runTurn(() =>
+    completion(
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call_bash',
+            type: 'function',
+            function: {
+              name: 'bash',
+              arguments: JSON.stringify({ command: 'touch outside.txt' }),
+            },
+          },
+        ],
+      },
+      'tool_calls',
+    ),
+  );
+
+  expect(output.status).toBe('error');
+  expect(output.error).toContain('not available in this request: bash');
+  expect(requests).toHaveLength(1);
+  expect(output.toolExecutions ?? []).toEqual([]);
+  expect(fs.existsSync(path.join(dir || '', 'outside.txt'))).toBe(false);
+}, 40_000);

@@ -42,7 +42,7 @@ import {
 } from './skill-manifest.js';
 import { hasAgentNodeModule } from './skill-node-modules.js';
 import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
-import { SKILL_IGNORED_ENTRIES } from './skills-guard-structure.js';
+import { isSkillContentEntry } from './skills-guard-structure.js';
 import {
   normalizeInstallSpecs,
   parseInstallSpecList,
@@ -1057,7 +1057,7 @@ function buildDirectoryContentSignature(rootDir: string): string {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     for (const entry of dirEntries) {
-      if (SKILL_IGNORED_ENTRIES.has(entry.name)) continue;
+      if (!isSkillContentEntry(entry.name)) continue;
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
         stack.push(fullPath);
@@ -1180,7 +1180,7 @@ function syncSkillIntoWorkspace(
     fs.cpSync(skill.baseDir, targetDir, {
       recursive: true,
       force: true,
-      filter: (source) => !SKILL_IGNORED_ENTRIES.has(path.basename(source)),
+      filter: isSkillContentEntry,
     });
   }
 

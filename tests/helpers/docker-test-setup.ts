@@ -157,6 +157,10 @@ interface StartContainerOpts {
   port?: { host: number; container: number };
   env?: Record<string, string>;
   entrypoint?: string[];
+  /** `--add-host` entries, e.g. `{ 'host.docker.internal': 'host-gateway' }`. */
+  hosts?: Record<string, string>;
+  /** Host path → container path, copied in before the container starts. */
+  copy?: Record<string, string>;
 }
 
 interface StartContainerResult {
@@ -168,10 +172,10 @@ interface StartContainerResult {
 
 /**
  * Start a named Docker container with optional port mapping, env vars,
- * and entrypoint override.
+ * extra hosts, files copied in before start, and entrypoint override.
  */
 export function startContainer(opts: StartContainerOpts): StartContainerResult {
-  const parts = ['docker run -d', `--name ${opts.name}`];
+  const parts = ['docker create', `--name ${opts.name}`];
 
   if (opts.port) {
     parts.push(`-p ${opts.port.host}:${opts.port.container}`);
@@ -181,6 +185,10 @@ export function startContainer(opts: StartContainerOpts): StartContainerResult {
     for (const [key, value] of Object.entries(opts.env)) {
       parts.push(`-e ${key}=${value}`);
     }
+  }
+
+  for (const [host, address] of Object.entries(opts.hosts ?? {})) {
+    parts.push(`--add-host ${host}:${address}`);
   }
 
   if (opts.entrypoint) {
@@ -194,6 +202,16 @@ export function startContainer(opts: StartContainerOpts): StartContainerResult {
   }
 
   execSync(parts.join(' '), { stdio: 'pipe', timeout: 15_000 });
+  for (const [from, to] of Object.entries(opts.copy ?? {})) {
+    execFileSync('docker', ['cp', from, `${opts.name}:${to}`], {
+      stdio: 'pipe',
+      timeout: 15_000,
+    });
+  }
+  execFileSync('docker', ['start', opts.name], {
+    stdio: 'pipe',
+    timeout: 15_000,
+  });
 
   return {
     name: opts.name,
@@ -202,6 +220,25 @@ export function startContainer(opts: StartContainerOpts): StartContainerResult {
       dockerExec(opts.name, cmd, timeoutMs),
     cleanup: () => removeContainer(opts.name),
   };
+}
+
+/**
+ * Gateway address of Docker's default bridge. On a native Linux daemon this is
+ * what `--add-host <name>:host-gateway` resolves to inside a container, so a
+ * test server bound here is reachable from containers but not from the LAN.
+ */
+export function dockerBridgeGateway(): string {
+  return execFileSync(
+    'docker',
+    [
+      'network',
+      'inspect',
+      'bridge',
+      '--format',
+      '{{(index .IPAM.Config 0).Gateway}}',
+    ],
+    { encoding: 'utf-8', stdio: 'pipe', timeout: 15_000 },
+  ).trim();
 }
 
 /**

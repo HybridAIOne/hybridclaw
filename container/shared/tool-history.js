@@ -3,6 +3,7 @@
  * Unlike audit events, these are replayable model messages; system/user roles
  * are never accepted here. Full results remain in the session transcript.
  */
+import { validateVisualAttachments } from './visual-snapshots.js';
 
 // Preserve ordinary reads while leaving room in the default 24k history budget.
 // 16k (Codex, 2026-09-10); retention configuration deferred until needed.
@@ -169,6 +170,13 @@ export function validateToolHistory(value) {
         content: message.content,
         tool_call_id: message.tool_call_id,
         ...(message.is_error === true ? { is_error: true } : {}),
+        ...(message.visualAttachments !== undefined
+          ? {
+              visualAttachments: validateVisualAttachments(
+                message.visualAttachments,
+              ),
+            }
+          : {}),
       });
     } else {
       throw new Error('Tool history contains an unexpected role or result.');

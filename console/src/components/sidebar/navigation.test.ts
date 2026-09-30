@@ -34,6 +34,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
           { to: '/admin/channels', label: 'Channels' },
           { to: '/admin/connectors', label: 'Connectors' },
           { to: '/admin/mcp', label: 'MCP Servers' },
+          { to: '/admin/published-tools', label: 'Published Tools' },
           { to: '/admin/federation', label: 'Agent2Agent' },
         ],
       },
@@ -85,7 +86,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(19);
+    ).toHaveLength(20);
   });
 
   it('uses network-oriented icons for network policy and Agent2Agent', () => {

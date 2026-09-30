@@ -565,9 +565,30 @@ actions. Common examples:
 !claw mcp list
 !claw mcp add <name> <json>
 !claw schedule add "<cron>" <prompt>
+!claw schedule add --tz Europe/Berlin "<cron>" <prompt>
 !claw schedule add at "<ISO time>" <prompt>
 !claw schedule add every <ms> <prompt>
+!claw schedule list
+!claw schedule results <id> [--limit <n>]
+!claw schedule remove <id>
+!claw schedule toggle <id>
 ```
+
+`schedule` tasks belong to the chat that created them and keep belonging to
+it when an idle or daily reset gives the chat a new session. A web chat may
+also list, remove and toggle the tasks of other web chats assigned to the same
+agent. `schedule results` shows what the task's recent runs answered (20 by
+default, at most 200) and only answers the chat that created the task, because
+a run can quote private data. Cron expressions run in UTC unless `--tz` names
+an IANA time zone; `--tz` must come before the schedule.
+
+Every subcommand takes `--json` for clients that drive the command, such as an
+app sending it through chat: the answer is one line of JSON (`{"version": 1,
+"task": …}`, `{"version": 1, "tasks": […], "hidden": n}`, or `{"version": 1,
+"task": …, "results": [{"id", "created_at", "text"}]}`). Line breaks,
+carriage returns and backslashes inside strings are written as `\u000a`,
+`\u000d` and `\u005c`, so a relay that turns the two characters `\n` into a
+line break does not corrupt it.
 
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
@@ -588,7 +609,9 @@ Web-chat and heartbeat tasks require an explicit delivery channel. The task
 list and **Automation → Scheduler** show the stored timezone and the reason
 for a failed run or delivery. In web chat, the agent can list, update, and
 remove tasks created in another web chat assigned to the same agent. Tasks
-created in messaging channels remain scoped to their original session.
+created in messaging channels remain scoped to their original session; the
+web-chat task list reports how many of them exist for the agent, so they can
+be managed from **Automation → Scheduler** instead of being created again.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
 tasks that never ran are retained.
 
@@ -657,7 +680,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/rag [on|off]` | local and chat channels | Toggle prompt-time retrieval augmentation |
 | `/ralph [info|on|off|set n]` | local and chat channels | Configure the Ralph loop |
 | `/reset [yes|no]` | local and chat channels | Run the confirmed workspace reset flow |
-| `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
+| `/schedule add|list|results|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the chat and read what their runs answered |
 | `/secret [list|set|status|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
 | `/sessions [list|switch <number|session-id>|active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | List or switch sessions for the current chat, inspect active session tracking, or prune old persisted sessions |

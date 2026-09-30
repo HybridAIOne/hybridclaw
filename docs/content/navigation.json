@@ -151,6 +151,10 @@
           "path": "guides/openai-compatible-api.md"
         },
         {
+          "title": "Published Tools (MCP)",
+          "path": "guides/published-tools.md"
+        },
+        {
           "title": "TUI MCP",
           "path": "guides/tui-mcp.md"
         },

@@ -162,10 +162,10 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',
   );
   expect(prompt).toContain(
-    'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFContext]`, answer from that content first before reading skills or searching for the same artifact again.',
+    'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
   );
   expect(prompt).toContain(
-    'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFContext]`, use that artifact first.',
+    'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFPreview]`, use that artifact first.',
   );
   expect(prompt).toContain(
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',

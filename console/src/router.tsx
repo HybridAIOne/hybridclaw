@@ -30,6 +30,7 @@ import { McpPage } from './routes/mcp';
 import { ModelRoutingPage } from './routes/model-routing';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
+import { PublishedToolsPage } from './routes/published-tools';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
@@ -70,6 +71,19 @@ function AppsRouteComponent() {
   return (
     <Suspense fallback={<div className="empty-state">Loading apps…</div>}>
       <LazyAppsPage />
+    </Suspense>
+  );
+}
+
+const LazyIdeasPage = lazy(async () => {
+  const mod = await import('./routes/ideas');
+  return { default: mod.IdeasPage };
+});
+
+function IdeasRouteComponent() {
+  return (
+    <Suspense fallback={<div className="empty-state">Loading ideas…</div>}>
+      <LazyIdeasPage />
     </Suspense>
   );
 }
@@ -407,6 +421,12 @@ const mcpRoute = createRoute({
   component: McpPage,
 });
 
+const publishedToolsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/published-tools',
+  component: PublishedToolsPage,
+});
+
 function ConnectorsRouteComponent() {
   const hash = useRouterState({
     select: (state) => state.location.hash.replace(/^#/, ''),
@@ -573,6 +593,18 @@ const appsRoute = createRoute({
   component: AppsRouteComponent,
 });
 
+// A sibling of `/chat`, not a child: the chat route renders the chat page for
+// every child, and a static segment outranks `/chat/$sessionId`.
+const ideasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat/ideas',
+  validateSearch: (search: Record<string, unknown>): { agent?: string } => {
+    const agent = optionalStringSearchValue(search.agent);
+    return agent ? { agent } : {};
+  },
+  component: IdeasRouteComponent,
+});
+
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
@@ -605,6 +637,7 @@ const routeTree = rootRoute.addChildren([
     localModelsRoute,
     connectorsRoute,
     mcpRoute,
+    publishedToolsRoute,
     auditRoute,
     skillsRoute,
     skillDetailRoute,
@@ -618,6 +651,7 @@ const routeTree = rootRoute.addChildren([
   ]),
   legacyAgentsRoute,
   chatRoute.addChildren([chatSessionRoute]),
+  ideasRoute,
   appsRoute,
 ]);
 

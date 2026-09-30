@@ -19,6 +19,7 @@ import { useAuth } from '../auth';
 import { useAppShellConfig } from '../components/app-shell';
 import { Button } from '../components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
+import { LocalClassifiers } from '../components/local-classifiers';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { LocalModelMetrics } from './local-model-metrics';
@@ -180,6 +181,7 @@ function MacLocalModelsPage() {
           </Button>
         }
       />
+      <LocalClassifiers />
       {query.isPending && (
         <p role="status">Checking the gateway Mac and available memory…</p>
       )}

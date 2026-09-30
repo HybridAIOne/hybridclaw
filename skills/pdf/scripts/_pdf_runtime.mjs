@@ -158,86 +158,158 @@ function groupPageTextItems(items, options = {}) {
 
 export async function extractPdfText(inputPath, pageNumbers) {
   const pdf = await openPdfDocument(inputPath);
-  const selectedPages = parsePageSelection(pageNumbers, pdf.numPages);
-  const pages = [];
+  try {
+    const selectedPages = parsePageSelection(pageNumbers, pdf.numPages);
+    const pages = [];
 
-  const { Util } = await loadPdfJs();
+    const { Util } = await loadPdfJs();
 
-  for (const pageNumber of selectedPages) {
-    const page = await pdf.getPage(pageNumber);
-    const textContent = await page.getTextContent();
-    pages.push({
-      pageNumber,
-      text: groupPageTextItems(textContent.items, {
-        viewport: page.getViewport({ scale: 1 }),
-        Util,
-      }),
-    });
+    for (const pageNumber of selectedPages) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      pages.push({
+        pageNumber,
+        text: groupPageTextItems(textContent.items, {
+          viewport: page.getViewport({ scale: 1 }),
+          Util,
+        }),
+      });
+    }
+
+    return {
+      pageCount: pdf.numPages,
+      selectedPages,
+      pages,
+    };
+  } finally {
+    await pdf.loadingTask.destroy();
   }
-
-  return {
-    pageCount: pdf.numPages,
-    selectedPages,
-    pages,
-  };
 }
 
 export async function renderPdfPages(params) {
   const { inputPath, outputDir, pageNumbers, maxDimension } = params;
   const { createCanvas } = await loadCanvas();
   const pdf = await openPdfDocument(inputPath);
-  const selectedPages = parsePageSelection(pageNumbers, pdf.numPages);
-  const written = [];
+  try {
+    const selectedPages = parsePageSelection(pageNumbers, pdf.numPages);
+    const written = [];
 
-  await fs.mkdir(outputDir, { recursive: true });
+    await fs.mkdir(outputDir, { recursive: true });
 
-  const canvasFactory = {
-    create(width, height) {
-      const canvas = createCanvas(width, height);
-      return {
-        canvas,
-        context: canvas.getContext('2d'),
-      };
-    },
-    reset(target, width, height) {
-      target.canvas.width = width;
-      target.canvas.height = height;
-    },
-    destroy(target) {
-      target.canvas.width = 0;
-      target.canvas.height = 0;
-    },
-  };
+    const canvasFactory = {
+      create(width, height) {
+        const canvas = createCanvas(width, height);
+        return {
+          canvas,
+          context: canvas.getContext('2d'),
+        };
+      },
+      reset(target, width, height) {
+        target.canvas.width = width;
+        target.canvas.height = height;
+      },
+      destroy(target) {
+        target.canvas.width = 0;
+        target.canvas.height = 0;
+      },
+    };
 
-  for (const pageNumber of selectedPages) {
-    const page = await pdf.getPage(pageNumber);
-    const baseViewport = page.getViewport({ scale: 1 });
-    const scale = Math.min(
-      1,
-      maxDimension / Math.max(baseViewport.width, baseViewport.height),
-    );
-    const viewport = page.getViewport({
-      scale: Math.max(0.1, scale),
-    });
-    const canvas = createCanvas(
-      Math.max(1, Math.ceil(viewport.width)),
-      Math.max(1, Math.ceil(viewport.height)),
-    );
-    const context = canvas.getContext('2d');
-    await page.render({
-      canvasContext: context,
-      viewport,
-      canvasFactory,
-    }).promise;
+    for (const pageNumber of selectedPages) {
+      const page = await pdf.getPage(pageNumber);
+      const baseViewport = page.getViewport({ scale: 1 });
+      if (
+        !Number.isFinite(maxDimension) ||
+        maxDimension <= 0 ||
+        !Number.isFinite(baseViewport.width) ||
+        !Number.isFinite(baseViewport.height) ||
+        baseViewport.width <= 0 ||
+        baseViewport.height <= 0
+      ) {
+        throw new Error('Invalid PDF render dimensions');
+      }
+      // Fit the requested dimension, including upscaling small pages for legible text.
+      const scale =
+        maxDimension / Math.max(baseViewport.width, baseViewport.height);
+      const viewport = page.getViewport({ scale });
+      const canvas = createCanvas(
+        Math.max(1, Math.ceil(viewport.width)),
+        Math.max(1, Math.ceil(viewport.height)),
+      );
+      const context = canvas.getContext('2d');
+      await page.render({
+        canvasContext: context,
+        viewport,
+        canvasFactory,
+      }).promise;
 
-    const outputPath = path.join(outputDir, `page_${pageNumber}.png`);
-    await fs.writeFile(outputPath, canvas.toBuffer('image/png'));
-    written.push(outputPath);
+      const outputPath = path.join(outputDir, `page_${pageNumber}.png`);
+      await fs.writeFile(outputPath, canvas.toBuffer('image/png'));
+      written.push(outputPath);
+    }
+
+    return {
+      pageCount: pdf.numPages,
+      selectedPages,
+      written,
+    };
+  } finally {
+    await pdf.loadingTask.destroy();
   }
+}
 
-  return {
-    pageCount: pdf.numPages,
-    selectedPages,
-    written,
-  };
+// Copy only requested pages: native endpoints must not receive omitted pages.
+export async function subsetPdfBytes(inputPath, pages) {
+  const { PDFDocument } = await import('pdf-lib');
+  const source = await PDFDocument.load(await fs.readFile(inputPath));
+  const selected = await PDFDocument.create({ updateMetadata: false });
+  for (const page of await selected.copyPages(
+    source,
+    pages.map((page) => page - 1),
+  )) {
+    selected.addPage(page);
+  }
+  return Buffer.from(await selected.save());
+}
+
+// Literal search returns page locations without filling context with the document.
+export async function searchPdfText(inputPath, query) {
+  const pdf = await openPdfDocument(inputPath);
+  try {
+    const needle = query.replace(/\s+/g, ' ').toLowerCase();
+    const matches = [];
+    let searchedPages = 0;
+    // Agent decision, 2026-09-29: cap a search at 500 pages / 20 matching pages;
+    // large or scanned documents retain explicit unsearched/sparse coverage.
+    let sparsePages = 0;
+    for (let number = 1; number <= Math.min(pdf.numPages, 500); number++) {
+      const page = await pdf.getPage(number);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item) => item.str || '')
+        .join(' ')
+        .replace(/\s+/g, ' ');
+      searchedPages = number;
+      if (text.trim().length < 50) sparsePages++;
+      const index = text.toLowerCase().indexOf(needle);
+      if (index >= 0)
+        matches.push({
+          page: number,
+          snippet: text.slice(
+            Math.max(0, index - 100),
+            index + needle.length + 300,
+          ),
+        });
+      page.cleanup();
+      if (matches.length >= 20) break;
+    }
+    return {
+      pageCount: pdf.numPages,
+      searchedPages,
+      omittedPages: pdf.numPages - searchedPages,
+      sparsePages,
+      matches,
+    };
+  } finally {
+    await pdf.loadingTask.destroy();
+  }
 }

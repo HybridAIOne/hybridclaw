@@ -27,6 +27,7 @@ hybridclaw plugin install ./plugins/transformers-embeddings
 hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
+hybridclaw plugin install ./plugins/published-tools
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -134,6 +135,9 @@ or change one top-level `plugins.list[].config` key without editing
 - `vonage-voice` provides signed inbound and outbound phone calls through
   Vonage Voice without adding Vonage configuration to the core voice channel —
   turn-based by default, or realtime speech-to-speech with `mode: realtime`.
+- `published-tools` serves admin-defined tools on an MCP endpoint (protocol
+  `2026-07-28`) so hosts such as Microsoft Copilot can hand tasks to an agent;
+  see [Published Tools (MCP)](../guides/published-tools.md).
 
 Example config writes:
 
@@ -400,7 +404,10 @@ plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
 result so the plugin can deliver the reply through its own transport. The
 request accepts an optional `onToolProgress` callback for live tool activity
-during the turn.
+during the turn. `allowedTools` narrows the tools the turn may use (intersected
+with the agent's own tool list and enforced at dispatch), and `instructions`
+adds trusted operator text to the system prompt. Never put caller-supplied
+content in `instructions`; send it as `content`.
 
 Plugins can also register websocket endpoints on the same route prefix through
 `api.registerWebsocketWebhook({ name, handler })`. The handler receives the
@@ -610,3 +617,18 @@ Gateway turn flow:
 
 This lets an external memory or recall system provide long-term context without
 becoming the system of record for local session history.
+
+### Local decision classifiers
+
+`api.registerLocalClassifier(...)` registers an optional `local-decision/<id>`
+routing model with `status`, `command` (`setup`, `start`, `stop`) and `predict`
+callbacks. The gateway validates the returned typed choice against its tier
+ladder and applies its confidence threshold. It does not treat these models as
+chat providers. Plugins declare local execution as trusted host code; the
+registration is not a network sandbox.
+
+The first caller is `plugins/laya-router`. Its MLX dependency and model live in
+an isolated, explicitly installed runtime; inference uses an offline child pipe.
+Labs controls require admin authentication and loopback access for mutations.
+Register a service `stop` callback to clean up on gateway shutdown; registration
+snapshots roll back failed loads. See the plugin README for setup and limits.

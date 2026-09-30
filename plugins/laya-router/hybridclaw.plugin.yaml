@@ -1,0 +1,10 @@
+id: laya-router
+name: Laya Local Router
+version: 0.1.0
+description: Optional multilingual Laya decisions on Apple silicon, managed from Labs.
+kind: provider
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

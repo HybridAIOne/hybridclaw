@@ -4,9 +4,9 @@ import nodemailer from 'nodemailer';
  * Create a Brevo SMTP service with start/stop lifecycle.
  *
  * @param {import('./types.js').BrevoEmailConfig} config
- * @param {import('hybridclaw/plugin-sdk').PluginLogger} logger
+ * @param {import('@hybridaione/hybridclaw/plugin-sdk').PluginLogger} logger
  * @param {(options: import('nodemailer').TransportOptions) => import('nodemailer').Transporter} [createTransportImpl]
- * @returns {{ service: import('hybridclaw/plugin-sdk').PluginService; send: (opts: SendOptions) => Promise<void> }}
+ * @returns {{ service: import('@hybridaione/hybridclaw/plugin-sdk').PluginService; send: (opts: SendOptions) => Promise<void> }}
  */
 export function createBrevoSmtpService(
   config,
@@ -30,7 +30,7 @@ export function createBrevoSmtpService(
     return transport;
   }
 
-  /** @type {import('hybridclaw/plugin-sdk').PluginService} */
+  /** @type {import('@hybridaione/hybridclaw/plugin-sdk').PluginService} */
   const service = {
     id: 'brevo-email-smtp',
     async start() {

@@ -1,0 +1,725 @@
+{
+  "description": "Fresh authored 120-prompt test created after calibration coefficients were frozen; 15 per tier/language. Some bilingual counterparts share scenarios, reducing independent evidence. No real session data; labels are rubric judgments.",
+  "cases": [
+    {
+      "id": "caltest-001",
+      "expected": "basic",
+      "language": "en",
+      "text": "How many millimeters are in one centimeter?"
+    },
+    {
+      "id": "caltest-002",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is 14 plus 27?"
+    },
+    {
+      "id": "caltest-003",
+      "expected": "basic",
+      "language": "en",
+      "text": "Name the largest ocean on Earth."
+    },
+    {
+      "id": "caltest-004",
+      "expected": "basic",
+      "language": "en",
+      "text": "Is a triangle a shape with three sides?"
+    },
+    {
+      "id": "caltest-005",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is the past tense of go?"
+    },
+    {
+      "id": "caltest-006",
+      "expected": "basic",
+      "language": "en",
+      "text": "Which letter follows Q in the English alphabet?"
+    },
+    {
+      "id": "caltest-007",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is 30 percent of 90?"
+    },
+    {
+      "id": "caltest-008",
+      "expected": "basic",
+      "language": "en",
+      "text": "Name the natural satellite of Earth."
+    },
+    {
+      "id": "caltest-009",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is 7 squared?"
+    },
+    {
+      "id": "caltest-010",
+      "expected": "basic",
+      "language": "en",
+      "text": "How many months make up one year?"
+    },
+    {
+      "id": "caltest-011",
+      "expected": "basic",
+      "language": "en",
+      "text": "What color results from mixing blue and yellow paint?"
+    },
+    {
+      "id": "caltest-012",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is the freezing point of water in Celsius at standard pressure?"
+    },
+    {
+      "id": "caltest-013",
+      "expected": "basic",
+      "language": "en",
+      "text": "Which number is smaller: minus 8 or minus 3?"
+    },
+    {
+      "id": "caltest-014",
+      "expected": "basic",
+      "language": "en",
+      "text": "What is the chemical symbol for iron?"
+    },
+    {
+      "id": "caltest-015",
+      "expected": "basic",
+      "language": "en",
+      "text": "What does the abbreviation CPU stand for?"
+    },
+    {
+      "id": "caltest-016",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie viele Minuten hat eine Viertelstunde?"
+    },
+    {
+      "id": "caltest-017",
+      "expected": "basic",
+      "language": "de",
+      "text": "Was ergibt 13 mal 4?"
+    },
+    {
+      "id": "caltest-018",
+      "expected": "basic",
+      "language": "de",
+      "text": "Auf welchem Kontinent liegt Peru?"
+    },
+    {
+      "id": "caltest-019",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie heißt das Gegenteil von trocken?"
+    },
+    {
+      "id": "caltest-020",
+      "expected": "basic",
+      "language": "de",
+      "text": "Welcher Buchstabe steht im Alphabet direkt vor M?"
+    },
+    {
+      "id": "caltest-021",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie viel sind 20 Prozent von 50?"
+    },
+    {
+      "id": "caltest-022",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie viele Ecken hat ein Rechteck?"
+    },
+    {
+      "id": "caltest-023",
+      "expected": "basic",
+      "language": "de",
+      "text": "Welches chemische Symbol steht für Gold?"
+    },
+    {
+      "id": "caltest-024",
+      "expected": "basic",
+      "language": "de",
+      "text": "Welche Jahreszeit folgt auf den Sommer?"
+    },
+    {
+      "id": "caltest-025",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie lautet die Vergangenheitsform von ich gehe im Präteritum?"
+    },
+    {
+      "id": "caltest-026",
+      "expected": "basic",
+      "language": "de",
+      "text": "Was ergibt 144 geteilt durch 12?"
+    },
+    {
+      "id": "caltest-027",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie viele Milliliter enthält ein Liter?"
+    },
+    {
+      "id": "caltest-028",
+      "expected": "basic",
+      "language": "de",
+      "text": "Was ist größer: ein Drittel oder ein Viertel?"
+    },
+    {
+      "id": "caltest-029",
+      "expected": "basic",
+      "language": "de",
+      "text": "Nenne die Hauptstadt von Irland."
+    },
+    {
+      "id": "caltest-030",
+      "expected": "basic",
+      "language": "de",
+      "text": "Wie viele Beine hat eine Spinne?"
+    },
+    {
+      "id": "caltest-031",
+      "expected": "economy",
+      "language": "en",
+      "text": "Write a warm two-sentence welcome message for a new volunteer at an animal shelter."
+    },
+    {
+      "id": "caltest-032",
+      "expected": "economy",
+      "language": "en",
+      "text": "Translate into Italian: Your table is ready near the window."
+    },
+    {
+      "id": "caltest-033",
+      "expected": "economy",
+      "language": "en",
+      "text": "Summarize this notice: The swimming pool is closed Tuesday for cleaning. Lessons resume Wednesday. Members may use the gym meanwhile."
+    },
+    {
+      "id": "caltest-034",
+      "expected": "economy",
+      "language": "en",
+      "text": "Rewrite in plain English: Failure to remit payment may result in cessation of service."
+    },
+    {
+      "id": "caltest-035",
+      "expected": "economy",
+      "language": "en",
+      "text": "Correct this sentence: Neither of the two answer are correct."
+    },
+    {
+      "id": "caltest-036",
+      "expected": "economy",
+      "language": "en",
+      "text": "Give four cheerful titles for a newsletter about urban gardening."
+    },
+    {
+      "id": "caltest-037",
+      "expected": "economy",
+      "language": "en",
+      "text": "Turn these notes into a short reminder: return library books; deadline Saturday; use drop box if closed."
+    },
+    {
+      "id": "caltest-038",
+      "expected": "economy",
+      "language": "en",
+      "text": "Write a short, neutral description of a wooden desk with two drawers for a resale listing."
+    },
+    {
+      "id": "caltest-039",
+      "expected": "economy",
+      "language": "en",
+      "text": "Extract the names of the cities from: We flew from Madrid to Rome and then took a train to Florence."
+    },
+    {
+      "id": "caltest-040",
+      "expected": "economy",
+      "language": "en",
+      "text": "Create a friendly out-of-office message saying I return on Monday and will reply then."
+    },
+    {
+      "id": "caltest-041",
+      "expected": "economy",
+      "language": "en",
+      "text": "Translate into German: Please keep the receipt until the warranty expires."
+    },
+    {
+      "id": "caltest-042",
+      "expected": "economy",
+      "language": "en",
+      "text": "Condense this sentence without changing its meaning: Due to the fact that it was raining, the outdoor concert was postponed."
+    },
+    {
+      "id": "caltest-043",
+      "expected": "economy",
+      "language": "en",
+      "text": "Write a polite message asking a hotel whether breakfast is included in the room price."
+    },
+    {
+      "id": "caltest-044",
+      "expected": "economy",
+      "language": "en",
+      "text": "Format these ingredients as a bulleted list: flour, butter, salt, water."
+    },
+    {
+      "id": "caltest-045",
+      "expected": "economy",
+      "language": "en",
+      "text": "Suggest three concise subject lines for an email announcing new opening hours."
+    },
+    {
+      "id": "caltest-046",
+      "expected": "economy",
+      "language": "de",
+      "text": "Schreibe zwei freundliche Sätze zur Begrüßung neuer Mitglieder in einem Sportverein."
+    },
+    {
+      "id": "caltest-047",
+      "expected": "economy",
+      "language": "de",
+      "text": "Übersetze ins Spanische: Der Aufzug befindet sich am Ende des Flurs."
+    },
+    {
+      "id": "caltest-048",
+      "expected": "economy",
+      "language": "de",
+      "text": "Fasse diese Meldung kurz zusammen: Die Straße wird am Samstag gesperrt. Fahrräder dürfen passieren. Ab Sonntag fährt der Bus wieder regulär."
+    },
+    {
+      "id": "caltest-049",
+      "expected": "economy",
+      "language": "de",
+      "text": "Formuliere einfacher: Eine Rückerstattung erfolgt ausschließlich gegen Vorlage des Kaufbelegs."
+    },
+    {
+      "id": "caltest-050",
+      "expected": "economy",
+      "language": "de",
+      "text": "Korrigiere den Satz: Wegen dem Regen haben wir dass Treffen abgesagt."
+    },
+    {
+      "id": "caltest-051",
+      "expected": "economy",
+      "language": "de",
+      "text": "Nenne vier kurze Überschriften für einen Artikel über das Reparieren alter Möbel."
+    },
+    {
+      "id": "caltest-052",
+      "expected": "economy",
+      "language": "de",
+      "text": "Mache aus diesen Stichpunkten eine freundliche Erinnerung: Formular ausfüllen; bis Freitag; Rückfragen an das Büro."
+    },
+    {
+      "id": "caltest-053",
+      "expected": "economy",
+      "language": "de",
+      "text": "Schreibe eine neutrale Verkaufsbeschreibung für einen gebrauchten roten Rucksack mit 25 Litern Volumen."
+    },
+    {
+      "id": "caltest-054",
+      "expected": "economy",
+      "language": "de",
+      "text": "Extrahiere die Produkte aus: Wir brauchen Seife, Zahnpasta und einen Schwamm; Handtücher sind noch vorhanden."
+    },
+    {
+      "id": "caltest-055",
+      "expected": "economy",
+      "language": "de",
+      "text": "Verfasse eine kurze Abwesenheitsnotiz für einen einzigen Urlaubstag ohne Vertretung."
+    },
+    {
+      "id": "caltest-056",
+      "expected": "economy",
+      "language": "de",
+      "text": "Übersetze ins Englische: Bitte lassen Sie den Durchgang frei."
+    },
+    {
+      "id": "caltest-057",
+      "expected": "economy",
+      "language": "de",
+      "text": "Kürze diesen Satz: Zum gegenwärtigen Zeitpunkt ist es uns leider nicht möglich, Ihre Anfrage zu beantworten."
+    },
+    {
+      "id": "caltest-058",
+      "expected": "economy",
+      "language": "de",
+      "text": "Schreibe eine höfliche Anfrage, ob ein Restaurant einen Kinderstuhl bereitstellen kann."
+    },
+    {
+      "id": "caltest-059",
+      "expected": "economy",
+      "language": "de",
+      "text": "Formatiere diese Aufgaben als Checkliste: Tür abschließen, Licht ausschalten, Fenster schließen."
+    },
+    {
+      "id": "caltest-060",
+      "expected": "economy",
+      "language": "de",
+      "text": "Nenne drei sachliche Betreffzeilen für eine E-Mail über eine geänderte Telefonnummer."
+    },
+    {
+      "id": "caltest-061",
+      "expected": "general",
+      "language": "en",
+      "text": "Implement a TypeScript debounce helper with cancellation, and test that repeated calls execute only the latest arguments."
+    },
+    {
+      "id": "caltest-062",
+      "expected": "general",
+      "language": "en",
+      "text": "A Python script reads UTF-8 CSV files but fails on a byte-order mark in the first header. Explain and fix the parsing issue."
+    },
+    {
+      "id": "caltest-063",
+      "expected": "general",
+      "language": "en",
+      "text": "Write a SQL query returning each customer's most recent order, including a deterministic tie-breaker when timestamps match."
+    },
+    {
+      "id": "caltest-064",
+      "expected": "general",
+      "language": "en",
+      "text": "Design validation and error responses for a small API that uploads profile pictures with size and type limits."
+    },
+    {
+      "id": "caltest-065",
+      "expected": "general",
+      "language": "en",
+      "text": "Explain why a cron job runs twice during a daylight-saving transition and propose a reliable scheduling strategy."
+    },
+    {
+      "id": "caltest-066",
+      "expected": "general",
+      "language": "en",
+      "text": "Write a Python function that topologically sorts task dependencies and reports a cycle when one exists."
+    },
+    {
+      "id": "caltest-067",
+      "expected": "general",
+      "language": "en",
+      "text": "Compare storing a user's preferences in a JSON column versus normalized tables for a small application."
+    },
+    {
+      "id": "caltest-068",
+      "expected": "general",
+      "language": "en",
+      "text": "A paginated API sometimes returns repeated items because rows change between requests. Diagnose the issue and propose a cursor format."
+    },
+    {
+      "id": "caltest-069",
+      "expected": "general",
+      "language": "en",
+      "text": "Calculate and explain the break-even point for a product with fixed costs 600, unit cost 8 and selling price 20."
+    },
+    {
+      "id": "caltest-070",
+      "expected": "general",
+      "language": "en",
+      "text": "Write an integration-test plan for a password-reset link that expires and can be used only once."
+    },
+    {
+      "id": "caltest-071",
+      "expected": "general",
+      "language": "en",
+      "text": "A Node service leaks memory after adding event listeners on every request. Show how to diagnose and fix the pattern."
+    },
+    {
+      "id": "caltest-072",
+      "expected": "general",
+      "language": "en",
+      "text": "Implement a SQL migration that backfills a slug column from titles while handling duplicate titles."
+    },
+    {
+      "id": "caltest-073",
+      "expected": "general",
+      "language": "en",
+      "text": "Explain how to safely retry a webhook delivery and how the receiver should identify duplicate events."
+    },
+    {
+      "id": "caltest-074",
+      "expected": "general",
+      "language": "en",
+      "text": "Design a simple command-line tool that renames files from a mapping CSV, with a dry-run mode and collision checks."
+    },
+    {
+      "id": "caltest-075",
+      "expected": "general",
+      "language": "en",
+      "text": "A React component's effect loops because an object dependency is recreated on render. Explain two fixes and their trade-offs."
+    },
+    {
+      "id": "caltest-076",
+      "expected": "general",
+      "language": "de",
+      "text": "Implementiere eine TypeScript-Funktion zum tiefen Vergleichen einfacher JSON-Werte und teste Arrays, null und unterschiedliche Schlüsselreihenfolgen."
+    },
+    {
+      "id": "caltest-077",
+      "expected": "general",
+      "language": "de",
+      "text": "Ein Python-Programm sortiert Datumsangaben als Text und erhält eine falsche Reihenfolge. Zeige eine korrekte Lösung samt Fehlerbehandlung."
+    },
+    {
+      "id": "caltest-078",
+      "expected": "general",
+      "language": "de",
+      "text": "Schreibe eine SQL-Abfrage, die alle Kunden ohne Bestellung in den letzten 90 Tagen findet."
+    },
+    {
+      "id": "caltest-079",
+      "expected": "general",
+      "language": "de",
+      "text": "Entwirf eine kleine API für Aufgabenlisten mit Statusübergängen und verständlichen Validierungsfehlern."
+    },
+    {
+      "id": "caltest-080",
+      "expected": "general",
+      "language": "de",
+      "text": "Erkläre, warum lokale Dateipfade unter Windows und Linux unterschiedlich behandelt werden, und zeige eine portable Implementierung."
+    },
+    {
+      "id": "caltest-081",
+      "expected": "general",
+      "language": "de",
+      "text": "Schreibe eine Python-Funktion, die einen gerichteten Graphen auf Zyklen prüft und einen gefundenen Zyklus ausgibt."
+    },
+    {
+      "id": "caltest-082",
+      "expected": "general",
+      "language": "de",
+      "text": "Vergleiche serverseitiges Rendering und eine reine Client-Anwendung für ein kleines öffentliches Produktverzeichnis."
+    },
+    {
+      "id": "caltest-083",
+      "expected": "general",
+      "language": "de",
+      "text": "Eine REST-Schnittstelle verliert gelegentlich Änderungen, wenn zwei Nutzer gleichzeitig speichern. Entwirf eine Lösung mit Versionsnummern."
+    },
+    {
+      "id": "caltest-084",
+      "expected": "general",
+      "language": "de",
+      "text": "Berechne den Deckungsbeitrag bei einem Verkaufspreis von 35, variablen Kosten von 21 und einer Menge von 80 Stück."
+    },
+    {
+      "id": "caltest-085",
+      "expected": "general",
+      "language": "de",
+      "text": "Entwirf Tests für einen Datei-Upload mit Abbruch, Größenlimit und wiederholter Übertragung."
+    },
+    {
+      "id": "caltest-086",
+      "expected": "general",
+      "language": "de",
+      "text": "Ein Node-Dienst blockiert bei großen JSON-Dateien die Ereignisschleife. Erkläre das Problem und praktikable Lösungswege."
+    },
+    {
+      "id": "caltest-087",
+      "expected": "general",
+      "language": "de",
+      "text": "Schreibe eine Datenbankmigration, die doppelte E-Mail-Adressen erkennt und einen eindeutigen Index kontrolliert einführt."
+    },
+    {
+      "id": "caltest-088",
+      "expected": "general",
+      "language": "de",
+      "text": "Erkläre, wie ein Webhook-Empfänger Signaturen und Wiederholungen prüft, ohne gültige Wiederholungsversuche zu verlieren."
+    },
+    {
+      "id": "caltest-089",
+      "expected": "general",
+      "language": "de",
+      "text": "Entwirf ein Kommandozeilenwerkzeug zum Zusammenführen mehrerer CSV-Dateien mit unterschiedlichen Spaltenreihenfolgen."
+    },
+    {
+      "id": "caltest-090",
+      "expected": "general",
+      "language": "de",
+      "text": "Ein React-Formular verliert Eingaben, wenn neue Serverdaten eintreffen. Analysiere den Zustand und schlage eine robuste Aktualisierungsstrategie vor."
+    },
+    {
+      "id": "caltest-091",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Design a globally replicated identity service that supports emergency revocation during partitions; specify safety and liveness properties and demonstrate their limits."
+    },
+    {
+      "id": "caltest-092",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Prove the spectral theorem for real symmetric matrices and explain the role of orthogonality in the construction."
+    },
+    {
+      "id": "caltest-093",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Derive an estimator for heterogeneous treatment effects under informative censoring and discuss assumptions needed for identification."
+    },
+    {
+      "id": "caltest-094",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Develop a formal capability-security model for agents that can delegate tools recursively across trust boundaries."
+    },
+    {
+      "id": "caltest-095",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Design a blinded experiment separating uncertainty calibration from task competence in model-routing systems under distribution shift."
+    },
+    {
+      "id": "caltest-096",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Derive an energy-stable discretization for an incompressible flow problem with adaptive time steps and justify the stability criterion."
+    },
+    {
+      "id": "caltest-097",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Design a decentralized collaborative database with offline transactions and schema evolution; formalize conflict resolution and convergence."
+    },
+    {
+      "id": "caltest-098",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Prove the strong duality theorem for linear programming using a separation argument and explain degeneracy."
+    },
+    {
+      "id": "caltest-099",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Develop an admission-control policy for mixed-criticality real-time workloads with probabilistic execution times and analyze schedulability bounds."
+    },
+    {
+      "id": "caltest-100",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Analyze the trade-offs between forward secrecy and recoverability in a multi-device encrypted messaging architecture under device compromise."
+    },
+    {
+      "id": "caltest-101",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Derive a latent-variable model for non-random missingness in longitudinal data and characterize what cannot be identified from observations alone."
+    },
+    {
+      "id": "caltest-102",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Design and justify a verification framework for automatically generated database migrations that must preserve business invariants."
+    },
+    {
+      "id": "caltest-103",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Construct an evaluation protocol for adaptive retrieval systems whose retrieval decisions alter the observed feedback distribution."
+    },
+    {
+      "id": "caltest-104",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Prove a convergence rate for decentralized stochastic optimization over time-varying communication graphs under explicit assumptions."
+    },
+    {
+      "id": "caltest-105",
+      "expected": "advanced",
+      "language": "en",
+      "text": "Design a crash-consistent protocol for coordinated upgrades across storage engines with incompatible serialization formats and partial rollback."
+    },
+    {
+      "id": "caltest-106",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwirf einen globalen Zertifikatsdienst mit Notfallwiderruf unter Netzpartitionen und formuliere die Grenzen von Sicherheit und Verfügbarkeit präzise."
+    },
+    {
+      "id": "caltest-107",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Beweise den Spektralsatz für reelle symmetrische Matrizen und leite die orthogonale Diagonalisierung her."
+    },
+    {
+      "id": "caltest-108",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Leite einen Schätzer für heterogene Behandlungseffekte bei informativer Zensierung ab und analysiere die Identifikationsannahmen."
+    },
+    {
+      "id": "caltest-109",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwickle ein formales Sicherheitsmodell für rekursiv delegierende Agenten mit unterschiedlichen Vertrauensdomänen."
+    },
+    {
+      "id": "caltest-110",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwirf ein verblindetes Experiment, das Konfidenzkalibrierung und Aufgabenkompetenz von Routern bei Verteilungsverschiebung getrennt misst."
+    },
+    {
+      "id": "caltest-111",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Leite ein energiestabiles numerisches Verfahren für ein nichtlineares Diffusionsproblem mit adaptiven Zeitschritten her."
+    },
+    {
+      "id": "caltest-112",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwirf eine dezentrale Datenbank mit Offline-Transaktionen und Schemaänderungen und beweise Konvergenz unter deinen Konfliktregeln."
+    },
+    {
+      "id": "caltest-113",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Beweise den Satz über starke Dualität in der linearen Optimierung mit einem Trennungsargument."
+    },
+    {
+      "id": "caltest-114",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwickle eine Zulassungsstrategie für Echtzeitaufgaben unterschiedlicher Kritikalität mit zufälligen Laufzeiten und begründe die Fristgarantien."
+    },
+    {
+      "id": "caltest-115",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Analysiere das Spannungsverhältnis zwischen Vorwärtsgeheimnis und Wiederherstellbarkeit in einem verschlüsselten Mehrgeräte-Messenger."
+    },
+    {
+      "id": "caltest-116",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Leite ein Modell für nicht zufällig fehlende Werte in Längsschnittdaten her und zeige die Grenzen der Identifizierbarkeit."
+    },
+    {
+      "id": "caltest-117",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwirf ein Verifikationsverfahren für automatisch erzeugte Datenbankmigrationen, das fachliche Invarianten über mehrere Versionssprünge erhält."
+    },
+    {
+      "id": "caltest-118",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Konstruiere eine unverzerrte Evaluation für adaptive Suchsysteme, deren Auswahlentscheidungen das verfügbare Nutzerfeedback verändern."
+    },
+    {
+      "id": "caltest-119",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Beweise eine Konvergenzrate für dezentrale stochastische Optimierung auf zeitabhängigen Kommunikationsgraphen."
+    },
+    {
+      "id": "caltest-120",
+      "expected": "advanced",
+      "language": "de",
+      "text": "Entwirf ein absturzsicheres Upgrade-Protokoll für mehrere Speicher-Engines mit inkompatiblen Datenformaten und nur teilweise möglichem Rollback."
+    }
+  ]
+}

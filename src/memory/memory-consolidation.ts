@@ -1,10 +1,12 @@
 /**
  * Consolidation owns durable MEMORY.md updates, unlike daily-note tool writes.
  * File transactions serialize cooperating writers; model results are committed only
- * if their input snapshot is still current. Cleanup preserves non-managed text;
- * external editors do not take this lock.
+ * if their input snapshot is still current. Persisted fingerprints skip unchanged
+ * cleanup across restarts. Non-managed text is preserved; external editors do
+ * not take this lock.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -674,6 +676,37 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
   return selected.reverse();
 }
 
+function cleanupFingerprint(
+  memory: string,
+  entries: DailyMemoryEntry[],
+  language?: string,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        memory,
+        entries,
+        normalizeConsolidationLanguage(language),
+      ]),
+    )
+    .digest('hex');
+}
+
+function readCleanupFingerprint(statePath: string): string | null {
+  try {
+    return fs.readFileSync(statePath, 'utf-8').trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function writeCleanupFingerprint(statePath: string, fingerprint: string): void {
+  const tempPath = `${statePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tempPath, `${fingerprint}\n`, 'utf-8');
+  fs.renameSync(tempPath, statePath);
+}
+
 export class MemoryConsolidationEngine {
   private readonly backend: MemoryBackend;
   private config: MemoryConsolidationConfig;
@@ -774,6 +807,13 @@ export class MemoryConsolidationEngine {
           ? fs.readFileSync(memoryPath, 'utf-8')
           : readMemoryTemplate();
         dailyFilesCompiled += entries.length;
+        const statePath = path.join(workspaceDir, '.memory-cleanup.sha256');
+        if (
+          readCleanupFingerprint(statePath) ===
+          cleanupFingerprint(existing, entries, this.config.language)
+        ) {
+          continue;
+        }
 
         let next: string | null = null;
         try {
@@ -808,7 +848,6 @@ export class MemoryConsolidationEngine {
           modelCleanups += 1;
         }
 
-        if (next === existing) continue;
         const release = lockMemoryFile(memoryPath);
         try {
           const current = fs.existsSync(memoryPath)
@@ -821,8 +860,14 @@ export class MemoryConsolidationEngine {
             );
             continue;
           }
-          writeMemoryFileAtomic(memoryPath, next);
-          workspacesUpdated += 1;
+          if (next !== existing) {
+            writeMemoryFileAtomic(memoryPath, next);
+            workspacesUpdated += 1;
+          }
+          writeCleanupFingerprint(
+            statePath,
+            cleanupFingerprint(next, entries, this.config.language),
+          );
         } finally {
           release();
         }

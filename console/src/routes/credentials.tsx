@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { TabbedPage } from '../components/tabbed-page';
 import { CREDENTIAL_TABS } from '../lib/admin-tabs';
 import { logNavigationError } from '../lib/navigation';
+import { DevicesPage } from './devices';
 import { SecretsPage } from './secrets';
 import { mergeRouteSearch, readRouteTab } from './tabbed-route';
 import { TokensPage } from './tokens';
@@ -33,6 +34,8 @@ export function CredentialsPage() {
     >
       {activeTab === 'api-tokens' ? (
         <TokensPage embedded />
+      ) : activeTab === 'devices' ? (
+        <DevicesPage />
       ) : (
         <SecretsPage embedded />
       )}

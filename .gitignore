@@ -50,6 +50,11 @@ docs/development/workplan-*.md
 # Temporary files
 *.tmp*
 
+# Generated local routing evaluations and training caches
+eval-harness/routing/**/results/
+eval-harness/routing/tuning/cache/
+eval-harness/jevbench/results/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -3,9 +3,11 @@
  * decides what counts as skill content and flags what text rules cannot see:
  * symlinks leaving the skill, binaries, stray executable bits, size limits.
  *
- * `SKILL_IGNORED_ENTRIES` are skipped here and in the workspace sync
- * (`syncSkillIntoWorkspace`), so nothing reaches the agent unscanned. NOT the
- * text scan: rule matching lives in `skills-guard.ts`.
+ * This walk and every copy that installs a skill (the workspace sync,
+ * `importSkill`, `agent install`, coworker import) skip what
+ * `isSkillContentEntry` rejects. Skills installed straight into a workspace
+ * load in place, so each copy must, or unscanned files reach the agent. NOT
+ * the text scan: rule matching lives in `skills-guard.ts`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,8 +60,17 @@ const SCRIPT_EXEC_EXTENSIONS = new Set<string>([
   '.pl',
 ]);
 
-/** VCS metadata left out of both the scan and the workspace sync. */
-export const SKILL_IGNORED_ENTRIES: ReadonlySet<string> = new Set(['.git']);
+/** VCS metadata: never scanned, so never installed. */
+const SKILL_IGNORED_ENTRIES: ReadonlySet<string> = new Set(['.git']);
+
+/**
+ * Whether one directory entry, given by name or path, is skill content. It
+ * checks only the last segment, so use it as an `fs.cpSync` filter or on each
+ * entry of a walk.
+ */
+export function isSkillContentEntry(entry: string): boolean {
+  return !SKILL_IGNORED_ENTRIES.has(path.basename(entry));
+}
 
 // Images and fonts are ordinary skill assets. A file is exempt from
 // `binary_file` only with a media extension AND a media signature, so a

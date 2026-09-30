@@ -76,8 +76,10 @@ function runOnlyPaths(commands: ScriptCommand[]): Set<string> {
 // `namedPaths` are the absolute paths the line names, resolved. A line with
 // any unparsed command keeps the whole fallback (owner call, 2026-09-27): a
 // read can reach its writes through a pipe, `$(...)`, or a file, so fencing
-// only each command's own paths was rejected. Deferred: an absolute target,
-// even /dev/null, still skips the fallback.
+// only each command's own paths was rejected. /dev/null is no target, so
+// discarding output keeps the fallback. Deferred (owner call, 2026-09-29): a
+// scratch or workspace target still skips it, because falling back there
+// fences reads whose output goes to /tmp.
 export function fenceCandidates(
   commands: ScriptCommand[],
   namedPaths: string[],

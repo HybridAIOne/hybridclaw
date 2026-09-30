@@ -647,3 +647,64 @@ test('runGatewayScheduledTask reports a missing chatbot as a task error instead 
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toContain('No chatbot configured');
 });
+
+test('runGatewayScheduledTask keeps the origin web chat bound to web so other web chats can still manage the task', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  vi.doMock('../src/providers/hybridai-bots.js', () => ({
+    fetchHybridAIAccountChatbotId: vi.fn(async () => {
+      throw new Error('HybridAI API key is not configured');
+    }),
+    fetchHybridAIBots: vi.fn(async () => []),
+    HybridAIBotFetchError: class extends Error {},
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { createJob } = await import('../src/memory/jobs.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+  const { listManageableScheduledTasks } = await import(
+    '../src/gateway/scheduled-task-access.ts'
+  );
+  const { runGatewayScheduledTask } = await import(
+    '../src/gateway/gateway-scheduled-task-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const origin = memoryService.getOrCreateSession(
+    'web-origin',
+    null,
+    'web',
+    'main',
+  );
+  const taskId = createJob({
+    kind: 'scheduled_task',
+    sessionId: origin.id,
+    channelId: 'user@example.com',
+    cronExpr: '15 9 * * *',
+    prompt: 'Summarize the watched pages.',
+  });
+
+  await runGatewayScheduledTask(
+    origin.id,
+    'user@example.com',
+    'Summarize the watched pages.',
+    taskId,
+    vi.fn(async () => {}),
+    vi.fn(),
+    undefined,
+    'main',
+  );
+
+  expect(memoryService.getSessionById(origin.id)?.channel_id).toBe('web');
+  const otherWebChat = memoryService.getOrCreateSession(
+    'web-other',
+    null,
+    'web',
+    'main',
+  );
+  expect(
+    listManageableScheduledTasks(otherWebChat).tasks.map((t) => t.id),
+  ).toEqual([taskId]);
+});

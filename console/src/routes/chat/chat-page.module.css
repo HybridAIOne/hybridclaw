@@ -89,6 +89,15 @@
   height: 18px;
 }
 
+.navButtonActive,
+.navButtonActive .navLinkIcon {
+  color: var(--primary);
+}
+
+.navButtonActive {
+  background: var(--chat-hover-bg);
+}
+
 .appPreviewDialog {
   width: min(1100px, 95vw);
   max-width: min(1100px, 95vw);

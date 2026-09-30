@@ -6,7 +6,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
+import type http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach } from 'vitest';
@@ -15,16 +15,13 @@ import {
   generateIpcAuthSecret,
 } from '../../container/shared/ipc-input-auth.js';
 import type {
-  ChatMessage,
   ContainerInput,
   ContainerOutput,
-  ToolDefinition,
 } from '../../container/src/types.js';
-
-export type ModelRequestBody = {
-  messages: ChatMessage[];
-  tools: ToolDefinition[];
-};
+import {
+  type ModelRequestBody,
+  startScriptedModelServer,
+} from './scripted-model-server.js';
 
 export function useContainerAgentHarness() {
   const children: ChildProcess[] = [];
@@ -58,9 +55,15 @@ export function useContainerAgentHarness() {
   });
 
   return async function runContainerAgent(
-    replies: Array<Record<string, unknown>>,
+    replies:
+      | Array<Record<string, unknown>>
+      | ((body: ModelRequestBody) => Promise<Record<string, unknown>>),
     overrides: Partial<ContainerInput> = {},
-    files: Record<string, string> = {},
+    files: Record<string, string | Uint8Array> = {},
+    options: {
+      prepare?: (dir: string) => Promise<Partial<ContainerInput>>;
+      timeoutMs?: number;
+    } = {},
   ) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-container-agent-'));
     dirs.push(dir);
@@ -69,35 +72,12 @@ export function useContainerAgentHarness() {
     for (const [name, contents] of Object.entries(files)) {
       fs.writeFileSync(path.join(dir, name), contents);
     }
-    const requests: ModelRequestBody[] = [];
-    const server = http.createServer(async (req, res) => {
-      let text = '';
-      for await (const chunk of req) text += chunk;
-      requests.push(JSON.parse(text));
-      const message = replies.shift() ?? { role: 'assistant', content: 'done' };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          id: 'test',
-          choices: [
-            {
-              message,
-              finish_reason:
-                message.finish_reason ??
-                (message.tool_calls ? 'tool_calls' : 'stop'),
-            },
-          ],
-        }),
-      );
-    });
-    servers.push(server);
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
+    const { server, port, requests } = await startScriptedModelServer(
+      typeof replies === 'function'
+        ? replies
+        : () => replies.shift() ?? { role: 'assistant', content: 'done' },
     );
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Missing test port');
-    }
+    servers.push(server);
     const child = spawn(
       process.execPath,
       ['--import', 'tsx', 'container/src/index.ts'],
@@ -125,7 +105,7 @@ export function useContainerAgentHarness() {
       sessionId: 'test-session',
       agentId: 'test-agent',
       apiKey: 'test-key',
-      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      baseUrl: `http://127.0.0.1:${port}/v1`,
       provider: 'mlx',
       isLocal: true,
       model: 'mlx/test',
@@ -137,10 +117,11 @@ export function useContainerAgentHarness() {
       persistBashState: false,
       messages: [{ role: 'user', content: 'Read the synthetic notes' }],
       ...overrides,
+      ...(await options.prepare?.(dir)),
     };
     const waitOutput = async (): Promise<ContainerOutput> => {
       const outputPath = path.join(ipc, 'output.json');
-      const until = Date.now() + 10000;
+      const until = Date.now() + (options.timeoutMs ?? 10000);
       while (Date.now() < until) {
         // Missing and unparseable both mean not ready yet, as in readOutput
         // (src/infra/ipc.ts).

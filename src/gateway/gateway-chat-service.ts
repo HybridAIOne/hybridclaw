@@ -61,7 +61,10 @@ import {
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
-import { buildEarlierAttachmentsPrompt } from '../media/earlier-attachments.js';
+import {
+  buildEarlierAttachmentsPrompt,
+  collectEarlierAttachments,
+} from '../media/earlier-attachments.js';
 import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
@@ -1839,7 +1842,14 @@ async function handleGatewayMessageInner(
     promptMode: promptPartDefaults.promptMode,
     includePromptParts: promptPartDefaults.includePromptParts,
     omitPromptParts: promptPartDefaults.omitPromptParts,
-    extraSafetyText: fullAutoOperatingContract,
+    extraSafetyText:
+      [
+        fullAutoOperatingContract,
+        req.instructions?.trim() &&
+          `## Operator Instructions\n${req.instructions.trim()}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n') || undefined,
     runtimeInfo: {
       chatbotId,
       model,
@@ -1851,7 +1861,7 @@ async function handleGatewayMessageInner(
       sessionContext,
       workspacePath: workspaceDisplayPath,
     },
-    allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+    allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
     blockedTools: mediaPolicy.blockedTools,
   });
   let historyStart = 0;
@@ -2044,7 +2054,8 @@ async function handleGatewayMessageInner(
   };
 
   try {
-    const scheduledTasks = listManageableScheduledTasks(session);
+    const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
+      listManageableScheduledTasks(session);
     let firstTextDeltaMs: number | null = null;
     const onTextDelta = (delta: string): void => {
       if (firstTextDeltaMs == null && delta) {
@@ -2150,8 +2161,9 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: params.onTextDelta,
         onThinkingDelta: params.onThinkingDelta,
@@ -2159,6 +2171,9 @@ async function handleGatewayMessageInner(
         onApprovalProgress: params.onApprovalProgress,
         abortSignal: activeGatewayRequest.signal,
         media,
+        readableMediaPaths: collectEarlierAttachments(history).map(
+          (item) => item.path,
+        ),
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
@@ -2265,8 +2280,9 @@ async function handleGatewayMessageInner(
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         scheduledTasks,
+        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
-        allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
+        allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
@@ -2274,6 +2290,9 @@ async function handleGatewayMessageInner(
         onApprovalProgress,
         abortSignal: activeGatewayRequest.signal,
         media,
+        readableMediaPaths: collectEarlierAttachments(history).map(
+          (item) => item.path,
+        ),
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),

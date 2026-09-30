@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { MemoryBackend } from '../src/memory/memory-service.js';
+import { useTempDir } from './test-utils.js';
 
 async function loadConsolidationModule(
   workspaces: string | Record<string, string>,
@@ -52,6 +53,46 @@ function makeBackend(memoriesDecayed = 0): MemoryBackend {
 }
 
 describe.sequential('memory consolidation', () => {
+  const makeTempDir = useTempDir();
+
+  test.each(['memory', 'daily', 'language', 'corrupt-state'])(
+    'skips unchanged cleanup across engine recreation and notices %s changes',
+    async (change) => {
+      const workspace = makeTempDir();
+      fs.mkdirSync(path.join(workspace, 'memory'));
+      const memoryPath = path.join(workspace, 'MEMORY.md');
+      const dailyPath = path.join(workspace, 'memory', '2020-01-01.md');
+      fs.writeFileSync(memoryPath, '# Memory\n\n## Facts\n- Existing fact\n');
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspace);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      vi.mocked(callAuxiliaryModel).mockResolvedValue({
+        provider: 'hybridai',
+        model: 'gpt-5-nano',
+        content: JSON.stringify({ facts: ['Durable fact'], decisions: [], patterns: [] }),
+      });
+      const backend = makeBackend(3);
+      const config = { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 };
+      await new MemoryConsolidationEngine(backend, config).consolidateWithCleanup();
+      const engine = new MemoryConsolidationEngine(backend, config);
+      const unchanged = await engine.consolidateWithCleanup();
+      expect(unchanged.modelCleanups).toBe(0);
+      expect(unchanged.memoriesDecayed).toBe(3);
+      expect(callAuxiliaryModel).toHaveBeenCalledTimes(1);
+      if (change === 'memory') fs.appendFileSync(memoryPath, '\nA new note\n');
+      if (change === 'daily') fs.writeFileSync(dailyPath, 'A new daily fact');
+      if (change === 'language') engine.setLanguage('de');
+      if (change === 'corrupt-state') fs.writeFileSync(path.join(workspace, '.memory-cleanup.sha256'), 'invalid');
+      await engine.consolidateWithCleanup();
+      expect(callAuxiliaryModel).toHaveBeenCalledTimes(2);
+      expect(backend.decaySemanticMemories).toHaveBeenCalledTimes(3);
+      if (change === 'daily') {
+        fs.writeFileSync(dailyPath, 'Changed daily fact');
+        await engine.consolidateWithCleanup();
+        expect(callAuxiliaryModel).toHaveBeenCalledTimes(3);
+      }
+    },
+  );
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();

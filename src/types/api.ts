@@ -3,6 +3,11 @@
  * gateway/worker boundaries. These types describe protocol data, not approval
  * or the transport-facing conversation presentation.
  */
+import type {
+  PdfFilePart,
+  VisualAttachmentMessage,
+} from '../../container/shared/visual-snapshots.js';
+
 export interface ChatContentTextPart {
   type: 'text';
   text: string;
@@ -25,11 +30,12 @@ export interface ChatContentAudioUrlPart {
 export type ChatContentPart =
   | ChatContentTextPart
   | ChatContentImageUrlPart
-  | ChatContentAudioUrlPart;
+  | ChatContentAudioUrlPart
+  | PdfFilePart;
 
 export type ChatMessageContent = string | ChatContentPart[] | null;
 
-export interface ChatMessage {
+export interface ChatMessage extends VisualAttachmentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   tool_calls?: ToolCall[];

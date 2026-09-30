@@ -615,7 +615,7 @@ function fetchWriteTargets(program: string, args: string[]): string[] {
 // Files a command writes through an option instead of a redirect: git's
 // `--output FILE`, find's -fprint/-fprint0/-fprintf/-fls actions, and what
 // curl and wget save.
-export function optionWriteTargets(words: string[]): string[] {
+function optionWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   if (program === 'curl' || program === 'wget') {
     return fetchWriteTargets(program, args);
@@ -678,7 +678,9 @@ function copyDestination(args: string[]): string | undefined {
 // What one command writes, as written: redirect targets, `-o`/`--out` values
 // unless the program's `-o` names no file, option writes, the operands of
 // tee/mkdir/touch/chmod/chown, cp/mv destinations, and what xargs or
-// `find -exec` runs.
+// `find -exec` runs. /dev/null is never one (owner call, 2026-09-29): output
+// sent there is discarded, so `rm -f /opt/x 2>/dev/null` writes what
+// `rm -f /opt/x` writes.
 export function commandWriteTargets(words: string[]): string[] {
   const { program, args } = commandProgram(words);
   const targets = [...redirectTargets(words), ...optionWriteTargets(words)];
@@ -702,7 +704,9 @@ export function commandWriteTargets(words: string[]): string[] {
       targets.push(...commandWriteTargets(exec));
     }
   }
-  return [...new Set(targets.filter(Boolean))];
+  return [
+    ...new Set(targets.filter((target) => target && target !== '/dev/null')),
+  ];
 }
 
 // Every path a script writes, resolved against the directory each command

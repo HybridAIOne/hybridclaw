@@ -1,5 +1,6 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
 import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
@@ -46,7 +47,7 @@ export interface AddressEnvelope {
   fanoutAlias?: 'team' | 'all';
 }
 
-export interface ContainerInput {
+export interface ContainerInput extends SessionAttachmentAccess {
   healthCheck?: {
     nonce: string;
   };
@@ -92,6 +93,8 @@ export interface ContainerInput {
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];
+  /** Tasks of this agent that this chat may not list or change. */
+  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];
@@ -120,6 +123,8 @@ export interface ContainerOutput {
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
+  /** Results sent as previews; the full text is in their saved result files. */
+  spilledToolCallIds?: string[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

@@ -252,6 +252,10 @@ export interface GatewayChatRequest {
   promptMode?: PromptMode;
   includePromptParts?: PromptPartName[];
   omitPromptParts?: PromptPartName[];
+  /** Narrows the tools offered and dispatchable this turn; intersected with the agent's own tool list. */
+  allowedTools?: string[];
+  /** Trusted operator text for the system prompt. Never put caller-supplied content here. */
+  instructions?: string;
   onRoutingTrace?: (trace: RoutingTrace) => void;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;

@@ -2,7 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
-import { Trash } from '../../components/icons';
+import { Lightbulb, Trash } from '../../components/icons';
 import {
   SidebarBrand,
   SidebarMeta,
@@ -41,7 +41,13 @@ export interface ChatSidebarProps {
   onRecentScopeChange: (scope: 'user' | 'all') => void;
   isLoading: boolean;
   onRefreshRecent?: () => void;
+  /** Agent the Ideas page opens with; omitted, the gateway default is used. */
+  activeAgentId?: string;
+  /** Page beside chat that is open, highlighted in the sidebar nav. */
+  activePage?: ChatSurfacePageId;
 }
+
+export type ChatSurfacePageId = 'apps' | 'ideas';
 
 export function ChatSidebarPanel(props: ChatSidebarProps) {
   const auth = useAuth();
@@ -71,13 +77,36 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
         </button>
         <button
           type="button"
-          className={css.newChatButton}
+          className={cx(
+            css.newChatButton,
+            props.activePage === 'apps' && css.navButtonActive,
+          )}
+          aria-current={props.activePage === 'apps' ? 'page' : undefined}
           onClick={() => navigate({ to: '/apps' })}
         >
           <span aria-hidden="true" className={css.navLinkIcon}>
             <AppsGridIcon />
           </span>
           <span>Apps</span>
+        </button>
+        <button
+          type="button"
+          className={cx(
+            css.newChatButton,
+            props.activePage === 'ideas' && css.navButtonActive,
+          )}
+          aria-current={props.activePage === 'ideas' ? 'page' : undefined}
+          onClick={() =>
+            navigate({
+              to: '/chat/ideas',
+              search: props.activeAgentId ? { agent: props.activeAgentId } : {},
+            })
+          }
+        >
+          <span aria-hidden="true" className={css.navLinkIcon}>
+            <Lightbulb />
+          </span>
+          <span>Ideas</span>
         </button>
         <div className={css.sidebarSearchWrap}>
           <input

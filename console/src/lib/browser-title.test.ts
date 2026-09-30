@@ -19,6 +19,11 @@ describe('resolveBrowserTitle', () => {
     expect(resolveBrowserTitle('/chat/session-1')).toBe('HybridClaw Chat');
   });
 
+  it('names the pages beside chat', () => {
+    expect(resolveBrowserTitle('/chat/ideas')).toBe('HybridClaw Ideas');
+    expect(resolveBrowserTitle('/apps')).toBe('HybridClaw Apps');
+  });
+
   it('uses admin title only for admin routes', () => {
     expect(resolveBrowserTitle('/admin')).toBe('HybridClaw Admin');
     expect(resolveBrowserTitle('/admin/config')).toBe('HybridClaw Admin');

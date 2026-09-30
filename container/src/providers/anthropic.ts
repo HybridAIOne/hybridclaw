@@ -354,6 +354,16 @@ function convertContentPart(
     const text = part.text.trim();
     return text ? { type: 'text', text } : null;
   }
+  if (part.type === 'file') {
+    return {
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: part.file.file_data.slice('data:application/pdf;base64,'.length),
+      },
+    };
+  }
   if (part.type === 'image_url') {
     const parsed = parseDataUrlImage(part.image_url.url);
     if (!parsed) return null;

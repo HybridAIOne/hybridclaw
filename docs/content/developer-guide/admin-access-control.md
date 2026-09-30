@@ -20,6 +20,27 @@ can create them from `hybridclaw token create` or `/admin/credentials?tab=api-to
 shows the token value only once, stores a salted verifier, and keeps later
 lists metadata-only.
 
+A device such as the HybridClaw phone app can get its own token without
+anyone typing a secret into it, using the OAuth device authorization grant
+shape (RFC 8628):
+
+1. The device calls `POST /api/device/code` with `{"client_name": "…"}` and
+   shows the returned `user_code` (for example `bcdf-ghjk`).
+2. An admin who may create tokens opens `verification_uri`
+   (`/admin/credentials?tab=devices`), enters the code, checks the device name
+   and source address, and approves or denies it.
+3. The device polls `POST /api/device/token` with `{"device_code": "…"}`. It
+   gets `authorization_pending`, `slow_down`, `access_denied` or
+   `expired_token` as a 400 until it is approved, then
+   `{"access_token": "hck_…", "token_type": "Bearer"}` exactly once.
+
+Requests live in memory for ten minutes, at most 20 at a time, and a gateway
+restart drops them. The token is minted when the device collects it, labelled
+`Device: <client_name>`, audited like any created token, and limited to
+`chat.send`, `agents.read` and `artifacts.read` (`GET /api/artifact`). Revoke it
+under API tokens. The two device routes need no credentials; approving needs
+`admin.tokens.create` from a session, never from an API token.
+
 Agent workers and the tools they run hold none of these tokens. Each worker
 process gets its own credential at spawn, bound to its agent and session and
 revoked when the worker stops. The gateway accepts it only on the runtime routes

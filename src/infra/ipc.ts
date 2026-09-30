@@ -434,6 +434,9 @@ async function collectInterruptedOutput(
         ...(late.toolHistoryForReplay?.length
           ? { toolHistoryForReplay: late.toolHistoryForReplay }
           : {}),
+        ...(late.spilledToolCallIds?.length
+          ? { spilledToolCallIds: late.spilledToolCallIds }
+          : {}),
       };
     }
     const remainingMs = deadline - Date.now();

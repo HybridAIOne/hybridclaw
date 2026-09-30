@@ -14,6 +14,20 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatIdea {
+  /** One emoji, or '' when the model did not supply a usable one. */
+  emoji: string;
+  title: string;
+  description: string;
+  prompt: string;
+}
+
+export interface ChatIdeasResponse {
+  agentId: string;
+  ideas: ChatIdea[];
+  generatedAt: string;
+}
+
 export interface ChatVoiceCapabilityResponse {
   available: boolean;
   provider: 'hybridai' | 'openai' | null;

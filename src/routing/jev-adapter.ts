@@ -4,7 +4,7 @@
  * Remote response bodies and errors are never logged or surfaced verbatim.
  */
 import type { ChoiceDistribution } from './evaluator-contract.js';
-import { routingTierCriteria, TIER_SELECTION_RULE } from './policy.js';
+import { routingTierCriteria, TIER_CLASSIFICATION_QUESTION } from './policy.js';
 export interface ClassifierResponse {
   model: string;
   distributions: { tier: ChoiceDistribution };
@@ -93,7 +93,7 @@ export function createJevClassifier(
       const questions = {
         tier: {
           type: 'choice',
-          instructions: TIER_SELECTION_RULE,
+          instructions: TIER_CLASSIFICATION_QUESTION,
           criteria: routingTierCriteria(tiers),
         },
       };

@@ -40,17 +40,14 @@ import {
   LiveAppFrame,
   type LiveAppFrameHandle,
 } from '../components/live-app-frame';
-import { MobileTopbarTrigger } from '../components/sidebar/index';
 import { useToast } from '../components/toast';
 import { buildAppSeed, buildLiveAppSeed } from '../lib/app-seed';
 import { createAppViewToken } from '../lib/app-view-token';
 import { getErrorMessage } from '../lib/error-message';
-import { formatRelativeTime } from '../lib/format';
+import { formatDateTime, formatRelativeTime } from '../lib/format';
 import styles from './apps.module.css';
-import { AppsChatSidebar } from './apps-chat-sidebar';
 import { CategoryIcon, RefreshIcon as Refresh } from './apps-icons';
-import chatCss from './chat/chat-page.module.css';
-import { ChatSidebarProvider } from './chat/chat-sidebar';
+import { ChatSurfacePage } from './chat-surface-page';
 
 interface CategoryMeta {
   slug: AppCategory;
@@ -272,172 +269,167 @@ export function AppsPage() {
     categoryFilter === 'all' ? 'All' : categoryLabel(categoryFilter);
 
   return (
-    <ChatSidebarProvider>
-      <div className={chatCss.chatPage}>
-        <AppsChatSidebar />
-        <div className={chatCss.chatMain}>
-          <div className={styles.scroll}>
-            <div className={styles.page}>
-              <header className={styles.topbar}>
-                <div className={styles.topbarLeft}>
-                  <MobileTopbarTrigger className={styles.mobileTrigger} />
-                  <h1 className={styles.title}>Apps</h1>
-                </div>
-                <Dropdown>
-                  <DropdownTrigger className={styles.newAppTrigger}>
-                    + New app
-                    <ChevronDown aria-hidden="true" />
-                  </DropdownTrigger>
-                  <DropdownContent align="end">
-                    <DropdownItem onSelect={() => setNewKind('web')}>
-                      <span className={styles.newAppItem}>
-                        <span className={styles.newAppItemTitle}>Web app</span>
-                        <span className={styles.newAppItemHint}>
-                          Self-contained app, document, game, or tool
-                        </span>
-                      </span>
-                    </DropdownItem>
-                    <DropdownItem onSelect={() => setNewKind('live')}>
-                      <span className={styles.newAppItem}>
-                        <span className={styles.newAppItemTitle}>Live app</span>
-                        <span className={styles.newAppItemHint}>
-                          Uses your connectors and can be refreshed
-                        </span>
-                      </span>
-                    </DropdownItem>
-                  </DropdownContent>
-                </Dropdown>
-              </header>
+    <ChatSurfacePage
+      page="apps"
+      title="Apps"
+      subtitle="Apps, documents, and dashboards your agents built for you."
+      actions={
+        <Dropdown>
+          <DropdownTrigger className={styles.newAppTrigger}>
+            + New app
+            <ChevronDown aria-hidden="true" />
+          </DropdownTrigger>
+          <DropdownContent align="end">
+            <DropdownItem onSelect={() => setNewKind('web')}>
+              <span className={styles.newAppItem}>
+                <span className={styles.newAppItemTitle}>Web app</span>
+                <span className={styles.newAppItemHint}>
+                  Self-contained app, document, game, or tool
+                </span>
+              </span>
+            </DropdownItem>
+            <DropdownItem onSelect={() => setNewKind('live')}>
+              <span className={styles.newAppItem}>
+                <span className={styles.newAppItemTitle}>Live app</span>
+                <span className={styles.newAppItemHint}>
+                  Uses your connectors and can be refreshed
+                </span>
+              </span>
+            </DropdownItem>
+          </DropdownContent>
+        </Dropdown>
+      }
+      overlays={
+        <>
+          <NewAppDialog
+            kind={newKind}
+            onClose={() => setNewKind(null)}
+            onStartWeb={startWebBuild}
+            onStartLive={startLiveBuild}
+          />
 
-              <div className={styles.toolbar}>
-                <div className={styles.searchWrap}>
-                  <Search className={styles.searchIcon} aria-hidden="true" />
-                  <input
-                    type="search"
-                    className={styles.searchInput}
-                    placeholder="Search apps…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    aria-label="Search apps"
-                  />
-                </div>
-                <Dropdown>
-                  <DropdownTrigger className={styles.filterTrigger}>
-                    <span>
-                      Filter: <strong>{filterLabel}</strong>
-                    </span>
-                    <ChevronDown aria-hidden="true" />
-                  </DropdownTrigger>
-                  <DropdownContent align="end">
-                    <DropdownItem
-                      active={categoryFilter === 'all'}
-                      onSelect={() => setCategoryFilter('all')}
-                    >
-                      All
-                    </DropdownItem>
-                    {CATEGORIES.map((category) => (
-                      <DropdownItem
-                        key={category.slug}
-                        active={categoryFilter === category.slug}
-                        onSelect={() => setCategoryFilter(category.slug)}
-                      >
-                        {category.label}
-                      </DropdownItem>
-                    ))}
-                  </DropdownContent>
-                </Dropdown>
-              </div>
+          <AppViewer
+            app={viewer}
+            token={viewerToken}
+            onClose={closeViewer}
+            frameRef={viewerFrameRef}
+            refreshNonce={viewerRefreshNonce}
+            onRefresh={viewer ? () => refreshApp(viewer) : undefined}
+            onShare={viewer ? () => setShareApp(viewer) : undefined}
+          />
 
-              {query.isPending ? (
-                <div className="empty-state">Loading apps…</div>
-              ) : query.isError ? (
-                <div className="empty-state">
-                  Failed to load apps: {getErrorMessage(query.error)}
-                </div>
-              ) : filtered.length === 0 ? (
-                <EmptyState
-                  hasApps={apps.length > 0}
-                  onCreate={() => setNewKind('web')}
-                />
-              ) : (
-                <ul className={styles.grid}>
-                  {filtered.map((app) => (
-                    <li key={app.id}>
-                      <AppCard
-                        app={app}
-                        onOpen={() => openApp(app)}
-                        onShare={() => setShareApp(app)}
-                        onDelete={() => setConfirmDelete(app)}
-                        onRefresh={() => refreshApp(app)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
+          <ShareAppDialog
+            app={shareApp}
+            token={token}
+            onClose={() => setShareApp(null)}
+            onChanged={async () => {
+              await queryClient.invalidateQueries({ queryKey: ['apps'] });
+              if (viewer) {
+                const result = await fetchApp(token, viewer.id);
+                setViewer(result.app);
+              }
+            }}
+          />
+
+          <Dialog
+            open={confirmDelete !== null}
+            onOpenChange={(open) => {
+              if (!open) setConfirmDelete(null);
+            }}
+          >
+            <DialogContent size="sm" role="alertdialog">
+              <DialogHeader>
+                <DialogTitle>Delete app?</DialogTitle>
+                <DialogDescription>
+                  “{confirmDelete?.title}” will be permanently removed from the
+                  gallery.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose className={styles.secondaryButton}>
+                  Cancel
+                </DialogClose>
+                <Button
+                  variant="danger"
+                  disabled={deleteMutation.isPending}
+                  onClick={() =>
+                    confirmDelete && deleteMutation.mutate(confirmDelete.id)
+                  }
+                >
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      }
+    >
+      <div className={styles.toolbar}>
+        <div className={styles.searchWrap}>
+          <Search className={styles.searchIcon} aria-hidden="true" />
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Search apps…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search apps"
+          />
         </div>
+        <Dropdown>
+          <DropdownTrigger className={styles.filterTrigger}>
+            <span>
+              Filter: <strong>{filterLabel}</strong>
+            </span>
+            <ChevronDown aria-hidden="true" />
+          </DropdownTrigger>
+          <DropdownContent align="end">
+            <DropdownItem
+              active={categoryFilter === 'all'}
+              onSelect={() => setCategoryFilter('all')}
+            >
+              All
+            </DropdownItem>
+            {CATEGORIES.map((category) => (
+              <DropdownItem
+                key={category.slug}
+                active={categoryFilter === category.slug}
+                onSelect={() => setCategoryFilter(category.slug)}
+              >
+                {category.label}
+              </DropdownItem>
+            ))}
+          </DropdownContent>
+        </Dropdown>
       </div>
 
-      <NewAppDialog
-        kind={newKind}
-        onClose={() => setNewKind(null)}
-        onStartWeb={startWebBuild}
-        onStartLive={startLiveBuild}
-      />
-
-      <AppViewer
-        app={viewer}
-        token={viewerToken}
-        onClose={closeViewer}
-        frameRef={viewerFrameRef}
-        refreshNonce={viewerRefreshNonce}
-        onRefresh={viewer ? () => refreshApp(viewer) : undefined}
-        onShare={viewer ? () => setShareApp(viewer) : undefined}
-      />
-
-      <ShareAppDialog
-        app={shareApp}
-        token={token}
-        onClose={() => setShareApp(null)}
-        onChanged={async () => {
-          await queryClient.invalidateQueries({ queryKey: ['apps'] });
-          if (viewer) {
-            const result = await fetchApp(token, viewer.id);
-            setViewer(result.app);
-          }
-        }}
-      />
-
-      <Dialog
-        open={confirmDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDelete(null);
-        }}
-      >
-        <DialogContent size="sm" role="alertdialog">
-          <DialogHeader>
-            <DialogTitle>Delete app?</DialogTitle>
-            <DialogDescription>
-              “{confirmDelete?.title}” will be permanently removed from the
-              gallery.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose className={styles.secondaryButton}>Cancel</DialogClose>
-            <Button
-              variant="danger"
-              disabled={deleteMutation.isPending}
-              onClick={() =>
-                confirmDelete && deleteMutation.mutate(confirmDelete.id)
-              }
-            >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </ChatSidebarProvider>
+      {query.isPending ? (
+        <div className="empty-state">Loading apps…</div>
+      ) : query.isError ? (
+        <div className="empty-state">
+          Failed to load apps: {getErrorMessage(query.error)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          hasApps={apps.length > 0}
+          onCreate={() => setNewKind('web')}
+        />
+      ) : (
+        <ul className={styles.grid}>
+          {filtered.map((app) => (
+            <li key={app.id}>
+              <AppCard
+                app={app}
+                onOpen={() => openApp(app)}
+                onShare={() => setShareApp(app)}
+                onDelete={() => setConfirmDelete(app)}
+                onRefresh={() => refreshApp(app)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </ChatSurfacePage>
   );
 }
 
@@ -471,34 +463,50 @@ function AppCard(props: {
 }) {
   const { app } = props;
   const isLive = app.kind === 'live';
+  const description =
+    app.description ||
+    (isLive ? 'Refreshes from your connectors each time you open it.' : '');
   return (
     <div className={styles.card}>
       <button type="button" className={styles.cardMain} onClick={props.onOpen}>
         <div className={styles.cardTop}>
-          <div className={styles.cardGlyph} aria-hidden="true">
+          <div
+            className={isLive ? styles.cardGlyphLive : styles.cardGlyph}
+            aria-hidden="true"
+          >
             <CategoryIcon category={app.category} />
           </div>
           <span
             className={isLive ? styles.kindBadgeLive : styles.kindBadge}
-            title={isLive ? 'Connector-aware, refreshable' : undefined}
+            title={isLive ? 'Refreshes with your connector data' : undefined}
           >
             {isLive ? 'Live' : 'Web'}
           </span>
         </div>
         <div className={styles.cardBody}>
           <span className={styles.cardTitle}>{app.title}</span>
-          {app.description ? (
-            <span className={styles.cardDesc}>{app.description}</span>
+          {description ? (
+            <span className={styles.cardDesc}>{description}</span>
           ) : null}
         </div>
         <div className={styles.cardMeta}>
           <span className={styles.cardCategory}>
             {categoryLabel(app.category)}
           </span>
-          <span className={styles.cardDot}>·</span>
-          <span>{formatRelativeTime(app.createdAt)}</span>
-          <span className={styles.cardDot}>·</span>
-          <span>{app.visibility === 'public' ? 'Shared' : 'Not shared'}</span>
+          <span className={styles.cardMetaEnd}>
+            {app.visibility === 'public' ? (
+              <span className={styles.cardShared}>
+                <Share aria-hidden="true" className={styles.inlineIcon} />
+                Shared
+              </span>
+            ) : null}
+            <time
+              dateTime={app.createdAt}
+              title={formatDateTime(app.createdAt)}
+            >
+              {formatRelativeTime(app.createdAt)}
+            </time>
+          </span>
         </div>
       </button>
       <div className={styles.cardActions}>

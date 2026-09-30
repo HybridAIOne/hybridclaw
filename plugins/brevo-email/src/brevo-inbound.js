@@ -1,10 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
-import { convert } from 'html-to-text';
 import {
   readWebhookJsonBody,
   sendWebhookJson,
   WebhookHttpError,
-} from 'hybridclaw/plugin-sdk';
+} from '@hybridaione/hybridclaw/plugin-sdk';
+import { convert } from 'html-to-text';
 import { resolveAgentIdFromRecipient } from './brevo-address.js';
 import { normalizeLower } from './normalize.js';
 
@@ -68,7 +68,7 @@ function buildEmailSessionKey(agentId, senderAddress) {
 /**
  * Build the normalized set of known agent IDs for inbound routing.
  *
- * @param {import('hybridclaw/plugin-sdk').RuntimeConfig} config
+ * @param {import('@hybridaione/hybridclaw/plugin-sdk').RuntimeConfig} config
  * @returns {Set<string>}
  */
 export function buildKnownAgentIds(config) {
@@ -129,8 +129,8 @@ function describeAttachments(attachments) {
 /**
  * Handle a Brevo inbound parsing webhook request.
  *
- * @param {import('hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
- * @param {import('hybridclaw/plugin-sdk').HybridClawPluginApi} api
+ * @param {import('@hybridaione/hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
+ * @param {import('@hybridaione/hybridclaw/plugin-sdk').HybridClawPluginApi} api
  * @param {import('./types.js').BrevoEmailConfig} config
  * @param {Set<string>} knownAgentIds
  */

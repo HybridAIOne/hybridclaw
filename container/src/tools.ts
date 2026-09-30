@@ -52,6 +52,7 @@ import {
   runDiagramTool,
 } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
+import { readDocumentFile } from './document-read.js';
 import {
   appendFileReferenceReceipt,
   type FileReferenceExpansion,
@@ -63,14 +64,17 @@ import {
 } from './gateway-json-post.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import type { ModelBehavior } from './model-behavior.js';
+import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   type RuntimeProvider,
   resolveRuntimeProviderContext,
 } from './providers/provider-ids.js';
+import { setVisualMediaAllowed } from './providers/visual-content.js';
 import {
-  resolveCurrentTurnMediaReadPath,
-  resolveCurrentTurnMediaSandboxPath,
+  resolveSessionMediaReadPath,
+  resolveSessionMediaSandboxPath,
+  setReadableMediaPaths,
 } from './read-path.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
@@ -320,6 +324,7 @@ function describeSchedule(task: {
 let pendingDelegations: DelegationSideEffect[] = [];
 let delegateCallsThisTurn = 0;
 let injectedTasks: ScheduledTaskInfo[] = [];
+let hiddenTaskCount = 0;
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let currentAgentId = '';
@@ -737,8 +742,10 @@ export function getPendingSideEffects():
 
 export function setScheduledTasks(
   tasks: ScheduledTaskInfo[] | undefined,
+  hiddenCount = 0,
 ): void {
   injectedTasks = tasks || [];
+  hiddenTaskCount = hiddenCount;
 }
 
 export function setScheduleSideEffectsEnabled(enabled: boolean): void {
@@ -817,8 +824,14 @@ export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
   setBrowserTaskModelPolicies(currentTaskModelPolicies);
 }
 
-export function setMediaContext(media?: MediaContextItem[]): void {
+export function setMediaContext(
+  media?: MediaContextItem[],
+  readableMediaPaths: string[] = [],
+  visualMediaAllowed = false,
+): void {
   currentMediaContext = Array.isArray(media) ? media : [];
+  setReadableMediaPaths(readableMediaPaths);
+  setVisualMediaAllowed(visualMediaAllowed);
 }
 
 function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
@@ -2703,7 +2716,7 @@ async function executeToolInternal(
   name: string,
   argsJson: string,
   sentFiles: FileReferenceExpansion[],
-): Promise<string> {
+): Promise<string | ToolRunResult> {
   let parsedArgs: unknown;
   try {
     parsedArgs = JSON.parse(argsJson);
@@ -2761,22 +2774,24 @@ async function executeToolInternal(
         let content = '';
         if (TASK_SANDBOX_FS_ENABLED) {
           const sandboxPath =
-            resolveCurrentTurnMediaSandboxPath(
-              args.path,
-              currentMediaContext,
-            ) || resolveTaskSandboxPath(args.path);
+            resolveSessionMediaSandboxPath(args.path, currentMediaContext) ||
+            resolveTaskSandboxPath(args.path);
           if (!sandboxPath) {
             return failTool(`Error: Path escapes workspace: ${args.path}`);
           }
           const copied = copyTaskSandboxFileToTemp(sandboxPath);
           tempDirToCleanup = copied.tempDir;
+          const document = await readDocumentFile(copied.localPath, args);
+          if (document) return document;
           content = fs.readFileSync(copied.localPath, 'utf-8');
         } else {
           const filePath =
-            resolveCurrentTurnMediaReadPath(args.path, currentMediaContext) ||
+            resolveSessionMediaReadPath(args.path, currentMediaContext) ||
             safeJoin(args.path);
           if (!fs.existsSync(filePath))
             return failTool(`Error: File not found: ${args.path}`);
+          const document = await readDocumentFile(filePath, args);
+          if (document) return document;
           content = fs.readFileSync(filePath, 'utf-8');
         }
         const lines = content.split('\n');
@@ -3731,7 +3746,15 @@ async function executeToolInternal(
       const action = args.action;
 
       if (action === 'list') {
-        if (injectedTasks.length === 0) return 'No scheduled tasks.';
+        const hiddenNote =
+          hiddenTaskCount > 0
+            ? `${hiddenTaskCount} more task(s) of this agent belong to other conversations. This chat cannot list or change them; Automation → Scheduler in the console can. Ask the user before adding a task that may duplicate one.`
+            : '';
+        if (injectedTasks.length === 0) {
+          return hiddenNote
+            ? `No scheduled tasks in this chat. ${hiddenNote}`
+            : 'No scheduled tasks.';
+        }
         const lines = injectedTasks.map((t) => {
           let schedule: string;
           if (t.runAt) schedule = `at ${t.runAt}`;
@@ -3749,6 +3772,7 @@ async function executeToolInternal(
               : '';
           return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
         });
+        if (hiddenNote) lines.push(hiddenNote);
         return lines.join('\n');
       }
 
@@ -3978,10 +4002,12 @@ export async function executeToolWithMetadata(
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
-    const output = await executeToolInternal(name, argsJson, sentFiles);
+    const result = await executeToolInternal(name, argsJson, sentFiles);
+    const metadata =
+      typeof result === 'string' ? { output: result, isError: false } : result;
     return {
-      output: appendFileReferenceReceipt(output, sentFiles),
-      isError: false,
+      ...metadata,
+      output: appendFileReferenceReceipt(metadata.output, sentFiles),
     };
   } catch (err) {
     if (err instanceof ToolExecutionFailure) {
@@ -4036,11 +4062,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'read',
-      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large files.`,
+      description: `Read a file and return its contents. Output is truncated to ${READ_MAX_LINES} lines or ${formatBytes(READ_MAX_BYTES)} (whichever is hit first). Use offset/limit for large text files. Images are delivered visually, never as binary text. PDFs support query to find text/captions and pages to read matching pages directly. Use read for PDF/image questions before shell tools; no separate vision call or cleanup is needed.`,
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path to the file to read' },
+          ...PDF_READ_PARAMETERS,
           offset: {
             type: 'number',
             description:

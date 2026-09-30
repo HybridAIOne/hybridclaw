@@ -29,6 +29,12 @@ export type {
   EmbeddingProviderRegistration,
 } from '../memory/embeddings.js';
 export type { AIProvider } from '../providers/types.js';
+export type {
+  LocalClassifierAction,
+  LocalClassifierInfo,
+  LocalClassifierRegistration,
+  LocalClassifierState,
+} from '../routing/local-classifiers.js';
 export type { StoredMessage } from '../types/session.js';
 export type {
   PluginMediaHost,

@@ -77,6 +77,7 @@ function formatClaims(claims: Record<string, unknown>): string {
 const TOKEN_ACTION_VALUES = [
   'openai.api',
   'chat.send',
+  'artifacts.read',
   'status.read',
   'agents.read',
   'secret.list_metadata',
@@ -230,6 +231,7 @@ function formatActionDescription(value: string): string {
   if (value === 'chat.send') return 'Send chat and command requests.';
   if (value === 'status.read') return 'Read gateway status.';
   if (value === 'agents.read') return 'Read agent metadata.';
+  if (value === 'artifacts.read') return 'Download files that agents made.';
   if (value.startsWith('secret.')) return 'Access admin secret management.';
   if (value === 'admin.tokens.read') return 'Read admin API token metadata.';
   if (value.startsWith('admin.terminal.'))
@@ -259,7 +261,13 @@ function formatActionDescription(value: string): string {
 
 function resolveActionGroup(value: string): string {
   if (
-    ['openai.api', 'chat.send', 'status.read', 'agents.read'].includes(value)
+    [
+      'openai.api',
+      'chat.send',
+      'artifacts.read',
+      'status.read',
+      'agents.read',
+    ].includes(value)
   ) {
     return 'API access';
   }

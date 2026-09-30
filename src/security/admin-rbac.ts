@@ -22,6 +22,7 @@ export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_TOKEN_RBAC_ACTIONS,
   'openai.api',
   'chat.send',
+  'artifacts.read',
   'voice.session',
   'status.read',
   'agents.read',
@@ -398,12 +399,17 @@ export function resolveAdminRbacAction(
     if (method === 'DELETE') return 'admin.tokens.revoke';
     return null;
   }
+  // Answering a device request mints a token, so even looking one up needs this.
+  if (pathname.startsWith('/api/admin/devices/')) return 'admin.tokens.create';
   if (pathname.startsWith('/v1/')) {
     return 'openai.api';
   }
   if (pathname.startsWith('/api/push/')) return 'chat.send';
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
+  }
+  if (pathname === '/api/artifact' && method === 'GET') {
+    return 'artifacts.read';
   }
   if (pathname === '/api/chat/voice/token' && method === 'POST') {
     return 'voice.session';

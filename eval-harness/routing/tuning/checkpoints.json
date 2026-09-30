@@ -1,0 +1,20 @@
+{
+  "typed": {
+    "repo": "aac6fef/laya-typed-decisions-mlx",
+    "revision": "f9e501c2080cc57c13d6887820329758f5351125",
+    "weight_sha256": "804ef8802b4cac7a67913b0cfb8448659e934a50284aaa867b98d7d9a6e7d1e0",
+    "runtime": "laya-mlx==0.2.0"
+  },
+  "multilingual": {
+    "repo": "aac6fef/laya-multilingual-mlx",
+    "revision": "ba40c87fcb357f1643d04d71323af9cdc3b9e591",
+    "weight_sha256": "7fc5834af4d8fdfb268d272a9d1a66e5819a0daac98241651c4c888cc43adff1",
+    "runtime": "laya-mlx==0.2.0"
+  },
+  "english": {
+    "repo": "aac6fef/laya-mlx",
+    "revision": "20aed815fc6acde75733882e7ec0e3f28aeb9717",
+    "weight_sha256": "b9c07bf14be2fa5c78a9193a3e6d840ac80e89e62fc40f425834c3d8a6eaa3de",
+    "runtime": "laya-mlx==0.2.0"
+  }
+}

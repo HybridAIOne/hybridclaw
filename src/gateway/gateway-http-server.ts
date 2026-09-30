@@ -226,6 +226,7 @@ import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
+import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   filterChatResultForSession,
   hasMessageSendToolExecution,
@@ -233,6 +234,13 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import {
+  DEVICE_CODE_PATH,
+  DEVICE_TOKEN_PATH,
+  handleAdminDeviceRoute,
+  handleDeviceGrantRoute,
+  parseAdminDeviceUserCode,
+} from './device-grants.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
   completeGatewayAdminConnectorOAuthCallback,
@@ -420,6 +428,7 @@ import {
   resumeWith,
   resumeWithText,
 } from './interactive-escalation.js';
+import { handleLocalClassifierAdmin } from './local-classifier-admin.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   isMSTeamsTabViewerAllowed,
@@ -10754,6 +10763,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
       }
 
+      if (pathname === DEVICE_CODE_PATH || pathname === DEVICE_TOKEN_PATH) {
+        void handleDeviceGrantRoute(
+          req,
+          res,
+          pathname,
+          resolveRequestOrigin(req),
+        );
+        return;
+      }
+
       // A worker credential reaches the runtime routes only, and acts there
       // as its own agent and session (readRuntimeBody).
       const worker = resolveWorkerCredential(extractBearerToken(req));
@@ -10969,6 +10988,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             sendMethodNotAllowed(res);
             return;
           }
+          const deviceUserCode = parseAdminDeviceUserCode(pathname);
+          if (deviceUserCode !== null) {
+            const audit = resolveAdminTokenAuditContext(req, authContext);
+            await handleAdminDeviceRoute(
+              req,
+              res,
+              deviceUserCode,
+              authContext,
+              audit,
+            );
+            return;
+          }
           if (
             pathname === '/api/admin/tunnel' &&
             (method === 'GET' || method === 'PUT')
@@ -11024,6 +11055,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
             handleApiAdminAgentScoreboard(res);
+            return;
+          }
+          if (pathname === '/api/admin/local-classifiers') {
+            await handleLocalClassifierAdmin(
+              req,
+              res,
+              isLoopbackWebRequest(req),
+            );
             return;
           }
           if (pathname === '/api/admin/local-models') {
@@ -11508,6 +11547,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/context' && method === 'GET') {
             handleApiChatContext(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/ideas' && method === 'GET') {
+            const userId = resolveGatewayRequestUserId({
+              req,
+              channelId: 'web',
+              requestedUserId: url.searchParams.get('userId'),
+            });
+            await handleApiChatIdeas(res, url, userId);
             return;
           }
           if (pathname === '/api/chat/voice' && method === 'GET') {

@@ -932,6 +932,7 @@ async function runHostProcessInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     scheduledTasks,
+    hiddenScheduledTaskCount,
     allowedTools,
     blockedTools,
     onTextDelta,
@@ -940,6 +941,8 @@ async function runHostProcessInner(
     onApprovalProgress,
     abortSignal,
     media,
+    readableMediaPaths,
+    visualMediaAllowed,
     audioTranscriptsPrepended,
     pluginTools,
     escalationTarget,
@@ -1033,6 +1036,7 @@ async function runHostProcessInner(
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
+    hiddenScheduledTaskCount,
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -1060,6 +1064,8 @@ async function runHostProcessInner(
     allowedTools: effectiveAllowedTools,
     blockedTools,
     media,
+    readableMediaPaths,
+    visualMediaAllowed,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,

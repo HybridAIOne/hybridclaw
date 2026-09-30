@@ -812,6 +812,7 @@ async function executePreparedToolCall(
       name: toolName,
       arguments: argsJson,
       result,
+      toolCallId: call.id,
       durationMs: toolDuration,
       isError,
       blocked: Boolean(executionBlockedReason),
@@ -835,6 +836,9 @@ async function executePreparedToolCall(
       content: result,
       tool_call_id: call.id,
       ...(isError ? { is_error: true } : {}),
+      ...('visualAttachments' in runtimeResult
+        ? { visualAttachments: runtimeResult.visualAttachments }
+        : {}),
     },
     artifacts: extractToolArtifacts(toolName, result),
   };
@@ -1101,11 +1105,11 @@ async function processRequest(
     : output.error || 'The turn ended before this call could execute.';
   const toolHistory = turnToolHistory.finish(reason);
   return toolHistory.length
-    ? {
+    ? turnToolHistory.withSpilledPreviews({
         ...output,
         toolHistory,
         toolHistoryForReplay: turnToolHistory.finish(reason, true),
-      }
+      })
     : output;
 }
 
@@ -1187,6 +1191,9 @@ async function processRequestInner(
     normalizeLocalContextMode(localToolMode, 'localToolMode') === 'full'
       ? availableTools
       : (toolCatalog?.tools ?? availableTools);
+  const availableToolNames = new Set(
+    availableTools.map((tool) => tool.function.name),
+  );
   setSkillDiscoveryTools(availableTools, tools);
   const processStartedAt = Date.now();
   console.error('[hybridclaw-agent] agent request start');
@@ -1283,6 +1290,14 @@ async function processRequestInner(
 
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
+    if (!availableToolNames.has(approvedToolCall.toolName)) {
+      return {
+        status: 'error',
+        result: null,
+        toolsUsed: [],
+        error: 'The approved tool is no longer available in this request.',
+      };
+    }
     if (toolCatalog) {
       try {
         toolCatalog.resolveCall({
@@ -1603,6 +1618,15 @@ async function processRequestInner(
           catalogCorrection =
             toolCatalog.recoverArgumentError(error)?.output ?? null;
         }
+      }
+    } else if (!invalidToolCallError) {
+      // Without a catalog, the offered schemas are the request's tool policy:
+      // a call to any other name fails the turn instead of reaching dispatch.
+      const unavailable = toolCalls.find(
+        (call) => !availableToolNames.has(call.function.name),
+      );
+      if (unavailable) {
+        invalidToolCallError = `Tool is not available in this request: ${unavailable.function.name}`;
       }
     }
     const correction =
@@ -2215,7 +2239,10 @@ async function main(): Promise<void> {
 
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
-  setScheduledTasks(firstInput.scheduledTasks);
+  setScheduledTasks(
+    firstInput.scheduledTasks,
+    firstInput.hiddenScheduledTaskCount,
+  );
   setEligibleSkillsCatalog(firstInput.skillCatalog);
   setScheduleSideEffectsEnabled(
     firstInput.scheduleSideEffectsEnabled !== false,
@@ -2248,7 +2275,11 @@ async function main(): Promise<void> {
     firstInput.debugModelResponses === true,
   );
   setTaskModelPolicies(firstTaskModels);
-  setMediaContext(firstInput.media);
+  setMediaContext(
+    firstInput.media,
+    firstInput.readableMediaPaths,
+    firstInput.visualMediaAllowed,
+  );
   const firstVisionMessages = await injectNativeVisionContent({
     messages: firstInput.messages,
     model: firstInput.model,
@@ -2373,7 +2404,7 @@ async function main(): Promise<void> {
 
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
-    setScheduledTasks(input.scheduledTasks);
+    setScheduledTasks(input.scheduledTasks, input.hiddenScheduledTaskCount);
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
@@ -2407,7 +2438,11 @@ async function main(): Promise<void> {
       input.debugModelResponses === true,
     );
     setTaskModelPolicies(taskModels);
-    setMediaContext(input.media);
+    setMediaContext(
+      input.media,
+      input.readableMediaPaths,
+      input.visualMediaAllowed,
+    );
     const visionPreparedMessages = await injectNativeVisionContent({
       messages: input.messages,
       model: input.model,

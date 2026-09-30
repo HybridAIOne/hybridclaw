@@ -1068,6 +1068,7 @@ async function runContainerInner(
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
     scheduledTasks,
+    hiddenScheduledTaskCount,
     allowedTools,
     blockedTools,
     onTextDelta,
@@ -1076,6 +1077,8 @@ async function runContainerInner(
     onApprovalProgress,
     abortSignal,
     media,
+    readableMediaPaths,
+    visualMediaAllowed,
     audioTranscriptsPrepended,
     pluginTools,
     escalationTarget,
@@ -1192,6 +1195,7 @@ async function runContainerInner(
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
+    hiddenScheduledTaskCount,
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -1219,6 +1223,8 @@ async function runContainerInner(
     allowedTools: effectiveAllowedTools,
     blockedTools,
     media,
+    readableMediaPaths,
+    visualMediaAllowed,
     audioTranscriptsPrepended,
     pluginTools,
     mcpServers,

@@ -3,8 +3,10 @@
  * Dependent controls require routing to be enabled; saved preferences are retained.
  * Saves preserve untouched settings from the latest config; models belong only to tiers.
  */
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import type { LocalClassifierInfo } from '../../../src/routing/local-classifiers';
 import { fetchConfig, requestJson, saveConfig } from '../api/client';
 import type { AdminConfig, AdminModelsResponse, ChatModel } from '../api/types';
 import { useAuth } from '../auth';
@@ -124,6 +126,14 @@ export function RoutingConfiguration({
     queryKey: ['config', token],
     queryFn: () => fetchConfig(token),
   });
+  const localClassifiers = useQuery({
+    queryKey: ['local-classifiers', token],
+    queryFn: () =>
+      requestJson<{ classifiers: LocalClassifierInfo[] }>(
+        '/api/admin/local-classifiers',
+        { token },
+      ),
+  });
   const availability = useQuery({
     queryKey: ['routing-status', token],
     queryFn: () =>
@@ -242,7 +252,11 @@ export function RoutingConfiguration({
     id: string,
     maximumZone = value?.maximumZone ?? 'cloud',
   ) => {
-    const zone = models.find((model) => model.id === id)?.zone ?? 'cloud';
+    const zone = localClassifiers.data?.classifiers?.some(
+      (model) => model.model === id,
+    )
+      ? 'local'
+      : (models.find((model) => model.id === id)?.zone ?? 'cloud');
     return (
       privacyLevels.findIndex(([key]) => key === zone) <=
       privacyLevels.findIndex(([key]) => key === maximumZone)
@@ -547,6 +561,16 @@ export function RoutingConfiguration({
                           ? 'Configured tier · no classifier'
                           : 'Unset'}
                       </option>
+                      {localClassifiers.data?.classifiers?.map((model) => (
+                        <option
+                          key={model.model}
+                          value={model.model}
+                          disabled={model.status !== 'running'}
+                        >
+                          {model.label}
+                          {model.status === 'running' ? '' : ' · start in Labs'}
+                        </option>
+                      ))}
                       {!(value.maximumZone !== 'cloud') && (
                         <option
                           value="jev/jev-latest"
@@ -561,6 +585,9 @@ export function RoutingConfiguration({
                       {!(value.maximumZone !== 'cloud') &&
                       value.concierge[field] &&
                       !value.concierge[field].startsWith('jev/') &&
+                      !localClassifiers.data?.classifiers?.some(
+                        (model) => model.model === value.concierge[field],
+                      ) &&
                       !models.some(
                         (model) => model.id === value.concierge[field],
                       ) ? (

@@ -23,6 +23,7 @@ import {
   Share,
   Statistics,
   Terminal,
+  Tools,
 } from '../icons';
 
 export type SidebarNavItem = {
@@ -68,6 +69,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/channels', label: 'Channels', icon: Channels },
       { to: '/admin/connectors', label: 'Connectors', icon: Plugins },
       { to: '/admin/mcp', label: 'MCP Servers', icon: Cog },
+      { to: '/admin/published-tools', label: 'Published Tools', icon: Tools },
       {
         to: '/admin/federation',
         label: 'Agent2Agent',

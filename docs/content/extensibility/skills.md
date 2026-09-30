@@ -26,9 +26,9 @@ Skill roots include:
 - skills merge by `name`
 - higher-precedence definitions override lower-precedence ones
 - trust-aware scanning blocks risky personal or workspace skills; it skips
-  `.git` metadata, which is also not copied into the agent workspace, and
-  accepts image and font assets only when their leading bytes match the
-  extension
+  `.git` metadata, which is never installed or copied into the agent workspace
+  either, and accepts image and font assets only when their leading bytes match
+  the extension
 - the scan reads instructions, config, and scripts, including `*.cjs` helpers
   and the other JavaScript and TypeScript module types (`.mjs`, `.cts`,
   `.mts`, `.jsx`, `.tsx`), `.zsh` scripts, and any file that starts with a

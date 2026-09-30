@@ -1,7 +1,8 @@
 /**
  * Agent execution validates replayable tool history at the worker boundary and
  * applies confidential placeholders across turns. Executors run tools; this
- * layer does not grant permissions or turn audit records into instructions.
+ * layer blocks binary PDF delivery under confidentiality and never turns audit
+ * records into instructions.
  */
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
@@ -10,6 +11,8 @@ import { HYBRIDAI_MODEL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
+import { isModelVisionCapable } from '../providers/model-catalog.js';
+import { resolveStaticModelCatalogMetadata } from '../providers/model-metadata.js';
 import {
   createConfidentialRuntimeContext,
   getConfidentialRuleSet,
@@ -34,6 +37,7 @@ import {
   getLatestUserTextContent,
   type MiddlewareEvent,
 } from './middleware.js';
+import { restoreSpilledToolResults } from './spilled-tool-results.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
 
 const TOOL_EXECUTION_REHYDRATE_FIELDS: ReadonlyArray<keyof ToolExecution> = [
@@ -157,11 +161,18 @@ async function runAgentInner(
   const executor = getExecutor(params.executorModeOverride);
   const workspaceRoot =
     params.workspacePathOverride || executor.getWorkspacePath(agentId);
+  // Unknown model capabilities are negotiated through the endpoint; explicit
+  // media rejection falls back to text. Confidential text redaction cannot
+  // sanitize PDF bytes or pixels, so it disables binary delivery, including replay.
+  const visualMediaAllowed =
+    !isConfidentialRedactionEnabled() &&
+    (isModelVisionCapable(model) ||
+      !resolveStaticModelCatalogMetadata(model).known);
   const preparedMessages = await injectPdfContextMessages({
-    sessionId,
     messages: params.messages,
     workspaceRoot,
     media,
+    visualMediaAllowed,
   });
   const confidentialRuleSet = isConfidentialRedactionEnabled()
     ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
@@ -178,10 +189,11 @@ async function runAgentInner(
     preparedMessages,
     'agent.messages',
   );
-  const output = await executor.exec({
+  const workerOutput = await executor.exec({
     ...params,
     sessionId,
     messages: dehydratedMessages,
+    visualMediaAllowed,
     chatbotId,
     model,
     agentId,
@@ -211,6 +223,11 @@ async function runAgentInner(
       PENDING_APPROVAL_REHYDRATE_FIELDS,
       'agent.approval_progress',
     ),
+  });
+  // Before rehydration: saved result files hold the text the worker saw.
+  const output = restoreSpilledToolResults(workerOutput, {
+    sessionId,
+    workspaceRoot,
   });
   if (output.toolHistory)
     output.toolHistory = sanitizeToolHistory(output.toolHistory);

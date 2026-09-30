@@ -1,0 +1,228 @@
+.agentSelect {
+  min-width: 160px;
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.refresh:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: var(--shadow-focus);
+}
+
+.refresh:disabled {
+  cursor: progress;
+  color: var(--muted-foreground);
+}
+
+.refresh svg {
+  width: 15px;
+  height: 15px;
+}
+
+.spinning {
+  animation: ideas-spin 1s linear infinite;
+}
+
+@keyframes ideas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.list {
+  list-style: none;
+  /* Rows bleed into the gutter so their text lines up with the page title
+     while the hover surface still has room around it. */
+  margin: 0 -12px;
+  padding: 0;
+  transition: opacity 160ms ease;
+}
+
+.list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.listStale {
+  opacity: 0.5;
+}
+
+.idea {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 20px;
+  align-items: start;
+  column-gap: 16px;
+  width: 100%;
+  padding: 18px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idea:hover:not(:disabled) {
+  background: var(--muted);
+}
+
+.idea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.idea:disabled {
+  cursor: progress;
+}
+
+.ideaIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--muted-foreground);
+}
+
+.ideaIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.ideaText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.ideaTitle {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--foreground);
+}
+
+.ideaDescription {
+  max-width: 75ch;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--muted-foreground);
+}
+
+.ideaChevron {
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+  opacity: 0;
+}
+
+.idea:hover .ideaChevron,
+.idea:focus-visible .ideaChevron {
+  opacity: 1;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 18px 12px;
+}
+
+.skeletonIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+.skeletonText {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.skeletonTitle {
+  width: min(360px, 60%);
+  height: 16px;
+}
+
+.skeletonLine {
+  width: min(640px, 90%);
+  height: 12px;
+}
+
+.skeletonLineShort {
+  width: min(420px, 60%);
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+  }
+
+  .list {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .agentSelect {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .idea {
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 12px;
+    padding: 16px 12px;
+  }
+
+  .ideaIcon {
+    width: 36px;
+    height: 36px;
+    font-size: 1.625rem;
+  }
+
+  .ideaChevron {
+    display: none;
+  }
+}
