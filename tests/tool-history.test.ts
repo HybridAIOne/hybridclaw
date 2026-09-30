@@ -24,7 +24,7 @@ function call(id: string) {
 }
 
 describe('persistent tool history', () => {
-  test('retains full results while replaying the same bounded content shown initially', () => {
+  test('saves full results while sending and replaying the bounded content shown initially', () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
     const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
@@ -49,7 +49,7 @@ describe('persistent tool history', () => {
     expect(String(visible.content)).toMatch(/^head\n/);
     expect(String(visible.content)).toMatch(/\ntail$/);
     const saved = recorder.finish('Turn ended');
-    expect(saved[1]).toEqual(full);
+    expect(saved[1]).toEqual(visible);
     const replay = expandStoredMessage({
       role: 'assistant',
       content: 'Done',
@@ -62,11 +62,55 @@ describe('persistent tool history', () => {
       role: 'assistant',
       content: 'Done',
       session_id: 'session-a',
-      tool_history_json: JSON.stringify(saved),
+      tool_history_json: JSON.stringify([saved[0], full]),
     });
     expect(replayOfFull[1].content).not.toContain('.tool-results/');
     expect(replayOfFull[1].content).toContain('.session-transcripts/');
     expect(toolResultForHistory(visible, 'session-a')).toEqual(visible);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test('a saved result leaves the worker only as its preview, named for restore', () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
+    const recorder = new TurnToolHistory('session-a', workspace);
+    recorder.recordAssistant({
+      role: 'assistant',
+      content: null,
+      tool_calls: [call('big'), call('small')],
+    });
+    const visible = recorder.recordResult({
+      role: 'tool',
+      content: 'x'.repeat(50_000),
+      tool_call_id: 'big',
+    });
+    recorder.recordResult({
+      role: 'tool',
+      content: 'Inventory count: 42',
+      tool_call_id: 'small',
+    });
+    const execution = (toolCallId: string, result: string) => ({
+      name: 'read',
+      arguments: '{}',
+      result,
+      toolCallId,
+      durationMs: 1,
+    });
+
+    const output = recorder.withSpilledPreviews({
+      status: 'success',
+      result: 'Done',
+      toolsUsed: ['read'],
+      toolExecutions: [
+        execution('big', 'x'.repeat(50_000)),
+        execution('small', 'Inventory count: 42'),
+      ],
+    });
+
+    expect(output.spilledToolCallIds).toEqual(['big']);
+    expect(output.toolExecutions?.map((entry) => entry.result)).toEqual([
+      visible.content,
+      'Inventory count: 42',
+    ]);
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 

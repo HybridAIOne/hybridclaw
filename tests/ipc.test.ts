@@ -424,6 +424,7 @@ test('an interrupted readOutput keeps only the tool history the stopped agent fl
         },
         toolHistory: INTERRUPTED_TOOL_HISTORY,
         toolHistoryForReplay: INTERRUPTED_TOOL_HISTORY,
+        spilledToolCallIds: ['call-1'],
       }),
     );
   }, 150);
@@ -434,6 +435,7 @@ test('an interrupted readOutput keeps only the tool history the stopped agent fl
     ...INTERRUPTED,
     toolHistory: INTERRUPTED_TOOL_HISTORY,
     toolHistoryForReplay: INTERRUPTED_TOOL_HISTORY,
+    spilledToolCallIds: ['call-1'],
   });
   expect(fs.existsSync(outputPath)).toBe(false);
 });

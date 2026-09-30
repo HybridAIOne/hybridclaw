@@ -37,6 +37,7 @@ import {
   getLatestUserTextContent,
   type MiddlewareEvent,
 } from './middleware.js';
+import { restoreSpilledToolResults } from './spilled-tool-results.js';
 import { mergeBlockedToolNames } from './tool-policy.js';
 
 const TOOL_EXECUTION_REHYDRATE_FIELDS: ReadonlyArray<keyof ToolExecution> = [
@@ -188,7 +189,7 @@ async function runAgentInner(
     preparedMessages,
     'agent.messages',
   );
-  const output = await executor.exec({
+  const workerOutput = await executor.exec({
     ...params,
     sessionId,
     messages: dehydratedMessages,
@@ -222,6 +223,11 @@ async function runAgentInner(
       PENDING_APPROVAL_REHYDRATE_FIELDS,
       'agent.approval_progress',
     ),
+  });
+  // Before rehydration: saved result files hold the text the worker saw.
+  const output = restoreSpilledToolResults(workerOutput, {
+    sessionId,
+    workspaceRoot,
   });
   if (output.toolHistory)
     output.toolHistory = sanitizeToolHistory(output.toolHistory);

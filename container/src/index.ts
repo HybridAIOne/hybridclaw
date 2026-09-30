@@ -812,6 +812,7 @@ async function executePreparedToolCall(
       name: toolName,
       arguments: argsJson,
       result,
+      toolCallId: call.id,
       durationMs: toolDuration,
       isError,
       blocked: Boolean(executionBlockedReason),
@@ -1104,11 +1105,11 @@ async function processRequest(
     : output.error || 'The turn ended before this call could execute.';
   const toolHistory = turnToolHistory.finish(reason);
   return toolHistory.length
-    ? {
+    ? turnToolHistory.withSpilledPreviews({
         ...output,
         toolHistory,
         toolHistoryForReplay: turnToolHistory.finish(reason, true),
-      }
+      })
     : output;
 }
 
