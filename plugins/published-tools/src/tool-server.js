@@ -177,6 +177,7 @@ export function createToolServer({ api, config, store, now = Date.now }) {
         username: 'MCP client',
         content: question,
         agentId: tool.agentId,
+        ...(tool.model ? { model: tool.model } : {}),
         ...(tool.allowedTools ? { allowedTools: tool.allowedTools } : {}),
         ...(tool.instructions ? { instructions: tool.instructions } : {}),
       })

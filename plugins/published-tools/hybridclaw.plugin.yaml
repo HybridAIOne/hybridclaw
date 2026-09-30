@@ -62,6 +62,9 @@ configSchema:
             maxLength: 20000
           agentId:
             type: string
+          model:
+            type: string
+            maxLength: 200
           allowedTools:
             type: array
             minItems: 1
@@ -83,4 +86,4 @@ configUiHints:
     help: Also accept the token as ?key=<token> in the endpoint URL, for hosts that cannot send a header. URLs are logged by proxies and tunnels, so use a throwaway token and rotate it.
   tools:
     label: Published Tools
-    help: 'Each entry: name, description (read by the host model to decide when to call it), instructions (read only by HybridClaw), optional agentId, and allowedTools (tool names this tool may use; ["*"] keeps the agent''s own tool list).'
+    help: 'Each entry: name, description (read by the host model to decide when to call it), instructions (read only by HybridClaw), optional agentId and model (pins the model for these calls, bypassing model routing), and allowedTools (tool names this tool may use; ["*"] keeps the agent''s own tool list).'

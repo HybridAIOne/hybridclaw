@@ -130,6 +130,24 @@ describe('PublishedToolsPage', () => {
     );
   });
 
+  it('saves a pinned model on the tool', async () => {
+    fetchPublishedToolsMock.mockResolvedValue(makeState());
+    renderWithProviders(<PublishedToolsPage />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Sales pipeline/ }),
+    );
+    await screen.findByDisplayValue('Use the salesforce skill.');
+    fireEvent.change(screen.getByPlaceholderText('hybridai/gpt-6-luna'), {
+      target: { value: 'hybridai/test-model' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save tool' }));
+    await waitFor(() =>
+      expect(savePublishedToolsMock.mock.calls[0]?.[1]).toEqual([
+        { ...SALES_TOOL, model: 'hybridai/test-model' },
+      ]),
+    );
+  });
+
   it('shows the gateway reason when a save is rejected', async () => {
     fetchPublishedToolsMock.mockResolvedValue(makeState());
     savePublishedToolsMock.mockRejectedValue(

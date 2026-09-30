@@ -53,6 +53,7 @@ hybridclaw plugin config published-tools tools '[
 | `description` | host | When to call the tool. Say what it is for, what it is not for, and give example questions |
 | `instructions` | HybridClaw | Added to the agent's system prompt for these calls only; never sent to the host |
 | `agentId` | HybridClaw | Agent that answers; defaults to the default agent |
+| `model` | HybridClaw | Optional. Pins the model for these calls, for example `hybridai/gpt-6-luna`. Without it the agent's model applies and model routing may pick another tier |
 | `allowedTools` | HybridClaw | Required. Tools this published tool may use, intersected with the agent's own tool list. `["*"]` keeps the agent's list unchanged |
 
 Server-wide guidance for the host goes in `instructions` at the top level of
