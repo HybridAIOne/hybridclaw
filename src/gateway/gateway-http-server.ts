@@ -228,6 +228,13 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import {
+  DEVICE_CODE_PATH,
+  DEVICE_TOKEN_PATH,
+  handleAdminDeviceRoute,
+  handleDeviceGrantRoute,
+  parseAdminDeviceUserCode,
+} from './device-grants.js';
 import { escapeHtml, serveDocs } from './docs.js';
 import {
   completeGatewayAdminConnectorOAuthCallback,
@@ -10757,6 +10764,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
       }
 
+      if (pathname === DEVICE_CODE_PATH || pathname === DEVICE_TOKEN_PATH) {
+        void handleDeviceGrantRoute(
+          req,
+          res,
+          pathname,
+          resolveRequestOrigin(req),
+        );
+        return;
+      }
+
       const authContext = resolveAuthContext(req, url, {
         allowQueryToken: false,
         allowLocalWebSession: true,
@@ -10948,6 +10965,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/tokens') {
             sendMethodNotAllowed(res);
+            return;
+          }
+          const deviceUserCode = parseAdminDeviceUserCode(pathname);
+          if (deviceUserCode !== null) {
+            const audit = resolveAdminTokenAuditContext(req, authContext);
+            await handleAdminDeviceRoute(
+              req,
+              res,
+              deviceUserCode,
+              authContext,
+              audit,
+            );
             return;
           }
           if (
