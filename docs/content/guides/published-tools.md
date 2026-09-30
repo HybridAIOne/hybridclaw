@@ -103,10 +103,10 @@ sign-in**, and add the request header `X-Api-Key` with the
    ask_sales_pipeline; never answer from memory."
 4. Publish the agent to Teams and Microsoft 365 Copilot.
 
-The endpoint implements only protocol version `2026-07-28`. A host that still
-opens with an `initialize` handshake (versions `2025-11-25` and earlier)
-receives an `UnsupportedProtocolVersion` error that names `2026-07-28`, and
-cannot connect.
+The endpoint serves protocol version `2026-07-28` and the handshake-based
+versions `2025-11-25`, `2025-06-18`, and `2025-03-26`, so hosts that open with
+`initialize` connect too. It keeps no session for either: every request is
+authenticated and answered on its own.
 
 ## Limits
 
