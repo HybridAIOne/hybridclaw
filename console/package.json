@@ -1,7 +1,7 @@
 {
   "name": "@hybridaione/hybridclaw-console",
   "private": true,
-  "version": "0.32.1",
+  "version": "0.33.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,8 +17,8 @@
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters"
   },
   "dependencies": {
-    "@tanstack/react-query": "5.103.1",
-    "@tanstack/react-router": "1.170.38",
+    "@tanstack/react-query": "5.103.2",
+    "@tanstack/react-router": "1.170.39",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "5.5.0",
     "highlight.js": "11.12.0",

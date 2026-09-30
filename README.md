@@ -106,7 +106,7 @@ After the gateway starts, open:
 
 | Surface | URL / command | Use it for |
 | --- | --- | --- |
-| Web Chat | `http://127.0.0.1:9090/chat` | Chat, slash commands, model and agent switching |
+| Web Chat | `http://127.0.0.1:9090/chat` | Chat, ideas, outputs, notifications, model and agent switching |
 | Apps Gallery | `http://127.0.0.1:9090/apps` | Generated web apps, documents, games, tools, live connector-backed views, and sharing |
 | Admin Console | `http://127.0.0.1:9090/admin` | Searchable settings plus agents, automation, activity, connectivity, security, and federation workflows |
 | Agents UI | `http://127.0.0.1:9090/agents` | Agent fleet overview and prompt-file editing |
@@ -130,12 +130,12 @@ npm run desktop
 | --- | --- |
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
 | Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
-| Runtime | Gateway service, TUI client, web chat, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
-| Local models | Managed MLX setup on Apple silicon with macOS 15+, memory-aware model recommendations, live activity, and configurable starter tools and skills |
-| Governance | Encrypted runtime secrets, scoped API tokens, SecretRef credential isolation, approval policies, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |
+| Runtime | Gateway service, TUI client, web chat with Ideas, Outputs and notifications, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
+| Local models | Managed MLX setup on Apple silicon with macOS 15+, memory-aware model recommendations, live activity, configurable starter tools and skills, and optional local Laya routing |
+| Governance | Encrypted runtime secrets, scoped API tokens and device pairing, SecretRef credential isolation, per-session approval modes, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |
 | Memory | Local memory files, SQLite persistence, semantic recall, persistent tool exchanges, session compaction, optional HybridAI cloud memory sync |
 | Agents | Guided hatching, per-agent workspaces, models, budgets, prompt files, deterministic tier routing, explicit addressing, proxy agents, encrypted A2A trust, peer-instance communication, and reply delivery status |
-| Extensibility | Packaged business skills, install-on-demand channel plugins, MCP servers, admin connector flows, and SecretRef-backed HTTP tools |
+| Extensibility | Packaged business skills, install-on-demand channel plugins, MCP servers, Published Tools endpoints for external MCP hosts, admin connector flows, and SecretRef-backed HTTP tools |
 
 ## Product Strengths
 
@@ -185,6 +185,12 @@ npm run desktop
   Hermes, then package agents as portable `.claw` archives. HybridClaw is an
   independent implementation, not a fork — see the
   [code provenance statement](docs/content/internal/provenance.md).
+
+PDF attachments and image reads send selected pages or pixels directly to supported
+multimodal models. ZIP attachments let agents work with bundles of documents or
+data. Read the [tools reference](docs/content/reference/tools/README.md#reading-pdfs-and-images)
+for page selection and coverage, and the [notification guide](docs/content/guides/web-notifications.md)
+for browser and phone setup.
 
 ## Common Commands
 
@@ -256,7 +262,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.32.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.32.1).
+Latest release: [v0.33.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.33.0).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

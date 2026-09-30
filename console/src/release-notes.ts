@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.32.1',
+  version: '0.33.0',
   highlights: [
-    'Reliable file uploads and document delivery',
-    'Safer retries and interrupted turns',
-    'Enforced monthly agent budgets',
-    'Leaner installs with optional media plugins',
+    'Phone pairing and push notifications',
+    'PDF pages and images reach the model',
+    'Publish agent tools to MCP hosts',
+    'Ideas, outputs, and safer approvals',
   ],
 } as const;
 

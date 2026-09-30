@@ -343,3 +343,17 @@ Primary artifacts: [Spark MLX](https://huggingface.co/abenzerps/Spark-X2.5-4B-ML
 [Bonsai MLX](https://huggingface.co/prism-ml/Ternary-Bonsai-27B-mlx-2bit),
 [Qwen3.8 27B MLX](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit),
 [Nex Mini MLX](https://huggingface.co/abenzerps/Nex-N2.5-mini-MLX-4bit).
+
+## Local decision model
+
+The optional **Laya Local Router** plugin supplies a multilingual routing model
+on Apple silicon. Install it from **Extensions → Plugins**, then open
+**Labs → Local Models → Local decision models** to download and start it.
+Installation and startup progress appear there; stop the model to release its
+memory.
+
+Choose `local-decision/laya` as the live or comparison classifier in
+**Models → Routing**. The live classifier selects a starting tier; comparison
+records decisions without changing which chat model runs. Explicit model pins
+remain authoritative. Laya classifies routing requests; select a separate chat
+model to answer them. See [routing controls](../reference/model-selection.md#routing-controls).

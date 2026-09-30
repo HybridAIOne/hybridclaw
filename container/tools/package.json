@@ -7,7 +7,7 @@
   "dependencies": {
     "@e965/xlsx": "0.20.3",
     "csv-parse": "7.0.2",
-    "docx": "9.7.1",
+    "docx": "9.7.2",
     "iconv-lite": "0.7.3",
     "image-size": "file:./stubs/image-size",
     "pptxgenjs": "4.0.1",
