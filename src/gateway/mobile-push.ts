@@ -16,7 +16,7 @@ import {
   deleteMobilePushDevice,
   readMobilePushDevices,
   saveMobilePushDevice,
-  webNotificationOperatorForSession,
+  webNotificationSessionOperator,
 } from './web-notification-store.js';
 
 export interface MobilePushMessage {
@@ -137,7 +137,7 @@ export async function notifySessionPhones(
 ): Promise<MobilePushResult> {
   if (!KIND_PATTERN.test(message.kind))
     throw new Error('Push kind must be a short lowercase identifier.');
-  const operatorId = webNotificationOperatorForSession(sessionId);
+  const operatorId = webNotificationSessionOperator(sessionId);
   if (!operatorId) return { devices: 0, sent: 0 };
   return sendMobilePush(readMobilePushDevices(operatorId), message);
 }
@@ -207,7 +207,7 @@ function reply(value: Record<string, unknown>): string {
  * opened by, so the command works from web chat only.
  */
 export function runPushCommand(args: string[], sessionId: string): string {
-  const operatorId = webNotificationOperatorForSession(sessionId);
+  const operatorId = webNotificationSessionOperator(sessionId);
   if (!operatorId)
     return reply({ error: 'Phones can be registered from web chat only.' });
   const sub = (args[1] || '').toLowerCase();

@@ -88,8 +88,9 @@ export function bindWebNotificationSession(
   writeStore(store);
 }
 
-// The operator that first chatted in a session owns it; reading its replies
-// back is limited to that operator (see device-messages.ts).
+// The operator that first chatted in a session owns it, or null for other
+// channels. Reading its replies back (device-messages.ts) and registering
+// phones (mobile-push.ts) are limited to that operator.
 export function webNotificationSessionOperator(
   sessionId: string,
 ): string | null {
@@ -157,13 +158,6 @@ export function deleteWebPushSubscription(
     notificationOperatorId(endpoint)
   ];
   writeStore(store);
-}
-
-/** The operator a web session was opened by, or null for other channels. */
-export function webNotificationOperatorForSession(
-  sessionId: string,
-): string | null {
-  return readStore().sessions[notificationOperatorId(sessionId)] ?? null;
 }
 
 export function readMobilePushDevices(operatorId: string): MobilePushDevice[] {
