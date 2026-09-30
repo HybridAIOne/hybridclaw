@@ -2985,6 +2985,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/gateway/scheduled-task-tool-service.js', () => ({
     runScheduledTaskToolAction,
   }));
+  vi.doMock('../src/todos/todo-command.js', () => ({
+    runTodoToolAction: vi.fn(),
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'

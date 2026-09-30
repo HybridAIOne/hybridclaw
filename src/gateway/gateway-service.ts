@@ -430,6 +430,7 @@ import {
   guardSkillDirectory,
   type SkillGuardFinding,
 } from '../skills/skills-guard.js';
+import { handleTodoCommand } from '../todos/todo-command.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -13279,6 +13280,9 @@ export async function handleGatewayCommand(
 
       case 'schedule':
         return handleScheduleCommand(req, session);
+
+      case 'todo':
+        return handleTodoCommand(req, session);
 
       default: {
         const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({

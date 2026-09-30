@@ -46,10 +46,12 @@ import {
 import { firstNumber } from './gateway-utils.js';
 
 // Subagents get the parent's tools, MCP and plugin tools included, minus these
-// (engineering choice, 2026-09-28): schedules and durable memory outlive a
-// one-shot child, and the 2FA/resume tools wait on a user the child cannot reach.
+// (engineering choice, 2026-09-28): schedules, todos and durable memory outlive
+// a one-shot child, and the 2FA/resume tools wait on a user the child cannot
+// reach. Todos added 2026-09-30.
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
+  'todo',
   'memory',
   'browser_await_two_factor',
   'browser_resume_interaction',
