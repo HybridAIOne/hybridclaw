@@ -4494,6 +4494,30 @@ describe('gateway HTTP server', () => {
     expect(admin.getAdminMSTeamsUsers).toHaveBeenCalledTimes(2);
   });
 
+  test('lets a chat token ask for a stored reply and hides chats it does not own', async () => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      apiTokens: {
+        hck_phone: { id: 'phone', label: 'Device: phone', claims: { actions: ['chat.send'] } },
+        hck_agents_only: { id: 'agents', label: 'agents', claims: { actions: ['agents.read'] } },
+      },
+    });
+    for (const [token, expectedStatus] of [
+      ['', 401], ['hck_agents_only', 403], ['hck_phone', 404],
+    ] as const) {
+      const req = makeRequest({ method: 'GET', url: '/api/chat/message?sessionId=ios-a&id=7',
+        noAuth: !token,
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        remoteAddress: '203.0.113.10',
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(expectedStatus);
+      if (expectedStatus === 404) expect(JSON.parse(res.body)).toEqual({ error: 'Message not found.' });
+    }
+  });
+
   test('returns Teams user mapping validation errors and rejects unsupported methods', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const admin = await import('../src/gateway/msteams-users.js');
