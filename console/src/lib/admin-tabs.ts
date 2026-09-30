@@ -22,6 +22,7 @@ export const AUTOMATION_TABS = [
 export const CREDENTIAL_TABS = [
   { id: 'secrets', label: 'Secrets' },
   { id: 'api-tokens', label: 'API tokens' },
+  { id: 'devices', label: 'Devices' },
 ] as const;
 
 export const EXTENSION_TABS = [
