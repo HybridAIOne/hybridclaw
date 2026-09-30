@@ -1394,6 +1394,11 @@ test('read action routes current Slack sessions through stored Slack history', a
 
 test('channel-info action returns Slack session metadata for the current chat', async () => {
   const state = await importFreshMessageToolActions();
+  // A running Slack integration has loaded its runtime via `initSlack`.
+  const { slackRuntime } = await import(
+    '../src/channels/channel-runtime-loaders.js'
+  );
+  await slackRuntime.load();
 
   const result = await state.runMessageToolAction({
     action: 'channel-info',

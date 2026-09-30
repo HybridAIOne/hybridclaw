@@ -4,7 +4,7 @@
  * credential refresh, and cannot re-enable a channel during gateway shutdown.
  */
 import fs from 'node:fs';
-import { AttachmentBuilder } from 'discord.js';
+import type { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
   startA2AInboxDispatchProcessor,
@@ -40,15 +40,17 @@ import {
 } from '../audit/observability-ingest.js';
 import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
 import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
+import {
+  discordRuntime,
+  emailRuntime,
+  slackRuntime,
+  stopDiscordRuntime,
+  stopEmailRuntime,
+  stopSlackRuntime,
+} from '../channels/channel-runtime-loaders.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
-import {
-  initDiscord,
-  type ReplyFn,
-  sendToChannel,
-  setDiscordMaintenancePresence,
-  shutdownDiscord,
-} from '../channels/discord/runtime.js';
+import type { ReplyFn } from '../channels/discord/runtime.js';
 import {
   hasDiscordWebhookTargets,
   initDiscordWebhook,
@@ -57,12 +59,6 @@ import {
 } from '../channels/discord-webhook/runtime.js';
 import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
 import { buildEmailDeliveryMetadata } from '../channels/email/metadata.js';
-import {
-  initEmail,
-  sendEmailAttachmentTo,
-  sendToEmail,
-  shutdownEmail,
-} from '../channels/email/runtime.js';
 import {
   isIMessageHandle,
   normalizeIMessageHandle,
@@ -99,12 +95,6 @@ import {
   shutdownSignal,
 } from '../channels/signal/runtime.js';
 import { isSignalChannelId } from '../channels/signal/target.js';
-import {
-  initSlack,
-  sendSlackFileToTarget,
-  sendToSlackTarget,
-  shutdownSlack,
-} from '../channels/slack/runtime.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
 import {
   hasSlackWebhookTargets,
@@ -689,10 +679,11 @@ function logGatewayStartup(params: {
   logger.info(params.channels, 'Gateway channels');
 }
 
-function buildArtifactAttachments(
+async function buildArtifactAttachments(
   artifacts?: ArtifactMetadata[],
-): AttachmentBuilder[] {
+): Promise<AttachmentBuilder[]> {
   if (!artifacts || artifacts.length === 0) return [];
+  const { AttachmentBuilder } = await import('discord.js');
   const attachments: AttachmentBuilder[] = [];
   for (const artifact of artifacts) {
     try {
@@ -859,7 +850,7 @@ async function handleTextChannelCommand(params: {
 
     await reply(
       handledApproval.text,
-      buildArtifactAttachments(handledApproval.artifacts),
+      await buildArtifactAttachments(handledApproval.artifacts),
     );
     return;
   }
@@ -872,7 +863,10 @@ async function handleTextChannelCommand(params: {
     userId,
     username,
     onProactiveMessage: async (message) => {
-      await reply(message.text, buildArtifactAttachments(message.artifacts));
+      await reply(
+        message.text,
+        await buildArtifactAttachments(message.artifacts),
+      );
     },
   });
   const text = renderTextChannelCommandResult(result);
@@ -1055,7 +1049,7 @@ async function sendProactiveMessageNow(
     );
     return { status: 'suppressed', reason: 'A2A local mode' };
   }
-  const attachments = buildArtifactAttachments(artifacts);
+  const artifactCount = artifacts?.length ?? 0;
   if (isLineChannelId(channelId)) {
     if (!isLineTransportInstalled()) {
       logger.warn(
@@ -1072,9 +1066,9 @@ async function sendProactiveMessageNow(
       );
       return { status: 'failed', reason: 'LINE not linked' };
     }
-    if (attachments.length > 0) {
+    if (artifactCount > 0) {
       logger.warn(
-        { source, channelId, artifactCount: attachments.length },
+        { source, channelId, artifactCount },
         'Proactive LINE delivery currently sends text only',
       );
     }
@@ -1105,9 +1099,9 @@ async function sendProactiveMessageNow(
       );
       return { status: 'failed', reason: 'WhatsApp not linked' };
     }
-    if (attachments.length > 0) {
+    if (artifactCount > 0) {
       logger.warn(
-        { source, channelId, artifactCount: attachments.length },
+        { source, channelId, artifactCount },
         'Proactive WhatsApp delivery currently sends text only',
       );
     }
@@ -1126,7 +1120,7 @@ async function sendProactiveMessageNow(
   if (isIMessageHandle(channelId)) {
     if (!getConfigSnapshot().imessage.enabled) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive iMessage message suppressed: iMessage channel is not configured',
       );
       return { status: 'failed', reason: 'iMessage channel is not configured' };
@@ -1154,7 +1148,7 @@ async function sendProactiveMessageNow(
       await sendToIMessageChat(channelId, text);
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to iMessage chat',
       );
       return proactiveDeliveryFailed(error);
@@ -1168,7 +1162,7 @@ async function sendProactiveMessageNow(
       !String(EMAIL_PASSWORD || '').trim()
     ) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive email message suppressed: email channel is not configured',
       );
       return { status: 'failed', reason: 'email channel is not configured' };
@@ -1176,7 +1170,7 @@ async function sendProactiveMessageNow(
 
     try {
       if (artifacts && artifacts.length > 0) {
-        await sendEmailAttachmentTo({
+        await (await emailRuntime.load()).sendEmailAttachmentTo({
           to: channelId,
           filePath: artifacts[0].path,
           body: text,
@@ -1184,7 +1178,7 @@ async function sendProactiveMessageNow(
           filename: artifacts[0].filename,
         });
         for (let index = 1; index < artifacts.length; index += 1) {
-          await sendEmailAttachmentTo({
+          await (await emailRuntime.load()).sendEmailAttachmentTo({
             to: channelId,
             filePath: artifacts[index].path,
             mimeType: artifacts[index].mimeType,
@@ -1194,10 +1188,10 @@ async function sendProactiveMessageNow(
         return { status: 'delivered' };
       }
 
-      await sendToEmail(channelId, text);
+      await (await emailRuntime.load()).sendToEmail(channelId, text);
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to email recipient',
       );
       return proactiveDeliveryFailed(error);
@@ -1209,7 +1203,7 @@ async function sendProactiveMessageNow(
     const config = getConfigSnapshot().slackWebhook;
     if (!config.enabled || !hasSlackWebhookTargets()) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Slack webhook message suppressed: Slack webhook channel is not configured',
       );
       return {
@@ -1219,9 +1213,9 @@ async function sendProactiveMessageNow(
     }
 
     try {
-      if (attachments.length > 0) {
+      if (artifactCount > 0) {
         logger.warn(
-          { source, channelId, artifactCount: attachments.length },
+          { source, channelId, artifactCount },
           'Slack webhook channel does not support proactive attachments; dropping artifacts',
         );
       }
@@ -1231,7 +1225,7 @@ async function sendProactiveMessageNow(
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Slack webhook target',
       );
       return proactiveDeliveryFailed(error);
@@ -1242,7 +1236,7 @@ async function sendProactiveMessageNow(
     const config = getConfigSnapshot().discordWebhook;
     if (!config.enabled || !hasDiscordWebhookTargets()) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Discord webhook message suppressed: Discord webhook channel is not configured',
       );
       return {
@@ -1252,9 +1246,9 @@ async function sendProactiveMessageNow(
     }
 
     try {
-      if (attachments.length > 0) {
+      if (artifactCount > 0) {
         logger.warn(
-          { source, channelId, artifactCount: attachments.length },
+          { source, channelId, artifactCount },
           'Discord webhook channel does not support proactive attachments; dropping artifacts',
         );
       }
@@ -1264,7 +1258,7 @@ async function sendProactiveMessageNow(
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Discord webhook target',
       );
       return proactiveDeliveryFailed(error);
@@ -1278,7 +1272,7 @@ async function sendProactiveMessageNow(
       Boolean(trimValue(SLACK_APP_TOKEN));
     if (!slackConfigured) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Slack message suppressed: Slack is not configured',
       );
       return { status: 'failed', reason: 'Slack is not configured' };
@@ -1286,10 +1280,10 @@ async function sendProactiveMessageNow(
 
     try {
       if (text.trim()) {
-        await sendToSlackTarget(channelId, text);
+        await (await slackRuntime.load()).sendToSlackTarget(channelId, text);
       }
       for (const artifact of artifacts || []) {
-        await sendSlackFileToTarget({
+        await (await slackRuntime.load()).sendSlackFileToTarget({
           target: channelId,
           filePath: artifact.path,
           filename: artifact.filename,
@@ -1298,7 +1292,7 @@ async function sendProactiveMessageNow(
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Slack conversation',
       );
       return proactiveDeliveryFailed(error);
@@ -1313,7 +1307,7 @@ async function sendProactiveMessageNow(
       !signalConfig.account
     ) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Signal message suppressed: Signal channel is not configured',
       );
       return { status: 'failed', reason: 'Signal channel is not configured' };
@@ -1323,16 +1317,16 @@ async function sendProactiveMessageNow(
       if (text.trim()) {
         await sendToSignalChat(channelId, text);
       }
-      if (attachments.length > 0) {
+      if (artifactCount > 0) {
         logger.warn(
-          { source, channelId, artifactCount: attachments.length },
+          { source, channelId, artifactCount },
           'Signal channel does not yet support proactive attachments; dropping artifacts',
         );
       }
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Signal chat',
       );
       return proactiveDeliveryFailed(error);
@@ -1344,7 +1338,7 @@ async function sendProactiveMessageNow(
     const hasBotToken = hasTelegramBotToken();
     if (!telegramConfig.enabled || !hasBotToken) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Telegram message suppressed: Telegram channel is not configured',
       );
       return { status: 'failed', reason: 'Telegram channel is not configured' };
@@ -1365,7 +1359,7 @@ async function sendProactiveMessageNow(
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Telegram chat',
       );
       return proactiveDeliveryFailed(error);
@@ -1382,7 +1376,7 @@ async function sendProactiveMessageNow(
       !hasSecret
     ) {
       logger.info(
-        { source, channelId, text, artifactCount: attachments.length },
+        { source, channelId, text, artifactCount },
         'Proactive Threema message suppressed: Threema channel is not configured or is disabled',
       );
       return {
@@ -1395,16 +1389,16 @@ async function sendProactiveMessageNow(
       if (text.trim()) {
         await sendToThreemaChat(channelId, text);
       }
-      if (attachments.length > 0) {
+      if (artifactCount > 0) {
         logger.warn(
-          { source, channelId, artifactCount: attachments.length },
+          { source, channelId, artifactCount },
           'Threema channel does not support proactive attachments; dropping artifacts',
         );
       }
       return { status: 'delivered' };
     } catch (error) {
       logger.warn(
-        { source, channelId, error, artifactCount: attachments.length },
+        { source, channelId, error, artifactCount },
         'Failed to send proactive message to Threema chat',
       );
       return proactiveDeliveryFailed(error);
@@ -1424,13 +1418,13 @@ async function sendProactiveMessageNow(
         channelId,
         queued,
         dropped,
-        artifactCount: attachments.length,
+        artifactCount,
       },
       'Proactive message queued for local channel delivery',
     );
-    if (attachments.length > 0) {
+    if (artifactCount > 0) {
       logger.warn(
-        { source, channelId, artifactCount: attachments.length },
+        { source, channelId, artifactCount },
         'Queued proactive local delivery does not persist attachments; only text was queued',
       );
     }
@@ -1439,17 +1433,21 @@ async function sendProactiveMessageNow(
 
   if (!DISCORD_TOKEN) {
     logger.info(
-      { source, channelId, text, artifactCount: attachments.length },
+      { source, channelId, text, artifactCount },
       'Proactive message (no Discord delivery)',
     );
     return { status: 'failed', reason: 'Discord is not configured' };
   }
 
   try {
-    await sendToChannel(channelId, text, attachments);
+    await (await discordRuntime.load()).sendToChannel(
+      channelId,
+      text,
+      await buildArtifactAttachments(artifacts),
+    );
   } catch (error) {
     logger.warn(
-      { source, channelId, error, artifactCount: attachments.length },
+      { source, channelId, error, artifactCount },
       'Failed to send proactive message to Discord channel',
     );
     return proactiveDeliveryFailed(error);
@@ -1552,7 +1550,7 @@ async function startDiscordIntegration(): Promise<boolean> {
   }
 
   try {
-    await initDiscord(
+    await (await discordRuntime.load()).initDiscord(
       withInFlightTurn(
         async (
           sessionId: string,
@@ -1673,7 +1671,9 @@ async function startDiscordIntegration(): Promise<boolean> {
               }
               return;
             }
-            const attachments = buildArtifactAttachments(result.artifacts);
+            const attachments = await buildArtifactAttachments(
+              result.artifacts,
+            );
             if (!rawText.trim()) {
               await clearPendingApproval(effectiveSessionId, {
                 disableButtons: true,
@@ -2487,7 +2487,7 @@ async function startEmailIntegration(): Promise<boolean> {
   }
 
   try {
-    await initEmail(
+    await (await emailRuntime.load()).initEmail(
       withInFlightTurn(
         async (
           sessionId,
@@ -3065,7 +3065,7 @@ async function startSlackIntegration(): Promise<boolean> {
   }
 
   try {
-    await initSlack(
+    await (await slackRuntime.load()).initSlack(
       withInFlightTurn(
         async (
           sessionId,
@@ -3176,7 +3176,7 @@ async function startSlackIntegration(): Promise<boolean> {
               await reply(responseText);
             }
             for (const artifact of artifacts) {
-              await sendSlackFileToTarget({
+              await (await slackRuntime.load()).sendSlackFileToTarget({
                 target: context.inbound.target,
                 filePath: artifact.path,
                 filename: artifact.filename,
@@ -3247,12 +3247,15 @@ async function refreshEmailIntegrationForConfigChange(
     },
     'Config changed, restarting email integration',
   );
-  await shutdownEmail().catch((error) => {
-    logger.debug(
-      { error },
-      'Failed to stop email runtime during config-change restart',
-    );
-  });
+  await emailRuntime
+    .current()
+    ?.shutdownEmail()
+    .catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to stop email runtime during config-change restart',
+      );
+    });
   await startEmailIntegration();
 }
 
@@ -3465,12 +3468,15 @@ async function refreshSlackIntegrationForConfigChange(
     },
     'Config changed, restarting Slack integration',
   );
-  await shutdownSlack().catch((error) => {
-    logger.debug(
-      { error },
-      'Failed to stop Slack runtime during config-change restart',
-    );
-  });
+  await slackRuntime
+    .current()
+    ?.shutdownSlack()
+    .catch((error) => {
+      logger.debug(
+        { error },
+        'Failed to stop Slack runtime during config-change restart',
+      );
+    });
   await startSlackIntegration();
 }
 
@@ -3941,11 +3947,11 @@ async function startIMessageIntegration(): Promise<boolean> {
 }
 
 async function stopExternalChannelIntegrationsForA2ALocalMode(): Promise<void> {
-  await runShutdownStep('stop Discord runtime', shutdownDiscord);
-  await runShutdownStep('stop email runtime', shutdownEmail);
+  await runShutdownStep('stop Discord runtime', stopDiscordRuntime);
+  await runShutdownStep('stop email runtime', stopEmailRuntime);
   await runShutdownStep('stop Signal runtime', shutdownSignal);
   await runShutdownStep('stop Threema runtime', shutdownThreema);
-  await runShutdownStep('stop Slack runtime', shutdownSlack);
+  await runShutdownStep('stop Slack runtime', stopSlackRuntime);
   await runShutdownStep('stop Discord webhook runtime', shutdownDiscordWebhook);
   await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
   await runShutdownStep('stop Telegram runtime', shutdownTelegram);
@@ -4037,9 +4043,8 @@ function setupShutdown(broadcastShutdown: () => void): void {
     detachSecretsRefreshListener?.();
     detachSecretsRefreshListener = null;
     setChannelPluginAvailabilityListener(null);
-    await runShutdownStep(
-      'set Discord maintenance presence',
-      setDiscordMaintenancePresence,
+    await runShutdownStep('set Discord maintenance presence', () =>
+      discordRuntime.current()?.setDiscordMaintenancePresence(),
     );
     if (opts?.drain) {
       markGatewayShuttingDown();
@@ -4063,11 +4068,11 @@ function setupShutdown(broadcastShutdown: () => void): void {
       broadcastShutdown();
       stopAllExecutions();
     }
-    await runShutdownStep('stop Discord runtime', shutdownDiscord);
-    await runShutdownStep('stop email runtime', shutdownEmail);
+    await runShutdownStep('stop Discord runtime', stopDiscordRuntime);
+    await runShutdownStep('stop email runtime', stopEmailRuntime);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
     await runShutdownStep('stop Threema runtime', shutdownThreema);
-    await runShutdownStep('stop Slack runtime', shutdownSlack);
+    await runShutdownStep('stop Slack runtime', stopSlackRuntime);
     await runShutdownStep(
       'stop Discord webhook runtime',
       shutdownDiscordWebhook,

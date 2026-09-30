@@ -1,11 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import {
-  getDefaultEnvironment,
-  StdioClientTransport,
-} from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
@@ -950,6 +946,9 @@ export class StdioMacCuaDriver implements MacCuaDriver {
   ): Promise<CuaMcpToolResult> {
     await this.ensureMcpSession();
     if (!this.client) throw new Error('mac-cua MCP client is not connected.');
+    const { CallToolResultSchema } = await import(
+      '@modelcontextprotocol/sdk/types.js'
+    );
     const result = (await withTimeout(
       this.client.callTool(
         {
@@ -983,6 +982,12 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       return;
     }
     this.startPromise = (async () => {
+      // Loaded on first use: the MCP SDK (and zod) is only needed on macOS.
+      const [{ Client }, { getDefaultEnvironment, StdioClientTransport }] =
+        await Promise.all([
+          import('@modelcontextprotocol/sdk/client/index.js'),
+          import('@modelcontextprotocol/sdk/client/stdio.js'),
+        ]);
       const transport = new StdioClientTransport({
         command: this.command,
         args: this.args,
