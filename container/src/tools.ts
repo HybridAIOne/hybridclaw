@@ -1066,6 +1066,12 @@ function resolveGatewaySchedulerTaskUrl(): string | null {
   return `${base}/api/scheduler/task`;
 }
 
+function resolveGatewayDeviceDataUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/device-data`;
+}
+
 function resolveGatewayPluginToolUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -1209,6 +1215,57 @@ async function callGatewayMessageAction(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText || JSON.stringify({ ok: true }, null, 2);
+}
+
+/** The gateway answers only for the user whose turn runs in this session. */
+async function callGatewayDeviceData(source: string): Promise<string> {
+  const url = resolveGatewayDeviceDataUrl();
+  if (!url) {
+    throw new ToolExecutionFailure(
+      'Error: phone data is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionId: currentSessionId, source }),
+    });
+  } catch (err) {
+    throw new ToolExecutionFailure(
+      `Error: phone data request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const rawText = await response.text();
+  let parsed: { ok?: unknown; result?: unknown; error?: unknown } | null = null;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !response.ok ||
+    parsed?.ok !== true ||
+    typeof parsed.result !== 'string'
+  ) {
+    const detail =
+      typeof parsed?.error === 'string' && parsed.error.trim()
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    throw new ToolExecutionFailure(
+      `Error: phone data request failed (HTTP ${response.status}): ${detail}`,
+    );
+  }
+  return parsed.result;
 }
 
 async function callGatewaySchedulerTask(
@@ -3462,6 +3519,12 @@ async function executeToolInternal(
       return await callGatewayMessageAction(payload);
     }
 
+    case 'device_data': {
+      const source =
+        typeof args.source === 'string' ? args.source.trim().toLowerCase() : '';
+      return await callGatewayDeviceData(source);
+    }
+
     case 'session_search': {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
       if (!query)
@@ -4439,6 +4502,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'device_data',
+      description:
+        'Read what the user’s phone shares through the companion app: their calendar for the coming days, reminders that are due, and a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts). Call it before answering anything about the user’s schedule, what is due, or how they slept, moved or trained; do not say you cannot see their calendar or health data without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description:
+              'One source to read, such as `calendar`, `reminders` or `health`. Omit to read everything the phone shares.',
+          },
+        },
+        required: [],
       },
     },
   },

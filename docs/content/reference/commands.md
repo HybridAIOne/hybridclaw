@@ -590,6 +590,10 @@ carriage returns and backslashes inside strings are written as `\u000a`,
 `\u000d` and `\u005c`, so a relay that turns the two characters `\n` into a
 line break does not corrupt it.
 
+`/device-data set <payload>`, `/device-data show` and `/device-data clear` are
+how a companion app keeps what the user's phone shares on the gateway; see
+[Device Data](../guides/device-data.md). They are not listed in menus or help.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

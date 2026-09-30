@@ -142,6 +142,7 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'audit',
   'schedule',
   'skill',
+  'device-data',
 ]);
 const warnedBlockedSkills = new Set<string>();
 export const THIRD_PARTY_SKILL_SOURCES = new Set<SkillSource>([

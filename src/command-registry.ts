@@ -675,6 +675,10 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
 
+    // Sent by companion apps, so it stays out of menus and help.
+    case 'device-data':
+      return ['device-data', ...parts.slice(1)];
+
     case 'stop':
     case 'abort':
       return ['stop'];

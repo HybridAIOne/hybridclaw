@@ -228,6 +228,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
   DEVICE_TOKEN_PATH,
@@ -4105,6 +4106,27 @@ async function handleApiSchedulerTask(
 ): Promise<void> {
   const body = await readJsonBody(req);
   sendJson(res, 200, runScheduledTaskToolAction(body));
+}
+
+async function handleApiDeviceData(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    sessionId?: unknown;
+    source?: unknown;
+  };
+  const sessionId =
+    typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  const source = typeof body.source === 'string' ? body.source.trim() : '';
+  sendJson(res, 200, {
+    ok: true,
+    result: renderDeviceDataForSession(sessionId, source || null),
+  });
 }
 
 async function handleApiPluginTool(
@@ -11627,6 +11649,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiBrowserTool(req, res, activeSseResponses);
+            return;
+          }
+          if (pathname === '/api/device-data' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiDeviceData(req, res);
             return;
           }
           if (pathname === '/api/scheduler/task' && method === 'POST') {
