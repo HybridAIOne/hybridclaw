@@ -146,3 +146,80 @@ test.each(RUNNERS)(
     );
   },
 );
+
+test.each(RUNNERS)(
+  '$runner stops the warm refill once the agent leaves the traffic window',
+  async ({ createExecutor }) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+    });
+    try {
+      vi.stubEnv('HOME', makeTempDir());
+      const warmProcesses: ReturnType<typeof makeFakeChildProcess>[] = [];
+      const spawn = vi.fn(
+        (_command: string, args?: string[], options?: SpawnOptions) => {
+          const proc = makeFakeChildProcess();
+          if (isWarmSpawn(args, options)) warmProcesses.push(proc);
+          return proc;
+        },
+      );
+      vi.doMock('node:child_process', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('node:child_process')>()),
+        spawn,
+      }));
+      vi.doMock('../src/infra/ipc.js', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('../src/infra/ipc.js')>()),
+        readOutput: async () => ({
+          status: 'success' as const,
+          result: 'done',
+          toolsUsed: [],
+        }),
+      }));
+      vi.doMock('../src/providers/factory.js', async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import('../src/providers/factory.js')
+        >()),
+        resolveModelRuntimeCredentials: async () => ({
+          provider: 'hybridai',
+          apiKey: '',
+          baseUrl: 'https://hybridai.one',
+          chatbotId: 'bot-a',
+          enableRag: false,
+          requestHeaders: {},
+          agentId: 'main',
+          isLocal: false,
+          contextWindow: 128_000,
+        }),
+      }));
+      vi.doMock('../src/logger.js', () => ({
+        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      }));
+
+      const executor = await createExecutor();
+      await executor.exec({
+        sessionId: 'session-sweep',
+        messages: [{ role: 'user', content: 'hello' }],
+        chatbotId: 'bot-a',
+        enableRag: false,
+        model: 'gpt-5',
+        agentId: 'main',
+        channelId: 'tui',
+      });
+
+      // The host runner signals the child; the container runner `docker stop`s it.
+      const warmStopped = () =>
+        Boolean(warmProcesses[0]?.kill.mock.calls.length) ||
+        spawn.mock.calls.some(
+          ([command, args]) => command === 'docker' && args?.[0] === 'stop',
+        );
+      expect(warmProcesses).toHaveLength(1);
+      vi.advanceTimersByTime(30 * 60_000);
+      expect(warmStopped()).toBe(false);
+      vi.advanceTimersByTime(31 * 60_000);
+      expect(warmStopped()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

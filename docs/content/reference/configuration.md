@@ -96,7 +96,8 @@ saved revision history directly.
 - `container.warmPool.*` controls the adaptive idle runtime pool used by host
   and container execution. `enabled` turns the pool on, `minIdlePerActiveAgent`
   and `maxIdlePerAgent` bound per-agent prewarming, `trafficWindowMs` decides
-  which agents count as recently active, `coldStartBudgetMs` is the target
+  which agents count as recently active (an agent's idle workers stop within a
+  minute of it leaving that window), `coldStartBudgetMs` is the target
   startup budget, and `memoryPressureRssMb` trims idle entries under memory
   pressure.
 - `container.binds` for explicit host-to-container mounts in

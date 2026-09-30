@@ -191,6 +191,7 @@ const pool = new Map<string, PoolEntry>();
 const containerSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let containerMemorySample: MemorySample | null = null;
 let containerMemoryRefreshInFlight = false;
