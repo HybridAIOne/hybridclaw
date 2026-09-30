@@ -476,6 +476,21 @@ test('a call runs one scoped turn and a follow-up continues its session', async 
   expect(firstRequest.sessionId).toContain(structured.conversation_id);
 });
 
+test('a tool model is pinned on the turn and omitted otherwise', async () => {
+  const { url, dispatch } = await startPlugin({
+    pluginConfig: {
+      tools: [{ ...SALES_TOOL, model: 'hybridai/test-model' }, OPEN_TOOL],
+    },
+  });
+  await callTool(url, 'ask_sales_pipeline', { question: 'hi' });
+  await callTool(url, 'ask_anything', { question: 'hi' });
+  const [pinned, routed] = dispatch.mock.calls.map(
+    (call) => call[0] as Record<string, unknown>,
+  );
+  expect(pinned.model).toBe('hybridai/test-model');
+  expect(routed).not.toHaveProperty('model');
+});
+
 test('a "*" allowlist leaves the agent tool policy unchanged', async () => {
   const { url, dispatch } = await startPlugin();
   await callTool(url, 'ask_anything', { question: 'hi' });

@@ -14,6 +14,7 @@ const UNRESTRICTED_TOOLS = '*';
  * @property {string} description
  * @property {string} instructions
  * @property {string} agentId
+ * @property {string} [model] Pins the turn's model; routing does not override it.
  * @property {string[] | undefined} allowedTools Undefined keeps the agent's own tool list.
  */
 
@@ -73,6 +74,7 @@ export function resolvePublishedToolsConfig(pluginConfig, runtimeConfig) {
       description: entry.description.trim(),
       instructions: entry.instructions.trim(),
       agentId,
+      ...(entry.model?.trim() ? { model: entry.model.trim() } : {}),
       allowedTools: resolveAllowedTools(name, entry.allowedTools),
     };
   });
