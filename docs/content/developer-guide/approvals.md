@@ -126,11 +126,11 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
-| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1` and `>&2` write no file, so `git status 2>&1` stays green |
+| Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1`, `>&2`, and a redirect to `/dev/null` write no file, so `git status 2>&1` and `ls /opt/data 2>/dev/null` stay green |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
-| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
+| Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE`, `cc -o FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
 | Side-effecting MCP tools | Yellow | edit-like or stateful MCP operations | Not obviously destructive, but not read-only |
@@ -143,7 +143,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
 | Unknown script execution | Red | `./install.sh`, `scripts/build.sh`, `/tmp/x.sh`, `bash -x install.sh`, `sh < x.sh`, `xargs ./x.sh`, `rg --pre CMD` | A shell given a file, or a path the agent could have written (relative, behind a variable, or in the workspace or scratch space) run as the program, including in pipeline stages, `$(...)`, and what `find -exec`, `xargs`, or `sh -c` runs. A path that is only an operand keeps the command's tier, so `cat ./install.sh` is green. Other interpreters (`python3 x.py`, `source x`), installed tools called by absolute path (`/usr/bin/env`), and launchers the check does not follow (`watch`, `make`) are not script execution. Ripgrep runs the `--pre` program on every file it searches |
 | Host app control | Red | `osascript`, `open -a ...`, Music/iTunes URL handlers | Controls GUI or host app state |
-| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
+| Workspace fence and pinned-sensitive targets | Red | writes outside workspace, including relative targets that climb out (`> ../out.txt`, `cd .. && touch x`) or start outside after an earlier call's `cd` (`cd /etc`, then `echo x >> hosts`), and `~/` targets, also when the command's own output is discarded (`rm -f /opt/data/x 2>/dev/null`), but not reads from outside it (`cat /usr/share/dict/words > words.txt`); reads, searches, writes, shell commands, or `browser_upload` files touching `.env*`, `~/.ssh/**`, `/etc/**`; `force_push` | Both prompt even in full-auto; pinned targets never gain durable trust. `dir/**` also covers `dir` itself, and `~/` also matches the expanded home path. Shell commands are checked word by word, as described below |
 | Approval policy and trust files | Red, pinned, explicit | `write`, `edit`, or `delete` of `.hybridclaw/**` (policy, trust grants, pending approvals), `approval-trust.json`, or `.hybridclaw-runtime/sessions/**`; any bash command that names one | Full-auto never approves it, and every approval covers one call. Reads keep their tier. See below |
 
 Approval classifies a `grep` call by its `path` and `include` arguments, which
@@ -184,11 +184,14 @@ The workspace fence looks at what a shell command writes: redirect targets,
 `tee`, `touch`, `mkdir`, `chmod`, and `chown` operands, `cp` and `mv`
 destinations, and write options such as `git --output`, `find -fprint`, and
 `curl -o`, resolved from the shell's working directory and through any `cd`
-in the command. When the line also writes in another way, the value of any
-other program's `-o` or `--out` counts as a target too, except for programs
+in the command. The value of any other program's `-o` or `--out` counts as a
+target too, so `gcc -o /opt/bin/app main.c` is fenced, except for programs
 whose `-o` names no file: `grep`, `egrep`, `fgrep`, `rg`, `ls`, `find`, `ps`,
 `set`, `ssh`, `scp`, `sftp`, and `xargs`, whose command is checked on its own.
-`2>&1` and `>&2` only duplicate a descriptor. Reading from outside the workspace is not a write, so
+`2>&1` and `>&2` only duplicate a descriptor, and `/dev/null` discards what it
+is sent, so none of them is a write: `rm -f /opt/data/x 2>/dev/null` is fenced
+like `rm -f /opt/data/x`, and `curl -o /dev/null` saves nothing. Reading from
+outside the workspace is not a write, so
 `cat /usr/share/dict/words > words.txt`, `cp /opt/data/input.csv .`, and
 `python3 /opt/tools/gen.py > out.txt` keep their usual tier. When none of those
 targets is an absolute path and the command also runs a program whose writes
@@ -197,7 +200,9 @@ are not parsed, such as `rm`, `sed -i`, `mv` (which removes its sources),
 unquoted absolute path in the command counts as a possible write, except the
 program and the script it runs. That keeps
 `sed -i 's/a/b/' /opt/app.conf > log.txt` and
-`ls /opt/data > files.txt && python3 cleanup.py files.txt` fenced. The fence is
+`ls /opt/data > files.txt && python3 cleanup.py files.txt` fenced. An absolute
+target in the workspace or scratch space turns that last check off, so
+`sed -i 's/a/b/' /opt/app.conf > /tmp/log.txt` is not fenced. The fence is
 static too: a path in a variable, or one a script writes, is not seen.
 
 The approval policy, the trust grants, the pending approvals, and the

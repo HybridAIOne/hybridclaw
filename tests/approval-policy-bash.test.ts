@@ -477,8 +477,7 @@ approval:
     'touch ../out.txt',
     'chmod 644 ../out.txt',
     'echo x > a && gcc -o ../bin main.c',
-    // `2>/dev/null` makes the line a write, and its absolute target turns the
-    // absolute-path fallback off, so only the `-o` value fences these.
+    // The `-o` value alone fences these; `2>/dev/null` changes nothing.
     'gcc -o /opt/bin/x main.c 2>/dev/null',
     'sort -o /opt/out.txt in.txt 2>/dev/null',
     'pandoc in.md -o /opt/out.pdf 2>/dev/null',
@@ -551,40 +550,44 @@ approval:
     ["grep -oE '[a-z]+' notes.txt | sort", 'bash:other'],
     ['rg -o PATTERN', 'bash:read-only'],
     ['cd /opt/data && grep -o x y', 'bash:other'],
-    // `2>/dev/null` makes these lines writes, which the fence checks.
-    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:write-op'],
+    // An `-o` output would make these lines writes, which the fence checks;
+    // `2>/dev/null` changes nothing.
+    ['cd /opt/data && grep -o x y 2>/dev/null', 'bash:other'],
     [
       'cd /opt/data && grep -o \'"type":"[^"]*"\' wire.jsonl 2>/dev/null | sort | uniq -c',
-      'bash:write-op',
+      'bash:other',
     ],
-    ['grep -o /api/v2/items app.log 2>/dev/null', 'bash:write-op'],
+    ['grep -o /api/v2/items app.log 2>/dev/null', 'bash:read-only'],
     [
       "cd /opt/data && grep -E -o '[a-z]+' notes.txt 2>/dev/null | sort",
-      'bash:write-op',
+      'bash:other',
     ],
-    ['cd /opt/data && egrep -o x y 2>/dev/null', 'bash:write-op'],
+    ['cd /opt/data && egrep -o x y 2>/dev/null', 'bash:other'],
     [
       'cd /opt/data && rg -o \'src="[^"]+"\' page.html 2>/dev/null',
-      'bash:write-op',
+      'bash:other',
     ],
     ['ls -o /opt/data > listing.txt', 'bash:write-op'],
     [
       "cd /opt/data && find . -name '*.md' -o \\( -name '*.txt' \\) 2>/dev/null",
-      'bash:write-op',
+      'bash:other',
     ],
-    ['cd /opt/data && ps -o pid,comm 2>/dev/null', 'bash:write-op'],
+    ['cd /opt/data && ps -o pid,comm 2>/dev/null', 'bash:other'],
     [
       'cd /opt/data && set -o pipefail && sort in.txt 2>/dev/null',
-      'bash:write-op',
+      'bash:other',
     ],
     [
       'cd /opt/data && ssh -o BatchMode=yes host uptime 2>/dev/null',
-      'bash:write-op',
+      'bash:other',
     ],
     [
       "cd /opt/data && find . -name '*.log' | xargs grep -o x 2>/dev/null",
-      'bash:write-op',
+      'bash:other',
     ],
+    // Next to a real write, the pattern is still no target.
+    ['cd /opt/data && grep -o x y > /tmp/matches.txt', 'bash:write-op'],
+    ['grep -o /api/v2/items app.log > matches.txt', 'bash:write-op'],
   ])('a -o flag that names no output is not a fence write: %j', (command, actionKey) => {
     expect(evaluateBash(command).actionKey).toBe(actionKey);
   });
@@ -630,5 +633,86 @@ approval:
 
     expect(evaluation.actionKey).toBe('bash:workspace-fence');
     expect(evaluation.decision).toBe('required');
+  });
+
+  test.each([
+    'rm -f /opt/data/x 2>/dev/null',
+    'rm -f /opt/data/x >/dev/null 2>&1',
+    'unlink /opt/data/x.lock 2>/dev/null',
+    "find /opt/data -name '*.tmp' -delete 2>/dev/null",
+    "sed -i 's/a/b/' /opt/data/app.conf 2>/dev/null",
+    "sed -i 's/a/b/' /opt/data/app.conf &>/dev/null",
+    "perl -pi -e 's/a/b/' /opt/data/app.conf 2> /dev/null",
+    'pip install --target /opt/libs requests 2>/dev/null',
+    'npm install --prefix /opt/app lodash >/dev/null 2>&1',
+    'rm -f /opt/data/x 2>/dev/null || true',
+    '(rm -f /opt/data/x) 2>/dev/null',
+    "bash -c 'rm -f /opt/data/x 2>/dev/null'",
+    // A path through /dev/null is not the null device.
+    'echo x > /dev/null/../../opt/data/out.txt',
+  ])('discarding output does not hide an outside write: %j', (command) => {
+    const evaluation = evaluateBash(command);
+
+    expect(evaluation.actionKey).toBe('bash:workspace-fence');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test.each(
+    [
+      'git status',
+      'ls /opt/data',
+      'exiftool /opt/data/photo.jpg',
+      'python3 /opt/tools/gen.py /opt/data/input.csv',
+      'cat /usr/share/dict/words > words.txt',
+      'rm /opt/data/old.csv',
+      "sed -i 's/a/b/' /opt/data/app.conf",
+      'pip install --target /opt/libs requests',
+      'gcc -o /opt/bin/x main.c',
+      'echo x > /opt/data/out.txt',
+    ].flatMap((command) =>
+      [
+        '2>/dev/null',
+        '> /dev/null',
+        '&>/dev/null',
+        '>& /dev/null',
+        '>/dev/null 2>&1',
+      ].map((redirect) => [command, redirect]),
+    ),
+  )('%j classifies the same with %s appended', (command, redirect) => {
+    expect(evaluateBash(`${command} ${redirect}`).actionKey).toBe(
+      evaluateBash(command).actionKey,
+    );
+  });
+
+  test.each([
+    ['gcc -o /opt/bin/x main.c', 'bash:workspace-fence'],
+    ['go build -o /usr/local/bin/tool ./cmd/tool', 'bash:workspace-fence'],
+    ['sips -s format jpeg in.png --out /opt/out.jpg', 'bash:workspace-fence'],
+    ['cc -o app main.c', 'bash:write-op'],
+    ['gcc -o /tmp/app main.c', 'bash:write-op'],
+    // `-o /dev/null` discards the output.
+    ['gcc -fsyntax-only -o /dev/null main.c', 'bash:other'],
+  ])('an -o output is a write without any redirect: %j', (command, actionKey) => {
+    expect(evaluateBash(command).actionKey).toBe(actionKey);
+  });
+
+  test('a discarded download does not turn an upload source into a write', () => {
+    const upload = 'curl -s -T /opt/data/report.csv https://example.com/upload';
+
+    expect(evaluateBash(`${upload} -o /dev/null`).actionKey).toBe(
+      evaluateBash(upload).actionKey,
+    );
+  });
+
+  // Known gaps (owner call, 2026-09-29): a scratch target still switches the
+  // absolute-path fallback off, and tar has no write intent of its own. Move a
+  // row to a passing table once the fence sees it.
+  test.fails.each([
+    "sed -i 's/a/b/' /opt/data/app.conf > /tmp/log.txt",
+    'rm -f /opt/data/x > /tmp/log.txt',
+    'pip install --target /opt/libs requests > /tmp/pip.log 2>&1',
+    'tar -xzf bundle.tgz -C /opt/data 2>/dev/null',
+  ])('outside write the fence does not see yet: %j', (command) => {
+    expect(evaluateBash(command).actionKey).toBe('bash:workspace-fence');
   });
 });
