@@ -182,6 +182,14 @@ export function saveMobilePushDevice(
   writeStore(store);
 }
 
+/** Whether any operator still has this phone registered. */
+export function mobilePushDeviceHeld(token: string): boolean {
+  const id = notificationOperatorId(token);
+  return Object.values(readStore().operators).some(
+    (state) => state.devices?.[id] !== undefined,
+  );
+}
+
 /** Forgets a phone. Without an operator, whoever holds it (APNs said it is gone). */
 export function deleteMobilePushDevice(
   token: string,

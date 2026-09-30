@@ -12200,7 +12200,7 @@ export async function handleGatewayCommand(
       }
 
       case 'push':
-        return plainCommand(runPushCommand(req.args, req.sessionId));
+        return plainCommand(await runPushCommand(req.args, req.sessionId));
 
       case 'clear': {
         const rotated = createFreshSessionInstance(session.id);

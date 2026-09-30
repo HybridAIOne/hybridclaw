@@ -6,14 +6,20 @@
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
-import { notifyWebSession } from './web-notifications.js';
+import {
+  notifyWebSession,
+  type WebNotificationDelivery,
+} from './web-notifications.js';
 
 /**
- * A task added with `--alert` rings phones with the items its reply lists.
- * Best effort like the reminder: looked up after the reply is stored, and a
- * failure only loses the alert.
+ * Rings the chat owner's phones after the reply is stored. A reminder shows
+ * the assistant's name and the reminder itself. A task added with `--alert`
+ * rings with the first item its reply lists instead, and not at all when it
+ * lists none, so a phone never shows such a reply's raw list. Best effort:
+ * looked up after the reply is stored, and a failure only loses the alert.
  */
-async function alertIfAsked(
+async function alertPhones(
+  delivery: WebNotificationDelivery | null,
   source: string,
   sessionId: string,
   agentId: string,
@@ -21,22 +27,42 @@ async function alertIfAsked(
   messageId: number,
 ): Promise<void> {
   const taskId = /^schedule:(\d+)$/.exec(source)?.[1];
-  if (!taskId) return;
-  const [{ getJob }, { displayNameForAgent }, { alertListedItems }] =
-    await Promise.all([
-      import('../memory/jobs.js'),
-      import('../agents/agent-registry.js'),
-      import('./mobile-push.js'),
-    ]);
-  const alert = getJob(Number(taskId), { kind: 'scheduled_task' })?.alert;
-  if (!alert) return;
-  await alertListedItems({
-    sessionId,
-    kind: alert,
-    assistant: displayNameForAgent(agentId),
-    text,
-    messageId,
-  });
+  const alert = taskId
+    ? (await import('../memory/jobs.js')).getJob(Number(taskId), {
+        kind: 'scheduled_task',
+      })?.alert
+    : null;
+  const reminder =
+    !alert && delivery?.devices.length && delivery.state.preferences.reminder;
+  if (!alert && !reminder) return;
+  const [{ getAgentById }, push] = await Promise.all([
+    import('../agents/agent-registry.js'),
+    import('./mobile-push.js'),
+  ]);
+  const agent = getAgentById(agentId);
+  const assistant = agent?.displayName || agent?.name || 'HybridClaw';
+  if (alert) {
+    await push.alertListedItems({
+      sessionId,
+      kind: alert,
+      assistant,
+      text,
+      messageId,
+    });
+  } else if (delivery) {
+    await push.sendMobilePush(
+      delivery.devices,
+      push.reminderAlert({
+        notification: delivery.notification,
+        assistant,
+        text,
+        unread: delivery.state.notifications.filter(
+          (notice) => notice.kind === 'reminder',
+        ).length,
+        messageId,
+      }),
+    );
+  }
 }
 
 export function deliverWebScheduledMessage(
@@ -62,8 +88,15 @@ export function deliverWebScheduledMessage(
           artifacts,
           source,
         });
-  notifyWebSession(session.id, 'reminder', String(messageId));
-  void alertIfAsked(
+  const delivery = notifyWebSession(
+    session.id,
+    'reminder',
+    String(messageId),
+    undefined,
+    { phone: false },
+  );
+  void alertPhones(
+    delivery,
     source,
     session.id,
     session.agent_id,

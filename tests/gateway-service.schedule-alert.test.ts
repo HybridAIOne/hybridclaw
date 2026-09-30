@@ -10,10 +10,17 @@ const APP_CHAT = 'app-feed';
 const TOKEN = 'ab'.repeat(32);
 const PROMPT = 'Check the connected accounts and answer with a JSON array.';
 
-async function load() {
+async function load(kinds = 'proactive') {
   setupHome();
   vi.stubEnv('HYBRIDAI_API_KEY', 'hai-test-key');
-  const relay = vi.fn(async () => new Response('{"status":"sent"}'));
+  const relay = vi.fn(
+    async (url: string) =>
+      new Response(
+        url.endsWith('/devices')
+          ? '{"status":"registered"}'
+          : '{"status":"sent"}',
+      ),
+  );
   vi.stubGlobal('fetch', relay);
   const { initDatabase } = await import('../src/memory/db.ts');
   const { handleGatewayCommand } = await import(
@@ -41,12 +48,12 @@ async function load() {
         })
       ).text,
     );
-  await run(['push', 'register', TOKEN, 'production', 'proactive']);
+  await run(['push', 'register', TOKEN, 'production', kinds]);
   const alerts = async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
-    return relay.mock.calls.map(
-      ([, init]) => JSON.parse(String((init as RequestInit).body)).payload,
-    );
+    return relay.mock.calls
+      .filter(([url]) => String(url).endsWith('/v1/push'))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)).payload);
   };
   return { run, relay, alerts, deliverWebScheduledMessage, jobs };
 }
@@ -110,4 +117,30 @@ test('an edit keeps the alert, and a bad kind is refused', async () => {
     }
   })();
   expect(refused).toBeNull();
+});
+
+test('a reminder rings with the assistant name and its text; an --alert task only with its items', async () => {
+  const { run, alerts, deliverWebScheduledMessage } = await load(
+    'reminder,proactive',
+  );
+  deliverWebScheduledMessage(APP_CHAT, 'huhu', 'schedule:7:system');
+  const [reminder] = await alerts();
+  expect(reminder).toMatchObject({
+    aps: { alert: { title: 'Main Agent', body: 'huhu' }, badge: 1 },
+    kind: 'reminder',
+    sessionId: APP_CHAT,
+    agentId: 'main',
+  });
+  expect(reminder.id).toBe(`${APP_CHAT}:reminder:${reminder.messageId}`);
+
+  const added = await run([
+    'schedule', 'add', '--json', '--alert', 'proactive', '"*/30 * * * *"', PROMPT,
+  ]);
+  deliverWebScheduledMessage(
+    APP_CHAT,
+    '[{"title":"Reply to Ben"}]',
+    `schedule:${added.task.id}`,
+  );
+  const all = await alerts();
+  expect(all.map((payload) => payload.kind)).toEqual(['reminder', 'proactive']);
 });

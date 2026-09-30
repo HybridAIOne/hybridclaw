@@ -589,8 +589,8 @@ from its first `[` to its last `]`. The alert shows the assistant's name and
 the first title (`… (+2 more)`) and carries `kind`, `sessionId`, `messageId`
 and `count`; a phone gets it only if it registered that kind with `/push`
 (see [Web chat notifications](../guides/web-notifications.md#phones)). A reply
-that lists nothing sends no alert. Unlike the generic reminder, the item's
-title shows on the lock screen.
+that lists nothing sends no alert, and such a task's replies never ring as
+reminders. The item's title shows on the lock screen.
 
 Every subcommand takes `--json` for clients that drive the command, such as an
 app sending it through chat: the answer is one line of JSON (`{"version": 1,

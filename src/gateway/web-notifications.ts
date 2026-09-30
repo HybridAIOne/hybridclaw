@@ -1,11 +1,13 @@
 /**
  * Persists operator-scoped alerts before broadcasting to open pages or push.
  * Unlike chat delivery, notification failures never fail an already stored
- * reply. Push payloads contain routing metadata, never conversation content.
+ * reply. Push payloads contain routing metadata, never conversation content;
+ * only a phone reminder carries its text (web-scheduled-delivery.ts).
  */
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type {
+  MobilePushDevice,
   WebNotification,
   WebNotificationKind,
   WebNotificationState,
@@ -146,12 +148,23 @@ async function sendWebPush(
   );
 }
 
+export interface WebNotificationDelivery {
+  notification: WebNotification;
+  state: WebNotificationState;
+  devices: MobilePushDevice[];
+}
+
+/**
+ * Records and broadcasts an alert. `phone: false` leaves the phone alert to
+ * the caller, which gets the recorded notice back (null if none was new).
+ */
 export function notifyWebSession(
   sessionId: string,
   kind: WebNotificationKind,
   eventId: string = randomUUID(),
   operatorId?: string,
-): void {
+  { phone = true }: { phone?: boolean } = {},
+): WebNotificationDelivery | null {
   try {
     const notification: WebNotification = {
       id: `${sessionId}:${kind}:${eventId}`,
@@ -162,7 +175,7 @@ export function notifyWebSession(
       createdAt: Date.now(),
     };
     const delivery = recordWebNotification(notification, operatorId);
-    if (!delivery) return;
+    if (!delivery) return null;
     broadcastWebNotifications(delivery.state.operatorId, delivery.state);
     void sendWebPush(
       delivery.state,
@@ -171,7 +184,7 @@ export function notifyWebSession(
     ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
-    if (delivery.state.preferences[kind])
+    if (phone && delivery.state.preferences[kind])
       void sendMobilePush(delivery.devices, {
         kind,
         title: notification.title,
@@ -184,8 +197,14 @@ export function notifyWebSession(
       }).catch(() =>
         logger.warn('Phone push unavailable; notification remains in chat'),
       );
+    return {
+      notification,
+      state: delivery.state,
+      devices: delivery.devices,
+    };
   } catch {
     logger.warn('Could not record web notification');
+    return null;
   }
 }
 
