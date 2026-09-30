@@ -588,7 +588,9 @@ Web-chat and heartbeat tasks require an explicit delivery channel. The task
 list and **Automation → Scheduler** show the stored timezone and the reason
 for a failed run or delivery. In web chat, the agent can list, update, and
 remove tasks created in another web chat assigned to the same agent. Tasks
-created in messaging channels remain scoped to their original session.
+created in messaging channels remain scoped to their original session; the
+web-chat task list reports how many of them exist for the agent, so they can
+be managed from **Automation → Scheduler** instead of being created again.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
 tasks that never ran are retained.
 

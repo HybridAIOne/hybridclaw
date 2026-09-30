@@ -46,6 +46,7 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
   scheduledTasks?: ScheduledTask[];
+  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];

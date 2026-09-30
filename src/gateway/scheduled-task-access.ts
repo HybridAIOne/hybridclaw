@@ -21,13 +21,33 @@ export function canManageScheduledTask(
   return owner?.channel_id === 'web' && owner.agent_id === requester.agent_id;
 }
 
-export function listManageableScheduledTasks(
-  requester: Session,
-): ScheduledTask[] {
+/**
+ * `hiddenCount` is how many of the agent's tasks a web chat may not manage,
+ * so `cron list` can say they exist instead of "No scheduled tasks." and the
+ * model does not create a duplicate. Messaging sessions always get 0: a peer
+ * must not learn that other peers have schedules.
+ */
+export function listManageableScheduledTasks(requester: Session): {
+  tasks: ScheduledTask[];
+  hiddenCount: number;
+} {
   if (requester.channel_id !== 'web') {
-    return getAllJobs({ kind: 'scheduled_task', sessionId: requester.id });
+    return {
+      tasks: getAllJobs({ kind: 'scheduled_task', sessionId: requester.id }),
+      hiddenCount: 0,
+    };
   }
-  return getAllJobs({ kind: 'scheduled_task' }).filter((task) =>
-    canManageScheduledTask(task, requester),
-  );
+  const tasks: ScheduledTask[] = [];
+  let hiddenCount = 0;
+  for (const task of getAllJobs({ kind: 'scheduled_task' })) {
+    if (canManageScheduledTask(task, requester)) {
+      tasks.push(task);
+    } else if (
+      requester.agent_id &&
+      getSessionById(task.session_id)?.agent_id === requester.agent_id
+    ) {
+      hiddenCount += 1;
+    }
+  }
+  return { tasks, hiddenCount };
 }
