@@ -12,6 +12,7 @@ import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import type { AuxiliaryModelCallParams } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
+import type { LocalClassifierRegistration } from '../routing/local-classifiers.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
@@ -610,6 +611,7 @@ export interface HybridClawPluginApi {
   registerMemoryLayer(layer: MemoryLayerPlugin): void;
   /** Supplies a `memory.embedding.provider` id other than the built-in `hashed`. */
   registerEmbeddingProvider(provider: EmbeddingProviderRegistration): void;
+  registerLocalClassifier(registration: LocalClassifierRegistration): void;
   registerProvider(provider: AIProvider): void;
   registerChannel(channel: ChannelInfo): void;
   registerChannelTransport(transport: ChannelTransportRegistration): void;

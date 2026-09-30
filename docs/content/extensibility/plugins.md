@@ -617,3 +617,18 @@ Gateway turn flow:
 
 This lets an external memory or recall system provide long-term context without
 becoming the system of record for local session history.
+
+### Local decision classifiers
+
+`api.registerLocalClassifier(...)` registers an optional `local-decision/<id>`
+routing model with `status`, `command` (`setup`, `start`, `stop`) and `predict`
+callbacks. The gateway validates the returned typed choice against its tier
+ladder and applies its confidence threshold. It does not treat these models as
+chat providers. Plugins declare local execution as trusted host code; the
+registration is not a network sandbox.
+
+The first caller is `plugins/laya-router`. Its MLX dependency and model live in
+an isolated, explicitly installed runtime; inference uses an offline child pipe.
+Labs controls require admin authentication and loopback access for mutations.
+Register a service `stop` callback to clean up on gateway shutdown; registration
+snapshots roll back failed loads. See the plugin README for setup and limits.

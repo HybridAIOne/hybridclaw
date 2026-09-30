@@ -1,0 +1,725 @@
+{
+  "description": "120 newly authored synthetic routing prompts; fixed before inference. 15 per tier/language. Rubric labels, not measured downstream capability. No session text. No paired translations required. Same author and taxonomy as development: limited independence.",
+  "cases": [
+    {
+      "id": "holdout-001",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the chemical symbol for copper?"
+    },
+    {
+      "id": "holdout-002",
+      "language": "en",
+      "expected": "basic",
+      "text": "Write the integer immediately after 999."
+    },
+    {
+      "id": "holdout-003",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many sides does a pentagon have?"
+    },
+    {
+      "id": "holdout-004",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 17 minus 9?"
+    },
+    {
+      "id": "holdout-005",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which is larger, 0.7 or 0.07?"
+    },
+    {
+      "id": "holdout-006",
+      "language": "en",
+      "expected": "basic",
+      "text": "Give the opposite of the word empty."
+    },
+    {
+      "id": "holdout-007",
+      "language": "en",
+      "expected": "basic",
+      "text": "What month comes immediately before September?"
+    },
+    {
+      "id": "holdout-008",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many grams are in half a kilogram?"
+    },
+    {
+      "id": "holdout-009",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the capital of Portugal."
+    },
+    {
+      "id": "holdout-010",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the plural of mouse?"
+    },
+    {
+      "id": "holdout-011",
+      "language": "en",
+      "expected": "basic",
+      "text": "Is 28 an even number?"
+    },
+    {
+      "id": "holdout-012",
+      "language": "en",
+      "expected": "basic",
+      "text": "Who wrote Pride and Prejudice?"
+    },
+    {
+      "id": "holdout-013",
+      "language": "en",
+      "expected": "basic",
+      "text": "Convert the Roman numeral IX to an integer."
+    },
+    {
+      "id": "holdout-014",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 12 multiplied by 12?"
+    },
+    {
+      "id": "holdout-015",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which planet is known as the Red Planet?"
+    },
+    {
+      "id": "holdout-016",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Tage hat eine gewöhnliche Woche?"
+    },
+    {
+      "id": "holdout-017",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie lautet das chemische Symbol für Sauerstoff?"
+    },
+    {
+      "id": "holdout-018",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt 81 geteilt durch 9?"
+    },
+    {
+      "id": "holdout-019",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Wochentag folgt auf Donnerstag?"
+    },
+    {
+      "id": "holdout-020",
+      "language": "de",
+      "expected": "basic",
+      "text": "Nenne das Gegenteil von laut."
+    },
+    {
+      "id": "holdout-021",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Zentimeter sind 3 Meter?"
+    },
+    {
+      "id": "holdout-022",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Stadt ist die Hauptstadt von Finnland?"
+    },
+    {
+      "id": "holdout-023",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie heißt die Mehrzahl von Haus?"
+    },
+    {
+      "id": "holdout-024",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welches Tier liefert Schafwolle?"
+    },
+    {
+      "id": "holdout-025",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viel ist ein Viertel von 100?"
+    },
+    {
+      "id": "holdout-026",
+      "language": "de",
+      "expected": "basic",
+      "text": "Ist 19 eine Primzahl?"
+    },
+    {
+      "id": "holdout-027",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Stunden hat ein halber Tag?"
+    },
+    {
+      "id": "holdout-028",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Monat folgt auf Februar?"
+    },
+    {
+      "id": "holdout-029",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie schreibt man die Zahl 42 als deutsches Wort?"
+    },
+    {
+      "id": "holdout-030",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist 6 hoch 2?"
+    },
+    {
+      "id": "holdout-031",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this politely: Send the invoice today, you are late."
+    },
+    {
+      "id": "holdout-032",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into German: The parcel will arrive on Thursday afternoon."
+    },
+    {
+      "id": "holdout-033",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize in one sentence: The library closes for repairs on Monday. Online borrowing remains available. It reopens on Friday."
+    },
+    {
+      "id": "holdout-034",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a friendly three-line invitation to a neighborhood picnic next Sunday."
+    },
+    {
+      "id": "holdout-035",
+      "language": "en",
+      "expected": "economy",
+      "text": "Correct the grammar: She don't know where the tickets is."
+    },
+    {
+      "id": "holdout-036",
+      "language": "en",
+      "expected": "economy",
+      "text": "Turn these notes into a short email: meeting moved to 10; same room; bring draft."
+    },
+    {
+      "id": "holdout-037",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest five names for a cozy secondhand bookshop."
+    },
+    {
+      "id": "holdout-038",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make this sentence less formal: We hereby acknowledge receipt of your correspondence."
+    },
+    {
+      "id": "holdout-039",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a short product description for a blue ceramic mug with a 300 ml capacity."
+    },
+    {
+      "id": "holdout-040",
+      "language": "en",
+      "expected": "economy",
+      "text": "Extract the shopping items from: Please buy oats and apples, and remember we already have milk."
+    },
+    {
+      "id": "holdout-041",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a brief thank-you note to a colleague who covered my shift."
+    },
+    {
+      "id": "holdout-042",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into Spanish: Please leave the package at reception."
+    },
+    {
+      "id": "holdout-043",
+      "language": "en",
+      "expected": "economy",
+      "text": "Create a four-item packing checklist for a one-night hotel stay."
+    },
+    {
+      "id": "holdout-044",
+      "language": "en",
+      "expected": "economy",
+      "text": "Condense this heading to five words: A practical introduction to growing herbs on a small balcony."
+    },
+    {
+      "id": "holdout-045",
+      "language": "en",
+      "expected": "economy",
+      "text": "Format these three names as a numbered list in alphabetical order: Mira, Adam, Lena."
+    },
+    {
+      "id": "holdout-046",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere höflicher: Deine Antwort ist unbrauchbar, schick eine bessere."
+    },
+    {
+      "id": "holdout-047",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Der Ersatzschlüssel liegt in der oberen Schublade."
+    },
+    {
+      "id": "holdout-048",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Geburtstagskarte für eine Nachbarin."
+    },
+    {
+      "id": "holdout-049",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse in einem Satz zusammen: Das Café öffnet ab Mai eine Stunde früher. Montags bleibt es geschlossen. Die Speisekarte bleibt gleich."
+    },
+    {
+      "id": "holdout-050",
+      "language": "de",
+      "expected": "economy",
+      "text": "Korrigiere die Rechtschreibung: Wir haben nähmlich die falsche Addresse notiert."
+    },
+    {
+      "id": "holdout-051",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle aus diesen Stichpunkten eine E-Mail: Lieferung verspätet; neuer Termin Mittwoch; Entschuldigung."
+    },
+    {
+      "id": "holdout-052",
+      "language": "de",
+      "expected": "economy",
+      "text": "Nenne fünf freundliche Betreffzeilen für eine Einladung zum Sommerfest."
+    },
+    {
+      "id": "holdout-053",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe einen neutralen Zweizeiler, mit dem ich einen Friseurtermin absage."
+    },
+    {
+      "id": "holdout-054",
+      "language": "de",
+      "expected": "economy",
+      "text": "Mache aus diesem Satz eine einfache Formulierung: Die Inbetriebnahme erfolgt nach Abschluss der Prüfung."
+    },
+    {
+      "id": "holdout-055",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Französische: Könnten Sie bitte das Fenster schließen?"
+    },
+    {
+      "id": "holdout-056",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine kurze Einkaufsliste für ein Frühstück mit Brot, Obst und Joghurt."
+    },
+    {
+      "id": "holdout-057",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine sachliche Beschreibung eines gebrauchten grünen Fahrrads mit drei Gängen."
+    },
+    {
+      "id": "holdout-058",
+      "language": "de",
+      "expected": "economy",
+      "text": "Extrahiere die Termine: Die Schulung ist am Dienstag, das Teamessen am Freitag, montags arbeite ich zu Hause."
+    },
+    {
+      "id": "holdout-059",
+      "language": "de",
+      "expected": "economy",
+      "text": "Ordne diese Wörter alphabetisch und gib nur die Liste aus: Birne, Apfel, Zitrone."
+    },
+    {
+      "id": "holdout-060",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Dankesnachricht für eine Einladung zum Abendessen."
+    },
+    {
+      "id": "holdout-061",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement a TypeScript function that groups purchases by currency and sums integer minor-unit amounts, rejecting missing currencies."
+    },
+    {
+      "id": "holdout-062",
+      "language": "en",
+      "expected": "general",
+      "text": "Debug this Python function and explain the issue: def remember(x, cache=[]): cache.append(x); return cache"
+    },
+    {
+      "id": "holdout-063",
+      "language": "en",
+      "expected": "general",
+      "text": "A SQL join doubles invoice totals when invoices have multiple tags. Explain why and show a query that preserves one total per invoice."
+    },
+    {
+      "id": "holdout-064",
+      "language": "en",
+      "expected": "general",
+      "text": "Design a small REST API for reserving meeting rooms, including validation and conflict responses."
+    },
+    {
+      "id": "holdout-065",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a shell script that checks a directory for duplicate SHA-256 file hashes and prints groups without deleting files."
+    },
+    {
+      "id": "holdout-066",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain how to migrate a nullable database column to NOT NULL without failing on existing rows."
+    },
+    {
+      "id": "holdout-067",
+      "language": "en",
+      "expected": "general",
+      "text": "A React search box shows stale results when requests finish out of order. Provide a fix and a focused test."
+    },
+    {
+      "id": "holdout-068",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare a queue and a synchronous HTTP call for generating PDF receipts; discuss retries and user-visible status."
+    },
+    {
+      "id": "holdout-069",
+      "language": "en",
+      "expected": "general",
+      "text": "Given monthly revenue of 120, 150 and 135 and costs of 90, 100 and 110, calculate margins and explain the trend."
+    },
+    {
+      "id": "holdout-070",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python CSV importer that validates dates, reports row numbers for failures and continues processing valid rows."
+    },
+    {
+      "id": "holdout-071",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain the trade-offs between cursor and offset pagination for a frequently updated activity feed."
+    },
+    {
+      "id": "holdout-072",
+      "language": "en",
+      "expected": "general",
+      "text": "Design tests for a discount rule: ten percent above 100, except gift cards, with totals rounded to cents."
+    },
+    {
+      "id": "holdout-073",
+      "language": "en",
+      "expected": "general",
+      "text": "Trace why a Node process can remain running after an HTTP server closes and show how to find open handles."
+    },
+    {
+      "id": "holdout-074",
+      "language": "en",
+      "expected": "general",
+      "text": "Create a step-by-step debugging plan for a container that resolves DNS but cannot connect to one HTTPS host."
+    },
+    {
+      "id": "holdout-075",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement an LRU cache with a capacity limit and explain its time complexity."
+    },
+    {
+      "id": "holdout-076",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Python-Funktion, die überlappende Zeitintervalle zusammenführt, und teste Randfälle."
+    },
+    {
+      "id": "holdout-077",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, warum eine SQL-Abfrage mit LEFT JOIN durch eine Bedingung in WHERE Datensätze verliert, und korrigiere sie."
+    },
+    {
+      "id": "holdout-078",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf ein Datenbankschema für eine kleine Bibliothek mit Büchern, Exemplaren und Ausleihen."
+    },
+    {
+      "id": "holdout-079",
+      "language": "de",
+      "expected": "general",
+      "text": "Ein Formular sendet beim Doppelklick zwei Bestellungen. Zeige eine Lösung mit clientseitiger Sperre und serverseitiger Idempotenz."
+    },
+    {
+      "id": "holdout-080",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen TypeScript-Parser für eine Konfigurationsdatei mit Pflichtfeldern und verständlichen Fehlermeldungen."
+    },
+    {
+      "id": "holdout-081",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche optimistisches und pessimistisches Locking für die Bearbeitung von Supporttickets."
+    },
+    {
+      "id": "holdout-082",
+      "language": "de",
+      "expected": "general",
+      "text": "Analysiere folgende Kostenentwicklung: Januar 80, Februar 96, März 120 bei gleichbleibender Stückzahl 40."
+    },
+    {
+      "id": "holdout-083",
+      "language": "de",
+      "expected": "general",
+      "text": "Erstelle einen Migrationsplan von lokal gespeicherten Dateien zu Objektspeicher für eine kleine Webanwendung."
+    },
+    {
+      "id": "holdout-084",
+      "language": "de",
+      "expected": "general",
+      "text": "Eine Zeitzonenumrechnung verschiebt Kalendereinträge um einen Tag. Erkläre mögliche Ursachen und geeignete Tests."
+    },
+    {
+      "id": "holdout-085",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere eine begrenzte Wiederholungslogik mit exponentiellem Backoff für idempotente GET-Anfragen."
+    },
+    {
+      "id": "holdout-086",
+      "language": "de",
+      "expected": "general",
+      "text": "Entwirf eine Teststrategie für einen Warenkorb mit Gutscheinen, Versandkosten und Teilrückerstattungen."
+    },
+    {
+      "id": "holdout-087",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre anhand eines Beispiels, wie ein Deadlock zwischen zwei Datenbanktransaktionen entsteht und vermieden wird."
+    },
+    {
+      "id": "holdout-088",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe ein Skript, das JSON-Dateien validiert und eine zusammengefasste Fehlerübersicht ausgibt."
+    },
+    {
+      "id": "holdout-089",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche drei Ansätze, um eine langsame Suchabfrage mit mehreren optionalen Filtern zu optimieren."
+    },
+    {
+      "id": "holdout-090",
+      "language": "de",
+      "expected": "general",
+      "text": "Ein Hintergrundjob verarbeitet nach einem Neustart dieselbe Nachricht erneut. Entwirf eine einfache Deduplizierung."
+    },
+    {
+      "id": "holdout-091",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a multi-region payment ledger with a formal consistency model, partition behavior, reconciliation invariants and a failure-injection validation plan."
+    },
+    {
+      "id": "holdout-092",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove that every finite integral domain is a field, then analyze precisely which steps fail for infinite domains."
+    },
+    {
+      "id": "holdout-093",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the identifiability conditions for a causal effect under selection bias with an unobserved confounder and propose a sensitivity analysis."
+    },
+    {
+      "id": "holdout-094",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a security architecture for mutually distrustful plugins sharing one host, with capability delegation, revocation and confused-deputy analysis."
+    },
+    {
+      "id": "holdout-095",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Propose and critique a research experiment to distinguish memorization from compositional generalization in small language-model routers."
+    },
+    {
+      "id": "holdout-096",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a stable numerical method for a stiff reaction-diffusion system, including an error estimate and convergence argument."
+    },
+    {
+      "id": "holdout-097",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a geographically distributed collaborative editor with offline edits, access revocation and a precise conflict-resolution model."
+    },
+    {
+      "id": "holdout-098",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Give a rigorous proof of the max-flow min-cut theorem and analyze how the result changes with lower bounds on edges."
+    },
+    {
+      "id": "holdout-099",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a fault-tolerant scheduler for heterogeneous GPU clusters with gang scheduling, preemption and starvation guarantees."
+    },
+    {
+      "id": "holdout-100",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze the impossibility of exactly-once external side effects under crash failures and develop a protocol with explicit residual risks."
+    },
+    {
+      "id": "holdout-101",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a Bayesian hierarchical model for sparse demand data with censored observations, and discuss posterior identifiability."
+    },
+    {
+      "id": "holdout-102",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Construct a threat model and verification strategy for a compiler that translates untrusted policies into executable authorization checks."
+    },
+    {
+      "id": "holdout-103",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a method to evaluate adaptive model cascades without selection bias, including off-policy estimators and confidence intervals."
+    },
+    {
+      "id": "holdout-104",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove convergence conditions for asynchronous distributed gradient descent with stale updates and bounded communication delays."
+    },
+    {
+      "id": "holdout-105",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a zero-downtime migration between incompatible event schemas across independently deployed services, with rollback and consistency proofs."
+    },
+    {
+      "id": "holdout-106",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein verteiltes Berechtigungssystem mit sofortigem Widerruf, Offline-Clients und präziser Analyse der unvermeidbaren Konsistenzkonflikte."
+    },
+    {
+      "id": "holdout-107",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Satz von Cayley für endliche Gruppen und konstruiere die Einbettung explizit."
+    },
+    {
+      "id": "holdout-108",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite ein Verfahren zur kausalen Effektschätzung bei zeitabhängigen Confoundern her und analysiere Verletzungen der Positivitätsannahme."
+    },
+    {
+      "id": "holdout-109",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle eine Sicherheitsarchitektur für mandantenfähige KI-Agenten mit delegierten Rechten und prüfbaren Nichtinterferenz-Eigenschaften."
+    },
+    {
+      "id": "holdout-110",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein Forschungsdesign zum Vergleich von Routing-Modellen unter Verteilungsverschiebung und selektiv fehlenden Qualitätslabels."
+    },
+    {
+      "id": "holdout-111",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite Stabilitätsbedingungen für ein gekoppeltes implizit-explizites Verfahren zur Lösung steifer Differentialgleichungen her."
+    },
+    {
+      "id": "holdout-112",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein global verteiltes Inventarsystem, das Überverkäufe trotz Netzpartitionen verhindert, und begründe die Verfügbarkeitsgrenzen formal."
+    },
+    {
+      "id": "holdout-113",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Heiratssatz von Hall und leite daraus einen Algorithmus samt Korrektheitsargument ab."
+    },
+    {
+      "id": "holdout-114",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle einen Scheduler für Echtzeitaufgaben mit heterogenen Laufzeiten und begründe hinreichende Bedingungen für die Einhaltung aller Fristen."
+    },
+    {
+      "id": "holdout-115",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Analysiere die Grenzen eines byzantinischen Konsensprotokolls bei dynamischer Mitgliedschaft und entwirf sichere Übergangsregeln."
+    },
+    {
+      "id": "holdout-116",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite ein hierarchisches Zustandsraummodell für unregelmäßig beobachtete Zeitreihen her und diskutiere die Identifizierbarkeit."
+    },
+    {
+      "id": "holdout-117",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine verifizierbare Übersetzung zwischen zwei Policy-Sprachen mit unterschiedlicher Negationssemantik."
+    },
+    {
+      "id": "holdout-118",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle einen statistisch abgesicherten Test für Modellkaskaden, deren Entscheidungen die spätere Datenerhebung beeinflussen."
+    },
+    {
+      "id": "holdout-119",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise unter geeigneten Annahmen die Konvergenz eines verteilten Optimierungsverfahrens mit verzögerten und verrauschten Gradienten."
+    },
+    {
+      "id": "holdout-120",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine Migration kryptografischer Schlüssel über mehrere Regionen mit kompromittierten Alt-Clients, Auditierbarkeit und überprüfbaren Rollback-Grenzen."
+    }
+  ]
+}

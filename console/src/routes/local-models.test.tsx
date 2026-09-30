@@ -14,6 +14,7 @@ vi.mock('../api/client', () => ({
   fetchLocalModels: mocks.fetch,
   fetchLocalModelActivity: mocks.activity,
   controlLocalModel: mocks.control,
+  requestJson: () => Promise.resolve({ classifiers: [] }),
 }));
 vi.mock('../components/app-shell', () => ({
   useAppShellConfig: () => ({ localModelsSupported: mocks.supported }),

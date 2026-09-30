@@ -1,0 +1,83 @@
+.content {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.content p {
+  margin: 0;
+  line-height: 1.6;
+}
+.content a {
+  color: var(--primary);
+}
+.badge {
+  align-items: center;
+  gap: 7px;
+}
+.badge[data-status="setup"],
+.badge[data-status="downloading"],
+.badge[data-status="starting"] {
+  background: var(--accent-soft);
+  color: var(--primary);
+}
+.badge[data-status="error"] {
+  color: var(--danger);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  padding: 16px;
+  margin: 0;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.steps li[aria-current="step"] {
+  color: var(--primary);
+  font-weight: 600;
+}
+.steps li[data-complete="true"] {
+  color: var(--success);
+}
+.stepNumber {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.error {
+  color: var(--danger);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}
+@media (max-width: 600px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}

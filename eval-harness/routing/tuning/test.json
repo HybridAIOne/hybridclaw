@@ -1,0 +1,1406 @@
+{
+  "description": "Fresh authored synthetic rubric cases; paired EN/DE, no session text; candidate frozen before authoring.",
+  "candidate_sha256": "448cc9a0f5a782864f2726b47acc049822f35a21feaf7ce57cde16ee1aa99890",
+  "cases": [
+    {
+      "id": "tuning-001",
+      "scenario": "basic-1",
+      "language": "en",
+      "expected": "basic",
+      "text": "Compute 11 plus 8."
+    },
+    {
+      "id": "tuning-002",
+      "scenario": "basic-1",
+      "language": "de",
+      "expected": "basic",
+      "text": "Berechne 11 plus 8."
+    },
+    {
+      "id": "tuning-003",
+      "scenario": "basic-2",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is 72 minus 19?"
+    },
+    {
+      "id": "tuning-004",
+      "scenario": "basic-2",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ergibt 72 minus 19?"
+    },
+    {
+      "id": "tuning-005",
+      "scenario": "basic-3",
+      "language": "en",
+      "expected": "basic",
+      "text": "9 times 8, please."
+    },
+    {
+      "id": "tuning-006",
+      "scenario": "basic-3",
+      "language": "de",
+      "expected": "basic",
+      "text": "9 mal 8, bitte."
+    },
+    {
+      "id": "tuning-007",
+      "scenario": "basic-4",
+      "language": "en",
+      "expected": "basic",
+      "text": "Divide 156 by 12."
+    },
+    {
+      "id": "tuning-008",
+      "scenario": "basic-4",
+      "language": "de",
+      "expected": "basic",
+      "text": "Teile 156 durch 12."
+    },
+    {
+      "id": "tuning-009",
+      "scenario": "basic-5",
+      "language": "en",
+      "expected": "basic",
+      "text": "How much is one quarter of 60?"
+    },
+    {
+      "id": "tuning-010",
+      "scenario": "basic-5",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viel ist ein Viertel von 60?"
+    },
+    {
+      "id": "tuning-011",
+      "scenario": "basic-6",
+      "language": "en",
+      "expected": "basic",
+      "text": "Round 6.782 to two decimal places."
+    },
+    {
+      "id": "tuning-012",
+      "scenario": "basic-6",
+      "language": "de",
+      "expected": "basic",
+      "text": "Runde 6,782 auf zwei Nachkommastellen."
+    },
+    {
+      "id": "tuning-013",
+      "scenario": "basic-7",
+      "language": "en",
+      "expected": "basic",
+      "text": "Write 0.125 as a fraction."
+    },
+    {
+      "id": "tuning-014",
+      "scenario": "basic-7",
+      "language": "de",
+      "expected": "basic",
+      "text": "Schreibe 0,125 als Bruch."
+    },
+    {
+      "id": "tuning-015",
+      "scenario": "basic-8",
+      "language": "en",
+      "expected": "basic",
+      "text": "Is 101 an odd or an even number?"
+    },
+    {
+      "id": "tuning-016",
+      "scenario": "basic-8",
+      "language": "de",
+      "expected": "basic",
+      "text": "Ist 101 eine gerade oder eine ungerade Zahl?"
+    },
+    {
+      "id": "tuning-017",
+      "scenario": "basic-9",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many centimeters are in 4 meters?"
+    },
+    {
+      "id": "tuning-018",
+      "scenario": "basic-9",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Zentimeter sind 4 Meter?"
+    },
+    {
+      "id": "tuning-019",
+      "scenario": "basic-10",
+      "language": "en",
+      "expected": "basic",
+      "text": "Convert 240 seconds to minutes."
+    },
+    {
+      "id": "tuning-020",
+      "scenario": "basic-10",
+      "language": "de",
+      "expected": "basic",
+      "text": "Rechne 240 Sekunden in Minuten um."
+    },
+    {
+      "id": "tuning-021",
+      "scenario": "basic-11",
+      "language": "en",
+      "expected": "basic",
+      "text": "Which month comes immediately after April?"
+    },
+    {
+      "id": "tuning-022",
+      "scenario": "basic-11",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher Monat kommt direkt nach April?"
+    },
+    {
+      "id": "tuning-023",
+      "scenario": "basic-12",
+      "language": "en",
+      "expected": "basic",
+      "text": "How many sides does a nonagon have?"
+    },
+    {
+      "id": "tuning-024",
+      "scenario": "basic-12",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie viele Seiten hat ein Neuneck?"
+    },
+    {
+      "id": "tuning-025",
+      "scenario": "basic-13",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the chemical symbol for gold?"
+    },
+    {
+      "id": "tuning-026",
+      "scenario": "basic-13",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist das chemische Symbol für Gold?"
+    },
+    {
+      "id": "tuning-027",
+      "scenario": "basic-14",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the largest planet in our solar system."
+    },
+    {
+      "id": "tuning-028",
+      "scenario": "basic-14",
+      "language": "de",
+      "expected": "basic",
+      "text": "Nenne den größten Planeten unseres Sonnensystems."
+    },
+    {
+      "id": "tuning-029",
+      "scenario": "basic-15",
+      "language": "en",
+      "expected": "basic",
+      "text": "What is the capital city of Portugal?"
+    },
+    {
+      "id": "tuning-030",
+      "scenario": "basic-15",
+      "language": "de",
+      "expected": "basic",
+      "text": "Wie heißt die Hauptstadt Portugals?"
+    },
+    {
+      "id": "tuning-031",
+      "scenario": "basic-16",
+      "language": "en",
+      "expected": "basic",
+      "text": "In which continent is Kenya?"
+    },
+    {
+      "id": "tuning-032",
+      "scenario": "basic-16",
+      "language": "de",
+      "expected": "basic",
+      "text": "Auf welchem Kontinent liegt Kenia?"
+    },
+    {
+      "id": "tuning-033",
+      "scenario": "basic-17",
+      "language": "en",
+      "expected": "basic",
+      "text": "Expand the abbreviation CPU in one phrase."
+    },
+    {
+      "id": "tuning-034",
+      "scenario": "basic-17",
+      "language": "de",
+      "expected": "basic",
+      "text": "Schreibe die Abkürzung CPU in einer Wortgruppe aus."
+    },
+    {
+      "id": "tuning-035",
+      "scenario": "basic-18",
+      "language": "en",
+      "expected": "basic",
+      "text": "What HTTP status code means Not Found?"
+    },
+    {
+      "id": "tuning-036",
+      "scenario": "basic-18",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welcher HTTP-Statuscode bedeutet Not Found?"
+    },
+    {
+      "id": "tuning-037",
+      "scenario": "basic-19",
+      "language": "en",
+      "expected": "basic",
+      "text": "Does the word apple start with a vowel?"
+    },
+    {
+      "id": "tuning-038",
+      "scenario": "basic-19",
+      "language": "de",
+      "expected": "basic",
+      "text": "Beginnt das Wort Apfel mit einem Vokal?"
+    },
+    {
+      "id": "tuning-039",
+      "scenario": "basic-20",
+      "language": "en",
+      "expected": "basic",
+      "text": "Give the plural of child."
+    },
+    {
+      "id": "tuning-040",
+      "scenario": "basic-20",
+      "language": "de",
+      "expected": "basic",
+      "text": "Nenne die Mehrzahl des englischen Wortes child."
+    },
+    {
+      "id": "tuning-041",
+      "scenario": "basic-21",
+      "language": "en",
+      "expected": "basic",
+      "text": "Spell the number 42 in English."
+    },
+    {
+      "id": "tuning-042",
+      "scenario": "basic-21",
+      "language": "de",
+      "expected": "basic",
+      "text": "Schreibe die Zahl 42 auf Englisch aus."
+    },
+    {
+      "id": "tuning-043",
+      "scenario": "basic-22",
+      "language": "en",
+      "expected": "basic",
+      "text": "What's the opposite of north?"
+    },
+    {
+      "id": "tuning-044",
+      "scenario": "basic-22",
+      "language": "de",
+      "expected": "basic",
+      "text": "Was ist das Gegenteil von Norden?"
+    },
+    {
+      "id": "tuning-045",
+      "scenario": "basic-23",
+      "language": "en",
+      "expected": "basic",
+      "text": "What color do you get by mixing blue and yellow paint?"
+    },
+    {
+      "id": "tuning-046",
+      "scenario": "basic-23",
+      "language": "de",
+      "expected": "basic",
+      "text": "Welche Farbe entsteht beim Mischen von blauer und gelber Farbe?"
+    },
+    {
+      "id": "tuning-047",
+      "scenario": "basic-24",
+      "language": "en",
+      "expected": "basic",
+      "text": "Compute 2 to the power of 6."
+    },
+    {
+      "id": "tuning-048",
+      "scenario": "basic-24",
+      "language": "de",
+      "expected": "basic",
+      "text": "Berechne 2 hoch 6."
+    },
+    {
+      "id": "tuning-049",
+      "scenario": "basic-25",
+      "language": "en",
+      "expected": "basic",
+      "text": "Name the author of Pride and Prejudice."
+    },
+    {
+      "id": "tuning-050",
+      "scenario": "basic-25",
+      "language": "de",
+      "expected": "basic",
+      "text": "Nenne die Autorin von Pride and Prejudice."
+    },
+    {
+      "id": "tuning-051",
+      "scenario": "economy-1",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make this friendlier: Send the invoice today."
+    },
+    {
+      "id": "tuning-052",
+      "scenario": "economy-1",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere freundlicher: Schick die Rechnung heute."
+    },
+    {
+      "id": "tuning-053",
+      "scenario": "economy-2",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a short thank-you text for someone who watered my plants."
+    },
+    {
+      "id": "tuning-054",
+      "scenario": "economy-2",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Dankesnachricht an jemanden, der meine Pflanzen gegossen hat."
+    },
+    {
+      "id": "tuning-055",
+      "scenario": "economy-3",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into Spanish: The museum closes at six."
+    },
+    {
+      "id": "tuning-056",
+      "scenario": "economy-3",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Spanische: Das Museum schließt um sechs."
+    },
+    {
+      "id": "tuning-057",
+      "scenario": "economy-4",
+      "language": "en",
+      "expected": "economy",
+      "text": "Give me three subject lines for a team lunch invitation."
+    },
+    {
+      "id": "tuning-058",
+      "scenario": "economy-4",
+      "language": "de",
+      "expected": "economy",
+      "text": "Gib mir drei Betreffzeilen für eine Einladung zum Team-Mittagessen."
+    },
+    {
+      "id": "tuning-059",
+      "scenario": "economy-5",
+      "language": "en",
+      "expected": "economy",
+      "text": "Summarize this in one sentence: The bus was late. I walked instead. I arrived on time."
+    },
+    {
+      "id": "tuning-060",
+      "scenario": "economy-5",
+      "language": "de",
+      "expected": "economy",
+      "text": "Fasse in einem Satz zusammen: Der Bus hatte Verspätung. Ich bin stattdessen gelaufen. Ich kam pünktlich an."
+    },
+    {
+      "id": "tuning-061",
+      "scenario": "economy-6",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a polite request to reschedule my haircut."
+    },
+    {
+      "id": "tuning-062",
+      "scenario": "economy-6",
+      "language": "de",
+      "expected": "economy",
+      "text": "Entwirf eine höfliche Bitte, meinen Friseurtermin zu verschieben."
+    },
+    {
+      "id": "tuning-063",
+      "scenario": "economy-7",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest five names for a neighborhood gardening club."
+    },
+    {
+      "id": "tuning-064",
+      "scenario": "economy-7",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage fünf Namen für einen Gartenverein im Viertel vor."
+    },
+    {
+      "id": "tuning-065",
+      "scenario": "economy-8",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make a simple packing checklist for one night at a friend's house."
+    },
+    {
+      "id": "tuning-066",
+      "scenario": "economy-8",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine einfache Packliste für eine Übernachtung bei einem Freund."
+    },
+    {
+      "id": "tuning-067",
+      "scenario": "economy-9",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rewrite this without jargon: Our distributed consensus subsystem achieved quorum."
+    },
+    {
+      "id": "tuning-068",
+      "scenario": "economy-9",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere ohne Fachsprache: Unser verteiltes Konsenssystem hat das Quorum erreicht."
+    },
+    {
+      "id": "tuning-069",
+      "scenario": "economy-10",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a two-sentence announcement that our database maintenance is finished."
+    },
+    {
+      "id": "tuning-070",
+      "scenario": "economy-10",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine Mitteilung in zwei Sätzen, dass unsere Datenbankwartung abgeschlossen ist."
+    },
+    {
+      "id": "tuning-071",
+      "scenario": "economy-11",
+      "language": "en",
+      "expected": "economy",
+      "text": "Turn this into a bullet list: Buy bread, wash towels, call the dentist."
+    },
+    {
+      "id": "tuning-072",
+      "scenario": "economy-11",
+      "language": "de",
+      "expected": "economy",
+      "text": "Mache daraus eine Aufzählung: Brot kaufen, Handtücher waschen, Zahnarzt anrufen."
+    },
+    {
+      "id": "tuning-073",
+      "scenario": "economy-12",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest a vegetarian lunch using chickpeas and spinach."
+    },
+    {
+      "id": "tuning-074",
+      "scenario": "economy-12",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage ein vegetarisches Mittagessen mit Kichererbsen und Spinat vor."
+    },
+    {
+      "id": "tuning-075",
+      "scenario": "economy-13",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a cheerful caption for a photo of a muddy dog."
+    },
+    {
+      "id": "tuning-076",
+      "scenario": "economy-13",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine fröhliche Bildunterschrift für ein Foto eines schlammigen Hundes."
+    },
+    {
+      "id": "tuning-077",
+      "scenario": "economy-14",
+      "language": "en",
+      "expected": "economy",
+      "text": "Shorten this: Due to the fact that it is raining, we will postpone the picnic."
+    },
+    {
+      "id": "tuning-078",
+      "scenario": "economy-14",
+      "language": "de",
+      "expected": "economy",
+      "text": "Kürze: Aufgrund der Tatsache, dass es regnet, werden wir das Picknick verschieben."
+    },
+    {
+      "id": "tuning-079",
+      "scenario": "economy-15",
+      "language": "en",
+      "expected": "economy",
+      "text": "Draft a birthday message for a colleague I don't know well."
+    },
+    {
+      "id": "tuning-080",
+      "scenario": "economy-15",
+      "language": "de",
+      "expected": "economy",
+      "text": "Entwirf eine Geburtstagsnachricht für einen Kollegen, den ich kaum kenne."
+    },
+    {
+      "id": "tuning-081",
+      "scenario": "economy-16",
+      "language": "en",
+      "expected": "economy",
+      "text": "Translate into German: Please leave the package at reception."
+    },
+    {
+      "id": "tuning-082",
+      "scenario": "economy-16",
+      "language": "de",
+      "expected": "economy",
+      "text": "Übersetze ins Englische: Bitte lassen Sie das Paket am Empfang."
+    },
+    {
+      "id": "tuning-083",
+      "scenario": "economy-17",
+      "language": "en",
+      "expected": "economy",
+      "text": "Give me a simple agenda for a twenty-minute weekly team check-in."
+    },
+    {
+      "id": "tuning-084",
+      "scenario": "economy-17",
+      "language": "de",
+      "expected": "economy",
+      "text": "Gib mir eine einfache Agenda für eine zwanzigminütige wöchentliche Teambesprechung."
+    },
+    {
+      "id": "tuning-085",
+      "scenario": "economy-18",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a friendly reminder to return a borrowed book."
+    },
+    {
+      "id": "tuning-086",
+      "scenario": "economy-18",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine freundliche Erinnerung, ein ausgeliehenes Buch zurückzugeben."
+    },
+    {
+      "id": "tuning-087",
+      "scenario": "economy-19",
+      "language": "en",
+      "expected": "economy",
+      "text": "Suggest four rainy-day activities for two adults at home."
+    },
+    {
+      "id": "tuning-088",
+      "scenario": "economy-19",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schlage vier Aktivitäten für zwei Erwachsene zu Hause an einem Regentag vor."
+    },
+    {
+      "id": "tuning-089",
+      "scenario": "economy-20",
+      "language": "en",
+      "expected": "economy",
+      "text": "Fix the grammar: She don't like waiting in lines."
+    },
+    {
+      "id": "tuning-090",
+      "scenario": "economy-20",
+      "language": "de",
+      "expected": "economy",
+      "text": "Korrigiere die Grammatik: Er haben keine Zeit."
+    },
+    {
+      "id": "tuning-091",
+      "scenario": "economy-21",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a short apology for missing a friend's call."
+    },
+    {
+      "id": "tuning-092",
+      "scenario": "economy-21",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine kurze Entschuldigung für einen verpassten Anruf eines Freundes."
+    },
+    {
+      "id": "tuning-093",
+      "scenario": "economy-22",
+      "language": "en",
+      "expected": "economy",
+      "text": "Make a grocery list for a basic pasta dinner for four."
+    },
+    {
+      "id": "tuning-094",
+      "scenario": "economy-22",
+      "language": "de",
+      "expected": "economy",
+      "text": "Erstelle eine Einkaufsliste für ein einfaches Nudelgericht für vier Personen."
+    },
+    {
+      "id": "tuning-095",
+      "scenario": "economy-23",
+      "language": "en",
+      "expected": "economy",
+      "text": "Rephrase this announcement in plain language: TLS certificate rotation completed successfully."
+    },
+    {
+      "id": "tuning-096",
+      "scenario": "economy-23",
+      "language": "de",
+      "expected": "economy",
+      "text": "Formuliere diese Mitteilung allgemeinverständlich: Die Rotation des TLS-Zertifikats wurde erfolgreich abgeschlossen."
+    },
+    {
+      "id": "tuning-097",
+      "scenario": "economy-24",
+      "language": "en",
+      "expected": "economy",
+      "text": "Brainstorm three icebreaker questions for a book club."
+    },
+    {
+      "id": "tuning-098",
+      "scenario": "economy-24",
+      "language": "de",
+      "expected": "economy",
+      "text": "Sammle drei Einstiegsfragen für einen Buchclub."
+    },
+    {
+      "id": "tuning-099",
+      "scenario": "economy-25",
+      "language": "en",
+      "expected": "economy",
+      "text": "Write a one-paragraph description of a cozy lakeside cabin for a rental listing."
+    },
+    {
+      "id": "tuning-100",
+      "scenario": "economy-25",
+      "language": "de",
+      "expected": "economy",
+      "text": "Schreibe eine Beschreibung in einem Absatz für eine gemütliche Hütte am See in einer Ferienanzeige."
+    },
+    {
+      "id": "tuning-101",
+      "scenario": "general-1",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Python function that finds the longest word in a list."
+    },
+    {
+      "id": "tuning-102",
+      "scenario": "general-1",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Python-Funktion, die das längste Wort in einer Liste findet."
+    },
+    {
+      "id": "tuning-103",
+      "scenario": "general-2",
+      "language": "en",
+      "expected": "general",
+      "text": "In SQL, select customers who placed at least three orders this month."
+    },
+    {
+      "id": "tuning-104",
+      "scenario": "general-2",
+      "language": "de",
+      "expected": "general",
+      "text": "Wähle in SQL Kunden aus, die diesen Monat mindestens drei Bestellungen aufgegeben haben."
+    },
+    {
+      "id": "tuning-105",
+      "scenario": "general-3",
+      "language": "en",
+      "expected": "general",
+      "text": "Why does my React component rerender when its parent state changes? Show a minimal fix."
+    },
+    {
+      "id": "tuning-106",
+      "scenario": "general-3",
+      "language": "de",
+      "expected": "general",
+      "text": "Warum wird meine React-Komponente bei einer Zustandsänderung des Elternteils neu gerendert? Zeige eine minimale Lösung."
+    },
+    {
+      "id": "tuning-107",
+      "scenario": "general-4",
+      "language": "en",
+      "expected": "general",
+      "text": "Debug this JavaScript: const result = [1,2,3].map(async x => x*2); I expected numbers."
+    },
+    {
+      "id": "tuning-108",
+      "scenario": "general-4",
+      "language": "de",
+      "expected": "general",
+      "text": "Debugge diesen JavaScript-Code: const result = [1,2,3].map(async x => x*2); Ich habe Zahlen erwartet."
+    },
+    {
+      "id": "tuning-109",
+      "scenario": "general-5",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain how a binary search differs from a linear search, including their time complexity."
+    },
+    {
+      "id": "tuning-110",
+      "scenario": "general-5",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre den Unterschied zwischen binärer und linearer Suche einschließlich der Laufzeitkomplexität."
+    },
+    {
+      "id": "tuning-111",
+      "scenario": "general-6",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a shell command to find files larger than 50 MB in the current directory tree."
+    },
+    {
+      "id": "tuning-112",
+      "scenario": "general-6",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen Shell-Befehl, der Dateien über 50 MB im aktuellen Verzeichnisbaum findet."
+    },
+    {
+      "id": "tuning-113",
+      "scenario": "general-7",
+      "language": "en",
+      "expected": "general",
+      "text": "My Docker container cannot resolve a service name on another network. Explain how to diagnose it."
+    },
+    {
+      "id": "tuning-114",
+      "scenario": "general-7",
+      "language": "de",
+      "expected": "general",
+      "text": "Mein Docker-Container kann einen Dienstnamen in einem anderen Netzwerk nicht auflösen. Erkläre die Diagnose."
+    },
+    {
+      "id": "tuning-115",
+      "scenario": "general-8",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement a debounced search input in TypeScript."
+    },
+    {
+      "id": "tuning-116",
+      "scenario": "general-8",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere ein Sucheingabefeld mit Debouncing in TypeScript."
+    },
+    {
+      "id": "tuning-117",
+      "scenario": "general-9",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain why a SQL LEFT JOIN can become an inner join when filtering in WHERE."
+    },
+    {
+      "id": "tuning-118",
+      "scenario": "general-9",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, warum ein SQL-LEFT-JOIN beim Filtern in WHERE zu einem Inner Join werden kann."
+    },
+    {
+      "id": "tuning-119",
+      "scenario": "general-10",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a unit test for a function that rejects malformed date strings."
+    },
+    {
+      "id": "tuning-120",
+      "scenario": "general-10",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen Unit-Test für eine Funktion, die ungültige Datumszeichenfolgen ablehnt."
+    },
+    {
+      "id": "tuning-121",
+      "scenario": "general-11",
+      "language": "en",
+      "expected": "general",
+      "text": "My Python loop skips items when I remove elements from the list. Fix the pattern."
+    },
+    {
+      "id": "tuning-122",
+      "scenario": "general-11",
+      "language": "de",
+      "expected": "general",
+      "text": "Meine Python-Schleife überspringt Einträge, wenn ich Elemente aus der Liste entferne. Korrigiere das Muster."
+    },
+    {
+      "id": "tuning-123",
+      "scenario": "general-12",
+      "language": "en",
+      "expected": "general",
+      "text": "Compare mutexes and semaphores with a practical example."
+    },
+    {
+      "id": "tuning-124",
+      "scenario": "general-12",
+      "language": "de",
+      "expected": "general",
+      "text": "Vergleiche Mutexe und Semaphore anhand eines praktischen Beispiels."
+    },
+    {
+      "id": "tuning-125",
+      "scenario": "general-13",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a PostgreSQL query for the running total of sales ordered by date."
+    },
+    {
+      "id": "tuning-126",
+      "scenario": "general-13",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine PostgreSQL-Abfrage für die kumulierte Verkaufssumme nach Datum."
+    },
+    {
+      "id": "tuning-127",
+      "scenario": "general-14",
+      "language": "en",
+      "expected": "general",
+      "text": "Show how to parse a CSV file and group rows by category in Python."
+    },
+    {
+      "id": "tuning-128",
+      "scenario": "general-14",
+      "language": "de",
+      "expected": "general",
+      "text": "Zeige, wie man in Python eine CSV-Datei liest und Zeilen nach Kategorie gruppiert."
+    },
+    {
+      "id": "tuning-129",
+      "scenario": "general-15",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain why using an array index as a React key breaks reordered lists."
+    },
+    {
+      "id": "tuning-130",
+      "scenario": "general-15",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, warum ein Array-Index als React-Key bei umgeordneten Listen Probleme macht."
+    },
+    {
+      "id": "tuning-131",
+      "scenario": "general-16",
+      "language": "en",
+      "expected": "general",
+      "text": "Fix a Git merge conflict between two edits to the same configuration setting."
+    },
+    {
+      "id": "tuning-132",
+      "scenario": "general-16",
+      "language": "de",
+      "expected": "general",
+      "text": "Löse einen Git-Merge-Konflikt zwischen zwei Änderungen an derselben Konfigurationseinstellung."
+    },
+    {
+      "id": "tuning-133",
+      "scenario": "general-17",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a Rust function returning the first duplicate integer in a slice."
+    },
+    {
+      "id": "tuning-134",
+      "scenario": "general-17",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Rust-Funktion, die die erste doppelte Ganzzahl in einem Slice zurückgibt."
+    },
+    {
+      "id": "tuning-135",
+      "scenario": "general-18",
+      "language": "en",
+      "expected": "general",
+      "text": "How do I diagnose a memory leak in a small Node.js service?"
+    },
+    {
+      "id": "tuning-136",
+      "scenario": "general-18",
+      "language": "de",
+      "expected": "general",
+      "text": "Wie diagnostiziere ich ein Speicherleck in einem kleinen Node.js-Dienst?"
+    },
+    {
+      "id": "tuning-137",
+      "scenario": "general-19",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain transaction isolation levels and show a phantom read example."
+    },
+    {
+      "id": "tuning-138",
+      "scenario": "general-19",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre Transaktionsisolationsstufen und zeige ein Beispiel für einen Phantom Read."
+    },
+    {
+      "id": "tuning-139",
+      "scenario": "general-20",
+      "language": "en",
+      "expected": "general",
+      "text": "Implement pagination for a REST endpoint using a cursor rather than an offset."
+    },
+    {
+      "id": "tuning-140",
+      "scenario": "general-20",
+      "language": "de",
+      "expected": "general",
+      "text": "Implementiere die Paginierung eines REST-Endpunkts mit einem Cursor statt eines Offsets."
+    },
+    {
+      "id": "tuning-141",
+      "scenario": "general-21",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a regex and tests for matching a simple version string like 1.2.3."
+    },
+    {
+      "id": "tuning-142",
+      "scenario": "general-21",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe einen regulären Ausdruck und Tests für einfache Versionszeichenfolgen wie 1.2.3."
+    },
+    {
+      "id": "tuning-143",
+      "scenario": "general-22",
+      "language": "en",
+      "expected": "general",
+      "text": "My CSS grid overflows because one child contains a long URL. Find a fix."
+    },
+    {
+      "id": "tuning-144",
+      "scenario": "general-22",
+      "language": "de",
+      "expected": "general",
+      "text": "Mein CSS-Grid läuft über, weil ein Kindelement eine lange URL enthält. Finde eine Lösung."
+    },
+    {
+      "id": "tuning-145",
+      "scenario": "general-23",
+      "language": "en",
+      "expected": "general",
+      "text": "Show how to cancel a fetch request when a component unmounts."
+    },
+    {
+      "id": "tuning-146",
+      "scenario": "general-23",
+      "language": "de",
+      "expected": "general",
+      "text": "Zeige, wie man eine Fetch-Anfrage beim Entfernen einer Komponente abbricht."
+    },
+    {
+      "id": "tuning-147",
+      "scenario": "general-24",
+      "language": "en",
+      "expected": "general",
+      "text": "Explain when a composite database index can serve a query on only its second column."
+    },
+    {
+      "id": "tuning-148",
+      "scenario": "general-24",
+      "language": "de",
+      "expected": "general",
+      "text": "Erkläre, wann ein zusammengesetzter Datenbankindex eine Abfrage nur auf seiner zweiten Spalte bedienen kann."
+    },
+    {
+      "id": "tuning-149",
+      "scenario": "general-25",
+      "language": "en",
+      "expected": "general",
+      "text": "Write a migration that adds a nullable column and backfills it in small batches."
+    },
+    {
+      "id": "tuning-150",
+      "scenario": "general-25",
+      "language": "de",
+      "expected": "general",
+      "text": "Schreibe eine Migration, die eine nullable Spalte hinzufügt und sie in kleinen Batches befüllt."
+    },
+    {
+      "id": "tuning-151",
+      "scenario": "advanced-1",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the impossibility boundary for Byzantine consensus with partial synchrony and justify each assumption."
+    },
+    {
+      "id": "tuning-152",
+      "scenario": "advanced-1",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite die Unmöglichkeitsgrenze für byzantinischen Konsens bei partieller Synchronität her und begründe jede Annahme."
+    },
+    {
+      "id": "tuning-153",
+      "scenario": "advanced-2",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the spectral theorem for compact self-adjoint operators on a Hilbert space."
+    },
+    {
+      "id": "tuning-154",
+      "scenario": "advanced-2",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Spektralsatz für kompakte selbstadjungierte Operatoren auf einem Hilbertraum."
+    },
+    {
+      "id": "tuning-155",
+      "scenario": "advanced-3",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a globally replicated ledger with strict serializability, regional outages, and a quantified latency budget."
+    },
+    {
+      "id": "tuning-156",
+      "scenario": "advanced-3",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein global repliziertes Ledger mit strikter Serialisierbarkeit, regionalen Ausfällen und einem quantifizierten Latenzbudget."
+    },
+    {
+      "id": "tuning-157",
+      "scenario": "advanced-4",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Establish a regret bound for a contextual bandit with delayed feedback and state the necessary concentration inequalities."
+    },
+    {
+      "id": "tuning-158",
+      "scenario": "advanced-4",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Regret-Schranke für einen kontextuellen Banditen mit verzögertem Feedback her und nenne die nötigen Konzentrationsungleichungen."
+    },
+    {
+      "id": "tuning-159",
+      "scenario": "advanced-5",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the max-flow min-cut theorem using residual networks and justify termination for rational capacities."
+    },
+    {
+      "id": "tuning-160",
+      "scenario": "advanced-5",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Max-Flow-Min-Cut-Satz mit Residualnetzwerken und begründe die Terminierung bei rationalen Kapazitäten."
+    },
+    {
+      "id": "tuning-161",
+      "scenario": "advanced-6",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze a distributed garbage collector under partitions, crash recovery, and concurrent reference creation, with a safety proof."
+    },
+    {
+      "id": "tuning-162",
+      "scenario": "advanced-6",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Analysiere einen verteilten Garbage Collector bei Partitionen, Wiederanlauf und nebenläufiger Referenzerzeugung mit einem Sicherheitsbeweis."
+    },
+    {
+      "id": "tuning-163",
+      "scenario": "advanced-7",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the Euler-Lagrange equations for a constrained variational problem and examine second-order sufficiency."
+    },
+    {
+      "id": "tuning-164",
+      "scenario": "advanced-7",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite die Euler-Lagrange-Gleichungen für ein Variationsproblem mit Nebenbedingungen her und untersuche hinreichende Bedingungen zweiter Ordnung."
+    },
+    {
+      "id": "tuning-165",
+      "scenario": "advanced-8",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design an experiment that separates causal mediation from confounding when the mediator is measured with error."
+    },
+    {
+      "id": "tuning-166",
+      "scenario": "advanced-8",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein Experiment, das kausale Mediation von Confounding trennt, wenn der Mediator fehlerhaft gemessen wird."
+    },
+    {
+      "id": "tuning-167",
+      "scenario": "advanced-9",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove a convergence theorem for stochastic gradient descent with nonconvex smooth objectives and noisy gradients."
+    },
+    {
+      "id": "tuning-168",
+      "scenario": "advanced-9",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise einen Konvergenzsatz für stochastischen Gradientenabstieg bei glatten nichtkonvexen Zielfunktionen und verrauschten Gradienten."
+    },
+    {
+      "id": "tuning-169",
+      "scenario": "advanced-10",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a model checking strategy for a lock-free reclamation scheme and explain the ABA counterexample space."
+    },
+    {
+      "id": "tuning-170",
+      "scenario": "advanced-10",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle eine Model-Checking-Strategie für ein lockfreies Speicherfreigabeverfahren und erläutere den Raum möglicher ABA-Gegenbeispiele."
+    },
+    {
+      "id": "tuning-171",
+      "scenario": "advanced-11",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive the asymptotic distribution of a maximum likelihood estimator under model misspecification."
+    },
+    {
+      "id": "tuning-172",
+      "scenario": "advanced-11",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite die asymptotische Verteilung eines Maximum-Likelihood-Schätzers bei Modellfehlspezifikation her."
+    },
+    {
+      "id": "tuning-173",
+      "scenario": "advanced-12",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the Hahn-Banach extension theorem in the real normed-space case."
+    },
+    {
+      "id": "tuning-174",
+      "scenario": "advanced-12",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise den Hahn-Banach-Fortsetzungssatz für reelle normierte Räume."
+    },
+    {
+      "id": "tuning-175",
+      "scenario": "advanced-13",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a multi-region key rotation protocol with offline clients, forward secrecy, rollback protection, and formal invariants."
+    },
+    {
+      "id": "tuning-176",
+      "scenario": "advanced-13",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf ein regionsübergreifendes Schlüsselrotationsprotokoll mit Offline-Clients, Forward Secrecy, Rollback-Schutz und formalen Invarianten."
+    },
+    {
+      "id": "tuning-177",
+      "scenario": "advanced-14",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze whether a proposed asynchronous consensus protocol contradicts FLP; construct the admissible failure schedule."
+    },
+    {
+      "id": "tuning-178",
+      "scenario": "advanced-14",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Untersuche, ob ein vorgeschlagenes asynchrones Konsensprotokoll FLP widerspricht; konstruiere den zulässigen Ausfallablauf."
+    },
+    {
+      "id": "tuning-179",
+      "scenario": "advanced-15",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a lower bound on communication for distributed exact distinct counting and justify the reduction."
+    },
+    {
+      "id": "tuning-180",
+      "scenario": "advanced-15",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine Kommunikationsuntergrenze für verteilte exakte Zählung unterschiedlicher Elemente her und begründe die Reduktion."
+    },
+    {
+      "id": "tuning-181",
+      "scenario": "advanced-16",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove strong duality for convex optimization under Slater's condition, including the role of separating hyperplanes."
+    },
+    {
+      "id": "tuning-182",
+      "scenario": "advanced-16",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise starke Dualität bei konvexer Optimierung unter der Slater-Bedingung einschließlich der Rolle trennender Hyperebenen."
+    },
+    {
+      "id": "tuning-183",
+      "scenario": "advanced-17",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Develop a rigorous threat model and architecture for confidential multi-party analytics with malicious participants."
+    },
+    {
+      "id": "tuning-184",
+      "scenario": "advanced-17",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwickle ein rigoroses Bedrohungsmodell und eine Architektur für vertrauliche Mehrparteienanalysen mit bösartigen Teilnehmern."
+    },
+    {
+      "id": "tuning-185",
+      "scenario": "advanced-18",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove tight amortized bounds for union-find with path compression and union by rank."
+    },
+    {
+      "id": "tuning-186",
+      "scenario": "advanced-18",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise scharfe amortisierte Schranken für Union-Find mit Pfadkompression und Vereinigung nach Rang."
+    },
+    {
+      "id": "tuning-187",
+      "scenario": "advanced-19",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a distributed scheduler with fairness, heterogeneous accelerators, preemption, and a proof of starvation freedom."
+    },
+    {
+      "id": "tuning-188",
+      "scenario": "advanced-19",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf einen verteilten Scheduler mit Fairness, heterogenen Beschleunigern, Präemption und einem Beweis für Verhungerungsfreiheit."
+    },
+    {
+      "id": "tuning-189",
+      "scenario": "advanced-20",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive a statistically valid sequential test for an adaptive online experiment without inflating type-I error."
+    },
+    {
+      "id": "tuning-190",
+      "scenario": "advanced-20",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite einen statistisch gültigen sequenziellen Test für ein adaptives Online-Experiment ohne erhöhte Fehlerwahrscheinlichkeit erster Art her."
+    },
+    {
+      "id": "tuning-191",
+      "scenario": "advanced-21",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Analyze identifiability in a latent-variable causal model with selection bias and give an explicit non-identifiable pair."
+    },
+    {
+      "id": "tuning-192",
+      "scenario": "advanced-21",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Analysiere Identifizierbarkeit in einem kausalen Modell mit latenten Variablen und Selektionsbias und gib ein explizites nichtidentifizierbares Paar an."
+    },
+    {
+      "id": "tuning-193",
+      "scenario": "advanced-22",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the completeness of resolution for first-order logic using Herbrand's theorem."
+    },
+    {
+      "id": "tuning-194",
+      "scenario": "advanced-22",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise die Vollständigkeit der Resolution für Prädikatenlogik erster Stufe mithilfe des Satzes von Herbrand."
+    },
+    {
+      "id": "tuning-195",
+      "scenario": "advanced-23",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Design a storage architecture supporting atomic snapshots across shards under correlated regional failures."
+    },
+    {
+      "id": "tuning-196",
+      "scenario": "advanced-23",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Entwirf eine Speicherarchitektur für atomare Snapshots über mehrere Shards bei korrelierten regionalen Ausfällen."
+    },
+    {
+      "id": "tuning-197",
+      "scenario": "advanced-24",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Derive an information-theoretic lower bound for private heavy-hitter detection under local differential privacy."
+    },
+    {
+      "id": "tuning-198",
+      "scenario": "advanced-24",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Leite eine informationstheoretische Untergrenze für die Erkennung häufiger Elemente unter lokaler Differential Privacy her."
+    },
+    {
+      "id": "tuning-199",
+      "scenario": "advanced-25",
+      "language": "en",
+      "expected": "advanced",
+      "text": "Prove the correctness of a concurrent work-stealing deque under a weak memory model, specifying linearization points."
+    },
+    {
+      "id": "tuning-200",
+      "scenario": "advanced-25",
+      "language": "de",
+      "expected": "advanced",
+      "text": "Beweise die Korrektheit einer nebenläufigen Work-Stealing-Deque unter einem schwachen Speichermodell und benenne die Linearisierungspunkte."
+    }
+  ]
+}

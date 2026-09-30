@@ -83,3 +83,11 @@ models. Tests cover blocked transport, comparison opt-in, disabled-classifier
 migration, invalid responses and a failed or pending shadow call. Latency samples
 exclude failed and tool-using execution; partial timing coverage retains configured
 order. Live-provider accuracy and latency calibration remain unverified.
+
+## Optional local Laya classifier
+
+Install the source plugin with `hybridclaw plugin install ./plugins/laya-router`,
+then download/start it in Labs → Local Models. It appears as
+`local-decision/laya` in live/comparison routing and the Labs comparison picker.
+It runs alongside the chat model in its own offline MLX process. See the
+[Laya setup, benchmarks and risk notes](../../../plugins/laya-router/README.md).

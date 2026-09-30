@@ -415,6 +415,7 @@ import {
   resumeWith,
   resumeWithText,
 } from './interactive-escalation.js';
+import { handleLocalClassifierAdmin } from './local-classifier-admin.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   isMSTeamsTabViewerAllowed,
@@ -11004,6 +11005,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
             handleApiAdminAgentScoreboard(res);
+            return;
+          }
+          if (pathname === '/api/admin/local-classifiers') {
+            await handleLocalClassifierAdmin(
+              req,
+              res,
+              isLoopbackWebRequest(req),
+            );
             return;
           }
           if (pathname === '/api/admin/local-models') {

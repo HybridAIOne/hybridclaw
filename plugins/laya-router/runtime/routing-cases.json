@@ -1,0 +1,162 @@
+[
+  {
+    "text": "Calculate 1+1",
+    "expected": "basic",
+    "split": "development"
+  },
+  {
+    "text": "Calculate 2+4",
+    "expected": "basic",
+    "split": "development"
+  },
+  {
+    "text": "What is the capital of France?",
+    "expected": "basic",
+    "split": "development"
+  },
+  {
+    "text": "Berechne 7 mal 8.",
+    "expected": "basic",
+    "split": "development"
+  },
+  {
+    "text": "Translate into German: The meeting starts at noon.",
+    "expected": "economy",
+    "split": "development"
+  },
+  {
+    "text": "Rewrite this email politely: Send me the report today.",
+    "expected": "economy",
+    "split": "development"
+  },
+  {
+    "text": "Schreibe eine kurze Geburtstagsnachricht.",
+    "expected": "economy",
+    "split": "development"
+  },
+  {
+    "text": "Summarize: The office opens at nine and closes at five.",
+    "expected": "economy",
+    "split": "development"
+  },
+  {
+    "text": "Write a Python function to remove duplicates from a list.",
+    "expected": "general",
+    "split": "development"
+  },
+  {
+    "text": "Debug a Python function that throws IndexError on an empty list.",
+    "expected": "general",
+    "split": "development"
+  },
+  {
+    "text": "Erkläre, warum meine SQL-Abfrage doppelte Zeilen liefert.",
+    "expected": "general",
+    "split": "development"
+  },
+  {
+    "text": "Compare two database schemas and explain their normalization tradeoffs.",
+    "expected": "general",
+    "split": "development"
+  },
+  {
+    "text": "Prove the spectral theorem for bounded self-adjoint operators.",
+    "expected": "advanced",
+    "split": "development"
+  },
+  {
+    "text": "Design a distributed database with linearizable transactions under network partitions.",
+    "expected": "advanced",
+    "split": "development"
+  },
+  {
+    "text": "Beweise den Primzahlsatz mit komplexer Analysis.",
+    "expected": "advanced",
+    "split": "development"
+  },
+  {
+    "text": "Find a novel subquadratic algorithm for exact edit distance and prove its complexity.",
+    "expected": "advanced",
+    "split": "development"
+  },
+  {
+    "text": "What is 12 divided by 3?",
+    "expected": "basic",
+    "split": "validation"
+  },
+  {
+    "text": "Wie viel ist 9 minus 4?",
+    "expected": "basic",
+    "split": "validation"
+  },
+  {
+    "text": "What is the chemical symbol for water?",
+    "expected": "basic",
+    "split": "validation"
+  },
+  {
+    "text": "Hallo!",
+    "expected": "basic",
+    "split": "validation"
+  },
+  {
+    "text": "Write a brief email thanking my colleague for covering my shift.",
+    "expected": "economy",
+    "split": "validation"
+  },
+  {
+    "text": "Übersetze ins Englische: Der Zug kommt zehn Minuten später.",
+    "expected": "economy",
+    "split": "validation"
+  },
+  {
+    "text": "Summarize in one sentence: Sales rose in May. Costs stayed flat. Profit increased.",
+    "expected": "economy",
+    "split": "validation"
+  },
+  {
+    "text": "Formuliere höflicher: Gib mir sofort die Unterlagen.",
+    "expected": "economy",
+    "split": "validation"
+  },
+  {
+    "text": "Implement binary search in TypeScript.",
+    "expected": "general",
+    "split": "validation"
+  },
+  {
+    "text": "Fix a JavaScript async function that returns before its fetch completes.",
+    "expected": "general",
+    "split": "validation"
+  },
+  {
+    "text": "Schreibe eine SQL-Abfrage, die Bestellungen nach Monat gruppiert.",
+    "expected": "general",
+    "split": "validation"
+  },
+  {
+    "text": "Analyze time and space complexity of this nested loop: for i in range(n): for j in range(i): print(i,j).",
+    "expected": "general",
+    "split": "validation"
+  },
+  {
+    "text": "Prove the Hahn-Banach theorem for real normed vector spaces.",
+    "expected": "advanced",
+    "split": "validation"
+  },
+  {
+    "text": "Design and prove a Byzantine consensus protocol with dynamic membership.",
+    "expected": "advanced",
+    "split": "validation"
+  },
+  {
+    "text": "Entwirf eine ausfallsichere verteilte Datenbank und beweise die Konsistenz ihres Replikationsprotokolls.",
+    "expected": "advanced",
+    "split": "validation"
+  },
+  {
+    "text": "Derive a convergence proof for a novel stochastic optimization method under nonconvex constraints.",
+    "expected": "advanced",
+    "split": "validation"
+  }
+]
