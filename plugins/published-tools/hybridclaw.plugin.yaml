@@ -27,6 +27,13 @@ configSchema:
       default: []
       items:
         type: string
+    # Off by default (engineering choice, 2026-09-30): Microsoft 365 Copilot
+    # custom connectors offer only OAuth, Entra SSO or no auth, so the token
+    # can only travel in the URL there. URLs are logged by proxies and
+    # tunnels; OAuth support is the deferred proper fix.
+    allowUrlToken:
+      type: boolean
+      default: false
     tools:
       type: array
       default: []
@@ -71,6 +78,9 @@ configUiHints:
   allowedOrigins:
     label: Allowed Origins
     help: Browser origins allowed to call the endpoint. Server-to-server hosts send no Origin header and need no entry.
+  allowUrlToken:
+    label: Accept Token In URL
+    help: Also accept the token as ?key=<token> in the endpoint URL, for hosts that cannot send a header. URLs are logged by proxies and tunnels, so use a throwaway token and rotate it.
   tools:
     label: Published Tools
     help: 'Each entry: name, description (read by the host model to decide when to call it), instructions (read only by HybridClaw), optional agentId, and allowedTools (tool names this tool may use; ["*"] keeps the agent''s own tool list).'

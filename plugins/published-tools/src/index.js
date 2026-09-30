@@ -23,6 +23,7 @@ export default {
     );
     const server = {
       allowedOrigins: config.allowedOrigins,
+      allowUrlToken: config.allowUrlToken,
       serverInfo: { name: 'hybridclaw-published-tools', version: '0.1.0' },
       methods: createToolServer({ api, config, store }),
     };

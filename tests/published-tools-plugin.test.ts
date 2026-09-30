@@ -358,6 +358,19 @@ test.each([
   expect(pick(response.json)).toEqual(expected);
 });
 
+test.each([
+  ['accepted when the operator opted in', true, TOKEN, 200],
+  ['rejected when it is wrong', true, 'nope', 401],
+  ['ignored unless the operator opted in', false, TOKEN, 401],
+])('a token in the URL is %s', async (_label, allowUrlToken, key, status) => {
+  const { url } = await startPlugin({ pluginConfig: { allowUrlToken } });
+  const response = await post(`${url}?key=${key}`, legacyBody('tools/list'), {
+    ...LEGACY_HEADERS,
+    authorization: undefined,
+  });
+  expect(response.status).toBe(status);
+});
+
 test('a legacy request still needs the token', async () => {
   const { url, dispatch } = await startPlugin();
   const response = await post(url, legacyBody('tools/list'), {

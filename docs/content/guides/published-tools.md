@@ -86,6 +86,18 @@ tools to actions that need no approval, narrow them with `allowedTools`, and
 point write-capable work at channels where a person answers approval
 prompts.
 
+Hosts that can send neither header, such as Microsoft 365 Copilot custom
+connectors (OAuth, Entra SSO, or no authentication only), can pass the token
+in the URL once you opt in:
+
+```bash
+hybridclaw plugin config published-tools allowUrlToken true
+```
+
+The endpoint then also accepts `…/published-tools/mcp?key=<PUBLISHED_TOOLS_TOKEN>`.
+URLs are recorded by proxies and tunnels, so use a throwaway token and rotate
+it afterwards.
+
 ## Claude Custom Connectors
 
 In Claude, add a custom connector with the endpoint URL, choose **No

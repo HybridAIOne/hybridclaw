@@ -69,12 +69,13 @@ function decodeHeaderValue(name, raw) {
 }
 
 // `X-Api-Key` is for hosts that reserve Authorization for their own OAuth,
-// such as Claude custom connectors; it carries the same token.
-function isTokenValid(req, token) {
+// such as Claude custom connectors; it carries the same token. `urlKey` is
+// only passed when the operator opted in to the token in the URL.
+function isTokenValid(req, token, urlKey) {
   const bearer = String(header(req, 'authorization') || '').match(
     /^Bearer\s+(\S+)$/i,
   )?.[1];
-  const candidate = bearer ?? header(req, 'x-api-key')?.trim();
+  const candidate = bearer ?? header(req, 'x-api-key')?.trim() ?? urlKey;
   if (!token || !candidate) return false;
   const provided = Buffer.from(candidate);
   const expected = Buffer.from(token);
@@ -196,6 +197,7 @@ function readId(message) {
  * @param {import('@hybridaione/hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
  * @param {{
  *   token: string | undefined,
+ *   allowUrlToken: boolean,
  *   allowedOrigins: Set<string>,
  *   serverInfo: { name: string, version: string },
  *   methods: Record<string, (params: Record<string, unknown>) => Promise<Record<string, unknown>>>,
@@ -210,7 +212,10 @@ export async function handleMcpPost(ctx, server) {
     if (origin && !server.allowedOrigins.has(origin)) {
       throw new RpcError(403, RPC.INVALID_REQUEST, 'Origin not allowed.');
     }
-    if (!isTokenValid(req, server.token)) {
+    const urlKey = server.allowUrlToken
+      ? (ctx.url.searchParams.get('key') ?? undefined)
+      : undefined;
+    if (!isTokenValid(req, server.token, urlKey)) {
       res.setHeader('www-authenticate', 'Bearer');
       throw new RpcError(401, RPC.INVALID_REQUEST, 'Unauthorized.');
     }

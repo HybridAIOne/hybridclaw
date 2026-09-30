@@ -22,6 +22,7 @@ const UNRESTRICTED_TOOLS = '*';
  * @property {string} instructions
  * @property {number} syncWaitMs
  * @property {Set<string>} allowedOrigins
+ * @property {boolean} allowUrlToken
  * @property {PublishedTool[]} tools
  */
 
@@ -79,6 +80,7 @@ export function resolvePublishedToolsConfig(pluginConfig, runtimeConfig) {
     instructions: pluginConfig.instructions.trim(),
     syncWaitMs: Math.round(pluginConfig.syncWaitSeconds * 1000),
     allowedOrigins: new Set(pluginConfig.allowedOrigins),
+    allowUrlToken: pluginConfig.allowUrlToken,
     tools,
   };
 }
