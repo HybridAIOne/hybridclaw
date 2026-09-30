@@ -10,6 +10,7 @@ import {
   type RuntimeConfig,
   runtimeConfigPath,
 } from '../config/runtime-config.js';
+import { notifySessionPhones } from '../gateway/mobile-push.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -43,6 +44,7 @@ import type {
   PluginLogger,
   PluginMiddlewareSkill,
   PluginOutputGuard,
+  PluginPhoneNotification,
   PluginPromptHook,
   PluginRealtimeVoiceSession,
   PluginRealtimeVoiceSessionOptions,
@@ -277,6 +279,10 @@ export function createPluginApi(params: {
       } catch {
         return [];
       }
+    },
+    notifyPhones(notification: PluginPhoneNotification) {
+      const { sessionId, ...message } = notification;
+      return notifySessionPhones(String(sessionId || '').trim(), message);
     },
   });
 }

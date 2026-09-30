@@ -75,6 +75,8 @@ export type {
   PluginOutputGuardDecision,
   PluginOutputGuardEvent,
   PluginOutputGuardOutcome,
+  PluginPhoneNotification,
+  PluginPhoneNotificationResult,
   PluginPromptBuildContext,
   PluginPromptHook,
   PluginRealtimeVoiceCallerInfo,

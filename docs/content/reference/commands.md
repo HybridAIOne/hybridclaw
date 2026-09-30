@@ -96,6 +96,11 @@ hybridclaw token revoke <token-id>
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
 
+Device clients can request a short pairing code without copying an administrator's
+token. Approve the code in **Credentials → Devices**; the resulting API token is
+scoped to `chat.send`, `agents.read`, and `artifacts.read` and can be revoked in
+**Credentials → API tokens**. See [device pairing](../guides/web-notifications.md#pairing-a-device).
+
 ## Harness Evolution Workflows
 
 `hybridclaw harness-evolve` runs controlled eval-driven evolution loops against
@@ -566,6 +571,7 @@ actions. Common examples:
 !claw mcp add <name> <json>
 !claw schedule add "<cron>" <prompt>
 !claw schedule add --tz Europe/Berlin "<cron>" <prompt>
+!claw schedule add --alert proactive "<cron>" <prompt>
 !claw schedule add at "<ISO time>" <prompt>
 !claw schedule add every <ms> <prompt>
 !claw schedule list
@@ -581,6 +587,15 @@ agent. `schedule results` shows what the task's recent runs answered (20 by
 default, at most 200) and only answers the chat that created the task, because
 a run can quote private data. Cron expressions run in UTC unless `--tz` names
 an IANA time zone; `--tz` must come before the schedule.
+
+`--alert <kind>` (before the schedule) rings the creating operator's phones
+when a run's reply lists items: a JSON array of objects with a `title`, read
+from its first `[` to its last `]`. The alert shows the assistant's name and
+the first title (`… (+2 more)`) and carries `kind`, `sessionId`, `messageId`
+and `count`; a phone gets it only if it registered that kind with `/push`
+(see [Web chat notifications](../guides/web-notifications.md#phones)). A reply
+that lists nothing sends no alert, and such a task's replies never ring as
+reminders. The item's title shows on the lock screen.
 
 Every subcommand takes `--json` for clients that drive the command, such as an
 app sending it through chat: the answer is one line of JSON (`{"version": 1,

@@ -2,75 +2,150 @@
 
 ## Unreleased
 
+## [0.33.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.33.0) - 2026-09-30
+
+### Added
+
+- **Phone pairing and alerts**: Connect a device with a short code approved in
+  **Credentials → Devices**. Each device gets a revocable token scoped to chat,
+  agent listing, and document downloads. Paired phones can retrieve replies
+  from their own chats. `/push register`, `unregister`, and `status` manage
+  phone notifications through the HybridAI push relay; reminders include the
+  assistant's name, reminder text, and unread badge. `/schedule add --alert
+  <kind>` sends the first listed result to phones registered for that kind.
+- **Web chat notifications**: Unread badges and optional browser alerts cover
+  completed replies, reminders, and approvals. Enable notifications in chat on
+  HTTPS or localhost; supported browsers receive push with the tab closed.
+- **Ideas and Outputs in chat**: `/chat/ideas` offers five suggestions based on
+  the selected agent's persona and recent conversations, cached until refresh.
+  Choosing an idea fills the composer. The Outputs button lists downloadable
+  files created in the conversation; chat accepts ZIP attachments.
+- **Native PDF and image delivery**: Selected PDF pages reach multimodal models
+  through native PDF support or page images. The model chooses literal text
+  searches and relevant pages with `read`; image reads deliver pixels. Visual
+  coverage is explicit and can replay across worker restarts.
+- **Published Tools plugin**: Publish admin-defined tools to Microsoft Copilot
+  Studio and other MCP hosts, with host-facing descriptions, private agent
+  instructions, enforced tool allowlists, and an optional model pin per tool.
+  Authentication supports bearer tokens and `X-Api-Key`; URL tokens require
+  opting in. Both current discovery and older MCP handshakes are supported.
+- **Local Laya router**: Apple silicon users can install an optional decision
+  model from Labs, compare its tier decisions, and enable calibrated local
+  routing while retaining explicit model pins.
+- **Session approval modes**: The chat composer and `/approvals mode
+  [ask|auto|full]` choose Ask first, Auto, or Full access for one session.
+  Pinned safety rules still need approval; new chats and `/reset` use Auto.
+- **Schedule results**: `/schedule results <id>` reads a task's recent replies.
+  Schedule commands support `--json`, cron time zones through `--tz`, and
+  task ownership that survives chat session resets. Recent-chat API results
+  can be filtered by `agentId`.
+
+### Changed
+
+- **Delegation waits by default**: Subagents inherit the parent's MCP and
+  plugin tools, except scheduling, durable memory, and browser interactions
+  requiring a person. `delegate` returns their reports in the current turn;
+  `background: true` wakes the parent with reports in a later turn. A blocked
+  subagent reports that it needs approval instead of forwarding the prompt.
+- **Tool batches respect side effects**: Read-only lookups and writes to
+  separate paths can run together. Browser actions, message sends, memory,
+  delegation, cron, HTTP requests, media generation, MCP, and plugin calls run
+  sequentially; reads wait for writes to the same file.
+- **Stricter policy validation**: Unreadable network and skill rules enforce
+  deny; unreadable browser stealth rules deny affected access. Invalid secret
+  rules stop stored-secret injection with the offending rule and key named.
+  `?` matches one character; host `*` stays within one DNS label, with `**`
+  available for matching across labels. See the migration notes below.
+- **Alexa credentials stay in the gateway**: The community Alexa helper uses
+  gateway secret injection for stored cookies and CSRF headers. Cookie use
+  follows policy and audit, and helpers require a running gateway. HTTP tools
+  can select one cookie from a stored Cookie-header secret.
+- **Dependency refresh**: Update compatible MCP SDK, Sentry, Amaro, docx,
+  TanStack Query and Router, Node type declarations, and tsx releases after
+  their seven-day minimum age. Refresh transitive locks, shrinkwraps, approved
+  hashes, and third-party notices together. Upgrade gateway and Brevo SMTP
+  delivery to Nodemailer 10.0.10 to fix the reported high-severity advisories.
+  The refresh workflow preserves npm-updated shrinkwraps and loads the age
+  policy for standalone container updates.
+
 ### Fixed
 
-- **Approvals stay in their session**: An agent's sessions share one store of
-  pending approvals. A `yes` in one chat, including a reply to an unrelated
-  question or a message ending in `yes`, could approve the action another chat
-  was waiting on and run it in the wrong conversation, and one chat's pending
-  requests counted against every other chat's queue. Each pending request now
-  belongs to its session: replies, approval ids, and the pending-request limit
-  apply only within it. An action still waiting for approval during the
-  upgrade asks again.
-- **Changing the approval policy needs a human**: The approval policy,
-  trust grants, and pending approvals live in the agent's workspace
-  (`.hybridclaw/`, `approval-trust.json`). A `write`, `edit`, or bash redirect
-  to them ran as a normal workspace change, auto-approved in full-auto, so a
-  prompt-injected agent could open its network rules or trust itself. Writes,
-  edits, and deletes of these files, and any bash command that names one, now
-  need explicit human approval every time, even in full-auto, and an approval
-  never becomes durable trust. Reading them with `read` is unchanged.
-- **Bash keeps its working directory when the sandbox restarts**: A session's
-  sandbox restarts after 5 idle minutes, a provider switch, or a crash. The
-  next bash call used to start in the workspace root while the agent assumed
-  it was still in the directory it had changed to. The working directory now
-  carries over for the whole session; exported variables and aliases still
-  end with the sandbox, and the first bash result after a restart says so.
-- **Downloaded scripts stay flagged across sandbox restarts**: Running a file
-  that an earlier `curl` or `wget` call in the session saved needs explicit
-  approval. A sandbox restart between the download and the run used to forget
-  the download, so full-auto could approve running it.
-- **2FA resume after a sandbox restart**: When the page waiting for a 2FA code
-  was lost with its sandbox, `browser_resume_interaction` consumed the
-  operator's code and then failed to fill it. It now fails at once, leaves the
-  code unused, and tells the agent to repeat the login.
-- **Prompt-too-long rejections recover**: When a provider rejects a request
-  because the prompt exceeds the model's context window, the agent shrinks its
-  history and retries instead of ending the turn with an API error. The rest
-  of the turn stays below the size the provider rejected, which the
-  character-based token estimate had let through. The retries count against
-  `sessionCompaction.inLoopGuard.maxRetries`, and a disabled in-loop guard
-  still fails fast. Codex stream failures report the provider's error instead
-  of "Codex stream ended with status failed".
-- **Gateway survives file-descriptor exhaustion**: When the gateway runs out
-  of file descriptors (EMFILE/ENFILE), a process it cannot start fails only
-  the operation that needed it instead of crashing the gateway. This covers
-  container and host agent processes, Docker image checks, skill dependency
-  installers, harness-evolution eval commands, and `cloudflared`.
-- **Prompt-cache usage for more providers**: Streaming Anthropic calls keep
-  their input and cache token counts; the final stream event used to replace
-  them with output-only usage, so these calls recorded zero prompt tokens. Cache
-  reads from `openai-codex` (Responses API) and cache writes reported by
-  HybridAI and `openai-codex` are now counted, so usage, cost estimates, and
-  cache hit rates include them.
-- **Faster model calls with images on OpenAI-compatible providers**: Every
-  call to vLLM, LM Studio, llama.cpp, MLX, OpenRouter, and the other
-  OpenAI-compatible providers re-checked each message, image and audio data
-  URLs included, one character at a time for broken Unicode. That blocked the
-  agent for about 300 ms per 2 MB image on every call. The check now uses the
-  string built-ins, which also speeds up audit event ingestion.
-- **Full-auto no longer approves pinned-sensitive actions or writes outside
-  the workspace**: Full-auto ran these without a prompt: reading or writing
-  `.env*` files, shell access to `~/.ssh` or `/etc`, recursive reads that can
-  reach them, force pushes, `rm -rf` on an absolute path,
-  `approval.pinned_red` rules, and shell writes outside the workspace and
-  scratch space (`> /opt/out.txt`, `cp app /usr/local/bin/`, `>> ~/.bashrc`).
-  They now wait for a human in every mode, like fetched code. Pinned actions
-  accept one-time approval only; `yes for session`, `agent`, or `all` on a
-  fence write also approves later ones in that scope. This includes
-  OpenAI-compatible requests with an agent or eval profile, which get the
-  approval request as the reply. When an unattended `/fullauto` turn hits
-  one, full-auto turns off for the session.
+- **Approvals stay in their session**: Replies and approval IDs cannot approve
+  another chat's actions; pending-request limits apply per session. Actions
+  waiting for approval during the upgrade ask again. Writes to approval policy,
+  trust, and pending state require one-time human approval, including full-auto.
+- **Pinned safety and workspace fences**: Full-auto still asks before pinned
+  sensitive actions and writes outside the workspace or scratch space. Bash
+  checks use the shell's saved working directory, including across worker
+  restarts. Discarding output with `2>/dev/null` cannot bypass a write fence;
+  read-only commands and non-file `-o` options avoid false write classifications.
+- **Authenticated worker input**: Workers accept gateway-authenticated IPC
+  requests; credentials are kept out of the authenticated input payload.
+  Downloaded-code approval tracking survives worker restarts. Resuming 2FA
+  after a lost browser handle fails before consuming the operator's code.
+- **More resilient model calls**: Overload, rate-limit, and timeout retries use
+  backoff and bounded `Retry-After`. Prompt-too-long errors shrink history and
+  retry within the configured guard. Malformed tool arguments return to the
+  model for repair; provider errors remain visible. Slow model calls report
+  activity to the watchdog, and interrupted workers stop taking further work.
+- **Large tool results and file reads**: Spilled tool results cross IPC once as
+  previews while transcripts and audit keep the full text. Text read pages fit
+  the history cap, and session search covers the most recent transcripts.
+  Replies attach only workspace files mentioned by the current turn.
+- **MCP resilience**: Server-reported tool errors keep the server's tools and
+  do not repeat the call. Calls receive the full 120-second tool timeout;
+  recoverable transport errors do not discard tool discovery.
+- **Gateway stability and Unicode**: File-descriptor exhaustion fails the
+  affected spawn instead of crashing the gateway. Pipe decoding preserves
+  non-ASCII characters split between chunks; built-in Unicode repair reduces
+  overhead on image-heavy model requests.
+- **Ollama context**: Model requests use a bounded context window and send it
+  as `num_ctx`, preventing Ollama's server default from silently truncating
+  instructions and tools. A model's Modelfile can select a different window.
+- **Usage and feedback**: Anthropic streams, Codex, and HybridAI retain prompt
+  and cache token counts. Rating audit events identify the submitting user;
+  Teams ratings reach the agent's configured chatbot and identify members by
+  email. Ratings from unlinked agents stay local.
+- **Schedules and notifications**: Scheduled runs preserve their originating
+  chat channel; web tasks remain visible across that agent's web chats. Task
+  mutation and result access enforce ownership. Hidden messaging-channel tasks
+  are reported for management in Automation → Scheduler.
+- **Skill installation**: ZIP imports use one scanned path and accept a single
+  enclosing folder and descriptions with unquoted colons. Imports refuse
+  malformed frontmatter and omit `.git` directories. Scanner calibration
+  accepts ordinary assets, vendor authentication, and named environment reads
+  while still blocking credential exfiltration and whole-environment dumps.
+  Module and shebang helpers receive the same scans, and repeated curl/wget
+  lines scan in linear time.
+- **Channel and plugin reliability**: Discord keeps rich embeds alongside
+  message text; tool footers render MCP names correctly. Installed plugins
+  resolve the SDK at runtime, and invalid plugin config writes roll back.
+  WhatsApp sends report message IDs when available and reject the read-only
+  `from` argument; self-chat setup explains notification limitations. Disabled
+  Signal skips status probes.
+- **Memory consolidation**: Unchanged memory skips nightly dream model calls
+  while memory decay continues.
+
+### Migration Notes
+
+- Review `.hybridclaw/policy.yaml` before upgrading. Repair rules named by
+  `Invalid secret policy` or `Unreadable ... rule` errors rather than relying
+  on malformed values being ignored. Quote numeric secret values. Older
+  Homematic helper rules need `sink: http` and `selector: json` on both auth
+  secret rules.
+- Host patterns using an internal `*` match one label. Use `**` where a rule
+  intentionally spans labels, especially deny rules such as `example.**`.
+  Review patterns containing `?`, which now match exactly one character.
+- For asynchronous delegation, pass `background: true`; the default waits for
+  child reports. MCP and plugin calls in a batch execute sequentially.
+- Reinstall the updated WhatsApp plugin to receive transport message IDs.
+  Remove `from` from send requests; the linked account supplies the sender.
+  Recipient existence and delivery remain unconfirmed. Use a dedicated second
+  number when proactive WhatsApp push notifications are needed.
+- Rebuild or update the worker image together with the gateway to use
+  authenticated IPC and durable visual/session state. Restarted workers retain
+  the shell directory and downloaded-file tracking, but exported variables,
+  aliases, and open browser handles end with the worker.
 
 ## [0.32.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.32.1) - 2026-09-26
 

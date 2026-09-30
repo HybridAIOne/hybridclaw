@@ -271,7 +271,11 @@ npm run test:unit
 ```
 
 `deps:update-lockfile` regenerates the root/workspace lockfile and the standalone
-container lockfile through npm's configured seven-day release-age filter.
+container lockfile through npm's configured seven-day release-age filter. The
+standalone container update explicitly loads the root `.npmrc`; npm's updated
+shrinkwraps are then copied to their matching lockfiles, preserving the versions
+npm resolved. Update other standalone plugin or runtime-tool locks with
+`npm --prefix <component> update --package-lock-only --userconfig .npmrc`.
 `deps:verify` then performs clean installs from those lockfiles and verifies npm
 registry signatures. Review lockfile diffs before merging; unexpected new
 maintainers, new install scripts, git/tarball URLs, or large transitive churn

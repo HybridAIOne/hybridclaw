@@ -13,6 +13,8 @@ export interface ScheduledTask {
   last_error: string | null;
   consecutive_errors: number;
   created_at: string;
+  /** Phone alert kind for a run whose reply is a list of items (`/schedule add --alert`). */
+  alert?: string | null;
 }
 
 export interface ScheduledTaskInput {

@@ -5,7 +5,9 @@
  * resets, and a web chat of the same agent may manage it too (the cron tool's
  * rule, `scheduled-task-access.ts`). What a run answered can quote private
  * data, so only the creating chat reads it back. `--json` answers in one line
- * that survives a chat relay, for apps that drive this command.
+ * that survives a chat relay, for apps that drive this command. `--alert
+ * <kind>` has a run whose reply lists items ring the creator's phones with
+ * the first item (`mobile-push.ts`).
  *
  * NOT the scheduler (`scheduler.ts`, which fires tasks) and NOT the admin
  * scheduler API, which edits every task on an operator's behalf.
@@ -39,7 +41,8 @@ import {
 } from './scheduled-task-access.js';
 
 const USAGE =
-  'Usage: `schedule add [--tz <zone>] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`. Add `--json` for a machine-readable answer.';
+  'Usage: `schedule add [--tz <zone>] [--alert <kind>] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`. Add `--json` for a machine-readable answer.';
+const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
 const MAX_RESULTS = 200;
@@ -78,6 +81,7 @@ function taskJson(task: ScheduledTask) {
     last_status: task.last_status,
     last_error: task.last_error,
     consecutive_errors: task.consecutive_errors,
+    alert: task.alert ?? null,
   };
 }
 
@@ -101,6 +105,7 @@ function readOptions(
   json: boolean;
   tz: string;
   limit: string;
+  alert: string;
   rest: string[];
   error: string | null;
 } {
@@ -108,25 +113,34 @@ function readOptions(
   let json = false;
   let tz = '';
   let limit = '';
+  let alert = '';
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (leadingOnly && rest.length > 0) {
       rest.push(arg);
     } else if (arg === '--json') {
       json = true;
-    } else if (arg === '--tz' || arg === '--limit') {
+    } else if (arg === '--tz' || arg === '--limit' || arg === '--alert') {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) {
-        return { json, tz, limit, rest, error: `\`${arg}\` needs a value.` };
+        return {
+          json,
+          tz,
+          limit,
+          alert,
+          rest,
+          error: `\`${arg}\` needs a value.`,
+        };
       }
       if (arg === '--tz') tz = value;
+      else if (arg === '--alert') alert = value;
       else limit = value;
       index += 1;
     } else {
       rest.push(arg);
     }
   }
-  return { json, tz, limit, rest, error: null };
+  return { json, tz, limit, alert, rest, error: null };
 }
 
 function findManageable(
@@ -140,7 +154,7 @@ function findManageable(
 
 function add(
   spec: string,
-  options: { tz: string; json: boolean },
+  options: { tz: string; json: boolean; alert: string },
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
@@ -150,6 +164,13 @@ function add(
   if (options.tz && !cron) {
     return badCommand('Usage', '`--tz` applies to a cron schedule only.');
   }
+  if (options.alert && !ALERT_KIND.test(options.alert)) {
+    return badCommand(
+      'Invalid Alert',
+      '`--alert` takes a short lowercase kind, such as `proactive`.',
+    );
+  }
+  const alert = options.alert || undefined;
   if (options.tz && !isValidTimezone(options.tz)) {
     return badCommand(
       'Invalid Time Zone',
@@ -172,6 +193,7 @@ function add(
       cronExpr: '',
       prompt: at[2],
       runAt: runAt.toISOString(),
+      alert,
     });
   } else if (every) {
     const everyMs = Number.parseInt(every[1], 10);
@@ -188,6 +210,7 @@ function add(
       cronExpr: '',
       prompt: every[2],
       everyMs,
+      alert,
     });
   } else if (cron) {
     try {
@@ -205,6 +228,7 @@ function add(
       cronExpr: cron[1],
       tz: options.tz || undefined,
       prompt: cron[2],
+      alert,
     });
   } else {
     return badCommand('Usage', USAGE);

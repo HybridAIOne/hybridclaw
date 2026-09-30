@@ -3,9 +3,67 @@
  * Unlike transport queues, durable history is the delivery target; push is only
  * a best-effort alert and cannot turn a stored reminder into a failed job.
  */
+import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
-import { notifyWebSession } from './web-notifications.js';
+import {
+  notifyWebSession,
+  type WebNotificationDelivery,
+} from './web-notifications.js';
+
+/**
+ * Rings the chat owner's phones after the reply is stored. A reminder shows
+ * the assistant's name and the reminder itself. A task added with `--alert`
+ * rings with the first item its reply lists instead, and not at all when it
+ * lists none, so a phone never shows such a reply's raw list. Best effort:
+ * looked up after the reply is stored, and a failure only loses the alert.
+ */
+async function alertPhones(
+  delivery: WebNotificationDelivery | null,
+  source: string,
+  sessionId: string,
+  agentId: string,
+  text: string,
+  messageId: number,
+): Promise<void> {
+  const taskId = /^schedule:(\d+)$/.exec(source)?.[1];
+  const alert = taskId
+    ? (await import('../memory/jobs.js')).getJob(Number(taskId), {
+        kind: 'scheduled_task',
+      })?.alert
+    : null;
+  const reminder =
+    !alert && delivery?.devices.length && delivery.state.preferences.reminder;
+  if (!alert && !reminder) return;
+  const [{ getAgentById }, push] = await Promise.all([
+    import('../agents/agent-registry.js'),
+    import('./mobile-push.js'),
+  ]);
+  const agent = getAgentById(agentId);
+  const assistant = agent?.displayName || agent?.name || 'HybridClaw';
+  if (alert) {
+    await push.alertListedItems({
+      sessionId,
+      kind: alert,
+      assistant,
+      text,
+      messageId,
+    });
+  } else if (delivery) {
+    await push.sendMobilePush(
+      delivery.devices,
+      push.reminderAlert({
+        notification: delivery.notification,
+        assistant,
+        text,
+        unread: delivery.state.notifications.filter(
+          (notice) => notice.kind === 'reminder',
+        ).length,
+        messageId,
+      }),
+    );
+  }
+}
 
 export function deliverWebScheduledMessage(
   sessionId: string,
@@ -30,6 +88,22 @@ export function deliverWebScheduledMessage(
           artifacts,
           source,
         });
-  notifyWebSession(session.id, 'reminder', String(messageId));
+  const delivery = notifyWebSession(
+    session.id,
+    'reminder',
+    String(messageId),
+    undefined,
+    { phone: false },
+  );
+  void alertPhones(
+    delivery,
+    source,
+    session.id,
+    session.agent_id,
+    text,
+    messageId,
+  ).catch(() =>
+    logger.warn('Phone alert unavailable; the reply remains in chat'),
+  );
   return { status: 'delivered' };
 }

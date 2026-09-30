@@ -29,7 +29,7 @@ texts ship inside the respective packages.
 | @azure/core-util | 1.14.0 | MIT |
 | @azure/identity | 4.13.3 | MIT |
 | @azure/logger | 1.4.0 | MIT |
-| @azure/msal-browser | 5.22.0 | MIT |
+| @azure/msal-browser | 5.23.0 | MIT |
 | @azure/msal-common | 14.16.1 | MIT |
 | @azure/msal-common | 16.14.1 | MIT |
 | @azure/msal-node | 2.16.3 | MIT |
@@ -45,7 +45,7 @@ texts ship inside the respective packages.
 | @grpc/proto-loader | 0.8.1 | Apache-2.0 |
 | @hono/node-server | 2.1.1 | MIT |
 | @js-sdsl/ordered-map | 4.4.2 | MIT |
-| @modelcontextprotocol/sdk | 1.30.0 | MIT |
+| @modelcontextprotocol/sdk | 1.30.1 | MIT |
 | @mozilla/readability | 0.6.0 | Apache-2.0 |
 | @napi-rs/canvas | 0.1.100 | MIT |
 | @napi-rs/canvas | 1.0.9 | MIT |
@@ -137,11 +137,11 @@ texts ship inside the respective packages.
 | @sapphire/snowflake | 3.5.5 | MIT |
 | @selderee/plugin-htmlparser2 | 0.12.0 | MIT |
 | @sentry/conventions | 0.16.0 | MIT |
-| @sentry/core | 10.75.0 | MIT |
-| @sentry/node | 10.75.0 | MIT |
-| @sentry/node-core | 10.75.0 | MIT |
-| @sentry/opentelemetry | 10.75.0 | MIT |
-| @sentry/server-utils | 10.75.0 | MIT |
+| @sentry/core | 10.75.3 | MIT |
+| @sentry/node | 10.75.3 | MIT |
+| @sentry/node-core | 10.75.3 | MIT |
+| @sentry/opentelemetry | 10.75.3 | MIT |
+| @sentry/server-utils | 10.75.3 | MIT |
 | @sindresorhus/is | 4.6.0 | MIT |
 | @slack/bolt | 4.7.3 | MIT |
 | @slack/logger | 4.0.1 | MIT |
@@ -150,9 +150,9 @@ texts ship inside the respective packages.
 | @slack/types | 2.22.0 | MIT |
 | @slack/web-api | 7.19.0 | MIT |
 | @tanstack/history | 1.162.4 | MIT |
-| @tanstack/query-core | 5.103.1 | MIT |
-| @tanstack/react-query | 5.103.1 | MIT |
-| @tanstack/react-router | 1.170.38 | MIT |
+| @tanstack/query-core | 5.103.2 | MIT |
+| @tanstack/react-query | 5.103.2 | MIT |
+| @tanstack/react-router | 1.170.39 | MIT |
 | @tanstack/react-store | 0.11.1 | MIT |
 | @tanstack/router-core | 1.171.32 | MIT |
 | @tanstack/store | 0.11.1 | MIT |
@@ -164,8 +164,8 @@ texts ship inside the respective packages.
 | @types/jsonwebtoken | 9.0.10 | MIT |
 | @types/jsonwebtoken | 9.0.6 | MIT |
 | @types/ms | 2.1.0 | MIT |
-| @types/node | 22.20.3 | MIT |
-| @types/node | 25.9.7 | MIT |
+| @types/node | 22.20.4 | MIT |
+| @types/node | 25.9.8 | MIT |
 | @types/qs | 6.15.1 | MIT |
 | @types/range-parser | 1.2.7 | MIT |
 | @types/retry | 0.12.0 | MIT |
@@ -188,7 +188,7 @@ texts ship inside the respective packages.
 | agent-browser | 0.27.0 | Apache-2.0 |
 | ajv | 8.20.0 | MIT |
 | ajv-formats | 3.0.1 | MIT |
-| amaro | 1.2.0 | MIT |
+| amaro | 1.2.1 | MIT |
 | ansi-regex | 5.0.1 | MIT |
 | ansi-styles | 4.3.0 | MIT |
 | asn1.js | 5.4.1 | MIT |
@@ -269,7 +269,7 @@ texts ship inside the respective packages.
 | detect-libc | 2.1.2 | Apache-2.0 |
 | discord-api-types | 0.38.55 | MIT |
 | discord.js | 14.27.0 | Apache-2.0 |
-| docx | 9.7.1 | MIT |
+| docx | 9.7.2 | MIT |
 | dom-serializer | 2.0.0 | MIT |
 | dom-serializer | 3.1.1 | MIT |
 | domelementtype | 2.3.0 | BSD-2-Clause |
@@ -282,7 +282,7 @@ texts ship inside the respective packages.
 | dunder-proto | 1.0.1 | MIT |
 | ecdsa-sig-formatter | 1.0.11 | Apache-2.0 |
 | ee-first | 1.1.1 | MIT |
-| electron-to-chromium | 1.5.431 | ISC |
+| electron-to-chromium | 1.5.438 | ISC |
 | emoji-regex | 8.0.0 | MIT |
 | encodeurl | 2.0.0 | MIT |
 | encoding-japanese | 2.3.0 | MIT |
@@ -321,7 +321,7 @@ texts ship inside the respective packages.
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
 | fs-constants | 1.0.0 | MIT |
-| fs-extra | 11.4.0 | MIT |
+| fs-extra | 11.4.1 | MIT |
 | function-bind | 1.1.2 | MIT |
 | generative-bayesian-network | 2.1.88 | Apache-2.0 |
 | get-caller-file | 2.0.5 | ISC |
@@ -413,7 +413,7 @@ texts ship inside the respective packages.
 | lodash.once | 4.1.1 | MIT |
 | lodash.snakecase | 4.1.1 | MIT |
 | long | 5.3.2 | Apache-2.0 |
-| lru-cache | 11.5.2 | BlueOak-1.0.0 |
+| lru-cache | 11.5.3 | BlueOak-1.0.0 |
 | luxon | 3.7.2 | MIT |
 | magic-bytes.js | 1.13.1 | MIT |
 | mailparser | 3.9.28 | MIT |
@@ -443,8 +443,8 @@ texts ship inside the respective packages.
 | node-addon-api | 8.9.2 | MIT |
 | node-fetch | 2.7.0 | MIT |
 | node-pty | 1.1.0 | MIT |
-| node-releases | 2.0.56 | MIT |
-| nodemailer | 9.1.1 | MIT-0 |
+| node-releases | 2.0.57 | MIT |
+| nodemailer | 10.0.10 | MIT-0 |
 | nth-check | 3.0.1 | BSD-2-Clause |
 | object-assign | 4.1.1 | MIT |
 | object-inspect | 1.13.4 | MIT |
@@ -602,7 +602,7 @@ texts ship inside the respective packages.
 | Package | Version | License |
 | --- | --- | --- |
 | @hono/node-server | 2.1.1 | MIT |
-| @modelcontextprotocol/sdk | 1.30.0 | MIT |
+| @modelcontextprotocol/sdk | 1.30.1 | MIT |
 | @mozilla/readability | 0.6.0 | Apache-2.0 |
 | @napi-rs/canvas | 0.1.100 | MIT |
 | @napi-rs/canvas | 1.0.9 | MIT |
@@ -768,14 +768,14 @@ texts ship inside the respective packages.
 | Package | Version | License |
 | --- | --- | --- |
 | @e965/xlsx | 0.20.3 | Apache-2.0 |
-| @types/node | 22.20.3 | MIT |
-| @types/node | 25.9.7 | MIT |
+| @types/node | 22.20.4 | MIT |
+| @types/node | 25.9.8 | MIT |
 | adler-32 | 1.3.1 | Apache-2.0 |
 | cfb | 1.2.2 | Apache-2.0 |
 | core-util-is | 1.0.3 | MIT |
 | crc-32 | 1.2.2 | Apache-2.0 |
 | csv-parse | 7.0.2 | MIT |
-| docx | 9.7.1 | MIT |
+| docx | 9.7.2 | MIT |
 | hash.js | 1.1.7 | MIT |
 | https | 1.0.0 | ISC |
 | iconv-lite | 0.7.3 | MIT |
@@ -786,7 +786,7 @@ texts ship inside the respective packages.
 | lie | 3.3.0 | MIT |
 | lodash | 4.18.1 | MIT |
 | minimalistic-assert | 1.0.1 | ISC |
-| nanoid | 5.1.16 | MIT |
+| nanoid | 6.0.1 | MIT |
 | pako | 1.0.11 | (MIT AND Zlib) |
 | pptxgenjs | 4.0.1 | MIT |
 | process-nextick-args | 2.0.1 | MIT |
@@ -819,7 +819,7 @@ texts ship inside the respective packages.
 | html-to-text | 9.0.5 | MIT |
 | htmlparser2 | 8.0.2 | MIT |
 | leac | 0.6.0 | MIT |
-| nodemailer | 7.0.13 | MIT-0 |
+| nodemailer | 10.0.10 | MIT-0 |
 | parseley | 0.12.1 | MIT |
 | peberminta | 0.9.0 | MIT |
 | selderee | 0.11.0 | MIT |
@@ -945,7 +945,7 @@ SOFTWARE.
 
 ### Text 3 of 305
 
-Applies to: @azure/msal-browser@5.22.0, @azure/msal-common@14.16.1, @azure/msal-common@16.14.1
+Applies to: @azure/msal-browser@5.23.0, @azure/msal-common@14.16.1, @azure/msal-common@16.14.1
 
 ````text
 MIT License
@@ -2463,7 +2463,7 @@ SOFTWARE.
 
 ### Text 14 of 305
 
-Applies to: @modelcontextprotocol/sdk@1.30.0
+Applies to: @modelcontextprotocol/sdk@1.30.1
 
 ````text
 MIT License
@@ -3169,7 +3169,7 @@ SOFTWARE.
 
 ### Text 26 of 305
 
-Applies to: @sentry/core@10.75.0
+Applies to: @sentry/core@10.75.3
 
 ````text
 MIT License
@@ -3197,7 +3197,7 @@ SOFTWARE.
 
 ### Text 27 of 305
 
-Applies to: @sentry/node-core@10.75.0
+Applies to: @sentry/node-core@10.75.3
 
 ````text
 MIT License
@@ -3225,7 +3225,7 @@ SOFTWARE.
 
 ### Text 28 of 305
 
-Applies to: @sentry/node@10.75.0, @sentry/opentelemetry@10.75.0
+Applies to: @sentry/node@10.75.3, @sentry/opentelemetry@10.75.3
 
 ````text
 MIT License
@@ -3327,7 +3327,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Text 32 of 305
 
-Applies to: @tanstack/history@1.162.4, @tanstack/query-core@5.103.1, @tanstack/react-query@5.103.1, @tanstack/react-router@1.170.38, @tanstack/router-core@1.171.32
+Applies to: @tanstack/history@1.162.4, @tanstack/query-core@5.103.2, @tanstack/react-query@5.103.2, @tanstack/react-router@1.170.39, @tanstack/router-core@1.171.32
 
 ````text
 MIT License
@@ -3383,7 +3383,7 @@ SOFTWARE.
 
 ### Text 34 of 305
 
-Applies to: @types/body-parser@1.19.6, @types/connect@3.4.38, @types/express@5.0.6, @types/express-serve-static-core@5.1.3, @types/http-errors@2.0.5, @types/jsonwebtoken@9.0.10, @types/jsonwebtoken@9.0.6, @types/ms@2.1.0, @types/node@22.20.3, @types/node@25.9.7, @types/qs@6.15.1, @types/range-parser@1.2.7, @types/send@1.2.1, @types/serve-static@2.2.0, @types/ws@8.18.1
+Applies to: @types/body-parser@1.19.6, @types/connect@3.4.38, @types/express@5.0.6, @types/express-serve-static-core@5.1.3, @types/http-errors@2.0.5, @types/jsonwebtoken@9.0.10, @types/jsonwebtoken@9.0.6, @types/ms@2.1.0, @types/node@22.20.4, @types/node@25.9.8, @types/qs@6.15.1, @types/range-parser@1.2.7, @types/send@1.2.1, @types/serve-static@2.2.0, @types/ws@8.18.1
 
 ````text
 MIT License
@@ -4295,7 +4295,7 @@ SOFTWARE.
 
 ### Text 48 of 305
 
-Applies to: amaro@1.2.0
+Applies to: amaro@1.2.1
 
 ````text
 MIT License
@@ -6726,7 +6726,7 @@ SOFTWARE.
 
 ### Text 105 of 305
 
-Applies to: docx@9.7.1
+Applies to: docx@9.7.2
 
 ````text
 The MIT License (MIT)
@@ -7050,7 +7050,7 @@ THE SOFTWARE.
 
 ### Text 111 of 305
 
-Applies to: electron-to-chromium@1.5.431
+Applies to: electron-to-chromium@1.5.438
 
 ````text
 Copyright 2018 Kilian Valkhof
@@ -8015,7 +8015,7 @@ THE SOFTWARE.
 
 ### Text 139 of 305
 
-Applies to: fs-extra@11.4.0
+Applies to: fs-extra@11.4.1
 
 ````text
 (The MIT License)
@@ -10352,7 +10352,7 @@ terms above.
 
 ### Text 191 of 305
 
-Applies to: lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.1
+Applies to: lru-cache@11.5.3, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.1
 
 ````text
 # Blue Oak Model License
@@ -10771,7 +10771,7 @@ SOFTWARE.
 
 ### Text 204 of 305
 
-Applies to: nanoid@5.1.16
+Applies to: nanoid@5.1.16, nanoid@6.0.1
 
 ````text
 The MIT License (MIT)
@@ -11005,7 +11005,7 @@ SOFTWARE.
 
 ### Text 211 of 305
 
-Applies to: node-releases@2.0.56
+Applies to: node-releases@2.0.57
 
 ````text
 The MIT License
@@ -11033,7 +11033,7 @@ THE SOFTWARE.
 
 ### Text 212 of 305
 
-Applies to: nodemailer@7.0.13, nodemailer@9.1.1
+Applies to: nodemailer@10.0.10
 
 ````text
 Copyright (c) 2011-2023 Andris Reinman
@@ -14242,7 +14242,7 @@ the package itself or is available at <https://spdx.org/licenses/>.
 | @pdf-lib/fontkit | 1.1.1 | MIT | no license file bundled with the package |
 | @sapphire/async-queue | 1.5.5 | MIT | no license file bundled with the package |
 | @sapphire/snowflake | 3.5.5 | MIT | no license file bundled with the package |
-| @sentry/server-utils | 10.75.0 | MIT | no license file bundled with the package |
+| @sentry/server-utils | 10.75.3 | MIT | no license file bundled with the package |
 | agent-base | 6.0.2 | MIT | no license file bundled with the package |
 | hash.js | 1.1.7 | MIT | no license file bundled with the package |
 | http_ece | 1.2.0 | MIT | no license file bundled with the package |

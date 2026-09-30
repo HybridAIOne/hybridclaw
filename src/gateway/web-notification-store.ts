@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
+  MobilePushDevice,
   WebNotification,
   WebNotificationPreferences,
   WebNotificationState,
@@ -19,6 +20,8 @@ interface OperatorState {
   preferences: WebNotificationPreferences;
   notifications: WebNotification[];
   subscriptions: Record<string, WebPushSubscription>;
+  // Absent in stores written before phones could register.
+  devices?: Record<string, MobilePushDevice>;
 }
 interface NotificationStore {
   operators: Record<string, OperatorState>;
@@ -85,6 +88,15 @@ export function bindWebNotificationSession(
   writeStore(store);
 }
 
+// The operator that first chatted in a session owns it, or null for other
+// channels. Reading its replies back (device-messages.ts) and registering
+// phones (mobile-push.ts) are limited to that operator.
+export function webNotificationSessionOperator(
+  sessionId: string,
+): string | null {
+  return readStore().sessions[notificationOperatorId(sessionId)] ?? null;
+}
+
 export function deleteWebNotificationSession(sessionId: string): void {
   const store = readStore();
   const key = notificationOperatorId(sessionId);
@@ -148,12 +160,57 @@ export function deleteWebPushSubscription(
   writeStore(store);
 }
 
+export function readMobilePushDevices(operatorId: string): MobilePushDevice[] {
+  return Object.values(operatorState(readStore(), operatorId).devices ?? {});
+}
+
+export function saveMobilePushDevice(
+  operatorId: string,
+  device: MobilePushDevice,
+): void {
+  const store = readStore();
+  const id = notificationOperatorId(device.token);
+  // One phone belongs to one operator, as a browser endpoint does.
+  for (const state of Object.values(store.operators))
+    delete state.devices?.[id];
+  const state = operatorState(store, operatorId);
+  state.devices ??= {};
+  // Same bound as browsers (#1480).
+  if (Object.keys(state.devices).length >= 16)
+    throw new Error('Too many registered phones. Unregister an old one first.');
+  state.devices[id] = device;
+  writeStore(store);
+}
+
+/** Whether any operator still has this phone registered. */
+export function mobilePushDeviceHeld(token: string): boolean {
+  const id = notificationOperatorId(token);
+  return Object.values(readStore().operators).some(
+    (state) => state.devices?.[id] !== undefined,
+  );
+}
+
+/** Forgets a phone. Without an operator, whoever holds it (APNs said it is gone). */
+export function deleteMobilePushDevice(
+  token: string,
+  operatorId?: string,
+): void {
+  const store = readStore();
+  const id = notificationOperatorId(token);
+  const states = operatorId
+    ? [operatorState(store, operatorId)]
+    : Object.values(store.operators);
+  for (const state of states) delete state.devices?.[id];
+  writeStore(store);
+}
+
 export function recordWebNotification(
   notification: WebNotification,
   requestedOperatorId?: string,
 ): {
   state: WebNotificationState;
   subscriptions: WebPushSubscription[];
+  devices: MobilePushDevice[];
 } | null {
   const store = readStore();
   const key = notificationOperatorId(notification.sessionId);
@@ -173,6 +230,7 @@ export function recordWebNotification(
       notifications: state.notifications,
     },
     subscriptions: Object.values(state.subscriptions),
+    devices: Object.values(state.devices ?? {}),
   };
 }
 

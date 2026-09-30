@@ -37,8 +37,13 @@ shape (RFC 8628):
 Requests live in memory for ten minutes, at most 20 at a time, and a gateway
 restart drops them. The token is minted when the device collects it, labelled
 `Device: <client_name>`, audited like any created token, and limited to
-`chat.send`, `agents.read` and `artifacts.read` (`GET /api/artifact`). Revoke it
-under API tokens. The two device routes need no credentials; approving needs
+`chat.send`, `agents.read` and `artifacts.read` (`GET /api/artifact`). With
+`chat.send` it also reads the notifications of its own chats under
+`/api/push/`, and fetches one reply the gateway stored there on its own, such
+as a reminder, with `GET /api/chat/message?sessionId=…&id=…` (the id is the
+last part of a `reminder` notification id). That route answers only for chats
+the same token started and never returns user turns. Revoke the token under API
+tokens. The two device routes need no credentials; approving needs
 `admin.tokens.create` from a session, never from an API token.
 
 Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must

@@ -29,6 +29,7 @@ export interface CreateJobInput {
   prompt: string;
   runAt?: string;
   everyMs?: number;
+  alert?: string;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -149,6 +150,15 @@ function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
   };
 }
 
+/** Not part of the runtime-config action shape; only `/schedule add` writes it. */
+function alertOf(rawAction: string): string | null {
+  const alert = parseJobJson<{ alert?: unknown } | null>(
+    rawAction,
+    null,
+  )?.alert;
+  return typeof alert === 'string' && alert ? alert : null;
+}
+
 function scheduledJobFromRow(row: JobRow): ScheduledTask {
   const schedule = parseJobJson<RuntimeSchedulerJob['schedule']>(row.schedule, {
     kind: 'cron',
@@ -179,6 +189,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
     created_at: row.created_at,
+    alert: alertOf(row.action),
   };
 }
 
@@ -293,7 +304,11 @@ export function createJob(input: CreateJobInput): number {
         resolveSessionIdCompat(input.sessionId),
         input.channelId,
         JSON.stringify(schedule),
-        JSON.stringify({ kind: 'agent_turn', message: input.prompt }),
+        JSON.stringify({
+          kind: 'agent_turn',
+          message: input.prompt,
+          ...(input.alert ? { alert: input.alert } : {}),
+        }),
         JSON.stringify({
           kind: 'channel',
           channel: 'session',
@@ -315,13 +330,14 @@ export function updateScheduledTask(
     const normalizedJobId = `task:${jobId}`;
     const existing = queryOne<{
       schedule: string;
+      action: string;
       last_run: string | null;
       last_status: string | null;
       last_error: string | null;
       consecutive_errors: number;
     }>(
       database,
-      "SELECT schedule, last_run, last_status, last_error, consecutive_errors FROM jobs WHERE id = ? AND kind = 'scheduled_task'",
+      "SELECT schedule, action, last_run, last_status, last_error, consecutive_errors FROM jobs WHERE id = ? AND kind = 'scheduled_task'",
       normalizedJobId,
     );
     if (!existing) return;
@@ -374,7 +390,14 @@ export function updateScheduledTask(
       .run(
         patch.channelId,
         JSON.stringify(schedule),
-        JSON.stringify({ kind: 'agent_turn', message: patch.prompt }),
+        // An edit keeps the alert the task was created with.
+        JSON.stringify({
+          kind: 'agent_turn',
+          message: patch.prompt,
+          ...(alertOf(existing.action)
+            ? { alert: alertOf(existing.action) }
+            : {}),
+        }),
         JSON.stringify({
           kind: 'channel',
           channel: 'session',
