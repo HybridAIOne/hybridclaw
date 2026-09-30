@@ -651,6 +651,7 @@ import {
   interruptedDelegationsNote,
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
+import { runPushCommand } from './mobile-push.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -12197,6 +12198,9 @@ export async function handleGatewayCommand(
           pluginInitError,
         });
       }
+
+      case 'push':
+        return plainCommand(runPushCommand(req.args, req.sessionId));
 
       case 'clear': {
         const rotated = createFreshSessionInstance(session.id);

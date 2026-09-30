@@ -104,6 +104,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'goal',
   'mcp',
   'plugin',
+  'push',
   'voice',
   'speech',
   'clear',
@@ -480,6 +481,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'thumbs':
       return ['thumbs', ...parts.slice(1)];
 
+    case 'push':
+      return ['push', ...parts.slice(1)];
+
     case 'memory': {
       const sub = (parts[1] || '').trim().toLowerCase();
       if (!sub) return ['memory', 'inspect'];
@@ -737,6 +741,14 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Remove your rating from the last answer',
         },
       ],
+    },
+    {
+      // Web chat only: phones belong to the operator who opened the session.
+      // Sent by phone apps; answers one line of JSON.
+      name: 'push',
+      description: 'Register this phone for notifications (used by the app)',
+      tuiOnly: true,
+      localSurfaces: ['web'],
     },
     {
       // Web-console only: handled client-side by the chat composer, which opens

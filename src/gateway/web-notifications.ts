@@ -21,6 +21,7 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import { sendMobilePush } from './mobile-push.js';
 import {
   bindWebNotificationSession,
   deleteWebPushSubscription,
@@ -170,6 +171,19 @@ export function notifyWebSession(
     ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
+    if (delivery.state.preferences[kind])
+      void sendMobilePush(delivery.devices, {
+        kind,
+        title: notification.title,
+        threadId: sessionId,
+        data: {
+          id: notification.id,
+          sessionId,
+          ...(notification.agentId ? { agentId: notification.agentId } : {}),
+        },
+      }).catch(() =>
+        logger.warn('Phone push unavailable; notification remains in chat'),
+      );
   } catch {
     logger.warn('Could not record web notification');
   }
