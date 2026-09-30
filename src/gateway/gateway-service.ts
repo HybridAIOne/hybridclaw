@@ -11,7 +11,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CronExpressionParser } from 'cron-parser';
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
@@ -296,12 +295,7 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
-import {
-  createJob,
-  deleteJob,
-  getAllJobs,
-  setJobEnabled,
-} from '../memory/jobs.js';
+import { getAllJobs } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { UsageAttribution } from '../memory/usage.js';
 import {
@@ -370,7 +364,7 @@ import {
   resolveDefaultAuxiliaryModelForProvider,
 } from '../providers/task-routing.js';
 import { routingLatencyMs } from '../routing/latency.js';
-import { getSchedulerStatus, rearmScheduler } from '../scheduler/scheduler.js';
+import { getSchedulerStatus } from '../scheduler/scheduler.js';
 import { redactSecrets } from '../security/redact.js';
 import {
   isReservedNonSecretRuntimeName,
@@ -668,6 +662,7 @@ import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
+import { handleScheduleCommand } from './schedule-command.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
@@ -13278,152 +13273,8 @@ export async function handleGatewayCommand(
         });
       }
 
-      case 'schedule': {
-        const sub = parseLowerArg(req.args, 1);
-        if (sub === 'add') {
-          const rest = req.args.slice(2).join(' ');
-          const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
-          if (atMatch) {
-            const [, runAtRaw, prompt] = atMatch;
-            const parsedDate = new Date(runAtRaw);
-            if (Number.isNaN(parsedDate.getTime())) {
-              return badCommand(
-                'Invalid Time',
-                `\`${runAtRaw}\` is not a valid ISO timestamp.`,
-              );
-            }
-            const taskId = createJob({
-              kind: 'scheduled_task',
-              sessionId: session.id,
-              channelId: req.channelId,
-              cronExpr: '',
-              prompt,
-              runAt: parsedDate.toISOString(),
-            });
-            rearmScheduler();
-            return plainCommand(
-              `Task #${taskId} created: one-shot at \`${parsedDate.toISOString()}\` — ${prompt}`,
-            );
-          }
-
-          const everyMatch = rest.match(/^every\s+(\d+)\s+(.+)$/i);
-          if (everyMatch) {
-            const [, everyRaw, prompt] = everyMatch;
-            const everyMs = Number.parseInt(everyRaw, 10);
-            if (!Number.isFinite(everyMs) || everyMs < 10_000) {
-              return badCommand(
-                'Invalid Interval',
-                'Interval must be at least 10000ms.',
-              );
-            }
-            const taskId = createJob({
-              kind: 'scheduled_task',
-              sessionId: session.id,
-              channelId: req.channelId,
-              cronExpr: '',
-              prompt,
-              everyMs,
-            });
-            rearmScheduler();
-            return plainCommand(
-              `Task #${taskId} created: every \`${everyMs}ms\` — ${prompt}`,
-            );
-          }
-
-          const cronMatch = rest.match(/^"([^"]+)"\s+(.+)$/);
-          if (!cronMatch) {
-            return badCommand(
-              'Usage',
-              'Usage: `schedule add "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`',
-            );
-          }
-          const [, cronExpr, prompt] = cronMatch;
-          try {
-            CronExpressionParser.parse(cronExpr);
-          } catch {
-            return badCommand(
-              'Invalid Cron',
-              `\`${cronExpr}\` is not a valid cron expression.`,
-            );
-          }
-          const taskId = createJob({
-            kind: 'scheduled_task',
-            sessionId: session.id,
-            channelId: req.channelId,
-            cronExpr,
-            prompt,
-          });
-          rearmScheduler();
-          return plainCommand(
-            `Task #${taskId} created: cron \`${cronExpr}\` — ${prompt}`,
-          );
-        }
-
-        if (sub === 'list') {
-          const tasks = getAllJobs({
-            kind: 'scheduled_task',
-            sessionId: session.id,
-          });
-          if (tasks.length === 0) return plainCommand('No scheduled tasks.');
-          const list = tasks
-            .map((task) => {
-              const scheduleLabel = task.run_at
-                ? `at ${task.run_at}`
-                : task.every_ms
-                  ? `every ${task.every_ms}ms`
-                  : task.cron_expr
-                    ? `cron ${task.cron_expr}`
-                    : 'unspecified';
-              const statusLabel = task.last_status || 'n/a';
-              const errorSuffix =
-                task.consecutive_errors > 0
-                  ? ` · errors ${task.consecutive_errors}`
-                  : '';
-              const lastError = task.last_error
-                ? ` · last error: ${task.last_error}`
-                : '';
-              return `#${task.id} ${task.enabled ? 'enabled' : 'disabled'} (${scheduleLabel}) [${statusLabel}${errorSuffix}] — ${task.prompt.slice(0, 60)}${lastError}`;
-            })
-            .join('\n');
-          return infoCommand('Scheduled Tasks', list);
-        }
-
-        if (sub === 'remove') {
-          const taskId = parseIntegerArg(req.args, 2);
-          if (!taskId)
-            return badCommand('Usage', 'Usage: `schedule remove <id>`');
-          deleteJob(taskId);
-          rearmScheduler();
-          return plainCommand(`Task #${taskId} removed.`);
-        }
-
-        if (sub === 'toggle') {
-          const taskId = parseIntegerArg(req.args, 2);
-          if (!taskId)
-            return badCommand('Usage', 'Usage: `schedule toggle <id>`');
-          const tasks = getAllJobs({
-            kind: 'scheduled_task',
-            sessionId: session.id,
-          });
-          const task = tasks.find((t) => t.id === taskId);
-          if (!task)
-            return badCommand(
-              'Not Found',
-              `Task #${taskId} was not found in this session.`,
-            );
-          if (task.enabled) {
-            setJobEnabled(taskId, false);
-          } else {
-            setJobEnabled(taskId, true);
-          }
-          rearmScheduler();
-          return plainCommand(
-            `Task #${taskId} ${task.enabled ? 'disabled' : 'enabled'}.`,
-          );
-        }
-
-        return badCommand('Usage', 'Usage: `schedule add|list|remove|toggle`');
-      }
+      case 'schedule':
+        return handleScheduleCommand(req, session);
 
       default: {
         const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({
