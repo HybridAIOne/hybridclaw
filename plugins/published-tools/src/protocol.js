@@ -1,11 +1,13 @@
 /**
- * MCP 2026-07-28 Streamable HTTP, server side, stateless.
+ * MCP Streamable HTTP, server side, stateless and dual-era.
  *
- * Every POST is authenticated, then validated on its own: required headers
- * must match the body and `_meta` must name a supported version, before any
- * method runs. Legacy clients (`initialize`) get the version error the spec
- * asks modern-only servers to return. Replies are single JSON objects; this
- * server opens no SSE streams and keeps no per-connection state.
+ * Every POST is authenticated, then served on its own. A 2026-07-28 request
+ * is validated strictly: required headers must match the body and `_meta`
+ * must name the version, before any method runs. A legacy request (an
+ * `initialize` handshake, or no 2026-07-28 `_meta`) is served the same tools
+ * without a session: `initialize` only reports capabilities, so nothing
+ * depends on it having happened. Replies are single JSON objects; this server
+ * opens no SSE streams and keeps no per-connection state.
  * NOT the tool semantics (`tool-server.js`).
  */
 import { timingSafeEqual } from 'node:crypto';
@@ -16,7 +18,12 @@ import {
 } from '@hybridaione/hybridclaw/plugin-sdk';
 
 export const PROTOCOL_VERSION = '2026-07-28';
-export const SUPPORTED_VERSIONS = [PROTOCOL_VERSION];
+// Legacy eras (engineering choice, 2026-09-30): Microsoft Copilot Studio
+// rejected the 2026-07-28-only endpoint with HTTP 400; these are the
+// handshake-based Streamable HTTP revisions, newest first.
+const LEGACY_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+const LEGACY_TOOL_METHODS = new Set(['tools/list', 'tools/call']);
+export const SUPPORTED_VERSIONS = [PROTOCOL_VERSION, ...LEGACY_VERSIONS];
 const META_VERSION = 'io.modelcontextprotocol/protocolVersion';
 const META_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities';
 const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
@@ -62,12 +69,13 @@ function decodeHeaderValue(name, raw) {
 }
 
 // `X-Api-Key` is for hosts that reserve Authorization for their own OAuth,
-// such as Claude custom connectors; it carries the same token.
-function isTokenValid(req, token) {
+// such as Claude custom connectors; it carries the same token. `urlKey` is
+// only passed when the operator opted in to the token in the URL.
+function isTokenValid(req, token, urlKey) {
   const bearer = String(header(req, 'authorization') || '').match(
     /^Bearer\s+(\S+)$/i,
   )?.[1];
-  const candidate = bearer ?? header(req, 'x-api-key')?.trim();
+  const candidate = bearer ?? header(req, 'x-api-key')?.trim() ?? urlKey;
   if (!token || !candidate) return false;
   const provided = Buffer.from(candidate);
   const expected = Buffer.from(token);
@@ -85,11 +93,41 @@ function unsupportedVersion(requested) {
   );
 }
 
-/** Checks everything the spec requires before a method may run. */
-function validateRequest(req, message) {
+/**
+ * A request is legacy when it opens the handshake, or carries no 2026-07-28
+ * `_meta` and names a legacy version (or none) in its header.
+ */
+function isLegacyRequest(req, message) {
+  if (message.method === 'initialize') return true;
+  if (message.params?._meta?.[META_VERSION] !== undefined) return false;
+  const headerVersion = header(req, 'mcp-protocol-version');
+  return headerVersion === undefined || LEGACY_VERSIONS.includes(headerVersion);
+}
+
+async function callLegacyMethod(message, server) {
   if (message.method === 'initialize') {
-    throw unsupportedVersion(message.params?.protocolVersion);
+    const requested = message.params?.protocolVersion;
+    const discovered = await server.methods['server/discover']();
+    return {
+      protocolVersion: LEGACY_VERSIONS.includes(requested)
+        ? requested
+        : LEGACY_VERSIONS[0],
+      capabilities: discovered.capabilities,
+      serverInfo: server.serverInfo,
+      ...(discovered.instructions
+        ? { instructions: discovered.instructions }
+        : {}),
+    };
   }
+  if (message.method === 'ping') return {};
+  if (LEGACY_TOOL_METHODS.has(message.method)) {
+    return server.methods[message.method](message.params ?? {});
+  }
+  throw new RpcError(200, RPC.METHOD_NOT_FOUND, 'Method not found.');
+}
+
+/** Checks everything 2026-07-28 requires before a method may run. */
+function validateRequest(req, message) {
   const headerVersion = header(req, 'mcp-protocol-version');
   const headerMethod = header(req, 'mcp-method');
   if (!headerVersion) throw headerMismatch('MCP-Protocol-Version is missing');
@@ -123,7 +161,7 @@ function validateRequest(req, message) {
   ) {
     throw headerMismatch('MCP-Protocol-Version does not match _meta');
   }
-  if (!SUPPORTED_VERSIONS.includes(metaVersion)) {
+  if (metaVersion !== PROTOCOL_VERSION) {
     throw unsupportedVersion(metaVersion);
   }
 }
@@ -159,6 +197,7 @@ function readId(message) {
  * @param {import('@hybridaione/hybridclaw/plugin-sdk').PluginInboundWebhookContext} ctx
  * @param {{
  *   token: string | undefined,
+ *   allowUrlToken: boolean,
  *   allowedOrigins: Set<string>,
  *   serverInfo: { name: string, version: string },
  *   methods: Record<string, (params: Record<string, unknown>) => Promise<Record<string, unknown>>>,
@@ -167,12 +206,16 @@ function readId(message) {
 export async function handleMcpPost(ctx, server) {
   const { req, res } = ctx;
   let id = null;
+  let legacy = false;
   try {
     const origin = header(req, 'origin');
     if (origin && !server.allowedOrigins.has(origin)) {
       throw new RpcError(403, RPC.INVALID_REQUEST, 'Origin not allowed.');
     }
-    if (!isTokenValid(req, server.token)) {
+    const urlKey = server.allowUrlToken
+      ? (ctx.url.searchParams.get('key') ?? undefined)
+      : undefined;
+    if (!isTokenValid(req, server.token, urlKey)) {
       res.setHeader('www-authenticate', 'Bearer');
       throw new RpcError(401, RPC.INVALID_REQUEST, 'Unauthorized.');
     }
@@ -192,6 +235,13 @@ export async function handleMcpPost(ctx, server) {
       return;
     }
     id = readId(message);
+    legacy = isLegacyRequest(req, message);
+    if (legacy) {
+      sendRpc(res, 200, id, {
+        result: await callLegacyMethod(message, server),
+      });
+      return;
+    }
     validateRequest(req, message);
     const method = Object.hasOwn(server.methods, message.method)
       ? server.methods[message.method]
@@ -215,7 +265,9 @@ export async function handleMcpPost(ctx, server) {
       });
       return;
     }
-    sendRpc(res, error.httpStatus, id, {
+    // Legacy clients read a 404 as an expired session and may not parse the
+    // body of other error statuses, so their JSON-RPC errors travel as 200.
+    sendRpc(res, legacy ? 200 : error.httpStatus, id, {
       error: {
         code: error.code,
         message: error.message,

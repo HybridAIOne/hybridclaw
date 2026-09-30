@@ -26,6 +26,8 @@ export interface PublishedTool {
   description: string;
   instructions?: string;
   agentId?: string;
+  /** Pins the model for this tool's calls; model routing does not override it. */
+  model?: string;
   allowedTools: string[];
 }
 

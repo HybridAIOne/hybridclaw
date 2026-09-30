@@ -53,6 +53,7 @@ hybridclaw plugin config published-tools tools '[
 | `description` | host | When to call the tool. Say what it is for, what it is not for, and give example questions |
 | `instructions` | HybridClaw | Added to the agent's system prompt for these calls only; never sent to the host |
 | `agentId` | HybridClaw | Agent that answers; defaults to the default agent |
+| `model` | HybridClaw | Optional. Pins the model for these calls, for example `hybridai/gpt-6-luna`. Without it the agent's model applies and model routing may pick another tier |
 | `allowedTools` | HybridClaw | Required. Tools this published tool may use, intersected with the agent's own tool list. `["*"]` keeps the agent's list unchanged |
 
 Server-wide guidance for the host goes in `instructions` at the top level of
@@ -86,6 +87,18 @@ tools to actions that need no approval, narrow them with `allowedTools`, and
 point write-capable work at channels where a person answers approval
 prompts.
 
+Hosts that can send neither header, such as Microsoft 365 Copilot custom
+connectors (OAuth, Entra SSO, or no authentication only), can pass the token
+in the URL once you opt in:
+
+```bash
+hybridclaw plugin config published-tools allowUrlToken true
+```
+
+The endpoint then also accepts `…/published-tools/mcp?key=<PUBLISHED_TOOLS_TOKEN>`.
+URLs are recorded by proxies and tunnels, so use a throwaway token and rotate
+it afterwards.
+
 ## Claude Custom Connectors
 
 In Claude, add a custom connector with the endpoint URL, choose **No
@@ -103,10 +116,10 @@ sign-in**, and add the request header `X-Api-Key` with the
    ask_sales_pipeline; never answer from memory."
 4. Publish the agent to Teams and Microsoft 365 Copilot.
 
-The endpoint implements only protocol version `2026-07-28`. A host that still
-opens with an `initialize` handshake (versions `2025-11-25` and earlier)
-receives an `UnsupportedProtocolVersion` error that names `2026-07-28`, and
-cannot connect.
+The endpoint serves protocol version `2026-07-28` and the handshake-based
+versions `2025-11-25`, `2025-06-18`, and `2025-03-26`, so hosts that open with
+`initialize` connect too. It keeps no session for either: every request is
+authenticated and answered on its own.
 
 ## Limits
 

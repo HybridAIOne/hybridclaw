@@ -240,13 +240,6 @@ test.each([
     400,
     -32602,
   ],
-  [
-    'a legacy initialize handshake',
-    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
-    { 'mcp-protocol-version': undefined },
-    400,
-    -32022,
-  ],
   ['an unknown method', rpcBody('prompts/list'), {}, 404, -32601],
   ['malformed JSON', '{"jsonrpc":', { 'mcp-method': 'tools/list' }, 400, -32700],
 ])(
@@ -262,15 +255,130 @@ test.each([
 test('an unsupported version names the supported ones', async () => {
   const { url } = await startPlugin();
   const body = rpcBody('tools/list');
-  body.params._meta['io.modelcontextprotocol/protocolVersion'] = '2025-11-25';
+  body.params._meta['io.modelcontextprotocol/protocolVersion'] = '1900-01-01';
   const response = await post(url, body, {
-    'mcp-protocol-version': '2025-11-25',
+    'mcp-protocol-version': '1900-01-01',
   });
   expect(response.status).toBe(400);
   expect(response.json.error).toMatchObject({
     code: -32022,
-    data: { supported: [VERSION], requested: '2025-11-25' },
+    data: { requested: '1900-01-01' },
   });
+  expect(response.json.error.data.supported).toEqual(
+    expect.arrayContaining([VERSION, '2025-11-25']),
+  );
+});
+
+// Legacy clients (initialize handshake, no 2026-07-28 headers or _meta).
+const LEGACY_HEADERS = {
+  'mcp-protocol-version': undefined,
+  'mcp-method': undefined,
+  'mcp-name': undefined,
+};
+
+function legacyBody(method: string, params?: Record<string, unknown>) {
+  return { jsonrpc: '2.0', id: 7, method, ...(params ? { params } : {}) };
+}
+
+test.each([
+  ['a version this server knows', '2025-06-18', '2025-06-18'],
+  ['an unknown version', '2024-11-05', '2025-11-25'],
+])('a legacy initialize with %s negotiates a legacy version', async (_label, requested, negotiated) => {
+  const { url } = await startPlugin({
+    pluginConfig: { instructions: 'Company data tools.' },
+  });
+  const response = await post(
+    url,
+    legacyBody('initialize', {
+      protocolVersion: requested,
+      capabilities: {},
+      clientInfo: { name: 'legacy', version: '1' },
+    }),
+    LEGACY_HEADERS,
+  );
+  expect(response.status).toBe(200);
+  expect(response.json.result).toEqual({
+    protocolVersion: negotiated,
+    capabilities: { tools: { listChanged: false } },
+    serverInfo: { name: 'hybridclaw-published-tools', version: '0.1.0' },
+    instructions: 'Company data tools.',
+  });
+});
+
+test('a legacy client lists and calls tools without a handshake or session', async () => {
+  const { url, dispatch } = await startPlugin();
+  const list = await post(url, legacyBody('tools/list'), {
+    ...LEGACY_HEADERS,
+    'mcp-protocol-version': '2025-06-18',
+  });
+  expect(list.status).toBe(200);
+  expect(
+    (list.json.result.tools as Array<{ name: string }>).map((tool) => tool.name),
+  ).toContain('ask_sales_pipeline');
+
+  const call = await post(
+    url,
+    legacyBody('tools/call', {
+      name: 'ask_sales_pipeline',
+      arguments: { question: 'How is Q3 pipeline?' },
+    }),
+    LEGACY_HEADERS,
+  );
+  expect(call.status).toBe(200);
+  expect(call.json.result.structuredContent).toMatchObject({
+    status: 'completed',
+    answer: 'Pipeline is 4.2M.',
+  });
+  expect(dispatch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      allowedTools: ['bash', 'read'],
+      instructions: SALES_TOOL.instructions,
+    }),
+  );
+});
+
+test.each([
+  ['ping', legacyBody('ping'), (json: { result?: unknown }) => json.result, {}],
+  [
+    'an unknown method',
+    legacyBody('resources/list'),
+    (json: { error?: { code: number } }) => json.error?.code,
+    -32601,
+  ],
+  [
+    'an unknown tool',
+    legacyBody('tools/call', { name: 'ask_ghost', arguments: {} }),
+    (json: { error?: { code: number } }) => json.error?.code,
+    -32602,
+  ],
+])('a legacy %s is answered with HTTP 200', async (_label, body, pick, expected) => {
+  const { url } = await startPlugin();
+  const response = await post(url, body, LEGACY_HEADERS);
+  expect(response.status).toBe(200);
+  expect(pick(response.json)).toEqual(expected);
+});
+
+test.each([
+  ['accepted when the operator opted in', true, TOKEN, 200],
+  ['rejected when it is wrong', true, 'nope', 401],
+  ['ignored unless the operator opted in', false, TOKEN, 401],
+])('a token in the URL is %s', async (_label, allowUrlToken, key, status) => {
+  const { url } = await startPlugin({ pluginConfig: { allowUrlToken } });
+  const response = await post(`${url}?key=${key}`, legacyBody('tools/list'), {
+    ...LEGACY_HEADERS,
+    authorization: undefined,
+  });
+  expect(response.status).toBe(status);
+});
+
+test('a legacy request still needs the token', async () => {
+  const { url, dispatch } = await startPlugin();
+  const response = await post(url, legacyBody('tools/list'), {
+    ...LEGACY_HEADERS,
+    authorization: undefined,
+  });
+  expect(response.status).toBe(401);
+  expect(dispatch).not.toHaveBeenCalled();
 });
 
 test('a notification is accepted without a body', async () => {
@@ -302,7 +410,7 @@ test('server/discover advertises the version, tools and server identity', async 
   const response = await post(url, rpcBody('server/discover'));
   expect(response.json.result).toMatchObject({
     resultType: 'complete',
-    supportedVersions: [VERSION],
+    supportedVersions: [VERSION, '2025-11-25', '2025-06-18', '2025-03-26'],
     capabilities: { tools: { listChanged: false } },
     instructions: 'Company data tools.',
     cacheScope: 'private',
@@ -366,6 +474,21 @@ test('a call runs one scoped turn and a follow-up continues its session', async 
   );
   expect(secondRequest.sessionId).toBe(firstRequest.sessionId);
   expect(firstRequest.sessionId).toContain(structured.conversation_id);
+});
+
+test('a tool model is pinned on the turn and omitted otherwise', async () => {
+  const { url, dispatch } = await startPlugin({
+    pluginConfig: {
+      tools: [{ ...SALES_TOOL, model: 'hybridai/test-model' }, OPEN_TOOL],
+    },
+  });
+  await callTool(url, 'ask_sales_pipeline', { question: 'hi' });
+  await callTool(url, 'ask_anything', { question: 'hi' });
+  const [pinned, routed] = dispatch.mock.calls.map(
+    (call) => call[0] as Record<string, unknown>,
+  );
+  expect(pinned.model).toBe('hybridai/test-model');
+  expect(routed).not.toHaveProperty('model');
 });
 
 test('a "*" allowlist leaves the agent tool policy unchanged', async () => {

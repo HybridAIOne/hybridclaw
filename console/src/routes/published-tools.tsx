@@ -33,6 +33,7 @@ interface ToolDraft {
   description: string;
   instructions: string;
   agentId: string;
+  model: string;
   allowedTools: string;
 }
 
@@ -44,6 +45,7 @@ function createDraft(source?: PublishedTool): ToolDraft {
     description: source?.description ?? '',
     instructions: source?.instructions ?? '',
     agentId: source?.agentId ?? '',
+    model: source?.model ?? '',
     allowedTools: (source?.allowedTools ?? []).join('\n'),
   };
 }
@@ -51,12 +53,14 @@ function createDraft(source?: PublishedTool): ToolDraft {
 function draftToTool(draft: ToolDraft): PublishedTool {
   const title = draft.title.trim();
   const agentId = draft.agentId.trim();
+  const model = draft.model.trim();
   return {
     name: draft.name.trim(),
     ...(title ? { title } : {}),
     description: draft.description.trim(),
     instructions: draft.instructions.trim(),
     ...(agentId ? { agentId } : {}),
+    ...(model ? { model } : {}),
     allowedTools: draft.allowedTools
       .split(/[\n,]/)
       .map((entry) => entry.trim())
@@ -348,6 +352,25 @@ export function PublishedToolsPage() {
                     ))}
                   </NativeSelect>
                 </Field>
+                <Field>
+                  <FieldLabel>Model</FieldLabel>
+                  <Input
+                    value={draft.model}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        model: event.target.value,
+                      }))
+                    }
+                    placeholder="hybridai/gpt-6-luna"
+                  />
+                  <FieldDescription>
+                    Optional. Pins the model for these calls; leave empty to use
+                    the agent's model and model routing.
+                  </FieldDescription>
+                </Field>
+              </div>
+              <div className="field-grid">
                 <Field>
                   <FieldLabel>Allowed tools</FieldLabel>
                   <Textarea
