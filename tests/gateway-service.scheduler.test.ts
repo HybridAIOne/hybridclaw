@@ -704,7 +704,7 @@ test('runGatewayScheduledTask keeps the origin web chat bound to web so other we
     'web',
     'main',
   );
-  expect(listManageableScheduledTasks(otherWebChat).map((t) => t.id)).toEqual(
-    [taskId],
-  );
+  expect(
+    listManageableScheduledTasks(otherWebChat).tasks.map((t) => t.id),
+  ).toEqual([taskId]);
 });
