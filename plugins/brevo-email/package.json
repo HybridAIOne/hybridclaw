@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "html-to-text": "9.0.5",
-    "nodemailer": "7.0.13"
+    "nodemailer": "10.0.10"
   }
 }

@@ -96,6 +96,11 @@ hybridclaw token revoke <token-id>
 - `/admin/credentials?tab=api-tokens` provides the same create/list/revoke workflow in the browser
   with role presets, action filters, and expiry presets
 
+Device clients can request a short pairing code without copying an administrator's
+token. Approve the code in **Credentials → Devices**; the resulting API token is
+scoped to `chat.send`, `agents.read`, and `artifacts.read` and can be revoked in
+**Credentials → API tokens**. See [device pairing](../guides/web-notifications.md#pairing-a-device).
+
 ## Harness Evolution Workflows
 
 `hybridclaw harness-evolve` runs controlled eval-driven evolution loops against

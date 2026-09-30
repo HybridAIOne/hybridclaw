@@ -2,9 +2,10 @@
 
 import fs from 'node:fs';
 
+// npm updates shrinkwraps in preference to package-lock.json when both exist.
 const pairs = [
-  ['package-lock.json', 'npm-shrinkwrap.json'],
-  ['container/package-lock.json', 'container/npm-shrinkwrap.json'],
+  ['npm-shrinkwrap.json', 'package-lock.json'],
+  ['container/npm-shrinkwrap.json', 'container/package-lock.json'],
 ];
 
 for (const [source, target] of pairs) {
