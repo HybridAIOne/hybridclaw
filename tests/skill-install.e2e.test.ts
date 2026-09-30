@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { ChatMessage } from '../container/src/types.js';
 import {
   cleanupStaleContainers,
+  dockerBridgeGateway,
   dockerE2eGate,
   getAvailablePort,
   removeContainer,
@@ -63,20 +64,36 @@ interface InstallPath {
 
 let gatewayUrl: string;
 let modelServer: http.Server | undefined;
+let modelRequests: ModelRequestBody[] = [];
 let workDir: string;
+/** Paths whose install step passed; later steps skip the others. */
+const installed = new Set<string>();
+
+interface SkillFixtureOptions {
+  /** Extra frontmatter lines, e.g. dependency install specs. */
+  frontmatter?: string[];
+  /**
+   * Leave out the unquoted `: ` in the description. One path keeps this
+   * control so a frontmatter parsing regression shows as that path passing
+   * while the others fail, not as every path failing alike.
+   */
+  plainDescription?: boolean;
+}
 
 function skillFiles(
   name: string,
-  extraFrontmatter: string[] = [],
+  { frontmatter = [], plainDescription = false }: SkillFixtureOptions = {},
 ): Record<string, string> {
   return {
     'SKILL.md': [
       '---',
       `name: ${name}`,
-      // Unquoted `: ` in the value, as skills written for other runtimes
-      // commonly have it.
-      'description: Write in the house voice. Use for customer-facing text: landing pages, release notes.',
-      ...extraFrontmatter,
+      plainDescription
+        ? 'description: Write in the house voice for customer-facing text.'
+        : // Unquoted `: ` in the value, as skills written for other runtimes
+          // commonly have it.
+          'description: Write in the house voice. Use for customer-facing text: landing pages, release notes.',
+      ...frontmatter,
       '---',
       '',
       `Follow the ${name} steps.`,
@@ -90,11 +107,9 @@ function skillFiles(
 function writeSkillDir(
   dir: string,
   name: string,
-  extraFrontmatter?: string[],
+  options?: SkillFixtureOptions,
 ): void {
-  for (const [file, content] of Object.entries(
-    skillFiles(name, extraFrontmatter),
-  )) {
+  for (const [file, content] of Object.entries(skillFiles(name, options))) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), content);
   }
@@ -318,10 +333,33 @@ async function expectInstalled(skill: string, agentId: string): Promise<void> {
   expect(await useSkill(agentId, skill)).toContain(`name: ${skill}`);
 }
 
+/** Tool results the model received after the latest user message. */
+function latestTurnToolResults(): string[] {
+  const messages = modelRequests.at(-1)?.messages ?? [];
+  const turnStart = messages.map((message) => message.role).lastIndexOf('user');
+  return messages
+    .slice(turnStart + 1)
+    .filter((message) => message.role === 'tool')
+    .map(messageText);
+}
+
+function skillFoundByLookup(toolResult: string): string | undefined {
+  try {
+    const { skill } = JSON.parse(toolResult) as { skill?: { name?: string } };
+    return skill?.name;
+  } catch {
+    return undefined;
+  }
+}
+
 async function expectRemoved(skill: string, agentId: string): Promise<void> {
   expect(expectCliOk(['skill', 'list'])).not.toContain(`${skill} [`);
   expect(await adminSkill(skill)).toBeUndefined();
-  expect(await useSkill(agentId, skill)).not.toContain(`name: ${skill}`);
+  await useSkill(agentId, skill);
+  // The agent looked the skill up in this turn, and the lookup missed.
+  const results = latestTurnToolResults();
+  expect(results.length).toBeGreaterThan(0);
+  expect(results.map(skillFoundByLookup)).not.toContain(skill);
 }
 
 function uninstallSkill(name: string): Promise<string> {
@@ -447,27 +485,27 @@ async function writeFixtures(modelPort: number): Promise<void> {
     path.join(fixtures, 'github', GITHUB_REPO, 'skills', 'e2e-github'),
     'e2e-github',
   );
-  for (const name of [
-    'e2e-headless',
-    'e2e-after-claw',
-    'e2e-solo',
-    'e2e-admin-allowlist',
-  ]) {
+  writeSkillDir(path.join(fixtures, 'skills', 'e2e-headless'), 'e2e-headless', {
+    plainDescription: true,
+  });
+  for (const name of ['e2e-after-claw', 'e2e-solo', 'e2e-admin-allowlist']) {
     writeSkillDir(path.join(fixtures, 'skills', name), name);
   }
-  writeSkillDir(path.join(fixtures, 'skills', 'e2e-deps'), 'e2e-deps', [
-    'metadata:',
-    '  hybridclaw:',
-    '    install:',
-    '      - id: tool',
-    '        kind: brew',
-    '        formula: e2e-tool',
-    '        bins: ["e2e-tool"]',
-    '      - id: runtime',
-    '        kind: node',
-    '        package: e2e-runtime',
-    '        bins: ["node"]',
-  ]);
+  writeSkillDir(path.join(fixtures, 'skills', 'e2e-deps'), 'e2e-deps', {
+    frontmatter: [
+      'metadata:',
+      '  hybridclaw:',
+      '    install:',
+      '      - id: tool',
+      '        kind: brew',
+      '        formula: e2e-tool',
+      '        bins: ["e2e-tool"]',
+      '      - id: runtime',
+      '        kind: node',
+      '        package: e2e-runtime',
+      '        bins: ["node"]',
+    ],
+  });
   fs.copyFileSync(
     path.join(import.meta.dirname, 'fixtures', 'fake-github-fetch.mjs'),
     path.join(fixtures, 'fake-github-fetch.mjs'),
@@ -519,6 +557,24 @@ async function writeFixtures(modelPort: number): Promise<void> {
   );
 }
 
+/**
+ * The container reaches the model as `host.docker.internal` (host-gateway).
+ * On a native Linux daemon that is the default bridge's gateway, so listen
+ * there rather than on every interface. Docker Desktop forwards the name to
+ * the host's loopback instead, and the bridge address is not bindable there.
+ */
+async function startModelServerForContainers() {
+  try {
+    return await startScriptedModelServer(scriptedAgent, {
+      host: dockerBridgeGateway(),
+      model: MODEL_ID,
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EADDRNOTAVAIL') throw error;
+    return startScriptedModelServer(scriptedAgent, { model: MODEL_ID });
+  }
+}
+
 describe.skipIf(!DOCKER_E2E)(
   'gateway image skill install paths',
   { timeout: TURN_TIMEOUT_MS * 2 },
@@ -526,13 +582,9 @@ describe.skipIf(!DOCKER_E2E)(
     beforeAll(async () => {
       cleanupStaleContainers(SUITE_PREFIX);
       workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-skill-e2e-'));
-      // All interfaces: the container reaches it through the Docker host
-      // gateway, not loopback.
-      const model = await startScriptedModelServer(scriptedAgent, {
-        host: '0.0.0.0',
-        model: MODEL_ID,
-      });
+      const model = await startModelServerForContainers();
       modelServer = model.server;
+      modelRequests = model.requests;
       await writeFixtures(model.port);
 
       const hostPort = await getAvailablePort();
@@ -584,21 +636,28 @@ describe.skipIf(!DOCKER_E2E)(
       for (const entry of INSTALL_PATHS) {
         // A known-broken path stops here; its later checks would only
         // restate the install failure.
-        (entry.knownIssue ? test.fails : test)(entry.label, entry.install);
+        (entry.knownIssue ? test.fails : test)(entry.label, async () => {
+          await entry.install();
+          installed.add(entry.label);
+        });
       }
     });
 
+    // A path whose install failed skips its later steps, so one broken
+    // path reads as one failure instead of one per step.
     describe('listed and used by an allowlisted agent', () => {
-      test.each(WORKING_PATHS)('$label', ({ skill, agentId }) =>
-        expectInstalled(skill, agentId),
-      );
+      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+        skip(!installed.has(entry.label), 'install failed');
+        return expectInstalled(entry.skill, entry.agentId);
+      });
     });
 
     describe('after a gateway restart and agent config sync', () => {
       beforeAll(restartGateway, STARTUP_TIMEOUT_MS + 30_000);
-      test.each(WORKING_PATHS)('$label', ({ skill, agentId }) =>
-        expectInstalled(skill, agentId),
-      );
+      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+        skip(!installed.has(entry.label), 'install failed');
+        return expectInstalled(entry.skill, entry.agentId);
+      });
     });
 
     // https://github.com/HybridAIOne/hybridclaw/issues/1662: a .claw install
@@ -619,7 +678,8 @@ describe.skipIf(!DOCKER_E2E)(
     });
 
     describe('removal', () => {
-      test.each(WORKING_PATHS)('$label', async (entry) => {
+      test.for(WORKING_PATHS)('$label', async (entry, { skip }) => {
+        skip(!installed.has(entry.label), 'install failed');
         await entry.remove();
         await expectPathRemoved(entry);
       });
@@ -627,7 +687,10 @@ describe.skipIf(!DOCKER_E2E)(
 
     describe('stays removed after a gateway restart', () => {
       beforeAll(restartGateway, STARTUP_TIMEOUT_MS + 30_000);
-      test.each(WORKING_PATHS)('$label', expectPathRemoved);
+      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+        skip(!installed.has(entry.label), 'install failed');
+        return expectPathRemoved(entry);
+      });
     });
 
     // https://github.com/HybridAIOne/hybridclaw/issues/1682

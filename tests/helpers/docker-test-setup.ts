@@ -223,6 +223,25 @@ export function startContainer(opts: StartContainerOpts): StartContainerResult {
 }
 
 /**
+ * Gateway address of Docker's default bridge. On a native Linux daemon this is
+ * what `--add-host <name>:host-gateway` resolves to inside a container, so a
+ * test server bound here is reachable from containers but not from the LAN.
+ */
+export function dockerBridgeGateway(): string {
+  return execFileSync(
+    'docker',
+    [
+      'network',
+      'inspect',
+      'bridge',
+      '--format',
+      '{{(index .IPAM.Config 0).Gateway}}',
+    ],
+    { encoding: 'utf-8', stdio: 'pipe', timeout: 15_000 },
+  ).trim();
+}
+
+/**
  * Best-effort removal of a named container.
  */
 export function removeContainer(name: string): void {
