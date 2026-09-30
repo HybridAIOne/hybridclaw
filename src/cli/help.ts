@@ -113,7 +113,8 @@ Interactive slash commands inside TUI:
   /rag [on|off]
   /ralph [info|on|off|set n]
   /reset [yes|no]
-  /schedule add "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
+  /schedule add [--tz <zone>] "<cron>" <prompt> | at "<ISO time>" <prompt> | every <ms> <prompt>
+  /schedule list | results <id> [--limit <n>] | remove <id> | toggle <id>   (--json for apps)
   /secret list   /secret set <name> <value>   /secret status <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]
   /show [all|thinking|tools|none]
