@@ -6,7 +6,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
+import type http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach } from 'vitest';
@@ -15,16 +15,13 @@ import {
   generateIpcAuthSecret,
 } from '../../container/shared/ipc-input-auth.js';
 import type {
-  ChatMessage,
   ContainerInput,
   ContainerOutput,
-  ToolDefinition,
 } from '../../container/src/types.js';
-
-export type ModelRequestBody = {
-  messages: ChatMessage[];
-  tools: ToolDefinition[];
-};
+import {
+  type ModelRequestBody,
+  startScriptedModelServer,
+} from './scripted-model-server.js';
 
 export function useContainerAgentHarness() {
   const children: ChildProcess[] = [];
@@ -75,45 +72,12 @@ export function useContainerAgentHarness() {
     for (const [name, contents] of Object.entries(files)) {
       fs.writeFileSync(path.join(dir, name), contents);
     }
-    const requests: ModelRequestBody[] = [];
-    const server = http.createServer(async (req, res) => {
-      let text = '';
-      for await (const chunk of req) text += chunk;
-      requests.push(JSON.parse(text));
-      let message: Record<string, unknown>;
-      try {
-        message =
-          typeof replies === 'function'
-            ? await replies(requests.at(-1)!)
-            : (replies.shift() ?? { role: 'assistant', content: 'done' });
-      } catch (error) {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: String(error) } }));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          id: 'test',
-          choices: [
-            {
-              message,
-              finish_reason:
-                message.finish_reason ??
-                (message.tool_calls ? 'tool_calls' : 'stop'),
-            },
-          ],
-        }),
-      );
-    });
-    servers.push(server);
-    await new Promise<void>((resolve) =>
-      server.listen(0, '127.0.0.1', resolve),
+    const { server, port, requests } = await startScriptedModelServer(
+      typeof replies === 'function'
+        ? replies
+        : () => replies.shift() ?? { role: 'assistant', content: 'done' },
     );
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Missing test port');
-    }
+    servers.push(server);
     const child = spawn(
       process.execPath,
       ['--import', 'tsx', 'container/src/index.ts'],
@@ -141,7 +105,7 @@ export function useContainerAgentHarness() {
       sessionId: 'test-session',
       agentId: 'test-agent',
       apiKey: 'test-key',
-      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      baseUrl: `http://127.0.0.1:${port}/v1`,
       provider: 'mlx',
       isLocal: true,
       model: 'mlx/test',
