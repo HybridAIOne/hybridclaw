@@ -304,6 +304,13 @@ export function getActiveHostSessionIds(): string[] {
   );
 }
 
+export function getInFlightHostSessionIds(): string[] {
+  return Array.from(pool.entries())
+    .filter(([, entry]) => Boolean(entry.activity))
+    .map(([sessionId]) => sessionId)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 export async function getActiveHostSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
@@ -1298,6 +1305,10 @@ export class HostExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveHostSessionIds();
+  }
+
+  getInFlightSessionIds(): string[] {
+    return getInFlightHostSessionIds();
   }
 
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {

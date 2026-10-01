@@ -361,6 +361,13 @@ export function getActiveContainerSessionIds(): string[] {
   );
 }
 
+export function getInFlightContainerSessionIds(): string[] {
+  return Array.from(pool.entries())
+    .filter(([, entry]) => Boolean(entry.activity))
+    .map(([sessionId]) => sessionId)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 export async function getActiveContainerSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
@@ -1498,6 +1505,10 @@ export class ContainerExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveContainerSessionIds();
+  }
+
+  getInFlightSessionIds(): string[] {
+    return getInFlightContainerSessionIds();
   }
 
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
