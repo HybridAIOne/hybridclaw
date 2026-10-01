@@ -2527,7 +2527,9 @@ async function executeGatewayManagedBrowserTool(
         ? { ready_state: payload.ready_state }
         : {}),
       read_extraction_hint: payload.read_extraction_hint || 'ok',
-      headed: false,
+      // mac-cua drives a visible window of the operator's own browser;
+      // managed-cloud browsers run remotely with no local window.
+      headed: gatewayBrowserProvider === 'mac-cua',
     });
   }
 

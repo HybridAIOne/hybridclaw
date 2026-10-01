@@ -189,3 +189,39 @@ test('mac-cua browser tools route through the gateway provider', async () => {
     ready_state: 'native',
   });
 });
+
+test.each([
+  { provider: 'mac-cua', headed: true },
+  { provider: 'managed-cloud', headed: false },
+])('gateway browser_navigate reports headed=$headed for $provider', async ({
+  provider,
+  headed,
+}) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ),
+  );
+  setBrowserGatewayContext(
+    'http://127.0.0.1:4317',
+    'test-token',
+    provider,
+    'sess-gateway',
+    'agent-main',
+  );
+
+  const result = JSON.parse(
+    await executeBrowserTool(
+      'browser_navigate',
+      { url: 'https://example.com', headed: true },
+      'container-session',
+    ),
+  ) as Record<string, unknown>;
+
+  expect(result).toMatchObject({ success: true, provider, headed });
+});
