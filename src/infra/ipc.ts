@@ -478,6 +478,15 @@ export function cleanupIpc(sessionId: string): void {
   }
 }
 
+/** Removes the session dir of a warm worker that exited without a request. */
+export function removeUnclaimedWarmSessionDir(sessionId: string): void {
+  try {
+    fs.rmSync(sessionDir(sessionId), { recursive: true, force: true });
+  } catch (err) {
+    logger.debug({ sessionId, err }, 'Failed to remove warm session dir');
+  }
+}
+
 export function cleanupHealthIpc(sessionId: string): void {
   const dir = ipcDir(sessionId);
   for (const file of ['health-input.json', 'health-output.json']) {

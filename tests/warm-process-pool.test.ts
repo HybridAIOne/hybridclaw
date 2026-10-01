@@ -239,7 +239,7 @@ test('sweeps warm entries once their agent leaves the traffic window', () => {
     const stale = makeEntry('stale', 'agent_a', Date.now());
     pool.add(stale);
 
-    vi.advanceTimersByTime(IDLE_SWEEP_INTERVAL_MS);
+    vi.advanceTimersByTime(IDLE_SWEEP_INTERVAL_MS + 1_000);
     expect(onIdleExpired).not.toHaveBeenCalled();
 
     pool.recordRequest('agent_b', 1_000);

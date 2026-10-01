@@ -1,3 +1,14 @@
+/**
+ * Warm process pool: idle pre-spawned agent workers, sized per agent from
+ * recent traffic, and the record of which spares exist.
+ *
+ * The pool only decides *which* entries leave (claim, trim, pressure, idle
+ * sweep); the runner that owns the process stops it. Entries leave the map
+ * before they are stopped, so a sweep never races a claim. NOT the active
+ * session pool: claimed workers belong to the runner's `pool` map.
+ */
+import { logger } from '../logger.js';
+
 export interface WarmProcessPoolConfig {
   enabled: boolean;
   coldStartBudgetMs: number;
@@ -25,6 +36,8 @@ interface TrafficSample {
 }
 
 const DEFAULT_TRAFFIC_WINDOW_MS = 60 * 60 * 1000;
+// 60s (maintainer call, 2026-10-01): warm workers outlive their agent's
+// traffic window by at most a minute; finer cadence buys nothing.
 export const IDLE_SWEEP_INTERVAL_MS = 60_000;
 
 export function normalizeWarmProcessPoolConfig(
@@ -124,14 +137,19 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
       this.sweepTimer = setInterval(() => {
         const expired = this.sweepIdle();
         if (this.entries.size === 0) this.stopSweep();
-        if (expired.length > 0) this.onIdleExpired(expired);
+        if (expired.length === 0) return;
+        try {
+          this.onIdleExpired(expired);
+        } catch (err) {
+          logger.warn({ err }, 'Failed to stop expired warm workers');
+        }
       }, IDLE_SWEEP_INTERVAL_MS);
       this.sweepTimer.unref?.();
     }
   }
 
   /** Trims every agent's warm entries to its current traffic-based target. */
-  sweepIdle(now = Date.now()): T[] {
+  private sweepIdle(now = Date.now()): T[] {
     const evicted: T[] = [];
     const agentIds = new Set(this.values().map((entry) => entry.agentId));
     for (const agentId of agentIds) {

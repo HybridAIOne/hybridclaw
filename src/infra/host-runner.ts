@@ -90,6 +90,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -849,6 +850,7 @@ function getOrSpawnHostProcess(
       logger.debug({ sessionId }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 

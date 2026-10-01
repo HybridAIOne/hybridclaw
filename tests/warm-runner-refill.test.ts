@@ -1,5 +1,6 @@
 import type { SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
@@ -157,10 +158,19 @@ test.each(RUNNERS)(
     try {
       vi.stubEnv('HOME', makeTempDir());
       const warmProcesses: ReturnType<typeof makeFakeChildProcess>[] = [];
+      let warmSessionDir = '';
       const spawn = vi.fn(
         (_command: string, args?: string[], options?: SpawnOptions) => {
           const proc = makeFakeChildProcess();
-          if (isWarmSpawn(args, options)) warmProcesses.push(proc);
+          if (isWarmSpawn(args, options)) {
+            warmProcesses.push(proc);
+            const ipcRef = [
+              ...(args ?? []),
+              options?.env?.HYBRIDCLAW_AGENT_IPC_DIR ?? '',
+            ].find((ref) => ref.includes(WARM_IPC_DIR));
+            // Container args carry `host:container` bind specs.
+            warmSessionDir = path.dirname(String(ipcRef).split(':')[0]);
+          }
           return proc;
         },
       );
@@ -218,6 +228,10 @@ test.each(RUNNERS)(
       expect(warmStopped()).toBe(false);
       vi.advanceTimersByTime(31 * 60_000);
       expect(warmStopped()).toBe(true);
+
+      expect(fs.existsSync(warmSessionDir)).toBe(true);
+      warmProcesses[0]?.emit('close', null, 'SIGTERM');
+      expect(fs.existsSync(warmSessionDir)).toBe(false);
     } finally {
       vi.useRealTimers();
     }
