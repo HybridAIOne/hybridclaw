@@ -17,6 +17,7 @@ import type {
   WebNotification,
 } from '../../container/shared/web-notifications.js';
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -290,6 +291,19 @@ export function reminderAlert(options: {
       messageId: options.messageId,
     },
   };
+}
+
+/**
+ * What a phone calls the assistant in an alert's title. The HybridClaw phone
+ * app knows the default agent as Hy, whatever it is called here; any other
+ * agent goes by its display name or name.
+ */
+export function phoneAssistantName(
+  agentId: string | null | undefined,
+  agent: { name?: string; displayName?: string } | null,
+): string {
+  if (!agentId || agentId === DEFAULT_AGENT_ID) return 'Hy';
+  return agent?.displayName || agent?.name || 'Hy';
 }
 
 // What a finished reply and a waiting approval say under the assistant's name.

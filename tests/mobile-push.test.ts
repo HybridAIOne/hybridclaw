@@ -121,7 +121,7 @@ describe('phone delivery', () => {
       token: TOKEN,
       environment: 'production',
       payload: {
-        aps: { alert: { title: 'HybridClaw', body: 'Done. Your reply is ready.', 'loc-key': 'Done. Your reply is ready.' }, sound: 'default', 'thread-id': 'session-a' },
+        aps: { alert: { title: 'Hy', body: 'Done. Your reply is ready.', 'loc-key': 'Done. Your reply is ready.' }, sound: 'default', 'thread-id': 'session-a' },
         kind: 'turn',
         id: 'session-a:turn:9',
         sessionId: 'session-a',
@@ -149,11 +149,16 @@ describe('phone delivery', () => {
       agentId: 'agent-a',
     });
     expect(JSON.stringify(relayed().body)).not.toContain('Ben');
-    // Without a display name the agent's name, without an agent the product's.
-    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Main Agent' });
+    // Without a display name the agent's name.
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research' });
     notifications.notifyWebSession('session-a', 'turn', '11');
     await vi.waitFor(() => expect(calls()).toHaveLength(2));
-    expect(relayed(1).body.payload.aps.alert.title).toBe('Main Agent');
+    expect(relayed(1).body.payload.aps.alert.title).toBe('Research');
+    // The app calls the default agent Hy, whatever it is called here.
+    expect(push.phoneAssistantName('main', { name: 'Main Agent' })).toBe('Hy');
+    expect(push.phoneAssistantName('main', { name: 'Main Agent', displayName: 'Jarvis' })).toBe('Hy');
+    expect(push.phoneAssistantName(null, null)).toBe('Hy');
+    expect(push.phoneAssistantName('agent-b', null)).toBe('Hy');
     // Other kinds keep the notice's own title.
     expect(push.replyAlert({ notification: { id: 'x', sessionId: 's', kind: 'reminder', agentId: null, title: 'HybridClaw reminder', createdAt: 0 }, assistant: 'Hy' }).title).toBe('HybridClaw reminder');
   });
@@ -318,7 +323,7 @@ describe('reminder alerts', () => {
     mocks.agent.mockReturnValue(null);
     const third = await remind(delivery, `  ${'x'.repeat(300)}  `, 152737);
     expect(third.aps).toEqual({
-      alert: { title: 'HybridClaw', body: `${'x'.repeat(239)}…` },
+      alert: { title: 'Hy', body: `${'x'.repeat(239)}…` },
       sound: 'default',
       badge: 2,
       'thread-id': 'session-a',
