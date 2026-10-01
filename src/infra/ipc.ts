@@ -234,8 +234,12 @@ export function createActivityTracker(): ActivityTracker {
 
 const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
 const MIN_OUTPUT_POLL_INTERVAL_MS = 5;
-const MAX_OUTPUT_POLL_INTERVAL_MS = 250;
-// Keep the backoff formula aligned with container/src/ipc.ts; max differs by side.
+// 50ms (turn-latency audit, 2026-10-01): at 250ms a reply that landed late in
+// a long turn waited ~125ms on average to be read, while the app still showed
+// "Writing…"; now ~25ms. A poll is two existsSync calls. Event-driven reads
+// (fs.watch) are deferred.
+const MAX_OUTPUT_POLL_INTERVAL_MS = 50;
+// Keep the backoff formula aligned with container/src/ipc.ts.
 const OUTPUT_POLL_BACKOFF_FACTOR = 1.5;
 // 2s (agent call, 2026-09-26, pending owner review): the agent writes its
 // SIGTERM output synchronously and `docker stop` signals well within this, so
