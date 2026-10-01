@@ -69,6 +69,7 @@ import { extractMemoryCitations } from '../memory/citation-extractor.js';
 import {
   createFreshSessionInstance,
   logAudit,
+  resolveTurnSessionId,
   storeSemanticMemory,
 } from '../memory/db.js';
 import {
@@ -660,6 +661,9 @@ async function handleGatewayMessageInner(
     : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  if (req.sessionMode !== 'resume') {
+    req.sessionId = resolveTurnSessionId(req.sessionId, sessionResetPolicy);
+  }
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
