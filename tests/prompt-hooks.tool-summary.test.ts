@@ -754,6 +754,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   );
   expect(mobile).toContain('## Client');
   expect(mobile).toContain('share only absolute https URLs');
+  expect(mobile).toContain('call `hybridai__list_connectors`');
+  expect(web).not.toContain('hybridai__list_connectors');
 });
 
 test('the mobile client prompt lists fewer skills and points to skills_list for the rest', () => {
