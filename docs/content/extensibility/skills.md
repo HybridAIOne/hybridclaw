@@ -88,13 +88,14 @@ File access still passes through the normal read tool's policy and sandbox.
 - `metadata.hybridclaw.short_description`, `tags`, `related_skills`, and
   `install` feed operator-facing summaries, related-skill hints, and install
   helpers
-- `requires.bins`, `requires.env`, and `requires.node_modules` declare
-  runtime prerequisites: executables on `PATH`, environment variables, and
-  bare Node module specifiers an agent-written script must be able to
-  `require()` from the workspace. A skill with an unmet requirement is
-  listed as unavailable with the missing item (`bin:soffice`,
-  `env:API_KEY`, `node_module:pptxgenjs`) instead of being offered to the
-  model. Bundled skills may only require modules that the packaged runtime
+- `requires.bins`, `requires.env`, `requires.node_modules`, and
+  `requires.os` declare runtime prerequisites: executables on `PATH`,
+  environment variables, bare Node module specifiers an agent-written script
+  must be able to `require()` from the workspace, and the gateway host
+  platforms (`process.platform` values such as `darwin`) the skill works on.
+  A skill with an unmet requirement is listed as unavailable with the
+  missing item (`bin:soffice`, `env:API_KEY`, `node_module:pptxgenjs`,
+  `os:darwin`) instead of being offered to the model. Bundled skills may only require modules that the packaged runtime
   images ship (`container/tools/package.json` or `container/package.json`);
   a test enforces that. Container mode checks package names against those
   agent-image manifests; host mode resolves modules from the installed

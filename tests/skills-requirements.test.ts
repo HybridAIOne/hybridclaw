@@ -113,6 +113,35 @@ describe('skill node_modules requirements', () => {
     ]);
   });
 
+  test('limits a skill to the host platforms in requires.os', async () => {
+    const otherPlatform = process.platform === 'darwin' ? 'linux' : 'darwin';
+    await writeSkill('other-host-only', [
+      'requires:',
+      '  os:',
+      `    - ${otherPlatform}`,
+    ]);
+    await writeSkill('this-host-too', [
+      'requires:',
+      '  os:',
+      `    - ${otherPlatform}`,
+      `    - ${process.platform}`,
+    ]);
+
+    const unavailable = await findSkill('other-host-only');
+    expect(unavailable?.requires).toEqual({
+      bins: [],
+      env: [],
+      nodeModules: [],
+      os: [otherPlatform],
+    });
+    expect(unavailable?.available).toBe(false);
+    expect(unavailable?.missing).toEqual([`os:${otherPlatform}`]);
+
+    const available = await findSkill('this-host-too');
+    expect(available?.available).toBe(true);
+    expect(available?.missing).toEqual([]);
+  });
+
   test('keeps a skill available when the required module resolves', async () => {
     // `yaml` is a gateway dependency, resolvable from the repo root the test
     // process runs in, which mirrors the runtime images' NODE_PATH setup.
