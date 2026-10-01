@@ -479,7 +479,9 @@ export function describeTracked(item: Tracked): string {
     const days =
       item.every.length === 7
         ? 'daily'
-        : item.every.map((day) => DAY_NAMES[day]).join(',');
+        : item.every.join() === '1,2,3,4,5'
+          ? 'weekdays'
+          : item.every.map((day) => DAY_NAMES[day]).join(',');
     parts.push(`you check in ${days} at ${item.at} ${item.tz}`);
   }
   if (item.done) {
