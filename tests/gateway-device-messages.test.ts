@@ -149,5 +149,9 @@ describe('reading back a stored reply', () => {
     expect(action).toBe('chat.send');
     expect(grants.DEVICE_TOKEN_ACTIONS).toContain(action);
     expect(rbac.resolveAdminRbacAction('/api/chat/message', 'POST')).toBeNull();
+    // A call starts by minting its stream token.
+    expect(grants.DEVICE_TOKEN_ACTIONS).toContain(
+      rbac.resolveAdminRbacAction('/api/chat/voice/token', 'POST'),
+    );
   });
 });
