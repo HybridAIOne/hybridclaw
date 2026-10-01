@@ -309,6 +309,13 @@ export interface GatewayCommandRequest {
   username?: string | null;
   client?: GatewayChatRequest['client'];
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
+  /**
+   * The admin RBAC actions of a scoped HTTP caller (an API token such as a
+   * phone's, or a session with role claims), set by the gateway from the
+   * verified credential, never from the request body. Undefined for the local
+   * operator: TUI, CLI, the master token and the local web session.
+   */
+  adminActions?: string[];
 }
 
 export interface GatewayProactiveMessage {

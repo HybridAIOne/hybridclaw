@@ -46,8 +46,10 @@ last part of a `reminder` notification id). That route answers only for chats
 the same token started and never returns user turns. `chat.send` also covers
 `POST /api/media/upload`, so a phone can send a photo or document with a
 message: the file lands in the uploaded-media cache for a day, and the turn
-names it in `media`. Revoke the token under API
-tokens. The two device routes need no credentials; approving needs
+names it in `media`. Chatting is not administration: a slash command such as
+`/secret`, `/env` or `/config` sent with this token is refused (see
+[Local-Only Slash Commands](#local-only-slash-commands)). Revoke the token
+under API tokens. The two device routes need no credentials; approving needs
 `admin.tokens.create` from a session, never from an API token.
 
 A hosted gateway's owner skips the code. The hosting service, which holds the
@@ -75,6 +77,40 @@ The route-level action catalog and role bundle source of truth is
 route with no action mapping there is denied to scoped sessions and scoped API
 tokens unless they hold the `*` wildcard, so every new admin route needs an
 entry.
+
+## Local-Only Slash Commands
+
+Some slash commands read or change this machine's secrets, env, config or
+memory, so they run only in a local TUI, CLI or web chat session. A web chat
+turn can also arrive over `POST /api/chat` or `POST /api/command` with a scoped
+credential: an API token (such as a paired phone's) or a session with role
+claims. Such a caller also needs the action the matching admin route asks for.
+The local operator (TUI, CLI, the master token, the local web session) carries
+no claims and may run them all.
+
+| Command | Action |
+| --- | --- |
+| `/secret list`, `/secret status`, `/secret route list` | `secret.list_metadata` |
+| `/secret set`, `/secret route add` | `secret.overwrite` |
+| `/secret unset`, `/secret route remove` | `secret.unset` |
+| `/env ...` (values are plaintext) | `admin.config.write` |
+| `/config`, `/config check`, `/config get` | `admin.config.read` |
+| `/config set` | `admin.config.write` |
+| `/config reload` | `admin.config.reload` |
+| `/speech` (status) | `admin.config.read` |
+| `/speech provider\|model\|voice` | `admin.config.write` |
+| `/voice` (info) | `admin.config.read` |
+| `/voice call` | `admin.channels.write` |
+| `/plugin config\|enable\|disable` | `admin.config.write` |
+| `/policy ...` | `admin.policy.write` |
+| `/memory inspect\|query` | `admin.sessions.read` |
+| `/auth status <provider>` | `admin.models.read` |
+| `/skill unblock` | `admin.skills.unblock` |
+| `/skill install\|setup\|upgrade\|uninstall\|rollback` | `admin.skills.write` |
+| `/agent install <local path>` | `admin.agents.write` |
+
+The gateway takes these actions from the verified credential, never from the
+request body. A device token holds none of them.
 
 ## Role Bundles
 

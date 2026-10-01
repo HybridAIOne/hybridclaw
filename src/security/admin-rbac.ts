@@ -349,6 +349,27 @@ function hasWildcardClaim(
   return false;
 }
 
+/**
+ * The actions a caller's credential claims, for passing along with a command;
+ * undefined for an unscoped caller (no RBAC claims), who may do everything.
+ */
+export function adminActionClaimList(
+  payload: Record<string, unknown> | null,
+): string[] | undefined {
+  const claims = collectAdminActionClaims(payload);
+  return claims ? [...claims] : undefined;
+}
+
+/** `isAdminActionAllowed` for claims already collected by `adminActionClaimList`. */
+export function isAdminActionClaimed(
+  claims: readonly string[] | undefined,
+  action: AdminRbacAction,
+): boolean {
+  if (!claims) return true;
+  const set = new Set(claims);
+  return set.has(action) || hasWildcardClaim(set, action);
+}
+
 export function isAdminActionAllowed(
   payload: Record<string, unknown> | null,
   action: AdminRbacAction,

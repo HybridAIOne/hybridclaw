@@ -151,6 +151,7 @@ import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import {
   type AdminRbacAction,
+  adminActionClaimList,
   collectAdminActionClaims,
   isAdminActionAllowed,
   resolveAdminRbacAction,
@@ -2034,8 +2035,10 @@ function generateDefaultWebSessionId(agentId?: string | null): string {
   );
 }
 
+// `adminActions` are the scoped caller's (`GatewayCommandRequest.adminActions`).
 async function resolveApiChatSlashCommandResult(
   chatRequest: GatewayChatRequest,
+  adminActions: string[] | undefined,
 ): Promise<GatewayChatResult | null> {
   const inlineEscalation = /^\/escalate\s+([\s\S]*\S)\s*$/i.exec(
     chatRequest.content.trim(),
@@ -2055,6 +2058,7 @@ async function resolveApiChatSlashCommandResult(
       username: chatRequest.username,
       client: chatRequest.client,
       args: ['escalate', inlineEscalation[1]],
+      adminActions,
     });
     if (result.kind !== 'error' && result.continueWithMessage === true) {
       chatRequest.content = inlineEscalation[1];
@@ -2119,6 +2123,7 @@ async function resolveApiChatSlashCommandResult(
       userId: chatRequest.userId,
       username: chatRequest.username,
       client: chatRequest.client,
+      adminActions,
     });
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
@@ -2178,10 +2183,11 @@ function resolveApiChatSecretCommandGuardResult(
 
 async function resolveApiChatLocalCommandResult(
   chatRequest: GatewayChatRequest,
+  adminActions: string[] | undefined,
 ): Promise<GatewayChatResult | null> {
   return (
     resolveApiChatSecretCommandGuardResult(chatRequest) ||
-    (await resolveApiChatSlashCommandResult(chatRequest))
+    (await resolveApiChatSlashCommandResult(chatRequest, adminActions))
   );
 }
 
@@ -3417,7 +3423,9 @@ async function handleApiChat(
   req: IncomingMessage,
   res: ServerResponse,
   operatorId: string | null,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
+  const adminActions = adminActionClaimList(authContext.payload);
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
   const media = await normalizeApiChatMediaItems(body.media);
@@ -3495,12 +3503,12 @@ async function handleApiChat(
   if (channelId === 'web' && operatorId)
     trackWebNotificationSession(chatRequest.sessionId, operatorId);
   if (wantsStream) {
-    await handleApiChatStream(req, res, chatRequest, operatorId);
+    await handleApiChatStream(req, res, chatRequest, operatorId, adminActions);
     return;
   }
 
   const processedResult =
-    (await resolveApiChatLocalCommandResult(chatRequest)) ||
+    (await resolveApiChatLocalCommandResult(chatRequest, adminActions)) ||
     normalizePendingApprovalReply(
       normalizePlaceholderToolReply(
         normalizeSilentMessageSendReply(
@@ -3853,6 +3861,7 @@ async function handleApiChatStream(
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
   operatorId: string | null,
+  adminActions: string[] | undefined,
 ): Promise<void> {
   const sendEvent = (payload: object): void => {
     if (res.writableEnded) return;
@@ -3865,8 +3874,10 @@ async function handleApiChatStream(
     Connection: 'keep-alive',
   });
 
-  const localCommandResult =
-    await resolveApiChatLocalCommandResult(chatRequest);
+  const localCommandResult = await resolveApiChatLocalCommandResult(
+    chatRequest,
+    adminActions,
+  );
   if (localCommandResult) {
     const filteredResult = filterChatResultForSession(
       localCommandResult.sessionId || chatRequest.sessionId,
@@ -4059,6 +4070,7 @@ async function handleApiChatStream(
 async function handleApiCommand(
   req: IncomingMessage,
   res: ServerResponse,
+  authContext: ResolvedAuthContext,
 ): Promise<void> {
   const body = (await readJsonBody(req)) as Partial<GatewayCommandRequest>;
   const sessionId = normalizeOptionalString(body.sessionId);
@@ -4097,6 +4109,7 @@ async function handleApiCommand(
         fallbackUserId: sessionId,
       }) || sessionId,
     username: body.username ?? null,
+    adminActions: adminActionClaimList(authContext.payload),
   };
   const result = await handleGatewayCommand(commandRequest);
   sendJson(res, result.kind === 'error' ? 400 : 200, result);
@@ -11702,7 +11715,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat' && method === 'POST') {
-            await handleApiChat(req, res, operatorId);
+            await handleApiChat(req, res, operatorId, authContext);
             return;
           }
           if (pathname === '/api/chat/branch' && method === 'POST') {
@@ -11730,7 +11743,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/command' && method === 'POST') {
-            await handleApiCommand(req, res);
+            await handleApiCommand(req, res, authContext);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {
