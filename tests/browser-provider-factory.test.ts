@@ -198,6 +198,7 @@ test('browser provider factory can select mac-cua', async () => {
     })),
     ensureSessionWindow: vi.fn(async () => false),
     getWindowTitle: vi.fn(async () => ''),
+    pressHistoryButton: vi.fn(async () => undefined),
   };
   const provider = createBrowserProvider(
     makeBrowserConfig({

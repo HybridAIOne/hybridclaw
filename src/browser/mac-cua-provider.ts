@@ -311,14 +311,14 @@ class MacCuaBrowserSession implements BrowserSession {
   async back(opts?: HistoryNavigationOptions): Promise<void> {
     await this.runAction('back', async () => {
       assertNoUnsupportedNavigationWait(opts);
-      await this.keyChord('[', ['cmd']);
+      await this.driver.pressHistoryButton(this.sessionId, 'back');
     });
   }
 
   async forward(opts?: HistoryNavigationOptions): Promise<void> {
     await this.runAction('forward', async () => {
       assertNoUnsupportedNavigationWait(opts);
-      await this.keyChord(']', ['cmd']);
+      await this.driver.pressHistoryButton(this.sessionId, 'forward');
     });
   }
 

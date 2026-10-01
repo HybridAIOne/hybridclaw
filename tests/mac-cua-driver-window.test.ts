@@ -258,19 +258,47 @@ test('a text click presses the matching link, not the application', async () => 
   });
 });
 
+test('a text click waits for a loading page to show the link', async () => {
+  let reads = 0;
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) => {
+    if (name !== 'get_window_state') return undefined;
+    reads += 1;
+    return { tree_markdown: reads < 3 ? '' : DASHBOARD_QUERY_TREE };
+  });
+
+  const resolved = await driver.resolveTarget(sessionId, {
+    kind: 'query',
+    query: 'Dashboard',
+  });
+
+  expect(reads).toBe(3);
+  expect(resolved.target).toEqual({
+    kind: 'ax',
+    elementIndex: 23,
+    windowId: 11,
+  });
+  expect(calls.some((call) => call.name === 'click')).toBe(false);
+});
+
 test('an unmatched text click explains how to target elements', async () => {
   const { driver, sessionId } = await launchedSafari(({ name }) =>
     name === 'get_window_state' ? { tree_markdown: '' } : undefined,
   );
+  vi.useFakeTimers();
+  try {
+    const resolving = driver.resolveTarget(sessionId, {
+      kind: 'query',
+      query: "a[href*='dashboard']",
+    });
+    await vi.advanceTimersByTimeAsync(6_000);
+    const resolved = await resolving;
 
-  const resolved = await driver.resolveTarget(sessionId, {
-    kind: 'query',
-    query: "a[href*='dashboard']",
-  });
-
-  await expect(driver.click(sessionId, resolved.target)).rejects.toThrow(
-    /No element on the page matches "a\[href\*='dashboard'\]".*browser_snapshot/,
-  );
+    await expect(driver.click(sessionId, resolved.target)).rejects.toThrow(
+      /No element on the page matches "a\[href\*='dashboard'\]".*browser_snapshot/,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('reads the URL from the address field once Safari refuses page JavaScript', async () => {
@@ -314,3 +342,48 @@ test('takes JPEG screenshots at the requested quality', async () => {
     arguments: { window_id: 11, format: 'jpeg', quality: 55 },
   });
 });
+
+const SAFARI_TOOLBAR_TREE = [
+  '- [0] AXApplication "Safari"',
+  '  - [1] AXWindow "HybridAI"',
+  '    - [65] AXToolbar actions=[AXShowMenu]',
+  '        - AXGroup id=BackForwardSegmentedControl',
+  '          - [70] AXButton (Zurück) help="Die vorherige Seite anzeigen" id=BackButton actions=[AXShowMenu]',
+  '          - [71] AXButton (Weiter) help="Die nächste Seite anzeigen" id=ForwardButton DISABLED actions=[AXShowMenu]',
+].join('\n');
+
+test('goes back by pressing the toolbar button of the session window', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state'
+      ? { tree_markdown: SAFARI_TOOLBAR_TREE }
+      : undefined,
+  );
+
+  await driver.pressHistoryButton(sessionId, 'back');
+
+  expect(calls.slice(-2)).toEqual([
+    {
+      name: 'get_window_state',
+      arguments: { pid: 42, window_id: 11 },
+    },
+    {
+      name: 'click',
+      arguments: { pid: 42, window_id: 11, element_index: 70 },
+    },
+  ]);
+  expect(calls.some((call) => call.name === 'hotkey')).toBe(false);
+});
+
+test('refuses to go forward when there is no next page', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state'
+      ? { tree_markdown: SAFARI_TOOLBAR_TREE }
+      : undefined,
+  );
+
+  await expect(driver.pressHistoryButton(sessionId, 'forward')).rejects.toThrow(
+    'There is no page to go forward to.',
+  );
+  expect(calls.some((call) => call.name === 'click')).toBe(false);
+});
+
