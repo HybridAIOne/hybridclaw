@@ -3415,6 +3415,7 @@ async function handleApiChat(
     ...(body.appKind === 'live' || body.appKind === 'web'
       ? { appKind: body.appKind }
       : {}),
+    ...(body.client === 'mobile' ? { client: body.client } : {}),
   };
   logger.debug(
     {

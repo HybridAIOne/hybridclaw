@@ -61,8 +61,16 @@ export type SkillPromptMode = 'full' | 'compact';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
 export { PROMPT_PART_NAMES } from './prompt-parts.js';
 
+export type PromptClient = 'mobile';
+
 export interface PromptRuntimeInfo {
   chatbotId?: string;
+  /**
+   * Which app sent the turn when it is not the browser chat. `mobile` is the
+   * HybridAI phone app: it shares the web channel but never joins group
+   * channels, sets channels up, or opens relative links.
+   */
+  client?: PromptClient;
   model?: string;
   defaultModel?: string;
   channelType?: string;
@@ -271,20 +279,65 @@ function buildBootstrapHook(context: PromptHookContext): string {
     .join('\n\n');
 }
 
+/**
+ * Skills the mobile app's prompt leaves out: operator, coding and
+ * channel workflows a phone companion does not start. They stay eligible and
+ * discoverable through skills_list.
+ */
+const MOBILE_HIDDEN_SKILL_CATEGORIES = new Set([
+  'infrastructure',
+  'observability',
+  'production-ops',
+]);
+const MOBILE_HIDDEN_SKILLS = new Set([
+  'channel-catchup',
+  'code-review',
+  'code-simplification',
+  'discord',
+  'fax-send',
+  'gh-issues',
+  'github-pr-workflow',
+  'skill-creator',
+]);
+
+function isMobileClient(context: PromptHookContext): boolean {
+  return context.runtimeInfo?.client === 'mobile';
+}
+
+function selectClientPromptSkills(
+  selection: { skills: Skill[]; discovery: boolean },
+  context: PromptHookContext,
+): { skills: Skill[]; discovery: boolean } {
+  if (!isMobileClient(context)) return selection;
+  const skills = selection.skills.filter(
+    (skill) =>
+      skill.always ||
+      !(
+        MOBILE_HIDDEN_SKILL_CATEGORIES.has(skill.category) ||
+        MOBILE_HIDDEN_SKILLS.has(skill.name)
+      ),
+  );
+  return {
+    skills,
+    discovery: selection.discovery || skills.length < selection.skills.length,
+  };
+}
+
 function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   if (!isBootstrapPartSelected('skills', context)) return '';
-  const selection = selectLocalPromptSkills(
-    context.skills,
-    context.agentId,
-    context.runtimeInfo?.model,
+  const selection = selectClientPromptSkills(
+    selectLocalPromptSkills(
+      context.skills,
+      context.agentId,
+      context.runtimeInfo?.model,
+    ),
+    context,
   );
   const prompt =
     context.skillPromptMode === 'compact'
       ? buildCompactSkillsPrompt(selection.skills)
       : buildSkillsSection(buildSkillsPrompt(selection.skills));
-  const directoryAvailable =
-    !context.blockedTools?.includes('skills_list') &&
-    (!context.allowedTools || context.allowedTools.includes('skills_list'));
+  const directoryAvailable = isToolOffered(context, 'skills_list');
   const directory =
     selection.discovery && directoryAvailable
       ? 'Additional skills: skills are instruction packages, not executable tools. Use skills_list to search the full eligible skill directory when a relevant skill is absent above. Call skills_list directly when exposed, or through tool_catalog when that catalog is exposed. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
@@ -297,12 +350,12 @@ function buildBootstrapSystemBlocks(context: PromptHookContext): {
   workspaceMemory: string;
   skills: string;
 } {
-  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
-    (file) => {
-      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
-      return part ? isBootstrapPartSelected(part, context) : true;
-    },
-  );
+  const contextFiles = loadStaticBootstrapFiles(context.agentId, {
+    omitChannelGuidance: isMobileClient(context),
+  }).filter((file) => {
+    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+    return part ? isBootstrapPartSelected(part, context) : true;
+  });
   const staticCoreFiles = contextFiles.filter((file) =>
     STATIC_CORE_WORKSPACE_FILES.has(file.name),
   );
@@ -376,6 +429,24 @@ export function buildRetrievedContextPrompt(
 
 function buildRetrievalHook(context: PromptHookContext): string {
   return buildRetrievedContextPrompt(context.retrievedContext);
+}
+
+function isToolOffered(context: PromptHookContext, toolName: string): boolean {
+  return (
+    !context.blockedTools?.includes(toolName) &&
+    (!context.allowedTools || context.allowedTools.includes(toolName))
+  );
+}
+
+/**
+ * The search tool to route URL discovery through. Hosted instances turn the
+ * built-in `web_search` off and search through the HybridAI connectors
+ * server's `hybridai__web_search` instead.
+ */
+function resolveWebSearchToolName(context: PromptHookContext): string {
+  return isToolOffered(context, 'web_search')
+    ? 'web_search'
+    : 'hybridai__web_search';
 }
 
 function buildMessageToolPromptLines(
@@ -496,6 +567,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     },
   });
   const activeMessageChannels = collectActiveMessageToolChannelKinds();
+  const webSearchTool = resolveWebSearchToolName(context);
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
@@ -514,7 +586,9 @@ function buildSafetyHook(context: PromptHookContext): string {
     "When the user states standing rules, preferences, or instructions to remember — including a change to one, such as a new briefing time or delivery channel — first write them with the `memory` tool (append to today's daily note) in the same turn, then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
     'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
     '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
-    'Scheduled task output is saved in the originating web chat when no explicit "channel" is provided. Browser notifications require the user to enable notifications in the chat sidebar.',
+    isMobileClient(context)
+      ? 'Scheduled task output is saved in the originating chat when no explicit "channel" is provided.'
+      : 'Scheduled task output is saved in the originating web chat when no explicit "channel" is provided. Browser notifications require the user to enable notifications in the chat sidebar.',
     'To change an existing schedule (time, channel, or prompt), call `cron` "update" with the taskId from `cron` "list"; never "add" a second task for the same purpose.',
     'Outbound messages are always sent from the account HybridClaw is connected with. You cannot choose a different sender number or address, so never claim a message was sent from a specific number.',
     'Reply in the language the user writes in.',
@@ -586,8 +660,8 @@ function buildSafetyHook(context: PromptHookContext): string {
     'User: "Remind me tomorrow at 09:00 to submit report"',
     'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
     '',
-    '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
-    'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
+    `## Web Retrieval Routing (${webSearchTool}/web_fetch vs browser_*)`,
+    `Decision rule: use \`${webSearchTool}\` to discover relevant URLs when the target page is not already known, then use \`web_fetch\` for read-only content retrieval.`,
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -734,6 +808,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
   }
   const workspaceLabel =
     runtimeInfo.workspacePath?.trim() || 'current agent workspace';
+  const mobileClient = runtimeInfo.client === 'mobile';
   const guildLabel =
     runtimeInfo.guildId === null
       ? 'dm'
@@ -755,7 +830,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
       : '',
-    `Guild ID: ${guildLabel}`,
+    mobileClient ? '' : `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
     `Workspace: ${workspaceLabel}`,
@@ -769,6 +844,13 @@ function buildRuntimeHook(context: PromptHookContext): string {
     'Use the shortest complete answer unless the user asks for depth or the task clearly benefits from a fuller structured result.',
     ...(channelInstructions
       ? ['', '## Channel Instructions', channelInstructions]
+      : []),
+    ...(mobileClient
+      ? [
+          '',
+          '## Client',
+          'The user is chatting from the HybridAI mobile app. It cannot open relative links such as `/docs/` or `/admin/...`: share only absolute https URLs, or leave the link out.',
+        ]
       : []),
   ];
 

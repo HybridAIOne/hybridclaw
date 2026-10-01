@@ -4,7 +4,11 @@ import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
-import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
+import type {
+  PromptClient,
+  PromptMode,
+  PromptPartName,
+} from '../agent/prompt-hooks.js';
 import type {
   AgentBudgetCurrency,
   AgentBudgetUnit,
@@ -211,6 +215,12 @@ export interface GatewayChatRequestBody {
   appBuild?: boolean;
   appCategory?: string | null;
   appKind?: 'web' | 'live';
+  /**
+   * The app that sent the turn when it is not the browser chat. `mobile`
+   * trims the system prompt to what the HybridAI phone app can use; session,
+   * scheduling and delivery behavior stay those of the channel.
+   */
+  client?: PromptClient;
 }
 
 export interface GatewayChatRequest {
@@ -219,6 +229,7 @@ export interface GatewayChatRequest {
   appBuild?: boolean;
   appCategory?: string | null;
   appKind?: 'web' | 'live';
+  client?: GatewayChatRequestBody['client'];
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

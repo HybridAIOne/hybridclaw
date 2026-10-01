@@ -340,16 +340,34 @@ function stripMarkdownSection(content: string, heading: string): string {
     .trim();
 }
 
+const CHANNEL_SETUP_LINK_RE = /^\s*[-*]\s+\*\*[^*]*channel setup:\*\*/i;
+
+function stripChannelSetupLinks(content: string): string {
+  return content
+    .split('\n')
+    .filter((line) => !CHANNEL_SETUP_LINK_RE.test(line))
+    .join('\n');
+}
+
 function normalizeContextFileContent(params: {
   agentId: string;
   name: string;
   content: string;
+  omitChannelGuidance?: boolean;
 }): string {
   const { agentId, name } = params;
   let content = params.content;
 
   if (name === 'AGENTS.md' && !isBootstrapping(agentId)) {
     content = stripMarkdownSection(content, 'First Run');
+  }
+  if (params.omitChannelGuidance) {
+    if (name === 'AGENTS.md') {
+      content = stripMarkdownSection(content, 'Group Chats');
+    }
+    if (name === 'USER.md') {
+      content = stripChannelSetupLinks(content);
+    }
   }
 
   return content;
@@ -892,8 +910,14 @@ export function resetWorkspace(agentId: string): ResetWorkspaceResult {
 /**
  * Load all bootstrap files from the workspace.
  * Returns only files that exist and have content.
+ * `omitChannelGuidance` drops the AGENTS.md "Group Chats" section and the
+ * USER.md channel setup links, for clients such as the mobile app that
+ * neither join group channels nor set channels up.
  */
-export function loadStaticBootstrapFiles(agentId: string): ContextFile[] {
+export function loadStaticBootstrapFiles(
+  agentId: string,
+  options: { omitChannelGuidance?: boolean } = {},
+): ContextFile[] {
   const wsDir = agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
 
@@ -911,6 +935,7 @@ export function loadStaticBootstrapFiles(agentId: string): ContextFile[] {
         agentId,
         name: filename,
         content,
+        omitChannelGuidance: options.omitChannelGuidance,
       });
       if (!content) continue;
 

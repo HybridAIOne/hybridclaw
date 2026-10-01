@@ -1862,6 +1862,7 @@ async function handleGatewayMessageInner(
         .join('\n\n') || undefined,
     runtimeInfo: {
       chatbotId,
+      ...(req.client ? { client: req.client } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,
