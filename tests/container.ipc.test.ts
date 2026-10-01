@@ -94,3 +94,39 @@ test.each([
     expect(fs.readdirSync(ipcDir)).toEqual([name]);
   },
 );
+
+test.each([5_000, 5_010, 5_030])(
+  'a worker idle for %ims picks up the next turn within 50ms',
+  async (landsAtMs) => {
+    const ipcDir = makeTempDir();
+    vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
+    vi.useFakeTimers();
+    try {
+      const { waitForInput, setIpcAuthSecret } = await import(
+        '../container/src/ipc.js'
+      );
+      setIpcAuthSecret(WORKER_SECRET);
+      setTimeout(() => {
+        fs.writeFileSync(
+          path.join(ipcDir, 'input.json'),
+          encodeAuthenticatedInput(
+            WORKER_SECRET,
+            JSON.stringify({ sessionId: 'session-a', messages: [] }),
+          ),
+        );
+      }, landsAtMs);
+      let settled = false;
+      const waiting = waitForInput(60_000).finally(() => {
+        settled = true;
+      });
+
+      // By now the poll interval has backed off to its cap.
+      await vi.advanceTimersByTimeAsync(landsAtMs + 50);
+
+      expect(settled).toBe(true);
+      await expect(waiting).resolves.toMatchObject({ sessionId: 'session-a' });
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
