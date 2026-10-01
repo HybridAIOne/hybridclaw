@@ -761,6 +761,62 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(web).not.toContain('hybridai__list_connectors');
 });
 
+test('the mobile client prompt leaves out coding, document-building and browser detail', () => {
+  const runtimeInfo = { channelType: 'web', channelId: 'web', guildId: null };
+  const web = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo,
+  });
+  const mobile = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: { ...runtimeInfo, client: 'mobile' },
+  });
+
+  const dropped = [
+    'shell heredocs, echo redirects, sed, or awk',
+    'For `bash`:',
+    'After file changes, run commands only when asked',
+    'from a folder of source files',
+    'In web chat, image, PDF, and video artifacts can be previewed',
+    'Do not hand-write `/api/artifact` links',
+    'Office QA/export steps',
+    '`pptxgenjs`',
+    'headed:true',
+    'call `browser_downloads` with a relevant `filter`',
+    'Do not use `browser_pdf` as a text-reading step',
+    'login/auth-flow testing',
+    '### Decomposition heuristic',
+    'one-line rename',
+  ];
+  for (const text of dropped) {
+    expect(web).toContain(text);
+    expect(mobile).not.toContain(text);
+  }
+
+  const kept = [
+    'name it in the final reply by its workspace-relative path',
+    '`<file-base64:path>`',
+    'Never base64-encode a file in `bash`',
+    'For relative one-shot reminders, prefer `cron` with `at_seconds`',
+    'Use browser tools only when',
+    '`browser_sign_in`',
+    'call `browser_snapshot` with `mode="full"`',
+    'Delegation limits:',
+  ];
+  for (const text of kept) {
+    expect(web).toContain(text);
+    expect(mobile).toContain(text);
+  }
+
+  expect(mobile).toContain(
+    'The app shows the files, images and videos you return in the final reply',
+  );
+  expect(mobile).toContain('Delegation is push-based: do not poll or wait.');
+  expect(web).not.toContain('The app shows the files');
+});
+
 test('the mobile client prompt lists fewer skills and points to skills_list for the rest', () => {
   const skills = [
     makeSkill(),
