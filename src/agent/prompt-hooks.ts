@@ -34,11 +34,8 @@ import { resolveModelProvider } from '../providers/factory.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
 import { isLocalBackendType } from '../providers/provider-ids.js';
 import type { SessionContext } from '../session/session-context.js';
-import {
-  buildSkillsPrompt,
-  type Skill,
-  type SkillInvocation,
-} from '../skills/skills.js';
+import type { Skill, SkillInvocation } from '../skills/skills.js';
+import { buildSkillsSection } from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
@@ -216,31 +213,6 @@ export function buildSessionSummaryPrompt(
   ].join('\n');
 }
 
-function buildSkillsSection(skillsPrompt: string): string {
-  const trimmed = skillsPrompt.trim();
-  if (!trimmed) return '';
-  if (!trimmed.includes('<available_skills>')) return trimmed;
-
-  return [
-    '## Skills (mandatory)',
-    'Before replying: scan `<available_skills>` `<name>`, `<category>`, and `<description>` entries.',
-    '- A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
-    '- If the user explicitly names a skill from `<available_skills>`, treat that skill as selected.',
-    '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
-    '- After reading SKILL.md, use ordinary available tools such as `bash`, `read`, or `http_request` exactly as the skill instructs.',
-    '- If multiple could apply: choose the most specific one, then read/follow it.',
-    '- Treat direct format-name matches like "PDF", "DOCX", "XLSX", and "PPTX" as strong evidence for the same-named skill when the request is to create, edit, inspect, extract, or convert that format.',
-    '- If none clearly apply: do not read any SKILL.md.',
-    '- Do not claim a listed skill is unavailable when the user named it.',
-    '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
-    '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
-    '- Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
-    '- Run documented skill helper commands exactly as shown unless the skill explicitly says to modify them. Do not add Node permission flags such as `--experimental-permission`, and do not rewrite `skills/...` helper paths to `/workspace/skills/...`.',
-    '',
-    trimmed,
-  ].join('\n');
-}
-
 function escapeCompactSkillValue(value: string): string {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -336,7 +308,10 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   const prompt =
     context.skillPromptMode === 'compact'
       ? buildCompactSkillsPrompt(selection.skills)
-      : buildSkillsSection(buildSkillsPrompt(selection.skills));
+      : buildSkillsSection(
+          selection.skills,
+          isMobileClient(context) ? 'lines' : 'xml',
+        );
   const directoryAvailable = isToolOffered(context, 'skills_list');
   const directory =
     selection.discovery && directoryAvailable
