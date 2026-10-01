@@ -90,6 +90,8 @@ export interface ContainerInput extends SessionAttachmentAccess {
   debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
+  /** The app that sent the turn when it is not the browser chat. */
+  client?: string;
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
   scheduledTasks?: ScheduledTaskInput[];

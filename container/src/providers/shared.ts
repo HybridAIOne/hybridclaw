@@ -318,6 +318,7 @@ const HYBRIDAI_CORRELATION_HEADERS = {
   runId: 'X-HybridClaw-Run-Id',
   agentId: 'X-HybridClaw-Agent-Id',
   channelId: 'X-HybridClaw-Channel-Id',
+  client: 'X-HybridClaw-Client',
 } as const;
 
 type HybridAICorrelationKey = keyof typeof HYBRIDAI_CORRELATION_HEADERS;

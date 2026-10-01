@@ -53,4 +53,7 @@ test('a turn from the phone drives the local browser, other turns the configured
 
   expect(runAgentMock.mock.calls[0]?.[0].browserProvider).toBe('local');
   expect(runAgentMock.mock.calls[1]?.[0].browserProvider).toBeUndefined();
+  // The app is named on the turn so its model calls can be told apart.
+  expect(runAgentMock.mock.calls[0]?.[0].client).toBe('mobile');
+  expect(runAgentMock.mock.calls[1]?.[0].client).toBeUndefined();
 });
