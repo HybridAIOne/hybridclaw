@@ -114,6 +114,7 @@ interface ClientFrame {
   payload?: unknown;
   sessionId?: unknown;
   agentId?: unknown;
+  client?: unknown;
 }
 
 function sendFrame(ws: WebSocket, frame: Record<string, unknown>): void {
@@ -231,6 +232,9 @@ export class WebchatVoiceConnection {
       (typeof frame.agentId === 'string' && frame.agentId.trim()) ||
       resolveDefaultAgentId(getRuntimeConfig());
     const sessionId = resolveVoiceSessionId(frame.sessionId, agentId);
+    // A call from the phone app continues one of its chats, which must not
+    // reset under it any more than when the app writes there.
+    const client = frame.client === 'mobile' ? frame.client : undefined;
     const userId = this.identity.userId || sessionId;
     const username = this.identity.username || 'web';
     this.bridge = new RealtimeCallBridge({
@@ -254,6 +258,7 @@ export class WebchatVoiceConnection {
           username,
           content: request,
           agentId,
+          ...(client ? { client } : {}),
           abortSignal: hooks.abortSignal,
           onToolProgress: (event) => hooks.onToolProgress(event),
           source: 'webchat.voice',

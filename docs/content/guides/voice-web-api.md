@@ -70,7 +70,7 @@ webchat voice frame protocol — JSON text frames both ways:
 
 | Direction | Frame | Meaning |
 | --- | --- | --- |
-| client → server | `{"type":"start","sessionId?":"…","agentId?":"…"}` | Start the session (within 10 s of connecting) |
+| client → server | `{"type":"start","sessionId?":"…","agentId?":"…","client?":"mobile"}` | Start the session (within 10 s of connecting); `client: "mobile"` keeps a phone app's chat from resetting, as on `POST /api/chat` |
 | client → server | `{"type":"audio","payload":"<base64 PCM16>"}` | Microphone audio |
 | client → server | `{"type":"stop"}` | End the session |
 | server → client | `{"type":"ready","sessionId":"…"}` | Session is live |

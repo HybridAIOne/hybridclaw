@@ -39,9 +39,10 @@ open **Credentials → Devices**, check the client name and source IP, and appro
 that code. Approval requires permission to create API tokens. Codes expire after
 10 minutes; if the gateway restarts, start pairing again.
 
-The device receives its own token with `chat.send`, `agents.read`, and
-`artifacts.read`. It can chat, list agents, download reply documents, and retrieve
-single stored replies from chats it started. Manage or revoke the token under
+The device receives its own token with `chat.send`, `agents.read`,
+`artifacts.read`, and `voice.session`. It can chat, call the agent, list agents,
+download reply documents, and retrieve single stored replies from chats it
+started. Manage or revoke the token under
 **Credentials → API tokens**. Pairing does not enable phone push by itself; the
 app must also register its phone as described below.
 
