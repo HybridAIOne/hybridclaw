@@ -440,6 +440,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/chat/message' && method === 'GET') {
     return 'chat.send';
   }
+  // Reacting to a reply in a chat the caller chats in; the route checks
+  // ownership and runs no turn.
+  if (pathname === '/api/chat/reaction' && method === 'POST') {
+    return 'chat.send';
+  }
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
   }
