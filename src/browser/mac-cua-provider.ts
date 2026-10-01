@@ -945,10 +945,10 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     args: Record<string, unknown>,
   ): Promise<CuaMcpToolResult> {
     await this.ensureMcpSession();
-    if (!this.client) throw new Error('mac-cua MCP client is not connected.');
     const { CallToolResultSchema } = await import(
       '@modelcontextprotocol/sdk/types.js'
     );
+    if (!this.client) throw new Error('mac-cua MCP client is not connected.');
     const result = (await withTimeout(
       this.client.callTool(
         {

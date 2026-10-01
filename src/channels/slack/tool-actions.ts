@@ -6,7 +6,7 @@ import {
 import { parseSessionKey } from '../../session/session-key.js';
 import type { Session } from '../../types/session.js';
 import { normalizeTrimmedString as normalizeValue } from '../../utils/normalized-strings.js';
-import { slackRuntime } from '../channel-runtime-loaders.js';
+import { slackRuntimeLoader } from '../channel-runtime-loaders.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isSlackSessionId } from './inbound.js';
 import { normalizeSlackUserId, parseSlackChannelTarget } from './target.js';
@@ -268,7 +268,9 @@ async function runSlackSendAction(
     throw new Error('components are not supported for Slack sends.');
   }
 
-  const delivery = await (await slackRuntime.load()).sendToActiveSlackSession({
+  const delivery = await (
+    await slackRuntimeLoader.load()
+  ).sendToActiveSlackSession({
     sessionId: resolveSlackSessionKey(targetSession),
     text: resolvedFilePath ? '' : content,
     filePath: resolvedFilePath,
@@ -348,7 +350,8 @@ function runSlackChannelInfoAction(
       isDm: parsed?.chatType === 'dm',
       threadTs: target?.threadTs || null,
       active:
-        slackRuntime.current()?.hasActiveSlackSession(sessionKey) ?? false,
+        slackRuntimeLoader.current()?.hasActiveSlackSession(sessionKey) ??
+        false,
       createdAt: targetSession.created_at,
       lastActive: targetSession.last_active,
     },

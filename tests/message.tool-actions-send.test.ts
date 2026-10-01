@@ -1,6 +1,9 @@
 import { expect, test, vi } from 'vitest';
 
-async function importFreshMessageToolActions(a2aLocalMode = false) {
+async function importFreshMessageToolActions(
+  a2aLocalMode = false,
+  discordConnected = true,
+) {
   vi.resetModules();
 
   const readEmailMailbox = vi.fn(async (params: Record<string, unknown>) => {
@@ -307,6 +310,12 @@ async function importFreshMessageToolActions(a2aLocalMode = false) {
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
+  if (discordConnected) {
+    const { discordRuntimeLoader } = await import(
+      '../src/channels/channel-runtime-loaders.js'
+    );
+    await discordRuntimeLoader.load();
+  }
   return {
     ...module,
     sendEmailAttachmentTo,
@@ -1395,10 +1404,10 @@ test('read action routes current Slack sessions through stored Slack history', a
 test('channel-info action returns Slack session metadata for the current chat', async () => {
   const state = await importFreshMessageToolActions();
   // A running Slack integration has loaded its runtime via `initSlack`.
-  const { slackRuntime } = await import(
+  const { slackRuntimeLoader } = await import(
     '../src/channels/channel-runtime-loaders.js'
   );
-  await slackRuntime.load();
+  await slackRuntimeLoader.load();
 
   const result = await state.runMessageToolAction({
     action: 'channel-info',
@@ -1572,6 +1581,23 @@ test('non-send actions still delegate to Discord tool actions', async () => {
     action: 'send',
     transport: 'discord',
   });
+});
+
+test('Discord-bound actions fail without loading Discord when it is not running', async () => {
+  const state = await importFreshMessageToolActions(false, false);
+  const { discordRuntimeLoader } = await import(
+    '../src/channels/channel-runtime-loaders.js'
+  );
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'read',
+      channelId: '123456789012345678',
+      limit: 10,
+    }),
+  ).rejects.toThrow('Discord client is not initialized.');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(discordRuntimeLoader.current()).toBeNull();
 });
 
 test('WhatsApp send results describe sender, recipient and unconfirmed delivery', async () => {

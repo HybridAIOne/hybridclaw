@@ -6,7 +6,7 @@ import {
   resolveAgentModel,
 } from '../agents/agent-registry.js';
 import type { AgentConfig } from '../agents/agent-types.js';
-import { discordRuntime } from '../channels/channel-runtime-loaders.js';
+import { discordRuntimeLoader } from '../channels/channel-runtime-loaders.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import {
@@ -373,7 +373,7 @@ export function mapSessionCard(params: {
     sessionId: session.id,
     channelId: session.channel_id,
     channelName:
-      discordRuntime
+      discordRuntimeLoader
         .current()
         ?.getDiscordChannelDisplayName(session.guild_id, session.channel_id) ??
       null,

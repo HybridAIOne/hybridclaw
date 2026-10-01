@@ -41,8 +41,12 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
 
 // Transpiling drops type-only imports the same way tsc does, so the walk sees
 // exactly the modules Node loads at startup.
-function collectStartupPackages(entry: string): Map<string, string> {
+function collectStartupPackages(entry: string): {
+  importers: Map<string, string>;
+  unresolved: string[];
+} {
   const importers = new Map<string, string>();
+  const unresolved: string[] = [];
   const seen = new Set([entry]);
   const queue = [entry];
   while (queue.length > 0) {
@@ -64,18 +68,21 @@ function collectStartupPackages(entry: string): Map<string, string> {
         continue;
       }
       const resolved = resolveLocal(file, specifier);
-      if (resolved && !seen.has(resolved)) {
+      if (!resolved) {
+        unresolved.push(`${path.relative(ROOT, file)} -> ${specifier}`);
+      } else if (!seen.has(resolved)) {
         seen.add(resolved);
         queue.push(resolved);
       }
     }
   }
-  return importers;
+  return { importers, unresolved };
 }
 
 test('gateway startup graph does not statically load optional channel SDKs', () => {
-  const importers = collectStartupPackages(GATEWAY_ENTRY);
+  const { importers, unresolved } = collectStartupPackages(GATEWAY_ENTRY);
 
+  expect(unresolved).toEqual([]);
   expect(importers.has('better-sqlite3')).toBe(true);
   const leaked = LAZY_ONLY_PACKAGES.filter((name) => importers.has(name)).map(
     (name) => `${name} (imported by ${importers.get(name)})`,
@@ -89,15 +96,38 @@ test('channel runtime loaders expose a module only after it is loaded', async ()
     shutdownSlack: vi.fn(),
   }));
   try {
-    const { slackRuntime } = await import(
+    const { slackRuntimeLoader } = await import(
       '../src/channels/channel-runtime-loaders.js'
     );
 
-    expect(slackRuntime.current()).toBeNull();
-    const loaded = await slackRuntime.load();
-    expect(slackRuntime.current()).toBe(loaded);
-    expect(await slackRuntime.load()).toBe(loaded);
+    expect(slackRuntimeLoader.current()).toBeNull();
+    const loaded = await slackRuntimeLoader.load();
+    expect(slackRuntimeLoader.current()).toBe(loaded);
+    expect(await slackRuntimeLoader.load()).toBe(loaded);
   } finally {
     vi.doUnmock('../src/channels/slack/runtime.js');
+  }
+});
+
+test('channel runtime loaders retry after a failed import', async () => {
+  vi.resetModules();
+  let attempts = 0;
+  vi.doMock('../src/channels/email/runtime.js', () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('module missing mid-upgrade');
+    return { shutdownEmail: vi.fn() };
+  });
+  try {
+    const { emailRuntimeLoader } = await import(
+      '../src/channels/channel-runtime-loaders.js'
+    );
+
+    await expect(emailRuntimeLoader.load()).rejects.toThrow();
+    expect(emailRuntimeLoader.current()).toBeNull();
+    await expect(emailRuntimeLoader.load()).resolves.toHaveProperty(
+      'shutdownEmail',
+    );
+  } finally {
+    vi.doUnmock('../src/channels/email/runtime.js');
   }
 });

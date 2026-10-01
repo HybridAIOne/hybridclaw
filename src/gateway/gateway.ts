@@ -41,9 +41,9 @@ import {
 import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
 import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
 import {
-  discordRuntime,
-  emailRuntime,
-  slackRuntime,
+  discordRuntimeLoader,
+  emailRuntimeLoader,
+  slackRuntimeLoader,
   stopDiscordRuntime,
   stopEmailRuntime,
   stopSlackRuntime,
@@ -850,7 +850,9 @@ async function handleTextChannelCommand(params: {
 
     await reply(
       handledApproval.text,
-      await buildArtifactAttachments(handledApproval.artifacts),
+      isDiscordChannelId(channelId)
+        ? await buildArtifactAttachments(handledApproval.artifacts)
+        : undefined,
     );
     return;
   }
@@ -865,7 +867,9 @@ async function handleTextChannelCommand(params: {
     onProactiveMessage: async (message) => {
       await reply(
         message.text,
-        await buildArtifactAttachments(message.artifacts),
+        isDiscordChannelId(channelId)
+          ? await buildArtifactAttachments(message.artifacts)
+          : undefined,
       );
     },
   });
@@ -1170,7 +1174,7 @@ async function sendProactiveMessageNow(
 
     try {
       if (artifacts && artifacts.length > 0) {
-        await (await emailRuntime.load()).sendEmailAttachmentTo({
+        await (await emailRuntimeLoader.load()).sendEmailAttachmentTo({
           to: channelId,
           filePath: artifacts[0].path,
           body: text,
@@ -1178,7 +1182,7 @@ async function sendProactiveMessageNow(
           filename: artifacts[0].filename,
         });
         for (let index = 1; index < artifacts.length; index += 1) {
-          await (await emailRuntime.load()).sendEmailAttachmentTo({
+          await (await emailRuntimeLoader.load()).sendEmailAttachmentTo({
             to: channelId,
             filePath: artifacts[index].path,
             mimeType: artifacts[index].mimeType,
@@ -1188,7 +1192,7 @@ async function sendProactiveMessageNow(
         return { status: 'delivered' };
       }
 
-      await (await emailRuntime.load()).sendToEmail(channelId, text);
+      await (await emailRuntimeLoader.load()).sendToEmail(channelId, text);
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount },
@@ -1280,10 +1284,13 @@ async function sendProactiveMessageNow(
 
     try {
       if (text.trim()) {
-        await (await slackRuntime.load()).sendToSlackTarget(channelId, text);
+        await (await slackRuntimeLoader.load()).sendToSlackTarget(
+          channelId,
+          text,
+        );
       }
       for (const artifact of artifacts || []) {
-        await (await slackRuntime.load()).sendSlackFileToTarget({
+        await (await slackRuntimeLoader.load()).sendSlackFileToTarget({
           target: channelId,
           filePath: artifact.path,
           filename: artifact.filename,
@@ -1440,7 +1447,7 @@ async function sendProactiveMessageNow(
   }
 
   try {
-    await (await discordRuntime.load()).sendToChannel(
+    await (await discordRuntimeLoader.load()).sendToChannel(
       channelId,
       text,
       await buildArtifactAttachments(artifacts),
@@ -1550,7 +1557,7 @@ async function startDiscordIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await discordRuntime.load()).initDiscord(
+    await (await discordRuntimeLoader.load()).initDiscord(
       withInFlightTurn(
         async (
           sessionId: string,
@@ -2487,7 +2494,7 @@ async function startEmailIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await emailRuntime.load()).initEmail(
+    await (await emailRuntimeLoader.load()).initEmail(
       withInFlightTurn(
         async (
           sessionId,
@@ -3065,7 +3072,7 @@ async function startSlackIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await slackRuntime.load()).initSlack(
+    await (await slackRuntimeLoader.load()).initSlack(
       withInFlightTurn(
         async (
           sessionId,
@@ -3176,7 +3183,7 @@ async function startSlackIntegration(): Promise<boolean> {
               await reply(responseText);
             }
             for (const artifact of artifacts) {
-              await (await slackRuntime.load()).sendSlackFileToTarget({
+              await (await slackRuntimeLoader.load()).sendSlackFileToTarget({
                 target: context.inbound.target,
                 filePath: artifact.path,
                 filename: artifact.filename,
@@ -3247,15 +3254,12 @@ async function refreshEmailIntegrationForConfigChange(
     },
     'Config changed, restarting email integration',
   );
-  await emailRuntime
-    .current()
-    ?.shutdownEmail()
-    .catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop email runtime during config-change restart',
-      );
-    });
+  await stopEmailRuntime().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop email runtime during config-change restart',
+    );
+  });
   await startEmailIntegration();
 }
 
@@ -3468,15 +3472,12 @@ async function refreshSlackIntegrationForConfigChange(
     },
     'Config changed, restarting Slack integration',
   );
-  await slackRuntime
-    .current()
-    ?.shutdownSlack()
-    .catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop Slack runtime during config-change restart',
-      );
-    });
+  await stopSlackRuntime().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Slack runtime during config-change restart',
+    );
+  });
   await startSlackIntegration();
 }
 
@@ -4044,7 +4045,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     detachSecretsRefreshListener = null;
     setChannelPluginAvailabilityListener(null);
     await runShutdownStep('set Discord maintenance presence', () =>
-      discordRuntime.current()?.setDiscordMaintenancePresence(),
+      discordRuntimeLoader.current()?.setDiscordMaintenancePresence(),
     );
     if (opts?.drain) {
       markGatewayShuttingDown();

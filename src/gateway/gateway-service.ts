@@ -94,7 +94,7 @@ import {
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
-import { emailAdminMailbox } from '../channels/channel-runtime-loaders.js';
+import { emailAdminMailboxLoader } from '../channels/channel-runtime-loaders.js';
 import { isSafeDiscordCdnUrl } from '../channels/discord/discord-cdn-fetch.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -6023,7 +6023,7 @@ export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMa
   }
   const { config, password } =
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
-  const { fetchLiveAdminEmailMailbox } = await emailAdminMailbox.load();
+  const { fetchLiveAdminEmailMailbox } = await emailAdminMailboxLoader.load();
   const mailbox = await fetchLiveAdminEmailMailbox(config, password);
 
   return {
@@ -6042,7 +6042,7 @@ export async function getGatewayAdminEmailFolder(params: {
   const runtimeConfig = getRuntimeConfig();
   const { config, password } =
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
-  const { fetchLiveAdminEmailFolder } = await emailAdminMailbox.load();
+  const { fetchLiveAdminEmailFolder } = await emailAdminMailboxLoader.load();
   return fetchLiveAdminEmailFolder(config, password, params);
 }
 
@@ -6053,7 +6053,7 @@ export async function getGatewayAdminEmailMessage(params: {
   const runtimeConfig = getRuntimeConfig();
   const { config, password } =
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
-  const { fetchLiveAdminEmailMessage } = await emailAdminMailbox.load();
+  const { fetchLiveAdminEmailMessage } = await emailAdminMailboxLoader.load();
   return fetchLiveAdminEmailMessage(config, password, params);
 }
 
@@ -6064,7 +6064,7 @@ export async function deleteGatewayAdminEmailMessage(params: {
   const runtimeConfig = getRuntimeConfig();
   const { config, password } =
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
-  const { deleteLiveAdminEmailMessage } = await emailAdminMailbox.load();
+  const { deleteLiveAdminEmailMessage } = await emailAdminMailboxLoader.load();
   return deleteLiveAdminEmailMessage(config, password, params);
 }
 
