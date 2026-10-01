@@ -1044,6 +1044,7 @@ async function runHostProcessInner(
       discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,
+    client: params.client,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
     hiddenScheduledTaskCount,

@@ -16,6 +16,7 @@ import type {
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import type { PromptClient } from './prompt-hooks.js';
 
 export interface ExecutorRequest extends SessionAttachmentAccess {
   sessionId: string;
@@ -42,6 +43,8 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
       }
     | undefined;
   channelId?: string;
+  /** The app that sent the turn, for request correlation. */
+  client?: PromptClient;
   /** The browser this run drives; the configured provider when unset. */
   browserProvider?: RuntimeBrowserProviderKind;
   ralphMaxIterations?: number | null;
