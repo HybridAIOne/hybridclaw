@@ -67,7 +67,8 @@ const MAX_TODOS = 100;
 const MAX_TITLE_LENGTH = 200;
 const HISTORY_DAYS = 400;
 const RECENT_DAYS = 14;
-const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+/** Cron weekday order: Sunday is 0. Goals' check-ins use the same names. */
+export const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 

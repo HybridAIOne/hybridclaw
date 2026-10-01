@@ -17,7 +17,11 @@ import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
 import { getSessionById } from '../memory/db.js';
 import { createJob, deleteJob, getJob } from '../memory/jobs.js';
-import { defaultTimezone, todoOwnerOf } from '../todos/todo-store.js';
+import {
+  DAY_NAMES,
+  defaultTimezone,
+  todoOwnerOf,
+} from '../todos/todo-store.js';
 import type { Session } from '../types/session.js';
 
 export type TrackKind = 'goal' | 'tracking';
@@ -82,7 +86,6 @@ const MAX_NOTES = 20;
 const DONE_KEPT_DAYS = 90;
 const CONTEXT_ITEMS = 20;
 const DEFAULT_AT = '09:00';
-const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 // Resolved on use: the data directory follows the runtime config.
 const storePath = () => path.join(DATA_DIR, 'tracked.json');
