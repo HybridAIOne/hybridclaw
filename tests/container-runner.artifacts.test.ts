@@ -135,6 +135,22 @@ test('attaches a browser frame, with its host path, to the next browser result',
   }
 });
 
+test('carries a sign-in ask to the sign-in tool\'s finish event', () => {
+  const entry: BrowserFrameSink = {};
+  expect(
+    stashBrowserFrameLine(
+      entry,
+      '[browser-frame] {"url":"https://hybridai.one/login","title":"Login","signIn":{"host":"hybridai.one"}}',
+    ),
+  ).toBe(true);
+
+  expect(takeBrowserFrame(entry, 'browser_sign_in', 'finish')).toEqual({
+    url: 'https://hybridai.one/login',
+    title: 'Login',
+    signIn: { host: 'hybridai.one' },
+  });
+});
+
 test('drops a browser frame path that leaves the workspace', () => {
   const entry: BrowserFrameSink = {
     browserFrameWorkspace: { path: '/srv/agents/main/workspace' },

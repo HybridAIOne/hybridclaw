@@ -213,6 +213,34 @@ hybridclaw secret route remove <url-prefix> [header]
 - you can still reference stored secrets explicitly in prompts with
   `<secret:NAME>` when that workflow is more appropriate than a URL auth rule
 
+## Website Sign-ins
+
+When the agent's browser reaches a page that asks the user to sign in, the
+agent calls `browser_sign_in`. If a sign-in is saved for that page's host, the
+gateway types the username and password into the fields the agent names, the
+same way `browser_secret_type` injects a stored secret: the model sees neither
+value, the resolve is audited, and live browser frames pause until the page
+changes. If none is saved, the tool asks the user's client for one and the
+agent stops and says so. The Hy app shows a **Sign in** card for the host; its
+sheet saves the sign-in with `POST /api/sign-ins` and Hy carries on.
+
+- a sign-in lives in the encrypted runtime store as
+  `SIGNIN_<HOST>_USERNAME` and `SIGNIN_<HOST>_PASSWORD`, each with a
+  `<NAME>_BOUND_DOMAIN` binding to the host it was saved for
+- a `SIGNIN_*` secret only resolves for exactly that host, on every sink, and
+  one without a binding never resolves. Workspace secret policy rules cannot
+  widen this, so a page on another site, a subdomain, or an `http_request` to
+  another host never receives it
+- `GET /api/sign-ins` lists the saved sites without usernames or passwords,
+  `POST /api/sign-ins` saves `{host, username, password}`, and
+  `DELETE /api/sign-ins/<host>` forgets one. Scoped API tokens need
+  `sign_ins.manage`; paired phones get it. Saves and deletes are audited as
+  `browser.sign_in_saved` and `browser.sign_in_removed`, without values
+- the store trims values, so a password that starts or ends with a space is
+  refused rather than saved wrong
+- `hybridclaw secret unset SIGNIN_<HOST>_PASSWORD` also removes one from a
+  shell; `secret list` shows the names
+
 ## Google OAuth For Direct Google APIs
 
 Use the `google-oauth` route provider when an agent should call Google APIs

@@ -135,6 +135,8 @@ export interface BrowserFrame {
   title: string;
   /** Viewport JPEG, served by `/api/artifact`; absent while frames are paused. */
   frame?: string;
+  /** Set by `browser_sign_in` when nothing is saved for this host: ask the user. */
+  signIn?: { host: string };
 }
 
 export interface ToolProgressEvent {

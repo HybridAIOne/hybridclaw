@@ -120,7 +120,13 @@ describe('device authorization grants', () => {
     expect(registry.verifyApiToken(token)).toMatchObject({
       label: 'Device: HybridClaw for iPhone',
       claims: {
-        actions: ['chat.send', 'agents.read', 'artifacts.read', 'voice.session'],
+        actions: [
+          'chat.send',
+          'agents.read',
+          'artifacts.read',
+          'voice.session',
+          'sign_ins.manage',
+        ],
       },
     });
     expect(recordAuditEvent).toHaveBeenCalledTimes(1);
@@ -247,6 +253,7 @@ describe('device authorization grants', () => {
           'agents.read',
           'artifacts.read',
           'voice.session',
+          'sign_ins.manage',
           'chat.history',
         ],
         owner: true,

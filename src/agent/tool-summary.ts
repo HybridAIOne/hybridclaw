@@ -29,6 +29,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       'browser_click',
       'browser_type',
       'browser_secret_type',
+      'browser_sign_in',
       'browser_upload',
       'browser_press',
       'browser_scroll',

@@ -25,6 +25,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'chat.history',
   'artifacts.read',
   'voice.session',
+  'sign_ins.manage',
   'status.read',
   'agents.read',
   'apps.read',
@@ -426,6 +427,14 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/chat/voice/token' && method === 'POST') {
     return 'voice.session';
+  }
+  // Website sign-ins go in and come out only as site names; see
+  // `gateway-browser-sign-ins.ts`.
+  if (pathname === '/api/sign-ins' && (method === 'GET' || method === 'POST')) {
+    return 'sign_ins.manage';
+  }
+  if (pathname.startsWith('/api/sign-ins/') && method === 'DELETE') {
+    return 'sign_ins.manage';
   }
   if (pathname === '/api/command' && method === 'POST') {
     return 'chat.send';

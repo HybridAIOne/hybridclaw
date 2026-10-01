@@ -2642,6 +2642,24 @@ function emitBrowserFrame(url: string, frame: string | null): void {
 }
 
 /**
+ * Ask the user's client for a website sign-in: a frame line without a picture
+ * whose `signIn` names the host, so the Hy app shows a Sign in card for it.
+ * Sent with live frames off too, since it carries no image.
+ */
+export function emitBrowserSignInRequest(
+  page: { url: string; title: string },
+  host: string,
+): void {
+  console.error(
+    `${BROWSER_FRAME_LOG_PREFIX}${JSON.stringify({
+      url: displayPageUrl(page.url) || `https://${host}/`,
+      title: page.title.slice(0, 200),
+      signIn: { host },
+    })}`,
+  );
+}
+
+/**
  * Read where the browser is and, unless frames are off or paused, save a small
  * JPEG of the viewport. The gateway turns the stderr line into the `browser`
  * field of this tool's progress event, which is how a client watches the
@@ -3989,6 +4007,47 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['secretName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_sign_in',
+      description:
+        'Sign in on the current page with the username and password the user saved for this site. The gateway types them into the fields you name; you never see them. Name the fields this page shows: both, or only one on a page that asks for the username and the password separately, then submit the form yourself. If nothing is saved for the site, or replace is true, the user is asked to save a sign-in in the Hy app, and you stop and tell them. Never ask for a username, password or code in chat.',
+      parameters: {
+        type: 'object',
+        properties: {
+          username_ref: {
+            type: 'string',
+            description:
+              'Username or email field reference from browser_snapshot.',
+          },
+          username_selector: {
+            type: 'string',
+            description: 'CSS selector for the username field, without a ref.',
+          },
+          password_ref: {
+            type: 'string',
+            description: 'Password field reference from browser_snapshot.',
+          },
+          password_selector: {
+            type: 'string',
+            description: 'CSS selector for the password field, without a ref.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+          replace: {
+            type: 'boolean',
+            description:
+              'Set true when the site rejected the saved sign-in, to ask the user for a new one.',
+          },
+        },
+        required: [],
       },
     },
   },

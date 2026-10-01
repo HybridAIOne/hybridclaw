@@ -265,6 +265,12 @@ import {
   getGatewayAdminTokens,
   revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
+import {
+  BROWSER_SIGN_IN_LOOKUP_PATH,
+  handleApiBrowserSignInLookup,
+  handleApiSignIns,
+  SIGN_INS_PATH,
+} from './gateway-browser-sign-ins.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiDelegate } from './gateway-delegation.js';
 import {
@@ -11631,6 +11637,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiHistory(req, res, url);
             return;
           }
+          if (
+            pathname === SIGN_INS_PATH ||
+            pathname.startsWith(`${SIGN_INS_PATH}/`)
+          ) {
+            await handleApiSignIns(
+              req,
+              res,
+              pathname,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
           if (pathname === '/api/chat/recent' && method === 'GET') {
             handleApiChatRecent(req, res, url);
             return;
@@ -11813,6 +11831,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === SHELL_RUNTIME_ENV_PATH && method === 'POST') {
             await handleApiShellEnv(res, hasGatewayApiAuth(req));
+            return;
+          }
+          if (pathname === BROWSER_SIGN_IN_LOOKUP_PATH && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiBrowserSignInLookup(req, res);
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {
