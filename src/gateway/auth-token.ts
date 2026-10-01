@@ -225,8 +225,33 @@ function buildSessionCookieValue(params: {
   ].join('; ');
 }
 
+// A hosted owner's phone gets its first credential from HybridAI as a pass
+// signed like a launch token. The type keeps the two apart: a launch link left
+// in a browser's history can never be traded for a device token, and a pass is
+// not a console login.
+export const DEVICE_HANDOFF_TOKEN_TYPE = 'device-handoff';
+
+export interface VerifiedDeviceHandoff extends VerifiedAuthTokenPayload {
+  sub: string;
+  jti: string;
+}
+
 export function verifyLaunchToken(token: string): VerifiedAuthTokenPayload {
-  return requireVerifiedToken(token);
+  const payload = requireVerifiedToken(token);
+  if (payload.typ === DEVICE_HANDOFF_TOKEN_TYPE) {
+    throw new Error('Invalid or expired auth token.');
+  }
+  return payload;
+}
+
+export function verifyDeviceHandoffToken(token: string): VerifiedDeviceHandoff {
+  const payload = requireVerifiedToken(token);
+  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+  const jti = typeof payload.jti === 'string' ? payload.jti.trim() : '';
+  if (payload.typ !== DEVICE_HANDOFF_TOKEN_TYPE || !sub || !jti) {
+    throw new Error('Invalid or expired auth token.');
+  }
+  return { ...payload, sub, jti };
 }
 
 export function getSessionAuthPayload(

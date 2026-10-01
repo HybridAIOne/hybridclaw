@@ -77,6 +77,7 @@ function formatClaims(claims: Record<string, unknown>): string {
 const TOKEN_ACTION_VALUES = [
   'openai.api',
   'chat.send',
+  'chat.history',
   'artifacts.read',
   'status.read',
   'agents.read',
@@ -229,6 +230,7 @@ function formatActionLabel(value: string): string {
 function formatActionDescription(value: string): string {
   if (value === 'openai.api') return 'Use OpenAI-compatible /v1 endpoints.';
   if (value === 'chat.send') return 'Send chat and command requests.';
+  if (value === 'chat.history') return 'Read back a chat, user turns included.';
   if (value === 'status.read') return 'Read gateway status.';
   if (value === 'agents.read') return 'Read agent metadata.';
   if (value === 'artifacts.read') return 'Download files that agents made.';
@@ -264,6 +266,7 @@ function resolveActionGroup(value: string): string {
     [
       'openai.api',
       'chat.send',
+      'chat.history',
       'artifacts.read',
       'status.read',
       'agents.read',

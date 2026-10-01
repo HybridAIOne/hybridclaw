@@ -179,6 +179,9 @@ describe('push subscription boundary', () => {
     expect(resolveWebNotificationOperator('master', null)).toBe(resolveWebNotificationOperator('localSession', null));
     expect(resolveWebNotificationOperator('apiToken', 'label-a', 'token-a')).toBe(resolveWebNotificationOperator('apiToken', 'label-b', 'token-a'));
     expect(resolveWebNotificationOperator('session', 'user-a')).not.toBe(resolveWebNotificationOperator('session', 'user-b'));
+    // The owner's phone is the operator the master token is, whichever token it holds.
+    expect(resolveWebNotificationOperator('apiToken', 'label', 'token-a', true)).toBe(resolveWebNotificationOperator('master', null));
+    expect(resolveWebNotificationOperator('session', 'user-a', undefined, true)).toBe(resolveWebNotificationOperator('session', 'user-a'));
     const { resolveAdminRbacAction, isAdminActionAllowed } = await import('../src/security/admin-rbac.js');
     const permission = resolveAdminRbacAction('/api/push/subscriptions', 'POST');
     expect(permission).toBe('chat.send');

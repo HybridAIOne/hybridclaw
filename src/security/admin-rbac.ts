@@ -22,6 +22,7 @@ export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_TOKEN_RBAC_ACTIONS,
   'openai.api',
   'chat.send',
+  'chat.history',
   'artifacts.read',
   'voice.session',
   'status.read',
@@ -411,6 +412,9 @@ export function resolveAdminRbacAction(
   // A chat's own replies are part of chatting; the route checks ownership.
   if (pathname === '/api/chat/message' && method === 'GET') {
     return 'chat.send';
+  }
+  if (pathname === '/api/history' && method === 'GET') {
+    return 'chat.history';
   }
   if (pathname === '/api/artifact' && method === 'GET') {
     return 'artifacts.read';

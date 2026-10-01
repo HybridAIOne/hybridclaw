@@ -67,6 +67,47 @@ describe('gateway auth token helpers', () => {
     });
   });
 
+  test('keeps device handoff passes and launch tokens apart', async () => {
+    process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
+    const { verifyDeviceHandoffToken, verifyLaunchToken } = await import(
+      '../src/gateway/auth-token.ts'
+    );
+    const exp = Math.floor(Date.now() / 1000) + 60;
+    const pass = signAuthPayload(
+      { exp, sub: 'user-1', jti: 'pass-1', typ: 'device-handoff' },
+      'unit-secret',
+    );
+    expect(verifyDeviceHandoffToken(pass)).toMatchObject({
+      sub: 'user-1',
+      jti: 'pass-1',
+    });
+    expect(() => verifyLaunchToken(pass)).toThrow();
+
+    const launch = signAuthPayload(
+      { exp, sub: 'user-1', jti: 'pass-1', typ: 'launch' },
+      'unit-secret',
+    );
+    expect(verifyLaunchToken(launch)).toMatchObject({ sub: 'user-1' });
+    expect(() => verifyDeviceHandoffToken(launch)).toThrow();
+    for (const payload of [
+      { exp, jti: 'pass-1', typ: 'device-handoff' },
+      { exp, sub: 'user-1', typ: 'device-handoff' },
+      { exp: exp - 120, sub: 'user-1', jti: 'pass-1', typ: 'device-handoff' },
+    ]) {
+      expect(() =>
+        verifyDeviceHandoffToken(signAuthPayload(payload, 'unit-secret')),
+      ).toThrow();
+    }
+    expect(() =>
+      verifyDeviceHandoffToken(
+        signAuthPayload(
+          { exp, sub: 'user-1', jti: 'pass-1', typ: 'device-handoff' },
+          'other-secret',
+        ),
+      ),
+    ).toThrow();
+  });
+
   test('rejects tampered or expired launch tokens', async () => {
     process.env.HYBRIDCLAW_AUTH_SECRET = 'unit-secret';
     vi.useFakeTimers();
