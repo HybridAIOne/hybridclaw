@@ -22,13 +22,22 @@ export const ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
+// Package and tool caches never hold a file meant for the user, and on a busy
+// workspace they are most of its directories. Virtualenvs (`.venv*`) too.
 const ARTIFACT_DISCOVERY_IGNORED_DIRS = new Set([
+  '.cache',
   '.git',
   '.hybridclaw',
+  '.npm',
   '.synced-skills',
+  '__pycache__',
   'node_modules',
 ]);
 const ARTIFACT_DISCOVERY_IGNORED_ROOT_DIRS = new Set(['skills']);
+
+function isIgnoredArtifactDir(name: string): boolean {
+  return ARTIFACT_DISCOVERY_IGNORED_DIRS.has(name) || name.startsWith('.venv');
+}
 
 export function inferArtifactMimeType(filePath: string): string {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -73,7 +82,7 @@ export function discoverArtifactsSince(
       if (excluded.has(absolutePath)) continue;
 
       if (entry.isDirectory()) {
-        if (ARTIFACT_DISCOVERY_IGNORED_DIRS.has(entry.name)) continue;
+        if (isIgnoredArtifactDir(entry.name)) continue;
         if (
           currentDir === resolvedRoot &&
           ARTIFACT_DISCOVERY_IGNORED_ROOT_DIRS.has(entry.name)

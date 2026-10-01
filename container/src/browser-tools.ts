@@ -62,6 +62,17 @@ const BROWSER_PROFILE_ROOT = path.join(
   BROWSER_RUNTIME_ROOT,
   'browser-profiles',
 );
+/**
+ * Browser caches and profiles in the workspace: never a file for the user.
+ * BROWSER_TMP_HOME is left out: in container mode it is the agent's HOME,
+ * where a reply file can land.
+ */
+export const BROWSER_CACHE_DIRS: readonly string[] = [
+  BROWSER_NPM_CACHE,
+  BROWSER_XDG_CACHE,
+  BROWSER_PLAYWRIGHT_CACHE,
+  BROWSER_PROFILE_ROOT,
+];
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
