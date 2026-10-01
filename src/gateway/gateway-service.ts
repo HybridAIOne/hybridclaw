@@ -363,6 +363,10 @@ import {
 } from '../providers/task-routing.js';
 import { routingLatencyMs } from '../routing/latency.js';
 import { getSchedulerStatus } from '../scheduler/scheduler.js';
+import {
+  type AdminRbacAction,
+  isAdminActionClaimed,
+} from '../security/admin-rbac.js';
 import { redactSecrets } from '../security/redact.js';
 import {
   isReservedNonSecretRuntimeName,
@@ -771,6 +775,27 @@ type StoredAdminAgentMarkdownRevision =
   StoredAdminAgentMarkdownRevisionMetadata & {
     content: string;
   };
+
+// The admin action a `/secret` command needs, as `/api/admin/secrets` asks it.
+function secretCommandAction(args: string[]): AdminRbacAction {
+  const sub = parseLowerArg(args, 1);
+  const verb = sub === 'route' ? parseLowerArg(args, 2) : sub;
+  if (!verb || verb === 'list' || verb === 'status') {
+    return 'secret.list_metadata';
+  }
+  if (verb === 'unset' || verb === 'delete' || verb === 'remove') {
+    return 'secret.unset';
+  }
+  return 'secret.overwrite';
+}
+
+// The admin action a `/config` command needs, as `/api/admin/config` asks it.
+function configCommandAction(args: string[]): AdminRbacAction {
+  const sub = parseLowerArg(args, 1);
+  if (!sub || sub === 'check' || sub === 'get') return 'admin.config.read';
+  if (sub === 'reload') return 'admin.config.reload';
+  return 'admin.config.write';
+}
 
 function buildBootstrapAutostartPrompt(
   fileName: 'BOOTSTRAP.md' | 'OPENING.md',
@@ -10099,6 +10124,20 @@ export async function handleGatewayCommand(
     );
   }
 
+  // Local-only commands read or change this machine's secrets, env, config
+  // and memory. A web turn can come from a scoped credential, such as a
+  // paired phone's token that may only chat, so it also needs the admin
+  // action the matching admin route asks for. The local operator (TUI, CLI,
+  // master token, local web session) carries no claims and may run them all.
+  function isLocalOperator(
+    req: GatewayCommandRequest,
+    action: AdminRbacAction,
+  ): boolean {
+    return (
+      isLocalSession(req) && isAdminActionClaimed(req.adminActions, action)
+    );
+  }
+
   function formatRuntimeConfigJson(config: RuntimeConfig): string {
     return JSON.stringify(config, null, 2);
   }
@@ -10514,7 +10553,7 @@ export async function handleGatewayCommand(
             return badCommand('Usage', `Missing source for \`${usage}\`.`);
           }
           if (
-            !isLocalSession(req) &&
+            !isLocalOperator(req, 'admin.agents.write') &&
             isLocalFilesystemInstallSource(installSource)
           ) {
             return badCommand(
@@ -11285,7 +11324,7 @@ export async function handleGatewayCommand(
           parseIdArg(req.args, 2),
         );
         if (sub === 'status' && provider) {
-          if (!isLocalSession(req)) {
+          if (!isLocalOperator(req, 'admin.models.read')) {
             return badCommand(
               'Auth Status Restricted',
               `\`auth status ${provider}\` reads local credential state and is only available from local TUI/web sessions.`,
@@ -11301,7 +11340,7 @@ export async function handleGatewayCommand(
       }
 
       case 'secret': {
-        if (!isLocalSession(req)) {
+        if (!isLocalOperator(req, secretCommandAction(req.args))) {
           return badCommand(
             'Secret Command Restricted',
             '`secret` reads or writes local encrypted secrets and is only available from local TUI/web sessions.',
@@ -11599,7 +11638,9 @@ export async function handleGatewayCommand(
       }
 
       case 'env': {
-        if (!isLocalSession(req)) {
+        // Env values are stored and shown in plaintext, so reading them asks
+        // as much as changing the config.
+        if (!isLocalOperator(req, 'admin.config.write')) {
           return badCommand(
             'Env Command Restricted',
             '`env` reads or writes local plaintext runtime env values and is only available from local TUI/web sessions.',
@@ -11681,7 +11722,14 @@ export async function handleGatewayCommand(
       }
 
       case 'voice': {
-        if (!isLocalSession(req)) {
+        if (
+          !isLocalOperator(
+            req,
+            parseLowerArg(req.args, 1) === 'call'
+              ? 'admin.channels.write'
+              : 'admin.config.read',
+          )
+        ) {
           return badCommand(
             'Voice Command Restricted',
             '`voice` can place outbound calls and is only available from local TUI/web sessions.',
@@ -11790,7 +11838,15 @@ export async function handleGatewayCommand(
       }
 
       case 'speech': {
-        if (!isLocalSession(req)) {
+        const speechSub = parseLowerArg(req.args, 1);
+        if (
+          !isLocalOperator(
+            req,
+            !speechSub || speechSub === 'info' || speechSub === 'status'
+              ? 'admin.config.read'
+              : 'admin.config.write',
+          )
+        ) {
           return badCommand(
             'Speech Command Restricted',
             '`speech` edits local runtime config and is only available from local TUI/web sessions.',
@@ -11861,7 +11917,7 @@ export async function handleGatewayCommand(
       }
 
       case 'config': {
-        if (!isLocalSession(req)) {
+        if (!isLocalOperator(req, configCommandAction(req.args))) {
           return badCommand(
             'Config Restricted',
             '`config` reads or writes local runtime config and is only available from local TUI/web sessions.',
@@ -12006,7 +12062,7 @@ export async function handleGatewayCommand(
       }
 
       case 'policy': {
-        if (!isLocalSession(req)) {
+        if (!isLocalOperator(req, 'admin.policy.write')) {
           return badCommand(
             'Policy Restricted',
             '`policy` manages local workspace network rules and is only available from local TUI/web sessions.',
@@ -12548,7 +12604,7 @@ export async function handleGatewayCommand(
       }
 
       case 'memory': {
-        if (!isLocalSession(req)) {
+        if (!isLocalOperator(req, 'admin.sessions.read')) {
           return badCommand(
             'Memory Commands Restricted',
             '`memory inspect` and `memory query` expose workspace and session memory details and are only available from local TUI/web sessions.',
@@ -13303,6 +13359,7 @@ export async function handleGatewayCommand(
           sessionAgentId: resolveSessionAgentId(session),
           guildId: req.guildId,
           channelId: req.channelId,
+          adminActions: req.adminActions,
           badCommand,
           infoCommand: (title, text) => infoCommand(title, text),
           plainCommand,

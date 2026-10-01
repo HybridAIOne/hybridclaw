@@ -13671,6 +13671,41 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test.each(['/api/chat', '/api/command'])('hands a scoped caller\'s actions to commands at %s, never the body\'s', async (url) => {
+    const state = await importFreshHealth({
+      webApiToken: 'web-token',
+      apiTokens: {
+        hck_phone: { id: 'phone', label: 'Device: phone', claims: { actions: ['chat.send'] } },
+      },
+    });
+    const send = async (token: string) => {
+      state.handleGatewayCommand.mockResolvedValueOnce({ kind: 'plain', text: 'ok' });
+      const req = makeRequest({
+        method: 'POST',
+        url,
+        headers: { authorization: `Bearer ${token}` },
+        remoteAddress: '203.0.113.10',
+        body: {
+          sessionId: 'phone-chat',
+          channelId: 'web',
+          content: '/secret list',
+          args: ['secret', 'list'],
+          // A caller cannot name its own permissions.
+          adminActions: ['*'],
+        },
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(200);
+      return state.handleGatewayCommand.mock.calls.at(-1)?.[0];
+    };
+
+    expect((await send('hck_phone'))?.adminActions).toEqual(['chat.send']);
+    // The master token is the local operator: no claims to check.
+    expect((await send('web-token'))?.adminActions).toBeUndefined();
+  });
+
   test('rejects api command requests without an explicit session id', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

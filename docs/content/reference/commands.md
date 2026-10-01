@@ -281,7 +281,10 @@ hybridclaw env unset <name>
 ```
 
 - local-only surface: `/secret ...` is available from local TUI and local web
-  chat sessions, not from Discord or other remote channels
+  chat sessions, not from Discord or other remote channels. A web turn sent
+  with a scoped API token, such as a paired phone's, also needs the matching
+  `secret.*` action; see
+  [Admin Access Control](../developer-guide/admin-access-control.md#local-only-slash-commands)
 - `hybridclaw secret status <name>` reports whether the secret is stored; it
   never outputs decrypted values. Secrets are only resolved gateway-side via
   `<secret:NAME>` placeholders or auth rules

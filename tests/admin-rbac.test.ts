@@ -3,9 +3,11 @@ import {
   ADMIN_RBAC_ACTIONS,
   ADMIN_RBAC_ROLE_ACTIONS,
   ADMIN_RBAC_ROLE_BUNDLES,
+  adminActionClaimList,
   collectAdminActionClaims,
   collectAdminRoleClaims,
   isAdminActionAllowed,
+  isAdminActionClaimed,
   resolveAdminRbacAction,
 } from '../src/security/admin-rbac.js';
 
@@ -267,4 +269,19 @@ test('local model installation requires its own management permission', () => {
   expect(isAdminActionAllowed({ role: 'admin.viewer' }, 'admin.local_models.manage')).toBe(false);
   expect(isAdminActionAllowed({ actions: ['admin.models.write'] }, 'admin.local_models.manage')).toBe(false);
   expect(isAdminActionAllowed({ role: 'admin.full' }, 'admin.local_models.manage')).toBe(true);
+});
+
+test('commands carry the claims of a scoped caller and nothing for an unscoped one', () => {
+  expect(adminActionClaimList(null)).toBeUndefined();
+  expect(adminActionClaimList({ sub: 'owner' })).toBeUndefined();
+  expect(adminActionClaimList({ actions: ['chat.send'] })).toEqual(['chat.send']);
+  expect(isAdminActionClaimed(undefined, 'secret.overwrite')).toBe(true);
+  expect(isAdminActionClaimed(['chat.send'], 'secret.list_metadata')).toBe(false);
+  expect(
+    isAdminActionClaimed(
+      adminActionClaimList({ role: 'admin:secret-manager' }),
+      'secret.overwrite',
+    ),
+  ).toBe(true);
+  expect(isAdminActionClaimed(['*'], 'admin.config.write')).toBe(true);
 });

@@ -7,6 +7,10 @@ import {
   getRuntimeSkillScopeDisabledNames,
 } from '../config/runtime-config.js';
 import {
+  type AdminRbacAction,
+  isAdminActionClaimed,
+} from '../security/admin-rbac.js';
+import {
   formatSkillAmendment,
   formatSkillHealthMetrics,
   formatSkillObservationRun,
@@ -30,15 +34,23 @@ interface SkillCommandContext {
   sessionAgentId: string;
   guildId: string | null;
   channelId: string;
+  // The caller's admin actions when it is scoped (`GatewayCommandRequest`).
+  adminActions?: string[];
   badCommand: (title: string, text: string) => GatewayCommandResult;
   infoCommand: (title: string, text: string) => GatewayCommandResult;
   plainCommand: (text: string) => GatewayCommandResult;
 }
 
-function isLocalSession(context: SkillCommandContext): boolean {
+// A local TUI/web session, and a scoped caller (a phone's token) only with the
+// admin action the matching admin route asks for.
+function isLocalOperator(
+  context: SkillCommandContext,
+  action: AdminRbacAction,
+): boolean {
   return (
     context.guildId === null &&
-    (context.channelId === 'web' || context.channelId === 'tui')
+    (context.channelId === 'web' || context.channelId === 'tui') &&
+    isAdminActionClaimed(context.adminActions, action)
   );
 }
 
@@ -280,7 +292,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'unblock') {
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.unblock')) {
       return context.badCommand(
         'Skill Unblock Restricted',
         '`skill unblock` is only available from local TUI/web sessions.',
@@ -512,7 +524,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'install') {
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.write')) {
       return context.badCommand(
         'Skill Install Restricted',
         '`skill install` is only available from local TUI/web sessions.',
@@ -577,7 +589,7 @@ export async function handleSkillCommand(
 
   if (sub === 'setup') {
     const skillName = parseIdArg(context.args, 2);
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.write')) {
       return context.badCommand(
         'Skill Setup Restricted',
         '`skill setup` is only available from local TUI/web sessions.',
@@ -604,7 +616,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'upgrade') {
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.write')) {
       return context.badCommand(
         'Skill Upgrade Restricted',
         '`skill upgrade` is only available from local TUI/web sessions.',
@@ -635,7 +647,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'uninstall') {
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.write')) {
       return context.badCommand(
         'Skill Uninstall Restricted',
         '`skill uninstall` is only available from local TUI/web sessions.',
@@ -701,7 +713,7 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'rollback') {
-    if (!isLocalSession(context)) {
+    if (!isLocalOperator(context, 'admin.skills.write')) {
       return context.badCommand(
         'Skill Rollback Restricted',
         '`skill rollback` is only available from local TUI/web sessions.',

@@ -3,6 +3,7 @@
  * Official web installs resolve server-side against curated catalog entries;
  * plugin discovery and execution remain responsibilities of the manager.
  */
+
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
@@ -52,6 +53,7 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { isAdminActionClaimed } from '../security/admin-rbac.js';
 import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
@@ -71,12 +73,15 @@ import { rememberPendingApproval } from './pending-approvals.js';
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
 
+// Plugin config is runtime config: a scoped caller (a phone's token) also needs
+// the action the config admin route asks for.
 function isLocalSession(req: GatewayCommandRequest): boolean {
   return (
     req.guildId === null &&
     (req.channelId === 'web' ||
       req.channelId === 'tui' ||
-      req.channelId === 'cli')
+      req.channelId === 'cli') &&
+    isAdminActionClaimed(req.adminActions, 'admin.config.write')
   );
 }
 
