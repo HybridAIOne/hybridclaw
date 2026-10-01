@@ -217,8 +217,10 @@ export interface GatewayChatRequestBody {
   appKind?: 'web' | 'live';
   /**
    * The app that sent the turn when it is not the browser chat. `mobile`
-   * trims the system prompt to what the HybridAI phone app can use; session,
-   * scheduling and delivery behavior stay those of the channel.
+   * trims the system prompt to what the HybridAI phone app can use and keeps
+   * the session from resetting automatically, because the app shows each chat
+   * as one continuous thread. Scheduling and delivery stay those of the
+   * channel.
    */
   client?: PromptClient;
 }
@@ -302,6 +304,7 @@ export interface GatewayCommandRequest {
   args: string[];
   userId?: string | null;
   username?: string | null;
+  client?: GatewayChatRequest['client'];
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
 }
 

@@ -210,7 +210,9 @@ saved revision history directly.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets
   both daily and after 24 hours idle at `04:00` in the gateway host's local
   timezone, and `sessionReset.defaultPolicy.mode = "none"` disables automatic
-  resets
+  resets. Turns that `/api/chat` marks with `client: "mobile"` never reset
+  automatically, whatever the policy says: the phone app shows each chat as one
+  continuous thread, and session compaction keeps it bounded
 - `sessionRouting.*` for DM continuity scope and linked identities; the default
   `per-channel-peer` mode keeps DMs isolated by transport and peer identity,
   while `per-linked-identity` plus `sessionRouting.identityLinks` collapses

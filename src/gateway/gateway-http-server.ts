@@ -1994,6 +1994,7 @@ async function resolveApiChatSlashCommandResult(
       channelId: chatRequest.channelId,
       userId: chatRequest.userId,
       username: chatRequest.username,
+      client: chatRequest.client,
       args: ['escalate', inlineEscalation[1]],
     });
     if (result.kind !== 'error' && result.continueWithMessage === true) {
@@ -2058,6 +2059,7 @@ async function resolveApiChatSlashCommandResult(
       args,
       userId: chatRequest.userId,
       username: chatRequest.username,
+      client: chatRequest.client,
     });
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
