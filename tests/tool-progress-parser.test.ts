@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 
-import { parseToolProgressLine } from '../src/infra/tool-progress-parser.js';
+import {
+  parseBrowserFrameLine,
+  parseToolProgressLine,
+} from '../src/infra/tool-progress-parser.js';
 
 test('parses plain tool start and result progress lines', () => {
   expect(parseToolProgressLine('[tool] read: {"path":"README.md"}')).toEqual({
@@ -78,4 +81,24 @@ test('ignores non-tool progress lines', () => {
     parseToolProgressLine('[tool] running 2 tool calls concurrently'),
   ).toBeNull();
   expect(parseToolProgressLine('[thinking] checking')).toBeNull();
+});
+
+test('parses browser frame lines and ignores everything else', () => {
+  expect(
+    parseBrowserFrameLine(
+      '[browser-frame] {"url":"https://shop.example/cart","title":"Cart","frame":".browser-artifacts/frames/a.jpg"}',
+    ),
+  ).toEqual({
+    url: 'https://shop.example/cart',
+    title: 'Cart',
+    frame: '.browser-artifacts/frames/a.jpg',
+  });
+  expect(
+    parseBrowserFrameLine(
+      '[browser-frame] {"url":"https://shop.example/pay","title":"Pay"}',
+    ),
+  ).toEqual({ url: 'https://shop.example/pay', title: 'Pay' });
+  expect(parseBrowserFrameLine('[browser-frame] {"title":"no url"}')).toBeNull();
+  expect(parseBrowserFrameLine('[browser-frame] not json')).toBeNull();
+  expect(parseBrowserFrameLine('[tool] browser_click: {}')).toBeNull();
 });

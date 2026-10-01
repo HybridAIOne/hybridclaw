@@ -3846,6 +3846,7 @@ async function handleApiChatStream(
       phase: event.phase,
       preview: event.preview,
       durationMs: event.durationMs,
+      ...(event.browser ? { browser: event.browser } : {}),
     });
   };
 

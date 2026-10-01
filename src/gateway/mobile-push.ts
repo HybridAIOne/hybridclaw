@@ -32,6 +32,11 @@ export interface MobilePushMessage {
   kind: string;
   title: string;
   body?: string;
+  /**
+   * A key the app translates the body by (APNs `loc-key`), so the alert is in
+   * the phone's language; where the app has no such key, the key is shown.
+   */
+  bodyKey?: string;
   badge?: number;
   /** Groups alerts on the lock screen, e.g. per conversation. */
   threadId?: string;
@@ -65,6 +70,7 @@ export function buildApnsPayload(
     throw new Error('Push data may not set aps or kind.');
   const alert: Record<string, string> = { title: clip(message.title, 120) };
   if (message.body) alert.body = clip(message.body, 240);
+  if (message.bodyKey) alert['loc-key'] = clip(message.bodyKey, 240);
   const payload = {
     aps: {
       alert,
@@ -282,6 +288,36 @@ export function reminderAlert(options: {
       sessionId: notification.sessionId,
       ...(notification.agentId ? { agentId: notification.agentId } : {}),
       messageId: options.messageId,
+    },
+  };
+}
+
+// What a finished reply and a waiting approval say under the assistant's name.
+// Each is also the app's key for it, so a phone shows it in its own language.
+const REPLY_BODIES: Partial<Record<string, string>> = {
+  turn: 'Done. Your reply is ready.',
+  approval: 'Needs your approval to go on.',
+};
+
+/**
+ * "Done" or "needs you": the assistant's name over what happened, never what
+ * the reply or the request says. Other kinds keep the notice's own title.
+ */
+export function replyAlert(options: {
+  notification: WebNotification;
+  assistant: string;
+}): MobilePushMessage {
+  const { notification } = options;
+  const body = REPLY_BODIES[notification.kind];
+  return {
+    kind: notification.kind,
+    title: body ? options.assistant : notification.title,
+    ...(body ? { body, bodyKey: body } : {}),
+    threadId: notification.sessionId,
+    data: {
+      id: notification.id,
+      sessionId: notification.sessionId,
+      ...(notification.agentId ? { agentId: notification.agentId } : {}),
     },
   };
 }

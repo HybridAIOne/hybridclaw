@@ -63,8 +63,11 @@ gets those from plugins that send them, or from tasks added with
 `/schedule add --alert <kind>`, whose alert shows the first item a run lists. Each operator can register up to 16
 phones; registering a phone another operator holds moves it.
 
-Finished-request and approval alerts carry the same generic titles as in the
-browser. A reminder shows the assistant's name as its title and the reminder
+A finished reply (`turn`) and a request for approval (`approval`) show the
+assistant's name as the title and a fixed line as the body, "Done. Your reply
+is ready." or "Needs your approval to go on.", never the reply or the request
+itself. That line is also sent as `loc-key`, so an app that translates it shows
+it in the phone's language. A reminder shows the assistant's name as its title and the reminder
 itself as its body (up to 240 characters), and its badge counts the
 operator's reminders not yet read (`/api/push/read`). Unlike browser alerts,
 the reminder's text is on the lock screen, which iOS hides while locked unless

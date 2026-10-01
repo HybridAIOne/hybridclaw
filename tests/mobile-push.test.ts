@@ -121,7 +121,7 @@ describe('phone delivery', () => {
       token: TOKEN,
       environment: 'production',
       payload: {
-        aps: { alert: { title: 'HybridClaw finished your request' }, sound: 'default', 'thread-id': 'session-a' },
+        aps: { alert: { title: 'HybridClaw', body: 'Done. Your reply is ready.', 'loc-key': 'Done. Your reply is ready.' }, sound: 'default', 'thread-id': 'session-a' },
         kind: 'turn',
         id: 'session-a:turn:9',
         sessionId: 'session-a',
@@ -133,6 +133,29 @@ describe('phone delivery', () => {
     notifications.notifyWebSession('session-a', 'turn', '10');
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(calls()).toHaveLength(1);
+  });
+
+  test('done and needs-you alerts name the assistant and say what happened in a line the app translates', async () => {
+    const { push, notifications, operator } = await modules();
+    mocks.agent.mockImplementation((id: string) => (id === 'agent-a' ? { id, name: 'Main Agent', displayName: 'Hy' } : null));
+    await command(push, `push register ${TOKEN} production turn,approval`);
+    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'send it' }, { status: 'success', result: 'I need your approval before I send the mail to Ben.', messageRole: 'assistant', toolsUsed: [], pendingApproval: { approvalId: 'ab12cd34' } } as never);
+    await vi.waitFor(() => expect(calls()).toHaveLength(1));
+    expect(relayed().body.payload).toEqual({
+      aps: { alert: { title: 'Hy', body: 'Needs your approval to go on.', 'loc-key': 'Needs your approval to go on.' }, sound: 'default', 'thread-id': 'session-a' },
+      kind: 'approval',
+      id: 'session-a:approval:ab12cd34',
+      sessionId: 'session-a',
+      agentId: 'agent-a',
+    });
+    expect(JSON.stringify(relayed().body)).not.toContain('Ben');
+    // Without a display name the agent's name, without an agent the product's.
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Main Agent' });
+    notifications.notifyWebSession('session-a', 'turn', '11');
+    await vi.waitFor(() => expect(calls()).toHaveLength(2));
+    expect(relayed(1).body.payload.aps.alert.title).toBe('Main Agent');
+    // Other kinds keep the notice's own title.
+    expect(push.replyAlert({ notification: { id: 'x', sessionId: 's', kind: 'reminder', agentId: null, title: 'HybridClaw reminder', createdAt: 0 }, assistant: 'Hy' }).title).toBe('HybridClaw reminder');
   });
 
   test('plugin alerts carry title, body, badge and data; a phone APNs no longer knows is forgotten', async () => {

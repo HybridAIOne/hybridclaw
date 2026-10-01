@@ -75,10 +75,13 @@ import type { ScheduledTaskInput } from '../types/scheduler.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
+  type BrowserFrameSink,
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
+  stashBrowserFrameLine,
+  takeBrowserFrame,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -199,7 +202,7 @@ function buildHostGatewayRuntimeEnv(): Record<string, string> {
   };
 }
 
-interface PoolEntry extends WarmRunnerEntry {
+interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   process: ChildProcess;
   sessionId: string;
   ipcSessionId: string;
@@ -367,14 +370,17 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  if (stashBrowserFrameLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
+  const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
       sessionId: entry.sessionId,
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
+      ...(browser ? { browser } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -1150,6 +1156,11 @@ async function runHostProcessInner(
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
+  entry.pendingBrowserFrame = undefined;
+  entry.browserFrameWorkspace = {
+    path: workspacePath,
+    displayRoot: params.workspaceDisplayRootOverride,
+  };
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
 

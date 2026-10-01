@@ -23,7 +23,7 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
-import { sendMobilePush } from './mobile-push.js';
+import { replyAlert, sendMobilePush } from './mobile-push.js';
 import {
   bindWebNotificationSession,
   deleteWebPushSubscription,
@@ -148,6 +148,18 @@ async function sendWebPush(
   );
 }
 
+/** A phone names the assistant, as it does for a reminder. */
+async function phoneAlert(notification: WebNotification) {
+  const { getAgentById } = await import('../agents/agent-registry.js');
+  const agent = notification.agentId
+    ? getAgentById(notification.agentId)
+    : null;
+  return replyAlert({
+    notification,
+    assistant: agent?.displayName || agent?.name || 'HybridClaw',
+  });
+}
+
 export interface WebNotificationDelivery {
   notification: WebNotification;
   state: WebNotificationState;
@@ -184,19 +196,12 @@ export function notifyWebSession(
     ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
-    if (phone && delivery.state.preferences[kind])
-      void sendMobilePush(delivery.devices, {
-        kind,
-        title: notification.title,
-        threadId: sessionId,
-        data: {
-          id: notification.id,
-          sessionId,
-          ...(notification.agentId ? { agentId: notification.agentId } : {}),
-        },
-      }).catch(() =>
-        logger.warn('Phone push unavailable; notification remains in chat'),
-      );
+    if (phone && delivery.state.preferences[kind] && delivery.devices.length)
+      void phoneAlert(notification)
+        .then((message) => sendMobilePush(delivery.devices, message))
+        .catch(() =>
+          logger.warn('Phone push unavailable; notification remains in chat'),
+        );
     return {
       notification,
       state: delivery.state,

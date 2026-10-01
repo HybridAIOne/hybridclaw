@@ -53,6 +53,7 @@ import type {
 } from '../types/container.js';
 import type {
   ArtifactMetadata,
+  BrowserFrame,
   PendingApproval,
   ToolExecution,
   ToolProgressEvent,
@@ -161,6 +162,8 @@ export interface GatewayChatToolProgressEvent {
   toolName: string;
   preview?: string;
   durationMs?: number;
+  /** On a browser tool's finish: the page it left the browser on. */
+  browser?: BrowserFrame;
 }
 
 export interface GatewayChatTextDeltaEvent {
