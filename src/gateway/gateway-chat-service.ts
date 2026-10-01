@@ -71,6 +71,7 @@ import {
   logAudit,
   resolveTurnSessionId,
   storeSemanticMemory,
+  updateSessionRag,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -704,6 +705,12 @@ async function handleGatewayMessageInner(
   );
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
+  }
+  // Phone chats never ask HybridAI for RAG: it would search again before every
+  // model call, and Hy keeps its own memory. Later runs in the chat skip it too.
+  if (req.client === 'mobile' && session.enable_rag !== 0) {
+    updateSessionRag(session.id, false);
+    session = { ...session, enable_rag: 0 };
   }
   const attachSessionIdentity = (
     result: GatewayChatResult,
