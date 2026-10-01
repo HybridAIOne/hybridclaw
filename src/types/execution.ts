@@ -128,12 +128,22 @@ export interface PendingApproval {
   escalationTarget?: EscalationTarget;
 }
 
+/** Where the agent's browser is after a browser tool ran. */
+export interface BrowserFrame {
+  /** Origin and path only, never the query. */
+  url: string;
+  title: string;
+  /** Viewport JPEG, served by `/api/artifact`; absent while frames are paused. */
+  frame?: string;
+}
+
 export interface ToolProgressEvent {
   sessionId: string;
   toolName: string;
   phase: 'start' | 'finish';
   preview?: string;
   durationMs?: number;
+  browser?: BrowserFrame;
 }
 
 export interface ArtifactMetadata {

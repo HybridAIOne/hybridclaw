@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- **Watch the browser work**: after each page-changing browser call the
+  agent saves a small viewport JPEG, and the chat stream's `tool` finish event
+  carries `browser: { url, title, frame }` (origin and path only; `frame` is
+  served by `/api/artifact`). The last 24 frames are kept. Frames pause after
+  `browser_secret_type` until the page changes, and
+  `BROWSER_LIVE_FRAMES=false` turns them off.
+- **Checkout guard**: a browser click that places an order or pays asks first,
+  every time and in full-auto too. See *Browser checkout* in the approvals
+  guide.
+
+### Fixed
+
+- **Browser tools in the gateway image**: the image had no Chromium, so with
+  the agent in host sandbox mode every `browser_*` call failed with "Chrome not
+  found". The gateway image now installs the headless shell, and both images
+  point agent-browser at it.
+
 ## [0.33.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.33.0) - 2026-09-30
 
 ### Added

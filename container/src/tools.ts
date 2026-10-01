@@ -37,6 +37,7 @@ import {
   runBash,
   setPersistentBashStateEnabled as setBashSessionStateEnabled,
 } from './bash-session.js';
+import { pauseBrowserFramesUntilNavigation } from './browser-checkout.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -1654,6 +1655,8 @@ async function executeBrowserSecretType(
       'Error: browser_secret_type requires an active browser page with a resolvable host.',
     );
   }
+  // The secret now sits in a form field; no live frame until the page changes.
+  pauseBrowserFramesUntilNavigation();
   const handle = await callGatewaySecretInject({
     secretName: args.secretName,
     skillName: args.skillName,

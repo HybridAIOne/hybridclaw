@@ -14,6 +14,12 @@ import {
   TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
   type TwoFactorDetectionResult,
 } from '../shared/two-factor-detection.js';
+import {
+  currentBrowserPage,
+  recordBrowserPage,
+  recordBrowserSnapshotRefs,
+  resetBrowserPage,
+} from './browser-checkout.js';
 import type { ModelBehavior } from './model-behavior.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
@@ -2543,7 +2549,139 @@ async function executeGatewayManagedBrowserTool(
   });
 }
 
+// Browser calls after which the page may look different. Typing is left out:
+// it rarely changes the page, and a typed secret must not reach a frame.
+const BROWSER_FRAME_TOOLS = new Set([
+  'browser_navigate',
+  'browser_click',
+  'browser_press',
+  'browser_scroll',
+  'browser_back',
+  'browser_upload',
+  'browser_resume_interaction',
+]);
+const BROWSER_FRAME_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'frames');
+const BROWSER_FRAME_KEEP = 24;
+const BROWSER_FRAME_QUALITY = '55';
+const BROWSER_PAGE_INFO_SCRIPT =
+  '(() => ({ url: location.href, title: document.title }))()';
+/** Stderr prefix the gateway reads to attach a frame to the tool's progress. */
+export const BROWSER_FRAME_LOG_PREFIX = '[browser-frame] ';
+
+function liveFramesEnabled(): boolean {
+  return envFlagEnabled('BROWSER_LIVE_FRAMES', true);
+}
+
+/** Origin and path only: a query can carry tokens or personal data. */
+function displayPageUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return '';
+  }
+}
+
+function pruneBrowserFrames(): void {
+  let names: string[];
+  try {
+    names = fs
+      .readdirSync(BROWSER_FRAME_ROOT)
+      .filter((name) => name.endsWith('.jpg'))
+      .sort();
+  } catch {
+    return;
+  }
+  for (const name of names.slice(0, -BROWSER_FRAME_KEEP)) {
+    fs.rmSync(path.join(BROWSER_FRAME_ROOT, name), { force: true });
+  }
+}
+
+/**
+ * Read where the browser is and, unless frames are off or paused, save a small
+ * JPEG of the viewport. The gateway turns the stderr line into the `browser`
+ * field of this tool's progress event, which is how a client watches the
+ * agent work. Never fails the tool call.
+ */
+async function observeBrowserPage(sessionId: string): Promise<void> {
+  try {
+    const page = await runBrowserEval(
+      sessionId,
+      BROWSER_PAGE_INFO_SCRIPT,
+      5_000,
+    );
+    const info = page.success ? asRecord(page.result) : null;
+    recordBrowserPage({ url: info?.url, title: info?.title });
+    if (!liveFramesEnabled()) return;
+    const current = currentBrowserPage();
+    const url = displayPageUrl(current.url);
+    if (!url) return;
+    let frame: string | null = null;
+    if (!current.framesPaused) {
+      fs.mkdirSync(BROWSER_FRAME_ROOT, { recursive: true });
+      const outPath = path.join(
+        BROWSER_FRAME_ROOT,
+        `frame-${Date.now()}-${createHash('sha1')
+          .update(`${sessionId}:${Math.random()}`)
+          .digest('hex')
+          .slice(0, 8)}.jpg`,
+      );
+      const shot = await runAgentBrowser(
+        sessionId,
+        'screenshot',
+        [
+          '--screenshot-format',
+          'jpeg',
+          '--screenshot-quality',
+          BROWSER_FRAME_QUALITY,
+          outPath,
+        ],
+        { timeoutMs: 15_000 },
+      );
+      if (shot.success && fs.existsSync(outPath)) {
+        frame = toWorkspaceRelativePath(outPath);
+        pruneBrowserFrames();
+      }
+    }
+    console.error(
+      `${BROWSER_FRAME_LOG_PREFIX}${JSON.stringify({
+        url,
+        title: current.title.slice(0, 200),
+        ...(frame ? { frame } : {}),
+      })}`,
+    );
+  } catch {
+    // A missing frame only means the client keeps showing the previous one.
+  }
+}
+
 export async function executeBrowserTool(
+  name: string,
+  args: Record<string, unknown>,
+  sessionId: string,
+): Promise<string> {
+  const output = await runBrowserTool(name, args, sessionId);
+  if (
+    BROWSER_FRAME_TOOLS.has(name) &&
+    !shouldUseGatewayManagedBrowser(name) &&
+    asRecord(safeJsonParse(output))?.success === true
+  ) {
+    await observeBrowserPage(normalizeSessionKey(sessionId || 'default'));
+  }
+  if (name === 'browser_close') resetBrowserPage();
+  return output;
+}
+
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function runBrowserTool(
   name: string,
   args: Record<string, unknown>,
   sessionId: string,
@@ -2636,6 +2774,10 @@ export async function executeBrowserTool(
         );
         if (!result.success) return failure(result.error || 'snapshot failed');
         const data = (result.data || {}) as Record<string, unknown>;
+        if (!frame) {
+          recordBrowserPage({ url: data.url || data.origin });
+          recordBrowserSnapshotRefs(data.refs);
+        }
         const rawSnapshot = String(data.snapshot || '');
         const truncated = truncateSnapshot(rawSnapshot);
         const frameEval = await runBrowserEval(

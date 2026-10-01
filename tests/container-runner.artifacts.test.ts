@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { expect, test } from 'vitest';
 
-import { remapOutputArtifacts } from '../src/infra/container-runner.js';
+import {
+  type BrowserFrameSink,
+  remapOutputArtifacts,
+  stashBrowserFrameLine,
+  takeBrowserFrame,
+} from '../src/infra/container-runner.js';
 import type { ContainerOutput } from '../src/types/container.js';
 
 test('remaps artifact paths that use a custom workspace display root', () => {
@@ -97,4 +102,49 @@ test('preserves host artifact paths when the real workspace already lives under 
       mimeType: 'application/pdf',
     },
   ]);
+});
+
+test('attaches a browser frame, with its host path, to the next browser result', () => {
+  const workspacePath = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-frame-'),
+  );
+  try {
+    const entry: BrowserFrameSink = {
+      browserFrameWorkspace: { path: workspacePath },
+    };
+    expect(stashBrowserFrameLine(entry, '[tool] browser_click: {}')).toBe(
+      false,
+    );
+    expect(
+      stashBrowserFrameLine(
+        entry,
+        '[browser-frame] {"url":"https://shop.example/checkout","title":"Checkout","frame":".browser-artifacts/frames/frame-1.jpg"}',
+      ),
+    ).toBe(true);
+
+    expect(takeBrowserFrame(entry, 'browser_click', 'start')).toBeUndefined();
+    expect(takeBrowserFrame(entry, 'web_fetch', 'finish')).toBeUndefined();
+    expect(takeBrowserFrame(entry, 'browser_click', 'finish')).toEqual({
+      url: 'https://shop.example/checkout',
+      title: 'Checkout',
+      frame: path.join(workspacePath, '.browser-artifacts/frames/frame-1.jpg'),
+    });
+    expect(takeBrowserFrame(entry, 'browser_click', 'finish')).toBeUndefined();
+  } finally {
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  }
+});
+
+test('drops a browser frame path that leaves the workspace', () => {
+  const entry: BrowserFrameSink = {
+    browserFrameWorkspace: { path: '/srv/agents/main/workspace' },
+  };
+  stashBrowserFrameLine(
+    entry,
+    '[browser-frame] {"url":"https://shop.example/","title":"Shop","frame":"../../secrets.jpg"}',
+  );
+  expect(takeBrowserFrame(entry, 'browser_navigate', 'finish')).toEqual({
+    url: 'https://shop.example/',
+    title: 'Shop',
+  });
 });
