@@ -1221,7 +1221,10 @@ async function callGatewayMessageAction(
 }
 
 /** The gateway answers only for the user whose turn runs in this session. */
-async function callGatewayDeviceData(source: string): Promise<string> {
+async function callGatewayDeviceData(
+  source: string,
+  query: string,
+): Promise<string> {
   const url = resolveGatewayDeviceDataUrl();
   if (!url) {
     throw new ToolExecutionFailure(
@@ -1239,7 +1242,7 @@ async function callGatewayDeviceData(source: string): Promise<string> {
     response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ sessionId: currentSessionId, source }),
+      body: JSON.stringify({ sessionId: currentSessionId, source, query }),
     });
   } catch (err) {
     throw new ToolExecutionFailure(
@@ -3527,7 +3530,8 @@ async function executeToolInternal(
     case 'device_data': {
       const source =
         typeof args.source === 'string' ? args.source.trim().toLowerCase() : '';
-      return await callGatewayDeviceData(source);
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      return await callGatewayDeviceData(source, query);
     }
 
     case 'todo': {
@@ -4535,14 +4539,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'device_data',
       description:
-        'Read what the user’s phone shares through the companion app: their calendar for the coming days, reminders that are due, and a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts). Call it before answering anything about the user’s schedule, what is due, or how they slept, moved or trained; do not say you cannot see their calendar or health data without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
+        'Read what the user’s phone shares through the companion app: their calendar for the coming days, reminders that are due, a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts), and their contacts (names, companies, email addresses, phone numbers, birthdays, relationships such as sister or manager). Call it before answering anything about the user’s schedule, what is due, how they slept, moved or trained, or who someone is and how to reach them; do not say you cannot see their calendar, health data or contacts without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
       parameters: {
         type: 'object',
         properties: {
           source: {
             type: 'string',
             description:
-              'One source to read, such as `calendar`, `reminders` or `health`. Omit to read everything the phone shares.',
+              'One source to read, such as `calendar`, `reminders`, `health` or `contacts`. Omit to read everything the phone shares.',
+          },
+          query: {
+            type: 'string',
+            description:
+              'Words to look for, such as a name, company, email address, relationship (`sister`) or birthday month (`Oct`). Returns only the entries that contain every word. Needed to read `contacts`, which is too long to list whole.',
           },
         },
         required: [],

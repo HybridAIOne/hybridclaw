@@ -13,6 +13,7 @@ import { parseLowerArg } from '../command-parsing.js';
 import {
   clearDeviceSources,
   DeviceDataError,
+  MAX_CONTACTS_SOURCE_BYTES,
   MAX_DEVICE_SOURCE_BYTES,
   MAX_DEVICE_SOURCES,
   readDeviceSources,
@@ -28,7 +29,10 @@ import { chatSafeJson } from './schedule-command.js';
 const USAGE =
   'Usage: `device-data set <payload>`, `device-data show`, `device-data clear`. `<payload>` is `{"sources": {"<id>": "<text>" | null}}` compressed with raw DEFLATE and encoded as base64url. Add `--json` for a machine-readable answer.';
 // Every source at its limit, with room for JSON escaping.
-const MAX_INFLATED_BYTES = MAX_DEVICE_SOURCES * MAX_DEVICE_SOURCE_BYTES * 2;
+const MAX_INFLATED_BYTES =
+  ((MAX_DEVICE_SOURCES - 1) * MAX_DEVICE_SOURCE_BYTES +
+    MAX_CONTACTS_SOURCE_BYTES) *
+  2;
 const PAYLOAD = /^[A-Za-z0-9_-]+$/;
 
 function decodePayload(token: string): unknown {

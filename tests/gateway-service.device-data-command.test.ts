@@ -158,3 +158,60 @@ test('the tool is offered only to a user whose phone shares something', async ()
     'device_data',
   ]);
 });
+
+test('contacts may be larger, and are read by query', async () => {
+  const { send, device } = await load();
+  const people = Array.from(
+    { length: 2000 },
+    (_, index) =>
+      `- Person ${index} · person${index}@example.com · +49 170 ${String(index).padStart(7, '0')}`,
+  );
+  const contacts = [
+    'Contacts (2002):',
+    '- Jürgen Müller (Jogi) · ACME GmbH, CTO · j.mueller@acme.example · birthday 3 Oct · brother',
+    '- Anna Schmidt · anna@example.com · sister',
+    ...people,
+  ].join('\n');
+  expect(Buffer.byteLength(contacts)).toBeGreaterThan(64 * 1024);
+
+  const stored = await send(
+    `/device-data set ${payload({ calendar: CALENDAR, contacts })} --json`,
+  );
+  expect(stored.json).toEqual({
+    version: 1,
+    sources: ['calendar', 'contacts'],
+  });
+  // Only an address book gets the larger limit.
+  for (const bad of [
+    payload({ calendar: 'x'.repeat(17 * 1024) }),
+    payload({ contacts: 'x'.repeat(257 * 1024) }),
+  ]) {
+    expect((await send(`/device-data set ${bad}`)).kind).toBe('error');
+  }
+
+  const read = (source: string | null, query: string | null) =>
+    device.withDeviceDataTurn(APP_CHAT, 'user_a', async () =>
+      device.renderDeviceDataForSession(APP_CHAT, source, query),
+    );
+  // Whole, it would fill the model's context: a count and how to ask.
+  const whole = await read(null, null);
+  expect(whole).toContain(CALENDAR);
+  expect(whole).toContain('Contacts (2002):');
+  expect(whole).toContain('(2002 entries, too many to list at once');
+  expect(whole).not.toContain('Anna Schmidt');
+
+  // Every word, regardless of case and accents.
+  const found = await read('contacts', 'MULLER acme');
+  expect(found).toContain('Jürgen Müller (Jogi)');
+  expect(found).not.toContain('Anna');
+  expect(found).not.toContain('Calendar');
+  expect(await read('contacts', 'sister')).toContain('Anna Schmidt');
+  expect(await read('contacts', 'nobody')).toContain('- nothing matches');
+
+  const many = await read('contacts', 'person');
+  expect(many.match(/^- Person/gm)).toHaveLength(50);
+  expect(many).toContain('(1950 more match');
+  // A small source is filtered the same way.
+  expect(await read('calendar', 'offsite')).toContain('Fri 2 Oct all day Offsite');
+  expect(await read('calendar', 'offsite')).not.toContain('Review');
+});
