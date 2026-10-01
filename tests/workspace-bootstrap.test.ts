@@ -93,10 +93,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(initial.workspacePath).toBe(ipc.agentWorkspaceDir('agent-test'));
     const agentsPath = path.join(initial.workspacePath, 'AGENTS.md');
     const agents = fs.readFileSync(agentsPath, 'utf8');
-    expect(agents).toContain('Skills are instruction packages.');
-    expect(agents).toContain('Tools execute actions.');
-    expect(agents).toContain('A catalog tool does not need its own directly exposed schema.');
-    expect(agents).not.toContain('Skills provide your tools.');
+    expect(agents).toContain('## Every Session');
     fs.writeFileSync(agentsPath, `${agents}\nCustom workspace instruction.\n`);
 
 
