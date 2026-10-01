@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import {
+  IDLE_SWEEP_INTERVAL_MS,
   normalizeWarmProcessPoolConfig,
   WarmProcessPool,
   type WarmProcessPoolEntry,
@@ -224,4 +225,36 @@ test('keeps cold-start p95 cached while rolling old samples out', () => {
 
   expect(pool.coldStartP95Ms()).toBe(100);
   expect(pool.isWithinColdStartBudget()).toBe(true);
+});
+
+test('sweeps warm entries once their agent leaves the traffic window', () => {
+  vi.useFakeTimers({ now: 10_000_000 });
+  try {
+    const onIdleExpired = vi.fn();
+    const pool = new WarmProcessPool(
+      normalizeWarmProcessPoolConfig({ trafficWindowMs: 5 * 60_000 }),
+      onIdleExpired,
+    );
+    pool.recordRequest('agent_a', 1_000);
+    const stale = makeEntry('stale', 'agent_a', Date.now());
+    pool.add(stale);
+
+    vi.advanceTimersByTime(IDLE_SWEEP_INTERVAL_MS + 1_000);
+    expect(onIdleExpired).not.toHaveBeenCalled();
+
+    pool.recordRequest('agent_b', 1_000);
+    const active = makeEntry('active', 'agent_b', Date.now());
+    pool.add(active);
+
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(onIdleExpired).toHaveBeenCalledWith([stale]);
+    expect(pool.values()).toEqual([active]);
+
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(onIdleExpired).toHaveBeenLastCalledWith([active]);
+    expect(pool.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

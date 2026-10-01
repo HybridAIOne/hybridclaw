@@ -105,6 +105,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -191,6 +192,7 @@ const pool = new Map<string, PoolEntry>();
 const containerSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let containerMemorySample: MemorySample | null = null;
 let containerMemoryRefreshInFlight = false;
@@ -1011,6 +1013,7 @@ function getOrSpawnContainer(
       logger.debug({ container: containerName }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 

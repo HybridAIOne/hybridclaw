@@ -90,6 +90,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -228,6 +229,7 @@ const pool = new Map<string, PoolEntry>();
 const hostSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let hostMemorySample: MemorySample | null = null;
 let hostMemoryRefreshInFlight = false;
@@ -848,6 +850,7 @@ function getOrSpawnHostProcess(
       logger.debug({ sessionId }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
