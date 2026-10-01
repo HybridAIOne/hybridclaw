@@ -552,10 +552,9 @@ describe.sequential('board card store', () => {
     vi.doMock('node:crypto', async () => {
       const actual =
         await vi.importActual<typeof import('node:crypto')>('node:crypto');
-      const uuids = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'];
       return {
         ...actual,
-        randomUUID: vi.fn(() => uuids.shift() || actual.randomUUID()),
+        randomUUID: vi.fn(() => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
       };
     });
 
@@ -593,6 +592,7 @@ describe.sequential('board card store', () => {
         runId: 'board-edge-event-run',
       },
     );
+    expect(edge.id).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     boardModule.removeEdge(edge.id, {
       actor: { userId: 'user_a' },
       sessionId: 'board-edge-event-session',
