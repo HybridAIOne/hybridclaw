@@ -597,6 +597,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '## Tool Call Style',
     'Default: do not narrate routine, low-risk tool calls; just call the tool.',
     'When you call any tool, emit no user-facing assistant prose in that same response. Make the tool call with empty assistant content, then write the user-facing answer after the tool result is available.',
+    'When a request needs several independent lookups (for example mail, calendar and a web search, or the details of several messages you already listed), make all of those read-only tool calls in the same response instead of one per response. Call tools one after another only when a call needs an earlier result or changes something.',
     'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
