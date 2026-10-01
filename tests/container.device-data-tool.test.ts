@@ -25,6 +25,7 @@ test('the tool reads through the gateway what the running turn’s user shares',
   device.writeDeviceSources('user_a', {
     calendar: 'Calendar, next 7 days (Europe/Berlin):\n- no events',
     health: 'Health, last 7 days (Europe/Berlin):\n- nothing to read',
+    contacts: 'Contacts (2):\n- Anna Schmidt · sister\n- Bob Meyer · ACME',
   });
   const requests: Array<{ url: string; auth: string; body: unknown }> = [];
   // The gateway's own route: it answers for the session's running turn.
@@ -32,6 +33,7 @@ test('the tool reads through the gateway what the running turn’s user shares',
     const body = JSON.parse(String(init?.body)) as {
       sessionId: string;
       source: string;
+      query: string;
     };
     requests.push({
       url: String(input),
@@ -44,6 +46,7 @@ test('the tool reads through the gateway what the running turn’s user shares',
         result: device.renderDeviceDataForSession(
           body.sessionId,
           body.source || null,
+          body.query || null,
         ),
       }),
     );
@@ -51,8 +54,14 @@ test('the tool reads through the gateway what the running turn’s user shares',
   setGatewayContext(GATEWAY_URL, 'gateway-token', 'web');
   setSessionContext('chat-1');
 
-  const read = (source?: string) =>
-    executeTool('device_data', JSON.stringify(source ? { source } : {}));
+  const read = (source?: string, query?: string) =>
+    executeTool(
+      'device_data',
+      JSON.stringify({
+        ...(source ? { source } : {}),
+        ...(query ? { query } : {}),
+      }),
+    );
   const during = await device.withDeviceDataTurn('chat-1', 'user_a', () =>
     read(' Calendar '),
   );
@@ -60,10 +69,20 @@ test('the tool reads through the gateway what the running turn’s user shares',
   expect(requests[0]).toEqual({
     url: `${GATEWAY_URL}/api/device-data`,
     auth: 'Bearer gateway-token',
-    body: { sessionId: 'chat-1', source: 'calendar' },
+    body: { sessionId: 'chat-1', source: 'calendar', query: '' },
   });
   expect(during).toContain('- no events');
   expect(during).not.toContain('Health');
+  const found = await device.withDeviceDataTurn('chat-1', 'user_a', () =>
+    read('contacts', ' Anna '),
+  );
+  expect(requests[1].body).toEqual({
+    sessionId: 'chat-1',
+    source: 'contacts',
+    query: 'Anna',
+  });
+  expect(found).toContain('- Anna Schmidt · sister');
+  expect(found).not.toContain('Bob');
   // Outside the user's turn, nothing.
   expect(await read()).toContain('shares nothing here');
 });

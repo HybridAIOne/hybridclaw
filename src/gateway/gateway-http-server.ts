@@ -4191,6 +4191,7 @@ async function handleApiDeviceData(
   const body = (await readJsonBody(req)) as {
     sessionId?: unknown;
     source?: unknown;
+    query?: unknown;
   };
   const sessionId =
     typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
@@ -4199,9 +4200,14 @@ async function handleApiDeviceData(
     return;
   }
   const source = typeof body.source === 'string' ? body.source.trim() : '';
+  const query = typeof body.query === 'string' ? body.query.trim() : '';
   sendJson(res, 200, {
     ok: true,
-    result: renderDeviceDataForSession(sessionId, source || null),
+    result: renderDeviceDataForSession(
+      sessionId,
+      source || null,
+      query || null,
+    ),
   });
 }
 
