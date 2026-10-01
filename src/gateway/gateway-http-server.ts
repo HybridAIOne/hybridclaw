@@ -4000,6 +4000,9 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    // Close the stream before the bookkeeping below. The trace write is
+    // synchronous, so no later request can read the message before it lands.
+    res.end();
     tail.mark('resultSent');
     tail.log(
       { sessionId: chatRequest.sessionId, channelId: chatRequest.channelId },
