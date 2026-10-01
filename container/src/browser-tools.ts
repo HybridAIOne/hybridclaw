@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -2622,10 +2622,7 @@ async function observeBrowserPage(sessionId: string): Promise<void> {
       fs.mkdirSync(BROWSER_FRAME_ROOT, { recursive: true });
       const outPath = path.join(
         BROWSER_FRAME_ROOT,
-        `frame-${Date.now()}-${createHash('sha1')
-          .update(`${sessionId}:${Math.random()}`)
-          .digest('hex')
-          .slice(0, 8)}.jpg`,
+        `frame-${Date.now()}-${randomUUID().slice(0, 8)}.jpg`,
       );
       const shot = await runAgentBrowser(
         sessionId,
