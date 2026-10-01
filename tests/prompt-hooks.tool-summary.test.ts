@@ -3,6 +3,8 @@ import { expect, test, vi } from 'vitest';
 import {
   buildRetrievedContextPrompt,
   buildSystemPromptFromHooks,
+  SILENT_TOOL_CALL_STYLE_LINES,
+  TOOL_STATUS_STYLE_LINES,
 } from '../src/agent/prompt-hooks.js';
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
 import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
@@ -815,6 +817,31 @@ test('the mobile client prompt leaves out coding, document-building and browser 
   );
   expect(mobile).toContain('Delegation is push-based: do not poll or wait.');
   expect(web).not.toContain('The app shows the files');
+});
+
+test.each([
+  {
+    runtimeInfo: { client: 'mobile' as const },
+    present: SILENT_TOOL_CALL_STYLE_LINES,
+    absent: TOOL_STATUS_STYLE_LINES,
+  },
+  {
+    runtimeInfo: { client: 'mobile' as const, toolStatus: true },
+    present: TOOL_STATUS_STYLE_LINES,
+    absent: SILENT_TOOL_CALL_STYLE_LINES,
+  },
+])('tool call style follows whether the client shows tool status: $runtimeInfo', ({
+  runtimeInfo,
+  present,
+  absent,
+}) => {
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo,
+  });
+  for (const line of present) expect(prompt).toContain(line);
+  for (const line of absent) expect(prompt).not.toContain(line);
 });
 
 test('the mobile client prompt lists fewer skills and points to skills_list for the rest', () => {

@@ -81,6 +81,11 @@ export interface PromptRuntimeInfo {
    * channels, sets channels up, or opens relative links.
    */
   client?: PromptClient;
+  /**
+   * The client shows text written before a tool call as a passing status
+   * line and keeps only the text after the last tool as the reply.
+   */
+  toolStatus?: boolean;
   model?: string;
   defaultModel?: string;
   channelType?: string;
@@ -525,6 +530,18 @@ function buildMessageToolPromptLines(
   return lines;
 }
 
+// A client that shows text written before a tool call as a passing status gets
+// one short line per tool call; every other client gets tool calls without prose.
+export const TOOL_STATUS_STYLE_LINES = [
+  'When you call a tool, begin that response with one short line in the user\'s language that says what you are doing, such as "Checking the page…" or "Looking at your calendar…": plain text, at most five words, then the tool call.',
+  'That line is shown only while the tool runs and is then dropped, so never put the answer or anything the user needs before a tool call. Write the answer after the tool results are in.',
+];
+export const SILENT_TOOL_CALL_STYLE_LINES = [
+  'Default: do not narrate routine, low-risk tool calls; just call the tool.',
+  'When you call any tool, emit no user-facing assistant prose in that same response. Make the tool call with empty assistant content, then write the user-facing answer after the tool result is available.',
+  'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
+];
+
 function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
@@ -584,10 +601,10 @@ function buildSafetyHook(context: PromptHookContext): string {
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
     '## Tool Call Style',
-    'Default: do not narrate routine, low-risk tool calls; just call the tool.',
-    'When you call any tool, emit no user-facing assistant prose in that same response. Make the tool call with empty assistant content, then write the user-facing answer after the tool result is available.',
+    ...(context.runtimeInfo?.toolStatus
+      ? TOOL_STATUS_STYLE_LINES
+      : SILENT_TOOL_CALL_STYLE_LINES),
     'When a request needs several independent lookups (for example mail, calendar and a web search, or the details of several messages you already listed), make all of those read-only tool calls in the same response instead of one per response. Call tools one after another only when a call needs an earlier result or changes something.',
-    'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
     'Keep narration brief and value-dense; avoid repeating obvious steps.',
     'If the user has already asked you to perform an action, do not ask for a separate natural-language "yes" just to trigger approvals; attempt the tool call and let the runtime approval flow interrupt if approval is required.',
     'If a requested action is blocked only by a missing dependency or another narrow prerequisite, attempt the minimal prerequisite step needed to complete the request instead of turning it into a follow-up multiple-choice question; let the runtime approval flow interrupt if approval is required.',

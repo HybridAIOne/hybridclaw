@@ -3452,6 +3452,7 @@ async function handleApiChat(
       ? { appKind: body.appKind }
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
+    ...(body.toolStatus === true ? { toolStatus: true } : {}),
   };
   logger.debug(
     {

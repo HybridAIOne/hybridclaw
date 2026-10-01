@@ -1877,6 +1877,7 @@ async function handleGatewayMessageInner(
     runtimeInfo: {
       chatbotId,
       ...(req.client ? { client: req.client } : {}),
+      ...(req.toolStatus ? { toolStatus: true } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,

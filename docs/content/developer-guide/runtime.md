@@ -387,6 +387,11 @@ Session behavior matches the routing rules above:
   opaque legacy ids
 - `/auth/callback?next=/path` only accepts relative redirect targets that start
   with `/` but not `//`; invalid or unsafe values fall back to `/admin`
+- a streaming `/api/chat` client that sends `toolStatus: true` declares that it
+  shows `text` written before a `tool` start as a passing status and keeps
+  only the text after the last tool as the reply (the `result` carries only
+  that part). The agent is then asked to begin each tool-calling response with
+  one short line such as "Checking the page…" instead of calling tools silently
 
 ## Persistent Browser Profiles
 

@@ -226,6 +226,13 @@ export interface GatewayChatRequestBody {
    * channel.
    */
   client?: PromptClient;
+  /**
+   * The client shows text written before a tool call as a passing status
+   * ("Checking the page…") and keeps only the text after the last tool as the
+   * reply. The model is then asked to say what it is doing before each tool
+   * call instead of calling tools silently.
+   */
+  toolStatus?: boolean;
 }
 
 export interface GatewayChatRequest {
@@ -235,6 +242,7 @@ export interface GatewayChatRequest {
   appCategory?: string | null;
   appKind?: 'web' | 'live';
   client?: GatewayChatRequestBody['client'];
+  toolStatus?: GatewayChatRequestBody['toolStatus'];
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';
