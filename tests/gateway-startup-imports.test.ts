@@ -23,9 +23,6 @@ const LAZY_ONLY_PACKAGES = [
   'nodemailer',
 ];
 
-const STATIC_IMPORT_RE =
-  /^\s*(?:import|export)\s(?:[^'"`;]*?\sfrom\s)?\s*['"]([^'"]+)['"]/gm;
-
 function packageName(specifier: string): string {
   const parts = specifier.split('/');
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
@@ -39,8 +36,75 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
   return null;
 }
 
-// Transpiling drops type-only imports the same way tsc does, so the walk sees
-// exactly the modules Node loads at startup.
+function valueIdentifiers(sourceFile: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) ||
+      ts.isTypeNode(node) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      (ts.isHeritageClause(node) &&
+        node.token === ts.SyntaxKind.ImplementsKeyword)
+    ) {
+      return;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      visit(node.expression);
+      return;
+    }
+    if (ts.isIdentifier(node)) names.add(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return names;
+}
+
+// Mirrors tsc's import elision: a TS import survives only if one of its
+// bindings is used outside type positions. Over-counting only fails loudly.
+function runtimeImportSpecifiers(file: string, source: string): string[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.ES2022);
+  const elides = file.endsWith('.ts');
+  const used = elides ? valueIdentifiers(sourceFile) : new Set<string>();
+  const specifiers: string[] = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      const specifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      const clause = statement.importClause;
+      if (!clause || !elides) {
+        specifiers.push(specifier);
+        continue;
+      }
+      if (clause.phaseModifier === ts.SyntaxKind.TypeKeyword) continue;
+      const bindings: string[] = [];
+      if (clause.name) bindings.push(clause.name.text);
+      const named = clause.namedBindings;
+      if (named && ts.isNamespaceImport(named)) bindings.push(named.name.text);
+      if (named && ts.isNamedImports(named)) {
+        for (const element of named.elements) {
+          if (!element.isTypeOnly) bindings.push(element.name.text);
+        }
+      }
+      if (bindings.some((binding) => used.has(binding))) {
+        specifiers.push(specifier);
+      }
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      statement.moduleSpecifier &&
+      !statement.isTypeOnly
+    ) {
+      const elements =
+        statement.exportClause && ts.isNamedExports(statement.exportClause)
+          ? statement.exportClause.elements
+          : null;
+      if (!elements || elements.some((element) => !element.isTypeOnly)) {
+        specifiers.push((statement.moduleSpecifier as ts.StringLiteral).text);
+      }
+    }
+  }
+  return specifiers;
+}
+
 function collectStartupPackages(entry: string): {
   importers: Map<string, string>;
   unresolved: string[];
@@ -52,15 +116,7 @@ function collectStartupPackages(entry: string): {
   while (queue.length > 0) {
     const file = queue.shift() as string;
     const source = fs.readFileSync(file, 'utf8');
-    const output = file.endsWith('.ts')
-      ? ts.transpileModule(source, {
-          compilerOptions: {
-            module: ts.ModuleKind.ESNext,
-            target: ts.ScriptTarget.ES2022,
-          },
-        }).outputText
-      : source;
-    for (const [, specifier] of output.matchAll(STATIC_IMPORT_RE)) {
+    for (const specifier of runtimeImportSpecifiers(file, source)) {
       if (specifier.startsWith('node:')) continue;
       if (!specifier.startsWith('.')) {
         const name = packageName(specifier);
@@ -88,6 +144,25 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
     (name) => `${name} (imported by ${importers.get(name)})`,
   );
   expect(leaked).toEqual([]);
+});
+
+test('import elision keeps value imports and drops type-only ones', () => {
+  const source = [
+    "import { AsValue, AsType } from 'pkg-mixed';",
+    "import { OnlyType } from 'pkg-type-usage';",
+    "import type { Declared } from 'pkg-import-type';",
+    "import { type Inline } from 'pkg-inline-type';",
+    "import 'pkg-side-effect';",
+    "export { reexported } from 'pkg-reexport';",
+    "export type { ReexportedType } from 'pkg-reexport-type';",
+    'export const value: AsType | OnlyType | Declared | Inline = new AsValue();',
+  ].join('\n');
+
+  expect(runtimeImportSpecifiers('example.ts', source)).toEqual([
+    'pkg-mixed',
+    'pkg-side-effect',
+    'pkg-reexport',
+  ]);
 });
 
 test('channel runtime loaders expose a module only after it is loaded', async () => {
