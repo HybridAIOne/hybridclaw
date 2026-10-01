@@ -12,6 +12,24 @@ These pages document individual built-in tools and their configuration.
 
 - [Web Search](./web-search.md)
 
+## Browser Actions
+
+`browser_navigate` and `browser_click` return the resulting page snapshot,
+including actionable element references, so the agent can read the page and
+choose its next action without a separate `browser_snapshot` call. Snapshots
+are capped at 12,000 characters. After typing, pressing a key, or scrolling,
+use `browser_snapshot` to inspect the changed page; its interactive mode helps
+when a long page was truncated.
+
+Download clicks and pages waiting for two-factor authentication omit the
+snapshot. If the action succeeds but the snapshot fails, the result reports
+`snapshot_error`; the action is not repeated automatically.
+
+For login pages, `browser_sign_in` fills credentials saved for that exact host
+without revealing them to the model. See
+[Website sign-ins](../../getting-started/authentication.md#website-sign-ins)
+for storage, device permissions, and the client sign-in flow.
+
 ## Sending Local Files Through Tools
 
 For MCP tools, plugin tools, and `http_request`, use `<file-base64:path>` as

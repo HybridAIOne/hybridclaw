@@ -200,6 +200,10 @@ the agent through [paired device tokens](docs/content/developer-guide/admin-acce
 Mobile chats keep their conversation across automatic reset windows. Local and
 Mac browser calls provide live frames, and placing an order requires approval
 for each attempt; see [approvals](docs/content/developer-guide/approvals.md).
+Opening a page or clicking returns the resulting page in the same tool call.
+Saved [website sign-ins](docs/content/getting-started/authentication.md#website-sign-ins)
+fill login fields without exposing credentials to the model. Use
+[`/name`](docs/content/reference/commands.md#name) to set what the agent calls you.
 
 ## Common Commands
 
@@ -271,7 +275,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.34.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.34.0).
+Latest release: [v0.34.1](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.34.1).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

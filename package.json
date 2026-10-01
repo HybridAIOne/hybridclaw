@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "license": "MIT",
@@ -187,9 +187,9 @@
     "undici": "6.28.1",
     "lodash": "4.18.1",
     "uuid": "11.1.1",
-    "vite": "8.3.0",
+    "vite": "8.3.1",
     "nodemailer": "10.0.10",
-    "hono": "4.13.8",
+    "hono": "4.13.9",
     "cheerio": {
       "undici": "7.29.1"
     },
