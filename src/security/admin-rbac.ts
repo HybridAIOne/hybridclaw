@@ -409,6 +409,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
   }
+  // A file sent with a message is part of chatting: the upload only lands in
+  // the uploaded-media cache, and a turn that names it is `chat.send` again.
+  if (pathname === '/api/media/upload' && method === 'POST') {
+    return 'chat.send';
+  }
   // A chat's own replies are part of chatting; the route checks ownership.
   if (pathname === '/api/chat/message' && method === 'GET') {
     return 'chat.send';

@@ -195,6 +195,12 @@ describe('admin RBAC role bundles', () => {
     );
     expect(resolveAdminRbacAction('/v1/models', 'GET')).toBe('openai.api');
     expect(resolveAdminRbacAction('/api/chat', 'POST')).toBe('chat.send');
+    expect(resolveAdminRbacAction('/api/media/upload', 'POST')).toBe(
+      'chat.send',
+    );
+    // Transcription and speech spend provider calls; they stay closed.
+    expect(resolveAdminRbacAction('/api/media/transcribe', 'POST')).toBeNull();
+    expect(resolveAdminRbacAction('/api/media/speech', 'POST')).toBeNull();
     expect(resolveAdminRbacAction('/api/history', 'GET')).toBe('chat.history');
     expect(resolveAdminRbacAction('/api/chat/voice/token', 'POST')).toBe(
       'voice.session',
