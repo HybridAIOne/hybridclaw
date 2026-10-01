@@ -71,6 +71,7 @@ import {
   logAudit,
   resolveTurnSessionId,
   storeSemanticMemory,
+  updateSessionRag,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -164,8 +165,8 @@ import {
 } from './delegation-plan.js';
 import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
 import {
+  beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
-  withDeviceDataTurn,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -610,18 +611,16 @@ export async function handleGatewayMessage(
   }
   return trackInFlightTurn(() =>
     gatewaySessionQueue.run(req.sessionId, () =>
-      withDeviceDataTurn(req.sessionId, req.userId, () =>
-        withSpan(
-          'hybridclaw.gateway.handle_message',
-          {
-            'hybridclaw.session_id': req.sessionId,
-            'hybridclaw.agent_id': req.agentId || '',
-            'hybridclaw.channel_id': req.channelId || '',
-            'hybridclaw.model': req.model || '',
-          },
-          async () =>
-            withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
-        ),
+      withSpan(
+        'hybridclaw.gateway.handle_message',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.model': req.model || '',
+        },
+        async () =>
+          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
       ),
     ),
   );
@@ -706,6 +705,12 @@ async function handleGatewayMessageInner(
   );
   if (session.id !== req.sessionId) {
     req.sessionId = session.id;
+  }
+  // Phone chats never ask HybridAI for RAG: it would search again before every
+  // model call, and Hy keeps its own memory. Later runs in the chat skip it too.
+  if (req.client === 'mobile' && session.enable_rag !== 0) {
+    updateSessionRag(session.id, false);
+    session = { ...session, enable_rag: 0 };
   }
   const attachSessionIdentity = (
     result: GatewayChatResult,
@@ -2073,6 +2078,12 @@ async function handleGatewayMessageInner(
     hatchingCompletion = null;
   };
 
+  // The agent's `device_data` call names the session the agent runs in: the
+  // one this turn resolved to, not always the one the request named.
+  const endDeviceDataTurn = beginDeviceDataTurn(
+    req.executionSessionId || req.sessionId,
+    req.userId,
+  );
   try {
     const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
       listManageableScheduledTasks(session);
@@ -2178,6 +2189,7 @@ async function handleGatewayMessageInner(
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
+        client: req.client,
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
@@ -2298,6 +2310,7 @@ async function handleGatewayMessageInner(
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
+        client: req.client,
         browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
@@ -3156,6 +3169,7 @@ async function handleGatewayMessageInner(
     await emitPostTurnForResult(result);
     return result;
   } finally {
+    endDeviceDataTurn();
     activeGatewayRequest.release();
   }
 }

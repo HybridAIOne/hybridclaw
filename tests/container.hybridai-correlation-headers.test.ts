@@ -3,14 +3,15 @@ import { withHybridAICorrelationHeaders } from '../container/src/providers/share
 
 const BASE = { 'User-Agent': 'hybridclaw-test' };
 
-test('hybridai calls carry session, run, agent, and channel correlation headers', () => {
+test('hybridai calls carry session, run, agent, channel, and client correlation headers', () => {
   expect(
     withHybridAICorrelationHeaders({
       provider: 'hybridai',
       sessionId: 'discord:guild:1:channel:2',
       runId: 'turn_1725000000000_abcd1234',
       agentId: 'main',
-      channelId: 'discord',
+      channelId: 'web',
+      client: 'mobile',
       requestHeaders: BASE,
     }),
   ).toEqual({
@@ -18,7 +19,8 @@ test('hybridai calls carry session, run, agent, and channel correlation headers'
     'X-HybridClaw-Session-Id': 'discord:guild:1:channel:2',
     'X-HybridClaw-Run-Id': 'turn_1725000000000_abcd1234',
     'X-HybridClaw-Agent-Id': 'main',
-    'X-HybridClaw-Channel-Id': 'discord',
+    'X-HybridClaw-Channel-Id': 'web',
+    'X-HybridClaw-Client': 'mobile',
   });
 });
 

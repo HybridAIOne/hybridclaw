@@ -1,7 +1,7 @@
 /**
  * Skills — CLAUDE/OpenClaw-compatible SKILL.md discovery.
- * The system prompt includes skill metadata + workspace-relative location, and inlines full
- * bodies for skills marked `always: true`.
+ * Resolves each eligible skill with its workspace-relative location; the
+ * system prompt catalog built from them lives in `skills-prompt.ts`.
  */
 
 import { createHash } from 'node:crypto';
@@ -125,11 +125,7 @@ export interface Skill extends SkillCandidate {
 }
 
 const SYNCED_SKILLS_DIR = '.synced-skills';
-const MAX_SKILLS_PROMPT_CHARS = 30_000;
-/** Newline plus the empty `<description>` line wrapping a skill description. */
-const DESCRIPTION_LINE_CHARS = '\n    <description></description>'.length;
 const MAX_INVOKED_SKILL_CHARS = 35_000;
-const MAX_ALWAYS_CHARS = 10_000;
 const MAX_SKILL_COMMAND_NAME_LENGTH = 32;
 const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'help',
@@ -233,15 +229,6 @@ function normalizeSkillCategory(raw: string | undefined): string {
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
   return normalized || 'uncategorized';
-}
-
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 function toPosixPath(p: string): string {
@@ -1423,7 +1410,7 @@ function parseSkillInvocation(
   return { skill: directSkillCommand.skill, args: remainder };
 }
 
-function loadSkillBody(skill: Skill, maxChars: number): string {
+export function loadSkillBody(skill: Skill, maxChars: number): string {
   try {
     const raw = fs.readFileSync(skill.filePath, 'utf-8');
     const { body } = parseFrontmatter(raw);
@@ -2213,174 +2200,4 @@ function loadSkillsInner(
   recordResolvedWorkspaceSkills(workspaceDir, resolvedSkillFiles);
 
   return resolved.sort(compareSkillsByCategoryAndName);
-}
-
-/**
- * Build compact CLAUDE/OpenClaw-style skill prompt metadata.
- */
-export function buildSkillsPrompt(skills: Skill[]): string {
-  const promptCandidates = skills.filter(
-    (skill) => !skill.disableModelInvocation,
-  );
-  if (promptCandidates.length === 0) return '';
-
-  const lines: string[] = [];
-  const embeddedAlways = new Set<string>();
-  const demotedAlways: Skill[] = [];
-
-  let alwaysChars = 0;
-  for (const skill of promptCandidates.filter(
-    (candidate) => candidate.always,
-  )) {
-    const body = loadSkillBody(skill, Number.MAX_SAFE_INTEGER);
-    if (!body) {
-      demotedAlways.push(skill);
-      continue;
-    }
-    const block = [
-      `<skill_always name="${escapeXml(skill.name)}" path="${escapeXml(skill.location)}">`,
-      body,
-      '</skill_always>',
-    ];
-    const serialized = block.join('\n');
-    if (alwaysChars + serialized.length > MAX_ALWAYS_CHARS) {
-      demotedAlways.push(skill);
-      continue;
-    }
-    lines.push(...block, '');
-    alwaysChars += serialized.length;
-    embeddedAlways.add(skill.name);
-  }
-
-  if (demotedAlways.length > 0) {
-    const demotedNames = demotedAlways.map((skill) => skill.name).join(', ');
-    lines.push(
-      `⚠️ maxAlwaysChars=${MAX_ALWAYS_CHARS} exceeded; demoted to summary: ${demotedNames}`,
-      '',
-    );
-  }
-
-  const summaryCandidates = promptCandidates.filter(
-    (skill) => !embeddedAlways.has(skill.name),
-  );
-  if (summaryCandidates.length > 0) {
-    lines.push('<available_skills>');
-
-    // Escape once per skill: the binary search below probes the rendered size
-    // O(log maxDescriptionLength) times and must not re-escape the catalog on
-    // every probe. buildSkillsPrompt runs on every prompt build.
-    const summaries = summaryCandidates.map((skill) => {
-      const identityLines = [
-        '  <skill>',
-        `    <name>${escapeXml(skill.name)}</name>`,
-        `    <category>${escapeXml(skill.category)}</category>`,
-      ];
-      const closingLines = [
-        `    <location>${escapeXml(skill.location)}</location>`,
-        '  </skill>',
-      ];
-      return {
-        identityLines,
-        closingLines,
-        rawDescription: skill.description || skill.name,
-        escapedDescription: escapeXml(skill.description || skill.name),
-        identityChars: [...identityLines, ...closingLines].join('\n').length,
-      };
-    });
-    type SkillSummary = (typeof summaries)[number];
-
-    /** Truncate on raw characters so an escape sequence is never split. */
-    const compactDescription = (summary: SkillSummary, limit: number) => {
-      if (limit <= 0) return '';
-      if (summary.escapedDescription.length <= limit) {
-        return summary.escapedDescription;
-      }
-      if (limit === 1) return '…';
-      let compacted = '';
-      for (const character of summary.rawDescription) {
-        const escapedCharacter = escapeXml(character);
-        if (compacted.length + escapedCharacter.length + 1 > limit) break;
-        compacted += escapedCharacter;
-      }
-      return `${compacted}…`;
-    };
-    const renderSummary = (summary: SkillSummary, descriptionLimit: number) => [
-      ...summary.identityLines,
-      ...(descriptionLimit > 0
-        ? [
-            `    <description>${compactDescription(summary, descriptionLimit)}</description>`,
-          ]
-        : []),
-      ...summary.closingLines,
-    ];
-
-    // Upper bound of the rendered size at a given limit, computed arithmetically
-    // instead of by rendering: compactDescription never returns more than
-    // `limit` characters, so overshooting only picks a slightly tighter limit.
-    const projectedLength = (descriptionLimit: number) =>
-      summaries.reduce(
-        (total, summary) =>
-          total +
-          summary.identityChars +
-          (descriptionLimit > 0
-            ? DESCRIPTION_LINE_CHARS +
-              Math.min(summary.escapedDescription.length, descriptionLimit)
-            : 0),
-        0,
-      );
-
-    const maxDescriptionLength = summaries.reduce(
-      (max, summary) => Math.max(max, summary.escapedDescription.length),
-      0,
-    );
-    let descriptionLimit = maxDescriptionLength;
-    if (projectedLength(descriptionLimit) > MAX_SKILLS_PROMPT_CHARS) {
-      let low = 0;
-      let high = maxDescriptionLength;
-      while (low < high) {
-        const middle = Math.ceil((low + high) / 2);
-        if (projectedLength(middle) <= MAX_SKILLS_PROMPT_CHARS) low = middle;
-        else high = middle - 1;
-      }
-      descriptionLimit = low;
-    }
-
-    let chars = 0;
-    let includedCount = 0;
-    for (const summary of summaries) {
-      const block = renderSummary(summary, descriptionLimit);
-      const serialized = block.join('\n');
-      // The binary search bottoms out at descriptionLimit = 0 without being able
-      // to guarantee a fit, so identity-only blocks can still overflow. Skip
-      // those instead of breaking, and report them as omitted below.
-      if (chars + serialized.length > MAX_SKILLS_PROMPT_CHARS) continue;
-      lines.push(...block);
-      chars += serialized.length;
-      includedCount += 1;
-    }
-
-    const compactedDescriptions = summaries.filter(
-      (summary) => descriptionLimit < summary.escapedDescription.length,
-    ).length;
-    const omittedSkills = summaryCandidates.length - includedCount;
-    if (compactedDescriptions > 0 || omittedSkills > 0) {
-      lines.push(
-        `  <skills_catalog_notice compacted_descriptions="${compactedDescriptions}" omitted_skills="${omittedSkills}">Catalog constrained by maxSkillsPromptChars=${MAX_SKILLS_PROMPT_CHARS}. Use skills_list to search the complete eligible catalog.</skills_catalog_notice>`,
-      );
-      logger.warn(
-        {
-          eligibleSkills: summaryCandidates.length,
-          includedSkills: includedCount,
-          compactedDescriptions,
-          omittedSkills,
-          maxSkillsPromptChars: MAX_SKILLS_PROMPT_CHARS,
-        },
-        'Compacted skill catalog for system prompt',
-      );
-    }
-
-    lines.push('</available_skills>');
-  }
-
-  return lines.join('\n').trim();
 }

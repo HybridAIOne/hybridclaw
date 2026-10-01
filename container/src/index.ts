@@ -2231,6 +2231,7 @@ async function main(): Promise<void> {
     runId: firstInput.runId,
     agentId: firstInput.agentId,
     channelId: firstInput.channelId,
+    client: firstInput.client,
     requestHeaders: storedRequestHeaders,
   });
   const firstTaskModels = resolveTaskModelsForRequest(firstInput.taskModels);
@@ -2389,6 +2390,7 @@ async function main(): Promise<void> {
       runId: input.runId,
       agentId: input.agentId,
       channelId: input.channelId,
+      client: input.client,
       requestHeaders:
         input.requestHeaders && Object.keys(input.requestHeaders).length > 0
           ? input.requestHeaders
