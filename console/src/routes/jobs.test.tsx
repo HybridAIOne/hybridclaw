@@ -120,6 +120,7 @@ function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
     startedAt: '2026-04-12T18:40:00.000Z',
     lastActive: '2026-04-12T18:44:15.000Z',
     status: 'stopped',
+    running: false,
     lastAnswer: 'Release in 10 minutes.',
     output: ['Release in 10 minutes.'],
     ...overrides,
@@ -388,6 +389,44 @@ describe('JobsPage', () => {
     });
     expect(screen.queryByText('never')).toBeNull();
   });
+
+  it.each([
+    { running: false, column: 'Review jobs' },
+    { running: true, column: 'In Progress jobs' },
+  ])(
+    'puts a recurring task with an attached worker and running=$running in $column',
+    async ({ running, column }) => {
+      fetchJobsContextMock.mockResolvedValue({
+        agents: [{ id: 'main', name: 'Main' }],
+        cards: [],
+        sessions: [makeJobSession({ status: 'active', running })],
+        suspendedSessions: [],
+      });
+      fetchSchedulerMock.mockResolvedValue({
+        proactiveQueue: { queued: 0, failed: 0, failedMessages: [] },
+        jobs: [
+          makeConfigJob({
+            boardStatus: null,
+            schedule: {
+              kind: 'cron',
+              at: null,
+              everyMs: null,
+              expr: '15 9 * * *',
+              tz: 'Europe/Berlin',
+            },
+            nextRunAt: '2026-04-13T07:15:00.000Z',
+            lastStatus: 'success',
+            sessionId: 'scheduler:release-reminder',
+          }),
+        ],
+      });
+
+      renderJobsPage();
+
+      const columnEl = await screen.findByRole('group', { name: column });
+      expect(within(columnEl).getByText('Release Reminder')).toBeTruthy();
+    },
+  );
 
   it('opens the scheduler editor with SPA navigation', async () => {
     renderJobsPage();

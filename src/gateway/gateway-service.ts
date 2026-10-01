@@ -53,6 +53,7 @@ import { buildConversationContext } from '../agent/conversation.js';
 import { delegationQueueStatus } from '../agent/delegation-manager.js';
 import {
   getActiveExecutorSessionIds,
+  getInFlightExecutorSessionIds,
   getSandboxDiagnostics,
   stopAllExecutions,
 } from '../agent/executor.js';
@@ -5849,6 +5850,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
 
 export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const runningSessionIds = new Set(getInFlightExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
   const cards = listCards().map(mapGatewayAdminJobCard);
@@ -5877,6 +5879,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
+      running: runningSessionIds.has(session.sessionId),
       lastAnswer: session.lastAnswer,
     }));
   const sessionAgentIds = new Map(

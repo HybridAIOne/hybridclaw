@@ -1501,6 +1501,7 @@ test('ContainerExecutor reports an in-flight session while readOutput is pending
   const executor = new ContainerExecutor();
   expect(getInFlightContainerCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
+  expect(executor.getInFlightSessionIds()).toEqual([]);
   const pending = executor.exec({
     sessionId: 'session-in-flight',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1514,10 +1515,14 @@ test('ContainerExecutor reports an in-flight session while readOutput is pending
 
   expect(getInFlightContainerCount()).toBe(1);
   expect(executor.getInFlightSessionCount()).toBe(1);
+  expect(executor.getInFlightSessionIds()).toEqual(['session-in-flight']);
 
   finishOutput?.();
   await pending;
 
   expect(getInFlightContainerCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
+  expect(executor.getInFlightSessionIds()).toEqual([]);
+  // The worker stays attached after the turn; it is just no longer running.
+  expect(executor.getActiveSessionIds()).toEqual(['session-in-flight']);
 });

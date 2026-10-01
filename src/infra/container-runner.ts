@@ -105,6 +105,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -191,6 +192,7 @@ const pool = new Map<string, PoolEntry>();
 const containerSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let containerMemorySample: MemorySample | null = null;
 let containerMemoryRefreshInFlight = false;
@@ -357,6 +359,13 @@ export function getActiveContainerSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+export function getInFlightContainerSessionIds(): string[] {
+  return Array.from(pool.entries())
+    .filter(([, entry]) => Boolean(entry.activity))
+    .map(([sessionId]) => sessionId)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 export async function getActiveContainerSessionHealthSnapshots(): Promise<
@@ -1011,6 +1020,7 @@ function getOrSpawnContainer(
       logger.debug({ container: containerName }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
@@ -1495,6 +1505,10 @@ export class ContainerExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveContainerSessionIds();
+  }
+
+  getInFlightSessionIds(): string[] {
+    return getInFlightContainerSessionIds();
   }
 
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
