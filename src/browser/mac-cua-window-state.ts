@@ -241,6 +241,37 @@ export function resolveMacCuaQueryElementIndex(
   return best?.index ?? null;
 }
 
+export type MacCuaHistoryDirection = 'back' | 'forward';
+
+// Safari gives its history buttons stable ids; Chromium browsers only a
+// localized label, so the labels cover English and German.
+const HISTORY_BUTTON_IDS: Record<MacCuaHistoryDirection, string> = {
+  back: 'BackButton',
+  forward: 'ForwardButton',
+};
+const HISTORY_BUTTON_LABELS: Record<MacCuaHistoryDirection, string[]> = {
+  back: ['back', 'zurück'],
+  forward: ['forward', 'vorwärts', 'weiter'],
+};
+
+/** The browser's own Back or Forward toolbar button, outside the page. */
+export function findMacCuaHistoryButton(
+  markdown: string,
+  direction: MacCuaHistoryDirection,
+): { index: number; disabled: boolean } | null {
+  const buttons = parseMacCuaAxTree(markdown).filter(
+    (node) => !node.inPage && node.role === 'AXButton' && node.index !== null,
+  );
+  const button =
+    buttons.find((node) => node.id === HISTORY_BUTTON_IDS[direction]) ??
+    buttons.find((node) =>
+      HISTORY_BUTTON_LABELS[direction].includes(axNodeName(node).toLowerCase()),
+    );
+  return button?.index != null
+    ? { index: button.index, disabled: button.disabled }
+    : null;
+}
+
 function toHttpUrl(value: string): string | null {
   const raw = value.trim();
   if (!raw || /\s/u.test(raw)) return null;

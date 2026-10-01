@@ -314,3 +314,48 @@ test('takes JPEG screenshots at the requested quality', async () => {
     arguments: { window_id: 11, format: 'jpeg', quality: 55 },
   });
 });
+
+const SAFARI_TOOLBAR_TREE = [
+  '- [0] AXApplication "Safari"',
+  '  - [1] AXWindow "HybridAI"',
+  '    - [65] AXToolbar actions=[AXShowMenu]',
+  '        - AXGroup id=BackForwardSegmentedControl',
+  '          - [70] AXButton (Zurück) help="Die vorherige Seite anzeigen" id=BackButton actions=[AXShowMenu]',
+  '          - [71] AXButton (Weiter) help="Die nächste Seite anzeigen" id=ForwardButton DISABLED actions=[AXShowMenu]',
+].join('\n');
+
+test('goes back by pressing the toolbar button of the session window', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state'
+      ? { tree_markdown: SAFARI_TOOLBAR_TREE }
+      : undefined,
+  );
+
+  await driver.pressHistoryButton(sessionId, 'back');
+
+  expect(calls.slice(-2)).toEqual([
+    {
+      name: 'get_window_state',
+      arguments: { pid: 42, window_id: 11 },
+    },
+    {
+      name: 'click',
+      arguments: { pid: 42, window_id: 11, element_index: 70 },
+    },
+  ]);
+  expect(calls.some((call) => call.name === 'hotkey')).toBe(false);
+});
+
+test('refuses to go forward when there is no next page', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state'
+      ? { tree_markdown: SAFARI_TOOLBAR_TREE }
+      : undefined,
+  );
+
+  await expect(driver.pressHistoryButton(sessionId, 'forward')).rejects.toThrow(
+    'There is no page to go forward to.',
+  );
+  expect(calls.some((call) => call.name === 'click')).toBe(false);
+});
+

@@ -1517,13 +1517,15 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
       await active.session.back();
+      const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
         active,
         activeSseResponses,
         sessionId,
         agentId,
         args,
-        fields: { url: '' },
+        pageState,
+        fields: { url: pageState.url, title: pageState.title },
       });
       return;
     }

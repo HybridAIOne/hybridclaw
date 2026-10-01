@@ -69,6 +69,7 @@ function createMockDriver(options?: {
   getEnvironmentState: ReturnType<typeof vi.fn>;
   ensureSessionWindow: ReturnType<typeof vi.fn>;
   getWindowTitle: ReturnType<typeof vi.fn>;
+  pressHistoryButton: ReturnType<typeof vi.fn>;
 } {
   const stableState: MacCuaEnvironmentState = {
     cursorX: 12,
@@ -103,6 +104,7 @@ function createMockDriver(options?: {
     getEnvironmentState: vi.fn(async () => states.shift() || states[0]),
     ensureSessionWindow: vi.fn(async () => false),
     getWindowTitle: vi.fn(async () => 'Example Domain'),
+    pressHistoryButton: vi.fn(async () => undefined),
   };
 }
 
@@ -260,6 +262,7 @@ const SAFARI_TREE = [
   '    - [65] AXToolbar actions=[AXShowMenu]',
   '        - AXGroup id=BackForwardSegmentedControl',
   '          - [70] AXButton (Back) help="Show the previous page" id=BackButton actions=[AXShowMenu]',
+  '          - [71] AXButton (Forward) help="Show the next page" id=ForwardButton DISABLED actions=[AXShowMenu]',
   '        - [75] AXTextField = "https://hybridai.one/admin_workspace" (Smart Search Field) id=WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD actions=[AXShowMenu, AXConfirm]',
   '  - [87] AXMenuBar id=_NS:1292 actions=[AXCancel]',
   '    - [90] AXMenuBarItem "Safari" id=_NS:1297 actions=[AXCancel, AXPick]',
@@ -291,6 +294,53 @@ test('mac-cua query resolves to the page element, not the first ancestor', async
   ).toBeNull();
   expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Safari')).toBeNull();
   expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Nowhere')).toBeNull();
+});
+
+test('mac-cua finds the browser history buttons, not page buttons', async () => {
+  const { findMacCuaHistoryButton } = await import(
+    '../src/browser/mac-cua-window-state.js'
+  );
+
+  expect(findMacCuaHistoryButton(SAFARI_TREE, 'back')).toEqual({
+    index: 70,
+    disabled: false,
+  });
+  expect(findMacCuaHistoryButton(SAFARI_TREE, 'forward')).toEqual({
+    index: 71,
+    disabled: true,
+  });
+  // Chromium has no ids on its toolbar, only localized labels.
+  const chromeTree = [
+    '- [0] AXApplication "Google Chrome"',
+    '  - [1] AXWindow "Example"',
+    '    - [3] AXWebArea (Example)',
+    '      - [4] AXButton "Zurück"',
+    '    - [7] AXButton (Zurück)',
+    '    - [8] AXButton (Vorwärts)',
+  ].join('\n');
+  expect(findMacCuaHistoryButton(chromeTree, 'back')?.index).toBe(7);
+  expect(findMacCuaHistoryButton(chromeTree, 'forward')?.index).toBe(8);
+  expect(
+    findMacCuaHistoryButton('- [0] AXApplication "Safari"', 'back'),
+  ).toBeNull();
+});
+
+test('mac-cua back and forward press the toolbar buttons instead of Cmd+[ and Cmd+]', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.back();
+  await session.forward();
+
+  expect(driver.pressHistoryButton.mock.calls).toEqual([
+    ['cua-session-1', 'back'],
+    ['cua-session-1', 'forward'],
+  ]);
+  expect(driver.keyChord).not.toHaveBeenCalled();
 });
 
 test('mac-cua reads the page URL from the address field', async () => {

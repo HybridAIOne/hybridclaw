@@ -20,8 +20,10 @@ import type { SecretRef } from '../security/secret-refs.js';
 import { sleep } from '../utils/sleep.js';
 import {
   findMacCuaAddressBarUrl,
+  findMacCuaHistoryButton,
   firstEditableElementSelector,
   firstEditableElementTarget,
+  type MacCuaHistoryDirection,
   type MacCuaPageSnapshot,
   type MacCuaQueryPurpose,
   normalizePositiveInteger,
@@ -69,6 +71,10 @@ export interface MacCuaDriver {
     params: { key: string; modifiers: string[] },
   ): Promise<void>;
   pressKey(sessionId: string, key: string): Promise<void>;
+  pressHistoryButton(
+    sessionId: string,
+    direction: MacCuaHistoryDirection,
+  ): Promise<void>;
   typeTextChars(
     sessionId: string,
     payload: { text: string } | { secretRef: SecretRef },
@@ -294,6 +300,32 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       pid: session.pid,
       window_id: session.windowId,
       key,
+    });
+  }
+
+  // cua-driver has no bracket keys, so Cmd+[ cannot go back. Pressing the
+  // toolbar button also acts on this window only, where keys go to whichever
+  // window has focus.
+  async pressHistoryButton(
+    sessionId: string,
+    direction: MacCuaHistoryDirection,
+  ): Promise<void> {
+    const session = this.requireSession(sessionId);
+    // Reading the tree also refreshes cua-driver's element indices.
+    const button = findMacCuaHistoryButton(
+      await this.readWindowTree(sessionId),
+      direction,
+    );
+    if (!button) {
+      throw new Error(`mac-cua cannot find the browser's ${direction} button.`);
+    }
+    if (button.disabled) {
+      throw new Error(`There is no page to go ${direction} to.`);
+    }
+    await this.callTool('click', {
+      pid: session.pid,
+      window_id: session.windowId,
+      element_index: button.index,
     });
   }
 
