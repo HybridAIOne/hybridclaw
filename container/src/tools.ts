@@ -1743,13 +1743,13 @@ async function lookupBrowserSignIn(
   };
 }
 
-function readSignInLocator(
-  args: Record<string, unknown>,
-  field: 'username' | 'password',
+function signInField(
+  rawRef: unknown,
+  rawSelector: unknown,
 ): { ref?: string; selector?: string } | null {
-  const selector = String(args[`${field}_selector`] || '').trim();
+  const selector = String(rawSelector || '').trim();
   if (selector) return { selector };
-  const ref = String(args[`${field}_ref`] || '').trim();
+  const ref = String(rawRef || '').trim();
   return ref ? { ref } : null;
 }
 
@@ -1802,8 +1802,15 @@ async function executeBrowserSignIn(
       2,
     );
   }
-  const userField = readSignInLocator(args, 'username');
-  const passField = readSignInLocator(args, 'password');
+  // Element refs and selectors, never values.
+  const {
+    username_ref: userRef,
+    username_selector: userSelector,
+    password_ref: passRef,
+    password_selector: passSelector,
+  } = args;
+  const userField = signInField(userRef, userSelector);
+  const passField = signInField(passRef, passSelector);
   if (!userField && !passField) {
     return failTool(
       'Error: name the field to fill with username_ref or password_ref (or a selector).',
