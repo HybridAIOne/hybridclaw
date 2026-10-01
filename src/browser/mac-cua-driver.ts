@@ -3,8 +3,11 @@
  * protocol and holds the (pid, window_id) each mac-cua session controls.
  *
  * It opens a dedicated browser window per session and never adopts one the
- * operator already has open. NOT the policy layer: key-chord and payload
- * guards, background-safe checks, and audit live in mac-cua-provider.ts.
+ * operator already has open. cua-driver posts keys to the pid; window_id only
+ * pre-focuses, so keys sent to a closed window land in whichever window has
+ * focus. Callers confirm the window with ensureSessionWindow first.
+ * NOT the policy layer: key-chord and payload guards, background-safe
+ * checks, and audit live in mac-cua-provider.ts.
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
@@ -99,7 +102,20 @@ export interface MacCuaDriver {
   ): Promise<boolean>;
   focusTwoFactorInput?(sessionId: string): Promise<boolean>;
   getEnvironmentState(): Promise<MacCuaEnvironmentState>;
+  /**
+   * Opens a new dedicated window when the session's window is gone and
+   * returns true; the old page state is lost with it.
+   */
+  ensureSessionWindow(sessionId: string): Promise<boolean>;
+  getWindowTitle(sessionId: string): Promise<string>;
 }
+
+type DriverSession = {
+  bundleId: string;
+  pid: number;
+  windowId: number;
+  lastTypedText?: string;
+};
 
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
 const NEW_WINDOW_TIMEOUT_MS = 5_000;
@@ -205,10 +221,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
   private startPromise: Promise<void> | null = null;
-  private readonly sessions = new Map<
-    string,
-    { pid: number; windowId: number; lastTypedText?: string }
-  >();
+  private readonly sessions = new Map<string, DriverSession>();
 
   constructor(
     private readonly command: string,
@@ -220,29 +233,28 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     bundleId: string;
     backgroundSafe: true;
   }): Promise<{ sessionId: string; windowId?: string | number }> {
-    // Never adopt a window the operator already has open: it may hold the
-    // HybridClaw chat itself or unrelated work. Open a dedicated one instead.
-    const record =
-      (await this.openWindowInRunningBrowser(params.bundleId)) ||
-      (await this.callToolRecord('launch_app', {
-        bundle_id: params.bundleId,
-        urls: ['about:blank'],
-      }));
-    const pid = normalizePositiveInteger(record.pid);
-    const windowId =
-      normalizePositiveInteger(record.window_id) ||
-      normalizeWindowId(record.windows);
-    if (pid === null || windowId === null) {
-      throw new Error(
-        'mac-cua driver launch_app response did not include pid and window_id.',
-      );
-    }
+    const { pid, windowId } = await this.openDedicatedWindow(params.bundleId);
     const sessionId = `${pid}:${windowId}`;
-    this.sessions.set(sessionId, { pid, windowId });
+    this.sessions.set(sessionId, { bundleId: params.bundleId, pid, windowId });
     return {
       sessionId,
       windowId,
     };
+  }
+
+  async ensureSessionWindow(sessionId: string): Promise<boolean> {
+    const session = this.requireSession(sessionId);
+    if (await this.findSessionWindow(session)) return false;
+    // The sessionId stays the caller's handle; only its target moves.
+    const { pid, windowId } = await this.openDedicatedWindow(session.bundleId);
+    session.pid = pid;
+    session.windowId = windowId;
+    return true;
+  }
+
+  async getWindowTitle(sessionId: string): Promise<string> {
+    const window = await this.findSessionWindow(this.requireSession(sessionId));
+    return typeof window?.title === 'string' ? window.title : '';
   }
 
   async stopBrowserSession(sessionId: string): Promise<void> {
@@ -515,14 +527,41 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  private requireSession(sessionId: string): {
-    pid: number;
-    windowId: number;
-    lastTypedText?: string;
-  } {
+  private requireSession(sessionId: string): DriverSession {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error('mac-cua driver session is not active.');
     return session;
+  }
+
+  private async findSessionWindow(
+    session: DriverSession,
+  ): Promise<Record<string, unknown> | undefined> {
+    return (await this.listWindowRecords(session.pid)).find(
+      (entry) => normalizePositiveInteger(entry.window_id) === session.windowId,
+    );
+  }
+
+  // Never adopt a window the operator already has open: it may hold the
+  // HybridClaw chat itself or unrelated work. Open a dedicated one instead.
+  private async openDedicatedWindow(
+    bundleId: string,
+  ): Promise<{ pid: number; windowId: number }> {
+    const record =
+      (await this.openWindowInRunningBrowser(bundleId)) ||
+      (await this.callToolRecord('launch_app', {
+        bundle_id: bundleId,
+        urls: ['about:blank'],
+      }));
+    const pid = normalizePositiveInteger(record.pid);
+    const windowId =
+      normalizePositiveInteger(record.window_id) ||
+      normalizeWindowId(record.windows);
+    if (pid === null || windowId === null) {
+      throw new Error(
+        'mac-cua driver launch_app response did not include pid and window_id.',
+      );
+    }
+    return { pid, windowId };
   }
 
   private toDriverTarget(target: MacCuaTarget): {

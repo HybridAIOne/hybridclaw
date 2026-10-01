@@ -196,6 +196,8 @@ test('browser provider factory can select mac-cua', async () => {
       frontmostBundleId: 'com.apple.Terminal',
       activeSpaceId: 1,
     })),
+    ensureSessionWindow: vi.fn(async () => false),
+    getWindowTitle: vi.fn(async () => ''),
   };
   const provider = createBrowserProvider(
     makeBrowserConfig({

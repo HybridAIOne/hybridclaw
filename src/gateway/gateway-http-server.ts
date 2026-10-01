@@ -1002,6 +1002,9 @@ async function sendGatewayBrowserActionJson(
     agentId: string;
     args: Record<string, unknown>;
     fields: Record<string, unknown>;
+    pageState?: Awaited<
+      ReturnType<typeof readGatewayBrowserTwoFactorPageState>
+    >;
   },
 ): Promise<void> {
   const parked = await parkGatewayBrowserTwoFactor(params);
@@ -1087,15 +1090,17 @@ async function handleApiBrowserTool(
     });
     if (isMacCuaGatewaySession(active)) {
       await active.session.navigate(url);
+      const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
         active,
         activeSseResponses,
         sessionId,
         agentId,
         args,
+        pageState,
         fields: {
           url,
-          title: '',
+          title: pageState.title,
           content_text_length: 0,
           content_preview_truncated: false,
           ready_state: 'native',

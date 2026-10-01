@@ -70,6 +70,10 @@ type ActiveMacCuaSession = {
   runId: string;
 };
 
+// What an action needs from the controlled window: 'loads' brings its own
+// page (navigate), 'current' acts on the open page, 'none' never touches it.
+type MacCuaPageUse = 'loads' | 'current' | 'none';
+
 const SHELL_INJECTION_PATTERNS = [
   /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:bash|sh)\b/iu,
   /\bsudo\s+rm\s+-rf\b/iu,
@@ -259,28 +263,32 @@ class MacCuaBrowserSession implements BrowserSession {
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    await this.runAction('navigate', async () => {
-      assertNoUnsupportedNavigationWait(opts);
-      const parsed = await assertBrowserNavigationUrl(url, {
-        allowPrivateNetwork: this.allowPrivateNetwork,
-      });
-      await this.keyChord('l', ['cmd']);
-      await this.driver.typeTextChars(this.sessionId, {
-        text: parsed.toString(),
-      });
-      const addressBarValue = await this.driver.getAddressBarValue(
-        this.sessionId,
-      );
-      if (!addressBarValue) {
-        throw new Error(
-          'mac-cua driver did not return an address-bar AX value before navigation commit.',
+    await this.runAction(
+      'navigate',
+      async () => {
+        assertNoUnsupportedNavigationWait(opts);
+        const parsed = await assertBrowserNavigationUrl(url, {
+          allowPrivateNetwork: this.allowPrivateNetwork,
+        });
+        await this.keyChord('l', ['cmd']);
+        await this.driver.typeTextChars(this.sessionId, {
+          text: parsed.toString(),
+        });
+        const addressBarValue = await this.driver.getAddressBarValue(
+          this.sessionId,
         );
-      }
-      await assertBrowserNavigationUrl(addressBarValue, {
-        allowPrivateNetwork: this.allowPrivateNetwork,
-      });
-      await this.driver.pressKey(this.sessionId, 'return');
-    });
+        if (!addressBarValue) {
+          throw new Error(
+            'mac-cua driver did not return an address-bar AX value before navigation commit.',
+          );
+        }
+        await assertBrowserNavigationUrl(addressBarValue, {
+          allowPrivateNetwork: this.allowPrivateNetwork,
+        });
+        await this.driver.pressKey(this.sessionId, 'return');
+      },
+      'loads',
+    );
   }
 
   async back(opts?: HistoryNavigationOptions): Promise<void> {
@@ -476,14 +484,18 @@ class MacCuaBrowserSession implements BrowserSession {
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,
   ): Promise<void> {
-    await this.runAction(event, async () => {
-      this.recordWaypoint(event, opts);
-      this.awaitingTwoFactor = event === 'browser_await_two_factor';
-      if (event === 'browser_resume_interaction') {
-        this.awaitingTwoFactor = false;
-        this.lastTwoFactorState = null;
-      }
-    });
+    await this.runAction(
+      event,
+      async () => {
+        this.recordWaypoint(event, opts);
+        this.awaitingTwoFactor = event === 'browser_await_two_factor';
+        if (event === 'browser_resume_interaction') {
+          this.awaitingTwoFactor = false;
+          this.lastTwoFactorState = null;
+        }
+      },
+      'none',
+    );
   }
 
   private async keyChord(key: string, modifiers: string[]): Promise<void> {
@@ -519,10 +531,11 @@ class MacCuaBrowserSession implements BrowserSession {
   private async runAction<T>(
     action: string,
     run: () => Promise<T>,
+    page: MacCuaPageUse = 'current',
   ): Promise<T> {
     const before = await this.driver.getEnvironmentState();
     try {
-      const result = await run();
+      const result = await this.runInSessionWindow(action, run, page);
       const after = await this.driver.getEnvironmentState();
       this.assertBackgroundSafe(before, after);
       await this.recordDetectedTwoFactor(action);
@@ -532,6 +545,41 @@ class MacCuaBrowserSession implements BrowserSession {
       this.recordAction(action, 'error', error);
       throw error;
     }
+  }
+
+  // The operator or the browser can close the controlled window at any time.
+  // cua-driver sends keys to the browser process, so keys meant for a closed
+  // window reach whichever window has focus: check, and reopen, before every
+  // action. Only navigation reruns in the new window (once); other actions
+  // would act on its blank start page, so they fail and ask for a navigate.
+  private async runInSessionWindow<T>(
+    action: string,
+    run: () => Promise<T>,
+    page: MacCuaPageUse,
+  ): Promise<T> {
+    if (page === 'none') return await run();
+    const reopened = await this.driver.ensureSessionWindow(this.sessionId);
+    if (reopened && page === 'current') throw this.windowReopenedError(action);
+    try {
+      return await run();
+    } catch (error) {
+      // Ask the driver whether the window closed mid-action rather than
+      // parsing its error text.
+      if (
+        reopened ||
+        !(await this.driver.ensureSessionWindow(this.sessionId))
+      ) {
+        throw error;
+      }
+      if (page === 'current') throw this.windowReopenedError(action);
+      return await run();
+    }
+  }
+
+  private windowReopenedError(action: string): Error {
+    return new Error(
+      `mac-cua ${this.browserName} window was closed, so a new one was opened; navigate to the page again before retrying ${action}.`,
+    );
   }
 
   private assertBackgroundSafe(
@@ -670,15 +718,17 @@ class MacCuaBrowserSession implements BrowserSession {
     const url = await this.driver
       .getCurrentUrl(this.sessionId)
       .catch(() => null);
+    // The browser window title is the page title; it needs no page JS.
+    const title = await this.driver.getWindowTitle(this.sessionId);
     if (!result.detected) {
-      return { detected: false, url };
+      return { detected: false, url, title };
     }
     return {
       detected: true,
       modality: 'totp',
       signals: result.signals || ['ax_two_factor_text'],
       url,
-      title: '',
+      title,
       preview: 'verification code',
       selectors: result.selectors || [],
     };
