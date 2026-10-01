@@ -25,6 +25,7 @@ import { normalizeScrollDelta } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
   BrowserFillInput,
+  BrowserNativeSnapshot,
   BrowserProvider,
   BrowserProviderCapabilities,
   BrowserSession,
@@ -175,7 +176,22 @@ function parseMacCuaTarget(selector: string): MacCuaTarget {
     };
   }
 
-  return { kind: 'query', query: raw };
+  return { kind: 'query', query: selectorQueryText(raw) };
+}
+
+// Models write Playwright selectors (`text=Dashboard`, `a:has-text("Pay")`,
+// getByRole('link', { name: 'Pay' })). The AX tree knows labels, not CSS, so
+// the label inside is the query.
+function selectorQueryText(selector: string): string {
+  const quoted = selector.match(
+    /(?:^text=|:has-text\(|:contains\(|getByText\(|\bname\s*[:=])\s*(["'`])([\s\S]*?)\1/u,
+  );
+  if (quoted?.[2]?.trim()) return quoted[2].trim();
+  const bare = selector.match(/^text=\s*([\s\S]+)$/u)?.[1] ?? selector;
+  return bare
+    .trim()
+    .replace(/^(["'`])([\s\S]*)\1$/u, '$2')
+    .trim();
 }
 
 function driverPayloadForText(value: string): { text: string } {
@@ -230,6 +246,7 @@ function decodeDriverScreenshot(result: MacCuaScreenshotResult): Buffer {
 class MacCuaBrowserSession implements BrowserSession {
   private awaitingTwoFactor = false;
   private lastTwoFactorState: BrowserTwoFactorState | null = null;
+  private lastPage: { url: string; title: string } | null = null;
 
   constructor(
     private readonly driver: MacCuaDriver,
@@ -469,6 +486,59 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
+  async nativeSnapshot(opts?: {
+    interactiveOnly?: boolean;
+  }): Promise<BrowserNativeSnapshot> {
+    const readPage = this.driver.readPage?.bind(this.driver);
+    if (!readPage) {
+      throw new Error(
+        'mac-cua driver cannot read the page accessibility tree.',
+      );
+    }
+    const page = await this.runAction('snapshot', () =>
+      readPage(this.sessionId, opts),
+    );
+    const title = await this.driver.getWindowTitle(this.sessionId);
+    this.lastPage = { url: page.url || '', title };
+    return {
+      url: page.url || '',
+      title,
+      snapshot: page.snapshot,
+      truncated: page.truncated,
+      elementCount: page.elementCount,
+      refs: page.refs,
+    };
+  }
+
+  async liveFrame(opts: {
+    image: boolean;
+    quality: number;
+  }): Promise<{ url: string; title: string; image?: Buffer }> {
+    // The action before already probed the window, 2FA and the URL; doing
+    // that again would add seconds to every click.
+    const image = opts.image
+      ? decodeDriverScreenshot(
+          await this.driver.screenshot(this.sessionId, {
+            type: 'jpeg',
+            quality: opts.quality,
+            mode: 'vision',
+          }),
+        )
+      : undefined;
+    let page = this.lastPage;
+    if (!page) {
+      const url = await this.driver
+        .getCurrentUrl(this.sessionId)
+        .catch(() => null);
+      page = {
+        url: url || '',
+        title: await this.driver.getWindowTitle(this.sessionId),
+      };
+      this.lastPage = page;
+    }
+    return { ...page, ...(image ? { image } : {}) };
+  }
+
   async inspectTwoFactorChallenge(): Promise<BrowserTwoFactorState> {
     if (this.awaitingTwoFactor && this.lastTwoFactorState?.detected) {
       return this.lastTwoFactorState;
@@ -516,6 +586,7 @@ class MacCuaBrowserSession implements BrowserSession {
     const resolved = await this.driver.resolveTarget(
       this.sessionId,
       requestedTarget,
+      action === 'fill' ? 'fill' : 'click',
     );
     if (resolved.pixelFallback || resolved.target.kind === 'point') {
       this.recordPixelFallback(
@@ -720,6 +791,7 @@ class MacCuaBrowserSession implements BrowserSession {
       .catch(() => null);
     // The browser window title is the page title; it needs no page JS.
     const title = await this.driver.getWindowTitle(this.sessionId);
+    this.lastPage = { url: url || '', title };
     if (!result.detected) {
       return { detected: false, url, title };
     }

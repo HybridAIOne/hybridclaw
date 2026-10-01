@@ -13,6 +13,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Model-facing browser calls; mac-cua also asks for a live-view frame after
+// each page-changing one.
+function gatewayToolCalls(
+  fetchMock: ReturnType<typeof vi.fn>,
+): Array<Record<string, unknown>> {
+  return fetchMock.mock.calls
+    .map(
+      ([, init]) =>
+        JSON.parse(String((init as RequestInit | undefined)?.body || '{}')) as Record<
+          string,
+          unknown
+        >,
+    )
+    .filter((body) => body.toolName !== 'browser_frame');
+}
+
+function jsonResponse(payload: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 test('browser_click schema avoids unsupported top-level combinators', () => {
   const browserClick = BROWSER_TOOL_DEFINITIONS.find(
     (entry) =>
@@ -65,41 +88,31 @@ test('browser provider log label follows gateway context and defaults to local',
 });
 
 test('managed browser resume reuses the parked suspended session id', async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          success: true,
-          url: 'http://127.0.0.1:18924/index.html',
-          parked: true,
-          interaction: {
-            session: {
-              sessionId: 'suspended-2fa',
-            },
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    const { toolName } = JSON.parse(String(init?.body || '{}'));
+    if (toolName === 'browser_navigate') {
+      return jsonResponse({
+        success: true,
+        url: 'http://127.0.0.1:18924/index.html',
+        parked: true,
+        interaction: {
+          session: {
+            sessionId: 'suspended-2fa',
           },
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
         },
-      ),
-    )
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          success: true,
-          resumed: true,
-          response_kind: 'code',
-          code_injected: true,
-          selector: '@e24',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    );
+      });
+    }
+    if (toolName === 'browser_resume_interaction') {
+      return jsonResponse({
+        success: true,
+        resumed: true,
+        response_kind: 'code',
+        code_injected: true,
+        selector: '@e24',
+      });
+    }
+    return jsonResponse({ success: true });
+  });
   vi.stubGlobal('fetch', fetchMock);
   setBrowserGatewayContext(
     'http://127.0.0.1:4317',
@@ -122,9 +135,9 @@ test('managed browser resume reuses the parked suspended session id', async () =
     ),
   ) as Record<string, unknown>;
 
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-  const [, resumeInit] = fetchMock.mock.calls[1] || [];
-  expect(JSON.parse(String(resumeInit?.body || '{}'))).toMatchObject({
+  const calls = gatewayToolCalls(fetchMock);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toMatchObject({
     toolName: 'browser_resume_interaction',
     sessionId: 'sess-mac',
     agentId: 'agent-main',
@@ -173,9 +186,9 @@ test('mac-cua browser tools route through the gateway provider', async () => {
     ),
   ) as Record<string, unknown>;
 
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  const [, init] = fetchMock.mock.calls[0] || [];
-  expect(JSON.parse(String(init?.body || '{}'))).toMatchObject({
+  const calls = gatewayToolCalls(fetchMock);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
     toolName: 'browser_navigate',
     sessionId: 'sess-mac',
     agentId: 'agent-main',

@@ -2545,6 +2545,18 @@ async function executeGatewayManagedBrowserTool(
     suspendedSessionByBrowserSession.delete(effectiveSessionId);
   }
 
+  if (name === 'browser_snapshot') {
+    // Refs name the elements for the checkout guard; the model reads them in
+    // the snapshot text already.
+    const { refs, ...rest } = payload;
+    recordBrowserPage({ url: payload.url, title: payload.title });
+    recordBrowserSnapshotRefs(refs);
+    return success({
+      ...gatewayBrowserResultContext(effectiveSessionId),
+      ...rest,
+    });
+  }
+
   return success({
     ...gatewayBrowserResultContext(effectiveSessionId),
     ...payload,
@@ -2600,6 +2612,24 @@ function pruneBrowserFrames(): void {
   }
 }
 
+function newBrowserFramePath(): string {
+  fs.mkdirSync(BROWSER_FRAME_ROOT, { recursive: true });
+  return path.join(
+    BROWSER_FRAME_ROOT,
+    `frame-${Date.now()}-${randomUUID().slice(0, 8)}.jpg`,
+  );
+}
+
+function emitBrowserFrame(url: string, frame: string | null): void {
+  console.error(
+    `${BROWSER_FRAME_LOG_PREFIX}${JSON.stringify({
+      url,
+      title: currentBrowserPage().title.slice(0, 200),
+      ...(frame ? { frame } : {}),
+    })}`,
+  );
+}
+
 /**
  * Read where the browser is and, unless frames are off or paused, save a small
  * JPEG of the viewport. The gateway turns the stderr line into the `browser`
@@ -2621,11 +2651,7 @@ async function observeBrowserPage(sessionId: string): Promise<void> {
     if (!url) return;
     let frame: string | null = null;
     if (!current.framesPaused) {
-      fs.mkdirSync(BROWSER_FRAME_ROOT, { recursive: true });
-      const outPath = path.join(
-        BROWSER_FRAME_ROOT,
-        `frame-${Date.now()}-${randomUUID().slice(0, 8)}.jpg`,
-      );
+      const outPath = newBrowserFramePath();
       const shot = await runAgentBrowser(
         sessionId,
         'screenshot',
@@ -2643,13 +2669,36 @@ async function observeBrowserPage(sessionId: string): Promise<void> {
         pruneBrowserFrames();
       }
     }
-    console.error(
-      `${BROWSER_FRAME_LOG_PREFIX}${JSON.stringify({
-        url,
-        title: current.title.slice(0, 200),
-        ...(frame ? { frame } : {}),
-      })}`,
-    );
+    emitBrowserFrame(url, frame);
+  } catch {
+    // A missing frame only means the client keeps showing the previous one.
+  }
+}
+
+/**
+ * The same live view for mac-cua, whose browser the gateway drives: it reads
+ * the operator's browser window there and hands back a JPEG. The image is
+ * dropped unsaved when frames are paused for a typed secret.
+ */
+async function observeGatewayBrowserPage(): Promise<void> {
+  try {
+    const payload = await callGatewayManagedBrowser('browser_frame', {
+      image: liveFramesEnabled(),
+    });
+    recordBrowserPage({ url: payload.url, title: payload.title });
+    if (!liveFramesEnabled()) return;
+    const current = currentBrowserPage();
+    const url = displayPageUrl(current.url);
+    if (!url) return;
+    let frame: string | null = null;
+    const imageBase64 = String(payload.imageBase64 || '');
+    if (imageBase64 && !current.framesPaused) {
+      const outPath = newBrowserFramePath();
+      fs.writeFileSync(outPath, Buffer.from(imageBase64, 'base64'));
+      frame = toWorkspaceRelativePath(outPath);
+      pruneBrowserFrames();
+    }
+    emitBrowserFrame(url, frame);
   } catch {
     // A missing frame only means the client keeps showing the previous one.
   }
@@ -2663,10 +2712,13 @@ export async function executeBrowserTool(
   const output = await runBrowserTool(name, args, sessionId);
   if (
     BROWSER_FRAME_TOOLS.has(name) &&
-    !shouldUseGatewayManagedBrowser(name) &&
     asRecord(safeJsonParse(output))?.success === true
   ) {
-    await observeBrowserPage(normalizeSessionKey(sessionId || 'default'));
+    if (!shouldUseGatewayManagedBrowser(name)) {
+      await observeBrowserPage(normalizeSessionKey(sessionId || 'default'));
+    } else if (gatewayBrowserProvider === 'mac-cua') {
+      await observeGatewayBrowserPage();
+    }
   }
   if (name === 'browser_close') resetBrowserPage();
   return output;

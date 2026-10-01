@@ -45,6 +45,16 @@ export interface BrowserTwoFactorState {
   selectors?: string[];
 }
 
+export interface BrowserNativeSnapshot {
+  url: string;
+  title: string;
+  snapshot: string;
+  truncated: boolean;
+  elementCount: number;
+  /** `e23` → the element's role and name, keyed like the refs in `snapshot`. */
+  refs: Record<string, { role: string; name: string }>;
+}
+
 export interface BrowserTwoFactorCodeFillResult {
   selector?: string;
   strategy: string;
@@ -94,6 +104,22 @@ export interface BrowserSession {
     opts?: ConsoleMessageOptions,
   ): Promise<BrowserConsoleMessage[]>;
   inspectTwoFactorChallenge?(): Promise<BrowserTwoFactorState>;
+  /**
+   * The page read through the OS accessibility tree, for browsers driven from
+   * outside with no DOM to evaluate (mac-cua).
+   */
+  nativeSnapshot?(opts?: {
+    interactiveOnly?: boolean;
+  }): Promise<BrowserNativeSnapshot>;
+  /**
+   * A quick look for a client's live view: where the browser is and, when
+   * asked, a JPEG. Lighter than screenshot(); it runs right after an action
+   * that already checked the window.
+   */
+  liveFrame?(opts: {
+    image: boolean;
+    quality: number;
+  }): Promise<{ url: string; title: string; image?: Buffer }>;
   waypoint?(
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,
@@ -146,6 +172,8 @@ export interface WaitOptions {
 export interface ScreenshotOptions {
   fullPage?: boolean;
   type?: 'png' | 'jpeg';
+  /** JPEG quality, 1-95. Providers that cannot set it ignore it. */
+  quality?: number;
 }
 
 export interface PdfOptions {
