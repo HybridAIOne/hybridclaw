@@ -659,7 +659,10 @@ async function handleGatewayMessageInner(
     ? await pluginManager.getMemoryLayerBehavior()
     : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(
+    req.channelId,
+    req.client,
+  );
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,

@@ -13391,6 +13391,21 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('passes the mobile client marker on to slash commands', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { sessionId: 'session-phone', content: '/status', client: 'mobile' },
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['status'], client: 'mobile' }),
+    );
+  });
+
   test('rejects an invalid reasoning effort at the HTTP boundary', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

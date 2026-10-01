@@ -1283,11 +1283,17 @@ export function resolveChannelType(
 
 export function resolveSessionAutoResetPolicy(
   channelId: string,
+  client?: GatewayChatRequest['client'],
 ): SessionResetPolicy {
-  return resolveResetPolicy({
+  const policy = resolveResetPolicy({
     channelKind: resolveSessionResetChannelKind(channelId),
     config: getRuntimeConfig(),
   });
+  // The phone app shows every chat as one continuous thread and has no way to
+  // start a fresh session, so a reset would only make the agent forget behind
+  // the user's back. Compaction bounds these sessions instead (requested
+  // 2026-10-01 for the HybridAI app's main thread).
+  return client === 'mobile' ? { ...policy, mode: 'none' } : policy;
 }
 
 export function resolveCanonicalContextScope(
@@ -10020,7 +10026,10 @@ export async function handleGatewayCommand(
       surface: 'command',
     });
   const cmd = parseLowerArg(req.args, 0);
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(
+    req.channelId,
+    req.client,
+  );
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
