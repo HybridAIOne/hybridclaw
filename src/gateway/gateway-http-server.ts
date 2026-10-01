@@ -184,6 +184,7 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
+import { runTodoToolAction } from '../todos/todo-command.js';
 import {
   buildTuiSlashMenuEntries,
   rankTuiSlashMenuEntries,
@@ -4109,6 +4110,13 @@ async function handleApiSchedulerTask(
 ): Promise<void> {
   const body = await readJsonBody(req);
   sendJson(res, 200, runScheduledTaskToolAction(body));
+}
+
+async function handleApiTodo(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, runTodoToolAction(await readJsonBody(req)));
 }
 
 async function handleApiPluginTool(
@@ -11636,6 +11644,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiBrowserTool(req, res, activeSseResponses);
+            return;
+          }
+          if (pathname === '/api/todo' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiTodo(req, res);
             return;
           }
           if (pathname === '/api/scheduler/task' && method === 'POST') {
