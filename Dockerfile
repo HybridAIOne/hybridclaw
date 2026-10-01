@@ -1,5 +1,30 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
+# Runs on the build host's own architecture: tsc and vite emit
+# platform-independent JS, and compiling it under QEMU for arm64 took ~13 of
+# the ~17 minutes of a main build (2026-10-01). Install scripts are skipped
+# because nothing here loads a native addon; those come from `deps` below.
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
+
+WORKDIR /app
+
+RUN npm install --global npm@11.10.0 --no-audit --fund=false
+
+COPY .npmrc package*.json ./
+COPY console/package*.json console/
+RUN npm ci --ignore-scripts
+COPY container/package*.json container/
+RUN npm --prefix container ci --ignore-scripts
+
+COPY . .
+RUN npm run build:console
+RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
+RUN npm --prefix container run build
+
+# ── Production deps ───────────────────────────────────────────────────────────
+# Runs per target platform, so better-sqlite3 and node-pty get native addons
+# for the image's architecture. Depends only on the lockfiles, so a source
+# change reuses it from cache.
+FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS deps
 
 # better-sqlite3 requires native compilation; node-pty may fall back to it
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,19 +41,19 @@ COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
 RUN find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod 755 {} \; 2>/dev/null || true
 
-# Install container agent deps (cached separately from source)
 COPY container/package*.json container/
 RUN npm --prefix container ci
 
-# Copy source and build everything
-COPY . .
-RUN npm run build:console
-RUN npx tsc && node -e "require('node:fs').chmodSync('dist/cli.js', 0o755)"
-RUN npm --prefix container run build
-
 # Prune devDeps in place so the runtime stage copies only production deps.
+# Prune must see every workspace manifest: the container workspace's deps stay
+# hoisted in the root tree only then, and the host-sandbox browser tools run
+# /app/node_modules/.bin/agent-browser. (`npm ci --omit=dev` cannot replace
+# this: with container/package.json present, the root postinstall would
+# install the container deps a second time.)
 # The hidden lockfiles carry the project version, which would give the copied
 # node_modules layers a new digest on every release; nothing reads them here.
+COPY desktop/package.json desktop/
+COPY desktop/support/packaging-anchor/ desktop/support/packaging-anchor/
 RUN npm prune --omit=dev \
     && npm --prefix container prune --omit=dev \
     && rm -f node_modules/.package-lock.json \
@@ -114,17 +139,17 @@ RUN mkdir -p /etc/signal-cli \
 
 WORKDIR /app
 
-# Production deps — copy pre-built and pre-pruned from builder
+# Production deps — copy pre-built from deps
 # (better-sqlite3 and node-pty may require native compilation;
-# copying from the builder avoids needing build tools at runtime)
-COPY --link --from=builder /app/package*.json ./
-COPY --link --from=builder /app/console/package*.json console/
-COPY --link --from=builder /app/node_modules/ node_modules/
+# copying from deps avoids needing build tools at runtime)
+COPY --link --from=deps /app/package*.json ./
+COPY --link --from=deps /app/console/package*.json console/
+COPY --link --from=deps /app/node_modules/ node_modules/
 
 # Production deps — container agent
-COPY --link --from=builder /app/container/package*.json container/
+COPY --link --from=deps /app/container/package*.json container/
 COPY --link container/tools/package.json container/tools/package.json
-COPY --link --from=builder /app/container/node_modules/ container/node_modules/
+COPY --link --from=deps /app/container/node_modules/ container/node_modules/
 
 # Gateway compiled output + console SPA
 COPY --link --from=builder /app/dist ./dist
