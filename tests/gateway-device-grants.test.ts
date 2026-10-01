@@ -119,7 +119,9 @@ describe('device authorization grants', () => {
     const token = collected.body.access_token;
     expect(registry.verifyApiToken(token)).toMatchObject({
       label: 'Device: HybridClaw for iPhone',
-      claims: { actions: ['chat.send', 'agents.read', 'artifacts.read'] },
+      claims: {
+        actions: ['chat.send', 'agents.read', 'artifacts.read', 'voice.session'],
+      },
     });
     expect(recordAuditEvent).toHaveBeenCalledTimes(1);
     expect(recordAuditEvent.mock.calls[0][0]).toMatchObject({
@@ -240,7 +242,13 @@ describe('device authorization grants', () => {
     expect(verified).toMatchObject({
       label: 'Device: Hy for iPhone',
       claims: {
-        actions: ['chat.send', 'agents.read', 'artifacts.read', 'chat.history'],
+        actions: [
+          'chat.send',
+          'agents.read',
+          'artifacts.read',
+          'voice.session',
+          'chat.history',
+        ],
         owner: true,
       },
     });

@@ -121,7 +121,7 @@ describe('phone delivery', () => {
       token: TOKEN,
       environment: 'production',
       payload: {
-        aps: { alert: { title: 'HybridClaw', body: 'Done. Your reply is ready.', 'loc-key': 'Done. Your reply is ready.' }, sound: 'default', 'thread-id': 'session-a' },
+        aps: { alert: { title: 'Hy', body: 'Done. Your reply is ready.', 'loc-key': 'Done. Your reply is ready.' }, sound: 'default', 'thread-id': 'session-a' },
         kind: 'turn',
         id: 'session-a:turn:9',
         sessionId: 'session-a',
@@ -137,7 +137,9 @@ describe('phone delivery', () => {
 
   test('done and needs-you alerts name the assistant and say what happened in a line the app translates', async () => {
     const { push, notifications, operator } = await modules();
-    mocks.agent.mockImplementation((id: string) => (id === 'agent-a' ? { id, name: 'Main Agent', displayName: 'Hy' } : null));
+    // The app calls the default agent Hy, whatever it is called here.
+    mocks.getSession.mockReturnValue({ id: 'session-a', channel_id: 'web', agent_id: 'main' });
+    mocks.agent.mockImplementation((id: string) => (id === 'main' ? { id, name: 'Main Agent', displayName: 'Jarvis' } : null));
     await command(push, `push register ${TOKEN} production turn,approval`);
     notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'send it' }, { status: 'success', result: 'I need your approval before I send the mail to Ben.', messageRole: 'assistant', toolsUsed: [], pendingApproval: { approvalId: 'ab12cd34' } } as never);
     await vi.waitFor(() => expect(calls()).toHaveLength(1));
@@ -146,16 +148,27 @@ describe('phone delivery', () => {
       kind: 'approval',
       id: 'session-a:approval:ab12cd34',
       sessionId: 'session-a',
-      agentId: 'agent-a',
+      agentId: 'main',
     });
     expect(JSON.stringify(relayed().body)).not.toContain('Ben');
-    // Without a display name the agent's name, without an agent the product's.
-    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Main Agent' });
+    // Another agent goes by its display name, then its name, and is Hy without either.
+    mocks.getSession.mockReturnValue({ id: 'session-a', channel_id: 'web', agent_id: 'agent-a' });
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research', displayName: 'Ada' });
     notifications.notifyWebSession('session-a', 'turn', '11');
     await vi.waitFor(() => expect(calls()).toHaveLength(2));
-    expect(relayed(1).body.payload.aps.alert.title).toBe('Main Agent');
-    // Other kinds keep the notice's own title.
-    expect(push.replyAlert({ notification: { id: 'x', sessionId: 's', kind: 'reminder', agentId: null, title: 'HybridClaw reminder', createdAt: 0 }, assistant: 'Hy' }).title).toBe('HybridClaw reminder');
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research' });
+    notifications.notifyWebSession('session-a', 'turn', '12');
+    await vi.waitFor(() => expect(calls()).toHaveLength(3));
+    mocks.agent.mockReturnValue(null);
+    notifications.notifyWebSession('session-a', 'turn', '13');
+    await vi.waitFor(() => expect(calls()).toHaveLength(4));
+    expect(calls().map((call) => call.body.payload.aps.alert.title)).toEqual(['Hy', 'Ada', 'Research', 'Hy']);
+    expect(push.phoneAssistantName(null, null)).toBe('Hy');
+    expect(push.phoneAssistantName('main', { name: 'Main Agent' })).toBe('Hy');
+    // Other kinds show the name alone, never the notice's own title.
+    const other = push.replyAlert({ notification: { id: 'x', sessionId: 's', kind: 'reminder', agentId: null, title: 'HybridClaw reminder', createdAt: 0 }, assistant: 'Hy' });
+    expect(other).toMatchObject({ title: 'Hy' });
+    expect(other).not.toHaveProperty('body');
   });
 
   test('plugin alerts carry title, body, badge and data; a phone APNs no longer knows is forgotten', async () => {
@@ -299,9 +312,9 @@ describe('reminder alerts', () => {
     const { store, push, notifications, operator } = await modules();
     const delivery = await import('../src/gateway/web-scheduled-delivery.js');
     await command(push, `push register ${TOKEN} production reminder`);
-    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Main Agent', displayName: 'Hy' });
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research', displayName: 'Ada' });
     expect(await remind(delivery, 'huhu', 152734)).toEqual({
-      aps: { alert: { title: 'Hy', body: 'huhu' }, sound: 'default', badge: 1, 'thread-id': 'session-a' },
+      aps: { alert: { title: 'Ada', body: 'huhu' }, sound: 'default', badge: 1, 'thread-id': 'session-a' },
       kind: 'reminder',
       id: 'session-a:reminder:152734',
       sessionId: 'session-a',
@@ -312,17 +325,26 @@ describe('reminder alerts', () => {
 
     // Other kinds do not count; reading one reminder takes it off the badge.
     notifications.notifyWebSession('session-a', 'turn', '152735');
-    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Main Agent' });
-    expect((await remind(delivery, 'second', 152736)).aps).toMatchObject({ alert: { title: 'Main Agent' }, badge: 2 });
+    mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research' });
+    expect((await remind(delivery, 'second', 152736)).aps).toMatchObject({ alert: { title: 'Research' }, badge: 2 });
     store.acknowledgeWebNotifications(operator, ['session-a:reminder:152734']);
     mocks.agent.mockReturnValue(null);
     const third = await remind(delivery, `  ${'x'.repeat(300)}  `, 152737);
     expect(third.aps).toEqual({
-      alert: { title: 'HybridClaw', body: `${'x'.repeat(239)}…` },
+      alert: { title: 'Hy', body: `${'x'.repeat(239)}…` },
       sound: 'default',
       badge: 2,
       'thread-id': 'session-a',
     });
+
+    // The default agent is Hy on a phone, whatever it is called here.
+    mocks.getSession.mockReturnValue({ id: 'session-a', channel_id: 'web', agent_id: 'main' });
+    mocks.agent.mockReturnValue({ id: 'main', name: 'Main Agent', displayName: 'Jarvis' });
+    expect(await remind(delivery, 'fourth', 152738)).toMatchObject({
+      aps: { alert: { title: 'Hy', body: 'fourth' } },
+      agentId: 'main',
+    });
+    expect(mocks.agent).toHaveBeenLastCalledWith('main');
   });
 
   test('ring only phones that take reminders, while reminders are switched on', async () => {

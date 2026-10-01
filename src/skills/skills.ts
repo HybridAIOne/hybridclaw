@@ -48,6 +48,11 @@ import {
   parseInstallSpecList,
   type SkillInstallSpec,
 } from './skills-install-spec.js';
+import {
+  buildDirectoryContentSignature,
+  isResolvedWorkspaceSkillUnchanged,
+  recordResolvedWorkspaceSkills,
+} from './skills-sync-cache.js';
 
 export type {
   SkillManifestConfigVariable,
@@ -1067,45 +1072,6 @@ function buildSharedSkillsRootDirNames(
   return dirNames;
 }
 
-function buildDirectoryContentSignature(rootDir: string): string {
-  const resolvedRoot = path.resolve(rootDir);
-  const entries: string[] = [];
-  const stack = [resolvedRoot];
-
-  while (stack.length > 0) {
-    const currentDir = stack.pop();
-    if (!currentDir) continue;
-
-    const dirEntries = fs
-      .readdirSync(currentDir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const entry of dirEntries) {
-      if (!isSkillContentEntry(entry.name)) continue;
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-
-      const relPath = path
-        .relative(resolvedRoot, fullPath)
-        .split(path.sep)
-        .join('/');
-      // lgtm[js/insufficient-password-hash] This is a content-change
-      // fingerprint, not password storage or credential derivation.
-      const contentHash = createHash('sha256')
-        .update(fs.readFileSync(fullPath))
-        .digest('hex');
-      entries.push(`${relPath}:${contentHash}`);
-    }
-  }
-
-  // lgtm[js/insufficient-password-hash] This aggregates content
-  // fingerprints and is not a credential verifier.
-  return createHash('sha256').update(entries.join('\n')).digest('hex');
-}
-
 function resolveSyncedSkillTarget(
   skill: SkillCandidate,
   workspaceDir: string,
@@ -1777,26 +1743,26 @@ export function promoteWorkspaceSkills(workspaceDir: string): void {
   const workspaceSkillsDir = path.join(workspaceDir, 'skills');
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
-  // Quick check: are there any skill directories with a SKILL.md to promote?
-  // Avoids the expensive collectResolvedSkillCandidates() scan on turns where
-  // the agent created no skills (the common case).
-  let hasCandidate = false;
+  // Candidates are skill dirs the last loadSkills() did not place or verify,
+  // or whose SKILL.md changed since. Synced copies of catalog skills are never
+  // promoted, so a turn that wrote no skill (the common case) skips the
+  // expensive collectResolvedSkillCandidates() scan.
+  let candidates: fs.Dirent[];
   try {
-    for (const entry of fs.readdirSync(workspaceSkillsDir, {
-      withFileTypes: true,
-    })) {
-      if (
-        entry.isDirectory() &&
-        fs.existsSync(path.join(workspaceSkillsDir, entry.name, 'SKILL.md'))
-      ) {
-        hasCandidate = true;
-        break;
-      }
-    }
+    candidates = fs
+      .readdirSync(workspaceSkillsDir, { withFileTypes: true })
+      .filter((entry) => {
+        const skillDir = path.join(workspaceSkillsDir, entry.name);
+        return (
+          entry.isDirectory() &&
+          fs.existsSync(path.join(skillDir, 'SKILL.md')) &&
+          !isResolvedWorkspaceSkillUnchanged(workspaceDir, skillDir)
+        );
+      });
   } catch {
     return;
   }
-  if (!hasCandidate) return;
+  if (candidates.length === 0) return;
 
   const communityDir = resolveManagedCommunitySkillsDir();
 
@@ -1808,14 +1774,9 @@ export function promoteWorkspaceSkills(workspaceDir: string): void {
   );
 
   try {
-    for (const entry of fs.readdirSync(workspaceSkillsDir, {
-      withFileTypes: true,
-    })) {
-      if (!entry.isDirectory()) continue;
-
+    for (const entry of candidates) {
       const wsSkillDir = path.join(workspaceSkillsDir, entry.name);
       const skillFile = path.join(wsSkillDir, 'SKILL.md');
-      if (!fs.existsSync(skillFile)) continue;
 
       // Parse the skill name from frontmatter (or fall back to dir name).
       let skillName = entry.name;
@@ -2218,22 +2179,16 @@ function loadSkillsInner(
   pruneStaleSyncedSkills(eligible, workspaceDir);
 
   const resolved: Skill[] = [];
+  const resolvedSkillFiles: string[] = [];
   for (const skill of eligible) {
     try {
-      let promptSkillPath = asPromptLocation(
-        workspaceDir,
-        path.resolve(skill.filePath),
-      );
+      let skillFile = path.resolve(skill.filePath);
+      let promptSkillPath = asPromptLocation(workspaceDir, skillFile);
       if (!promptSkillPath) {
-        const syncedSkillFile = syncSkillIntoWorkspace(
-          skill,
-          workspaceDir,
-          sharedSkillsRootDirNames,
+        skillFile = path.resolve(
+          syncSkillIntoWorkspace(skill, workspaceDir, sharedSkillsRootDirNames),
         );
-        promptSkillPath = asPromptLocation(
-          workspaceDir,
-          path.resolve(syncedSkillFile),
-        );
+        promptSkillPath = asPromptLocation(workspaceDir, skillFile);
       }
       if (!promptSkillPath) {
         logger.warn(
@@ -2243,6 +2198,7 @@ function loadSkillsInner(
         continue;
       }
 
+      resolvedSkillFiles.push(skillFile);
       resolved.push({
         ...skill,
         location: promptSkillPath,
@@ -2254,6 +2210,7 @@ function loadSkillsInner(
       );
     }
   }
+  recordResolvedWorkspaceSkills(workspaceDir, resolvedSkillFiles);
 
   return resolved.sort(compareSkillsByCategoryAndName);
 }

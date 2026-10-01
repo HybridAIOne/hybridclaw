@@ -41,10 +41,14 @@ export const DEVICE_VERIFICATION_PATH = '/admin/credentials';
 // documents replies link to. It gets no admin, history or secret access; the
 // same evening the owner let it read single replies in chats it started
 // (`/api/chat/message` under `chat.send`), so reminders reach the phone.
+// 2026-10-01: the phone also calls the agent (`/api/chat/voice/token` under
+// `voice.session`). A call is chatting by voice: its spoken requests run as
+// ordinary chat turns, so it grants nothing `chat.send` does not.
 export const DEVICE_TOKEN_ACTIONS = [
   'chat.send',
   'agents.read',
   'artifacts.read',
+  'voice.session',
 ] as const satisfies readonly AdminRbacAction[];
 
 // 2026-10-01 (product owner): the owner's own phone talks to the gateway

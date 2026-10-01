@@ -201,6 +201,7 @@ import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
+import { sleep } from '../utils/sleep.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
 import {
   AdminTerminalCapacityError,
@@ -776,6 +777,41 @@ function isMacCuaGatewaySession(active: GatewayBrowserSessionEntry): boolean {
   return active.providerKind === 'mac-cua';
 }
 
+// mac-cua cannot wait for a page load: a navigate returns once Return is
+// pressed. Give the page a moment before the frame.
+const MAC_CUA_FRAME_SETTLE_MS = 500;
+const BROWSER_FRAME_JPEG_QUALITY = 55;
+
+/**
+ * Where the agent's browser is and, when asked, a small JPEG of it. The
+ * container turns this into the live view a client shows while the agent
+ * browses; it is not a model tool and never opens a browser session.
+ */
+async function sendGatewayBrowserFrame(
+  res: ServerResponse,
+  sessionId: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const active = gatewayBrowserSessions.get(sessionId);
+  if (!active?.session.liveFrame) {
+    sendJson(res, 200, { success: true });
+    return;
+  }
+  if (isMacCuaGatewaySession(active)) await sleep(MAC_CUA_FRAME_SETTLE_MS);
+  const frame = await active.session.liveFrame({
+    image: args.image === true,
+    quality: BROWSER_FRAME_JPEG_QUALITY,
+  });
+  sendJson(res, 200, {
+    success: true,
+    url: frame.url,
+    title: frame.title,
+    ...(frame.image
+      ? { imageBase64: Buffer.from(frame.image).toString('base64') }
+      : {}),
+  });
+}
+
 function sanitizeGatewayUploadName(value: unknown, index: number): string {
   const basename = path.basename(String(value || '').trim());
   const sanitized = basename.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1072,6 +1108,11 @@ async function handleApiBrowserTool(
       ? (body.args as Record<string, unknown>)
       : {};
 
+  if (toolName === 'browser_frame') {
+    await sendGatewayBrowserFrame(res, sessionId, args);
+    return;
+  }
+
   if (toolName === 'browser_close') {
     const active = gatewayBrowserSessions.get(sessionId);
     if (active) {
@@ -1163,7 +1204,10 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_snapshot') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
+    if (active.session.nativeSnapshot) {
+      const page = await active.session.nativeSnapshot({
+        interactiveOnly: args.mode === 'interactive',
+      });
       await sendGatewayBrowserActionJson(res, {
         active,
         activeSseResponses,
@@ -1171,14 +1215,20 @@ async function handleApiBrowserTool(
         agentId,
         args,
         fields: {
-          snapshot:
-            'Native macOS browser provider does not expose a DOM snapshot. Use browser_screenshot for visual state and AX selectors such as ax:1 or query text for actions.',
-          truncated: false,
-          element_count: 0,
-          url: '',
-          title: '',
+          snapshot: [
+            `URL: ${page.url}`,
+            `Title: ${page.title}`,
+            '',
+            page.snapshot ||
+              'No page content found in the browser window. Navigate to a page first.',
+          ].join('\n'),
+          truncated: page.truncated,
+          element_count: page.elementCount,
+          url: page.url,
+          title: page.title,
           mode: String(args.mode || 'default'),
           frames: [],
+          refs: page.refs,
           two_factor_detection: { detected: false, signals: [] },
         },
       });
@@ -1329,7 +1379,7 @@ async function handleApiBrowserTool(
       if (isMacCuaGatewaySession(active)) {
         throw new GatewayRequestError(
           400,
-          'mac-cua requires AX or query targeting; raw x/y coordinates are only available as provider-controlled pixel fallback.',
+          'mac-cua clicks page elements, not coordinates: pass the visible text (text: "Dashboard") or a ref from browser_snapshot (ref: "@e23").',
         );
       }
       const clicked = await active.session.evaluate(
@@ -1467,13 +1517,15 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId);
     if (isMacCuaGatewaySession(active)) {
       await active.session.back();
+      const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
         active,
         activeSseResponses,
         sessionId,
         agentId,
         args,
-        fields: { url: '' },
+        pageState,
+        fields: { url: pageState.url, title: pageState.title },
       });
       return;
     }
@@ -3950,6 +4002,9 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    // Close the stream before the bookkeeping below. The trace write is
+    // synchronous, so no later request can read the message before it lands.
+    res.end();
     tail.mark('resultSent');
     tail.log(
       { sessionId: chatRequest.sessionId, channelId: chatRequest.channelId },

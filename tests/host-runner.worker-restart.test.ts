@@ -59,6 +59,7 @@ vi.mock('../src/config/config.js', async () => {
     );
   return {
     ...actual,
+    BROWSER_PROVIDER: 'mac-cua',
     CONTAINER_WARM_POOL: {
       ...actual.CONTAINER_WARM_POOL,
       enabled: false,
@@ -430,4 +431,57 @@ test('HostExecutor waits briefly for capacity instead of failing immediately whe
 
   const results = await Promise.all(promises);
   expect(results.every((r) => r.status === 'success')).toBe(true);
+});
+
+test('HostExecutor gives the worker the browser a run asks for, else the configured one', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+
+  const spawned: ReturnType<typeof makeFakeChildProcess>[] = [];
+  spawnImpl = vi.fn(() => {
+    const proc = makeFakeChildProcess();
+    spawned.push(proc);
+    return proc as never;
+  });
+  readOutputImpl = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  resolveModelRuntimeCredentialsImpl = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'shared-token',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: true,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+  const request = {
+    messages: [{ role: 'user' as const, content: 'open example.com' }],
+    chatbotId: 'bot-a',
+    enableRag: true,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+  };
+
+  await executor.exec({
+    ...request,
+    sessionId: 'web:phone',
+    browserProvider: 'local',
+  });
+  await executor.exec({ ...request, sessionId: 'web:desk' });
+
+  const firstInput = (proc: ReturnType<typeof makeFakeChildProcess>) =>
+    JSON.parse(String(proc.stdin.write.mock.calls[0]?.[0]));
+  expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local' });
+  expect(firstInput(spawned[1])).toMatchObject({ browserProvider: 'mac-cua' });
 });

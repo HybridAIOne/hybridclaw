@@ -195,7 +195,7 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
     maxWallClockMs: null,
   });
 
-  // Output appears at 500ms; adaptive polling may need one capped 250ms cycle.
+  // Output appears at 500ms; adaptive polling may need one capped cycle.
   await vi.advanceTimersByTimeAsync(750);
 
   await expect(outputPromise).resolves.toEqual(
@@ -203,6 +203,39 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
       status: 'success',
       result: 'ok',
     }),
+  );
+});
+
+test('readOutput reads a reply that lands late in a long turn within 50ms', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+  vi.resetModules();
+
+  const { ensureSessionDirs, readOutput } = await import('../src/infra/ipc.ts');
+
+  ensureSessionDirs('session-1');
+  setTimeout(() => {
+    writeReply(ipcDirOf(homeDir, 'session-1'), 'request-1', {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+    });
+  }, 5_000);
+  let settled = false;
+  const outputPromise = readOutput('session-1', 'request-1', 60_000).finally(
+    () => {
+      settled = true;
+    },
+  );
+
+  // By now the poll interval has backed off to its cap.
+  await vi.advanceTimersByTimeAsync(5_050);
+
+  expect(settled).toBe(true);
+  await expect(outputPromise).resolves.toEqual(
+    expect.objectContaining({ status: 'success', result: 'ok' }),
   );
 });
 

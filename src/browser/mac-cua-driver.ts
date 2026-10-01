@@ -18,11 +18,18 @@ import type {
 import type { SecretRef } from '../security/secret-refs.js';
 import { sleep } from '../utils/sleep.js';
 import {
+  findMacCuaAddressBarUrl,
+  findMacCuaHistoryButton,
   firstEditableElementSelector,
   firstEditableElementTarget,
-  firstElementIndex,
+  type MacCuaHistoryDirection,
+  type MacCuaPageSnapshot,
+  type MacCuaQueryPurpose,
   normalizePositiveInteger,
   normalizeWindowId,
+  renderMacCuaPageSnapshot,
+  resolveMacCuaQueryElementIndex,
+  windowStateTree,
 } from './mac-cua-window-state.js';
 import type { ScreenshotOptions, WaitOptions } from './provider.js';
 
@@ -63,6 +70,10 @@ export interface MacCuaDriver {
     params: { key: string; modifiers: string[] },
   ): Promise<void>;
   pressKey(sessionId: string, key: string): Promise<void>;
+  pressHistoryButton(
+    sessionId: string,
+    direction: MacCuaHistoryDirection,
+  ): Promise<void>;
   typeTextChars(
     sessionId: string,
     payload: { text: string } | { secretRef: SecretRef },
@@ -89,7 +100,12 @@ export interface MacCuaDriver {
   resolveTarget(
     sessionId: string,
     target: MacCuaTarget,
+    purpose?: MacCuaQueryPurpose,
   ): Promise<MacCuaResolvedTarget>;
+  readPage?(
+    sessionId: string,
+    opts?: { interactiveOnly?: boolean },
+  ): Promise<MacCuaPageSnapshot & { url: string | null }>;
   getAddressBarValue(sessionId: string): Promise<string | null>;
   getCurrentUrl(sessionId: string): Promise<string | null>;
   detectTwoFactorWaypoint?(
@@ -114,11 +130,17 @@ type DriverSession = {
   pid: number;
   windowId: number;
   lastTypedText?: string;
+  /** Page JavaScript failed once (Safari blocks it by default); use AX. */
+  pageScriptBlocked?: boolean;
 };
 
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
 const NEW_WINDOW_TIMEOUT_MS = 5_000;
 const NEW_WINDOW_POLL_MS = 150;
+// Like Playwright's auto-wait: navigate returns once Return is pressed, so a
+// click right after it can run before the page has its links.
+const QUERY_WAIT_MS = 5_000;
+const QUERY_POLL_MS = 500;
 const CUA_MCP_CLIENT_INFO = {
   name: 'hybridclaw-mac-cua',
   version: process.env.npm_package_version || '0.0.0',
@@ -285,6 +307,32 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
+  // cua-driver has no bracket keys, so Cmd+[ cannot go back. Pressing the
+  // toolbar button also acts on this window only, where keys go to whichever
+  // window has focus.
+  async pressHistoryButton(
+    sessionId: string,
+    direction: MacCuaHistoryDirection,
+  ): Promise<void> {
+    const session = this.requireSession(sessionId);
+    // Reading the tree also refreshes cua-driver's element indices.
+    const button = findMacCuaHistoryButton(
+      await this.readWindowTree(sessionId),
+      direction,
+    );
+    if (!button) {
+      throw new Error(`mac-cua cannot find the browser's ${direction} button.`);
+    }
+    if (button.disabled) {
+      throw new Error(`There is no page to go ${direction} to.`);
+    }
+    await this.callTool('click', {
+      pid: session.pid,
+      window_id: session.windowId,
+      element_index: button.index,
+    });
+  }
+
   async typeTextChars(
     sessionId: string,
     payload: { text: string } | { secretRef: SecretRef },
@@ -366,6 +414,9 @@ export class StdioMacCuaDriver implements MacCuaDriver {
         : await this.callTool('screenshot', {
             window_id: session.windowId,
             format: opts.type || 'png',
+            ...(opts.type === 'jpeg' && opts.quality
+              ? { quality: opts.quality }
+              : {}),
           });
     const dataBase64 = result.images[0];
     if (!dataBase64) {
@@ -395,18 +446,42 @@ export class StdioMacCuaDriver implements MacCuaDriver {
   async resolveTarget(
     sessionId: string,
     target: MacCuaTarget,
+    purpose: MacCuaQueryPurpose = 'click',
   ): Promise<MacCuaResolvedTarget> {
     const session = this.requireSession(sessionId);
     if (target.kind === 'point') return { target };
     if (target.kind === 'ax') return { target };
-    const record = await this.callToolRecord('get_window_state', {
-      pid: session.pid,
-      window_id: session.windowId,
-      query: target.query,
-    });
-    const elementIndex = firstElementIndex(record);
-    if (elementIndex === null) return { target };
-    return { target: { kind: 'ax', elementIndex, windowId: session.windowId } };
+    const deadline = Date.now() + QUERY_WAIT_MS;
+    for (;;) {
+      const record = await this.callToolRecord('get_window_state', {
+        pid: session.pid,
+        window_id: session.windowId,
+        query: target.query,
+      });
+      const elementIndex = resolveMacCuaQueryElementIndex(
+        windowStateTree(record),
+        target.query,
+        purpose,
+      );
+      if (elementIndex !== null) {
+        return {
+          target: { kind: 'ax', elementIndex, windowId: session.windowId },
+        };
+      }
+      if (Date.now() >= deadline) return { target };
+      await sleep(QUERY_POLL_MS);
+    }
+  }
+
+  async readPage(
+    sessionId: string,
+    opts?: { interactiveOnly?: boolean },
+  ): Promise<MacCuaPageSnapshot & { url: string | null }> {
+    const tree = await this.readWindowTree(sessionId);
+    return {
+      ...renderMacCuaPageSnapshot(tree, opts),
+      url: findMacCuaAddressBarUrl(tree),
+    };
   }
 
   async getAddressBarValue(sessionId: string): Promise<string | null> {
@@ -415,18 +490,37 @@ export class StdioMacCuaDriver implements MacCuaDriver {
 
   async getCurrentUrl(sessionId: string): Promise<string | null> {
     const session = this.requireSession(sessionId);
+    if (!session.pageScriptBlocked) {
+      try {
+        const record = await this.callToolRecord('page', {
+          pid: session.pid,
+          window_id: session.windowId,
+          action: 'execute_javascript',
+          javascript: '(() => window.location.href)()',
+        });
+        const value = record.result || record.value;
+        if (typeof value === 'string' && value.trim()) return value.trim();
+      } catch {
+        // Safari refuses page JavaScript unless the operator enabled "Allow
+        // JavaScript from Apple Events"; that does not change mid-session.
+        session.pageScriptBlocked = true;
+      }
+    }
     try {
-      const record = await this.callToolRecord('page', {
-        pid: session.pid,
-        window_id: session.windowId,
-        action: 'execute_javascript',
-        javascript: '(() => window.location.href)()',
-      });
-      const value = record.result || record.value;
-      return typeof value === 'string' && value.trim() ? value.trim() : null;
+      return findMacCuaAddressBarUrl(await this.readWindowTree(sessionId));
     } catch {
       return null;
     }
+  }
+
+  private async readWindowTree(sessionId: string): Promise<string> {
+    const session = this.requireSession(sessionId);
+    return windowStateTree(
+      await this.callToolRecord('get_window_state', {
+        pid: session.pid,
+        window_id: session.windowId,
+      }),
+    );
   }
 
   async detectTwoFactorWaypoint(
@@ -571,7 +665,9 @@ export class StdioMacCuaDriver implements MacCuaDriver {
   } {
     if (target.kind === 'point') return { x: target.x, y: target.y };
     if (target.kind === 'ax') return { element_index: target.elementIndex };
-    throw new Error('mac-cua query target was not resolved to AX or point.');
+    throw new Error(
+      `No element on the page matches "${target.query}". Target it by its visible text or label (text: "Dashboard") or by a ref from browser_snapshot (ref: "@e23"); CSS and Playwright selectors do not work with mac-cua.`,
+    );
   }
 
   private async openWindowInRunningBrowser(

@@ -222,6 +222,8 @@ test('a valid canonical sessionId from the client is kept for consults', async (
       source: 'webchat.voice',
     }),
   );
+  // Only the phone app keeps its chats from resetting.
+  expect(handleGatewayMessage.mock.calls[0][0]).not.toHaveProperty('client');
   const outputs = realtime
     .sentOfType('conversation.item.create')
     .map((event) => event.item as Record<string, unknown>);
@@ -232,6 +234,49 @@ test('a valid canonical sessionId from the client is kept for consults', async (
       output: 'You have two meetings today.',
     }),
   );
+});
+
+test("a call from the phone app consults as the app's chat", async () => {
+  const { browser, realtime } = await createConnection();
+  const sessionId = 'main-0123456789abcdef';
+
+  browser.clientFrame({
+    type: 'start',
+    sessionId,
+    agentId: 'main',
+    client: 'mobile',
+  });
+  realtime.open();
+  expect(browser.sentOfType('ready')[0].sessionId).toBe(sessionId);
+
+  realtime.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'consult_agent',
+    arguments: JSON.stringify({ request: 'What is on my calendar?' }),
+  });
+  await flushAsync();
+
+  expect(handleGatewayMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ sessionId, client: 'mobile' }),
+  );
+});
+
+test('an unknown client is not passed on to consults', async () => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', client: 'desktop' });
+  realtime.open();
+  realtime.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'call_1',
+    name: 'consult_agent',
+    arguments: JSON.stringify({ request: 'What is on my calendar?' }),
+  });
+  await flushAsync();
+
+  expect(handleGatewayMessage).toHaveBeenCalledTimes(1);
+  expect(handleGatewayMessage.mock.calls[0][0]).not.toHaveProperty('client');
 });
 
 test('audio flows both ways and barge-in clears browser playback', async () => {

@@ -1,3 +1,5 @@
+import { logger } from '../logger.js';
+
 export { isRecord } from '../utils/type-guards.js';
 
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -61,16 +63,17 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         | Promise<DiscoveryStoreOnErrorResult<T>>;
     },
   ): Promise<T> => {
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      Date.now() - discoveredAtMs < ttlMs
-    ) {
+    const hasCache = discoveredAtMs > 0;
+    if (!opts?.force && hasCache && Date.now() - discoveredAtMs < ttlMs) {
       return state;
     }
-    if (discoveryInFlight) return discoveryInFlight;
+    // Stale-while-revalidate (turn-latency audit, 2026-10-01): an expired
+    // cache answers now and refreshes in the background, so a chat turn never
+    // waits on a catalog fetch. Only an empty store or a forced call waits.
+    const waitForFresh = opts?.force === true || !hasCache;
+    if (discoveryInFlight) return waitForFresh ? discoveryInFlight : state;
     const staleState = state;
-    discoveryInFlight = (async () => {
+    const refresh = (async () => {
       try {
         const nextState = await fetchFreshState();
         replaceState(nextState);
@@ -88,7 +91,14 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         discoveryInFlight = null;
       }
     })();
-    return discoveryInFlight;
+    discoveryInFlight = refresh;
+    if (waitForFresh) return refresh;
+    // onError reports fetch failures; this only catches a throwing onError,
+    // which has no caller left to reach.
+    refresh.catch((err) => {
+      logger.warn({ err }, 'Background model discovery refresh failed');
+    });
+    return state;
   };
 
   return { getState: () => state, replaceState, discover };

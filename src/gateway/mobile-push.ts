@@ -17,6 +17,7 @@ import type {
   WebNotification,
 } from '../../container/shared/web-notifications.js';
 import { isA2ALocalModeEnabled } from '../a2a/local-mode.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -292,6 +293,19 @@ export function reminderAlert(options: {
   };
 }
 
+/**
+ * What a phone calls the assistant in an alert's title. The phone app knows
+ * the default agent as Hy, whatever it is called here; any other agent goes by
+ * its display name or name, and is Hy too without either, never the runtime.
+ */
+export function phoneAssistantName(
+  agentId: string | null | undefined,
+  agent: { name?: string; displayName?: string } | null,
+): string {
+  if (!agentId || agentId === DEFAULT_AGENT_ID) return 'Hy';
+  return agent?.displayName || agent?.name || 'Hy';
+}
+
 // What a finished reply and a waiting approval say under the assistant's name.
 // Each is also the app's key for it, so a phone shows it in its own language.
 const REPLY_BODIES: Partial<Record<string, string>> = {
@@ -301,7 +315,8 @@ const REPLY_BODIES: Partial<Record<string, string>> = {
 
 /**
  * "Done" or "needs you": the assistant's name over what happened, never what
- * the reply or the request says. Other kinds keep the notice's own title.
+ * the reply or the request says. Other kinds show the name alone: a notice's
+ * own title is for browsers and names the runtime, not the assistant.
  */
 export function replyAlert(options: {
   notification: WebNotification;
@@ -311,7 +326,7 @@ export function replyAlert(options: {
   const body = REPLY_BODIES[notification.kind];
   return {
     kind: notification.kind,
-    title: body ? options.assistant : notification.title,
+    title: options.assistant,
     ...(body ? { body, bodyKey: body } : {}),
     threadId: notification.sessionId,
     data: {

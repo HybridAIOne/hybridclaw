@@ -11,6 +11,7 @@ import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
+  BROWSER_CACHE_DIRS,
   cleanupAllBrowserSessions,
   getBrowserProviderLogLabel,
 } from './browser-tools.js';
@@ -613,6 +614,7 @@ function collectRequestedArtifacts(params: {
   const discovered = discoverArtifactsSince(WORKSPACE_ROOT, {
     modifiedAfterMs: Math.max(0, params.startedAtMs - 1_000),
     modifiedBeforeMs: Date.now() + 1_000,
+    excludePaths: BROWSER_CACHE_DIRS,
     limit: 8,
     mentionedIn,
   });
