@@ -173,6 +173,31 @@ test('results are the replies of this task only, newest last', async () => {
   expect(readable.text).toContain('Answer Ben');
 });
 
+test('results find runs stored with the prompt the scheduler wrapped', async () => {
+  const { run, storeRun } = await load();
+  const { wrapCronPrompt } = await import('../src/scheduler/scheduler.ts');
+  const taskId = await created(run);
+  const other = await created(run);
+
+  // What the scheduler asks, and stores with the reply: the task's prompt with
+  // its label, the time of the run and the delivery target.
+  storeRun(
+    APP_CHAT,
+    wrapCronPrompt(`#${taskId}`, PROMPT, 'Europe/Berlin', 'web'),
+    '[{"title":"Morning edition"}]',
+  );
+  storeRun(
+    APP_CHAT,
+    wrapCronPrompt(`#${other}`, PROMPT, 'Europe/Berlin', 'web'),
+    'the same prompt, another task',
+  );
+
+  const results = await run(APP_CHAT, ['results', String(taskId), '--json']);
+  expect(
+    (results.json.results as Array<{ text: string }>).map((r) => r.text),
+  ).toEqual(['[{"title":"Morning edition"}]']);
+});
+
 test('a task stays with its chat when the chat gets a new session', async () => {
   const { run, storeRun, createFreshSessionInstance, getSessionById } =
     await load();

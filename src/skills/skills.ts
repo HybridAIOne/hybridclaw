@@ -142,6 +142,7 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'audit',
   'schedule',
   'skill',
+  'todo',
   'device-data',
 ]);
 const warnedBlockedSkills = new Set<string>();

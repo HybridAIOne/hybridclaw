@@ -609,6 +609,44 @@ line break does not corrupt it.
 how a companion app keeps what the user's phone shares on the gateway; see
 [Device Data](../guides/device-data.md). They are not listed in menus or help.
 
+### Todos
+
+```text
+/todo list
+/todo add [--repeat daily|weekdays|mon,wed,fri] [--due YYYY-MM-DD] [--remind HH:MM] [--tz <zone>] <title>
+/todo edit <id> [--repeat none] [--remind off] [same options] [<title>]
+/todo done <id> [--date YYYY-MM-DD]
+/todo undo <id> [--date YYYY-MM-DD]
+/todo remove <id>
+```
+
+Todos are what the user means to do; `schedule` and the `cron` tool are what
+the agent does at a time. A todo with `--repeat` opens again every day it
+repeats on, in its time zone (`--tz`, else the one in `USER.md`, else the
+host's), and counts a streak of those days done in a row. Nothing resets
+it: each check-off is stored as a local date, and a repeating todo can be
+checked off for any of the past six days. A one-off todo is listed until the
+day after it was done. Options come before the title.
+
+`--remind HH:MM` adds a scheduled task in the chat that set it, which fires
+while the todo is still open. The scheduler skips it once the todo is done for
+the day, so a reminder costs a model turn only when there is something to
+say. In that turn the agent checks the list again, checks the todo off without
+a message when it sees that the user did it, and otherwise writes a short
+reminder that rings the phone like any other. Editing a todo replaces its
+reminder, and removing the todo deletes it.
+
+All web chats of an agent share one list; any other chat keeps its own. The
+agent reads and changes the list with the `todo` tool, and every turn's
+context lists the todos still open today, so "I just did my Chinese" is enough
+for it to check one off. A check-off through `/todo` counts as the user's and
+one through the tool as the agent's. With `--json` every subcommand answers
+one line of JSON in the same escaping as `schedule`: `{"version": 1, "todos":
+[…]}`, `{"version": 1, "todo": …}` or `{"version": 1, "removed": id}`. A todo
+has `id`, `title`, `repeat` (day names or `null`), `due`, `remind`, `tz`,
+`today`, `due_today`, `done`, `done_by` (`user` or `agent`), `streak`, and
+`recent` (the dates it was done in the last two weeks).
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

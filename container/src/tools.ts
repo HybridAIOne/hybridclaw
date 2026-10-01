@@ -96,6 +96,7 @@ import {
   runSkillsList,
   SKILLS_LIST_TOOL_DEFINITION,
 } from './tools/skills-list.js';
+import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import {
   type DelegationSideEffect,
   type DelegationTaskSpec,
@@ -3525,6 +3526,15 @@ async function executeToolInternal(
       return await callGatewayDeviceData(source);
     }
 
+    case 'todo': {
+      const { ok, text } = await runTodoTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
+
     case 'session_search': {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
       if (!query)
@@ -4121,6 +4131,7 @@ const BASH_TOOL_DEFINITION: ToolDefinition = {
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
+  TODO_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
