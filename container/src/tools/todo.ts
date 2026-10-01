@@ -6,6 +6,7 @@
  * NOT `cron`: a todo is something the user does; cron has the agent act.
  */
 import type { ToolDefinition } from '../types.js';
+import { type GatewayToolTarget, postGatewayTool } from './gateway-tool.js';
 
 export const TODO_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -58,46 +59,7 @@ export const TODO_TOOL_DEFINITION: ToolDefinition = {
 
 export async function runTodoTool(
   args: Record<string, unknown>,
-  gateway: { baseUrl: string; apiToken: string; sessionId: string },
+  gateway: GatewayToolTarget,
 ): Promise<{ ok: boolean; text: string }> {
-  const base = gateway.baseUrl.replace(/\/+$/, '');
-  if (!base) {
-    return {
-      ok: false,
-      text: 'Error: todos are unavailable because gatewayBaseUrl is not configured.',
-    };
-  }
-  let response: Response;
-  try {
-    response = await fetch(`${base}/api/todo`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(gateway.apiToken
-          ? { Authorization: `Bearer ${gateway.apiToken}` }
-          : {}),
-      },
-      body: JSON.stringify({ ...args, sessionId: gateway.sessionId }),
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      text: `Error: todo request failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-  const rawText = await response.text();
-  let parsed: { ok?: unknown; result?: unknown; error?: unknown } | null;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    parsed = null;
-  }
-  if (response.ok && parsed?.ok === true && typeof parsed.result === 'string') {
-    return { ok: true, text: parsed.result };
-  }
-  const detail =
-    typeof parsed?.error === 'string' && parsed.error.trim()
-      ? parsed.error
-      : rawText || `HTTP ${response.status}`;
-  return { ok: false, text: `Error: ${detail}` };
+  return await postGatewayTool('/api/todo', 'todos', args, gateway);
 }

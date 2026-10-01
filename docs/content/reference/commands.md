@@ -647,6 +647,43 @@ has `id`, `title`, `repeat` (day names or `null`), `due`, `remind`, `tz`,
 `today`, `due_today`, `done`, `done_by` (`user` or `agent`), `streak`, and
 `recent` (the dates it was done in the last two weeks).
 
+### Goals and tracking
+
+```text
+/track list
+/track add [--kind goal|tracking] [--every daily|weekdays|mon,thu] [--at HH:MM] [--tz <zone>] <title>
+/track edit <id> [--every none] [same options] [<title>]
+/track outcome <id> [<text>]
+/track status <id> <text>
+/track step <id> add <title>
+/track step <id> done|undo|remove <step>
+/track done|undo|remove <id>
+```
+
+Goals are what the user wants to reach (`--kind goal`, the default); tracked
+items are what the agent keeps an eye on for them (`--kind tracking`). Each
+has an optional outcome (what success looks like), steps, and a one-line
+status. The newest status is the one apps show; the last twenty are kept as
+the item's history. Not `/goal`, which keeps one chat working until a
+condition holds.
+
+`--every` adds a check-in: a scheduled task in the chat that set it, at
+`--at` (default 09:00) in the item's time zone. In that turn the agent looks
+into the item, updates its status, and writes to the user only when there is
+news or a decision for them. Editing the item moves its check-in, marking it
+done or removing it deletes it, and a status line leaves it alone.
+
+Lists are shared like todos. The agent reads and changes them with the
+`track` tool, and every turn's context lists the open items with their
+status, so it can keep them current. A change through `/track` counts as the
+user's and one through the tool as the agent's. Done items are dropped after
+90 days. With `--json` every subcommand answers one line of JSON:
+`{"version": 1, "items": […]}`, `{"version": 1, "item": …}` or
+`{"version": 1, "removed": id}`. An item has `id`, `kind`, `title`,
+`outcome`, `status`, `status_by`, `status_at`, `notes` (`at`, `by`, `text`),
+`steps` (`id`, `title`, `done`), `every` (day names or `null`), `at`, `tz`,
+`done`, `done_by`, `done_at`, `created_at` and `created_by`.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

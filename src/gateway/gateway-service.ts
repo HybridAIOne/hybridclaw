@@ -432,6 +432,7 @@ import {
   type SkillGuardFinding,
 } from '../skills/skills-guard.js';
 import { handleTodoCommand } from '../todos/todo-command.js';
+import { handleTrackCommand } from '../tracking/track-command.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -13287,6 +13288,9 @@ export async function handleGatewayCommand(
 
       case 'todo':
         return handleTodoCommand(req, session);
+
+      case 'track':
+        return handleTrackCommand(req, session);
 
       case 'device-data':
         return handleDeviceDataCommand(req);

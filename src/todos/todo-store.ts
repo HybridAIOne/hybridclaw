@@ -197,7 +197,7 @@ export function parseDue(raw: string): string | null {
   return value;
 }
 
-function defaultTimezone(agentId: string): string {
+export function defaultTimezone(agentId: string): string {
   const configured = resolveUserTimezoneFromContextFiles(
     loadStaticBootstrapFiles(agentId),
   );
