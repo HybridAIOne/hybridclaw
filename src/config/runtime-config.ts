@@ -147,7 +147,6 @@ import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
 } from './local-model-validation.js';
-import { migrateMemoryEmbeddingToPlugin } from './runtime-config-migrations.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -7318,11 +7317,7 @@ function normalizeRuntimeConfig(
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawSkillsRecord = rawSkills as Record<string, unknown>;
-  const rawPlugins = migrateMemoryEmbeddingToPlugin(
-    isRecord(raw.memory) ? raw.memory : {},
-    isRecord(raw.plugins) ? raw.plugins : {},
-    sourceVersion,
-  );
+  const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};

@@ -192,6 +192,15 @@ data. Read the [tools reference](docs/content/reference/tools/README.md#reading-
 for page selection and coverage, and the [notification guide](docs/content/guides/web-notifications.md)
 for browser and phone setup.
 
+Todos and repeating habits carry due dates, streaks, and reminders; goals and
+tracked items carry outcomes, steps, and scheduled check-ins. See the
+[command reference](docs/content/reference/commands.md#todos). Companion apps can
+share [device data](docs/content/guides/device-data.md), upload files, and call
+the agent through [paired device tokens](docs/content/developer-guide/admin-access-control.md).
+Mobile chats keep their conversation across automatic reset windows. Local and
+Mac browser calls provide live frames, and placing an order requires approval
+for each attempt; see [approvals](docs/content/developer-guide/approvals.md).
+
 ## Common Commands
 
 ```bash
@@ -262,7 +271,7 @@ Core pieces:
 | Build desktop releases | [Desktop Release Builds](https://hybridaione.github.io/hybridclaw/docs/developer-guide/desktop-release) |
 | Contribute | [CONTRIBUTING.md](./CONTRIBUTING.md), [docs/content/README.md](./docs/content/README.md) |
 
-Latest release: [v0.33.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.33.0).
+Latest release: [v0.34.0](https://github.com/HybridAIOne/hybridclaw/releases/tag/v0.34.0).
 Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Development

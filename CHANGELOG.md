@@ -2,24 +2,88 @@
 
 ## Unreleased
 
+## [0.34.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.0) - 2026-10-01
+
 ### Added
 
-- **Watch the browser work**: after each page-changing browser call the
-  agent saves a small viewport JPEG, and the chat stream's `tool` finish event
-  carries `browser: { url, title, frame }` (origin and path only; `frame` is
-  served by `/api/artifact`). The last 24 frames are kept. Frames pause after
-  `browser_secret_type` until the page changes, and
-  `BROWSER_LIVE_FRAMES=false` turns them off.
-- **Checkout guard**: a browser click that places an order or pays asks first,
-  every time and in full-auto too. See *Browser checkout* in the approvals
-  guide.
+- **Todos and habits**: `/todo` and the `todo` tool keep one-off tasks and
+  repeating habits with due dates, streaks, and reminders that run only while
+  the item is open. Today's open items appear in the agent's context.
+- **Goals and tracking**: `/track` and the `track` tool keep outcomes, steps,
+  status history, and optional scheduled check-ins. Check-ins update the status
+  and notify the user when there is news or a decision to make.
+- **Phone-shared data**: Companion apps send calendar, reminder, health, or contact
+  summaries through `/device-data`. The read-only `device_data` tool retrieves
+  only the current user's sources when needed, rather than adding them to
+  every message. Contacts support up to 256 KiB; queries match words without
+  case or accent sensitivity and return at most 50 matching entries.
+- **Phone calls and uploads**: Paired device tokens can call the agent and
+  upload photos or documents for chat. Hosted owners can exchange a signed,
+  one-time handoff for a revocable device token that also reads their history.
+- **Watch the browser work**: Page-changing calls in local and mac-cua browsers
+  send viewport JPEGs with URL and title in the chat stream's tool events.
+  The last 24 frames are retained; URLs omit queries and fragments, frames
+  pause after secret typing until the page changes, and
+  `BROWSER_LIVE_FRAMES=false` disables them.
+- **Checkout guard**: Placing an order or paying through browser tools requires
+  one-time approval on every attempt, including Full access and full-auto.
+  Snapshot element refs identify checkout actions; unnamed clicks and Enter
+  on checkout pages also ask. Adding to a cart keeps the usual approval tier.
+
+### Changed
+
+- **Continuous mobile chats**: Requests marked `client: "mobile"` keep their
+  conversation across daily and idle reset windows, use a smaller mobile
+  system prompt, and drive the local browser for live viewing in the app.
+  Explicit reset remains available and compaction bounds history.
+- **Faster turn handoffs**: Gateway and worker IPC polling is capped at 50 ms,
+  reply-file searches skip browser caches, expired model catalogs refresh in
+  the background, and the chat stream ends when its result is ready.
+  Unchanged skills reuse file hashes and skip repeated promotion scans.
+- **Platform-aware skills**: Skills can declare `requires.os`; bundled Apple
+  Calendar, Music, and Passwords skills require macOS.
+- **Lower idle gateway memory**: Discord, Slack, Teams, and email SDKs load
+  only when their channel is used; stopped channel starts cannot finish later.
+- **Expired compatibility removed**: Remove automatic migration of legacy
+  embedding model settings, cleanup of retired runtime SECURITY.md copies,
+  replies from worker images without request IDs, and the installer's CUDA
+  download override for old ONNX-based releases. See migration guidance below.
 
 ### Fixed
 
-- **Browser tools in the gateway image**: the image had no Chromium, so with
-  the agent in host sandbox mode every `browser_*` call failed with "Chrome not
-  found". The gateway image now installs the headless shell, and both images
-  point agent-browser at it.
+- **Mac browser interaction**: Text clicks press the named element, snapshots
+  expose actionable refs and page details, and back/forward use browser toolbar
+  buttons. Clicks wait for loading pages; closing the controlled window allows
+  a fresh window on the next call. Navigation reports headed mode correctly.
+- **Browser tools in release images**: Gateway and agent images include the
+  Chromium headless shell and point agent-browser at it, fixing browser calls
+  in host sandbox mode inside the gateway image.
+- **Chat continuity after reset**: Clients that keep sending a superseded
+  session ID follow its current conversation instead of creating an empty
+  session on every turn.
+- **Schedules and jobs**: `/schedule results` finds replies saved under the
+  scheduler's wrapped prompt; the Jobs board shows In Progress only during an
+  executing run. Idle warm workers stop after their traffic window.
+- **Phone alerts**: Completed replies and requests for user input name the
+  assistant and include the reply text; the unnamed default agent is Hy.
+
+### Migration
+
+- Update or rebuild the agent image together with the gateway. Worker images
+  that reply in `output.json` without request IDs are unsupported.
+- When upgrading directly from a configuration older than schema v39, move
+  custom `memory.embedding.model`, `revision`, and `dtype` values to the
+  `transformers-embeddings` entry's `config` in `plugins.list` before
+  upgrading. Keep `memory.embedding.provider` in place. Configurations already
+  migrated by v0.33 retain their plugin settings.
+- A retired `~/.hybridclaw/instructions/SECURITY.md` copy is ignored and may be
+  removed manually. Instruction sync manages only the active trust document.
+- If deliberately installing an old ONNX-based release, set
+  `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` yourself when CUDA downloads are unwanted.
+  Current releases do not need this override.
+- Existing device tokens keep their scopes. Pair again to obtain
+  `voice.session` for phone calls; hosted-owner handoff tokens also include
+  `chat.history`.
 
 ## [0.33.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.33.0) - 2026-09-30
 

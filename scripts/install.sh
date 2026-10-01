@@ -528,10 +528,6 @@ install_cli() {
     info "[dry-run] would run: npm install -g --no-audit --no-fund ${spec}"
     return 0
   fi
-  # compat: remove after v0.34 — releases up to v0.32 bundle onnxruntime-node,
-  # whose postinstall downloads its CUDA build from GitHub on Linux x64 and can
-  # hang the install with no output. `--version` can still install them.
-  export ONNXRUNTIME_NODE_INSTALL_CUDA="${ONNXRUNTIME_NODE_INSTALL_CUDA:-skip}"
   if ! npm install -g --no-audit --no-fund "$spec"; then
     err "Global npm install failed. Common causes:"
     err "  1) Missing build tools for native modules (node-gyp needs python3,"

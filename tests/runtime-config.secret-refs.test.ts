@@ -180,10 +180,10 @@ describe('runtime config secret refs', () => {
 
   test.each([
     [
-      'moves non-default legacy embedding settings into the plugin entry',
+      'ignores removed legacy embedding settings',
       { model: 'Xenova/all-MiniLM-L6-v2', dtype: 'q4' },
       [],
-      { model: 'Xenova/all-MiniLM-L6-v2', dtype: 'q4' },
+      null,
     ],
     [
       'keeps values already set on the plugin entry',
@@ -201,7 +201,7 @@ describe('runtime config secret refs', () => {
       [],
       null,
     ],
-  ])('v38 config migration %s', async (_name, legacy, pluginList, expected) => {
+  ])('embedding plugin configuration %s', async (_name, legacy, pluginList, expected) => {
     const homeDir = makeTempHome();
     writeRawRuntimeConfig(homeDir, (config) => {
       config.version = 38;
