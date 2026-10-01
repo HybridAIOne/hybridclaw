@@ -515,6 +515,65 @@ function cleanMarkdownInline(value: string | undefined): string {
     .trim();
 }
 
+const PREFERRED_NAME_FIELD = 'What to call them';
+export const MAX_USER_NAME_LENGTH = 80;
+
+function markdownFieldPattern(fieldName: string): RegExp {
+  return new RegExp(
+    `^([ \\t]*)-[ \\t]*\\*\\*${escapeRegExp(fieldName)}:\\*\\*[ \\t]*([^\\r\\n]*)$`,
+    'im',
+  );
+}
+
+function readMarkdownField(content: string, fieldName: string): string {
+  const value = cleanMarkdownInline(
+    content.match(markdownFieldPattern(fieldName))?.[2],
+  );
+  // The template's hints, such as `_(optional)_`, are not values.
+  return /^_\(.*\)_$/.test(value) ? '' : value;
+}
+
+/**
+ * The user's names in the agent's USER.md: what they want to be called
+ * ("What to call them") and their full name ("Name"). Null when not filled in.
+ */
+export function readUserNames(agentId: string): {
+  name: string | null;
+  fullName: string | null;
+} {
+  const content = readUserMarkdown(agentWorkspaceDir(agentId)) ?? '';
+  return {
+    name: readMarkdownField(content, PREFERRED_NAME_FIELD) || null,
+    fullName: readMarkdownField(content, 'Name') || null,
+  };
+}
+
+/**
+ * Sets USER.md's "What to call them", or empties it for `null`. USER.md is in
+ * every turn's prompt, so the agent uses the name from its next turn on. A
+ * workspace without USER.md is set up first, as a first turn would.
+ */
+export function writeUserPreferredName(
+  agentId: string,
+  name: string | null,
+): void {
+  const value = cleanMarkdownInline(name ?? '');
+  const wsDir = agentWorkspaceDir(agentId);
+  const userPath = path.join(wsDir, 'USER.md');
+  if (!fs.existsSync(userPath)) ensureBootstrapFiles(agentId);
+  const content = readUserMarkdown(wsDir) ?? '# USER.md - About Your Human\n';
+  const line = `- **${PREFERRED_NAME_FIELD}:**${value ? ` ${value}` : ''}`;
+  const field = markdownFieldPattern(PREFERRED_NAME_FIELD);
+  const nameField = markdownFieldPattern('Name');
+  // Replaced through functions, so a `$` in a name stays as typed.
+  const next = field.test(content)
+    ? content.replace(field, (_match, indent: string) => `${indent}${line}`)
+    : nameField.test(content)
+      ? content.replace(nameField, (found) => `${found}\n${line}`)
+      : `${content.trimEnd()}\n\n${line}\n`;
+  if (next !== content) fs.writeFileSync(userPath, next, 'utf-8');
+}
+
 export function claimWorkspaceOnboardingStart(params: {
   agentId: string;
   startedAt?: string;
