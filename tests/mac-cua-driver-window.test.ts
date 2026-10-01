@@ -204,3 +204,113 @@ test('reads the page title from the session window', async () => {
 
   await expect(driver.getWindowTitle(sessionId)).resolves.toBe('HybridAI');
 });
+
+// What cua-driver returns for get_window_state with query "Dashboard": the
+// match plus its whole ancestor chain, application first.
+const DASHBOARD_QUERY_TREE = [
+  '- [0] AXApplication "Safari" actions=[AXHideSelectedScribbleElement]',
+  '  - [1] AXWindow "HybridAI" actions=[AXRaise]',
+  '    - AXSplitGroup',
+  '      - [2] AXScrollArea actions=[AXShowMenu, AXScrollToVisible]',
+  '        - [3] AXWebArea (HybridAI) actions=[AXShowMenu, AXScrollToVisible]',
+  '          - [4] AXGroup actions=[AXShowMenu, AXScrollToVisible]',
+  '            - [23] AXLink "Dashboard" actions=[AXShowMenu, AXScrollToVisible]',
+  '              - [24] AXStaticText = "Dashboard" actions=[AXShowMenu, AXScrollToVisible]',
+].join('\n');
+
+async function launchedSafari(
+  handler: (call: ToolCall) => Record<string, unknown> | undefined,
+) {
+  const calls = mockCuaMcp((call) => {
+    if (call.name === 'list_apps') return safariRunning(false);
+    if (call.name === 'launch_app') return { pid: 42, ...windows(11) };
+    return handler(call) || {};
+  });
+  const driver = await createDriver();
+  const { sessionId } = await driver.startBrowserSession({
+    bundleId: 'com.apple.Safari',
+    backgroundSafe: true,
+  });
+  return { calls, driver, sessionId };
+}
+
+test('a text click presses the matching link, not the application', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state'
+      ? { tree_markdown: DASHBOARD_QUERY_TREE }
+      : undefined,
+  );
+
+  const resolved = await driver.resolveTarget(sessionId, {
+    kind: 'query',
+    query: 'Dashboard',
+  });
+  await driver.click(sessionId, resolved.target);
+
+  expect(calls.find((call) => call.name === 'get_window_state')?.arguments).toEqual({
+    pid: 42,
+    window_id: 11,
+    query: 'Dashboard',
+  });
+  expect(calls.at(-1)).toEqual({
+    name: 'click',
+    arguments: { pid: 42, window_id: 11, element_index: 23 },
+  });
+});
+
+test('an unmatched text click explains how to target elements', async () => {
+  const { driver, sessionId } = await launchedSafari(({ name }) =>
+    name === 'get_window_state' ? { tree_markdown: '' } : undefined,
+  );
+
+  const resolved = await driver.resolveTarget(sessionId, {
+    kind: 'query',
+    query: "a[href*='dashboard']",
+  });
+
+  await expect(driver.click(sessionId, resolved.target)).rejects.toThrow(
+    /No element on the page matches "a\[href\*='dashboard'\]".*browser_snapshot/,
+  );
+});
+
+test('reads the URL from the address field once Safari refuses page JavaScript', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) => {
+    if (name === 'page') {
+      throw new Error(
+        "You must enable 'Allow JavaScript from Apple Events' in the Developer section of Safari Settings",
+      );
+    }
+    if (name === 'get_window_state') {
+      return {
+        tree_markdown: [
+          '- [0] AXApplication "Safari"',
+          '  - [1] AXWindow "HybridAI"',
+          '    - [65] AXToolbar actions=[AXShowMenu]',
+          '      - [75] AXTextField = "https://hybridai.one/admin_workspace" (Smart Search Field) id=WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD actions=[AXShowMenu]',
+        ].join('\n'),
+      };
+    }
+    return undefined;
+  });
+
+  await expect(driver.getCurrentUrl(sessionId)).resolves.toBe(
+    'https://hybridai.one/admin_workspace',
+  );
+  await expect(driver.getCurrentUrl(sessionId)).resolves.toBe(
+    'https://hybridai.one/admin_workspace',
+  );
+  // The refusal is a Safari setting; asking again every action only costs time.
+  expect(calls.filter((call) => call.name === 'page')).toHaveLength(1);
+});
+
+test('takes JPEG screenshots at the requested quality', async () => {
+  const { calls, driver, sessionId } = await launchedSafari(() => undefined);
+  await driver
+    .screenshot(sessionId, { mode: 'som', type: 'jpeg', quality: 55 })
+    .catch(() => undefined);
+
+  expect(calls.at(-1)).toEqual({
+    name: 'screenshot',
+    arguments: { window_id: 11, format: 'jpeg', quality: 55 },
+  });
+});

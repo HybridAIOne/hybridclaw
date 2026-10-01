@@ -233,22 +233,201 @@ test('mac-cua provider supports safe key presses for form submission', async () 
   expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
 });
 
-test('mac-cua provider resolves AX button rows from cua window-state markdown', async () => {
-  const { resolveMacCuaWindowStateElementIndex } = await import(
+// Shape of a real Safari `get_window_state` tree (2026-10-01), shortened.
+const SAFARI_TREE = [
+  '- [0] AXApplication "Safari" actions=[AXHideSelectedScribbleElement]',
+  '  - [1] AXWindow "HybridAI" id=SafariWindow?IsSecure=true actions=[AXRaise]',
+  '    - AXSplitGroup',
+  '      - AXTabGroup',
+  '        - AXGroup id=BrowserView?IsPageLoaded=true',
+  '          - AXGroup',
+  '            - [2] AXScrollArea actions=[AXShowMenu, AXScrollToVisible]',
+  '              - [3] AXWebArea (HybridAI) actions=[AXShowMenu, AXScrollToVisible]',
+  '                - [4] AXGroup actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [23] AXLink "Dashboard" actions=[AXShowMenu, AXScrollToVisible]',
+  '                    - [24] AXStaticText = "Dashboard" actions=[AXShowMenu, AXScrollToVisible]',
+  '                - [27] AXGroup actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [48] AXHeading "Ready when you are." actions=[AXShowMenu, AXScrollToVisible]',
+  '                    - [49] AXStaticText = "Ready when you are." actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [51] AXTextArea "Ask anything" (Ask anything) actions=[AXShowMenu, AXScrollToVisible]',
+  '                    - [52] AXGroup actions=[AXShowMenu, AXScrollToVisible]',
+  '                      - [53] AXStaticText = "Ask anything" actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [54] AXComboBox = "Main bot" (Chatbot) actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [45] AXPopUpButton "F',
+  'Jane jane@example.com" actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [99] AXStaticText = "Dashboard Building" actions=[AXShowMenu, AXScrollToVisible]',
+  '                  - [101] AXButton "Go back" DISABLED actions=[AXShowMenu]',
+  '    - [65] AXToolbar actions=[AXShowMenu]',
+  '        - AXGroup id=BackForwardSegmentedControl',
+  '          - [70] AXButton (Back) help="Show the previous page" id=BackButton actions=[AXShowMenu]',
+  '        - [75] AXTextField = "https://hybridai.one/admin_workspace" (Smart Search Field) id=WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD actions=[AXShowMenu, AXConfirm]',
+  '  - [87] AXMenuBar id=_NS:1292 actions=[AXCancel]',
+  '    - [90] AXMenuBarItem "Safari" id=_NS:1297 actions=[AXCancel, AXPick]',
+].join('\n');
+
+test('mac-cua query resolves to the page element, not the first ancestor', async () => {
+  const { resolveMacCuaQueryElementIndex } = await import(
     '../src/browser/mac-cua-window-state.js'
   );
 
+  // A `query` filter keeps every ancestor, so [0] AXApplication comes first;
+  // pressing it fails with AXPress -25206.
+  expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Dashboard')).toBe(23);
+  expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'dashboard')).toBe(23);
+  // Matching text inside a field resolves to the field.
   expect(
-    resolveMacCuaWindowStateElementIndex({
-      tree_markdown: '- [17] AXButton "Confirm"\n- [18] AXTextField "Code"',
-    }),
-  ).toBe(17);
+    resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Ask anything', 'fill'),
+  ).toBe(51);
+  expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Chatbot', 'fill')).toBe(
+    54,
+  );
+  // Fill never lands on a link or plain text.
   expect(
-    resolveMacCuaWindowStateElementIndex({
-      markdown: '[element_index 23] AXButton "Confirm"',
-    }),
-  ).toBe(23);
-  expect(resolveMacCuaWindowStateElementIndex({ element_index: 31 })).toBe(31);
+    resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Dashboard', 'fill'),
+  ).toBeNull();
+  // Safari's toolbar and menu bar are never query targets.
+  expect(
+    resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Show the previous page'),
+  ).toBeNull();
+  expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Safari')).toBeNull();
+  expect(resolveMacCuaQueryElementIndex(SAFARI_TREE, 'Nowhere')).toBeNull();
+});
+
+test('mac-cua reads the page URL from the address field', async () => {
+  const { findMacCuaAddressBarUrl } = await import(
+    '../src/browser/mac-cua-window-state.js'
+  );
+
+  expect(findMacCuaAddressBarUrl(SAFARI_TREE)).toBe(
+    'https://hybridai.one/admin_workspace',
+  );
+  expect(
+    findMacCuaAddressBarUrl(
+      '- [1] AXWindow "Chrome"\n  - [9] AXTextField = "example.com/a?b=1" (Address and search bar)',
+    ),
+  ).toBe('https://example.com/a?b=1');
+  expect(
+    findMacCuaAddressBarUrl('- [1] AXWindow "Safari"\n  - [9] AXTextField = "hello world"'),
+  ).toBeNull();
+});
+
+test('mac-cua page snapshot lists page elements with refs and leaves field values out', async () => {
+  const { renderMacCuaPageSnapshot } = await import(
+    '../src/browser/mac-cua-window-state.js'
+  );
+
+  const page = renderMacCuaPageSnapshot(SAFARI_TREE);
+
+  expect(page.snapshot.split('\n')).toEqual([
+    '- link "Dashboard" [ref=e23]',
+    '- heading "Ready when you are."',
+    '- textbox "Ask anything" [ref=e51]',
+    '- combobox "Chatbot" = "Main bot" [ref=e54]',
+    '- button "F Jane jane@example.com" [ref=e45]',
+    '- text "Dashboard Building"',
+    '- button "Go back" (disabled) [ref=e101]',
+  ]);
+  expect(page.refs.e23).toEqual({ role: 'link', name: 'Dashboard' });
+  expect(page.elementCount).toBe(5);
+  expect(page.truncated).toBe(false);
+
+  const interactive = renderMacCuaPageSnapshot(SAFARI_TREE, {
+    interactiveOnly: true,
+  });
+  expect(interactive.snapshot).not.toContain('heading');
+  expect(interactive.snapshot).toContain('[ref=e23]');
+
+  const short = renderMacCuaPageSnapshot(SAFARI_TREE, { maxChars: 60 });
+  expect(short.truncated).toBe(true);
+  expect(short.snapshot).toBe('- link "Dashboard" [ref=e23]');
+});
+
+test.each([
+  ['Dashboard', 'Dashboard'],
+  ['text=Dashboard', 'Dashboard'],
+  ['text="Dashboard"', 'Dashboard'],
+  ['a:has-text("Dashboard")', 'Dashboard'],
+  ["getByRole('link', { name: 'Dashboard' })", 'Dashboard'],
+  ["a[href*='dashboard']", "a[href*='dashboard']"],
+])('mac-cua provider reads the label out of selector %s', async (selector, query) => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.click(selector);
+
+  expect(driver.resolveTarget).toHaveBeenCalledWith(
+    'cua-session-1',
+    { kind: 'query', query },
+    'click',
+  );
+});
+
+test('mac-cua provider resolves fill queries to editable elements', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.fill('Ask anything', 'hello');
+
+  expect(driver.resolveTarget).toHaveBeenCalledWith(
+    'cua-session-1',
+    { kind: 'query', query: 'Ask anything' },
+    'fill',
+  );
+});
+
+test('mac-cua provider snapshots the page and frames it without re-probing', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = {
+    ...createMockDriver(),
+    readPage: vi.fn(async () => ({
+      snapshot: '- link "Dashboard" [ref=e23]',
+      truncated: false,
+      elementCount: 1,
+      refs: { e23: { role: 'link', name: 'Dashboard' } },
+      url: 'https://hybridai.one/admin_workspace',
+    })),
+  };
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  const page = await session.nativeSnapshot?.({ interactiveOnly: true });
+
+  expect(driver.readPage).toHaveBeenCalledWith('cua-session-1', {
+    interactiveOnly: true,
+  });
+  expect(page).toEqual({
+    url: 'https://hybridai.one/admin_workspace',
+    title: 'Example Domain',
+    snapshot: '- link "Dashboard" [ref=e23]',
+    truncated: false,
+    elementCount: 1,
+    refs: { e23: { role: 'link', name: 'Dashboard' } },
+  });
+  driver.getEnvironmentState.mockClear();
+  driver.detectTwoFactorWaypoint.mockClear();
+  const frame = await session.liveFrame?.({ image: true, quality: 55 });
+  expect(frame).toEqual({
+    url: 'https://hybridai.one/admin_workspace',
+    title: 'Example Domain',
+    image: Buffer.from('cua-png'),
+  });
+  expect(driver.screenshot).toHaveBeenLastCalledWith('cua-session-1', {
+    type: 'jpeg',
+    quality: 55,
+    mode: 'vision',
+  });
+  expect(driver.getEnvironmentState).not.toHaveBeenCalled();
+  expect(driver.detectTwoFactorWaypoint).not.toHaveBeenCalled();
 });
 
 test('mac-cua provider blocks unsupported key presses', async () => {
