@@ -1802,25 +1802,25 @@ async function executeBrowserSignIn(
       2,
     );
   }
-  const username = readSignInLocator(args, 'username');
-  const password = readSignInLocator(args, 'password');
-  if (!username && !password) {
+  const userField = readSignInLocator(args, 'username');
+  const passField = readSignInLocator(args, 'password');
+  if (!userField && !passField) {
     return failTool(
       'Error: name the field to fill with username_ref or password_ref (or a selector).',
     );
   }
-  if (username && !signIn.usernameSecret) {
+  if (userField && !signIn.usernameSecret) {
     return failTool(
       `Error: only a password is saved for ${page.host}. Call browser_sign_in with replace: true to ask the user for the whole sign-in.`,
     );
   }
   const filled: string[] = [];
-  if (username && signIn.usernameSecret) {
-    await typeSavedSecret(signIn.usernameSecret, username, args.frame);
+  if (userField && signIn.usernameSecret) {
+    await typeSavedSecret(signIn.usernameSecret, userField, args.frame);
     filled.push('username');
   }
-  if (password) {
-    await typeSavedSecret(signIn.passwordSecret, password, args.frame);
+  if (passField) {
+    await typeSavedSecret(signIn.passwordSecret, passField, args.frame);
     filled.push('password');
   }
   return JSON.stringify(
