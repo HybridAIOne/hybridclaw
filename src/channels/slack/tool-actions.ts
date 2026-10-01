@@ -6,9 +6,9 @@ import {
 import { parseSessionKey } from '../../session/session-key.js';
 import type { Session } from '../../types/session.js';
 import { normalizeTrimmedString as normalizeValue } from '../../utils/normalized-strings.js';
+import { slackRuntimeLoader } from '../channel-runtime-loaders.js';
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isSlackSessionId } from './inbound.js';
-import { hasActiveSlackSession, sendToActiveSlackSession } from './runtime.js';
 import { normalizeSlackUserId, parseSlackChannelTarget } from './target.js';
 
 const MESSAGE_TOOL_SLACK_CURRENT_RE = /^slack:current$/i;
@@ -268,7 +268,9 @@ async function runSlackSendAction(
     throw new Error('components are not supported for Slack sends.');
   }
 
-  const delivery = await sendToActiveSlackSession({
+  const slack = await slackRuntimeLoader.loadIfRequested();
+  if (!slack) throw new Error('Slack is not running.');
+  const delivery = await slack.sendToActiveSlackSession({
     sessionId: resolveSlackSessionKey(targetSession),
     text: resolvedFilePath ? '' : content,
     filePath: resolvedFilePath,
@@ -347,7 +349,9 @@ function runSlackChannelInfoAction(
       teamId: targetSession.guild_id,
       isDm: parsed?.chatType === 'dm',
       threadTs: target?.threadTs || null,
-      active: hasActiveSlackSession(sessionKey),
+      active:
+        slackRuntimeLoader.current()?.hasActiveSlackSession(sessionKey) ??
+        false,
       createdAt: targetSession.created_at,
       lastActive: targetSession.last_active,
     },

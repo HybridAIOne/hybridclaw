@@ -1,11 +1,5 @@
 import type { TurnContext } from 'botbuilder-core';
-import { CardFactory } from 'botbuilder-core';
-import {
-  type Activity,
-  ActivityTypes,
-  type Attachment,
-  TextFormatTypes,
-} from 'botframework-schema';
+import type { Activity, Attachment } from 'botframework-schema';
 import { MSTEAMS_TEXT_CHUNK_LIMIT } from '../../config/config.js';
 import type { MSTeamsReplyStyle } from '../../config/runtime-config.js';
 import { chunkMessage } from '../../memory/chunk.js';
@@ -71,7 +65,12 @@ export function stripUnusableMSTeamsArtifactLinks(text: string): string {
 export function buildAdaptiveCardAttachment(
   card: Record<string, unknown>,
 ): Attachment {
-  return CardFactory.adaptiveCard(card);
+  // Same shape as botbuilder's CardFactory.adaptiveCard; the gateway builds
+  // these replies without loading the Bot Framework SDK.
+  return {
+    contentType: 'application/vnd.microsoft.card.adaptive',
+    content: card,
+  };
 }
 
 export interface MSTeamsSessionSwitcherEntry {
@@ -195,11 +194,9 @@ export function buildMSTeamsMessageActivity(
   params: BuildMSTeamsMessageActivityParams,
 ): Partial<Activity> {
   return {
-    type: ActivityTypes.Message,
+    type: 'message',
     ...(params.id ? { id: params.id } : {}),
-    ...(params.text
-      ? { text: params.text, textFormat: TextFormatTypes.Markdown }
-      : {}),
+    ...(params.text ? { text: params.text, textFormat: 'markdown' } : {}),
     ...(params.attachments?.length ? { attachments: params.attachments } : {}),
     ...(params.replyStyle === 'thread' && params.replyToId
       ? { replyToId: params.replyToId }

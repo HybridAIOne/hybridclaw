@@ -1,6 +1,9 @@
 import { expect, test, vi } from 'vitest';
 
-async function importFreshMessageToolActions(a2aLocalMode = false) {
+async function importFreshMessageToolActions(
+  a2aLocalMode = false,
+  channelsRunning = true,
+) {
   vi.resetModules();
 
   const readEmailMailbox = vi.fn(async (params: Record<string, unknown>) => {
@@ -307,8 +310,14 @@ async function importFreshMessageToolActions(a2aLocalMode = false) {
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
+  const loaders = await import('../src/channels/channel-runtime-loaders.js');
+  if (channelsRunning) {
+    await loaders.discordRuntimeLoader.load();
+    await loaders.slackRuntimeLoader.load();
+  }
   return {
     ...module,
+    loaders,
     sendEmailAttachmentTo,
     sendToEmail,
     readEmailMailbox,
@@ -1567,6 +1576,51 @@ test('non-send actions still delegate to Discord tool actions', async () => {
     action: 'send',
     transport: 'discord',
   });
+});
+
+test.each([
+  {
+    channel: 'Discord',
+    request: () => ({
+      action: 'read' as const,
+      channelId: '123456789012345678',
+      limit: 10,
+    }),
+  },
+  {
+    channel: 'Slack',
+    request: (sessionId: string) => ({
+      action: 'send' as const,
+      sessionId,
+      content: 'hi',
+    }),
+  },
+])('$channel-bound actions fail without loading $channel when it is not running', async ({
+  request,
+}) => {
+  const state = await importFreshMessageToolActions(false, false);
+
+  await expect(
+    state.runMessageToolAction(request(state.slackSessionId)),
+  ).rejects.toThrow('is not running.');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(state.sendToActiveSlackSession).not.toHaveBeenCalled();
+  expect(state.loaders.discordRuntimeLoader.current()).toBeNull();
+  expect(state.loaders.slackRuntimeLoader.current()).toBeNull();
+});
+
+test('Discord-bound actions wait for a Discord runtime that is still loading', async () => {
+  const state = await importFreshMessageToolActions(false, false);
+  const loading = state.loaders.discordRuntimeLoader.load();
+
+  await state.runMessageToolAction({
+    action: 'read',
+    channelId: '123456789012345678',
+    limit: 10,
+  });
+
+  await loading;
+  expect(state.runDiscordToolAction).toHaveBeenCalledTimes(1);
 });
 
 test('WhatsApp send results describe sender, recipient and unconfirmed delivery', async () => {

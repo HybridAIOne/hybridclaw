@@ -79,6 +79,10 @@ async function importWithChannelMocks() {
 
   const db = await import('../src/memory/db.ts');
   const toolActions = await import('../src/channels/message/tool-actions.js');
+  const { slackRuntimeLoader } = await import(
+    '../src/channels/channel-runtime-loaders.js'
+  );
+  await slackRuntimeLoader.load();
   return {
     db,
     toolActions,

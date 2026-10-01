@@ -9,13 +9,12 @@
  * NOT the policy layer: key-chord and payload guards, background-safe
  * checks, and audit live in mac-cua-provider.ts.
  */
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import {
-  getDefaultEnvironment,
-  StdioClientTransport,
-} from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type {
+  CallToolResult,
+  CallToolResultSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import { sleep } from '../utils/sleep.js';
 import {
@@ -242,6 +241,7 @@ function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
 export class StdioMacCuaDriver implements MacCuaDriver {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
+  private callToolResultSchema: typeof CallToolResultSchema | null = null;
   private startPromise: Promise<void> | null = null;
   private readonly sessions = new Map<string, DriverSession>();
 
@@ -772,14 +772,16 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     args: Record<string, unknown>,
   ): Promise<CuaMcpToolResult> {
     await this.ensureMcpSession();
-    if (!this.client) throw new Error('mac-cua MCP client is not connected.');
+    if (!this.client || !this.callToolResultSchema) {
+      throw new Error('mac-cua MCP client is not connected.');
+    }
     const result = (await withTimeout(
       this.client.callTool(
         {
           name: tool,
           arguments: args,
         },
-        CallToolResultSchema,
+        this.callToolResultSchema,
       ),
       this.timeoutMs,
       `mac-cua driver tool ${tool}`,
@@ -806,6 +808,15 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       return;
     }
     this.startPromise = (async () => {
+      const [
+        { Client },
+        { getDefaultEnvironment, StdioClientTransport },
+        { CallToolResultSchema },
+      ] = await Promise.all([
+        import('@modelcontextprotocol/sdk/client/index.js'),
+        import('@modelcontextprotocol/sdk/client/stdio.js'),
+        import('@modelcontextprotocol/sdk/types.js'),
+      ]);
       const transport = new StdioClientTransport({
         command: this.command,
         args: this.args,
@@ -822,6 +833,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
         'mac-cua driver MCP connect',
       );
       this.transport = transport;
+      this.callToolResultSchema = CallToolResultSchema;
       this.client = client;
     })();
     try {

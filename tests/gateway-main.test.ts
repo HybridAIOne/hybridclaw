@@ -933,9 +933,11 @@ describe('gateway bootstrap', () => {
     await settle();
 
     expect(state.shutdownDiscord).toHaveBeenCalledTimes(1);
-    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    // Email and Slack never started here, so their runtimes (and SDKs) are
+    // not loaded just to be stopped.
+    expect(state.shutdownEmail).not.toHaveBeenCalled();
     expect(state.shutdownSignal).toHaveBeenCalledTimes(1);
-    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSlack).not.toHaveBeenCalled();
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
   });
@@ -3608,8 +3610,6 @@ describe('gateway bootstrap', () => {
     }
     for (const channelShutdown of [
       state.shutdownDiscord,
-      state.shutdownEmail,
-      state.shutdownSlack,
       state.shutdownTelegram,
       state.shutdownWhatsApp,
     ]) {
@@ -3654,6 +3654,10 @@ describe('gateway bootstrap', () => {
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
     const state = await importFreshGatewayMain({
+      emailEnabled: true,
+      emailPassword: 'secret',
+      slackEnabled: true,
+      hasSlackCredentials: true,
       onState: (nextState) => {
         nextState.setDiscordMaintenancePresence.mockImplementation(
           () => new Promise<void>(() => undefined),

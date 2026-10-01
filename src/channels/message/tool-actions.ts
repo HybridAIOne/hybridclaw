@@ -15,7 +15,10 @@ import {
   getRecentMessages,
   getSessionById,
 } from '../../memory/db.js';
-import { runDiscordToolAction } from '../discord/runtime.js';
+import {
+  discordRuntimeLoader,
+  emailRuntimeLoader,
+} from '../channel-runtime-loaders.js';
 import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
   resolveDiscordLocalFileForSend,
@@ -24,12 +27,7 @@ import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { sendToDiscordWebhookTarget } from '../discord-webhook/runtime.js';
 import { normalizeDiscordWebhookChannelTarget } from '../discord-webhook/target.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
-import {
-  type EmailMailboxReadResult,
-  readEmailMailbox,
-  sendEmailAttachmentTo,
-  sendToEmail,
-} from '../email/runtime.js';
+import type { EmailMailboxReadResult } from '../email/runtime.js';
 import { getLineAuthStatus } from '../line/auth.js';
 import { sendToLineSelfChat } from '../line/runtime.js';
 import { normalizeLineChannelId } from '../line/target.js';
@@ -547,8 +545,9 @@ async function runEmailMessageSendAction(
     throw new Error('components are not supported for email sends.');
   }
 
+  const email = await emailRuntimeLoader.load();
   if (filePath) {
-    await sendEmailAttachmentTo({
+    await email.sendEmailAttachmentTo({
       to: channelId,
       filePath,
       body: content || '',
@@ -565,7 +564,7 @@ async function runEmailMessageSendAction(
     };
   }
 
-  await sendToEmail(channelId, content, emailOptions);
+  await email.sendToEmail(channelId, content, emailOptions);
   return {
     ok: true,
     action: 'send',
@@ -853,7 +852,7 @@ async function runEmailMailboxReadAction(
     typeof request.uid === 'number' && Number.isFinite(request.uid)
       ? Math.trunc(request.uid)
       : undefined;
-  const result = await readEmailMailbox({
+  const result = await (await emailRuntimeLoader.load()).readEmailMailbox({
     agentId: resolveMessageToolRequestAgentId(request),
     query: String(request.query || '').trim() || undefined,
     folder: folders?.[0],
@@ -936,6 +935,14 @@ async function runLocalMessageSendAction(
   };
 }
 
+async function runConnectedDiscordToolAction(
+  request: DiscordToolActionRequest,
+): Promise<Record<string, unknown>> {
+  const discord = await discordRuntimeLoader.loadIfRequested();
+  if (!discord) throw new Error('Discord is not running.');
+  return await discord.runDiscordToolAction(request);
+}
+
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
@@ -990,7 +997,7 @@ export async function runMessageToolAction(
       return await runEmailReadAction(request, emailReadTarget);
     }
     if (shouldDelegateToDiscordToolAction(request)) {
-      return await runDiscordToolAction(request);
+      return await runConnectedDiscordToolAction(request);
     }
     if (isEmailMailboxReadTarget(request)) {
       return await runEmailMailboxReadAction(request);
@@ -1000,7 +1007,7 @@ export async function runMessageToolAction(
 
   if (request.action !== 'send') {
     if (shouldDelegateToDiscordToolAction(request)) {
-      return await runDiscordToolAction(request);
+      return await runConnectedDiscordToolAction(request);
     }
     throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
   }
@@ -1116,7 +1123,7 @@ export async function runMessageToolAction(
   }
 
   if (shouldDelegateToDiscordToolAction(request)) {
-    return await runDiscordToolAction(request);
+    return await runConnectedDiscordToolAction(request);
   }
 
   throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
