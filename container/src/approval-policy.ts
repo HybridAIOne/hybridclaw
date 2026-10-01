@@ -56,6 +56,10 @@ import {
   type BehaviorAnomalyScore,
   type BehaviorAnomalyTraceJudgeResult,
 } from './behavior-anomaly.js';
+import {
+  type CheckoutAction,
+  classifyBrowserCheckout,
+} from './browser-checkout.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
@@ -203,6 +207,8 @@ export interface ClassifiedAction {
   stickyYellow: boolean;
   hardDeny?: boolean;
   explicitApprovalRequired?: boolean;
+  /** Prompts every time: no session, agent or workspace trust, no `full` skip. */
+  pinned?: boolean;
 }
 
 export interface ApprovalPrelude {
@@ -1717,12 +1723,14 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
 
   pinned_red(context) {
     const classified = requireClassified(context);
-    context.pinnedByPolicy = context.helpers.isPinnedRed({
-      toolName: context.params.toolName,
-      preview: classified.commandPreview,
-      pathHints: classified.pathHints,
-      args: context.args,
-    });
+    context.pinnedByPolicy =
+      classified.pinned === true ||
+      context.helpers.isPinnedRed({
+        toolName: context.params.toolName,
+        preview: classified.commandPreview,
+        pathHints: classified.pathHints,
+        args: context.args,
+      });
     return nextRule();
   },
 
@@ -2801,6 +2809,33 @@ export class TrustedAgentApprovalRuntime {
     };
   }
 
+  // Clients read the intent's opening words "place an order on" to show a
+  // checkout card; keep them stable.
+  private classifyBrowserPurchase(checkout: CheckoutAction): ClassifiedAction {
+    const site = checkout.host || 'this website';
+    const button = checkout.label
+      ? ` (button "${checkout.label}")`
+      : ' (a button I could not read on the checkout page)';
+    return {
+      tier: 'red',
+      actionKey: `browser_purchase:${checkout.host || 'unknown'}`,
+      intent: `place an order on ${site}${button}`,
+      consequenceIfDenied:
+        'Nothing is bought. I stop before this step and tell you where I got to.',
+      reason: 'this step places an order or pays, which spends your money',
+      commandPreview: normalizePreview(
+        [checkout.label || 'click', checkout.url].filter(Boolean).join(' · '),
+      ),
+      pathHints: [],
+      hostHints: checkout.host ? [checkout.host] : [],
+      writeIntent: true,
+      promotableRed: false,
+      stickyYellow: true,
+      explicitApprovalRequired: true,
+      pinned: true,
+    };
+  }
+
   private classifyGenericBrowserAction(
     toolName: string,
     args: Record<string, unknown>,
@@ -2832,6 +2867,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'glob' ||
       lowerTool === 'grep' ||
       lowerTool === 'session_search' ||
+      lowerTool === 'device_data' ||
       (lowerTool === 'tool_catalog' &&
         (args.action === 'list' || args.action === 'describe'))
     ) {
@@ -3359,6 +3395,8 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.startsWith('browser_')) {
+      const checkout = classifyBrowserCheckout(toolName, args);
+      if (checkout) return this.classifyBrowserPurchase(checkout);
       return this.classifyGenericBrowserAction(toolName, args);
     }
 

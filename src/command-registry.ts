@@ -99,6 +99,8 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'sessions',
   'audit',
   'schedule',
+  'todo',
+  'track',
   'channel',
   'ralph',
   'goal',
@@ -679,6 +681,16 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'schedule':
       return ['schedule', ...parts.slice(1)];
 
+    case 'todo':
+      return ['todo', ...parts.slice(1)];
+
+    case 'track':
+      return ['track', ...parts.slice(1)];
+
+    // Sent by companion apps, so it stays out of menus and help.
+    case 'device-data':
+      return ['device-data', ...parts.slice(1)];
+
     case 'stop':
     case 'abort':
       return ['stop'];
@@ -741,6 +753,23 @@ function buildSlashCommandCatalogDefinitions(
           description: 'Remove your rating from the last answer',
         },
       ],
+    },
+    {
+      // Local chats only; companion apps drive it with `--json`.
+      name: 'todo',
+      description:
+        'Your todos, daily ones too: list, add, done, undo, edit, remove',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps drive it with `--json`. Not `/goal`,
+      // which keeps one chat working until a condition holds.
+      name: 'track',
+      description:
+        'Your goals and what the agent tracks for you: list, add, status, steps, done, remove',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
     },
     {
       // Web chat only: phones belong to the operator who opened the session.

@@ -33,6 +33,7 @@ import {
   markJobSuccess,
   updateJob,
 } from '../memory/jobs.js';
+import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
@@ -147,6 +148,19 @@ function describeScheduledDeliveryTarget(
   return `channel ${trimmed}`;
 }
 
+/**
+ * How `wrapCronPrompt` starts. A run stores the wrapped prompt, so this is
+ * what traces a stored run back to its task (`/schedule results`).
+ */
+export function cronPromptHead(jobLabel: string, message: string): string {
+  return `[cron:${jobLabel}] ${message}\nCurrent time: `;
+}
+
+/** The label `wrapCronPrompt` gives a task of `/schedule` or the cron tool. */
+export function dbTaskLabel(taskId: number): string {
+  return `#${taskId}`;
+}
+
 export function wrapCronPrompt(
   jobLabel: string,
   message: string,
@@ -155,7 +169,7 @@ export function wrapCronPrompt(
 ): string {
   const resolvedTz = resolveSchedulerTimeZone(timeZone);
   const deliveryTarget = describeScheduledDeliveryTarget(deliveryChannelId);
-  return `[cron:${jobLabel}] ${message}\nCurrent time: ${formatFireTime(resolvedTz)} (${resolvedTz})\nDelivery target: ${deliveryTarget}. Your plain-text response will be delivered there automatically.\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
+  return `${cronPromptHead(jobLabel, message)}${formatFireTime(resolvedTz)} (${resolvedTz})\nDelivery target: ${deliveryTarget}. Your plain-text response will be delivered there automatically.\n\nReturn your response as plain text; it will be delivered automatically. Execute the instruction directly and do not ask follow-up questions. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.`;
 }
 
 function defaultConfigJobMeta(): ConfigJobMeta {
@@ -696,8 +710,10 @@ function arm(): void {
 
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
+  // A reminder of a todo that is already done has nothing to say.
+  if (isTodoReminderSettled(task.id)) return;
   const prompt = wrapCronPrompt(
-    `#${task.id}`,
+    dbTaskLabel(task.id),
     task.prompt,
     task.tz || undefined,
     task.channel_id,

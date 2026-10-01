@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { CamofoxModule } from '../src/browser/camofox-provider.js';
 import type { LocalBrowserPlaywrightModule } from '../src/browser/local-provider.js';
-import type { MacCuaDriver } from '../src/browser/mac-cua-provider.js';
+import type { MacCuaDriver } from '../src/browser/mac-cua-driver.js';
 import { createBrowserProvider } from '../src/browser/provider-factory.js';
 import type { RuntimeBrowserConfig } from '../src/config/runtime-config.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../src/config/runtime-config.js';
@@ -196,6 +196,8 @@ test('browser provider factory can select mac-cua', async () => {
       frontmostBundleId: 'com.apple.Terminal',
       activeSpaceId: 1,
     })),
+    ensureSessionWindow: vi.fn(async () => false),
+    getWindowTitle: vi.fn(async () => ''),
   };
   const provider = createBrowserProvider(
     makeBrowserConfig({

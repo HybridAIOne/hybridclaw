@@ -96,7 +96,8 @@ saved revision history directly.
 - `container.warmPool.*` controls the adaptive idle runtime pool used by host
   and container execution. `enabled` turns the pool on, `minIdlePerActiveAgent`
   and `maxIdlePerAgent` bound per-agent prewarming, `trafficWindowMs` decides
-  which agents count as recently active, `coldStartBudgetMs` is the target
+  which agents count as recently active (an agent's idle workers stop within a
+  minute of it leaving that window), `coldStartBudgetMs` is the target
   startup budget, and `memoryPressureRssMb` trims idle entries under memory
   pressure.
 - `container.binds` for explicit host-to-container mounts in
@@ -105,7 +106,7 @@ saved revision history directly.
 - legacy `container.additionalMounts` JSON is migrated into `container.binds`
   on startup; update config files to use `binds` before `additionalMounts` is
   removed
-- `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants.
+- `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants. `mac-cua` opens and controls its own window in that browser, never one you already have open. If you close that window, the next browser call opens a new one; calls other than `browser_navigate` then fail once, asking the agent to load the page again.
 - `ui.navigation[]` controls the console top navigation strip. Each entry has
   `label` and `href`; optional `icon` values (`chat`, `agents`, `admin`,
   `docs`) select built-in console icons, and optional `image` values use a
@@ -209,7 +210,9 @@ saved revision history directly.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets
   both daily and after 24 hours idle at `04:00` in the gateway host's local
   timezone, and `sessionReset.defaultPolicy.mode = "none"` disables automatic
-  resets
+  resets. Turns that `/api/chat` marks with `client: "mobile"` never reset
+  automatically, whatever the policy says: the phone app shows each chat as one
+  continuous thread, and session compaction keeps it bounded
 - `sessionRouting.*` for DM continuity scope and linked identities; the default
   `per-channel-peer` mode keeps DMs isolated by transport and peer identity,
   while `per-linked-identity` plus `sessionRouting.identityLinks` collapses

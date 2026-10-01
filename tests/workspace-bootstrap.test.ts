@@ -216,6 +216,37 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 
+  test('drops group-chat guidance and channel setup links only on request', async () => {
+    const homeDir = makeTempDir('hybridclaw-home-');
+    const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
+    vi.stubEnv('HOME', homeDir);
+    process.chdir(unrelatedCwd);
+
+    const workspace = await import('../src/workspace.js');
+
+    workspace.ensureBootstrapFiles('agent-test');
+
+    const find = (
+      files: { name: string; content: string }[],
+      name: string,
+    ): string => files.find((file) => file.name === name)?.content ?? '';
+    const full = workspace.loadStaticBootstrapFiles('agent-test');
+    expect(find(full, 'AGENTS.md')).toContain('## Group Chats');
+    expect(find(full, 'USER.md')).toContain('WhatsApp channel setup');
+
+    const trimmed = workspace.loadStaticBootstrapFiles('agent-test', {
+      omitChannelGuidance: true,
+    });
+    const agents = find(trimmed, 'AGENTS.md');
+    expect(agents).not.toContain('## Group Chats');
+    expect(agents).not.toContain('React Like a Human');
+    expect(agents).toContain('## Tools');
+    const user = find(trimmed, 'USER.md');
+    expect(user).not.toContain('channel setup');
+    expect(user).toContain('[Open chat](/chat)');
+    expect(user).toContain('[Open docs](/docs/)');
+  });
+
   test('seeds short hatching bootstrap instructions into fresh agent workspaces', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');

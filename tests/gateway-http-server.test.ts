@@ -2369,6 +2369,7 @@ async function importFreshHealth(options?: {
         startedAt: '2026-03-27T08:00:00.000Z',
         lastActive: '2026-03-27T08:05:00.000Z',
         status: 'active',
+        running: true,
         lastAnswer: 'Done.',
         output: ['recent output'],
       },
@@ -2984,6 +2985,12 @@ async function importFreshHealth(options?: {
   }));
   vi.doMock('../src/gateway/scheduled-task-tool-service.js', () => ({
     runScheduledTaskToolAction,
+  }));
+  vi.doMock('../src/todos/todo-command.js', () => ({
+    runTodoToolAction: vi.fn(),
+  }));
+  vi.doMock('../src/tracking/track-command.js', () => ({
+    runTrackToolAction: vi.fn(),
   }));
 
   const gatewayHttpServer = await import(
@@ -4492,6 +4499,57 @@ describe('gateway HTTP server', () => {
     expect(admin.updateAdminMSTeamsUser).toHaveBeenCalledTimes(1);
     expect(admin.updateAdminMSTeamsUser).toHaveBeenCalledWith({ userId: 'user-a', agentId: 'sales' });
     expect(admin.getAdminMSTeamsUsers).toHaveBeenCalledTimes(2);
+  });
+
+  test('lets a chat token upload a file and send it with a message', async () => {
+    const dataDir = makeTempDataDir();
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+      apiTokens: {
+        hck_phone: { id: 'phone', label: 'Device: phone', claims: { actions: ['chat.send'] } },
+        hck_agents_only: { id: 'agents', label: 'agents', claims: { actions: ['agents.read'] } },
+      },
+    });
+    for (const [token, expectedStatus] of [
+      ['', 401], ['hck_agents_only', 403], ['hck_phone', 200],
+    ] as const) {
+      const req = makeRequest({ method: 'POST', url: '/api/media/upload',
+        noAuth: !token,
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          'content-type': 'image/jpeg',
+          'x-hybridclaw-filename': encodeURIComponent('photo.jpg'),
+        },
+        remoteAddress: '203.0.113.10',
+        body: Buffer.from('jpeg-bytes'),
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      expect(res.statusCode).toBe(expectedStatus);
+      if (expectedStatus === 200) {
+        const { media } = JSON.parse(res.body);
+        expect(media).toMatchObject({
+          path: expect.stringMatching(/^\/uploaded-media-cache\//),
+          filename: 'photo.jpg',
+          mimeType: 'image/jpeg',
+        });
+        // The phone names the upload in its next turn, as the answer gave it.
+        const chat = makeRequest({ method: 'POST', url: '/api/chat',
+          headers: { authorization: `Bearer ${token}` },
+          remoteAddress: '203.0.113.10',
+          body: { content: '', sessionId: 'phone-a', media: [media] },
+        });
+        const chatRes = makeResponse();
+        state.handler(chat as never, chatRes as never);
+        await waitForResponse(chatRes, (next) => next.statusCode !== 0);
+        expect(chatRes.statusCode).toBe(200);
+        expect(state.handleGatewayMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ content: 'Attached file: photo.jpg', media: [media] }),
+        );
+      }
+    }
   });
 
   test('lets a chat token ask for a stored reply and hides chats it does not own', async () => {
@@ -10906,6 +10964,7 @@ describe('gateway HTTP server', () => {
           startedAt: '2026-03-27T08:00:00.000Z',
           lastActive: '2026-03-27T08:05:00.000Z',
           status: 'active',
+          running: true,
           lastAnswer: 'Done.',
           output: ['recent output'],
         },
@@ -13359,6 +13418,46 @@ describe('gateway HTTP server', () => {
       expect.objectContaining({ reasoningEffort: 'none' }),
     );
     expect(res.statusCode).toBe(200);
+  });
+
+  test('forwards the mobile client marker and drops unknown clients', async () => {
+    const state = await importFreshHealth();
+    const mobileReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'hi from the phone', client: 'mobile' },
+    });
+    state.handler(mobileReq as never, makeResponse() as never);
+    await settle();
+    expect(state.handleGatewayMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ channelId: 'web', client: 'mobile' }),
+    );
+
+    const unknownReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'hi', client: 'watch' },
+    });
+    state.handler(unknownReq as never, makeResponse() as never);
+    await settle();
+    expect(state.handleGatewayMessage).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ client: expect.anything() }),
+    );
+  });
+
+  test('passes the mobile client marker on to slash commands', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { sessionId: 'session-phone', content: '/status', client: 'mobile' },
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['status'], client: 'mobile' }),
+    );
   });
 
   test('rejects an invalid reasoning effort at the HTTP boundary', async () => {

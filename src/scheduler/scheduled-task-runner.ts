@@ -7,6 +7,7 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
+import { DEVICE_DATA_TOOL } from '../gateway/device-data.js';
 import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -29,6 +30,9 @@ import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
 } from './model-usage.js';
+
+// A run has no user, so it cannot tell whose phone data it may read.
+const SCHEDULED_BLOCKED_TOOLS = ['cron', DEVICE_DATA_TOOL];
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
@@ -98,7 +102,7 @@ export async function runIsolatedScheduledTask(params: {
       sessionContext,
       workspacePath,
     },
-    blockedTools: ['cron'],
+    blockedTools: SCHEDULED_BLOCKED_TOOLS,
   });
   messages.push({ role: 'user', content: prompt });
 
@@ -137,7 +141,7 @@ export async function runIsolatedScheduledTask(params: {
       model,
       agentId,
       channelId,
-      blockedTools: ['cron'],
+      blockedTools: SCHEDULED_BLOCKED_TOOLS,
       skillCatalog: buildEligibleSkillCatalog(skills),
     });
     emitToolExecutionAuditEvents({

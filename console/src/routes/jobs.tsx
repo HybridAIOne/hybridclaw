@@ -103,7 +103,9 @@ function deriveColumn(
   session: JobSession | null,
 ): JobColumnId {
   if (job.boardStatus) return job.boardStatus;
-  if (session?.status === 'active') return 'in_progress';
+  // Not `status === 'active'`: a worker stays attached for minutes after the
+  // run ends, which made finished jobs look stuck in progress.
+  if (session?.running) return 'in_progress';
   if (
     job.lastStatus === 'success' &&
     (job.schedule.kind === 'at' ||

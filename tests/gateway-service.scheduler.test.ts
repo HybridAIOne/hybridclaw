@@ -389,6 +389,37 @@ test('admin jobs context exposes full recent assistant outputs for scheduler ses
   });
 });
 
+test('admin jobs context marks only sessions with a turn in flight as running', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  vi.doMock('../src/agent/executor.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/agent/executor.js')>()),
+    getActiveExecutorSessionIds: () => ['session-finished', 'session-running'],
+    getInFlightExecutorSessionIds: () => ['session-running'],
+  }));
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { getGatewayAdminJobsContext } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-finished', null, 'web', 'main');
+  getOrCreateSession('session-running', null, 'web', 'main');
+
+  const sessions = getGatewayAdminJobsContext().sessions;
+  // A warm worker outlives the turn; that must not read as a running job.
+  expect(
+    sessions.find((entry) => entry.sessionId === 'session-finished'),
+  ).toMatchObject({ status: 'active', running: false });
+  expect(
+    sessions.find((entry) => entry.sessionId === 'session-running'),
+  ).toMatchObject({ status: 'active', running: true });
+});
+
 test('admin jobs context includes suspended sessions for the jobs board', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

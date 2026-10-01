@@ -605,6 +605,85 @@ carriage returns and backslashes inside strings are written as `\u000a`,
 `\u000d` and `\u005c`, so a relay that turns the two characters `\n` into a
 line break does not corrupt it.
 
+`/device-data set <payload>`, `/device-data show` and `/device-data clear` are
+how a companion app keeps what the user's phone shares on the gateway; see
+[Device Data](../guides/device-data.md). They are not listed in menus or help.
+
+### Todos
+
+```text
+/todo list
+/todo add [--repeat daily|weekdays|mon,wed,fri] [--due YYYY-MM-DD] [--remind HH:MM] [--tz <zone>] <title>
+/todo edit <id> [--repeat none] [--remind off] [same options] [<title>]
+/todo done <id> [--date YYYY-MM-DD]
+/todo undo <id> [--date YYYY-MM-DD]
+/todo remove <id>
+```
+
+Todos are what the user means to do; `schedule` and the `cron` tool are what
+the agent does at a time. A todo with `--repeat` opens again every day it
+repeats on, in its time zone (`--tz`, else the one in `USER.md`, else the
+host's), and counts a streak of those days done in a row. Nothing resets
+it: each check-off is stored as a local date, and a repeating todo can be
+checked off for any of the past six days. A one-off todo is listed until the
+day after it was done. Options come before the title.
+
+`--remind HH:MM` adds a scheduled task in the chat that set it, which fires
+while the todo is still open. The scheduler skips it once the todo is done for
+the day, so a reminder costs a model turn only when there is something to
+say. In that turn the agent checks the list again, checks the todo off without
+a message when it sees that the user did it, and otherwise writes a short
+reminder that rings the phone like any other. Editing a todo replaces its
+reminder, and removing the todo deletes it.
+
+All web chats of an agent share one list; any other chat keeps its own. The
+agent reads and changes the list with the `todo` tool, and every turn's
+context lists the todos still open today, so "I just did my Chinese" is enough
+for it to check one off. A check-off through `/todo` counts as the user's and
+one through the tool as the agent's. With `--json` every subcommand answers
+one line of JSON in the same escaping as `schedule`: `{"version": 1, "todos":
+[…]}`, `{"version": 1, "todo": …}` or `{"version": 1, "removed": id}`. A todo
+has `id`, `title`, `repeat` (day names or `null`), `due`, `remind`, `tz`,
+`today`, `due_today`, `done`, `done_by` (`user` or `agent`), `streak`, and
+`recent` (the dates it was done in the last two weeks).
+
+### Goals and tracking
+
+```text
+/track list
+/track add [--kind goal|tracking] [--every daily|weekdays|mon,thu] [--at HH:MM] [--tz <zone>] <title>
+/track edit <id> [--every none] [same options] [<title>]
+/track outcome <id> [<text>]
+/track status <id> <text>
+/track step <id> add <title>
+/track step <id> done|undo|remove <step>
+/track done|undo|remove <id>
+```
+
+Goals are what the user wants to reach (`--kind goal`, the default); tracked
+items are what the agent keeps an eye on for them (`--kind tracking`). Each
+has an optional outcome (what success looks like), steps, and a one-line
+status. The newest status is the one apps show; the last twenty are kept as
+the item's history. Not `/goal`, which keeps one chat working until a
+condition holds.
+
+`--every` adds a check-in: a scheduled task in the chat that set it, at
+`--at` (default 09:00) in the item's time zone. In that turn the agent looks
+into the item, updates its status, and writes to the user only when there is
+news or a decision for them. Editing the item moves its check-in, marking it
+done or removing it deletes it, and a status line leaves it alone.
+
+Lists are shared like todos. The agent reads and changes them with the
+`track` tool, and every turn's context lists the open items with their
+status, so it can keep them current. A change through `/track` counts as the
+user's and one through the tool as the agent's. Done items are dropped after
+90 days. With `--json` every subcommand answers one line of JSON:
+`{"version": 1, "items": […]}`, `{"version": 1, "item": …}` or
+`{"version": 1, "removed": id}`. An item has `id`, `kind`, `title`,
+`outcome`, `status`, `status_by`, `status_at`, `notes` (`at`, `by`, `text`),
+`steps` (`id`, `title`, `done`), `every` (day names or `null`), `at`, `tz`,
+`done`, `done_by`, `done_at`, `created_at` and `created_by`.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

@@ -1484,6 +1484,7 @@ export interface JobSession {
   startedAt: string;
   lastActive: string;
   status: 'active' | 'idle' | 'stopped';
+  running: boolean;
   lastAnswer: string | null;
   output: string[];
 }

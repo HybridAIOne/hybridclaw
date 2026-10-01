@@ -85,6 +85,7 @@ import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import {
   type ArtifactMetadata,
+  type BrowserFrame,
   normalizeEscalationTarget,
   type PendingApproval,
   type ToolProgressEvent,
@@ -105,6 +106,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -121,7 +123,10 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
-import { parseToolProgressLine } from './tool-progress-parser.js';
+import {
+  parseBrowserFrameLine,
+  parseToolProgressLine,
+} from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
@@ -155,7 +160,7 @@ function resolveExecutorMaxTokens(params: {
   });
 }
 
-interface PoolEntry extends WarmRunnerEntry {
+interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   process: ChildProcess;
   containerName: string;
   sessionId: string;
@@ -191,6 +196,7 @@ const pool = new Map<string, PoolEntry>();
 const containerSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let containerMemorySample: MemorySample | null = null;
 let containerMemoryRefreshInFlight = false;
@@ -270,14 +276,17 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  if (stashBrowserFrameLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
+  const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
       sessionId: entry.sessionId,
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
+      ...(browser ? { browser } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -357,6 +366,13 @@ export function getActiveContainerSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+export function getInFlightContainerSessionIds(): string[] {
+  return Array.from(pool.entries())
+    .filter(([, entry]) => Boolean(entry.activity))
+    .map(([sessionId]) => sessionId)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 export async function getActiveContainerSessionHealthSnapshots(): Promise<
@@ -661,6 +677,47 @@ export function remapOutputArtifacts(
     return;
   }
   output.artifacts = mapped;
+}
+
+/** Pool-entry state for the `[browser-frame]` line that precedes a result. */
+export interface BrowserFrameSink {
+  pendingBrowserFrame?: BrowserFrame;
+  browserFrameWorkspace?: { path: string; displayRoot?: string };
+}
+
+/** Keep a `[browser-frame]` line for the next browser result; true if it was one. */
+export function stashBrowserFrameLine(
+  entry: BrowserFrameSink,
+  line: string,
+): boolean {
+  const frame = parseBrowserFrameLine(line);
+  if (!frame) return false;
+  const workspace = entry.browserFrameWorkspace;
+  const hostPath =
+    frame.frame && workspace
+      ? resolveArtifactHostPath(
+          frame.frame,
+          workspace.path,
+          workspace.displayRoot,
+        )
+      : null;
+  entry.pendingBrowserFrame = {
+    url: redactCredentialSecrets(frame.url),
+    title: redactCredentialSecrets(frame.title),
+    ...(hostPath ? { frame: hostPath } : {}),
+  };
+  return true;
+}
+
+export function takeBrowserFrame(
+  entry: BrowserFrameSink,
+  toolName: string,
+  phase: 'start' | 'finish',
+): BrowserFrame | undefined {
+  if (phase !== 'finish' || !toolName.startsWith('browser_')) return undefined;
+  const frame = entry.pendingBrowserFrame;
+  entry.pendingBrowserFrame = undefined;
+  return frame;
 }
 
 function remapHostBaseUrlForContainer(baseUrl: string): string {
@@ -1011,6 +1068,7 @@ function getOrSpawnContainer(
       logger.debug({ container: containerName }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
@@ -1320,6 +1378,11 @@ async function runContainerInner(
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
+  entry.pendingBrowserFrame = undefined;
+  entry.browserFrameWorkspace = {
+    path: workspacePath,
+    displayRoot: params.workspaceDisplayRootOverride,
+  };
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
   const onAbort = () => {
@@ -1495,6 +1558,10 @@ export class ContainerExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveContainerSessionIds();
+  }
+
+  getInFlightSessionIds(): string[] {
+    return getInFlightContainerSessionIds();
   }
 
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {

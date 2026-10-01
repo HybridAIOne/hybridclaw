@@ -24,6 +24,8 @@ import {
   type Skill,
   type SkillInvocation,
 } from '../skills/skills.js';
+import { renderOpenTodosContext } from '../todos/todo-store.js';
+import { renderTrackedContext } from '../tracking/track-store.js';
 import type { ChatMessage } from '../types/api.js';
 import {
   formatCurrentTime,
@@ -100,6 +102,10 @@ interface DynamicContextMessageOptions {
    * here, not into stored history, because it changes as media expires.
    */
   earlierAttachments?: string | null;
+  /** The user's todos still open today; changes as they are checked off. */
+  openTodos?: string | null;
+  /** The user's open goals and tracked items with their status lines. */
+  tracked?: string | null;
   /**
    * Per-session identity block (platform, session id, session key, user).
    * Rendered here rather than in the system prompt so a new session does not
@@ -124,6 +130,8 @@ export function buildDynamicContextMessage(
     dynamicSections.push(
       buildHistoryWindowPrompt(options.historyWindow),
       options.earlierAttachments || '',
+      options.openTodos || '',
+      options.tracked || '',
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
@@ -260,6 +268,18 @@ export function buildConversationContext(params: {
     blockedTools: mergedBlockedTools,
   };
   const systemPromptBlocks = buildSystemPromptBlocksFromHooks(hookContext);
+  const todoToolOffered =
+    !mergedBlockedTools?.includes('todo') &&
+    (!mergedAllowedTools || mergedAllowedTools.includes('todo'));
+  const openTodos = todoToolOffered
+    ? renderOpenTodosContext(runtimeInfo?.sessionContext?.sessionId)
+    : '';
+  const trackToolOffered =
+    !mergedBlockedTools?.includes('track') &&
+    (!mergedAllowedTools || mergedAllowedTools.includes('track'));
+  const tracked = trackToolOffered
+    ? renderTrackedContext(runtimeInfo?.sessionContext?.sessionId)
+    : '';
 
   const messages: ChatMessage[] = [];
   if (systemPromptBlocks.length > 0) {
@@ -278,6 +298,8 @@ export function buildConversationContext(params: {
       retrievedContext,
       sessionSummary,
       earlierAttachments,
+      openTodos,
+      tracked,
       historyWindow,
       sessionContext: shouldRenderSessionContext(hookContext)
         ? runtimeInfo?.sessionContext

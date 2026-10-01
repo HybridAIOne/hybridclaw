@@ -8,6 +8,10 @@
  * when the client collects it, through the admin token service, so it is
  * scoped, audited, listed and revoked like any other `hck_` token.
  *
+ * A hosted owner's phone skips the code: HybridAI, which holds this gateway's
+ * auth secret, signs it a one-time pass (`auth-token.ts`) and the phone trades
+ * that here for a token of its own. That token acts as the owner.
+ *
  * NOT a console login (`auth-token.ts`, the local session) and NOT the mobile
  * QR handoff, which moves a browser session to a phone's browser.
  */
@@ -18,14 +22,18 @@ import {
   type AdminRbacAction,
   isAdminActionAllowed,
 } from '../security/admin-rbac.js';
+import { isApiTokenString, verifyApiToken } from '../security/api-tokens.js';
+import { verifyDeviceHandoffToken } from './auth-token.js';
 import {
   type AdminTokenAuditContext,
   createGatewayAdminToken,
+  revokeGatewayAdminToken,
 } from './gateway-admin-tokens.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export const DEVICE_CODE_PATH = '/api/device/code';
 export const DEVICE_TOKEN_PATH = '/api/device/token';
+export const DEVICE_HANDOFF_PATH = '/api/device/handoff';
 const ADMIN_DEVICE_PREFIX = '/api/admin/devices/';
 export const DEVICE_VERIFICATION_PATH = '/admin/credentials';
 
@@ -38,6 +46,25 @@ export const DEVICE_TOKEN_ACTIONS = [
   'agents.read',
   'artifacts.read',
 ] as const satisfies readonly AdminRbacAction[];
+
+// 2026-10-01 (product owner): the owner's own phone talks to the gateway
+// instead of through HybridAI, so it also reads back its chats' history, which
+// a new phone restores its main thread from.
+export const OWNER_DEVICE_TOKEN_ACTIONS = [
+  ...DEVICE_TOKEN_ACTIONS,
+  'chat.history',
+] as const satisfies readonly AdminRbacAction[];
+
+// A token with this claim is the owner's: notifications and chats bound to the
+// owner are its own (`web-notification-routes.ts`). Only a pass signed with the
+// auth secret, or an admin who may create tokens, can mint one.
+export const OWNER_DEVICE_CLAIM = 'owner';
+
+export function isOwnerDeviceToken(
+  claims: Record<string, unknown> | null | undefined,
+): boolean {
+  return claims?.[OWNER_DEVICE_CLAIM] === true;
+}
 
 // RFC 8628 §6.1 defaults: long enough to walk to a computer, short enough that
 // a code shown on a screen is not worth copying.
@@ -60,6 +87,8 @@ interface DeviceGrant {
 }
 
 const grants = new Map<string, DeviceGrant>();
+// Passes already traded, by `jti`, until they expire: each one mints one token.
+const spentHandoffs = new Map<string, number>();
 
 export interface DeviceGrantSummary {
   userCode: string;
@@ -72,6 +101,20 @@ function prune(now: number): void {
   for (const [deviceCode, grant] of grants) {
     if (grant.expiresAt <= now) grants.delete(deviceCode);
   }
+  for (const [jti, expiresAt] of spentHandoffs) {
+    if (expiresAt <= now) spentHandoffs.delete(jti);
+  }
+}
+
+function normalizeClientName(value: unknown): string {
+  const clientName = typeof value === 'string' ? value.trim() : '';
+  if (!clientName || clientName.length > CLIENT_NAME_MAX_LENGTH) {
+    throw new GatewayRequestError(
+      400,
+      `\`client_name\` must be 1 to ${CLIENT_NAME_MAX_LENGTH} characters.`,
+    );
+  }
+  return clientName;
 }
 
 function makeUserCode(): string {
@@ -123,14 +166,7 @@ export function startDeviceGrant(input: {
       'Too many devices are waiting for approval. Try again in a few minutes.',
     );
   }
-  const clientName =
-    typeof input.clientName === 'string' ? input.clientName.trim() : '';
-  if (!clientName || clientName.length > CLIENT_NAME_MAX_LENGTH) {
-    throw new GatewayRequestError(
-      400,
-      `\`client_name\` must be 1 to ${CLIENT_NAME_MAX_LENGTH} characters.`,
-    );
-  }
+  const clientName = normalizeClientName(input.clientName);
   let userCode = makeUserCode();
   while ([...grants.values()].some((grant) => grant.userCode === userCode)) {
     userCode = makeUserCode();
@@ -189,6 +225,66 @@ export function pollDeviceGrant(
     status: 200,
     body: { access_token: created.token, token_type: 'Bearer' },
   };
+}
+
+// Answers like the token poll: the token, or a 400 with an OAuth error code.
+export function redeemDeviceHandoff(input: {
+  handoff: unknown;
+  clientName: unknown;
+  sourceIp: string | null;
+  now?: number;
+}): { status: number; body: Record<string, string> } {
+  const now = input.now ?? Date.now();
+  prune(now);
+  const clientName = normalizeClientName(input.clientName);
+  let pass: ReturnType<typeof verifyDeviceHandoffToken>;
+  try {
+    pass = verifyDeviceHandoffToken(
+      typeof input.handoff === 'string' ? input.handoff : '',
+    );
+  } catch {
+    return { status: 400, body: { error: 'invalid_grant' } };
+  }
+  if (spentHandoffs.has(pass.jti)) {
+    return { status: 400, body: { error: 'invalid_grant' } };
+  }
+  spentHandoffs.set(pass.jti, pass.exp * 1000);
+  const created = createGatewayAdminToken({
+    body: {
+      label: `Device: ${clientName}`,
+      claims: {
+        actions: [...OWNER_DEVICE_TOKEN_ACTIONS],
+        [OWNER_DEVICE_CLAIM]: true,
+      },
+    },
+    audit: {
+      sessionId: `device-handoff:${pass.jti}`,
+      actor: pass.sub,
+      sourceIp: input.sourceIp,
+    },
+  });
+  return {
+    status: 200,
+    body: { access_token: created.token, token_type: 'Bearer' },
+  };
+}
+
+// RFC 7009 in spirit: a device signing out ends its own token, and only that.
+export function revokeOwnDeviceToken(
+  bearer: string,
+  sourceIp: string | null,
+): { status: number; body: Record<string, unknown> } {
+  const verified = isApiTokenString(bearer) ? verifyApiToken(bearer) : null;
+  if (!verified) return { status: 401, body: { error: 'Unauthorized.' } };
+  revokeGatewayAdminToken({
+    id: verified.id,
+    audit: {
+      sessionId: `apiToken:${verified.id}`,
+      actor: `apiToken:${verified.id}:${verified.label}`,
+      sourceIp,
+    },
+  });
+  return { status: 200, body: { revoked: true } };
 }
 
 export function describeDeviceGrant(
@@ -262,7 +358,10 @@ export async function handleAdminDeviceRoute(
   });
 }
 
-/** The two routes a device calls before it has any credential. Never rejects. */
+/**
+ * The routes a device calls before it has a token, and the one that ends its
+ * token. Never rejects.
+ */
 export async function handleDeviceGrantRoute(
   req: IncomingMessage,
   res: ServerResponse,
@@ -287,6 +386,12 @@ async function answerDeviceGrantRoute(
   pathname: string,
   origin: string,
 ): Promise<void> {
+  const sourceIp = req.socket.remoteAddress || null;
+  if (pathname === DEVICE_TOKEN_PATH && req.method === 'DELETE') {
+    const result = revokeOwnDeviceToken(bearerToken(req), sourceIp);
+    sendJson(res, result.status, result.body);
+    return;
+  }
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method Not Allowed' });
     return;
@@ -296,13 +401,23 @@ async function answerDeviceGrantRoute(
     string,
     unknown
   >;
+  if (pathname === DEVICE_HANDOFF_PATH) {
+    const result = redeemDeviceHandoff({
+      handoff: fields.handoff,
+      clientName: fields.client_name,
+      sourceIp,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, result.status, result.body);
+    return;
+  }
   if (pathname === DEVICE_CODE_PATH) {
     sendJson(
       res,
       200,
       startDeviceGrant({
         clientName: fields.client_name,
-        sourceIp: req.socket.remoteAddress || null,
+        sourceIp,
         origin,
       }),
     );
@@ -313,6 +428,13 @@ async function answerDeviceGrantRoute(
   sendJson(res, result.status, result.body);
 }
 
+function bearerToken(req: IncomingMessage): string {
+  const header = req.headers.authorization || '';
+  const match = /^bearer[ \t]+(\S+)$/i.exec(header.trim());
+  return match?.[1] ?? '';
+}
+
 export function resetDeviceGrantsForTests(): void {
   grants.clear();
+  spentHandoffs.clear();
 }

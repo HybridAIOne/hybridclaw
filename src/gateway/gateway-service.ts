@@ -53,6 +53,7 @@ import { buildConversationContext } from '../agent/conversation.js';
 import { delegationQueueStatus } from '../agent/delegation-manager.js';
 import {
   getActiveExecutorSessionIds,
+  getInFlightExecutorSessionIds,
   getSandboxDiagnostics,
   stopAllExecutions,
 } from '../agent/executor.js';
@@ -281,6 +282,7 @@ import {
   listUsageBySession,
   listUsageDailyBreakdown,
   recordRequestLog,
+  resolveTurnSessionId,
   sessionHasUserMessages,
   setMemoryValue,
   switchCurrentSessionInstance,
@@ -425,6 +427,8 @@ import {
   guardSkillDirectory,
   type SkillGuardFinding,
 } from '../skills/skills-guard.js';
+import { handleTodoCommand } from '../todos/todo-command.js';
+import { handleTrackCommand } from '../tracking/track-command.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -480,6 +484,7 @@ import {
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
+import { handleDeviceDataCommand } from './device-data-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -1275,11 +1280,17 @@ export function resolveChannelType(
 
 export function resolveSessionAutoResetPolicy(
   channelId: string,
+  client?: GatewayChatRequest['client'],
 ): SessionResetPolicy {
-  return resolveResetPolicy({
+  const policy = resolveResetPolicy({
     channelKind: resolveSessionResetChannelKind(channelId),
     config: getRuntimeConfig(),
   });
+  // The phone app shows every chat as one continuous thread and has no way to
+  // start a fresh session, so a reset would only make the agent forget behind
+  // the user's back. Compaction bounds these sessions instead (requested
+  // 2026-10-01 for the HybridAI app's main thread).
+  return client === 'mobile' ? { ...policy, mode: 'none' } : policy;
 }
 
 export function resolveCanonicalContextScope(
@@ -5843,6 +5854,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
 
 export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const runningSessionIds = new Set(getInFlightExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
   const allSessions = getAllSessions();
   const cards = listCards().map(mapGatewayAdminJobCard);
@@ -5871,6 +5883,7 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       startedAt: session.startedAt,
       lastActive: session.lastActive,
       status: session.status,
+      running: runningSessionIds.has(session.sessionId),
       lastAnswer: session.lastAnswer,
     }));
   const sessionAgentIds = new Map(
@@ -10014,7 +10027,13 @@ export async function handleGatewayCommand(
       surface: 'command',
     });
   const cmd = parseLowerArg(req.args, 0);
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(
+    req.channelId,
+    req.client,
+  );
+  if (req.sessionMode !== 'resume') {
+    req.sessionId = resolveTurnSessionId(req.sessionId, sessionResetPolicy);
+  }
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
@@ -13278,6 +13297,15 @@ export async function handleGatewayCommand(
 
       case 'schedule':
         return handleScheduleCommand(req, session);
+
+      case 'todo':
+        return handleTodoCommand(req, session);
+
+      case 'track':
+        return handleTrackCommand(req, session);
+
+      case 'device-data':
+        return handleDeviceDataCommand(req);
 
       default: {
         const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({

@@ -75,10 +75,13 @@ import type { ScheduledTaskInput } from '../types/scheduler.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
+  type BrowserFrameSink,
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
+  stashBrowserFrameLine,
+  takeBrowserFrame,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -90,6 +93,7 @@ import {
   ensureSessionDirs,
   getSessionPaths,
   readOutput,
+  removeUnclaimedWarmSessionDir,
   writeInput,
 } from './ipc.js';
 import {
@@ -198,7 +202,7 @@ function buildHostGatewayRuntimeEnv(): Record<string, string> {
   };
 }
 
-interface PoolEntry extends WarmRunnerEntry {
+interface PoolEntry extends WarmRunnerEntry, BrowserFrameSink {
   process: ChildProcess;
   sessionId: string;
   ipcSessionId: string;
@@ -228,6 +232,7 @@ const pool = new Map<string, PoolEntry>();
 const hostSessionQueue = new KeyedSerialQueue();
 const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+  (entries) => stopWarmEntries(entries),
 );
 let hostMemorySample: MemorySample | null = null;
 let hostMemoryRefreshInFlight = false;
@@ -302,6 +307,13 @@ export function getActiveHostSessionIds(): string[] {
   );
 }
 
+export function getInFlightHostSessionIds(): string[] {
+  return Array.from(pool.entries())
+    .filter(([, entry]) => Boolean(entry.activity))
+    .map(([sessionId]) => sessionId)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 export async function getActiveHostSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
@@ -358,14 +370,17 @@ function emitThinkingDelta(entry: PoolEntry, line: string): void {
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
+  if (stashBrowserFrameLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
+  const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
       sessionId: entry.sessionId,
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
+      ...(browser ? { browser } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -848,6 +863,7 @@ function getOrSpawnHostProcess(
       logger.debug({ sessionId }, message);
     });
     removePoolEntry(entry);
+    if (entry.warm) removeUnclaimedWarmSessionDir(entry.ipcSessionId);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
@@ -1140,6 +1156,11 @@ async function runHostProcessInner(
   entry.onTextDelta = onTextDelta;
   entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
+  entry.pendingBrowserFrame = undefined;
+  entry.browserFrameWorkspace = {
+    path: workspacePath,
+    displayRoot: params.workspaceDisplayRootOverride,
+  };
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
 
@@ -1295,6 +1316,10 @@ export class HostExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveHostSessionIds();
+  }
+
+  getInFlightSessionIds(): string[] {
+    return getInFlightHostSessionIds();
   }
 
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {

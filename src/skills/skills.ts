@@ -76,11 +76,14 @@ export type SkillSource =
  * `bins` are executables on PATH, `env` are environment variables, and
  * `nodeModules` (frontmatter key `node_modules`) are bare module specifiers an
  * agent-written script must be able to `require()` from the workspace.
+ * `os` lists the gateway host platforms (`process.platform` values such as
+ * `darwin`) the skill works on; omitted means every platform.
  */
 export interface SkillRequirements {
   bins: string[];
   env: string[];
   nodeModules: string[];
+  os?: string[];
 }
 
 /**
@@ -142,6 +145,9 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'audit',
   'schedule',
   'skill',
+  'todo',
+  'track',
+  'device-data',
 ]);
 const warnedBlockedSkills = new Set<string>();
 export const THIRD_PARTY_SKILL_SOURCES = new Set<SkillSource>([
@@ -489,18 +495,29 @@ function hasAnyRequirement(requires: SkillRequirements): boolean {
   return (
     requires.bins.length > 0 ||
     requires.env.length > 0 ||
-    requires.nodeModules.length > 0
+    requires.nodeModules.length > 0 ||
+    (requires.os?.length ?? 0) > 0
   );
+}
+
+function withOsRequirement(
+  requires: Omit<SkillRequirements, 'os'>,
+  os: string[],
+): SkillRequirements {
+  return os.length > 0 ? { ...requires, os } : requires;
 }
 
 function parseRequiresRecord(
   record: Record<string, unknown>,
 ): SkillRequirements {
-  return {
-    bins: normalizeStringList(record.bins),
-    env: normalizeStringList(record.env),
-    nodeModules: normalizeStringList(record.node_modules),
-  };
+  return withOsRequirement(
+    {
+      bins: normalizeStringList(record.bins),
+      env: normalizeStringList(record.env),
+      nodeModules: normalizeStringList(record.node_modules),
+    },
+    normalizeStringList(record.os),
+  );
 }
 
 function parseRequiresFromMetadataRecord(
@@ -565,11 +582,14 @@ function resolveMetadataSectionLookup(frontmatter: FrontmatterParseResult): {
 function parseRequiresSection(
   sectionFields: Map<string, FrontmatterSection>,
 ): SkillRequirements {
-  return {
-    bins: parseSectionStringList(sectionFields.get('bins')),
-    env: parseSectionStringList(sectionFields.get('env')),
-    nodeModules: parseSectionStringList(sectionFields.get('node_modules')),
-  };
+  return withOsRequirement(
+    {
+      bins: parseSectionStringList(sectionFields.get('bins')),
+      env: parseSectionStringList(sectionFields.get('env')),
+      nodeModules: parseSectionStringList(sectionFields.get('node_modules')),
+    },
+    parseSectionStringList(sectionFields.get('os')),
+  );
 }
 
 function hasSectionContent(
@@ -761,6 +781,10 @@ function checkEligibility(skill: { requires?: Partial<SkillRequirements> }): {
 } {
   const missing: string[] = [];
   const sandboxMode = getResolvedSandboxMode();
+  const platforms = skill.requires?.os ?? [];
+  if (platforms.length > 0 && !platforms.includes(process.platform)) {
+    missing.push(`os:${platforms.join('|')}`);
+  }
   for (const bin of skill.requires?.bins ?? []) {
     if (!hasBinary(bin)) missing.push(`bin:${bin}`);
   }

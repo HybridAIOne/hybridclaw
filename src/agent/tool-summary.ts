@@ -49,7 +49,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Scheduling',
-    tools: ['cron'],
+    tools: ['cron', 'todo', 'track'],
   },
   {
     label: 'Delegation',
@@ -62,6 +62,10 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     label: 'Skills',
     tools: ['skills_list'],
+  },
+  {
+    label: 'Phone Data',
+    tools: ['device_data'],
   },
   {
     label: 'Vision',

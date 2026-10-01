@@ -21,6 +21,7 @@ import type { ToolCall } from './types.js';
 // HybridClaw's tools. Tools that write workspace artifacts (image_generate,
 // diagram_create) stay barriers; a per-server MCP opt-in is deferred.
 const READ_ONLY_TOOLS = new Set([
+  'device_data',
   'session_search',
   'skills_list',
   'vision_analyze',

@@ -21,7 +21,11 @@ import {
   listSessionInstancesForKey,
 } from '../memory/db.js';
 import { createJob, deleteJob, getJob, setJobEnabled } from '../memory/jobs.js';
-import { rearmScheduler } from '../scheduler/scheduler.js';
+import {
+  cronPromptHead,
+  dbTaskLabel,
+  rearmScheduler,
+} from '../scheduler/scheduler.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 import {
@@ -253,6 +257,10 @@ const MAX_CHAT_SESSIONS = 50;
  * reset moves the task to a new session but leaves earlier replies behind.
  */
 function runReplies(task: ScheduledTask, limit: number) {
+  // A run stores its prompt as the scheduler wrapped it, with the time of the run.
+  const head = cronPromptHead(dbTaskLabel(task.id), task.prompt);
+  const askedByTask = (content: string) =>
+    content === task.prompt || content.startsWith(head);
   const key = getSessionById(task.session_id)?.session_key;
   const sessionIds = key
     ? listSessionInstancesForKey(key, { limit: MAX_CHAT_SESSIONS }).map(
@@ -274,7 +282,7 @@ function runReplies(task: ScheduledTask, limit: number) {
         reply.role === 'assistant' &&
         asked.role === 'user' &&
         asked.user_id === 'scheduler' &&
-        asked.content === task.prompt
+        askedByTask(asked.content)
       ) {
         replies.push({
           id: reply.id,

@@ -250,7 +250,7 @@ export function observeAgentLifecycleLine<T extends WarmRunnerEntry>(
 }
 
 export function canUseWarmPool(
-  warmPool: WarmProcessPool<WarmRunnerEntry>,
+  warmPool: Pick<WarmProcessPool<WarmRunnerEntry>, 'enabled'>,
   params: WarmPoolEligibilityParams,
 ): boolean {
   return (

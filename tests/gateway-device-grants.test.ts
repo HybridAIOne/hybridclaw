@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
@@ -27,6 +28,27 @@ async function importDeviceGrants() {
       now,
     });
   return { grants, recordAuditEvent, registry, rbac, start };
+}
+
+function signPass(
+  payload: Record<string, unknown>,
+  secret = 'handoff-secret',
+): string {
+  const segment = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', secret)
+    .update(segment)
+    .digest('base64url');
+  return `${segment}.${signature}`;
+}
+
+function pass(overrides: Record<string, unknown> = {}): string {
+  return signPass({
+    sub: 'owner-1',
+    jti: 'pass-1',
+    typ: 'device-handoff',
+    exp: Math.floor(Date.now() / 1000) + 60,
+    ...overrides,
+  });
 }
 
 function fakeResponse() {
@@ -198,5 +220,107 @@ describe('device authorization grants', () => {
     expect(
       rbac.isAdminActionAllowed({ actions: ['chat.send'] }, 'artifacts.read'),
     ).toBe(false);
+  });
+
+  test("a signed pass becomes one owner's token, once", async () => {
+    vi.stubEnv('HYBRIDCLAW_AUTH_SECRET', 'handoff-secret');
+    const { grants, recordAuditEvent, registry, rbac } =
+      await importDeviceGrants();
+    const redeem = (handoff: unknown) =>
+      grants.redeemDeviceHandoff({
+        handoff,
+        clientName: 'Hy for iPhone',
+        sourceIp: '203.0.113.7',
+      });
+
+    const first = redeem(pass());
+    expect(first.status).toBe(200);
+    const token = first.body.access_token;
+    const verified = registry.verifyApiToken(token);
+    expect(verified).toMatchObject({
+      label: 'Device: Hy for iPhone',
+      claims: {
+        actions: ['chat.send', 'agents.read', 'artifacts.read', 'chat.history'],
+        owner: true,
+      },
+    });
+    expect(grants.isOwnerDeviceToken(verified?.claims)).toBe(true);
+    expect(
+      rbac.isAdminActionAllowed(verified?.claims ?? null, 'chat.history'),
+    ).toBe(true);
+    expect(recordAuditEvent.mock.calls[0][0]).toMatchObject({
+      sessionId: 'device-handoff:pass-1',
+      event: { type: 'token.created', actor: 'owner-1', sourceIp: '203.0.113.7' },
+    });
+    expect(JSON.stringify(recordAuditEvent.mock.calls)).not.toContain(token);
+
+    // Spent, launch-typed, foreign or expired passes mint nothing.
+    for (const handoff of [
+      pass(),
+      pass({ jti: 'pass-2', typ: 'launch' }),
+      signPass({ sub: 'owner-1', jti: 'pass-3', typ: 'device-handoff', exp: Math.floor(Date.now() / 1000) + 60 }, 'other-secret'),
+      pass({ jti: 'pass-4', exp: Math.floor(Date.now() / 1000) - 1 }),
+      42,
+    ]) {
+      expect(redeem(handoff)).toEqual({
+        status: 400,
+        body: { error: 'invalid_grant' },
+      });
+    }
+    expect(() =>
+      grants.redeemDeviceHandoff({
+        handoff: pass({ jti: 'pass-5' }),
+        clientName: '',
+        sourceIp: null,
+      }),
+    ).toThrow(expect.objectContaining({ statusCode: 400 }));
+    expect(registry.listApiTokens()).toHaveLength(1);
+  });
+
+  test('a code-paired device is not the owner', async () => {
+    const { grants, registry, start } = await importDeviceGrants();
+    const started = start(Date.now());
+    grants.decideDeviceGrant({
+      userCode: started.user_code,
+      approve: true,
+      audit: AUDIT,
+    });
+    const token = grants.pollDeviceGrant(started.device_code).body.access_token;
+    expect(
+      grants.isOwnerDeviceToken(registry.verifyApiToken(token)?.claims),
+    ).toBe(false);
+  });
+
+  test('a device signs out by revoking its own token', async () => {
+    vi.stubEnv('HYBRIDCLAW_AUTH_SECRET', 'handoff-secret');
+    const { grants, registry } = await importDeviceGrants();
+    const mint = (jti: string) =>
+      grants.redeemDeviceHandoff({
+        handoff: pass({ jti }),
+        clientName: 'Hy for iPhone',
+        sourceIp: null,
+      }).body.access_token;
+    const mine = mint('pass-a');
+    const other = mint('pass-b');
+    const signOut = async (authorization?: string) => {
+      const res = fakeResponse();
+      await grants.handleDeviceGrantRoute(
+        {
+          method: 'DELETE',
+          headers: authorization ? { authorization } : {},
+          socket: { remoteAddress: '203.0.113.7' },
+        } as never,
+        res as never,
+        '/api/device/token',
+        ORIGIN,
+      );
+      return res;
+    };
+    expect((await signOut()).statusCode).toBe(401);
+    expect((await signOut('Bearer hck_not-a-token')).statusCode).toBe(401);
+    expect((await signOut(`Bearer ${mine}`)).statusCode).toBe(200);
+    expect(registry.verifyApiToken(mine)).toBeNull();
+    expect(registry.verifyApiToken(other)).not.toBeNull();
+    expect((await signOut(`Bearer ${mine}`)).statusCode).toBe(401);
   });
 });

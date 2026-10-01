@@ -97,6 +97,17 @@ export function getActiveExecutorSessionIds(): string[] {
   );
 }
 
+/** Sessions with a turn executing right now, not merely a warm worker. */
+export function getInFlightExecutorSessionIds(): string[] {
+  const executors = initializedExecutors();
+  const inFlight = (
+    executors.length === 0 ? [getExecutor()] : executors
+  ).flatMap((executor) => executor.getInFlightSessionIds());
+  return Array.from(new Set(inFlight)).sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
 export async function getExecutorSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {

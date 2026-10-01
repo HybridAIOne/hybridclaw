@@ -184,6 +184,8 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
+import { runTodoToolAction } from '../todos/todo-command.js';
+import { runTrackToolAction } from '../tracking/track-command.js';
 import {
   buildTuiSlashMenuEntries,
   rankTuiSlashMenuEntries,
@@ -228,11 +230,14 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
+  DEVICE_HANDOFF_PATH,
   DEVICE_TOKEN_PATH,
   handleAdminDeviceRoute,
   handleDeviceGrantRoute,
+  isOwnerDeviceToken,
   parseAdminDeviceUserCode,
 } from './device-grants.js';
 import {
@@ -481,11 +486,11 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import { TurnTailTimer } from './turn-tail-timing.js';
 import {
   handleWebNotificationRoute,
   resolveWebNotificationOperator,
 } from './web-notification-routes.js';
-
 import {
   closeWebNotificationStreams,
   notifyWebChatResult,
@@ -997,6 +1002,9 @@ async function sendGatewayBrowserActionJson(
     agentId: string;
     args: Record<string, unknown>;
     fields: Record<string, unknown>;
+    pageState?: Awaited<
+      ReturnType<typeof readGatewayBrowserTwoFactorPageState>
+    >;
   },
 ): Promise<void> {
   const parked = await parkGatewayBrowserTwoFactor(params);
@@ -1082,15 +1090,17 @@ async function handleApiBrowserTool(
     });
     if (isMacCuaGatewaySession(active)) {
       await active.session.navigate(url);
+      const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
         active,
         activeSseResponses,
         sessionId,
         agentId,
         args,
+        pageState,
         fields: {
           url,
-          title: '',
+          title: pageState.title,
           content_text_length: 0,
           content_preview_truncated: false,
           ready_state: 'native',
@@ -1991,6 +2001,7 @@ async function resolveApiChatSlashCommandResult(
       channelId: chatRequest.channelId,
       userId: chatRequest.userId,
       username: chatRequest.username,
+      client: chatRequest.client,
       args: ['escalate', inlineEscalation[1]],
     });
     if (result.kind !== 'error' && result.continueWithMessage === true) {
@@ -2055,6 +2066,7 @@ async function resolveApiChatSlashCommandResult(
       args,
       userId: chatRequest.userId,
       username: chatRequest.username,
+      client: chatRequest.client,
     });
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
@@ -3413,6 +3425,7 @@ async function handleApiChat(
     ...(body.appKind === 'live' || body.appKind === 'web'
       ? { appKind: body.appKind }
       : {}),
+    ...(body.client === 'mobile' ? { client: body.client } : {}),
   };
   logger.debug(
     {
@@ -3840,10 +3853,12 @@ async function handleApiChatStream(
       phase: event.phase,
       preview: event.preview,
       durationMs: event.durationMs,
+      ...(event.browser ? { browser: event.browser } : {}),
     });
   };
 
   const streamFilter = createSilentReplyStreamFilter();
+  const tail = new TurnTailTimer();
   const assistantBubblePresentation = {
     segmentKind: 'final' as const,
     visible: true,
@@ -3852,6 +3867,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
+    tail.noteTextDelta();
     streamedTextBeforeNextTool += filteredDelta;
     sendEvent({
       type: 'text',
@@ -3893,6 +3909,7 @@ async function handleApiChatStream(
       ),
     );
     result = normalizePendingApprovalReply(result);
+    tail.mark('chatHandler');
     if (result.status === 'success') {
       const bufferedDelta = streamFilter.flush();
       if (bufferedDelta) {
@@ -3922,6 +3939,7 @@ async function handleApiChatStream(
       filteredResult,
     );
     if (capturedApps.length > 0) filteredResult.apps = capturedApps;
+    tail.mark('captureArtifacts');
     notifyWebChatResult(
       operatorId,
       chatRequest,
@@ -3932,6 +3950,11 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    tail.mark('resultSent');
+    tail.log(
+      { sessionId: chatRequest.sessionId, channelId: chatRequest.channelId },
+      'Gateway chat stream tail timing',
+    );
     // Best-effort: persistence failure must never corrupt the already-sent
     // response, so it is swallowed after logging.
     const assistantMessageId = result.assistantMessageId;
@@ -4109,6 +4132,41 @@ async function handleApiSchedulerTask(
 ): Promise<void> {
   const body = await readJsonBody(req);
   sendJson(res, 200, runScheduledTaskToolAction(body));
+}
+
+async function handleApiDeviceData(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as {
+    sessionId?: unknown;
+    source?: unknown;
+  };
+  const sessionId =
+    typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  const source = typeof body.source === 'string' ? body.source.trim() : '';
+  sendJson(res, 200, {
+    ok: true,
+    result: renderDeviceDataForSession(sessionId, source || null),
+  });
+}
+
+async function handleApiTodo(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, runTodoToolAction(await readJsonBody(req)));
+}
+
+async function handleApiTrack(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, runTrackToolAction(await readJsonBody(req)));
 }
 
 async function handleApiPluginTool(
@@ -10768,7 +10826,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
       }
 
-      if (pathname === DEVICE_CODE_PATH || pathname === DEVICE_TOKEN_PATH) {
+      if (
+        pathname === DEVICE_CODE_PATH ||
+        pathname === DEVICE_TOKEN_PATH ||
+        pathname === DEVICE_HANDOFF_PATH
+      ) {
         void handleDeviceGrantRoute(
           req,
           res,
@@ -10803,6 +10865,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             normalizeOptionalString(authContext.payload?.sub) ||
               resolveAdminSessionActor(authContext.payload),
             authContext.tokenId,
+            isOwnerDeviceToken(authContext.payload),
           );
           if (pathname.startsWith('/api/push/')) {
             if (!operatorId) {
@@ -11636,6 +11699,39 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiBrowserTool(req, res, activeSseResponses);
+            return;
+          }
+          if (pathname === '/api/todo' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiTodo(req, res);
+            return;
+          }
+          if (pathname === '/api/track' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiTrack(req, res);
+            return;
+          }
+          if (pathname === '/api/device-data' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiDeviceData(req, res);
             return;
           }
           if (pathname === '/api/scheduler/task' && method === 'POST') {

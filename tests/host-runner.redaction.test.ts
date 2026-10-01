@@ -1503,6 +1503,7 @@ test('HostExecutor reports an in-flight session while readOutput is pending', as
   const executor = new HostExecutor();
   expect(getInFlightHostProcessCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
+  expect(executor.getInFlightSessionIds()).toEqual([]);
   const pending = executor.exec({
     sessionId: 'session-in-flight',
     messages: [{ role: 'user', content: 'hello' }],
@@ -1516,10 +1517,14 @@ test('HostExecutor reports an in-flight session while readOutput is pending', as
 
   expect(getInFlightHostProcessCount()).toBe(1);
   expect(executor.getInFlightSessionCount()).toBe(1);
+  expect(executor.getInFlightSessionIds()).toEqual(['session-in-flight']);
 
   finishOutput?.();
   await pending;
 
   expect(getInFlightHostProcessCount()).toBe(0);
   expect(executor.getInFlightSessionCount()).toBe(0);
+  expect(executor.getInFlightSessionIds()).toEqual([]);
+  // The worker stays attached after the turn; it is just no longer running.
+  expect(executor.getActiveSessionIds()).toEqual(['session-in-flight']);
 });

@@ -69,6 +69,7 @@ export interface Executor {
   getActiveSessionCount(): number;
   getInFlightSessionCount(): number;
   getActiveSessionIds(): string[];
+  getInFlightSessionIds(): string[];
   getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]>;
 }
 
