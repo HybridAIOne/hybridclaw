@@ -8,7 +8,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type {
   MacCuaDriver,
   MacCuaEnvironmentState,
-} from '../src/browser/mac-cua-provider.js';
+} from '../src/browser/mac-cua-driver.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
@@ -115,7 +115,7 @@ afterEach(() => {
 
 test('mac-cua real driver defaults to MCP args when config args are empty', async () => {
   const { resolveMacCuaDriverCommand } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-driver.js'
   );
 
   expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
@@ -230,7 +230,7 @@ test('mac-cua provider supports safe key presses for form submission', async () 
 
 test('mac-cua provider resolves AX button rows from cua window-state markdown', async () => {
   const { resolveMacCuaWindowStateElementIndex } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-window-state.js'
   );
 
   expect(

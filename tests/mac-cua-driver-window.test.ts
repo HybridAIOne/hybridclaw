@@ -45,7 +45,7 @@ function windows(...ids: number[]) {
 
 async function createDriver() {
   const { StdioMacCuaDriver } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-driver.js'
   );
   return new StdioMacCuaDriver('cua-driver', ['mcp']);
 }
