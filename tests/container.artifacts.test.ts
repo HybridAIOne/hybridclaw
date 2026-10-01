@@ -2,12 +2,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import {
   discoverArtifactsSince,
   inferArtifactMimeType,
 } from '../container/src/artifacts.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('hybridclaw-artifacts-');
+useCleanMocks({ resetModules: true, unstubAllEnvs: true });
+
+function writeChart(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, 'chart.png');
+  fs.writeFileSync(filePath, 'png payload');
+  return filePath;
+}
 
 test('infers OOXML artifact mime types', () => {
   expect(inferArtifactMimeType('report.docx')).toBe(
@@ -90,4 +101,48 @@ test('ignores mirrored skill package assets under the workspace skills root', ()
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test.each([
+  '.cache',
+  '.npm',
+  '.venv',
+  '.venv-plots',
+  '__pycache__',
+  'node_modules',
+])('skips a %s directory anywhere in the workspace', (cacheDirName) => {
+  const workspace = makeTempDir();
+  const createdAtMs = Date.now();
+  const projectChart = writeChart(path.join(workspace, 'project'));
+  writeChart(path.join(workspace, 'project', cacheDirName, 'nested'));
+
+  const artifacts = discoverArtifactsSince(workspace, {
+    modifiedAfterMs: createdAtMs - 1_000,
+    mentionedIn: ['Saved chart.png'],
+  });
+
+  expect(artifacts.map((artifact) => artifact.path)).toEqual([projectChart]);
+});
+
+test('skips the browser caches but still finds a reply file in the agent HOME', async () => {
+  const workspace = makeTempDir();
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', workspace);
+  const { BROWSER_CACHE_DIRS } = await import(
+    '../container/src/browser-tools.js'
+  );
+  const createdAtMs = Date.now();
+  for (const cacheDir of BROWSER_CACHE_DIRS) writeChart(cacheDir);
+  // HOME in container mode (see src/infra/container-runner.ts).
+  const homeChart = writeChart(
+    path.join(workspace, '.hybridclaw-runtime', 'home'),
+  );
+
+  const artifacts = discoverArtifactsSince(workspace, {
+    modifiedAfterMs: createdAtMs - 1_000,
+    excludePaths: BROWSER_CACHE_DIRS,
+    mentionedIn: ['Saved ~/chart.png'],
+  });
+
+  expect(BROWSER_CACHE_DIRS.length).toBeGreaterThan(0);
+  expect(artifacts.map((artifact) => artifact.path)).toEqual([homeChart]);
 });

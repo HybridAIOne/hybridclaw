@@ -12946,6 +12946,10 @@ describe('gateway HTTP server', () => {
       },
     });
     const res = makeResponse();
+    let streamEndedBeforeTrace = false;
+    state.setMessageActivityTrace.mockImplementationOnce(() => {
+      streamEndedBeforeTrace = res.writableEnded;
+    });
 
     state.handler(req as never, res as never);
     await settle();
@@ -12961,6 +12965,7 @@ describe('gateway HTTP server', () => {
       'text',
       'result',
     ]);
+    expect(streamEndedBeforeTrace).toBe(true);
     expect(state.setMessageActivityTrace).toHaveBeenCalledWith(
       42,
       expect.objectContaining({

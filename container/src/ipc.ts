@@ -32,8 +32,12 @@ const INPUT_PATH = path.join(IPC_DIR, 'input.json');
 const HEALTH_INPUT_PATH = path.join(IPC_DIR, 'health-input.json');
 const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
 const MIN_INPUT_POLL_INTERVAL_MS = 5;
-const MAX_INPUT_POLL_INTERVAL_MS = 200;
-// Keep the backoff formula aligned with src/infra/ipc.ts; max differs by side.
+// 50ms (turn-latency audit, 2026-10-01): at 200ms a reused worker picked up
+// the next turn ~100ms late on average; now ~25ms. An idle worker makes two
+// existsSync calls per poll until its idle timeout. Event-driven reads
+// (fs.watch) are deferred.
+const MAX_INPUT_POLL_INTERVAL_MS = 50;
+// Keep the backoff formula aligned with src/infra/ipc.ts.
 const INPUT_POLL_BACKOFF_FACTOR = 1.5;
 
 // The per-worker secret from the first stdin payload. Held only in memory here;
