@@ -82,6 +82,23 @@ Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
 
+### Browser Live Frames
+
+After successful page-changing calls, local and mac-cua browsers attach
+`browser: { url, title, frame }` to the tool finish event in the chat stream.
+Clients can retrieve `frame` through `/api/artifact`; it names a small viewport
+JPEG in the workspace. The frame directory retains the latest 24 images.
+Reported URLs include origin and path, with queries and fragments omitted.
+Set `BROWSER_LIVE_FRAMES=false` in the worker environment to disable frames.
+
+Secret typing pauses frames until the page URL changes. Page identity,
+snapshot refs, and this pause live in worker memory; they are lost on worker
+replacement, including when a gateway-owned browser window survives. Refresh
+the snapshot before using element refs after a restart. Checkout actions require
+one-time approval in every mode; see [Browser checkout](./approvals.md#action-reference).
+
+### Persistence Boundaries
+
 A session's turns run in a worker: an agent container in `container` mode, an
 agent process in `host` mode. Workers are disposable, and one can exit between
 any two turns:

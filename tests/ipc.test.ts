@@ -358,9 +358,7 @@ test('cleanupIpc removes request files and late replies but keeps other IPC file
   expect(fs.readdirSync(dir).sort()).toEqual([...kept].sort());
 });
 
-// compat: remove after v0.34 — agent images built before request ids reply
-// in output.json.
-test('readOutput accepts the reply of an agent image that predates request ids', async () => {
+test('readOutput ignores a legacy reply without a matching request id', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.useFakeTimers();
@@ -377,10 +375,10 @@ test('readOutput accepts the reply of an agent image that predates request ids',
   });
 
   const outputPromise = readOutput('session-1', 'request-1', 1_000);
-  await vi.advanceTimersByTimeAsync(50);
+  await vi.advanceTimersByTimeAsync(1_050);
 
   await expect(outputPromise).resolves.toEqual(
-    expect.objectContaining({ status: 'success', result: 'legacy reply' }),
+    expect.objectContaining({ status: 'error', result: null }),
   );
 });
 

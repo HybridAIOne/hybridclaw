@@ -58,7 +58,7 @@ describe('instruction integrity', () => {
     expect(restored.ok).toBe(true);
   });
 
-  test('sync deletes the retired runtime SECURITY.md copy', async () => {
+  test('sync leaves files outside the active instruction set untouched', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     vi.stubEnv('HOME', homeDir);
 
@@ -72,13 +72,12 @@ describe('instruction integrity', () => {
     fs.mkdirSync(instructions.INSTRUCTION_RUNTIME_DIR, { recursive: true });
     fs.writeFileSync(stalePath, 'stale\n', 'utf-8');
 
-    // Startup seeding must not delete files; cleanup runs only on explicit sync.
     instructions.ensureRuntimeInstructionCopies();
     expect(fs.existsSync(stalePath)).toBe(true);
 
     const synced = instructions.syncRuntimeInstructionCopies();
 
-    expect(fs.existsSync(stalePath)).toBe(false);
+    expect(fs.readFileSync(stalePath, 'utf-8')).toBe('stale\n');
     expect(Object.keys(synced.files)).toEqual(['TRUST_MODEL.md']);
     expect(instructions.verifyInstructionIntegrity().ok).toBe(true);
   });

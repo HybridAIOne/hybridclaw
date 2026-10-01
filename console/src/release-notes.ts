@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.33.0',
+  version: '0.34.0',
   highlights: [
-    'Phone pairing and push notifications',
-    'PDF pages and images reach the model',
-    'Publish agent tools to MCP hosts',
-    'Ideas, outputs, and safer approvals',
+    'Todos, habits, goals, and check-ins',
+    'Phone calls, uploads, and shared data',
+    'Live browser frames and checkout approvals',
+    'Faster replies and continuous mobile chats',
   ],
 } as const;
 

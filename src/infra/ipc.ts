@@ -23,7 +23,6 @@ import { encodeAuthenticatedInput } from '../../container/shared/ipc-input-auth.
 import {
   ipcOutputFileName,
   isIpcOutputFileName,
-  LEGACY_IPC_OUTPUT_FILE,
 } from '../../container/shared/ipc-output-files.js';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
@@ -269,12 +268,7 @@ export async function readOutput(
 ): Promise<ContainerOutput> {
   return readOutputFile(
     sessionId,
-    [
-      ipcOutputFileName(requestId),
-      // compat: remove after v0.34 — agent images built before request ids
-      // reply in output.json.
-      LEGACY_IPC_OUTPUT_FILE,
-    ],
+    [ipcOutputFileName(requestId)],
     timeoutMs,
     opts,
   );
