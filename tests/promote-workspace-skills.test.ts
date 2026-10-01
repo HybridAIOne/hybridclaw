@@ -1,20 +1,21 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
-import { useTempDir } from './test-utils.ts';
+import { describe, expect, test, vi } from 'vitest';
+import { loadIsolatedSkillsRuntime } from './helpers/skills-workspace-runtime.ts';
+import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir();
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
+useCleanMocks({
+  restoreAllMocks: true,
+  resetModules: true,
+  unstubAllEnvs: true,
+  unmock: ['../src/infra/install-root.js'],
 });
 
 function setupTempHome(): string {
   const homeDir = makeTempDir('hybridclaw-promote-skills-');
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  vi.stubEnv('HOME', homeDir);
+  vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
   vi.resetModules();
   return homeDir;
 }
@@ -106,4 +107,59 @@ test('promoteWorkspaceSkills skips directories without SKILL.md', async () => {
 
   const managedDir = path.join(homeDir, '.hybridclaw', 'skills');
   expect(fs.existsSync(managedDir)).toBe(false);
+});
+
+describe('after loadSkills synced the catalog into the workspace', () => {
+  async function syncedWorkspace() {
+    const runtime = await loadIsolatedSkillsRuntime(
+      makeTempDir('hybridclaw-promote-skills-'),
+    );
+    writeSkillMd(path.join(runtime.bundledDir, 'alpha'), 'alpha');
+    writeSkillMd(path.join(runtime.bundledDir, 'beta'), 'beta');
+    runtime.skills.loadSkills('main');
+    return runtime;
+  }
+
+  test('skips the catalog scan when the workspace holds only synced copies', async () => {
+    const { skills, workspaceDir, managedDir } = await syncedWorkspace();
+    expect(
+      fs.existsSync(path.join(workspaceDir, 'skills', 'alpha', 'SKILL.md')),
+    ).toBe(true);
+
+    const readSpy = vi.spyOn(fs, 'readFileSync');
+    skills.promoteWorkspaceSkills(workspaceDir);
+
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(managedDir)).toBe(false);
+  });
+
+  test.each([
+    { name: 'a new skill dir', dir: 'agent-made', skillName: 'agent-made' },
+    {
+      name: 'a synced copy renamed in place',
+      dir: 'alpha',
+      skillName: 'alpha-v2',
+    },
+  ])('promotes $name the agent wrote', async ({ dir, skillName }) => {
+    const { skills, workspaceDir, managedDir } = await syncedWorkspace();
+    writeSkillMd(path.join(workspaceDir, 'skills', dir), skillName);
+
+    skills.promoteWorkspaceSkills(workspaceDir);
+
+    expect(
+      fs.readFileSync(path.join(managedDir, dir, 'SKILL.md'), 'utf-8'),
+    ).toContain(`name: ${skillName}`);
+  });
+
+  test('does not re-promote a synced copy whose source left the catalog', async () => {
+    const { skills, bundledDir, workspaceDir, managedDir } =
+      await syncedWorkspace();
+    fs.rmSync(path.join(bundledDir, 'beta'), { recursive: true });
+    writeSkillMd(path.join(workspaceDir, 'skills', 'agent-made'), 'agent-made');
+
+    skills.promoteWorkspaceSkills(workspaceDir);
+
+    expect(fs.existsSync(path.join(managedDir, 'agent-made'))).toBe(true);
+    expect(fs.existsSync(path.join(managedDir, 'beta'))).toBe(false);
+  });
 });
