@@ -430,6 +430,8 @@ test('browser_navigate can request a headed browser session', async () => {
     'open',
     'eval',
     'network',
+    // The page read after navigation (live frames, checkout guard).
+    'eval',
   ]);
   expect(records.every((record) => record.headed === '1')).toBe(true);
   expect(records.every((record) => record.executablePath === chromeBin)).toBe(
@@ -531,15 +533,17 @@ test('browser_navigate relaunches when headed mode changes', async () => {
     'open',
     'eval',
     'network',
+    'eval',
     'close',
     'open',
     'eval',
     'network',
+    'eval',
   ]);
-  expect(records.slice(0, 4).every((record) => record.headed === '1')).toBe(
+  expect(records.slice(0, 5).every((record) => record.headed === '1')).toBe(
     true,
   );
-  expect(records.slice(4).every((record) => record.headed === '0')).toBe(true);
+  expect(records.slice(5).every((record) => record.headed === '0')).toBe(true);
 });
 
 test('browser_navigate preserves configured browser args in headed mode', async () => {

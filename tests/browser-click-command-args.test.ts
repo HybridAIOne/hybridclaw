@@ -5,6 +5,12 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 let tempRoot = '';
+// After a click the tools read the page's URL and title (for live frames and
+// the checkout guard); the stub answers without a URL, so no frame follows.
+const PAGE_INFO_READ = {
+  command: 'eval',
+  args: ['(() => ({ url: location.href, title: document.title }))()'],
+};
 
 function createAgentBrowserStub(root: string): string {
   const scriptPath = path.join(root, 'agent-browser-click-stub.mjs');
@@ -486,6 +492,7 @@ test('browser_click supports viewport coordinate clicks', async () => {
     { command: 'mouse', args: ['move', '1180', '650'] },
     { command: 'mouse', args: ['down', 'left'] },
     { command: 'mouse', args: ['up', 'left'] },
+    PAGE_INFO_READ,
   ]);
 });
 
@@ -522,6 +529,7 @@ test('browser_click treats legacy @viewport refs as coordinate clicks', async ()
     { command: 'mouse', args: ['move', '1180', '650'] },
     { command: 'mouse', args: ['down', 'left'] },
     { command: 'mouse', args: ['up', 'left'] },
+    PAGE_INFO_READ,
   ]);
 });
 
@@ -575,6 +583,7 @@ test('browser_click can download and save from a ref target', async () => {
         ),
       ],
     },
+    PAGE_INFO_READ,
   ]);
 });
 
@@ -635,6 +644,7 @@ test('browser_click can resolve visible text and save a download', async () => {
       command: 'eval',
       args: [expect.stringContaining('removeAttribute')],
     },
+    PAGE_INFO_READ,
   ]);
 });
 
@@ -700,6 +710,7 @@ test('browser_click can resolve coordinates and save a download', async () => {
       command: 'eval',
       args: [expect.stringContaining('removeAttribute')],
     },
+    PAGE_INFO_READ,
   ]);
 });
 
@@ -875,6 +886,7 @@ test('browser_click can enter an iframe for coordinate download capture', async 
       command: 'eval',
       args: [expect.stringContaining('data-hybridclaw-frame-target')],
     },
+    PAGE_INFO_READ,
   ]);
 });
 

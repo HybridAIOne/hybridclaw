@@ -89,6 +89,14 @@ RUN DEBIAN_FRONTEND=noninteractive npx playwright install-deps chromium \
     && fc-cache -f -s
 USER node
 RUN npx playwright install --only-shell chromium
+# agent-browser 0.27 does not look inside PLAYWRIGHT_BROWSERS_PATH for the
+# headless shell and fails with "Chrome not found"; name it explicitly.
+USER root
+RUN ln -s "$(find /ms-playwright -type f -name chrome-headless-shell | head -n 1)" \
+      /usr/local/bin/chrome-headless-shell \
+    && /usr/local/bin/chrome-headless-shell --version
+USER node
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 
 COPY --link --chown=1000:1000 --from=builder /app/dist/ dist/
 COPY --link --chown=1000:1000 --from=builder /app/shared/ shared/

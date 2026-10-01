@@ -76,6 +76,23 @@ RUN --mount=type=cache,target=/root/.npm \
     && npm ci --ignore-scripts --omit=dev --no-audit --fund=false \
     && rm -f node_modules/.package-lock.json
 
+# Chromium for the browser tools. This image runs the agent in host sandbox
+# mode, and without a browser every browser_* call fails with "Chrome not
+# found". agent-browser 0.27 does not look inside
+# PLAYWRIGHT_BROWSERS_PATH for the headless shell, so it is named explicitly
+# through a version-free symlink. Installed before the app layers so a release
+# does not rebuild these ~400 MB; the CLI version follows the root package.json.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
+RUN --mount=type=cache,target=/root/.npm \
+    DEBIAN_FRONTEND=noninteractive npx --yes playwright@1.63.0 install-deps chromium \
+    && npx --yes playwright@1.63.0 install --only-shell chromium \
+    && ln -s "$(find /ms-playwright -type f -name chrome-headless-shell | head -n 1)" \
+      /usr/local/bin/chrome-headless-shell \
+    && /usr/local/bin/chrome-headless-shell --version \
+    && rm -rf /var/lib/apt/lists/* /var/cache/ldconfig/aux-cache \
+    && find /var/log -type f -delete
+
 RUN if [ "${TARGETARCH}" = "amd64" ]; then \
       curl -fsSL \
         "https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz" \

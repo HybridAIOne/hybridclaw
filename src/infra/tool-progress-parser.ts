@@ -1,4 +1,4 @@
-import type { ToolProgressEvent } from '../types/execution.js';
+import type { BrowserFrame, ToolProgressEvent } from '../types/execution.js';
 
 const TOOL_NAME_PATTERN = '([a-zA-Z0-9_.-]+)';
 const TOOL_LABEL_PATTERN = '(?:\\s+\\[[^\\]\\r\\n]*\\])*';
@@ -44,5 +44,28 @@ function parseToolProgressPreview(raw: string): string {
     return typeof parsed === 'string' ? parsed : raw;
   } catch {
     return raw;
+  }
+}
+
+// Written by the container's browser tools just before the tool's own result
+// line (`BROWSER_FRAME_LOG_PREFIX` in container/src/browser-tools.ts).
+const BROWSER_FRAME_PREFIX = '[browser-frame] ';
+
+export function parseBrowserFrameLine(line: string): BrowserFrame | null {
+  if (!line.startsWith(BROWSER_FRAME_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(
+      line.slice(BROWSER_FRAME_PREFIX.length),
+    ) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed.url !== 'string' || !parsed.url) return null;
+    return {
+      url: parsed.url,
+      title: typeof parsed.title === 'string' ? parsed.title : '',
+      ...(typeof parsed.frame === 'string' && parsed.frame
+        ? { frame: parsed.frame }
+        : {}),
+    };
+  } catch {
+    return null;
   }
 }
