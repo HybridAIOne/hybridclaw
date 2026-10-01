@@ -14,7 +14,7 @@ function catalog(action: string, name?: string, args?: Record<string, unknown>):
 
 describe('local catalog through real agent IPC and model HTTP', () => {
   test('reduces 111 schemas to ten and preserves stable schemas and original call history', async () => {
-    const pluginTools = Array.from({ length: 71 }, (_, i) => ({ name: `plugin_${i}`, description: 'synthetic plugin', parameters: { type: 'object' as const, properties: {}, required: [] } }));
+    const pluginTools = Array.from({ length: 70 }, (_, i) => ({ name: `plugin_${i}`, description: 'synthetic plugin', parameters: { type: 'object' as const, properties: {}, required: [] } }));
     const { requests, output, followup } = await harness([
       catalog('list'), catalog('describe', 'read'), catalog('call', 'read', { path: 'notes.txt' }),
     ], { pluginTools });
