@@ -672,7 +672,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
     'If the user explicitly asks for a visible, headed, or headful browser, call `browser_navigate` with `headed:true` on the first navigation for that browser task. Continue using the normal browser tools afterward; the visible/headful mode persists for the session.',
-    'Browser extraction flow (for read/summarize requests): after `browser_navigate`, call `browser_snapshot` with `mode="full"` before deciding content is unavailable.',
+    '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
     'For embedded pages, call `browser_snapshot` with a `frame` selector when the main snapshot lists relevant iframes; use `frame:"main"` to return to the main document.',
     'If snapshot content is incomplete, run `browser_scroll` and then `browser_snapshot` again (repeat a few times for long/lazy-loaded pages).',
     'For browser downloads, call `browser_click` with `waitForDownload:true` and `downloadPath`; if no `download_path` is returned, call `browser_downloads` with a relevant `filter` or short `waitMs` before claiming success.',

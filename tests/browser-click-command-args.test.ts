@@ -11,6 +11,13 @@ const PAGE_INFO_READ = {
   command: 'eval',
   args: ['(() => ({ url: location.href, title: document.title }))()'],
 };
+// A click that is not a download returns the page: a full snapshot, then the
+// snapshot's iframe and 2FA-field reads.
+const PAGE_SNAPSHOT_READ = [
+  { command: 'snapshot', args: ['-C'] },
+  { command: 'eval', args: [expect.any(String)] },
+  { command: 'eval', args: [expect.any(String)] },
+];
 
 function createAgentBrowserStub(root: string): string {
   const scriptPath = path.join(root, 'agent-browser-click-stub.mjs');
@@ -37,6 +44,10 @@ if (command === 'click') {
       command,
       args: commandArgs
     }
+  }));
+} else if (command === 'snapshot') {
+  process.stdout.write(JSON.stringify({
+    data: { snapshot: '- button "Pay now" [ref=e1]', refs: { e1: {} } }
   }));
 } else if (command === 'download') {
   const targetPath = commandArgs[1] || '';
@@ -488,10 +499,13 @@ test('browser_click supports viewport coordinate clicks', async () => {
   expect(parsed.clicked).toBe('1180,650');
   expect(parsed.x).toBe(1180);
   expect(parsed.y).toBe(650);
+  expect(parsed.snapshot).toBe('- button "Pay now" [ref=e1]');
+  expect(parsed.element_count).toBe(1);
   expect(commands).toEqual([
     { command: 'mouse', args: ['move', '1180', '650'] },
     { command: 'mouse', args: ['down', 'left'] },
     { command: 'mouse', args: ['up', 'left'] },
+    ...PAGE_SNAPSHOT_READ,
     PAGE_INFO_READ,
   ]);
 });
@@ -529,6 +543,7 @@ test('browser_click treats legacy @viewport refs as coordinate clicks', async ()
     { command: 'mouse', args: ['move', '1180', '650'] },
     { command: 'mouse', args: ['down', 'left'] },
     { command: 'mouse', args: ['up', 'left'] },
+    ...PAGE_SNAPSHOT_READ,
     PAGE_INFO_READ,
   ]);
 });
