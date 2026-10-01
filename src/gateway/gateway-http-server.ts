@@ -185,6 +185,7 @@ import {
   classifySessionKeyShape,
 } from '../session/session-key.js';
 import { runTodoToolAction } from '../todos/todo-command.js';
+import { runTrackToolAction } from '../tracking/track-command.js';
 import {
   buildTuiSlashMenuEntries,
   rankTuiSlashMenuEntries,
@@ -4140,6 +4141,13 @@ async function handleApiTodo(
   res: ServerResponse,
 ): Promise<void> {
   sendJson(res, 200, runTodoToolAction(await readJsonBody(req)));
+}
+
+async function handleApiTrack(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, runTrackToolAction(await readJsonBody(req)));
 }
 
 async function handleApiPluginTool(
@@ -11678,6 +11686,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiTodo(req, res);
+            return;
+          }
+          if (pathname === '/api/track' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiTrack(req, res);
             return;
           }
           if (pathname === '/api/device-data' && method === 'POST') {
