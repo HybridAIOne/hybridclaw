@@ -95,9 +95,9 @@ export function buildDirectoryContentSignature(rootDir: string): string {
     }
   }
 
-  // lgtm[js/insufficient-password-hash] This aggregates content
-  // fingerprints and is not a credential verifier.
-  return createHash('sha256').update(entries.join('\n')).digest('hex');
+  // The per-file hashes already fingerprint the content, and the signature is
+  // only compared within this process, so their list is the signature.
+  return entries.join('\n');
 }
 
 /**
