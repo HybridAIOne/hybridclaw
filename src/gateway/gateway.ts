@@ -4,6 +4,7 @@
  * credential refresh, and cannot re-enable a channel during gateway shutdown.
  */
 import fs from 'node:fs';
+import type { Attachment } from 'botframework-schema';
 import type { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
@@ -43,10 +44,9 @@ import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin
 import {
   discordRuntimeLoader,
   emailRuntimeLoader,
+  msteamsAttachmentsLoader,
+  msteamsRuntimeLoader,
   slackRuntimeLoader,
-  stopDiscordRuntime,
-  stopEmailRuntime,
-  stopSlackRuntime,
 } from '../channels/channel-runtime-loaders.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { rewriteUserMentionsForMessage } from '../channels/discord/mentions.js';
@@ -1173,8 +1173,9 @@ async function sendProactiveMessageNow(
     }
 
     try {
+      const email = await emailRuntimeLoader.load();
       if (artifacts && artifacts.length > 0) {
-        await (await emailRuntimeLoader.load()).sendEmailAttachmentTo({
+        await email.sendEmailAttachmentTo({
           to: channelId,
           filePath: artifacts[0].path,
           body: text,
@@ -1182,7 +1183,7 @@ async function sendProactiveMessageNow(
           filename: artifacts[0].filename,
         });
         for (let index = 1; index < artifacts.length; index += 1) {
-          await (await emailRuntimeLoader.load()).sendEmailAttachmentTo({
+          await email.sendEmailAttachmentTo({
             to: channelId,
             filePath: artifacts[index].path,
             mimeType: artifacts[index].mimeType,
@@ -1192,7 +1193,7 @@ async function sendProactiveMessageNow(
         return { status: 'delivered' };
       }
 
-      await (await emailRuntimeLoader.load()).sendToEmail(channelId, text);
+      await email.sendToEmail(channelId, text);
     } catch (error) {
       logger.warn(
         { source, channelId, error, artifactCount },
@@ -1283,14 +1284,12 @@ async function sendProactiveMessageNow(
     }
 
     try {
+      const slack = await slackRuntimeLoader.load();
       if (text.trim()) {
-        await (await slackRuntimeLoader.load()).sendToSlackTarget(
-          channelId,
-          text,
-        );
+        await slack.sendToSlackTarget(channelId, text);
       }
       for (const artifact of artifacts || []) {
-        await (await slackRuntimeLoader.load()).sendSlackFileToTarget({
+        await slack.sendSlackFileToTarget({
           target: channelId,
           filePath: artifact.path,
           filename: artifact.filename,
@@ -1557,7 +1556,9 @@ async function startDiscordIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await discordRuntimeLoader.load()).initDiscord(
+    const discord = await discordRuntimeLoader.loadForStart();
+    if (!discord) return false;
+    await discord.initDiscord(
       withInFlightTurn(
         async (
           sessionId: string,
@@ -1802,7 +1803,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     }
   };
 
-  const { initMSTeams } = await import('../channels/msteams/runtime.js');
+  const { initMSTeams } = await msteamsRuntimeLoader.load();
   initMSTeams(
     withInFlightTurn(
       async (
@@ -1946,17 +1947,10 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             return;
           }
 
-          let attachments:
-            | Awaited<
-                ReturnType<
-                  typeof import('../channels/msteams/attachments.js')['buildTeamsArtifactAttachments']
-                >
-              >
-            | undefined;
+          let attachments: Attachment[] | undefined;
           try {
-            const { buildTeamsArtifactAttachments } = await import(
-              '../channels/msteams/attachments.js'
-            );
+            const { buildTeamsArtifactAttachments } =
+              await msteamsAttachmentsLoader.load();
             attachments = await buildTeamsArtifactAttachments({
               turnContext: context.turnContext,
               artifacts,
@@ -2494,7 +2488,9 @@ async function startEmailIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await emailRuntimeLoader.load()).initEmail(
+    const email = await emailRuntimeLoader.loadForStart();
+    if (!email) return false;
+    await email.initEmail(
       withInFlightTurn(
         async (
           sessionId,
@@ -3072,7 +3068,9 @@ async function startSlackIntegration(): Promise<boolean> {
   }
 
   try {
-    await (await slackRuntimeLoader.load()).initSlack(
+    const slack = await slackRuntimeLoader.loadForStart();
+    if (!slack) return false;
+    await slack.initSlack(
       withInFlightTurn(
         async (
           sessionId,
@@ -3183,7 +3181,7 @@ async function startSlackIntegration(): Promise<boolean> {
               await reply(responseText);
             }
             for (const artifact of artifacts) {
-              await (await slackRuntimeLoader.load()).sendSlackFileToTarget({
+              await slack.sendSlackFileToTarget({
                 target: context.inbound.target,
                 filePath: artifact.path,
                 filename: artifact.filename,
@@ -3254,7 +3252,7 @@ async function refreshEmailIntegrationForConfigChange(
     },
     'Config changed, restarting email integration',
   );
-  await stopEmailRuntime().catch((error) => {
+  await emailRuntimeLoader.stop().catch((error) => {
     logger.debug(
       { error },
       'Failed to stop email runtime during config-change restart',
@@ -3472,7 +3470,7 @@ async function refreshSlackIntegrationForConfigChange(
     },
     'Config changed, restarting Slack integration',
   );
-  await stopSlackRuntime().catch((error) => {
+  await slackRuntimeLoader.stop().catch((error) => {
     logger.debug(
       { error },
       'Failed to stop Slack runtime during config-change restart',
@@ -3948,11 +3946,11 @@ async function startIMessageIntegration(): Promise<boolean> {
 }
 
 async function stopExternalChannelIntegrationsForA2ALocalMode(): Promise<void> {
-  await runShutdownStep('stop Discord runtime', stopDiscordRuntime);
-  await runShutdownStep('stop email runtime', stopEmailRuntime);
+  await runShutdownStep('stop Discord runtime', discordRuntimeLoader.stop);
+  await runShutdownStep('stop email runtime', emailRuntimeLoader.stop);
   await runShutdownStep('stop Signal runtime', shutdownSignal);
   await runShutdownStep('stop Threema runtime', shutdownThreema);
-  await runShutdownStep('stop Slack runtime', stopSlackRuntime);
+  await runShutdownStep('stop Slack runtime', slackRuntimeLoader.stop);
   await runShutdownStep('stop Discord webhook runtime', shutdownDiscordWebhook);
   await runShutdownStep('stop Slack webhook runtime', shutdownSlackWebhook);
   await runShutdownStep('stop Telegram runtime', shutdownTelegram);
@@ -4069,11 +4067,11 @@ function setupShutdown(broadcastShutdown: () => void): void {
       broadcastShutdown();
       stopAllExecutions();
     }
-    await runShutdownStep('stop Discord runtime', stopDiscordRuntime);
-    await runShutdownStep('stop email runtime', stopEmailRuntime);
+    await runShutdownStep('stop Discord runtime', discordRuntimeLoader.stop);
+    await runShutdownStep('stop email runtime', emailRuntimeLoader.stop);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
     await runShutdownStep('stop Threema runtime', shutdownThreema);
-    await runShutdownStep('stop Slack runtime', stopSlackRuntime);
+    await runShutdownStep('stop Slack runtime', slackRuntimeLoader.stop);
     await runShutdownStep(
       'stop Discord webhook runtime',
       shutdownDiscordWebhook,

@@ -39,13 +39,18 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
 function valueIdentifiers(sourceFile: ts.SourceFile): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node): void => {
+    // `extends` takes a runtime value although TS models it as a type node.
+    if (ts.isHeritageClause(node)) {
+      if (node.token === ts.SyntaxKind.ExtendsKeyword) {
+        for (const type of node.types) visit(type.expression);
+      }
+      return;
+    }
     if (
       ts.isImportDeclaration(node) ||
       ts.isTypeNode(node) ||
       ts.isInterfaceDeclaration(node) ||
-      ts.isTypeAliasDeclaration(node) ||
-      (ts.isHeritageClause(node) &&
-        node.token === ts.SyntaxKind.ImplementsKeyword)
+      ts.isTypeAliasDeclaration(node)
     ) {
       return;
     }
@@ -152,14 +157,18 @@ test('import elision keeps value imports and drops type-only ones', () => {
     "import { OnlyType } from 'pkg-type-usage';",
     "import type { Declared } from 'pkg-import-type';",
     "import { type Inline } from 'pkg-inline-type';",
+    "import { Base } from 'pkg-extends';",
+    "import { Contract } from 'pkg-implements';",
     "import 'pkg-side-effect';",
     "export { reexported } from 'pkg-reexport';",
     "export type { ReexportedType } from 'pkg-reexport-type';",
     'export const value: AsType | OnlyType | Declared | Inline = new AsValue();',
+    'export class Sub extends Base<AsType> implements Contract {}',
   ].join('\n');
 
   expect(runtimeImportSpecifiers('example.ts', source)).toEqual([
     'pkg-mixed',
+    'pkg-extends',
     'pkg-side-effect',
     'pkg-reexport',
   ]);
@@ -204,5 +213,37 @@ test('channel runtime loaders retry after a failed import', async () => {
     );
   } finally {
     vi.doUnmock('../src/channels/email/runtime.js');
+  }
+});
+
+test('a channel runtime stop during the SDK import cancels the pending start', async () => {
+  vi.resetModules();
+  let finishImport = (): void => undefined;
+  const importGate = new Promise<void>((resolve) => {
+    finishImport = resolve;
+  });
+  const shutdownDiscord = vi.fn(async () => undefined);
+  vi.doMock('../src/channels/discord/runtime.js', async () => {
+    await importGate;
+    return { shutdownDiscord };
+  });
+  try {
+    const { discordRuntimeLoader } = await import(
+      '../src/channels/channel-runtime-loaders.js'
+    );
+
+    const cancelledStart = discordRuntimeLoader.loadForStart();
+    await discordRuntimeLoader.stop();
+    finishImport();
+    await expect(cancelledStart).resolves.toBeNull();
+    expect(shutdownDiscord).not.toHaveBeenCalled();
+
+    await expect(discordRuntimeLoader.loadForStart()).resolves.toBe(
+      discordRuntimeLoader.current(),
+    );
+    await discordRuntimeLoader.stop();
+    expect(shutdownDiscord).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.doUnmock('../src/channels/discord/runtime.js');
   }
 });

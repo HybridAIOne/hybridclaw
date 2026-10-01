@@ -268,9 +268,9 @@ async function runSlackSendAction(
     throw new Error('components are not supported for Slack sends.');
   }
 
-  const delivery = await (
-    await slackRuntimeLoader.load()
-  ).sendToActiveSlackSession({
+  const slack = await slackRuntimeLoader.loadIfRequested();
+  if (!slack) throw new Error('Slack is not running.');
+  const delivery = await slack.sendToActiveSlackSession({
     sessionId: resolveSlackSessionKey(targetSession),
     text: resolvedFilePath ? '' : content,
     filePath: resolvedFilePath,

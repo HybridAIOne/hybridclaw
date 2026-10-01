@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 
 async function importFreshMessageToolActions(
   a2aLocalMode = false,
-  discordConnected = true,
+  channelsRunning = true,
 ) {
   vi.resetModules();
 
@@ -310,14 +310,14 @@ async function importFreshMessageToolActions(
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
-  if (discordConnected) {
-    const { discordRuntimeLoader } = await import(
-      '../src/channels/channel-runtime-loaders.js'
-    );
-    await discordRuntimeLoader.load();
+  const loaders = await import('../src/channels/channel-runtime-loaders.js');
+  if (channelsRunning) {
+    await loaders.discordRuntimeLoader.load();
+    await loaders.slackRuntimeLoader.load();
   }
   return {
     ...module,
+    loaders,
     sendEmailAttachmentTo,
     sendToEmail,
     readEmailMailbox,
@@ -1403,11 +1403,6 @@ test('read action routes current Slack sessions through stored Slack history', a
 
 test('channel-info action returns Slack session metadata for the current chat', async () => {
   const state = await importFreshMessageToolActions();
-  // A running Slack integration has loaded its runtime via `initSlack`.
-  const { slackRuntimeLoader } = await import(
-    '../src/channels/channel-runtime-loaders.js'
-  );
-  await slackRuntimeLoader.load();
 
   const result = await state.runMessageToolAction({
     action: 'channel-info',
@@ -1583,21 +1578,49 @@ test('non-send actions still delegate to Discord tool actions', async () => {
   });
 });
 
-test('Discord-bound actions fail without loading Discord when it is not running', async () => {
-  const state = await importFreshMessageToolActions(false, false);
-  const { discordRuntimeLoader } = await import(
-    '../src/channels/channel-runtime-loaders.js'
-  );
-
-  await expect(
-    state.runMessageToolAction({
-      action: 'read',
+test.each([
+  {
+    channel: 'Discord',
+    request: () => ({
+      action: 'read' as const,
       channelId: '123456789012345678',
       limit: 10,
     }),
-  ).rejects.toThrow('Discord client is not initialized.');
+  },
+  {
+    channel: 'Slack',
+    request: (sessionId: string) => ({
+      action: 'send' as const,
+      sessionId,
+      content: 'hi',
+    }),
+  },
+])('$channel-bound actions fail without loading $channel when it is not running', async ({
+  request,
+}) => {
+  const state = await importFreshMessageToolActions(false, false);
+
+  await expect(
+    state.runMessageToolAction(request(state.slackSessionId)),
+  ).rejects.toThrow('is not running.');
   expect(state.runDiscordToolAction).not.toHaveBeenCalled();
-  expect(discordRuntimeLoader.current()).toBeNull();
+  expect(state.sendToActiveSlackSession).not.toHaveBeenCalled();
+  expect(state.loaders.discordRuntimeLoader.current()).toBeNull();
+  expect(state.loaders.slackRuntimeLoader.current()).toBeNull();
+});
+
+test('Discord-bound actions wait for a Discord runtime that is still loading', async () => {
+  const state = await importFreshMessageToolActions(false, false);
+  const loading = state.loaders.discordRuntimeLoader.load();
+
+  await state.runMessageToolAction({
+    action: 'read',
+    channelId: '123456789012345678',
+    limit: 10,
+  });
+
+  await loading;
+  expect(state.runDiscordToolAction).toHaveBeenCalledTimes(1);
 });
 
 test('WhatsApp send results describe sender, recipient and unconfirmed delivery', async () => {

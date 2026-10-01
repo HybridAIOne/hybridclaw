@@ -3654,6 +3654,10 @@ describe('gateway bootstrap', () => {
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
     const state = await importFreshGatewayMain({
+      emailEnabled: true,
+      emailPassword: 'secret',
+      slackEnabled: true,
+      hasSlackCredentials: true,
       onState: (nextState) => {
         nextState.setDiscordMaintenancePresence.mockImplementation(
           () => new Promise<void>(() => undefined),
@@ -3681,6 +3685,8 @@ describe('gateway bootstrap', () => {
       },
       'Gateway shutdown step timed out; continuing',
     );
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.stopPeriodicCloudMemorySync).toHaveBeenCalledTimes(1);

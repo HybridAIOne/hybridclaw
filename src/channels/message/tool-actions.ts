@@ -545,8 +545,9 @@ async function runEmailMessageSendAction(
     throw new Error('components are not supported for email sends.');
   }
 
+  const email = await emailRuntimeLoader.load();
   if (filePath) {
-    await (await emailRuntimeLoader.load()).sendEmailAttachmentTo({
+    await email.sendEmailAttachmentTo({
       to: channelId,
       filePath,
       body: content || '',
@@ -563,11 +564,7 @@ async function runEmailMessageSendAction(
     };
   }
 
-  await (await emailRuntimeLoader.load()).sendToEmail(
-    channelId,
-    content,
-    emailOptions,
-  );
+  await email.sendToEmail(channelId, content, emailOptions);
   return {
     ok: true,
     action: 'send',
@@ -941,8 +938,8 @@ async function runLocalMessageSendAction(
 async function runConnectedDiscordToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
-  const discord = discordRuntimeLoader.current();
-  if (!discord) throw new Error('Discord client is not initialized.');
+  const discord = await discordRuntimeLoader.loadIfRequested();
+  if (!discord) throw new Error('Discord is not running.');
   return await discord.runDiscordToolAction(request);
 }
 
