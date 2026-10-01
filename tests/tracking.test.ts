@@ -1,0 +1,366 @@
+import { expect, test } from 'vitest';
+
+import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+
+const { setupHome } = setupGatewayTest({
+  tempHomePrefix: 'hybridclaw-tracking-',
+});
+
+const NOW = new Date('2026-10-01T08:00:00Z');
+
+async function load() {
+  setupHome();
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getSessionById } = await import('../src/memory/sessions.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { getAllJobs } = await import('../src/memory/jobs.ts');
+  const store = await import('../src/tracking/track-store.ts');
+  const { runTrackToolAction } = await import(
+    '../src/tracking/track-command.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const run = async (sessionId: string, args: string[], channelId = 'web') => {
+    const result = await handleGatewayCommand({
+      sessionId,
+      guildId: null,
+      channelId,
+      args: ['track', ...args],
+    });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.text);
+    } catch {}
+    return { kind: result.kind, text: result.text, json };
+  };
+  const session = async (sessionId: string, channelId = 'web') => {
+    await run(sessionId, ['list'], channelId);
+    const found = getSessionById(sessionId);
+    if (!found) throw new Error(`no session ${sessionId}`);
+    return found;
+  };
+  const allTasks = () => getAllJobs({ kind: 'scheduled_task' });
+  return { run, session, store, runTrackToolAction, allTasks };
+}
+
+test('an app adds a goal with an outcome and steps, and checks it off', async () => {
+  const { run } = await load();
+
+  const added = await run('app-chat', [
+    'add',
+    '--json',
+    '--kind',
+    'goal',
+    'Sleep',
+    'through',
+    'the',
+    'night',
+  ]);
+  expect(added.json.item).toMatchObject({
+    id: 1,
+    kind: 'goal',
+    title: 'Sleep through the night',
+    outcome: null,
+    status: null,
+    steps: [],
+    every: null,
+    done: false,
+    created_by: 'user',
+  });
+
+  await run('app-chat', ['outcome', '1', 'Eight', 'hours,', 'no', 'waking']);
+  await run('app-chat', ['step', '1', 'add', 'No', 'coffee', 'after', '2']);
+  await run('app-chat', ['step', '1', 'add', '--json', 'Bed', 'by', '23:00']);
+  await run('app-chat', ['step', '#1', 'done', '1']);
+  const noted = await run('app-chat', [
+    'status',
+    '1',
+    '--json',
+    'Week',
+    'one',
+    'went',
+    'well',
+  ]);
+  expect(noted.json.item).toMatchObject({
+    outcome: 'Eight hours, no waking',
+    status: 'Week one went well',
+    status_by: 'user',
+    steps: [
+      { id: 1, title: 'No coffee after 2', done: true },
+      { id: 2, title: 'Bed by 23:00', done: false },
+    ],
+  });
+
+  const done = await run('app-chat', ['done', '1', '--json']);
+  expect(done.json.item).toMatchObject({ done: true, done_by: 'user' });
+
+  const listed = await run('app-chat', ['list', '--json']);
+  expect(listed.json).toMatchObject({ version: 1, items: [{ id: 1 }] });
+  expect(listed.text).not.toContain('\n');
+});
+
+test.each([
+  [['add'], 'needs a title'],
+  [['add', '--kind', 'dream', 'Read'], '`goal` or `tracking`'],
+  [['add', '--every', 'sometimes', 'Read'], 'Check-ins are'],
+  [['add', '--at', '7pm', 'Read'], 'HH:MM'],
+  [['add', '--tz', 'Mars/Olympus', 'Read'], 'not a time zone'],
+  [['done', '9'], 'not found'],
+  [['status', '9', 'x'], 'not found'],
+  [['step', '1', 'explode', '1'], 'Usage'],
+  [['frobnicate'], 'Usage'],
+])('`/track %j` is refused', async (args, message) => {
+  const { run } = await load();
+  await run('app-chat', ['add', 'Existing']);
+  const answer = await run('app-chat', args);
+  expect(answer.kind).toBe('error');
+  expect(answer.text).toContain(message);
+});
+
+test('a check-in follows its item: moved on edit, gone once done or removed', async () => {
+  const { run, allTasks } = await load();
+  await run('app-chat', [
+    'add',
+    '--kind',
+    'tracking',
+    '--every',
+    'daily',
+    '--tz',
+    'Europe/Berlin',
+    'Airline',
+    'refund',
+  ]);
+  expect(allTasks()).toMatchObject([
+    {
+      cron_expr: '0 9 * * *',
+      tz: 'Europe/Berlin',
+      session_id: 'app-chat',
+      prompt: expect.stringContaining('#1 "Airline refund" (tracking)'),
+    },
+  ]);
+
+  // A status line leaves the task alone, so its run history stays.
+  const [first] = allTasks();
+  await run('app-chat', ['status', '1', 'Claim', 'filed']);
+  expect(allTasks().map((task) => task.id)).toEqual([first.id]);
+
+  await run('app-chat', ['edit', '1', '--every', 'mon,thu', '--at', '18:30']);
+  expect(allTasks().map((task) => task.cron_expr)).toEqual([
+    '30 18 * * 1,4',
+  ]);
+  await run('app-chat', ['outcome', '1', 'Refund', 'posted']);
+  expect(allTasks()[0].prompt).toContain('Desired outcome: Refund posted');
+
+  await run('app-chat', ['done', '1']);
+  expect(allTasks()).toEqual([]);
+  await run('app-chat', ['undo', '1']);
+  expect(allTasks()).toHaveLength(1);
+
+  await run('app-chat', ['edit', '1', '--every', 'none']);
+  expect(allTasks()).toEqual([]);
+  await run('app-chat', ['edit', '1', '--every', 'weekdays']);
+  const removed = await run('app-chat', ['remove', '1', '--json']);
+  expect(removed.json).toEqual({ version: 1, removed: 1 });
+  expect(allTasks()).toEqual([]);
+});
+
+test('a check-in removed with /schedule does not take a later task with it', async () => {
+  const { run, allTasks } = await load();
+  await run('app-chat', ['add', '--every', 'daily', 'Refund']);
+  const [check] = allTasks();
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const schedule = (args: string[]) =>
+    handleGatewayCommand({
+      sessionId: 'app-chat',
+      guildId: null,
+      channelId: 'web',
+      args: ['schedule', ...args],
+    });
+  await schedule(['remove', String(check.id)]);
+  await schedule(['add', '"0 8 * * *"', 'Morning briefing']);
+  expect(allTasks()[0].id).toBe(check.id);
+
+  await run('app-chat', ['remove', '1']);
+  expect(allTasks().map((task) => task.prompt)).toEqual(['Morning briefing']);
+});
+
+test('status lines keep the newest twenty; done items go after ninety days', async () => {
+  const { session, store } = await load();
+  const chat = await session('app-chat');
+  const item = store.addTracked(chat, { title: 'Marathon' }, 'user', NOW);
+  for (let n = 1; n <= 25; n += 1) {
+    store.noteTracked(chat, item.id, `Week ${n}`, 'agent', NOW);
+  }
+  const [listed] = store.listTracked(chat);
+  expect(listed.notes).toHaveLength(20);
+  expect(store.trackedView(listed)).toMatchObject({
+    status: 'Week 25',
+    status_by: 'agent',
+  });
+
+  store.markTracked(chat, item.id, true, 'user', NOW);
+  const later = new Date(NOW.getTime() + 91 * 24 * 60 * 60 * 1000);
+  store.addTracked(chat, { title: 'Next' }, 'user', later);
+  expect(store.listTracked(chat).map((each) => each.title)).toEqual(['Next']);
+});
+
+test('web chats of one agent share a list; other chats keep their own', async () => {
+  const { run } = await load();
+  await run('app-chat', ['add', 'Marathon']);
+
+  const otherWebChat = await run('other-web-chat', ['list', '--json']);
+  expect(otherWebChat.json.items).toMatchObject([{ title: 'Marathon' }]);
+
+  const discord = await run('discord-chat', ['list', '--json'], '12345');
+  expect(discord.json.items).toEqual([]);
+});
+
+test('the agent adds and updates items through its tool, recorded as its own', async () => {
+  const { run, session, runTrackToolAction, allTasks } = await load();
+  await session('app-chat');
+
+  const added = runTrackToolAction({
+    sessionId: 'app-chat',
+    action: 'add',
+    title: 'Ticket prices for Boston',
+    kind: 'tracking',
+    outcome: 'Two seats under $300',
+    status: 'Cheapest is $410',
+    every: 'daily',
+    at: '07:30',
+  });
+  expect(added.result).toContain('#1 tracking "Ticket prices for Boston"');
+  expect(allTasks().map((task) => task.cron_expr)).toEqual(['30 7 * * *']);
+
+  runTrackToolAction({
+    sessionId: 'app-chat',
+    action: 'add_step',
+    id: 1,
+    step: 'Set a fare alert',
+  });
+  runTrackToolAction({
+    sessionId: 'app-chat',
+    action: 'step_done',
+    id: 1,
+    step_id: 1,
+  });
+  const noted = runTrackToolAction({
+    sessionId: 'app-chat',
+    action: 'status',
+    id: 1,
+    status: 'Dropped to $350',
+  });
+  expect(noted.result).toContain('status: "Dropped to $350" (you,');
+
+  const listed = await run('app-chat', ['list', '--json']);
+  expect(listed.json.items).toMatchObject([
+    {
+      created_by: 'agent',
+      outcome: 'Two seats under $300',
+      status: 'Dropped to $350',
+      status_by: 'agent',
+      notes: [{ text: 'Cheapest is $410' }, { text: 'Dropped to $350' }],
+      steps: [{ title: 'Set a fare alert', done: true }],
+      every: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+      at: '07:30',
+    },
+  ]);
+
+  runTrackToolAction({ sessionId: 'app-chat', action: 'done', id: 1 });
+  const done = await run('app-chat', ['list', '--json']);
+  expect(done.json.items).toMatchObject([{ done: true, done_by: 'agent' }]);
+  expect(allTasks()).toEqual([]);
+});
+
+test.each([
+  [{ sessionId: 'app-chat', action: 'explode' }, 400],
+  [{ sessionId: 'app-chat', action: 'status' }, 400],
+  [{ sessionId: 'app-chat', action: 'status', id: 42, status: 'x' }, 400],
+  [{ sessionId: 'app-chat', action: 'status', id: 1 }, 400],
+  [{ sessionId: 'app-chat', action: 'step_done', id: 1, step_id: 9 }, 400],
+  [{ sessionId: 'nobody', action: 'list' }, 404],
+  ['not an object', 400],
+])('the tool service refuses %j', async (body, status) => {
+  const { run, runTrackToolAction } = await load();
+  await run('app-chat', ['add', 'Existing']);
+  expect(() => runTrackToolAction(body)).toThrow(
+    expect.objectContaining({ statusCode: status }),
+  );
+});
+
+test('open items reach the per-turn context, done ones do not', async () => {
+  const { session, store } = await load();
+  const chat = await session('app-chat');
+  expect(store.renderTrackedContext('app-chat')).toBe('');
+
+  const open = store.addTracked(
+    chat,
+    { title: 'Refund', kind: 'tracking', every: [1], tz: 'UTC' },
+    'user',
+    NOW,
+  );
+  store.noteTracked(chat, open.id, 'Claim filed', 'user', NOW);
+  const done = store.addTracked(chat, { title: 'Passport' }, 'user', NOW);
+  store.markTracked(chat, done.id, true, 'agent', NOW);
+
+  const context = store.renderTrackedContext('app-chat');
+  expect(context).toContain(
+    `#${open.id} tracking "Refund" — status: "Claim filed" (user, 2026-10-01) — you check in mon at 09:00 UTC`,
+  );
+  expect(context).not.toContain('Passport');
+  expect(store.renderTrackedContext('unknown')).toBe('');
+});
+
+test('a turn sees open goals unless the track tool is blocked', async () => {
+  const { run } = await load();
+  await run('app-chat', ['add', 'Marathon']);
+  const { buildConversationContext } = await import(
+    '../src/agent/conversation.ts'
+  );
+  const { buildSessionContext } = await import(
+    '../src/session/session-context.ts'
+  );
+  const sessionContext = buildSessionContext({
+    source: {
+      channelKind: 'web',
+      chatId: 'web',
+      chatType: 'dm',
+      userId: 'user_a',
+      userName: 'user_a',
+      guildId: null,
+    },
+    agentId: 'main',
+    sessionId: 'app-chat',
+  });
+  const lastMessage = (blockedTools?: string[]) => {
+    const { messages } = buildConversationContext({
+      agentId: 'main',
+      history: [],
+      runtimeInfo: { sessionContext },
+      blockedTools,
+    });
+    return String(messages.at(-1)?.content);
+  };
+  expect(lastMessage()).toContain('"Marathon"');
+  expect(lastMessage(['track'])).not.toContain('"Marathon"');
+});
+
+test('`/help` in a web chat lists `/track`, which apps probe for', async () => {
+  const { session } = await load();
+  await session('app-chat');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const help = await handleGatewayCommand({
+    sessionId: 'app-chat',
+    guildId: null,
+    channelId: 'web',
+    args: ['help'],
+  });
+  expect(help.text).toContain('`/track`');
+  expect(help.text).toContain('`/todo`');
+});

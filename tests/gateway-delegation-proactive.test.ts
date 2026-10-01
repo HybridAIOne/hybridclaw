@@ -360,6 +360,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
       blockedTools: [
         'cron',
         'todo',
+        'track',
         'memory',
         'browser_await_two_factor',
         'browser_resume_interaction',

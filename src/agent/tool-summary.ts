@@ -49,7 +49,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Scheduling',
-    tools: ['cron', 'todo'],
+    tools: ['cron', 'todo', 'track'],
   },
   {
     label: 'Delegation',

@@ -100,6 +100,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'audit',
   'schedule',
   'todo',
+  'track',
   'channel',
   'ralph',
   'goal',
@@ -683,6 +684,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'todo':
       return ['todo', ...parts.slice(1)];
 
+    case 'track':
+      return ['track', ...parts.slice(1)];
+
     // Sent by companion apps, so it stays out of menus and help.
     case 'device-data':
       return ['device-data', ...parts.slice(1)];
@@ -755,6 +759,15 @@ function buildSlashCommandCatalogDefinitions(
       name: 'todo',
       description:
         'Your todos, daily ones too: list, add, done, undo, edit, remove',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps drive it with `--json`. Not `/goal`,
+      // which keeps one chat working until a condition holds.
+      name: 'track',
+      description:
+        'Your goals and what the agent tracks for you: list, add, status, steps, done, remove',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },
