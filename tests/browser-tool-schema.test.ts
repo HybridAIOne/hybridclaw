@@ -152,21 +152,18 @@ test('managed browser resume reuses the parked suspended session id', async () =
 });
 
 test('mac-cua browser tools route through the gateway provider', async () => {
-  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
-    return new Response(
-      JSON.stringify({
-        success: true,
-        url: 'https://example.com/',
-        title: '',
-        content_text_length: 0,
-        content_preview_truncated: false,
-        ready_state: 'native',
-        read_extraction_hint: 'native_browser',
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      },
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    const { toolName } = JSON.parse(String(init?.body || '{}'));
+    return jsonResponse(
+      toolName === 'browser_snapshot'
+        ? {
+            success: true,
+            url: 'https://example.com/',
+            title: 'Example Domain',
+            snapshot: '- link "Learn more" [ref=e1]',
+            element_count: 1,
+          }
+        : { success: true, url: 'https://example.com/', title: '' },
     );
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -187,19 +184,27 @@ test('mac-cua browser tools route through the gateway provider', async () => {
   ) as Record<string, unknown>;
 
   const calls = gatewayToolCalls(fetchMock);
-  expect(calls).toHaveLength(1);
+  expect(calls).toHaveLength(2);
   expect(calls[0]).toMatchObject({
     toolName: 'browser_navigate',
     sessionId: 'sess-mac',
     agentId: 'agent-main',
     args: { url: 'https://example.com' },
   });
+  // Navigate returns the page, so the model needs no browser_snapshot call.
+  expect(calls[1]).toMatchObject({
+    toolName: 'browser_snapshot',
+    sessionId: 'sess-mac',
+    args: { mode: 'full' },
+  });
   expect(result).toMatchObject({
     success: true,
     provider: 'mac-cua',
     audit_session_id: 'sess-mac',
     url: 'https://example.com/',
-    ready_state: 'native',
+    title: 'Example Domain',
+    snapshot: '- link "Learn more" [ref=e1]',
+    element_count: 1,
   });
 });
 

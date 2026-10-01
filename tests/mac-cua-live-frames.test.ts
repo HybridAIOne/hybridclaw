@@ -63,10 +63,20 @@ function frameLines(stderr: ReturnType<typeof vi.spyOn>) {
     .map((line) => JSON.parse(line.slice('[browser-frame] '.length)));
 }
 
-test('a mac-cua click is followed by a live frame of the Safari window', async () => {
-  const bodies = stubGateway((toolName) =>
-    toolName === 'browser_frame' ? FRAME : { success: true, text: 'Dashboard' },
-  );
+test('a mac-cua click returns the page and is followed by a live frame of the Safari window', async () => {
+  const bodies = stubGateway((toolName) => {
+    if (toolName === 'browser_frame') return FRAME;
+    if (toolName === 'browser_snapshot') {
+      return {
+        success: true,
+        url: FRAME.url,
+        title: 'HybridAI',
+        snapshot: '- heading "Credits" [ref=e3]',
+        refs: { e3: { role: 'heading', name: 'Credits' } },
+      };
+    }
+    return { success: true, text: 'Dashboard' };
+  });
   const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
   const { executeBrowserTool } = await macCuaBrowserTools();
 
@@ -74,9 +84,17 @@ test('a mac-cua click is followed by a live frame of the Safari window', async (
     await executeBrowserTool('browser_click', { text: 'Dashboard' }, 'chat'),
   );
 
-  expect(result).toMatchObject({ success: true, provider: 'mac-cua' });
+  expect(result).toMatchObject({
+    success: true,
+    provider: 'mac-cua',
+    text: 'Dashboard',
+    url: FRAME.url,
+    snapshot: '- heading "Credits" [ref=e3]',
+  });
+  expect(result).not.toHaveProperty('refs');
   expect(bodies.map((body) => [body.toolName, body.args])).toEqual([
     ['browser_click', { text: 'Dashboard' }],
+    ['browser_snapshot', { mode: 'full', disable_2fa_detection: true }],
     ['browser_frame', { image: true }],
   ]);
   const [line] = frameLines(stderr);

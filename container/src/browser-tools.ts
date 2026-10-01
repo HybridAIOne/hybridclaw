@@ -2162,19 +2162,6 @@ function buildBotDetectionWarning(
   };
 }
 
-function buildReadExtractionHint(params: {
-  contentLength: number;
-  hasNoscript: boolean;
-  rootShell: boolean;
-}): string {
-  const base =
-    'For content extraction, call browser_snapshot with {"mode":"full"} next. For long or lazy-loaded pages, run browser_scroll then browser_snapshot again.';
-  if (params.hasNoscript || params.rootShell || params.contentLength < 200) {
-    return `${base} This page currently looks dynamic/app-shell-like; do not conclude "inaccessible" before snapshot attempts.`;
-  }
-  return `${base} Avoid browser_pdf for text extraction; PDF export is for artifact output.`;
-}
-
 async function callVisionModel(
   question: string,
   imageBase64: string,
@@ -2527,17 +2514,6 @@ async function executeGatewayManagedBrowserTool(
       url: payload.url || args.url || '',
       title: payload.title || '',
       session_id: effectiveSessionId,
-      content_text_length: payload.content_text_length || 0,
-      ...(typeof payload.content_preview === 'string'
-        ? { content_preview: payload.content_preview }
-        : {}),
-      ...(payload.content_preview_truncated === true
-        ? { content_preview_truncated: true }
-        : {}),
-      ...(typeof payload.ready_state === 'string'
-        ? { ready_state: payload.ready_state }
-        : {}),
-      read_extraction_hint: payload.read_extraction_hint || 'ok',
       // mac-cua drives a visible window of the operator's own browser;
       // managed-cloud browsers run remotely with no local window.
       headed: gatewayBrowserProvider === 'mac-cua',
@@ -2733,18 +2709,60 @@ async function observeGatewayBrowserPage(): Promise<void> {
   }
 }
 
+// Calls whose result carries the page they leave the browser on, as a full
+// browser_snapshot shows it. Reading the page from the result saves the model
+// a round trip per browser step (~5.5 s each in the 2026-10-01 turn audit).
+const BROWSER_PAGE_RESULT_TOOLS = new Set([
+  'browser_navigate',
+  'browser_click',
+]);
+
+async function addPageSnapshot(
+  result: Record<string, unknown>,
+  args: Record<string, unknown>,
+  sessionId: string,
+): Promise<string> {
+  const page = asRecord(
+    safeJsonParse(
+      await runBrowserTool(
+        'browser_snapshot',
+        {
+          mode: 'full',
+          // The action itself already looked for a 2FA challenge.
+          disable_2fa_detection: true,
+          ...(args.frame ? { frame: args.frame } : {}),
+        },
+        sessionId,
+      ),
+    ),
+  );
+  if (page?.success !== true) {
+    return success({ ...result, snapshot_error: page?.error });
+  }
+  const { success: _success, mode: _mode, ...fields } = page;
+  return success({ ...result, ...fields, url: fields.url || result.url });
+}
+
 export async function executeBrowserTool(
   name: string,
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<string> {
-  const output = await runBrowserTool(name, args, sessionId);
+  let output = await runBrowserTool(name, args, sessionId);
+  const result = asRecord(safeJsonParse(output));
+  const sessionKey = normalizeSessionKey(sessionId || 'default');
   if (
-    BROWSER_FRAME_TOOLS.has(name) &&
-    asRecord(safeJsonParse(output))?.success === true
+    BROWSER_PAGE_RESULT_TOOLS.has(name) &&
+    result?.success === true &&
+    args.waitForDownload !== true &&
+    // A page parked for 2FA waits for browser_await_two_factor instead.
+    !suspendedSessionByBrowserSession.has(sessionKey)
   ) {
+    output = await addPageSnapshot(result, args, sessionId);
+  }
+  if (BROWSER_FRAME_TOOLS.has(name) && result?.success === true) {
     if (!shouldUseGatewayManagedBrowser(name)) {
-      await observeBrowserPage(normalizeSessionKey(sessionId || 'default'));
+      await observeBrowserPage(sessionKey);
     } else if (gatewayBrowserProvider === 'mac-cua') {
       await observeGatewayBrowserPage();
     }
@@ -2792,29 +2810,6 @@ async function runBrowserTool(
         const data = (result.data || {}) as Record<string, unknown>;
         const title = String(data.title || '');
         const botWarning = buildBotDetectionWarning(title);
-        const textEval = await runBrowserEval(
-          effectiveSessionId,
-          EXTRACT_TEXT_PREVIEW_SCRIPT,
-          20_000,
-        );
-        const textData = textEval.success ? asRecord(textEval.result) : null;
-        const contentPreview =
-          typeof textData?.preview === 'string' ? textData.preview : '';
-        const contentLength =
-          typeof textData?.text_length === 'number' &&
-          Number.isFinite(textData.text_length)
-            ? Math.max(0, Math.floor(textData.text_length))
-            : 0;
-        const contentPreviewTruncated = textData?.preview_truncated === true;
-        const hasNoscript = textData?.has_noscript === true;
-        const rootShell = textData?.root_shell === true;
-        const readyState =
-          typeof textData?.ready_state === 'string' ? textData.ready_state : '';
-        const extractionHint = buildReadExtractionHint({
-          contentLength,
-          hasNoscript,
-          rootShell,
-        });
         // Best-effort priming so browser_network has request listeners active quickly.
         await runAgentBrowser(effectiveSessionId, 'network', [
           'requests',
@@ -2824,15 +2819,6 @@ async function runBrowserTool(
             url: data.url || parsed.toString(),
             title,
             session_id: effectiveSessionId,
-            content_text_length: contentLength,
-            ...(contentPreview ? { content_preview: contentPreview } : {}),
-            ...(contentPreview
-              ? { content_preview_truncated: contentPreviewTruncated }
-              : {}),
-            ...(readyState ? { ready_state: readyState } : {}),
-            ...(hasNoscript ? { has_noscript: true } : {}),
-            ...(rootShell ? { root_shell: true } : {}),
-            read_extraction_hint: extractionHint,
             headed: getSession(effectiveSessionId).headed,
             ...(botWarning ? { bot_detection_warning: botWarning } : {}),
           }),
@@ -3780,7 +3766,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. If the user asks for a visible/headed/headful browser window, pass headed=true; the setting persists for the browser session and may require a local display. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
+        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. If the user asks for a visible/headed/headful browser window, pass headed=true; the setting persists for the browser session and may require a local display. Returns the loaded page as a full browser_snapshot (its text plus element refs for browser_click/browser_type), so read it from the result instead of calling browser_snapshot. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
       parameters: {
         type: 'object',
         properties: {
@@ -3813,7 +3799,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_snapshot',
       description:
-        'Return an accessibility-tree snapshot of the current page with element refs usable by browser_click/browser_type. Use this to actually read page content after browser_navigate; for extraction tasks prefer mode="full" and repeat after browser_scroll on long/lazy-loaded pages.',
+        'Return an accessibility-tree snapshot of the current page with element refs usable by browser_click/browser_type. browser_navigate and browser_click already return one. Call this after browser_scroll, browser_type or browser_press, for an iframe, or with mode="interactive" when the page was cut off before the controls you need.',
       parameters: {
         type: 'object',
         properties: {
@@ -3853,7 +3839,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture auto-enters an iframe when the coordinate hits one, then restores the main frame.',
+        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture auto-enters an iframe when the coordinate hits one, then restores the main frame. Returns the page after the click as a full browser_snapshot, so read it from the result instead of calling browser_snapshot (not for downloads).',
       parameters: {
         type: 'object',
         properties: {

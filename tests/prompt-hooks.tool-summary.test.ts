@@ -802,7 +802,7 @@ test('the mobile client prompt leaves out coding, document-building and browser 
     'For relative one-shot reminders, prefer `cron` with `at_seconds`',
     'Use browser tools only when',
     '`browser_sign_in`',
-    'call `browser_snapshot` with `mode="full"`',
+    '`browser_navigate` and `browser_click` return the page',
     'Delegation limits:',
   ];
   for (const text of kept) {

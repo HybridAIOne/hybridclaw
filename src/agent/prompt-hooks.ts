@@ -648,7 +648,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
     ...byClient(mobile, HEADED_BROWSER_LINES),
-    'Browser extraction flow (for read/summarize requests): after `browser_navigate`, call `browser_snapshot` with `mode="full"` before deciding content is unavailable.',
+    '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',
     ...byClient(mobile, BROWSER_DETAIL_LINES),
     '',
     '## Browser Auth Handling',
