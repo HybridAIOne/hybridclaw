@@ -241,6 +241,11 @@ sheet saves the sign-in with `POST /api/sign-ins` and Hy carries on.
 - `hybridclaw secret unset SIGNIN_<HOST>_PASSWORD` also removes one from a
   shell; `secret list` shows the names
 
+Devices paired before website sign-ins were introduced retain their existing
+token scopes. Pair again to obtain `sign_ins.manage` if the app cannot save a
+sign-in. Update the gateway and agent image together to provide both the
+sign-in API and `browser_sign_in` tool.
+
 ## Google OAuth For Direct Google APIs
 
 Use the `google-oauth` route provider when an agent should call Google APIs

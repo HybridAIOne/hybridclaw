@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## [0.34.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.1) - 2026-10-01
+
+### Added
+
+- **Website sign-ins**: `browser_sign_in` fills saved usernames and passwords
+  without exposing them to the model. The app can request and save a sign-in
+  through the gateway's encrypted store; credentials resolve only for their
+  exact bound host. Paired devices receive the `sign_ins.manage` scope.
+- **Your preferred name**: `/name` shows, sets, or clears what the agent calls
+  you, including a JSON response for companion app settings.
+- **Tool status in chat**: Streaming clients can send `toolStatus: true` to
+  show a short status line before each tool call, keeping the final answer
+  separate from progress text.
+
+### Changed
+
+- **Fewer model round trips**: Opening a page or clicking returns the resulting
+  page snapshot. Independent read-only lookups are requested together.
+- **Smaller mobile prompts**: Compact skill listings and focused instructions
+  reduce phone chat overhead. Mobile turns identify their client in provider
+  traces and explain where to find connected services and shared phone data.
+- **Faster image builds**: Gateway and agent JavaScript compile on the build
+  platform rather than under emulation.
+- **Dependency maintenance**: Update Vite to 8.3.1, Hono to 4.13.9, and Appium
+  logger to 2.0.12 with npm's seven-day minimum release age enforced. Keep
+  agent-browser at 0.27.0 because later patches require Node 24.
+
+### Fixed
+
+- **Phone data after resets**: Shared calendar, reminders, health, and contacts
+  remain available when a chat continues in a newer session instance.
+- **Faster mobile model calls**: Phone chats skip HybridAI document retrieval
+  before model calls, including subsequent tool steps.
+- **Scoped command permissions**: Device tokens and scoped web sessions need
+  the matching admin permissions to run local-only commands that access
+  secrets, environment variables, configuration, or memory.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for website sign-ins and browser
+  action snapshots. Pair existing devices again to obtain `sign_ins.manage`;
+  token scopes are not expanded automatically.
+- Scoped integrations using local-only slash commands must hold the matching
+  admin action. See [Admin Access Control](docs/content/developer-guide/admin-access-control.md#local-only-slash-commands).
+
 ## [0.34.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.0) - 2026-10-01
 
 ### Added

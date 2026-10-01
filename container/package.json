@@ -1,6 +1,6 @@
 {
   "name": "hybridclaw-agent",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -42,10 +42,10 @@
   },
   "overrides": {
     "@hono/node-server": "2.1.1",
-    "hono": "4.13.8",
+    "hono": "4.13.9",
     "fast-uri": "3.1.8",
     "fast-xml-parser": "5.11.1",
-    "@appium/logger": "2.0.11",
+    "@appium/logger": "2.0.12",
     "lodash": "4.18.1",
     "shell-quote": "1.10.0",
     "webdriver": {

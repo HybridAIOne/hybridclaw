@@ -198,7 +198,7 @@ texts ship inside the respective packages.
 | balanced-match | 4.0.4 | MIT |
 | base64-js | 1.5.1 | MIT |
 | base64url | 3.0.1 | MIT |
-| baseline-browser-mapping | 2.11.25 | Apache-2.0 |
+| baseline-browser-mapping | 2.11.26 | Apache-2.0 |
 | better-sqlite3 | 12.11.1 | MIT |
 | better-sqlite3 | 13.0.3 | MIT |
 | bindings | 1.5.0 | MIT |
@@ -214,7 +214,7 @@ texts ship inside the respective packages.
 | botframework-schema | 4.23.3 | MIT |
 | botframework-streaming | 4.23.3 | MIT |
 | brace-expansion | 5.0.12 | MIT |
-| browserslist | 4.29.0 | MIT |
+| browserslist | 4.29.1 | MIT |
 | buffer | 5.7.1 | MIT |
 | buffer | 6.0.3 | MIT |
 | buffer-crc32 | 1.0.0 | MIT |
@@ -225,7 +225,7 @@ texts ship inside the respective packages.
 | call-bound | 1.0.4 | MIT |
 | callsites | 3.1.0 | MIT |
 | camoufox-js | 0.11.5 | MPL-2.0 |
-| caniuse-lite | 1.0.30001810 | CC-BY-4.0 |
+| caniuse-lite | 1.0.30001812 | CC-BY-4.0 |
 | cfb | 1.2.2 | Apache-2.0 |
 | chownr | 1.1.4 | ISC |
 | cjs-module-lexer | 2.2.1 | MIT |
@@ -339,7 +339,7 @@ texts ship inside the respective packages.
 | header-generator | 2.1.88 | Apache-2.0 |
 | help-me | 5.0.0 | MIT |
 | highlight.js | 11.12.0 | BSD-3-Clause |
-| hono | 4.13.8 | MIT |
+| hono | 4.13.9 | MIT |
 | html-escaper | 3.0.3 | MIT |
 | html-to-text | 10.0.1 | MIT |
 | htmlparser2 | 10.1.0 | MIT |
@@ -687,7 +687,7 @@ texts ship inside the respective packages.
 | gopd | 1.2.0 | MIT |
 | has-symbols | 1.1.0 | MIT |
 | hasown | 2.0.4 | MIT |
-| hono | 4.13.8 | MIT |
+| hono | 4.13.9 | MIT |
 | html-escaper | 3.0.3 | MIT |
 | htmlparser2 | 10.1.0 | MIT |
 | http-errors | 2.0.1 | MIT |
@@ -2729,7 +2729,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Text 17 of 305
 
-Applies to: @opentelemetry/api@1.9.1, @opentelemetry/api-logs@0.220.0, @opentelemetry/api-logs@0.221.0, @opentelemetry/configuration@0.221.0, @opentelemetry/context-async-hooks@2.10.0, @opentelemetry/core@2.10.0, @opentelemetry/core@2.11.0, @opentelemetry/exporter-logs-otlp-grpc@0.221.0, @opentelemetry/exporter-logs-otlp-http@0.221.0, @opentelemetry/exporter-logs-otlp-proto@0.221.0, @opentelemetry/exporter-metrics-otlp-grpc@0.221.0, @opentelemetry/exporter-metrics-otlp-http@0.221.0, @opentelemetry/exporter-metrics-otlp-proto@0.221.0, @opentelemetry/exporter-prometheus@0.221.0, @opentelemetry/exporter-trace-otlp-grpc@0.221.0, @opentelemetry/exporter-trace-otlp-http@0.221.0, @opentelemetry/exporter-trace-otlp-proto@0.221.0, @opentelemetry/exporter-zipkin@2.10.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/instrumentation@0.221.0, @opentelemetry/otlp-exporter-base@0.221.0, @opentelemetry/otlp-grpc-exporter-base@0.221.0, @opentelemetry/otlp-transformer@0.221.0, @opentelemetry/propagator-b3@2.10.0, @opentelemetry/propagator-jaeger@2.10.0, @opentelemetry/resources@2.10.0, @opentelemetry/resources@2.11.0, @opentelemetry/sdk-logs@0.221.0, @opentelemetry/sdk-metrics@2.10.0, @opentelemetry/sdk-node@0.221.0, @opentelemetry/sdk-trace@2.10.0, @opentelemetry/sdk-trace-base@2.10.0, @opentelemetry/sdk-trace-node@2.10.0, @opentelemetry/semantic-conventions@1.43.0, baseline-browser-mapping@2.11.25, long@5.3.2
+Applies to: @opentelemetry/api@1.9.1, @opentelemetry/api-logs@0.220.0, @opentelemetry/api-logs@0.221.0, @opentelemetry/configuration@0.221.0, @opentelemetry/context-async-hooks@2.10.0, @opentelemetry/core@2.10.0, @opentelemetry/core@2.11.0, @opentelemetry/exporter-logs-otlp-grpc@0.221.0, @opentelemetry/exporter-logs-otlp-http@0.221.0, @opentelemetry/exporter-logs-otlp-proto@0.221.0, @opentelemetry/exporter-metrics-otlp-grpc@0.221.0, @opentelemetry/exporter-metrics-otlp-http@0.221.0, @opentelemetry/exporter-metrics-otlp-proto@0.221.0, @opentelemetry/exporter-prometheus@0.221.0, @opentelemetry/exporter-trace-otlp-grpc@0.221.0, @opentelemetry/exporter-trace-otlp-http@0.221.0, @opentelemetry/exporter-trace-otlp-proto@0.221.0, @opentelemetry/exporter-zipkin@2.10.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/instrumentation@0.221.0, @opentelemetry/otlp-exporter-base@0.221.0, @opentelemetry/otlp-grpc-exporter-base@0.221.0, @opentelemetry/otlp-transformer@0.221.0, @opentelemetry/propagator-b3@2.10.0, @opentelemetry/propagator-jaeger@2.10.0, @opentelemetry/resources@2.10.0, @opentelemetry/resources@2.11.0, @opentelemetry/sdk-logs@0.221.0, @opentelemetry/sdk-metrics@2.10.0, @opentelemetry/sdk-node@0.221.0, @opentelemetry/sdk-trace@2.10.0, @opentelemetry/sdk-trace-base@2.10.0, @opentelemetry/sdk-trace-node@2.10.0, @opentelemetry/semantic-conventions@1.43.0, baseline-browser-mapping@2.11.26, long@5.3.2
 
 ````text
 Apache License
@@ -4757,7 +4757,7 @@ SOFTWARE.
 
 ### Text 65 of 305
 
-Applies to: browserslist@4.29.0
+Applies to: browserslist@4.29.1
 
 ````text
 The MIT License (MIT)
@@ -5295,7 +5295,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ### Text 72 of 305
 
-Applies to: caniuse-lite@1.0.30001810
+Applies to: caniuse-lite@1.0.30001812
 
 ````text
 Attribution 4.0 International
@@ -8425,7 +8425,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Text 153 of 305
 
-Applies to: hono@4.13.8
+Applies to: hono@4.13.9
 
 ````text
 MIT License

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.0',
+  version: '0.34.1',
   highlights: [
-    'Todos, habits, goals, and check-ins',
-    'Phone calls, uploads, and shared data',
-    'Live browser frames and checkout approvals',
-    'Faster replies and continuous mobile chats',
+    'Website sign-ins with protected credentials',
+    'Faster browsing and mobile replies',
+    'Set your name with /name',
+    'Shared phone data survives chat resets',
   ],
 } as const;
 
