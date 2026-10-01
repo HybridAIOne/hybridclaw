@@ -13369,6 +13369,46 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  test('forwards the mobile client marker and drops unknown clients', async () => {
+    const state = await importFreshHealth();
+    const mobileReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'hi from the phone', client: 'mobile' },
+    });
+    state.handler(mobileReq as never, makeResponse() as never);
+    await settle();
+    expect(state.handleGatewayMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ channelId: 'web', client: 'mobile' }),
+    );
+
+    const unknownReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { content: 'hi', client: 'watch' },
+    });
+    state.handler(unknownReq as never, makeResponse() as never);
+    await settle();
+    expect(state.handleGatewayMessage).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ client: expect.anything() }),
+    );
+  });
+
+  test('passes the mobile client marker on to slash commands', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat',
+      body: { sessionId: 'session-phone', content: '/status', client: 'mobile' },
+    });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['status'], client: 'mobile' }),
+    );
+  });
+
   test('rejects an invalid reasoning effort at the HTTP boundary', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({

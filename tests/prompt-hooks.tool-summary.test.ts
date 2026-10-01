@@ -726,3 +726,83 @@ test.each([
     configSpy.mockRestore();
   }
 });
+
+test('buildSystemPromptFromHooks trims channel and browser guidance for the mobile client only', () => {
+  const web = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: { channelType: 'web', channelId: 'web', guildId: null },
+  });
+  expect(web).toContain('Guild ID: dm');
+  expect(web).toContain('Browser notifications require the user');
+  expect(web).not.toContain('## Client');
+
+  const mobile = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    runtimeInfo: {
+      channelType: 'web',
+      channelId: 'web',
+      guildId: null,
+      client: 'mobile',
+    },
+  });
+  expect(mobile).not.toContain('Guild ID:');
+  expect(mobile).not.toContain('Browser notifications');
+  expect(mobile).toContain(
+    'Scheduled task output is saved in the originating chat',
+  );
+  expect(mobile).toContain('## Client');
+  expect(mobile).toContain('share only absolute https URLs');
+});
+
+test('the mobile client prompt lists fewer skills and points to skills_list for the rest', () => {
+  const skills = [
+    makeSkill(),
+    makeSkill({ name: 'discord', category: 'communication' }),
+    makeSkill({ name: 'hetzner-cloud', category: 'infrastructure' }),
+    makeSkill({ name: 'salesforce', category: 'development' }),
+    makeSkill({ name: 'gh-issues', category: 'development' }),
+    makeSkill({ name: 'zabbix', category: 'production-ops', always: true }),
+  ];
+  const context = {
+    agentId: 'test-agent',
+    skills,
+    skillPromptMode: 'compact' as const,
+    includePromptParts: ['skills' as const],
+  };
+
+  const web = buildSystemPromptFromHooks(context);
+  for (const name of ['pdf', 'discord', 'hetzner-cloud', 'gh-issues']) {
+    expect(web).toContain(`<name>${name}</name>`);
+  }
+  expect(web).not.toContain('Additional skills:');
+
+  const mobile = buildSystemPromptFromHooks({
+    ...context,
+    runtimeInfo: { client: 'mobile' },
+  });
+  expect(mobile).toContain('<name>pdf</name>');
+  expect(mobile).toContain('<name>salesforce</name>');
+  expect(mobile).toContain('<name>zabbix</name>');
+  expect(mobile).not.toContain('<name>discord</name>');
+  expect(mobile).not.toContain('<name>hetzner-cloud</name>');
+  expect(mobile).not.toContain('<name>gh-issues</name>');
+  expect(mobile).toContain('Additional skills:');
+});
+
+test('web retrieval routing names the search tool the instance offers', () => {
+  const local = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [] });
+  expect(local).toContain('Decision rule: use `web_search` to discover');
+  expect(local).not.toContain('hybridai__web_search');
+
+  const hosted = buildSystemPromptFromHooks({
+    agentId: 'test-agent',
+    skills: [],
+    blockedTools: ['web_search'],
+  });
+  expect(hosted).toContain(
+    'Decision rule: use `hybridai__web_search` to discover',
+  );
+  expect(hosted).not.toContain('use `web_search`');
+});

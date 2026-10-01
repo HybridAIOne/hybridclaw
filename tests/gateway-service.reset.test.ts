@@ -305,6 +305,42 @@ test('reset yes clears history, resets session defaults, and removes the workspa
   expect(session?.show_mode).toBe('all');
 });
 
+test('a mobile chat keeps its session past the daily and idle reset', async () => {
+  const fixture = await seedSessionFixture();
+  updateLastActive(
+    fixture.dbPath,
+    fixture.sessionId,
+    new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(),
+  );
+
+  const result = await fixture.handleGatewayCommand({
+    sessionId: fixture.sessionId,
+    guildId: null,
+    channelId: 'web',
+    client: 'mobile',
+    args: ['help'],
+  });
+
+  expect(result.sessionId).toBe(fixture.sessionId);
+  expect(
+    fixture.memoryService.getConversationHistory(fixture.sessionId, 10),
+  ).toHaveLength(2);
+});
+
+test('only the mobile client turns off the automatic reset', async () => {
+  await seedSessionFixture();
+  const { resolveSessionAutoResetPolicy } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  expect(resolveSessionAutoResetPolicy('web')).toMatchObject({
+    mode: 'both',
+  });
+  expect(resolveSessionAutoResetPolicy('web', 'mobile')).toMatchObject({
+    mode: 'none',
+  });
+});
+
 test('a command to a superseded session id runs in the current instance', async () => {
   const fixture = await seedSessionFixture();
   const { createFreshSessionInstance, listSessionInstancesForKey } =

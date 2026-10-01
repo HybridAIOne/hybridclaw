@@ -661,7 +661,10 @@ async function handleGatewayMessageInner(
     ? await pluginManager.getMemoryLayerBehavior()
     : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
-  const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  const sessionResetPolicy = resolveSessionAutoResetPolicy(
+    req.channelId,
+    req.client,
+  );
   if (req.sessionMode !== 'resume') {
     req.sessionId = resolveTurnSessionId(req.sessionId, sessionResetPolicy);
   }
@@ -1867,6 +1870,7 @@ async function handleGatewayMessageInner(
         .join('\n\n') || undefined,
     runtimeInfo: {
       chatbotId,
+      ...(req.client ? { client: req.client } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,

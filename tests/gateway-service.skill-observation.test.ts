@@ -50,8 +50,8 @@ test('handleGatewayMessage records observations for implicitly activated single-
       {
         name: 'bash',
         arguments:
-          '{"cmd":"bash skills/apple-music/scripts/search.sh \\"... But Seriously by Phil Collins\\""}',
-        result: 'resolved the wrong album',
+          '{"cmd":"python3 skills/iss-position/scripts/get_iss_position.py"}',
+        result: 'position service unavailable',
         durationMs: 24,
         isError: true,
       },
@@ -70,18 +70,18 @@ test('handleGatewayMessage records observations for implicitly activated single-
       estimatedTotalTokens: 14,
       costUsd: 0.00042,
     },
-    error: 'resolved the wrong album',
+    error: 'position service unavailable',
   });
 
   let result!: Awaited<ReturnType<typeof handleGatewayMessage>>;
   try {
     result = await handleGatewayMessage({
-      sessionId: 'session-implicit-apple-music',
+      sessionId: 'session-implicit-iss-position',
       guildId: null,
       channelId: 'web',
       userId: 'user-1',
       username: 'alice',
-      content: 'Play ... But Seriously by Phil Collins',
+      content: 'Where is the ISS right now?',
       model: 'test-model',
       chatbotId: 'bot-1',
       agentId: 'agent-alice',
@@ -91,9 +91,9 @@ test('handleGatewayMessage records observations for implicitly activated single-
   }
 
   expect(result.status).toBe('error');
-  expect(getSkillObservationSummary({ skillName: 'apple-music' })).toEqual([
+  expect(getSkillObservationSummary({ skillName: 'iss-position' })).toEqual([
     expect.objectContaining({
-      skill_name: 'apple-music',
+      skill_name: 'iss-position',
       total_executions: 1,
       failure_count: 1,
       tool_calls_attempted: 1,
@@ -103,13 +103,13 @@ test('handleGatewayMessage records observations for implicitly activated single-
   expect(receivedEvents).toEqual([
     expect.objectContaining({
       type: 'skill_run',
-      skill_id: 'apple-music',
+      skill_id: 'iss-position',
       agent_id: 'agent-alice',
-      session_id: 'session-implicit-apple-music',
+      session_id: 'session-implicit-iss-position',
       model: 'test-model',
       latency_ms: expect.any(Number),
       cost_usd: 0.00042,
-      errors: ['resolved the wrong album'],
+      errors: ['position service unavailable'],
       tokens: expect.objectContaining({
         prompt: 12,
         completion: 5,
@@ -118,7 +118,7 @@ test('handleGatewayMessage records observations for implicitly activated single-
         apiUsageAvailable: true,
       }),
       input: {
-        content: expect.stringContaining('Phil Collins'),
+        content: expect.stringContaining('ISS'),
         truncated: false,
       },
       output: {
@@ -154,7 +154,7 @@ test('handleGatewayMessage does not attribute ambiguous read-only skill explorat
     toolExecutions: [
       {
         name: 'read',
-        arguments: '{"path":"skills/apple-music/SKILL.md"}',
+        arguments: '{"path":"skills/iss-position/SKILL.md"}',
         result: 'ok',
         durationMs: 4,
       },
@@ -173,13 +173,13 @@ test('handleGatewayMessage does not attribute ambiguous read-only skill explorat
     channelId: 'web',
     userId: 'user-1',
     username: 'alice',
-    content: 'Help with a file and some music.',
+    content: 'Help with a file and the ISS.',
     model: 'test-model',
     chatbotId: 'bot-1',
   });
 
   expect(result.status).toBe('success');
-  expect(getSkillObservationSummary({ skillName: 'apple-music' })).toEqual([]);
+  expect(getSkillObservationSummary({ skillName: 'iss-position' })).toEqual([]);
   expect(getSkillObservationSummary({ skillName: 'pdf' })).toEqual([]);
 });
 
