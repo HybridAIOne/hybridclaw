@@ -48,6 +48,7 @@ import {
   parseInstallSpecList,
   type SkillInstallSpec,
 } from './skills-install-spec.js';
+import { buildDirectoryContentSignature } from './skills-sync-cache.js';
 
 export type {
   SkillManifestConfigVariable,
@@ -1065,45 +1066,6 @@ function buildSharedSkillsRootDirNames(
   }
 
   return dirNames;
-}
-
-function buildDirectoryContentSignature(rootDir: string): string {
-  const resolvedRoot = path.resolve(rootDir);
-  const entries: string[] = [];
-  const stack = [resolvedRoot];
-
-  while (stack.length > 0) {
-    const currentDir = stack.pop();
-    if (!currentDir) continue;
-
-    const dirEntries = fs
-      .readdirSync(currentDir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const entry of dirEntries) {
-      if (!isSkillContentEntry(entry.name)) continue;
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-
-      const relPath = path
-        .relative(resolvedRoot, fullPath)
-        .split(path.sep)
-        .join('/');
-      // lgtm[js/insufficient-password-hash] This is a content-change
-      // fingerprint, not password storage or credential derivation.
-      const contentHash = createHash('sha256')
-        .update(fs.readFileSync(fullPath))
-        .digest('hex');
-      entries.push(`${relPath}:${contentHash}`);
-    }
-  }
-
-  // lgtm[js/insufficient-password-hash] This aggregates content
-  // fingerprints and is not a credential verifier.
-  return createHash('sha256').update(entries.join('\n')).digest('hex');
 }
 
 function resolveSyncedSkillTarget(
