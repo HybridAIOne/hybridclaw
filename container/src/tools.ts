@@ -37,9 +37,13 @@ import {
   runBash,
   setPersistentBashStateEnabled as setBashSessionStateEnabled,
 } from './bash-session.js';
-import { pauseBrowserFramesUntilNavigation } from './browser-checkout.js';
+import {
+  currentBrowserPage,
+  pauseBrowserFramesUntilNavigation,
+} from './browser-checkout.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
+  emitBrowserSignInRequest,
   executeBrowserTool,
   setBrowserGatewayContext,
   setBrowserModelContext,
@@ -1137,6 +1141,12 @@ function resolveGatewaySecretInjectUrl(): string | null {
   return `${base}/api/secret/inject`;
 }
 
+function resolveGatewayBrowserSignInUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/browser/sign-in`;
+}
+
 async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
@@ -1625,7 +1635,11 @@ async function callGatewaySecretInject(
   return new ContainerSecretHandle(value);
 }
 
-async function resolveCurrentBrowserHost(): Promise<string> {
+async function resolveCurrentBrowserPage(): Promise<{
+  url: string;
+  title: string;
+  host: string;
+}> {
   try {
     const snapshot = await executeBrowserTool(
       'browser_snapshot',
@@ -1637,11 +1651,18 @@ async function resolveCurrentBrowserHost(): Promise<string> {
       throw new Error('browser session parked for 2FA');
     }
     const url = typeof structured?.url === 'string' ? structured.url : '';
-    if (!url) return '';
-    return new URL(url).hostname;
+    if (!url) return { url: '', title: '', host: '' };
+    // A snapshot has no title; the last page the browser recorded does.
+    const page = currentBrowserPage();
+    const title = page.url === url ? page.title : '';
+    return { url, title, host: new URL(url).hostname };
   } catch {
-    return '';
+    return { url: '', title: '', host: '' };
   }
+}
+
+async function resolveCurrentBrowserHost(): Promise<string> {
+  return (await resolveCurrentBrowserPage()).host;
 }
 
 async function executeBrowserSecretType(
@@ -1670,6 +1691,158 @@ async function executeBrowserSecretType(
     ...(selector ? { selector } : { ref }),
     ...(typeof args.frame === 'string' ? { frame: args.frame } : {}),
   });
+}
+
+type SavedBrowserSignIn = {
+  usernameSecret?: string;
+  passwordSecret: string;
+};
+
+/** Which store names hold the host's sign-in; never the values. */
+async function lookupBrowserSignIn(
+  host: string,
+): Promise<SavedBrowserSignIn | null> {
+  const url = resolveGatewayBrowserSignInUrl();
+  if (!url) {
+    return failTool(
+      'Error: browser_sign_in is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ host }),
+    });
+    const rawText = await response.text();
+    parsed = parseStructuredToolOutput(rawText);
+    if (!response.ok) {
+      throw new Error(
+        typeof parsed?.error === 'string'
+          ? parsed.error
+          : rawText || `HTTP ${response.status}`,
+      );
+    }
+  } catch (err) {
+    return failTool(
+      `Error: sign-in lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (parsed?.saved !== true || typeof parsed.passwordSecret !== 'string') {
+    return null;
+  }
+  return {
+    ...(typeof parsed.usernameSecret === 'string'
+      ? { usernameSecret: parsed.usernameSecret }
+      : {}),
+    passwordSecret: parsed.passwordSecret,
+  };
+}
+
+function signInField(
+  rawRef: unknown,
+  rawSelector: unknown,
+): { ref?: string; selector?: string } | null {
+  const selector = String(rawSelector || '').trim();
+  if (selector) return { selector };
+  const ref = String(rawRef || '').trim();
+  return ref ? { ref } : null;
+}
+
+async function typeSavedSecret(
+  secretName: string,
+  locator: { ref?: string; selector?: string },
+  frame: unknown,
+): Promise<void> {
+  const args = {
+    ...locator,
+    secretName,
+    ...(typeof frame === 'string' ? { frame } : {}),
+  };
+  const output = usesGatewayManagedBrowser()
+    ? await executeBrowserTool(
+        'browser_secret_type',
+        args,
+        currentSessionId || 'default',
+      )
+    : await executeBrowserSecretType(args);
+  if (parseStructuredToolOutput(output)?.success === false) failTool(output);
+}
+
+/**
+ * Fill the sign-in the user saved for the page's site, or ask them for one.
+ * The ask is a `signIn` frame line (`emitBrowserSignInRequest`): the Hy app
+ * turns it into a Sign in card that saves to `/api/sign-ins`.
+ */
+async function executeBrowserSignIn(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const page = await resolveCurrentBrowserPage();
+  if (!page.host) {
+    return failTool(
+      'Error: browser_sign_in needs an open page on the site to sign in to.',
+    );
+  }
+  const replace = args.replace === true;
+  const signIn = replace ? null : await lookupBrowserSignIn(page.host);
+  if (!signIn) {
+    emitBrowserSignInRequest(page, page.host);
+    return JSON.stringify(
+      {
+        success: true,
+        host: page.host,
+        sign_in_requested: true,
+        next: `No ${replace ? 'working ' : ''}sign-in is saved for ${page.host}. The Hy app now shows the user a Sign in card for ${page.host}, which saves it without you seeing it. Stop here and tell the user in one short sentence that you need their sign-in for ${page.host} to continue. Never ask for a username, password or code in chat. When the user says it is saved, call browser_sign_in again.`,
+      },
+      null,
+      2,
+    );
+  }
+  // Element refs and selectors, never values.
+  const {
+    username_ref: userRef,
+    username_selector: userSelector,
+    password_ref: passRef,
+    password_selector: passSelector,
+  } = args;
+  const userField = signInField(userRef, userSelector);
+  const passField = signInField(passRef, passSelector);
+  if (!userField && !passField) {
+    return failTool(
+      'Error: name the field to fill with username_ref or password_ref (or a selector).',
+    );
+  }
+  if (userField && !signIn.usernameSecret) {
+    return failTool(
+      `Error: only a password is saved for ${page.host}. Call browser_sign_in with replace: true to ask the user for the whole sign-in.`,
+    );
+  }
+  const filled: string[] = [];
+  if (userField && signIn.usernameSecret) {
+    await typeSavedSecret(signIn.usernameSecret, userField, args.frame);
+    filled.push('username');
+  }
+  if (passField) {
+    await typeSavedSecret(signIn.passwordSecret, passField, args.frame);
+    filled.push('password');
+  }
+  return JSON.stringify(
+    {
+      success: true,
+      host: page.host,
+      filled,
+      next: 'Submit the form, for example with its sign-in button. If the site says the sign-in is wrong, call browser_sign_in with replace: true.',
+    },
+    null,
+    2,
+  );
 }
 
 async function injectIntoElement(
@@ -3810,6 +3983,7 @@ async function executeToolInternal(
     case 'browser_click':
     case 'browser_type':
     case 'browser_secret_type':
+    case 'browser_sign_in':
     case 'browser_upload':
     case 'browser_press':
     case 'browser_scroll':
@@ -3822,9 +3996,15 @@ async function executeToolInternal(
     case 'browser_network':
     case 'browser_close': {
       const output =
-        name === 'browser_secret_type' && !usesGatewayManagedBrowser()
-          ? await executeBrowserSecretType(args)
-          : await executeBrowserTool(name, args, currentSessionId || 'default');
+        name === 'browser_sign_in'
+          ? await executeBrowserSignIn(args)
+          : name === 'browser_secret_type' && !usesGatewayManagedBrowser()
+            ? await executeBrowserSecretType(args)
+            : await executeBrowserTool(
+                name,
+                args,
+                currentSessionId || 'default',
+              );
       const structured = parseStructuredToolOutput(output);
       if (structured?.success === false) {
         return failTool(output);

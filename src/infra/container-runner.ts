@@ -705,6 +705,7 @@ export function stashBrowserFrameLine(
     url: redactCredentialSecrets(frame.url),
     title: redactCredentialSecrets(frame.title),
     ...(hostPath ? { frame: hostPath } : {}),
+    ...(frame.signIn ? { signIn: frame.signIn } : {}),
   };
   return true;
 }

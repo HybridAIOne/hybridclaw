@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { browserSignInHostProblem } from '../security/browser-sign-ins.js';
 import {
   isRuntimeSecretName,
   readStoredRuntimeSecret,
@@ -57,6 +58,9 @@ export function assertSecretResolveAllowed(params: {
       `Stored secret ${params.secretId} is not set.`,
     );
   }
+  // A website sign-in only ever reaches its own site; no policy rule widens it.
+  const signInProblem = browserSignInHostProblem(params.secretId, params.host);
+  if (signInProblem) throw new GatewayRequestError(403, signInProblem);
 
   const agentId = resolveSecretAgentId(params);
   const workspacePath = agentWorkspaceDir(agentId);

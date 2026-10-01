@@ -69,6 +69,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_click',
   'browser_type',
   'browser_secret_type',
+  'browser_sign_in',
   'browser_press',
   'browser_scroll',
   'browser_back',

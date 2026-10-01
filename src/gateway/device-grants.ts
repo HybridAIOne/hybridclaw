@@ -44,11 +44,15 @@ export const DEVICE_VERIFICATION_PATH = '/admin/credentials';
 // 2026-10-01: the phone also calls the agent (`/api/chat/voice/token` under
 // `voice.session`). A call is chatting by voice: its spoken requests run as
 // ordinary chat turns, so it grants nothing `chat.send` does not.
+// 2026-10-01 (product owner): the phone saves the website sign-ins the agent's
+// browser asks for (`sign_ins.manage`). It writes them and lists their sites;
+// nothing reads a username or password back.
 export const DEVICE_TOKEN_ACTIONS = [
   'chat.send',
   'agents.read',
   'artifacts.read',
   'voice.session',
+  'sign_ins.manage',
 ] as const satisfies readonly AdminRbacAction[];
 
 // 2026-10-01 (product owner): the owner's own phone talks to the gateway

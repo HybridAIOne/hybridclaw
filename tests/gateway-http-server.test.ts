@@ -14664,6 +14664,159 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('saves a website sign-in from the phone and types it only on its own site', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-sign-ins-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      webApiToken: 'web-token',
+      gatewayApiToken: 'gateway-token',
+      apiTokens: {
+        hck_phone: {
+          id: 'phonetok00001',
+          label: 'Device: Hy for iPhone',
+          claims: { actions: ['chat.send', 'sign_ins.manage'] },
+        },
+        hck_chat_only: {
+          id: 'chattok000001',
+          label: 'chat',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    const send = async (params: {
+      method: string;
+      url: string;
+      token: string;
+      body?: unknown;
+    }) => {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({
+          method: params.method,
+          url: params.url,
+          noAuth: true,
+          headers: { authorization: `Bearer ${params.token}` },
+          ...(params.body === undefined ? {} : { body: params.body }),
+        }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res;
+    };
+    const signIn = {
+      host: 'HybridAI.one',
+      username: 'ben@example.com',
+      password: 'pw-cleartext-secret',
+    };
+
+    const refused = await send({
+      method: 'POST',
+      url: '/api/sign-ins',
+      token: 'hck_chat_only',
+      body: signIn,
+    });
+    expect(refused.statusCode).toBe(403);
+
+    const saved = await send({
+      method: 'POST',
+      url: '/api/sign-ins',
+      token: 'hck_phone',
+      body: signIn,
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(JSON.parse(saved.body)).toEqual({
+      host: 'hybridai.one',
+      username: true,
+    });
+
+    const listed = await send({
+      method: 'GET',
+      url: '/api/sign-ins',
+      token: 'hck_phone',
+    });
+    expect(JSON.parse(listed.body)).toEqual({
+      signIns: [
+        { host: 'hybridai.one', username: true, savedAt: expect.any(String) },
+      ],
+    });
+    expect(listed.body).not.toContain('ben@example.com');
+    expect(listed.body).not.toContain('pw-cleartext-secret');
+
+    // The agent's lookup names the secrets and takes only the gateway token.
+    const phoneLookup = await send({
+      method: 'POST',
+      url: '/api/browser/sign-in',
+      token: 'hck_phone',
+      body: { host: 'hybridai.one' },
+    });
+    expect(phoneLookup.statusCode).toBe(403);
+    const lookup = await send({
+      method: 'POST',
+      url: '/api/browser/sign-in',
+      token: 'gateway-token',
+      body: { host: 'hybridai.one' },
+    });
+    expect(JSON.parse(lookup.body)).toEqual({
+      saved: true,
+      host: 'hybridai.one',
+      usernameSecret: 'SIGNIN_HYBRIDAI_ONE_USERNAME',
+      passwordSecret: 'SIGNIN_HYBRIDAI_ONE_PASSWORD',
+    });
+
+    const elsewhere = await send({
+      method: 'POST',
+      url: '/api/secret/inject',
+      token: 'gateway-token',
+      body: {
+        secretName: 'SIGNIN_HYBRIDAI_ONE_PASSWORD',
+        sinkKind: 'dom',
+        host: 'hybridai.one.evil.example',
+        selector: '@e2',
+      },
+    });
+    expect(elsewhere.statusCode).toBe(403);
+    expect(elsewhere.body).not.toContain('pw-cleartext-secret');
+    const typed = await send({
+      method: 'POST',
+      url: '/api/secret/inject',
+      token: 'gateway-token',
+      body: {
+        secretName: 'SIGNIN_HYBRIDAI_ONE_PASSWORD',
+        sinkKind: 'dom',
+        host: 'hybridai.one',
+        selector: '@e2',
+      },
+    });
+    expect(typed.statusCode).toBe(200);
+    expect(JSON.parse(typed.body)).toMatchObject({
+      value: 'pw-cleartext-secret',
+    });
+
+    const removed = await send({
+      method: 'DELETE',
+      url: '/api/sign-ins/hybridai.one',
+      token: 'hck_phone',
+    });
+    expect(JSON.parse(removed.body)).toEqual({
+      host: 'hybridai.one',
+      removed: true,
+    });
+    const gone = await send({
+      method: 'POST',
+      url: '/api/browser/sign-in',
+      token: 'gateway-token',
+      body: { host: 'hybridai.one' },
+    });
+    expect(JSON.parse(gone.body)).toEqual({
+      saved: false,
+      host: 'hybridai.one',
+    });
+  });
+
   test('restricts the scheduler task endpoint to gateway token auth and returns the persisted job', async () => {
     const state = await importFreshHealth({
       webApiToken: 'web-token',

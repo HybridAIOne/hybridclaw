@@ -1,3 +1,4 @@
+import { normalizeBrowserSignInHost } from '../security/browser-sign-ins.js';
 import type { BrowserFrame, ToolProgressEvent } from '../types/execution.js';
 
 const TOOL_NAME_PATTERN = '([a-zA-Z0-9_.-]+)';
@@ -58,12 +59,15 @@ export function parseBrowserFrameLine(line: string): BrowserFrame | null {
       line.slice(BROWSER_FRAME_PREFIX.length),
     ) as Record<string, unknown> | null;
     if (!parsed || typeof parsed.url !== 'string' || !parsed.url) return null;
+    const signIn = parsed.signIn as Record<string, unknown> | null | undefined;
+    const signInHost = normalizeBrowserSignInHost(signIn?.host);
     return {
       url: parsed.url,
       title: typeof parsed.title === 'string' ? parsed.title : '',
       ...(typeof parsed.frame === 'string' && parsed.frame
         ? { frame: parsed.frame }
         : {}),
+      ...(signInHost ? { signIn: { host: signInHost } } : {}),
     };
   } catch {
     return null;

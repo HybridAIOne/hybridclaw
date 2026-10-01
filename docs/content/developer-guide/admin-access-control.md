@@ -37,8 +37,10 @@ shape (RFC 8628):
 Requests live in memory for ten minutes, at most 20 at a time, and a gateway
 restart drops them. The token is minted when the device collects it, labelled
 `Device: <client_name>`, audited like any created token, and limited to
-`chat.send`, `agents.read`, `artifacts.read` (`GET /api/artifact`) and
-`voice.session`, so the phone can also call the agent. With
+`chat.send`, `agents.read`, `artifacts.read` (`GET /api/artifact`),
+`voice.session`, so the phone can also call the agent, and `sign_ins.manage`,
+so it can save the website sign-ins the agent's browser asks for (see
+[Website sign-ins](../getting-started/authentication.md#website-sign-ins)). With
 `chat.send` it also reads the notifications of its own chats under
 `/api/push/`, and fetches one reply the gateway stored there on its own, such
 as a reminder, with `GET /api/chat/message?sessionId=…&id=…` (the id is the
