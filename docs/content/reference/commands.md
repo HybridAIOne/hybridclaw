@@ -605,6 +605,10 @@ carriage returns and backslashes inside strings are written as `\u000a`,
 `\u000d` and `\u005c`, so a relay that turns the two characters `\n` into a
 line break does not corrupt it.
 
+`/device-data set <payload>`, `/device-data show` and `/device-data clear` are
+how a companion app keeps what the user's phone shares on the gateway; see
+[Device Data](../guides/device-data.md). They are not listed in menus or help.
+
 ### Todos
 
 ```text

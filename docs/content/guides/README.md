@@ -39,5 +39,7 @@ These pages focus on common operator workflows after the base install works.
   to an agent from an external system over `/v1/chat/completions`
 - [Published Tools (MCP)](./published-tools.md) for letting Microsoft Copilot
   or another MCP host call a HybridClaw agent through admin-defined tools
+- [Device Data](./device-data.md) for letting an agent read what a user's
+  phone shares through a companion app, without sending it in every message
 - [Optional Office Dependencies](./office-dependencies.md) for host-side
   office tooling

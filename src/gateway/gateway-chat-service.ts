@@ -162,6 +162,10 @@ import {
   normalizeDelegationEffect,
 } from './delegation-plan.js';
 import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
+import {
+  blockDeviceDataToolUnlessShared,
+  withDeviceDataTurn,
+} from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -603,16 +607,18 @@ export async function handleGatewayMessage(
   }
   return trackInFlightTurn(() =>
     gatewaySessionQueue.run(req.sessionId, () =>
-      withSpan(
-        'hybridclaw.gateway.handle_message',
-        {
-          'hybridclaw.session_id': req.sessionId,
-          'hybridclaw.agent_id': req.agentId || '',
-          'hybridclaw.channel_id': req.channelId || '',
-          'hybridclaw.model': req.model || '',
-        },
-        async () =>
-          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
+      withDeviceDataTurn(req.sessionId, req.userId, () =>
+        withSpan(
+          'hybridclaw.gateway.handle_message',
+          {
+            'hybridclaw.session_id': req.sessionId,
+            'hybridclaw.agent_id': req.agentId || '',
+            'hybridclaw.channel_id': req.channelId || '',
+            'hybridclaw.model': req.model || '',
+          },
+          async () =>
+            withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
+        ),
       ),
     ),
   );
@@ -1818,6 +1824,10 @@ async function handleGatewayMessageInner(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
+  mediaPolicy.blockedTools = blockDeviceDataToolUnlessShared(
+    mediaPolicy.blockedTools,
+    req.userId,
+  );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,

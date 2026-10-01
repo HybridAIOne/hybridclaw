@@ -64,6 +64,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['skills_list'],
   },
   {
+    label: 'Phone Data',
+    tools: ['device_data'],
+  },
+  {
     label: 'Vision',
     tools: ['vision_analyze'],
   },

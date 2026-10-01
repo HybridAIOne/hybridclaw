@@ -487,6 +487,7 @@ import {
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
+import { handleDeviceDataCommand } from './device-data-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -13286,6 +13287,9 @@ export async function handleGatewayCommand(
 
       case 'todo':
         return handleTodoCommand(req, session);
+
+      case 'device-data':
+        return handleDeviceDataCommand(req);
 
       default: {
         const pluginCommandResult = await tryHandlePluginDefinedGatewayCommand({

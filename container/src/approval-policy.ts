@@ -2832,6 +2832,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'glob' ||
       lowerTool === 'grep' ||
       lowerTool === 'session_search' ||
+      lowerTool === 'device_data' ||
       (lowerTool === 'tool_catalog' &&
         (args.action === 'list' || args.action === 'describe'))
     ) {
