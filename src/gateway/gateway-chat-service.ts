@@ -210,6 +210,7 @@ import {
   resolveMediaToolPolicy,
   resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
+  resolveTurnBrowserProvider,
   shouldForceNewTuiSession,
   trackObservedToolCall,
 } from './gateway-service.js';
@@ -2177,6 +2178,7 @@ async function handleGatewayMessageInner(
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
+        browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
@@ -2296,6 +2298,7 @@ async function handleGatewayMessageInner(
         inactivityTimeoutMs: req.inactivityTimeoutMs,
         bashProxy: req.bashProxy,
         channelId: req.channelId,
+        browserProvider: resolveTurnBrowserProvider(req.client),
         ralphMaxIterations: resolveSessionRalphIterations(session),
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
