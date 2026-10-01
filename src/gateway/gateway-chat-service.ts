@@ -248,6 +248,7 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
 
 // 500 rows (owner call, 2026-09-21): a safety cap for sessions whose memory
@@ -2071,7 +2072,9 @@ async function handleGatewayMessageInner(
     const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
       listManageableScheduledTasks(session);
     let firstTextDeltaMs: number | null = null;
+    const tail = new TurnTailTimer();
     const onTextDelta = (delta: string): void => {
+      if (delta) tail.noteTextDelta();
       if (firstTextDeltaMs == null && delta) {
         firstTextDeltaMs = Date.now() - startedAt;
         logger.debug(
@@ -2313,9 +2316,11 @@ async function handleGatewayMessageInner(
       });
     }
     const executionDurationMs = Date.now() - executionStartedAt;
+    tail.mark('agentReturn');
     // The shadow call runs alongside execution, never before dispatch. Settle it
     // before final accounting so comparison usage stays attached to this turn.
     await shadowCompletion;
+    tail.mark('shadowCall');
     agentStage = 'processing-agent-output';
     // A reply that beat the stop still starts its delegations.
     const interrupted =
@@ -2353,6 +2358,7 @@ async function handleGatewayMessageInner(
       runId,
       onProactiveMessage: req.onProactiveMessage,
     });
+    tail.mark('escalationRouting');
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
       toolExecutions,
@@ -2506,6 +2512,7 @@ async function handleGatewayMessageInner(
         });
       }
     }
+    tail.mark('usageAccounting');
     for (const event of buildMediaGenerationUsageEvents({
       sessionId: req.sessionId,
       agentId,
@@ -2545,6 +2552,7 @@ async function handleGatewayMessageInner(
       }
     }
 
+    tail.mark('skillObservation');
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
     const acceptedDelegationPlans: NonNullable<
@@ -2649,8 +2657,10 @@ async function handleGatewayMessageInner(
           })
         : null;
     delegationAcknowledgement = delegationDescriptor ? ackText : null;
+    tail.mark('sideEffects');
 
     promoteWorkspaceSkills(workspacePath);
+    tail.mark('promoteWorkspaceSkills');
 
     if (output.status === 'error') {
       const errorMessage = output.error || 'Unknown agent error.';
@@ -2828,6 +2838,7 @@ async function handleGatewayMessageInner(
         );
       }
     }
+    tail.mark('outputGuards');
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -2880,6 +2891,7 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
+    tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
         turnIndex,
@@ -2952,6 +2964,7 @@ async function handleGatewayMessageInner(
         });
     }
 
+    tail.mark('pluginMemoryHooks');
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
@@ -2986,6 +2999,7 @@ async function handleGatewayMessageInner(
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await emitPostTurnForResult(result);
+    tail.mark('postTurn');
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: storedUserContent,
@@ -3003,6 +3017,11 @@ async function handleGatewayMessageInner(
         durationMs,
       });
     }
+    tail.mark('finish');
+    tail.log(
+      { ...debugMeta, toolCallCount: toolExecutions.length },
+      'Gateway chat turn tail timing',
+    );
     return attachSessionIdentity(result);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

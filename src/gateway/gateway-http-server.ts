@@ -484,11 +484,11 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import { TurnTailTimer } from './turn-tail-timing.js';
 import {
   handleWebNotificationRoute,
   resolveWebNotificationOperator,
 } from './web-notification-routes.js';
-
 import {
   closeWebNotificationStreams,
   notifyWebChatResult,
@@ -3848,6 +3848,7 @@ async function handleApiChatStream(
   };
 
   const streamFilter = createSilentReplyStreamFilter();
+  const tail = new TurnTailTimer();
   const assistantBubblePresentation = {
     segmentKind: 'final' as const,
     visible: true,
@@ -3856,6 +3857,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
+    tail.noteTextDelta();
     streamedTextBeforeNextTool += filteredDelta;
     sendEvent({
       type: 'text',
@@ -3897,6 +3899,7 @@ async function handleApiChatStream(
       ),
     );
     result = normalizePendingApprovalReply(result);
+    tail.mark('chatHandler');
     if (result.status === 'success') {
       const bufferedDelta = streamFilter.flush();
       if (bufferedDelta) {
@@ -3926,6 +3929,7 @@ async function handleApiChatStream(
       filteredResult,
     );
     if (capturedApps.length > 0) filteredResult.apps = capturedApps;
+    tail.mark('captureArtifacts');
     notifyWebChatResult(
       operatorId,
       chatRequest,
@@ -3936,6 +3940,11 @@ async function handleApiChatStream(
       type: 'result',
       result: filteredResult,
     });
+    tail.mark('resultSent');
+    tail.log(
+      { sessionId: chatRequest.sessionId, channelId: chatRequest.channelId },
+      'Gateway chat stream tail timing',
+    );
     // Best-effort: persistence failure must never corrupt the already-sent
     // response, so it is swallowed after logging.
     const assistantMessageId = result.assistantMessageId;
