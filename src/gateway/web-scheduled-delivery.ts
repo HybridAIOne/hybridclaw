@@ -40,7 +40,7 @@ async function alertPhones(
     import('./mobile-push.js'),
   ]);
   const agent = getAgentById(agentId);
-  const assistant = agent?.displayName || agent?.name || 'HybridClaw';
+  const assistant = push.phoneAssistantName(agentId, agent);
   if (alert) {
     await push.alertListedItems({
       sessionId,

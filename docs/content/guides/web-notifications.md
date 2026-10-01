@@ -67,8 +67,11 @@ A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply
 is ready." or "Needs your approval to go on.", never the reply or the request
 itself. That line is also sent as `loc-key`, so an app that translates it shows
-it in the phone's language. A reminder shows the assistant's name as its title and the reminder
-itself as its body (up to 240 characters), and its badge counts the
+it in the phone's language. The phone app calls the default agent Hy, so its
+alerts say Hy whatever the agent is named here; other agents go by their
+display name, then their name, and an agent without either is Hy too. A
+reminder shows the assistant's name as its title and the reminder itself as its
+body (up to 240 characters), and its badge counts the
 operator's reminders not yet read (`/api/push/read`). Unlike browser alerts,
 the reminder's text is on the lock screen, which iOS hides while locked unless
 previews are set to always show. The payload holds `kind`, `id`, `sessionId`
