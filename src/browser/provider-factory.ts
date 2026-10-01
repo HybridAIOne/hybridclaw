@@ -6,10 +6,8 @@ import {
   type LocalBrowserPlaywrightModule,
   LocalBrowserProvider,
 } from './local-provider.js';
-import {
-  MacCuaBrowserProvider,
-  type MacCuaDriver,
-} from './mac-cua-provider.js';
+import type { MacCuaDriver } from './mac-cua-driver.js';
+import { MacCuaBrowserProvider } from './mac-cua-provider.js';
 import {
   ManagedCloudBrowserProvider,
   type ManagedCloudPlaywrightModule,

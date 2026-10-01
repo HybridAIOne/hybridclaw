@@ -45,7 +45,7 @@ function windows(...ids: number[]) {
 
 async function createDriver() {
   const { StdioMacCuaDriver } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-driver.js'
   );
   return new StdioMacCuaDriver('cua-driver', ['mcp']);
 }
@@ -133,4 +133,74 @@ test.each([
     urls: ['about:blank'],
   });
   expect(calls.some((call) => call.name === 'hotkey')).toBe(false);
+});
+
+// Safari with the operator's window 7 open; Cmd+N opens 100, 101, ...
+function fakeSafari() {
+  const open = new Set([7]);
+  let nextWindowId = 100;
+  const calls = mockCuaMcp(({ name, arguments: args }) => {
+    if (name === 'list_apps') return safariRunning(true);
+    if (name === 'list_windows') return windows(...open);
+    if (name === 'hotkey' && String(args.keys) === 'cmd,n') {
+      open.add(nextWindowId++);
+    }
+    return {};
+  });
+  return { calls, open };
+}
+
+test.each([
+  { window: 'closed', closed: true, reopened: true, windowId: 101 },
+  { window: 'still open', closed: false, reopened: false, windowId: 100 },
+])('sends keys to a dedicated window when the session window is $window', async ({
+  closed,
+  reopened,
+  windowId,
+}) => {
+  const { calls, open } = fakeSafari();
+  const driver = await createDriver();
+  const { sessionId } = await driver.startBrowserSession({
+    bundleId: 'com.apple.Safari',
+    backgroundSafe: true,
+  });
+  if (closed) open.delete(100);
+
+  await expect(driver.ensureSessionWindow(sessionId)).resolves.toBe(reopened);
+  await driver.pressKey(sessionId, 'return');
+
+  expect(calls.at(-1)).toEqual({
+    name: 'press_key',
+    arguments: { pid: 42, window_id: windowId, key: 'return' },
+  });
+  // The operator's window only anchors Cmd+N; nothing else is sent to it.
+  expect(
+    calls
+      .filter((call) => call.arguments.window_id === 7)
+      .map((call) => [call.name, String(call.arguments.keys)]),
+  ).toEqual(Array(reopened ? 2 : 1).fill(['hotkey', 'cmd,n']));
+});
+
+test('reads the page title from the session window', async () => {
+  mockCuaMcp(({ name }) => {
+    if (name === 'list_apps') return safariRunning(false);
+    if (name === 'launch_app') return { pid: 42, ...windows(11) };
+    if (name === 'list_windows') {
+      return {
+        windows: [
+          { window_id: 7, title: 'Operator chat' },
+          { window_id: 11, title: 'HybridAI' },
+        ],
+      };
+    }
+    return {};
+  });
+
+  const driver = await createDriver();
+  const { sessionId } = await driver.startBrowserSession({
+    bundleId: 'com.apple.Safari',
+    backgroundSafe: true,
+  });
+
+  await expect(driver.getWindowTitle(sessionId)).resolves.toBe('HybridAI');
 });

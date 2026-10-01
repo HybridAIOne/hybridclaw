@@ -8,7 +8,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type {
   MacCuaDriver,
   MacCuaEnvironmentState,
-} from '../src/browser/mac-cua-provider.js';
+} from '../src/browser/mac-cua-driver.js';
+import type { BrowserSession } from '../src/browser/provider.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
@@ -66,6 +67,8 @@ function createMockDriver(options?: {
   fillTwoFactorInput: ReturnType<typeof vi.fn>;
   focusTwoFactorInput: ReturnType<typeof vi.fn>;
   getEnvironmentState: ReturnType<typeof vi.fn>;
+  ensureSessionWindow: ReturnType<typeof vi.fn>;
+  getWindowTitle: ReturnType<typeof vi.fn>;
 } {
   const stableState: MacCuaEnvironmentState = {
     cursorX: 12,
@@ -98,6 +101,8 @@ function createMockDriver(options?: {
     fillTwoFactorInput: vi.fn(async () => true),
     focusTwoFactorInput: vi.fn(async () => true),
     getEnvironmentState: vi.fn(async () => states.shift() || states[0]),
+    ensureSessionWindow: vi.fn(async () => false),
+    getWindowTitle: vi.fn(async () => 'Example Domain'),
   };
 }
 
@@ -115,7 +120,7 @@ afterEach(() => {
 
 test('mac-cua real driver defaults to MCP args when config args are empty', async () => {
   const { resolveMacCuaDriverCommand } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-driver.js'
   );
 
   expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
@@ -230,7 +235,7 @@ test('mac-cua provider supports safe key presses for form submission', async () 
 
 test('mac-cua provider resolves AX button rows from cua window-state markdown', async () => {
   const { resolveMacCuaWindowStateElementIndex } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../src/browser/mac-cua-window-state.js'
   );
 
   expect(
@@ -894,9 +899,160 @@ test('mac-cua provider exposes AX two-factor detection to gateway parking', asyn
     modality: 'totp',
     signals: ['one-time-code'],
     url: 'https://example.com/',
+    title: 'Example Domain',
     preview: 'verification code',
     selectors: ['@e24@window:7'],
   });
+});
+
+test('mac-cua provider confirms the controlled window before sending navigation keys', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.ensureSessionWindow.mockResolvedValueOnce(true);
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.navigate('https://example.com/');
+
+  expect(driver.ensureSessionWindow).toHaveBeenCalledWith('cua-session-1');
+  expect(driver.ensureSessionWindow.mock.invocationCallOrder[0]).toBeLessThan(
+    driver.keyChord.mock.invocationCallOrder[0],
+  );
+  expect(driver.pressKey).toHaveBeenCalledWith('cua-session-1', 'return');
+});
+
+test.each([
+  {
+    action: 'click',
+    run: (session: BrowserSession) => session.click('Sign in'),
+  },
+  {
+    action: 'fill',
+    run: (session: BrowserSession) => session.fill('Email', 'user_a'),
+  },
+  { action: 'press', run: (session: BrowserSession) => session.press?.('a') },
+  {
+    action: 'screenshot',
+    run: (session: BrowserSession) => session.screenshot(),
+  },
+  { action: 'back', run: (session: BrowserSession) => session.back() },
+])('mac-cua provider fails $action once instead of acting on a reopened blank window', async ({
+  run,
+}) => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.ensureSessionWindow.mockResolvedValueOnce(true);
+  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const session = await provider.launchSession({});
+
+  await expect(run(session)).rejects.toThrow(
+    /safari window was closed, so a new one was opened; navigate to the page again/u,
+  );
+  for (const input of [
+    driver.resolveTarget,
+    driver.click,
+    driver.keyChord,
+    driver.typeTextChars,
+    driver.pressKey,
+    driver.screenshot,
+  ]) {
+    expect(input).not.toHaveBeenCalled();
+  }
+
+  await run(session);
+});
+
+test.each([
+  {
+    window: 'closes mid-action',
+    reopenedBefore: false,
+    reopenedAfter: true,
+    outcome: 'resolves',
+    attempts: 2,
+    checks: 2,
+  },
+  {
+    window: 'stays open',
+    reopenedBefore: false,
+    reopenedAfter: false,
+    outcome: 'rejects',
+    attempts: 1,
+    checks: 2,
+  },
+  {
+    window: 'was already reopened',
+    reopenedBefore: true,
+    reopenedAfter: true,
+    outcome: 'rejects',
+    attempts: 1,
+    checks: 1,
+  },
+])('mac-cua provider retries navigation at most once when the window $window', async ({
+  reopenedBefore,
+  reopenedAfter,
+  outcome,
+  attempts,
+  checks,
+}) => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.ensureSessionWindow
+    .mockResolvedValueOnce(reopenedBefore)
+    .mockResolvedValueOnce(reopenedAfter);
+  driver.pressKey.mockRejectedValueOnce(
+    new Error('mac-cua driver tool press_key failed'),
+  );
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  const navigation = session.navigate('https://example.com/');
+
+  if (outcome === 'resolves') {
+    await expect(navigation).resolves.toBeUndefined();
+  } else {
+    await expect(navigation).rejects.toThrow(/press_key failed/u);
+  }
+  expect(driver.keyChord).toHaveBeenCalledTimes(attempts);
+  expect(driver.ensureSessionWindow).toHaveBeenCalledTimes(checks);
+});
+
+test('mac-cua provider does not replay a click in a window reopened mid-action', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  driver.ensureSessionWindow
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(true);
+  driver.click.mockRejectedValueOnce(
+    new Error('mac-cua driver tool click failed'),
+  );
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await expect(session.click('@e9')).rejects.toThrow(
+    /window was closed, so a new one was opened/u,
+  );
+  expect(driver.click).toHaveBeenCalledTimes(1);
+});
+
+test('mac-cua provider waypoints do not touch the controlled window', async () => {
+  const { MacCuaBrowserProvider } = await import(
+    '../src/browser/mac-cua-provider.js'
+  );
+  const driver = createMockDriver();
+  const provider = new MacCuaBrowserProvider({ driver });
+  const session = await provider.launchSession({});
+
+  await session.waypoint?.('browser_await_two_factor', { modality: 'totp' });
+
+  expect(driver.ensureSessionWindow).not.toHaveBeenCalled();
 });
 
 test('mac-cua provider advertises F13 and F14 parity only after readiness passes', async () => {

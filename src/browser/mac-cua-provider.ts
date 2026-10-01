@@ -1,11 +1,4 @@
 import { Buffer } from 'node:buffer';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import {
-  getDefaultEnvironment,
-  StdioClientTransport,
-} from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
@@ -19,7 +12,15 @@ import {
   unsafeEscapeSecretHandle,
 } from '../security/secret-handles.js';
 import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
-import { sleep } from '../utils/sleep.js';
+import {
+  type MacCuaDriver,
+  type MacCuaEnvironmentState,
+  type MacCuaScreenshotMode,
+  type MacCuaScreenshotResult,
+  type MacCuaTarget,
+  resolveMacCuaDriverCommand,
+  StdioMacCuaDriver,
+} from './mac-cua-driver.js';
 import { normalizeScrollDelta } from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
@@ -51,82 +52,6 @@ export const MAC_CUA_BROWSERS = {
 } as const;
 
 export type MacCuaBrowserName = keyof typeof MAC_CUA_BROWSERS;
-export type MacCuaScreenshotMode = 'som' | 'vision' | 'ax';
-
-export interface MacCuaEnvironmentState {
-  cursorX: number;
-  cursorY: number;
-  frontmostBundleId: string;
-  activeSpaceId?: string | number | null;
-}
-
-export type MacCuaTarget =
-  | { kind: 'ax'; elementIndex: number; windowId?: string | number }
-  | { kind: 'point'; x: number; y: number }
-  | { kind: 'query'; query: string };
-
-export interface MacCuaResolvedTarget {
-  target: MacCuaTarget;
-  pixelFallback?: {
-    reason: string;
-  };
-}
-
-export interface MacCuaScreenshotResult {
-  dataBase64: string;
-  mimeType?: string;
-}
-
-export interface MacCuaDriver {
-  startBrowserSession(params: {
-    bundleId: string;
-    backgroundSafe: true;
-  }): Promise<{ sessionId: string; windowId?: string | number }>;
-  stopBrowserSession(sessionId: string): Promise<void>;
-  keyChord(
-    sessionId: string,
-    params: { key: string; modifiers: string[] },
-  ): Promise<void>;
-  pressKey(sessionId: string, key: string): Promise<void>;
-  typeTextChars(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void>;
-  click(sessionId: string, target: MacCuaTarget): Promise<void>;
-  setValue(
-    sessionId: string,
-    target: MacCuaTarget,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void>;
-  scroll(
-    sessionId: string,
-    params: { target?: MacCuaTarget; deltaX: number; deltaY: number },
-  ): Promise<void>;
-  screenshot(
-    sessionId: string,
-    opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
-  ): Promise<MacCuaScreenshotResult>;
-  waitForElement(
-    sessionId: string,
-    target: MacCuaTarget,
-    opts?: WaitOptions,
-  ): Promise<void>;
-  resolveTarget(
-    sessionId: string,
-    target: MacCuaTarget,
-  ): Promise<MacCuaResolvedTarget>;
-  getAddressBarValue(sessionId: string): Promise<string | null>;
-  getCurrentUrl(sessionId: string): Promise<string | null>;
-  detectTwoFactorWaypoint?(
-    sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }>;
-  fillTwoFactorInput?(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<boolean>;
-  focusTwoFactorInput?(sessionId: string): Promise<boolean>;
-  getEnvironmentState(): Promise<MacCuaEnvironmentState>;
-}
 
 export interface MacCuaProviderOptions {
   browser?: MacCuaBrowserName;
@@ -144,6 +69,10 @@ type ActiveMacCuaSession = {
   metering: BrowserSessionMeteringContext | undefined;
   runId: string;
 };
+
+// What an action needs from the controlled window: 'loads' brings its own
+// page (navigate), 'current' acts on the open page, 'none' never touches it.
+type MacCuaPageUse = 'loads' | 'current' | 'none';
 
 const SHELL_INJECTION_PATTERNS = [
   /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:bash|sh)\b/iu,
@@ -185,13 +114,6 @@ const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+ctrl+q',
   'cmd+option+shift+q',
 ]);
-const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
-const NEW_WINDOW_TIMEOUT_MS = 5_000;
-const NEW_WINDOW_POLL_MS = 150;
-const CUA_MCP_CLIENT_INFO = {
-  name: 'hybridclaw-mac-cua',
-  version: process.env.npm_package_version || '0.0.0',
-};
 
 function normalizeKeyChord(key: string, modifiers: string[]): string {
   const normalizedModifiers = modifiers
@@ -305,720 +227,6 @@ function decodeDriverScreenshot(result: MacCuaScreenshotResult): Buffer {
   }
 }
 
-function defaultDriverCommand(): { command: string; args: string[] } {
-  const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
-  return {
-    command: configured || 'cua-driver',
-    args: ['mcp', '--no-daemon-relaunch'],
-  };
-}
-
-export function resolveMacCuaDriverCommand(options?: {
-  command?: string;
-  args?: string[];
-}): { command: string; args: string[] } {
-  const fallback = defaultDriverCommand();
-  return {
-    command: options?.command || fallback.command,
-    args:
-      options?.args && options.args.length > 0 ? options.args : fallback.args,
-  };
-}
-
-function normalizePositiveInteger(value: unknown): number | null {
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
-}
-
-function normalizeWindowId(value: unknown): number | null {
-  if (!Array.isArray(value)) return null;
-  const candidates: Array<{
-    id: number;
-    onCurrentSpace: boolean;
-    layer: number;
-    area: number;
-  }> = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
-    const id = normalizePositiveInteger(record.window_id);
-    if (id === null) continue;
-    const bounds =
-      record.bounds && typeof record.bounds === 'object'
-        ? (record.bounds as Record<string, unknown>)
-        : {};
-    const width = Number(bounds.width);
-    const height = Number(bounds.height);
-    candidates.push({
-      id,
-      onCurrentSpace: record.on_current_space === true,
-      layer: typeof record.layer === 'number' ? record.layer : 0,
-      area:
-        Number.isFinite(width) && Number.isFinite(height)
-          ? Math.max(0, width * height)
-          : 0,
-    });
-  }
-  candidates.sort((a, b) => {
-    if (a.layer !== b.layer) return a.layer - b.layer;
-    if (a.onCurrentSpace !== b.onCurrentSpace) {
-      return a.onCurrentSpace ? -1 : 1;
-    }
-    return b.area - a.area;
-  });
-  return candidates[0]?.id ?? null;
-}
-
-export function resolveMacCuaWindowStateElementIndex(
-  record: Record<string, unknown>,
-): number | null {
-  const structured =
-    normalizePositiveInteger(record.element_index) ||
-    normalizePositiveInteger(record.elementIndex) ||
-    normalizePositiveInteger(record.index);
-  if (structured !== null) return structured;
-  const tree = String(record.tree_markdown || record.markdown || '');
-  const match = tree.match(/\[element_index\s+(\d+)\]/u);
-  if (match?.[1]) return Number(match[1]);
-  const indexedLine = tree.match(/^\s*(?:-\s+)?\[(\d+)\]\s+\w+/mu);
-  return indexedLine?.[1] ? Number(indexedLine[1]) : null;
-}
-
-function firstElementIndex(record: Record<string, unknown>): number | null {
-  return resolveMacCuaWindowStateElementIndex(record);
-}
-
-function firstEditableElementSelector(
-  record: Record<string, unknown>,
-  windowId?: string | number,
-): string | null {
-  const target = firstEditableElementTarget(record, windowId);
-  if (!target || target.kind !== 'ax') return null;
-  return `@e${target.elementIndex}${target.windowId ? `@window:${target.windowId}` : ''}`;
-}
-
-function firstEditableElementTarget(
-  record: Record<string, unknown>,
-  windowId?: string | number,
-): MacCuaTarget | null {
-  const tree = String(record.tree_markdown || record.markdown || '');
-  for (const line of tree.split(/\r?\n/u)) {
-    const indexMatch = line.match(/\[element_index\s+(\d+)\]/u);
-    const roleMatch = line.match(
-      /\b(?:AX)?(?:TextField|TextArea|SearchField|ComboBox)\b/iu,
-    );
-    if (indexMatch?.[1] && roleMatch) {
-      const elementIndex = Number(indexMatch[1]);
-      if (Number.isFinite(elementIndex)) {
-        return {
-          kind: 'ax',
-          elementIndex,
-          ...(windowId ? { windowId } : {}),
-        };
-      }
-    }
-  }
-  const elementPattern =
-    /^\s*(?:-\s+)?\[(\d+)\]\s+(\w+)(?:\s+"([^"]*)"|(?:\s+\(\d+\))?\s+id=([^\s[\]]*))?/gmu;
-  for (const match of tree.matchAll(elementPattern)) {
-    const index = match[1] ? Number(match[1]) : null;
-    const role = String(match[2] || '').toLowerCase();
-    if (
-      index !== null &&
-      Number.isFinite(index) &&
-      (role.includes('textfield') ||
-        role.includes('textarea') ||
-        role.includes('searchfield') ||
-        role.includes('combobox'))
-    ) {
-      return {
-        kind: 'ax',
-        elementIndex: index,
-        ...(windowId ? { windowId } : {}),
-      };
-    }
-  }
-  return null;
-}
-
-function scrollDirectionFromDelta(
-  deltaX: number,
-  deltaY: number,
-): 'up' | 'down' | 'left' | 'right' {
-  if (Math.abs(deltaX) > Math.abs(deltaY)) {
-    return deltaX < 0 ? 'left' : 'right';
-  }
-  return deltaY < 0 ? 'up' : 'down';
-}
-
-interface CuaMcpToolResult {
-  data: unknown;
-  images: string[];
-  structuredContent: Record<string, unknown> | null;
-  isError: boolean;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
-  const images: string[] = [];
-  const textChunks: string[] = [];
-  for (const part of result.content || []) {
-    if (part.type === 'text') {
-      textChunks.push(part.text || '');
-    } else if (part.type === 'image' && part.data) {
-      images.push(part.data);
-    }
-  }
-  const text = textChunks.filter(Boolean).join('\n');
-  let data: unknown = text;
-  if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
-    try {
-      data = JSON.parse(text) as unknown;
-    } catch {
-      data = text;
-    }
-  }
-  const structured =
-    result.structuredContent &&
-    typeof result.structuredContent === 'object' &&
-    !Array.isArray(result.structuredContent)
-      ? (result.structuredContent as Record<string, unknown>)
-      : null;
-  return {
-    data,
-    images,
-    structuredContent: structured,
-    isError: result.isError === true,
-  };
-}
-
-export class StdioMacCuaDriver implements MacCuaDriver {
-  private client: Client | null = null;
-  private transport: StdioClientTransport | null = null;
-  private startPromise: Promise<void> | null = null;
-  private readonly sessions = new Map<
-    string,
-    { pid: number; windowId: number; lastTypedText?: string }
-  >();
-
-  constructor(
-    private readonly command: string,
-    private readonly args: string[] = [],
-    private readonly timeoutMs = DEFAULT_DRIVER_TIMEOUT_MS,
-  ) {}
-
-  async startBrowserSession(params: {
-    bundleId: string;
-    backgroundSafe: true;
-  }): Promise<{ sessionId: string; windowId?: string | number }> {
-    // Never adopt a window the operator already has open: it may hold the
-    // HybridClaw chat itself or unrelated work. Open a dedicated one instead.
-    const record =
-      (await this.openWindowInRunningBrowser(params.bundleId)) ||
-      (await this.callToolRecord('launch_app', {
-        bundle_id: params.bundleId,
-        urls: ['about:blank'],
-      }));
-    const pid = normalizePositiveInteger(record.pid);
-    const windowId =
-      normalizePositiveInteger(record.window_id) ||
-      normalizeWindowId(record.windows);
-    if (pid === null || windowId === null) {
-      throw new Error(
-        'mac-cua driver launch_app response did not include pid and window_id.',
-      );
-    }
-    const sessionId = `${pid}:${windowId}`;
-    this.sessions.set(sessionId, { pid, windowId });
-    return {
-      sessionId,
-      windowId,
-    };
-  }
-
-  async stopBrowserSession(sessionId: string): Promise<void> {
-    this.sessions.delete(sessionId);
-    if (this.sessions.size === 0) {
-      await this.closeMcpSession();
-    }
-  }
-
-  async keyChord(
-    sessionId: string,
-    params: { key: string; modifiers: string[] },
-  ): Promise<void> {
-    const session = this.requireSession(sessionId);
-    await this.callTool('hotkey', {
-      pid: session.pid,
-      window_id: session.windowId,
-      keys: [...params.modifiers, params.key],
-    });
-  }
-
-  async pressKey(sessionId: string, key: string): Promise<void> {
-    const session = this.requireSession(sessionId);
-    await this.callTool('press_key', {
-      pid: session.pid,
-      window_id: session.windowId,
-      key,
-    });
-  }
-
-  async typeTextChars(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void> {
-    const session = this.requireSession(sessionId);
-    if ('secretRef' in payload) {
-      throw new Error(
-        'mac-cua MCP driver cannot resolve SecretRef payloads directly.',
-      );
-    }
-    session.lastTypedText = payload.text;
-    const args = {
-      pid: session.pid,
-      window_id: session.windowId,
-      text: payload.text,
-    };
-    try {
-      await this.callTool('type_text_chars', args);
-    } catch (error) {
-      if (!String(error).includes('Unknown tool')) throw error;
-      await this.callTool('type_text', args);
-    }
-  }
-
-  async click(sessionId: string, target: MacCuaTarget): Promise<void> {
-    const session = this.requireSession(sessionId);
-    await this.callTool('click', {
-      pid: session.pid,
-      window_id: session.windowId,
-      ...this.toDriverTarget(target),
-    });
-  }
-
-  async setValue(
-    sessionId: string,
-    target: MacCuaTarget,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void> {
-    const session = this.requireSession(sessionId);
-    if ('secretRef' in payload) {
-      throw new Error(
-        'mac-cua MCP driver cannot resolve SecretRef payloads directly.',
-      );
-    }
-    await this.callTool('set_value', {
-      pid: session.pid,
-      window_id: session.windowId,
-      ...this.toDriverTarget(target),
-      value: payload.text,
-    });
-  }
-
-  async scroll(
-    sessionId: string,
-    params: { target?: MacCuaTarget; deltaX: number; deltaY: number },
-  ): Promise<void> {
-    const session = this.requireSession(sessionId);
-    await this.callTool('scroll', {
-      pid: session.pid,
-      window_id: session.windowId,
-      ...(params.target ? this.toDriverTarget(params.target) : {}),
-      direction: scrollDirectionFromDelta(params.deltaX, params.deltaY),
-      by: 'page',
-      amount: 1,
-    });
-  }
-
-  async screenshot(
-    sessionId: string,
-    opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
-  ): Promise<MacCuaScreenshotResult> {
-    const session = this.requireSession(sessionId);
-    const result =
-      opts.mode === 'ax'
-        ? await this.callTool('get_window_state', {
-            pid: session.pid,
-            window_id: session.windowId,
-          })
-        : await this.callTool('screenshot', {
-            window_id: session.windowId,
-            format: opts.type || 'png',
-          });
-    const dataBase64 = result.images[0];
-    if (!dataBase64) {
-      const text =
-        typeof result.data === 'string' ? result.data : JSON.stringify(result);
-      throw new Error(
-        text
-          ? `mac-cua driver screenshot response did not include image bytes: ${text}`
-          : 'mac-cua driver screenshot response did not include image bytes.',
-      );
-    }
-    return {
-      dataBase64,
-      mimeType: opts.type === 'jpeg' ? 'image/jpeg' : 'image/png',
-    };
-  }
-
-  async waitForElement(
-    sessionId: string,
-    target: MacCuaTarget,
-    opts?: WaitOptions,
-  ): Promise<void> {
-    await this.resolveTarget(sessionId, target);
-    void opts;
-  }
-
-  async resolveTarget(
-    sessionId: string,
-    target: MacCuaTarget,
-  ): Promise<MacCuaResolvedTarget> {
-    const session = this.requireSession(sessionId);
-    if (target.kind === 'point') return { target };
-    if (target.kind === 'ax') return { target };
-    const record = await this.callToolRecord('get_window_state', {
-      pid: session.pid,
-      window_id: session.windowId,
-      query: target.query,
-    });
-    const elementIndex = firstElementIndex(record);
-    if (elementIndex === null) return { target };
-    return { target: { kind: 'ax', elementIndex, windowId: session.windowId } };
-  }
-
-  async getAddressBarValue(sessionId: string): Promise<string | null> {
-    return this.requireSession(sessionId).lastTypedText || null;
-  }
-
-  async getCurrentUrl(sessionId: string): Promise<string | null> {
-    const session = this.requireSession(sessionId);
-    try {
-      const record = await this.callToolRecord('page', {
-        pid: session.pid,
-        window_id: session.windowId,
-        action: 'execute_javascript',
-        javascript: '(() => window.location.href)()',
-      });
-      const value = record.result || record.value;
-      return typeof value === 'string' && value.trim() ? value.trim() : null;
-    } catch {
-      return null;
-    }
-  }
-
-  async detectTwoFactorWaypoint(
-    sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }> {
-    const session = this.requireSession(sessionId);
-    const record = await this.callToolRecord('get_window_state', {
-      pid: session.pid,
-      window_id: session.windowId,
-      query: 'verification code',
-    });
-    const text = JSON.stringify(record).toLowerCase();
-    const detected =
-      text.includes('verification code') ||
-      text.includes('two-factor') ||
-      text.includes('2fa') ||
-      text.includes('one-time');
-    if (!detected) return { detected: false };
-    const selector = firstEditableElementSelector(record, session.windowId);
-    return {
-      detected: true,
-      signals: ['ax_two_factor_text'],
-      ...(selector ? { selectors: [selector] } : {}),
-    };
-  }
-
-  private async findTwoFactorInputTarget(
-    sessionId: string,
-  ): Promise<MacCuaTarget | null> {
-    const session = this.requireSession(sessionId);
-    for (const query of [
-      'one-time-code',
-      'otp',
-      'totp',
-      'verification code',
-      'two-factor',
-      'code',
-      '',
-    ]) {
-      const record = await this.callToolRecord('get_window_state', {
-        pid: session.pid,
-        window_id: session.windowId,
-        ...(query ? { query } : {}),
-      });
-      const target = firstEditableElementTarget(record, session.windowId);
-      if (!target) continue;
-      return target;
-    }
-    return null;
-  }
-
-  async fillTwoFactorInput(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<boolean> {
-    const target = await this.findTwoFactorInputTarget(sessionId);
-    if (!target) return false;
-    await this.setValue(sessionId, target, payload);
-    return true;
-  }
-
-  async focusTwoFactorInput(sessionId: string): Promise<boolean> {
-    const target = await this.findTwoFactorInputTarget(sessionId);
-    if (!target) {
-      return false;
-    }
-    await this.click(sessionId, target);
-    return true;
-  }
-
-  async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
-    const [cursorText, apps, windows] = await Promise.all([
-      this.callToolText('get_cursor_position', {}),
-      this.callToolRecord('list_apps', {}),
-      this.callToolRecord('list_windows', {}),
-    ]);
-    const cursor = cursorText.match(
-      /\((-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)/u,
-    );
-    const activeApp = Array.isArray(apps.apps)
-      ? apps.apps.find(
-          (app): app is Record<string, unknown> =>
-            Boolean(app) &&
-            typeof app === 'object' &&
-            !Array.isArray(app) &&
-            app.active === true,
-        )
-      : null;
-    return {
-      cursorX: cursor?.[1] ? Number(cursor[1]) : 0,
-      cursorY: cursor?.[2] ? Number(cursor[2]) : 0,
-      frontmostBundleId:
-        typeof activeApp?.bundle_id === 'string' ? activeApp.bundle_id : '',
-      activeSpaceId:
-        typeof windows.current_space_id === 'number'
-          ? windows.current_space_id
-          : null,
-    };
-  }
-
-  private requireSession(sessionId: string): {
-    pid: number;
-    windowId: number;
-    lastTypedText?: string;
-  } {
-    const session = this.sessions.get(sessionId);
-    if (!session) throw new Error('mac-cua driver session is not active.');
-    return session;
-  }
-
-  private toDriverTarget(target: MacCuaTarget): {
-    element_index?: number;
-    x?: number;
-    y?: number;
-  } {
-    if (target.kind === 'point') return { x: target.x, y: target.y };
-    if (target.kind === 'ax') return { element_index: target.elementIndex };
-    throw new Error('mac-cua query target was not resolved to AX or point.');
-  }
-
-  private async openWindowInRunningBrowser(
-    bundleId: string,
-  ): Promise<Record<string, unknown> | null> {
-    const apps = await this.callToolRecord('list_apps', {});
-    const app = Array.isArray(apps.apps)
-      ? apps.apps.find(
-          (entry): entry is Record<string, unknown> =>
-            Boolean(entry) &&
-            typeof entry === 'object' &&
-            !Array.isArray(entry) &&
-            entry.bundle_id === bundleId &&
-            entry.running === true,
-        )
-      : null;
-    const pid = normalizePositiveInteger(app?.pid);
-    if (pid === null) return null;
-    const before = await this.listWindowIds(pid);
-    const anchorWindowId = before.values().next().value;
-    // A running browser without windows gets one from launch_app's URL open.
-    if (anchorWindowId === undefined) return null;
-    // Passing an existing window_id lets the menu key equivalent reach the
-    // backgrounded app; Cmd+N itself opens a new window without touching it.
-    await this.callTool('hotkey', {
-      pid,
-      window_id: anchorWindowId,
-      keys: ['cmd', 'n'],
-    });
-    const deadline = Date.now() + NEW_WINDOW_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await sleep(NEW_WINDOW_POLL_MS);
-      const after = await this.listWindowRecords(pid);
-      const fresh = after.filter((entry) => {
-        const id = normalizePositiveInteger(entry.window_id);
-        return id !== null && !before.has(id);
-      });
-      const windowId = normalizeWindowId(fresh);
-      if (windowId !== null) return { pid, window_id: windowId };
-    }
-    throw new Error(
-      `mac-cua driver could not open a dedicated ${bundleId} window; refusing to control an existing browser window.`,
-    );
-  }
-
-  private async listWindowRecords(
-    pid: number,
-  ): Promise<Record<string, unknown>[]> {
-    const windows = await this.callToolRecord('list_windows', {
-      pid,
-      on_screen_only: false,
-    });
-    return Array.isArray(windows.windows)
-      ? windows.windows.filter(
-          (entry): entry is Record<string, unknown> =>
-            Boolean(entry) &&
-            typeof entry === 'object' &&
-            !Array.isArray(entry),
-        )
-      : [];
-  }
-
-  private async listWindowIds(pid: number): Promise<Set<number>> {
-    const ids = new Set<number>();
-    for (const entry of await this.listWindowRecords(pid)) {
-      const id = normalizePositiveInteger(entry.window_id);
-      if (id !== null) ids.add(id);
-    }
-    return ids;
-  }
-
-  private async callToolRecord(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    const result = await this.callTool(tool, args);
-    const payload =
-      result.structuredContent ||
-      (result.data &&
-      typeof result.data === 'object' &&
-      !Array.isArray(result.data)
-        ? result.data
-        : null);
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw new Error(
-        `mac-cua driver tool ${tool} returned non-object output.`,
-      );
-    }
-    return payload as Record<string, unknown>;
-  }
-
-  private async callToolText(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<string> {
-    const result = await this.callTool(tool, args);
-    return typeof result.data === 'string' ? result.data : '';
-  }
-
-  private async callTool(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<CuaMcpToolResult> {
-    await this.ensureMcpSession();
-    if (!this.client) throw new Error('mac-cua MCP client is not connected.');
-    const result = (await withTimeout(
-      this.client.callTool(
-        {
-          name: tool,
-          arguments: args,
-        },
-        CallToolResultSchema,
-      ),
-      this.timeoutMs,
-      `mac-cua driver tool ${tool}`,
-    )) as CallToolResult;
-    const normalized = normalizeMcpToolResult(result);
-    if (normalized.isError) {
-      const message =
-        typeof normalized.data === 'string'
-          ? normalized.data
-          : JSON.stringify(
-              normalized.data || normalized.structuredContent || {},
-            );
-      throw new Error(
-        `mac-cua driver tool ${tool} failed${message ? `: ${message}` : ''}`,
-      );
-    }
-    return normalized;
-  }
-
-  private async ensureMcpSession(): Promise<void> {
-    if (this.client) return;
-    if (this.startPromise) {
-      await this.startPromise;
-      return;
-    }
-    this.startPromise = (async () => {
-      const transport = new StdioClientTransport({
-        command: this.command,
-        args: this.args,
-        env: getDefaultEnvironment(),
-        stderr: 'pipe',
-      });
-      transport.stderr?.on('data', (chunk) => {
-        process.stderr.write(`[mac-cua] ${String(chunk)}`);
-      });
-      const client = new Client(CUA_MCP_CLIENT_INFO, { capabilities: {} });
-      await withTimeout(
-        client.connect(transport),
-        this.timeoutMs,
-        'mac-cua driver MCP connect',
-      );
-      this.transport = transport;
-      this.client = client;
-    })();
-    try {
-      await this.startPromise;
-    } finally {
-      this.startPromise = null;
-    }
-  }
-
-  private async closeMcpSession(): Promise<void> {
-    const client = this.client;
-    const transport = this.transport;
-    this.client = null;
-    this.transport = null;
-    this.startPromise = null;
-    await client?.close().catch(() => undefined);
-    await transport?.close().catch(() => undefined);
-  }
-}
-
 class MacCuaBrowserSession implements BrowserSession {
   private awaitingTwoFactor = false;
   private lastTwoFactorState: BrowserTwoFactorState | null = null;
@@ -1055,28 +263,32 @@ class MacCuaBrowserSession implements BrowserSession {
   }
 
   async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    await this.runAction('navigate', async () => {
-      assertNoUnsupportedNavigationWait(opts);
-      const parsed = await assertBrowserNavigationUrl(url, {
-        allowPrivateNetwork: this.allowPrivateNetwork,
-      });
-      await this.keyChord('l', ['cmd']);
-      await this.driver.typeTextChars(this.sessionId, {
-        text: parsed.toString(),
-      });
-      const addressBarValue = await this.driver.getAddressBarValue(
-        this.sessionId,
-      );
-      if (!addressBarValue) {
-        throw new Error(
-          'mac-cua driver did not return an address-bar AX value before navigation commit.',
+    await this.runAction(
+      'navigate',
+      async () => {
+        assertNoUnsupportedNavigationWait(opts);
+        const parsed = await assertBrowserNavigationUrl(url, {
+          allowPrivateNetwork: this.allowPrivateNetwork,
+        });
+        await this.keyChord('l', ['cmd']);
+        await this.driver.typeTextChars(this.sessionId, {
+          text: parsed.toString(),
+        });
+        const addressBarValue = await this.driver.getAddressBarValue(
+          this.sessionId,
         );
-      }
-      await assertBrowserNavigationUrl(addressBarValue, {
-        allowPrivateNetwork: this.allowPrivateNetwork,
-      });
-      await this.driver.pressKey(this.sessionId, 'return');
-    });
+        if (!addressBarValue) {
+          throw new Error(
+            'mac-cua driver did not return an address-bar AX value before navigation commit.',
+          );
+        }
+        await assertBrowserNavigationUrl(addressBarValue, {
+          allowPrivateNetwork: this.allowPrivateNetwork,
+        });
+        await this.driver.pressKey(this.sessionId, 'return');
+      },
+      'loads',
+    );
   }
 
   async back(opts?: HistoryNavigationOptions): Promise<void> {
@@ -1272,14 +484,18 @@ class MacCuaBrowserSession implements BrowserSession {
     event: BrowserWaypointEvent,
     opts?: BrowserWaypointOptions,
   ): Promise<void> {
-    await this.runAction(event, async () => {
-      this.recordWaypoint(event, opts);
-      this.awaitingTwoFactor = event === 'browser_await_two_factor';
-      if (event === 'browser_resume_interaction') {
-        this.awaitingTwoFactor = false;
-        this.lastTwoFactorState = null;
-      }
-    });
+    await this.runAction(
+      event,
+      async () => {
+        this.recordWaypoint(event, opts);
+        this.awaitingTwoFactor = event === 'browser_await_two_factor';
+        if (event === 'browser_resume_interaction') {
+          this.awaitingTwoFactor = false;
+          this.lastTwoFactorState = null;
+        }
+      },
+      'none',
+    );
   }
 
   private async keyChord(key: string, modifiers: string[]): Promise<void> {
@@ -1315,10 +531,11 @@ class MacCuaBrowserSession implements BrowserSession {
   private async runAction<T>(
     action: string,
     run: () => Promise<T>,
+    page: MacCuaPageUse = 'current',
   ): Promise<T> {
     const before = await this.driver.getEnvironmentState();
     try {
-      const result = await run();
+      const result = await this.runInSessionWindow(action, run, page);
       const after = await this.driver.getEnvironmentState();
       this.assertBackgroundSafe(before, after);
       await this.recordDetectedTwoFactor(action);
@@ -1328,6 +545,41 @@ class MacCuaBrowserSession implements BrowserSession {
       this.recordAction(action, 'error', error);
       throw error;
     }
+  }
+
+  // The operator or the browser can close the controlled window at any time.
+  // cua-driver sends keys to the browser process, so keys meant for a closed
+  // window reach whichever window has focus: check, and reopen, before every
+  // action. Only navigation reruns in the new window (once); other actions
+  // would act on its blank start page, so they fail and ask for a navigate.
+  private async runInSessionWindow<T>(
+    action: string,
+    run: () => Promise<T>,
+    page: MacCuaPageUse,
+  ): Promise<T> {
+    if (page === 'none') return await run();
+    const reopened = await this.driver.ensureSessionWindow(this.sessionId);
+    if (reopened && page === 'current') throw this.windowReopenedError(action);
+    try {
+      return await run();
+    } catch (error) {
+      // Ask the driver whether the window closed mid-action rather than
+      // parsing its error text.
+      if (
+        reopened ||
+        !(await this.driver.ensureSessionWindow(this.sessionId))
+      ) {
+        throw error;
+      }
+      if (page === 'current') throw this.windowReopenedError(action);
+      return await run();
+    }
+  }
+
+  private windowReopenedError(action: string): Error {
+    return new Error(
+      `mac-cua ${this.browserName} window was closed, so a new one was opened; navigate to the page again before retrying ${action}.`,
+    );
   }
 
   private assertBackgroundSafe(
@@ -1466,15 +718,17 @@ class MacCuaBrowserSession implements BrowserSession {
     const url = await this.driver
       .getCurrentUrl(this.sessionId)
       .catch(() => null);
+    // The browser window title is the page title; it needs no page JS.
+    const title = await this.driver.getWindowTitle(this.sessionId);
     if (!result.detected) {
-      return { detected: false, url };
+      return { detected: false, url, title };
     }
     return {
       detected: true,
       modality: 'totp',
       signals: result.signals || ['ax_two_factor_text'],
       url,
-      title: '',
+      title,
       preview: 'verification code',
       selectors: result.selectors || [],
     };
