@@ -988,6 +988,11 @@ export interface GatewayAdminJobSession {
   startedAt: string;
   lastActive: string;
   status: GatewaySessionCard['status'];
+  /**
+   * A turn is executing now. `status: 'active'` only means a worker is
+   * attached, and workers stay warm for minutes after a turn ends.
+   */
+  running: boolean;
   lastAnswer: string | null;
   output: string[];
 }
