@@ -657,6 +657,7 @@ import {
   withDelegationsNotStarted,
 } from './interrupted-delegations.js';
 import { runPushCommand } from './mobile-push.js';
+import { handleNameCommand } from './name-command.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import {
@@ -13374,6 +13375,9 @@ export async function handleGatewayCommand(
 
       case 'track':
         return handleTrackCommand(req, session);
+
+      case 'name':
+        return handleNameCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);

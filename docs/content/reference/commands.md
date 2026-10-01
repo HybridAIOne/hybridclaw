@@ -687,6 +687,23 @@ user's and one through the tool as the agent's. Done items are dropped after
 `steps` (`id`, `title`, `done`), `every` (day names or `null`), `at`, `tz`,
 `done`, `done_by`, `done_at`, `created_at` and `created_by`.
 
+### Name
+
+```text
+/name
+/name set <name>
+/name clear
+```
+
+What the agent calls the user. It is kept as "What to call them" in the
+agent's `USER.md`, which is in every turn's prompt, so the next turn uses it.
+`/name` shows that field, or the `USER.md` "Name" when it is empty; `clear`
+empties the field, so the agent goes by "Name" again. A name is one line of
+at most 80 characters. Companion apps set it from their settings with
+`--json`, which answers `{"version": 1, "name": …, "full_name": …}` in the
+same escaping as `schedule`: "What to call them" and "Name", each `null` when
+not filled in.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session
@@ -766,6 +783,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/goal [condition|status|pause|resume|clear]` | local and chat channels | Set a completion condition and keep working until judged complete or paused |
 | `/help` or `/h` | local and chat channels | Show slash-command help |
 | `/info` | TUI | Show bot, model, and runtime status together |
+| `/name [set <name>|clear]` | local TUI/web | Show or change what the agent calls you |
 | `/mcp [list|add|toggle|remove|reconnect|login|logout|status]` | local and chat channels | Manage runtime MCP servers and OAuth login state |
 | `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
 | `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |
