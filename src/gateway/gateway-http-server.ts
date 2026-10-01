@@ -14,10 +14,7 @@ import path from 'node:path';
 import * as yazl from 'yazl';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
-import {
-  EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE,
-  EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE,
-} from '../../container/shared/two-factor-detection.js';
+import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
 import {
   extractA2AMtlsPublicKeyPem,
   handleA2AHttpEnvelopeInbound,
@@ -702,17 +699,6 @@ function normalizeGatewayBrowserAgentId(value: unknown): string {
   return normalized || DEFAULT_AGENT_ID;
 }
 
-function gatewayBrowserTextPreviewHint(params: {
-  contentLength: number;
-  hasNoscript: boolean;
-  rootShell: boolean;
-}): string {
-  if (params.contentLength > 0) return 'ok';
-  if (params.hasNoscript) return 'javascript_required';
-  if (params.rootShell) return 'spa_shell_only';
-  return 'empty_extraction';
-}
-
 function normalizeGatewayBrowserSkillName(value: unknown): string {
   const normalized = String(value || '').trim();
   return normalized || 'browser';
@@ -1146,14 +1132,7 @@ async function handleApiBrowserTool(
         agentId,
         args,
         pageState,
-        fields: {
-          url,
-          title: pageState.title,
-          content_text_length: 0,
-          content_preview_truncated: false,
-          ready_state: 'native',
-          read_extraction_hint: 'native_browser',
-        },
+        fields: { url, title: pageState.title },
       });
       return;
     }
@@ -1161,37 +1140,18 @@ async function handleApiBrowserTool(
       timeoutMs: 60_000,
       waitUntil: 'domcontentloaded',
     });
-    const pageState = await active.session.evaluate(
-      browserRendererFunction<{
-        url: string;
-        title: string;
-        text_length: number;
-        preview: string;
-        preview_truncated: boolean;
-        has_noscript: boolean;
-        root_shell: boolean;
-        ready_state: string;
-      }>(EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE),
-    );
+    // The container asks for the page as a snapshot next.
+    const pageState = await active.session.evaluate(() => ({
+      url: String(window.location.href || ''),
+      title: String(document.title || ''),
+    }));
     await sendGatewayBrowserActionJson(res, {
       active,
       activeSseResponses,
       sessionId,
       agentId,
       args,
-      fields: {
-        url: pageState.url || url,
-        title: pageState.title || '',
-        content_text_length: pageState.text_length || 0,
-        ...(pageState.preview ? { content_preview: pageState.preview } : {}),
-        content_preview_truncated: pageState.preview_truncated === true,
-        ready_state: pageState.ready_state || '',
-        read_extraction_hint: gatewayBrowserTextPreviewHint({
-          contentLength: pageState.text_length || 0,
-          hasNoscript: pageState.has_noscript === true,
-          rootShell: pageState.root_shell === true,
-        }),
-      },
+      fields: { url: pageState.url || url, title: pageState.title },
     });
     return;
   }

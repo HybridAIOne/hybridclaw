@@ -6,7 +6,7 @@ export const TWO_FACTOR_MODALITIES = [
   'recovery_code',
 ];
 
-export const EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE = `() => {
+const EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE = `() => {
   const bodyText = document.body ? String(document.body.innerText || '') : '';
   const normalized = bodyText
     .replace(/\\r/g, '')

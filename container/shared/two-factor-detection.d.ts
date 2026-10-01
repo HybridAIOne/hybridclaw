@@ -46,7 +46,6 @@ export interface TwoFactorDetectionResult {
   textPreview?: string;
 }
 
-export declare const EXTRACT_TEXT_PREVIEW_FUNCTION_SOURCE: string;
 export declare const EXTRACT_TEXT_PREVIEW_SCRIPT: string;
 export declare const TWO_FACTOR_SELECTOR_HINTS_FUNCTION_SOURCE: string;
 export declare const TWO_FACTOR_SELECTOR_HINTS_SCRIPT: string;
