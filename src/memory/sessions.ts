@@ -110,6 +110,31 @@ function queryHydratedAuditEntries<Bind extends unknown[] = []>(
   );
 }
 
+/**
+ * The instance a turn addressed to `sessionId` continues in. A reset leaves
+ * the id a client pinned on a superseded instance whose `last_active` never
+ * moves again, so rotating it would start one more empty instance on every
+ * turn. Once that instance has expired, the turn continues in the
+ * conversation's current one instead. A superseded instance that has not
+ * expired is still continued as asked, and `sessionMode: 'resume'` skips this
+ * lookup.
+ */
+export function resolveTurnSessionId(
+  sessionId: string,
+  policy: SessionResetPolicy,
+): string {
+  const exact = selectSessionById(String(sessionId || '').trim());
+  if (!exact?.session_key || exact.is_current !== 0) return sessionId;
+  try {
+    if (!evaluateSessionExpiry(policy, exact.last_active).isExpired) {
+      return sessionId;
+    }
+  } catch {
+    return sessionId;
+  }
+  return selectCurrentSessionBySessionKey(exact.session_key)?.id ?? sessionId;
+}
+
 export function resetSessionIfExpired(
   sessionId: string,
   opts: {

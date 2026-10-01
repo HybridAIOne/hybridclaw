@@ -2654,6 +2654,57 @@ describe.sequential('schema migrations', () => {
     }
   });
 
+  test('a turn to a superseded instance continues in the current one instead of forking', async () => {
+    vi.resetModules();
+    const {
+      getOrCreateSession,
+      initDatabase,
+      listSessionInstancesForKey,
+      resetSessionIfExpired,
+      resolveTurnSessionId,
+      switchCurrentSessionInstance,
+    } = await import('../src/memory/db.js');
+    const { withMemoryDatabase } = await import('../src/memory/database.js');
+    initDatabase({ quiet: true, dbPath: createTempDbPath() });
+    const policy = { mode: 'both' as const, atHour: 4, idleMinutes: 1440 };
+    const pinned = getOrCreateSession('app-pinned', null, 'web');
+    withMemoryDatabase((database) =>
+      database
+        .prepare(
+          "UPDATE sessions SET last_active = datetime('now', '-2 days') WHERE id = ?",
+        )
+        .run(pinned.id),
+    );
+
+    // The client keeps sending the id it started with, turn after turn.
+    const reached: string[] = [];
+    for (let turn = 0; turn < 3; turn += 1) {
+      const sessionId = resolveTurnSessionId('app-pinned', policy);
+      const rotated = resetSessionIfExpired(sessionId, { policy });
+      reached.push(
+        getOrCreateSession(rotated?.id ?? sessionId, null, 'web').id,
+      );
+    }
+
+    expect(new Set(reached).size).toBe(1);
+    expect(reached[0]).not.toBe('app-pinned');
+    expect(listSessionInstancesForKey('app-pinned')).toHaveLength(2);
+    // Unknown ids and current instances pass through unchanged, and so does a
+    // superseded instance that has not expired: it is continued as asked.
+    expect(resolveTurnSessionId('never-seen', policy)).toBe('never-seen');
+    expect(resolveTurnSessionId(reached[0], policy)).toBe(reached[0]);
+    switchCurrentSessionInstance({
+      sessionKey: 'app-pinned',
+      targetSessionId: 'app-pinned',
+    });
+    expect(resolveTurnSessionId('app-pinned', policy)).toBe('app-pinned');
+    expect(resolveTurnSessionId(reached[0], policy)).toBe(reached[0]);
+    // Without automatic resets nothing expires, so nothing is redirected.
+    expect(
+      resolveTurnSessionId(reached[0], { ...policy, mode: 'none' }),
+    ).toBe(reached[0]);
+  });
+
   test('stores a collapsed main_session_key for linked DM identities', async () => {
     const originalHome = process.env.HOME;
     const runtimeHome = fs.mkdtempSync(

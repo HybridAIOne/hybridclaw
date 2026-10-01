@@ -287,6 +287,7 @@ import {
   listUsageBySession,
   listUsageDailyBreakdown,
   recordRequestLog,
+  resolveTurnSessionId,
   sessionHasUserMessages,
   setMemoryValue,
   switchCurrentSessionInstance,
@@ -10022,6 +10023,9 @@ export async function handleGatewayCommand(
     });
   const cmd = parseLowerArg(req.args, 0);
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
+  if (req.sessionMode !== 'resume') {
+    req.sessionId = resolveTurnSessionId(req.sessionId, sessionResetPolicy);
+  }
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
     channelId: req.channelId,
