@@ -164,8 +164,8 @@ import {
 } from './delegation-plan.js';
 import { DELEGATION_RESULTS_SOURCE } from './delegation-results-message.js';
 import {
+  beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
-  withDeviceDataTurn,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
@@ -610,18 +610,16 @@ export async function handleGatewayMessage(
   }
   return trackInFlightTurn(() =>
     gatewaySessionQueue.run(req.sessionId, () =>
-      withDeviceDataTurn(req.sessionId, req.userId, () =>
-        withSpan(
-          'hybridclaw.gateway.handle_message',
-          {
-            'hybridclaw.session_id': req.sessionId,
-            'hybridclaw.agent_id': req.agentId || '',
-            'hybridclaw.channel_id': req.channelId || '',
-            'hybridclaw.model': req.model || '',
-          },
-          async () =>
-            withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
-        ),
+      withSpan(
+        'hybridclaw.gateway.handle_message',
+        {
+          'hybridclaw.session_id': req.sessionId,
+          'hybridclaw.agent_id': req.agentId || '',
+          'hybridclaw.channel_id': req.channelId || '',
+          'hybridclaw.model': req.model || '',
+        },
+        async () =>
+          withChatRoutingTrace(req, () => handleGatewayMessageInner(req)),
       ),
     ),
   );
@@ -2073,6 +2071,12 @@ async function handleGatewayMessageInner(
     hatchingCompletion = null;
   };
 
+  // The agent's `device_data` call names the session the agent runs in: the
+  // one this turn resolved to, not always the one the request named.
+  const endDeviceDataTurn = beginDeviceDataTurn(
+    req.executionSessionId || req.sessionId,
+    req.userId,
+  );
   try {
     const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
       listManageableScheduledTasks(session);
@@ -3156,6 +3160,7 @@ async function handleGatewayMessageInner(
     await emitPostTurnForResult(result);
     return result;
   } finally {
+    endDeviceDataTurn();
     activeGatewayRequest.release();
   }
 }

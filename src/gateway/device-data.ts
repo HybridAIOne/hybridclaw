@@ -163,19 +163,20 @@ export function blockDeviceDataToolUnlessShared(
 // session, and a session runs one turn at a time.
 const turnUsers = new Map<string, string>();
 
-export async function withDeviceDataTurn<T>(
+/**
+ * Marks a turn of `userId` as running in `sessionId`, the id the agent runs
+ * under, until the returned function is called.
+ */
+export function beginDeviceDataTurn(
   sessionId: string,
   userId: string | null | undefined,
-  run: () => Promise<T>,
-): Promise<T> {
+): () => void {
   const id = validUserId(userId);
-  if (!id) return run();
+  if (!id) return () => {};
   turnUsers.set(sessionId, id);
-  try {
-    return await run();
-  } finally {
+  return () => {
     if (turnUsers.get(sessionId) === id) turnUsers.delete(sessionId);
-  }
+  };
 }
 
 // Case and accents do not count: "muller" finds "Müller".
