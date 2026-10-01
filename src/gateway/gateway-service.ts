@@ -194,6 +194,7 @@ import {
   makeMicrosoftOAuthSecretRef,
   normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeAuxiliaryModelPolicyConfig,
+  type RuntimeBrowserProviderKind,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -1296,6 +1297,19 @@ export function resolveSessionAutoResetPolicy(
   // the user's back. Compaction bounds these sessions instead (requested
   // 2026-10-01 for the HybridAI app's main thread).
   return client === 'mobile' ? { ...policy, mode: 'none' } : policy;
+}
+
+/**
+ * The browser a turn drives, when it is not the configured one. The phone app
+ * watches the agent browse through the pages and frames that only the agent's
+ * own browser reports; a browser on the gateway's desktop (mac-cua) or in a
+ * remote pool shows the phone nothing. So turns from the phone always use the
+ * local browser.
+ */
+export function resolveTurnBrowserProvider(
+  client?: GatewayChatRequest['client'],
+): RuntimeBrowserProviderKind | undefined {
+  return client === 'mobile' ? 'local' : undefined;
 }
 
 export function resolveCanonicalContextScope(
