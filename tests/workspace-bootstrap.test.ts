@@ -216,7 +216,7 @@ describe('workspace bootstrap lifecycle', () => {
     expect(postHatchAgents?.content).toContain('## Every Session');
   });
 
-  test('drops group-chat guidance and channel setup links only on request', async () => {
+  test('drops group-chat guidance and helpful links only on request', async () => {
     const homeDir = makeTempDir('hybridclaw-home-');
     const unrelatedCwd = makeTempDir('hybridclaw-cwd-');
     vi.stubEnv('HOME', homeDir);
@@ -242,9 +242,10 @@ describe('workspace bootstrap lifecycle', () => {
     expect(agents).not.toContain('React Like a Human');
     expect(agents).toContain('## Tools');
     const user = find(trimmed, 'USER.md');
+    expect(user).not.toContain('## Helpful Links');
     expect(user).not.toContain('channel setup');
-    expect(user).toContain('[Open chat](/chat)');
-    expect(user).toContain('[Open docs](/docs/)');
+    expect(user).not.toContain('[Open chat](/chat)');
+    expect(user).toContain('## Welcome Message');
   });
 
   test('seeds short hatching bootstrap instructions into fresh agent workspaces', async () => {

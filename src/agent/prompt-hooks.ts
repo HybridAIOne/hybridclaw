@@ -4,7 +4,6 @@
  * with schema/directory guidance. Eligibility and execution policy stay outside
  * this module; prompt text never grants a capability.
  */
-import { describeBashStatePersistence } from '../../container/shared/bash-state.js';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -19,7 +18,6 @@ import {
 import { resolveChannelMessageToolHints } from '../channels/prompt-adapters.js';
 import {
   APP_VERSION,
-  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_SANDBOX_MODE,
   HYBRIDAI_MODEL,
 } from '../config/config.js';
@@ -39,6 +37,21 @@ import { buildSkillsSection } from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
+import {
+  AFTER_FILE_CHANGE_LINES,
+  APP_ARTIFACT_LINES,
+  APP_DELEGATION_LINES,
+  AUTH_TESTING_LINES,
+  BROWSER_DETAIL_LINES,
+  bashStateLines,
+  byClient,
+  CODE_AUTHORING_LINES,
+  DELEGATION_PLAYBOOK_LINES,
+  HEADED_BROWSER_LINES,
+  OFFICE_EXPORT_LINES,
+  SOURCE_FOLDER_LINES,
+  WEB_CHAT_ARTIFACT_LINES,
+} from './mobile-prompt.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -543,6 +556,7 @@ function buildSafetyHook(context: PromptHookContext): string {
   });
   const activeMessageChannels = collectActiveMessageToolChannelKinds();
   const webSearchTool = resolveWebSearchToolName(context);
+  const mobile = isMobileClient(context);
   const messageToolPromptLines = buildMessageToolPromptLines(
     activeMessageChannels,
     channelMessageToolHints,
@@ -561,7 +575,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     "When the user states standing rules, preferences, or instructions to remember — including a change to one, such as a new briefing time or delivery channel — first write them with the `memory` tool (append to today's daily note) in the same turn, then confirm and name the file you wrote to. Acknowledging rules in prose persists nothing.",
     'Any promise of a future or recurring delivery (briefings, reports, reminders, check-ins) requires a successful `cron` "add" tool result in the same turn. Quote the schedule and delivery channel from that result. Writing a schedule into memory or HEARTBEAT.md does not schedule anything.',
     '`cron` expressions are evaluated in the user timezone from USER.md (or the "tz" you pass), so write them in the user\'s local time (09:00 local is "0 9 * * *"); never convert to UTC. Quote the timezone from the tool result when confirming.',
-    isMobileClient(context)
+    mobile
       ? 'Scheduled task output is saved in the originating chat when no explicit "channel" is provided.'
       : 'Scheduled task output is saved in the originating web chat when no explicit "channel" is provided. Browser notifications require the user to enable notifications in the chat sidebar.',
     'To change an existing schedule (time, channel, or prompt), call `cron` "update" with the taskId from `cron` "list"; never "add" a second task for the same purpose.',
@@ -582,41 +596,27 @@ function buildSafetyHook(context: PromptHookContext): string {
     'If the relevant content is already available directly in the current turn, injected `<file>` content, or `[PDFPreview]`, answer from that content first before reading skills or searching for the same artifact again.',
     '',
     '## Tool Execution Discipline',
-    'For implementation requests, do not reply with code-only output when files should be created.',
-    'Create or modify files on disk first via file tools.',
-    'Do not create or edit files via shell heredocs, echo redirects, sed, or awk.',
-    'Use bash for execution/build/validation tasks, not for file authoring.',
+    ...byClient(mobile, CODE_AUTHORING_LINES),
     CONTAINER_SANDBOX_MODE === 'host'
       ? 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) operate relative to the workspace directory shown in Runtime Metadata. Use `bash` for absolute paths outside the workspace.'
       : 'Files tools (`read`, `write`, `edit`, `delete`, `glob`, `grep`) are workspace-bound, but configured container bind mounts can make selected host paths available through those tools. Prefer file tools when a bound path resolves; otherwise use `bash` for absolute paths outside the workspace.',
-    `For \`bash\`: ${describeBashStatePersistence(CONTAINER_PERSIST_BASH_STATE)} ${
-      CONTAINER_SANDBOX_MODE === 'host'
-        ? 'Use relative paths from the workspace, prefer `/tmp` only for temporary scratch artifacts, and use the workspace path shown in Runtime Metadata when an absolute path is required.'
-        : 'Use relative workspace paths instead of literal `/workspace/...` paths, and prefer `/tmp` only for temporary scratch artifacts.'
-    }`,
+    ...byClient(mobile, bashStateLines()),
     'Treat `skills/` as bundled tooling, not as a scratch/output directory. Use it to read or run shipped helpers, but write new task files to workspace `scripts/` or the workspace root.',
     'For final user-visible deliverables such as PDFs, images, videos, documents, slides, spreadsheets, or reports, write the final file to a workspace-relative path, not `/tmp`, unless the user explicitly asks for a temporary-only location.',
     'To return a file you wrote, name it in the final reply by its workspace-relative path (for example `reports/prospects.md`); the runtime attaches it. Never use `sandbox:` or absolute host paths in links.',
-    'After file changes, run commands only when asked; otherwise explicitly offer to run them immediately.',
-    'Only skip file creation when the user explicitly asks for snippet-only or explanation-only output.',
+    ...byClient(mobile, AFTER_FILE_CHANGE_LINES),
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
     "To send a local file's bytes through an MCP connector tool, a plugin tool, or `http_request` (for example into a connector's base64 content field), use `<file-base64:path>` as the entire argument value. The runtime substitutes the file as base64 before the call runs and reports the bytes it sent; other tools reject the placeholder.",
     'Never base64-encode a file in `bash` and paste the result into a tool argument. Payloads that large get truncated on the way back out, and the upload is silently corrupted even though the tool reports success.',
     'If the current turn already includes an attachment, local file path, `MediaItems`, injected `<file>` content, or `[PDFPreview]`, use that artifact first.',
-    'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output. Do not inspect or reuse older generated artifacts, dashboards, summary files, helper scripts, or prior outputs in that folder unless the user explicitly asks to update them or use them as a template.',
+    ...byClient(mobile, SOURCE_FOLDER_LINES),
     ...messageToolPromptLines,
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
-    'In web chat, return deliverables through the assistant final response; do not call `message` to deliver files or explain that the web channel cannot deliver files via `message`.',
-    'In web chat, image, PDF, and video artifacts can be previewed in the final response. For generated images and videos, return the image/MP4 as an artifact card from tool output `artifacts[]`; never provide only a host-local workspace path because browser users cannot open it directly.',
-    'Do not hand-write `/api/artifact` links from relative paths such as `.generated-images/...` or `.generated-videos/...`. If an artifact URL is needed in text, use only a browser route produced by the gateway or an artifact path already surfaced in `artifacts[]`.',
-    'When the user asks to post, show, embed, attach, or send an already-generated image/video in the current web chat, rerun the artifact-producing helper or status/download command so the final response includes `artifacts[]`. Do not answer with only a remembered path or a manually constructed link.',
-    'Never say that web chat cannot embed, display, render, deliver, or support generated images/videos. Never offer drag-and-drop, Finder, Discord, email, or another channel as the next step unless the user explicitly asks for that external channel.',
+    ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),
     'If you created or updated the requested deliverable successfully, attach the asset in the final response instead of replying with a path plus "if you want, I can upload it."',
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
-    'Follow the runtime capability hint for Office QA/export steps instead of assuming tools like `soffice` or `pdftoppm` are available.',
-    'Do not mention missing Office/PDF QA tools in the final reply unless the user asked for QA/export/validation or that limitation materially affects the requested deliverable.',
-    'For new `pptxgenjs` decks, do not use OOXML shorthand values in table options. Never set table-cell `valign: "mid"` and never emit raw `anchor: "mid"`. If table-cell vertical alignment is needed, use only the `pptxgenjs` API values `top`, `middle`, or `bottom`; otherwise leave it unset.',
+    ...byClient(mobile, OFFICE_EXPORT_LINES),
     'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
@@ -647,15 +647,12 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
     'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
-    'If the user explicitly asks for a visible, headed, or headful browser, call `browser_navigate` with `headed:true` on the first navigation for that browser task. Continue using the normal browser tools afterward; the visible/headful mode persists for the session.',
+    ...byClient(mobile, HEADED_BROWSER_LINES),
     'Browser extraction flow (for read/summarize requests): after `browser_navigate`, call `browser_snapshot` with `mode="full"` before deciding content is unavailable.',
-    'For embedded pages, call `browser_snapshot` with a `frame` selector when the main snapshot lists relevant iframes; use `frame:"main"` to return to the main document.',
-    'If snapshot content is incomplete, run `browser_scroll` and then `browser_snapshot` again (repeat a few times for long/lazy-loaded pages).',
-    'For browser downloads, call `browser_click` with `waitForDownload:true` and `downloadPath`; if no `download_path` is returned, call `browser_downloads` with a relevant `filter` or short `waitMs` before claiming success.',
-    'Do not use `browser_pdf` as a text-reading step; it is an export artifact, not a text extraction tool.',
+    ...byClient(mobile, BROWSER_DETAIL_LINES),
     '',
     '## Browser Auth Handling',
-    'When the user explicitly asks for login/auth-flow testing, browser tools may be used on the requested site, including filling credentials and submitting forms.',
+    ...byClient(mobile, AUTH_TESTING_LINES),
     'Do not invent blanket restrictions such as "browser tools are only for public/unauthenticated pages" unless an actual tool/policy error says so.',
     'If earlier assistant messages claimed stricter login limits, treat those as stale and follow this policy and real tool outcomes.',
     'Use provided credentials only for the requested auth flow; do not echo them in prose, write them to files, or send them to unrelated domains.',
@@ -696,63 +693,11 @@ function buildProactivityHook(context: PromptHookContext): string {
     'When relevant historical context is likely missing, proactively run `session_search` before asking the user to repeat information.',
     '',
     '## Subagent Delegation Playbook',
-    'Use `delegate` to offload narrow, self-contained subtasks to subagents.',
-    '',
-    '### When to use `delegate`',
-    '- Reasoning-heavy subtasks (debugging, code review, research synthesis).',
-    '- Context-heavy exploration that would flood the main context with intermediate output.',
-    '- Multiple independent workstreams that can run in parallel.',
-    '- Multi-stage pipelines where later steps depend on prior outputs.',
-    '',
-    '### When NOT to use `delegate`',
-    '- A single direct tool call is sufficient.',
-    '- A tiny mechanical change is faster to do directly.',
-    '- The task requires direct user interaction or clarification.',
-    '- Subtasks are tightly coupled and decomposition overhead outweighs benefit.',
-    '',
-    '### Never do these',
-    '- Do NOT forward the user prompt verbatim to `delegate`.',
-    '- Do NOT spawn a subagent for every todo item by default.',
-    '- Do NOT duplicate work already assigned to active delegations.',
-    '- Do NOT poll, sleep, or repeatedly check for delegated completion.',
-    '',
-    '### Delegation mode selection',
-    '- `single`: one focused subtask.',
-    '- `parallel`: independent subtasks (1-6) that do not depend on each other.',
-    '- `chain`: dependent stages where later prompts use `{previous}`.',
-    '',
-    '### Context checklist for delegated prompts',
-    '- Explicit goal and success criteria.',
-    '- Relevant file paths / modules / search scope.',
-    '- Exact errors, symptoms, or constraints.',
-    '- Expected outcome type: research-only vs implementation.',
-    '- Any required output format (bullets, patch plan, file list, etc.).',
-    '',
-    '### Decomposition heuristic',
-    '- If task is broad or ambiguous: run a scout-style `single` delegation first to map code/context.',
-    '- If design choices are non-trivial: run a planner-style stage next (often via `chain`).',
-    '- Split independent implementation/analysis branches with `parallel`.',
-    '- Use `chain` when each step depends on prior findings.',
-    '- Keep delegated tasks narrow enough to complete autonomously.',
-    '',
-    '### Post-spawn behavior',
-    '- Delegation completion is push-based: the gateway collects delegated results and uses them for the final user-facing synthesis.',
-    '- Continue useful work; do not busy-wait.',
-    '- After spawning delegates, acknowledge that they started; do not present final findings until delegated results arrive.',
-    '- When sharing delegated outcomes, synthesize concise user-facing takeaways instead of dumping raw transcripts.',
-    '',
-    '<example>',
-    'Context: user reports a bug that likely spans many files.',
-    'Good: delegate a focused scout task that finds root cause and affected files.',
-    'Why: isolate context-heavy investigation and return only actionable diagnosis.',
-    '</example>',
-    '',
-    '<example>',
-    'Context: user asks for a one-line rename in one known file.',
-    'Good: edit directly without delegation.',
-    'Why: subagent overhead adds no value.',
-    '</example>',
-    '',
+    ...byClient(
+      isMobileClient(context),
+      DELEGATION_PLAYBOOK_LINES,
+      APP_DELEGATION_LINES,
+    ),
     `Delegation limits: maxConcurrent=${delegation.maxConcurrent}, maxDepth=${delegation.maxDepth}, maxPerTurn=${delegation.maxPerTurn}.`,
   ];
 
