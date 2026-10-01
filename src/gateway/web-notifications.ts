@@ -23,7 +23,11 @@ import {
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
-import { replyAlert, sendMobilePush } from './mobile-push.js';
+import {
+  phoneAssistantName,
+  replyAlert,
+  sendMobilePush,
+} from './mobile-push.js';
 import {
   bindWebNotificationSession,
   deleteWebPushSubscription,
@@ -156,7 +160,7 @@ async function phoneAlert(notification: WebNotification) {
     : null;
   return replyAlert({
     notification,
-    assistant: agent?.displayName || agent?.name || 'HybridClaw',
+    assistant: phoneAssistantName(notification.agentId, agent),
   });
 }
 

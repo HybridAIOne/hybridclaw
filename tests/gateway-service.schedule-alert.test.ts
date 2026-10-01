@@ -81,7 +81,8 @@ test('a task added with --alert rings the phone with the first item its run list
     sessionId: APP_CHAT,
     count: 2,
   });
-  expect(typeof payload.aps.alert.title).toBe('string');
+  // The chat is the default agent's, which a phone knows as Hy.
+  expect(payload.aps.alert.title).toBe('Hy');
 
   // A run that lists nothing says nothing; neither does a task without --alert.
   deliverWebScheduledMessage(APP_CHAT, '[]', source);
@@ -126,7 +127,7 @@ test('a reminder rings with the assistant name and its text; an --alert task onl
   deliverWebScheduledMessage(APP_CHAT, 'huhu', 'schedule:7:system');
   const [reminder] = await alerts();
   expect(reminder).toMatchObject({
-    aps: { alert: { title: 'Main Agent', body: 'huhu' }, badge: 1 },
+    aps: { alert: { title: 'Hy', body: 'huhu' }, badge: 1 },
     kind: 'reminder',
     sessionId: APP_CHAT,
     agentId: 'main',
