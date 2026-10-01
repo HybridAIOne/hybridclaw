@@ -258,19 +258,47 @@ test('a text click presses the matching link, not the application', async () => 
   });
 });
 
+test('a text click waits for a loading page to show the link', async () => {
+  let reads = 0;
+  const { calls, driver, sessionId } = await launchedSafari(({ name }) => {
+    if (name !== 'get_window_state') return undefined;
+    reads += 1;
+    return { tree_markdown: reads < 3 ? '' : DASHBOARD_QUERY_TREE };
+  });
+
+  const resolved = await driver.resolveTarget(sessionId, {
+    kind: 'query',
+    query: 'Dashboard',
+  });
+
+  expect(reads).toBe(3);
+  expect(resolved.target).toEqual({
+    kind: 'ax',
+    elementIndex: 23,
+    windowId: 11,
+  });
+  expect(calls.some((call) => call.name === 'click')).toBe(false);
+});
+
 test('an unmatched text click explains how to target elements', async () => {
   const { driver, sessionId } = await launchedSafari(({ name }) =>
     name === 'get_window_state' ? { tree_markdown: '' } : undefined,
   );
+  vi.useFakeTimers();
+  try {
+    const resolving = driver.resolveTarget(sessionId, {
+      kind: 'query',
+      query: "a[href*='dashboard']",
+    });
+    await vi.advanceTimersByTimeAsync(6_000);
+    const resolved = await resolving;
 
-  const resolved = await driver.resolveTarget(sessionId, {
-    kind: 'query',
-    query: "a[href*='dashboard']",
-  });
-
-  await expect(driver.click(sessionId, resolved.target)).rejects.toThrow(
-    /No element on the page matches "a\[href\*='dashboard'\]".*browser_snapshot/,
-  );
+    await expect(driver.click(sessionId, resolved.target)).rejects.toThrow(
+      /No element on the page matches "a\[href\*='dashboard'\]".*browser_snapshot/,
+    );
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('reads the URL from the address field once Safari refuses page JavaScript', async () => {

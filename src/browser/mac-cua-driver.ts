@@ -138,6 +138,10 @@ type DriverSession = {
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
 const NEW_WINDOW_TIMEOUT_MS = 5_000;
 const NEW_WINDOW_POLL_MS = 150;
+// Like Playwright's auto-wait: navigate returns once Return is pressed, so a
+// click right after it can run before the page has its links.
+const QUERY_WAIT_MS = 5_000;
+const QUERY_POLL_MS = 500;
 const CUA_MCP_CLIENT_INFO = {
   name: 'hybridclaw-mac-cua',
   version: process.env.npm_package_version || '0.0.0',
@@ -447,18 +451,26 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     const session = this.requireSession(sessionId);
     if (target.kind === 'point') return { target };
     if (target.kind === 'ax') return { target };
-    const record = await this.callToolRecord('get_window_state', {
-      pid: session.pid,
-      window_id: session.windowId,
-      query: target.query,
-    });
-    const elementIndex = resolveMacCuaQueryElementIndex(
-      windowStateTree(record),
-      target.query,
-      purpose,
-    );
-    if (elementIndex === null) return { target };
-    return { target: { kind: 'ax', elementIndex, windowId: session.windowId } };
+    const deadline = Date.now() + QUERY_WAIT_MS;
+    for (;;) {
+      const record = await this.callToolRecord('get_window_state', {
+        pid: session.pid,
+        window_id: session.windowId,
+        query: target.query,
+      });
+      const elementIndex = resolveMacCuaQueryElementIndex(
+        windowStateTree(record),
+        target.query,
+        purpose,
+      );
+      if (elementIndex !== null) {
+        return {
+          target: { kind: 'ax', elementIndex, windowId: session.windowId },
+        };
+      }
+      if (Date.now() >= deadline) return { target };
+      await sleep(QUERY_POLL_MS);
+    }
   }
 
   async readPage(
