@@ -62,9 +62,8 @@ test('the tool reads through the gateway what the running turn’s user shares',
         ...(query ? { query } : {}),
       }),
     );
-  const during = await device.withDeviceDataTurn('chat-1', 'user_a', () =>
-    read(' Calendar '),
-  );
+  const endTurn = device.beginDeviceDataTurn('chat-1', 'user_a');
+  const during = await read(' Calendar ');
 
   expect(requests[0]).toEqual({
     url: `${GATEWAY_URL}/api/device-data`,
@@ -73,9 +72,7 @@ test('the tool reads through the gateway what the running turn’s user shares',
   });
   expect(during).toContain('- no events');
   expect(during).not.toContain('Health');
-  const found = await device.withDeviceDataTurn('chat-1', 'user_a', () =>
-    read('contacts', ' Anna '),
-  );
+  const found = await read('contacts', ' Anna ');
   expect(requests[1].body).toEqual({
     sessionId: 'chat-1',
     source: 'contacts',
@@ -83,6 +80,7 @@ test('the tool reads through the gateway what the running turn’s user shares',
   });
   expect(found).toContain('- Anna Schmidt · sister');
   expect(found).not.toContain('Bob');
+  endTurn();
   // Outside the user's turn, nothing.
   expect(await read()).toContain('shares nothing here');
 });
