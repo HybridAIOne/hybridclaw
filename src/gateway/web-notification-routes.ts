@@ -26,10 +26,14 @@ import {
   webPushKeys,
 } from './web-notifications.js';
 
+// `ownerToken`: the owner's own phone (`device-grants.ts`). It is the operator
+// the gateway's master token is, so chats a hosting service relayed for the
+// owner before stay the phone's, and every phone of the owner shares them.
 export function resolveWebNotificationOperator(
   kind: string,
   actor: string | null | undefined,
   tokenId?: string,
+  ownerToken = false,
 ): string | null {
   switch (kind) {
     case 'master':
@@ -38,6 +42,7 @@ export function resolveWebNotificationOperator(
     case 'session':
       return actor ? notificationOperatorId(`session:${actor}`) : null;
     case 'apiToken':
+      if (ownerToken) return notificationOperatorId('local-operator');
       return tokenId ? notificationOperatorId(`apiToken:${tokenId}`) : null;
     default:
       return null;

@@ -233,9 +233,11 @@ import {
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
+  DEVICE_HANDOFF_PATH,
   DEVICE_TOKEN_PATH,
   handleAdminDeviceRoute,
   handleDeviceGrantRoute,
+  isOwnerDeviceToken,
   parseAdminDeviceUserCode,
 } from './device-grants.js';
 import {
@@ -10819,7 +10821,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         }
       }
 
-      if (pathname === DEVICE_CODE_PATH || pathname === DEVICE_TOKEN_PATH) {
+      if (
+        pathname === DEVICE_CODE_PATH ||
+        pathname === DEVICE_TOKEN_PATH ||
+        pathname === DEVICE_HANDOFF_PATH
+      ) {
         void handleDeviceGrantRoute(
           req,
           res,
@@ -10854,6 +10860,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             normalizeOptionalString(authContext.payload?.sub) ||
               resolveAdminSessionActor(authContext.payload),
             authContext.tokenId,
+            isOwnerDeviceToken(authContext.payload),
           );
           if (pathname.startsWith('/api/push/')) {
             if (!operatorId) {

@@ -46,6 +46,21 @@ the same token started and never returns user turns. Revoke the token under API
 tokens. The two device routes need no credentials; approving needs
 `admin.tokens.create` from a session, never from an API token.
 
+A hosted gateway's owner skips the code. The hosting service, which holds the
+gateway's auth secret, signs the owner's phone a one-time pass shaped like a
+launch token with `"typ": "device-handoff"`, the owner as `sub`, a `jti` and a
+short `exp`. The phone sends `POST /api/device/handoff` with
+`{"handoff": "…", "client_name": "…"}` and gets
+`{"access_token": "hck_…", "token_type": "Bearer"}`, or `invalid_grant` for a
+bad, expired or already used pass. That token also holds `chat.history`
+(`GET /api/history`) and the claim `"owner": true`: its notifications and chats
+are the owner's, the same ones the master token reaches, so chats the hosting
+service relayed before stay readable. A browser launch token is never accepted
+as a pass, and a pass never opens the console.
+
+A device signs out with `DELETE /api/device/token` and its own token as
+`Authorization: Bearer hck_…`. That revokes the calling token and nothing else.
+
 Browser admin surfaces prefer HttpOnly session cookies. If a bearer token must
 be entered manually, the console stores it in `sessionStorage` for the current
 browser tab only and deletes any legacy `localStorage` copy. Live admin event
