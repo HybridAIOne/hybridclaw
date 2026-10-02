@@ -125,9 +125,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   await ensureAgentPackagingRuntime();
 
-  const rawSub = normalized[0].toLowerCase();
-  const sub =
-    rawSub === 'pack' ? 'export' : rawSub === 'unpack' ? 'install' : rawSub;
+  const sub = normalized[0].toLowerCase();
   if (sub === 'list') {
     if (normalized.length !== 1) {
       printAgentUsage();
@@ -889,6 +887,6 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
+    `Unknown agent subcommand: ${sub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
   );
 }
