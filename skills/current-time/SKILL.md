@@ -1,6 +1,6 @@
 ---
 name: current-time
-description: Return the current system time and timezone by calling a tool instead of guessing.
+description: The current date, time, and timezone are in the `Current Date & Time` line of the latest `<context>` block; answer from it directly, without reading this skill or calling a tool.
 user-invocable: true
 disable-model-invocation: false
 metadata:
@@ -15,20 +15,12 @@ metadata:
 ---
 # Current Time
 
-Use when the user asks for the current time, date, timezone, "right now", "what time is it", or similar.
+Each turn carries a `<context>` block whose `Current Date & Time` line holds
+the weekday, date, and time to the minute when the turn started, followed by
+the IANA timezone in parentheses. The zone is the user's `USER.md` timezone,
+else the host's. Older `<context>` blocks in the history show older times.
 
-## Workflow
-
-1. Run a real-time command with `bash`:
-```bash
-date +"%Y-%m-%d %H:%M:%S %Z (%z)"
-```
-
-2. Return the result in one short line:
-`Current time skill output: <output>`
-
-## Constraints
-
-- Do not estimate or infer time from memory.
-- Always use the command output from this turn.
-- Keep the response concise unless the user asks for more detail.
+- Answer from the latest `Current Date & Time` line, without a tool call.
+- For another timezone, convert from that line.
+- Only if the latest `<context>` block has no `Current Date & Time` line, run
+  `date +"%Y-%m-%d %H:%M %Z (%z)"` with `bash`.
