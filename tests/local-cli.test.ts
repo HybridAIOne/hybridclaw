@@ -141,14 +141,15 @@ afterEach(() => {
   }
 });
 
-test('local configure lmstudio enables the backend and normalizes the URL', async () => {
+test('auth login local lmstudio enables the backend and normalizes the URL', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'lmstudio',
     'qwen/qwen3.5-9b',
     '--base-url',
@@ -171,13 +172,14 @@ test('local configure lmstudio enables the backend and normalizes the URL', asyn
   );
 });
 
-test('local configure llamacpp enables the backend and normalizes the URL', async () => {
+test('auth login local llamacpp enables the backend and normalizes the URL', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'llamacpp',
     'Meta-Llama-3-8B-Instruct',
     '--base-url',
@@ -194,14 +196,15 @@ test('local configure llamacpp enables the backend and normalizes the URL', asyn
   );
 });
 
-test('local configure without model enables the backend and preserves the default model', async () => {
+test('auth login local without model enables the backend and preserves the default model', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'lmstudio',
     '--base-url',
     'http://127.0.0.1:1234',
@@ -220,13 +223,14 @@ test('local configure without model enables the backend and preserves the defaul
   expect(logSpy).toHaveBeenCalledWith('  /model list lmstudio');
 });
 
-test('local configure --no-default preserves the existing default model', async () => {
+test('auth login local --no-default preserves the existing default model', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'lmstudio',
     'qwen/qwen3.5-9b',
     '--base-url',
@@ -982,13 +986,14 @@ test('channels imessage setup configures the remote backend and stores IMESSAGE_
   expect(secrets.IMESSAGE_PASSWORD).toBe('bluebubbles-password');
 });
 
-test('local configure vllm stores api key in runtime secrets and writes a store ref', async () => {
+test('auth login local vllm stores api key in runtime secrets and writes a store ref', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'vllm',
     'meta-llama/Llama-3.1-8B-Instruct',
     '--base-url',
@@ -1023,13 +1028,14 @@ test('local configure vllm stores api key in runtime secrets and writes a store 
   expect(secrets.VLLM_API_KEY).toBe('vllm-secret-key');
 });
 
-test('local configure vllm with name stores a named endpoint secret ref', async () => {
+test('auth login local vllm with name stores a named endpoint secret ref', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
 
   await cli.main([
+    'auth',
+    'login',
     'local',
-    'configure',
     'vllm',
     'google/gemma-3-27b-it',
     '--name',

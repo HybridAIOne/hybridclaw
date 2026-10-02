@@ -206,8 +206,6 @@ hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 hybridclaw auth status <provider>
 hybridclaw auth logout <provider>
 hybridclaw auth whatsapp reset
-hybridclaw local status
-hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
 hybridclaw help hybridai
 hybridclaw help codex
 hybridclaw help anthropic
@@ -233,8 +231,6 @@ hybridclaw help local
 `mistral`, `huggingface`, `google`, `gemini`, `deepseek`, `xai`, `zai`,
 `kimi`, `minimax`, `dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and
 `slack`.
-Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
-`hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
 `hybridclaw onboarding`.
 `auth status` prints local credential-source and config state while redacting
@@ -524,23 +520,6 @@ are evaluated in order, first match wins, and bare site-scope hosts such as
 `github.com` also match subdomains such as `api.github.com`. Use
 `policy list --agent <id>` to show both global rules and rules scoped to a
 specific agent.
-
-## Deprecated Provider Aliases
-
-```bash
-hybridclaw local status
-hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
-hybridclaw hybridai base-url [url]
-hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
-hybridclaw hybridai logout
-hybridclaw hybridai status
-hybridclaw codex login [--device-code|--browser|--import]
-hybridclaw codex logout
-hybridclaw codex status
-```
-
-These aliases remain accepted for compatibility, but the `auth` namespace is
-the primary surface for provider setup, status, and logout.
 
 ## Discord And Session Commands
 
