@@ -41,6 +41,7 @@ import {
   AFTER_FILE_CHANGE_LINES,
   APP_ARTIFACT_LINES,
   APP_DELEGATION_LINES,
+  APP_PICTURE_LINES,
   AUTH_TESTING_LINES,
   BROWSER_DETAIL_LINES,
   bashStateLines,
@@ -809,6 +810,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
           'The user is chatting from the HybridAI mobile app. It cannot open relative links such as `/docs/` or `/admin/...`: share only absolute https URLs, or leave the link out.',
           ...CHAT_REPLY_LINES,
           'When the user asks what you can access or which services are connected, call `hybridai__list_connectors` for their accounts and `device_data` for what their phone shares, whichever you have, and answer from what they return instead of guessing from your tool names. The user connects both under Connectors in the app.',
+          ...APP_PICTURE_LINES,
         ]
       : []),
   ];
