@@ -1293,6 +1293,16 @@ export class PluginManager {
       }
       const schema = definition.configSchema || candidate.manifest.configSchema;
       const validatedConfig = validatePluginConfig(schema, candidate.config);
+      const ignoredConfigKeys = Object.keys(candidate.config || {}).filter(
+        (key) => !Object.hasOwn(validatedConfig, key),
+      );
+      if (ignoredConfigKeys.length > 0) {
+        // Ajv strips undeclared keys; name them instead of dropping silently.
+        this.logger.warn(
+          { pluginId: candidate.id, ignoredConfigKeys },
+          'Plugin config keys are not in the plugin schema and were ignored',
+        );
+      }
       api = createPluginApi({
         manager: this,
         pluginId: definition.id,
