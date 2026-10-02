@@ -681,10 +681,13 @@ the item's history. Not `/goal`, which keeps one chat working until a
 condition holds.
 
 `--every` adds a check-in: a scheduled task in the chat that set it, at
-`--at` (default 09:00) in the item's time zone. In that turn the agent looks
-into the item, updates its status, and writes to the user only when there is
-news or a decision for them. Editing the item moves its check-in, marking it
-done or removing it deletes it, and a status line leaves it alone.
+`--at` (default 09:00) in the item's time zone (`--tz`, else the one in
+`USER.md`, else the host's). In that turn the agent looks into the item and
+updates its status. A goal's check-in then writes to the user: where it
+stands, the next open step, and a question. A tracked item's check-in writes
+only when there is news or a decision for them. Editing the item moves its
+check-in, marking it done or removing it deletes it, and a status line leaves
+it alone.
 
 Lists are shared like todos. The agent reads and changes them with the
 `track` tool, and every turn's context lists the open items with their
@@ -726,7 +729,10 @@ recorded in the workspace's `USER.md`, or an explicit IANA `tz` value such as
 `Europe/Berlin`. If neither is available, the fallback is UTC. Write five-field
 expressions in that local time; `0 9 * * *` means 09:00 in the stored timezone.
 This timezone selection applies to the agent tool, not the separate
-`!claw schedule add` command above.
+`!claw schedule add` command above. The zone is the first word of the
+`**Timezone:**` line in `USER.md`, so a note after it does no harm; when that
+word is not an IANA zone, every turn's context says so, so the agent can
+correct it.
 
 The tool returns a real task ID after the gateway persists the schedule.
 Web-chat and heartbeat tasks require an explicit delivery channel. The task
@@ -737,7 +743,11 @@ created in messaging channels remain scoped to their original session; the
 web-chat task list reports how many of them exist for the agent, so they can
 be managed from **Automation → Scheduler** instead of being created again.
 Invalid cron expressions are disabled with the parse error recorded; one-shot
-tasks that never ran are retained.
+tasks that never ran are retained. The list is read when the tool is called,
+so it includes what the turn changed through `track` or `todo`. A goal's
+check-in and a todo's reminder are listed as such, and the `cron` tool cannot
+update or remove them: they move with their item, so they change through
+`track` or `todo`.
 
 Use the `cron` tool's `update` action with the existing `taskId` to change a
 schedule, prompt, or delivery channel without creating a duplicate. Updating a
