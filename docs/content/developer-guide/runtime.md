@@ -504,8 +504,8 @@ enables them.
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
-hybridclaw local status
+hybridclaw auth login local <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
+hybridclaw auth status local
 ```
 
 Runtime details:

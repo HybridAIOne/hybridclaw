@@ -136,38 +136,35 @@ Runs the HybridClaw onboarding flow:
 }
 
 export function printLocalUsage(): void {
-  console.log(`Usage: hybridclaw local <command> (deprecated)
+  console.log(`Usage: hybridclaw local <command>
 
-Commands:
-  hybridclaw local status
+Managed MLX models (Apple silicon):
   hybridclaw local setup [--list] [--model <catalog-id>] [--yes]
   hybridclaw local serve
   hybridclaw local stop
   hybridclaw local benchmark
-  hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
 
-Use Instead:
-  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] ...
+Local backends:
+  hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
   hybridclaw auth status local
   hybridclaw auth logout local
 
 Examples:
-  hybridclaw local configure lmstudio --base-url http://127.0.0.1:1234
-  hybridclaw local configure lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
-  hybridclaw local configure llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
-  hybridclaw local configure ollama llama3.2
-  hybridclaw local configure vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
-  hybridclaw local configure vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
+  hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
+  hybridclaw auth login local lmstudio qwen/qwen3.5-9b --base-url http://127.0.0.1:1234
+  hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
+  hybridclaw auth login local ollama llama3.2
+  hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
+  hybridclaw auth login local vllm google/gemma-4-e4b-it --name haigpu2 --base-url http://haigpu2:8000 --api-key secret --no-default
 
 Notes:
-  - \`hybridclaw local ...\` is deprecated and will be removed in a future release.
   - LM Studio, llama.cpp, and vLLM URLs are normalized to include \`/v1\`.
   - Ollama URLs are normalized to omit \`/v1\`.
-  - When a model id is provided, \`configure\` also sets \`hybridai.defaultModel\` to that local model by default.
+  - When a model id is provided, \`auth login local\` also sets \`hybridai.defaultModel\` to that local model by default.
     Use \`--no-default\` to leave the global default model unchanged.
   - Use \`--name <endpoint>\` to configure another endpoint of the same backend type. Named models use \`<endpoint>/<model>\`, for example \`haigpu2/google/gemma-4-e4b-it\`.
   - Use \`--thinking-format qwen\` to attach explicit model-behavior flags to a backend or named endpoint.
-  - When no model id is provided, \`configure\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
+  - When no model id is provided, \`auth login local\` only enables the backend so you can browse models later with \`/model list <backend>\`.`);
 }
 
 export function printAuthUsage(): void {
@@ -510,42 +507,20 @@ Notes:
 }
 
 export function printCodexUsage(): void {
-  console.log(`Usage: hybridclaw codex <command> (deprecated)
-
-Commands:
-  hybridclaw codex login
-  hybridclaw codex login --device-code
-  hybridclaw codex login --browser
-  hybridclaw codex login --import
-  hybridclaw codex logout
-  hybridclaw codex status
-
-Use Instead:
-  hybridclaw auth login codex ...
-  hybridclaw auth logout codex
+  console.log(`Usage:
+  hybridclaw auth login codex [--device-code|--browser|--import]
   hybridclaw auth status codex
-
-Notes:
-  - \`hybridclaw codex ...\` is deprecated and will be removed in a future release.`);
+  hybridclaw auth logout codex`);
 }
 
 export function printHybridAIUsage(): void {
-  console.log(`Usage: hybridclaw hybridai <command> (deprecated)
-
-Commands:
-  hybridclaw hybridai base-url [url]
-  hybridclaw hybridai login [--device-code|--browser|--api-key|--import] [--base-url <url>]
-  hybridclaw hybridai logout
-  hybridclaw hybridai status
-
-Use Instead:
+  console.log(`Usage:
   hybridclaw auth login hybridai [--device-code|--browser|--api-key|--import] [--base-url <url>]
-  hybridclaw auth logout hybridai
   hybridclaw auth status hybridai
+  hybridclaw auth logout hybridai
 
 Notes:
-  - \`hybridclaw hybridai base-url\` updates \`hybridai.baseUrl\` in ${runtimeConfigPath()}.
-  - \`hybridclaw hybridai ...\` is deprecated and will be removed in a future release.`);
+  - \`--base-url <url>\` updates \`hybridai.baseUrl\` in ${runtimeConfigPath()} before signing in.`);
 }
 
 export function printOpenRouterUsage(): void {
@@ -1004,38 +979,6 @@ Topics:
   audit       Help for audit commands
   doctor      Help for diagnostics and auto-remediation
   help        This help`);
-}
-
-export function printDeprecatedProviderAliasWarning(
-  provider: 'hybridai' | 'codex' | 'local',
-  args: string[],
-): void {
-  const sub = (args[0] || '').trim().toLowerCase();
-  let replacement = '';
-
-  if (provider === 'local') {
-    replacement =
-      sub === 'status'
-        ? 'hybridclaw auth status local'
-        : sub === 'help' || sub === '--help' || sub === '-h'
-          ? 'hybridclaw help local'
-          : 'hybridclaw auth login local ...';
-  } else {
-    replacement =
-      sub === 'status'
-        ? `hybridclaw auth status ${provider}`
-        : sub === 'logout'
-          ? `hybridclaw auth logout ${provider}`
-          : provider === 'hybridai' && sub === 'base-url'
-            ? 'hybridclaw auth login hybridai --base-url <url>'
-            : sub === 'help' || sub === '--help' || sub === '-h'
-              ? `hybridclaw help ${provider}`
-              : `hybridclaw auth login ${provider} ...`;
-  }
-
-  console.warn(
-    `[deprecated] \`hybridclaw ${provider} ...\` is deprecated and will be removed in a future release. Use \`${replacement}\` instead.`,
-  );
 }
 
 export function isHelpRequest(args: string[]): boolean {

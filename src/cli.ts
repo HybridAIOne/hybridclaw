@@ -14,12 +14,12 @@ import {
   printAuditUsage,
   printBrowserPoolUsage,
   printBrowserUsage,
-  printDeprecatedProviderAliasWarning,
   printDoctorUsage,
   printGatewayUsage,
   printHarnessEvolutionUsage,
   printHelpTopic,
   printHelpUsage,
+  printLocalUsage,
   printMainUsage,
   printMigrationUsage,
   printOnboardingUsage,
@@ -1709,8 +1709,13 @@ async function handlePolicyCommand(args: string[]): Promise<void> {
 }
 
 async function handleLocalCommand(args: string[]): Promise<void> {
-  const cliAuth = await import('./cli/auth-command.js');
-  await cliAuth.handleLocalCommand(args);
+  const normalized = normalizeArgs(args);
+  if (normalized.length === 0 || isHelpRequest(normalized)) {
+    printLocalUsage();
+    return;
+  }
+  const { handleMlxCommand } = await import('./inference/mlx-command.js');
+  await handleMlxCommand(normalized);
 }
 
 async function handleAuthCommand(args: string[]): Promise<void> {
@@ -1828,16 +1833,6 @@ async function handleBrowserPoolCommand(args: string[]): Promise<void> {
   console.log(`Endpoint: ${result.endpointUrl}`);
   console.log(`Nodes: ${result.healthyNodeCount}/${result.nodeCount}`);
   if (!result.ok) process.exitCode = 1;
-}
-
-async function handleHybridAICommand(args: string[]): Promise<void> {
-  const cliAuth = await import('./cli/auth-command.js');
-  await cliAuth.handleHybridAICommand(args);
-}
-
-async function handleCodexCommand(args: string[]): Promise<void> {
-  const cliAuth = await import('./cli/auth-command.js');
-  await cliAuth.handleCodexCommand(args);
 }
 
 async function handleSkillCommand(args: string[]): Promise<void> {
@@ -2028,17 +2023,7 @@ export async function main(
       await handlePluginCommand(subargs);
       break;
     case 'local':
-      if (!['setup', 'serve', 'stop', 'benchmark'].includes(subargs[0] || ''))
-        printDeprecatedProviderAliasWarning('local', subargs);
       await handleLocalCommand(subargs);
-      break;
-    case 'hybridai':
-      printDeprecatedProviderAliasWarning('hybridai', subargs);
-      await handleHybridAICommand(subargs);
-      break;
-    case 'codex':
-      printDeprecatedProviderAliasWarning('codex', subargs);
-      await handleCodexCommand(subargs);
       break;
     case 'skill':
       await handleSkillCommand(subargs);
