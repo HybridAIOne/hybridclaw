@@ -280,6 +280,7 @@ import {
   shouldDropQueuedProactiveMessage,
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
+import { deliverScheduledWebhook } from './scheduled-webhook-delivery.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
@@ -1460,35 +1461,6 @@ async function sendProactiveMessageNow(
     return proactiveDeliveryFailed(error);
   }
   return { status: 'delivered' };
-}
-
-async function deliverWebhookMessage(
-  webhookUrl: string,
-  text: string,
-  source: string,
-  artifacts?: ArtifactMetadata[],
-): Promise<void> {
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      text,
-      source,
-      artifactCount: artifacts?.length || 0,
-      artifacts: (artifacts || []).map((artifact) => ({
-        filename: artifact.filename,
-        mimeType: artifact.mimeType,
-      })),
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(
-      `Webhook delivery failed (${response.status}): ${body.slice(0, 300)}`,
-    );
-  }
 }
 
 function resolveLastUsedDeliverableChannelId(): string | null {
@@ -4439,7 +4411,7 @@ async function main(): Promise<void> {
   startScheduler((request) =>
     runScheduledTask(request, {
       deliverProactiveMessage,
-      deliverWebhookMessage,
+      deliverWebhookMessage: deliverScheduledWebhook,
       resolveLastUsedDeliverableChannelId,
     }),
   );

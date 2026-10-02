@@ -53,6 +53,15 @@ test('validateTwilioSignature accepts matching webhook signatures', () => {
   ).toBe(false);
 });
 
+test('validateTwilioSignature rejects every signature when no auth token is set', () => {
+  const url = 'https://example.com/voice/webhook';
+  const signature = buildTwilioSignature({ authToken: '', url });
+
+  expect(validateTwilioSignature({ authToken: '', signature, url })).toBe(
+    false,
+  );
+});
+
 test('ReplayProtector rejects duplicate tokens inside the TTL window', () => {
   const protector = new ReplayProtector(30_000);
 

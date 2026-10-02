@@ -1,5 +1,7 @@
 import { isIP } from 'node:net';
 
+import { fetchPublicHttps } from '../security/public-https-fetch.js';
+
 export { isRecord } from '../utils/type-guards.js';
 
 export const A2A_TRANSPORT_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
@@ -47,4 +49,23 @@ export function isA2ALoopbackHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+export interface A2APeerRequestInit {
+  method: 'GET' | 'POST';
+  headers: Record<string, string>;
+  body?: string;
+}
+
+// Loopback peers (several local instances) are dialed directly; any other
+// peer URL must resolve to a public address and never redirects.
+export function fetchA2APeer(
+  url: string,
+  init: A2APeerRequestInit,
+  fetchImpl?: typeof fetch,
+): Promise<Response> {
+  if (fetchImpl || isA2ALoopbackHttpUrl(url)) {
+    return (fetchImpl ?? fetch)(url, { ...init, redirect: 'error' });
+  }
+  return fetchPublicHttps(url, init);
 }

@@ -1,7 +1,8 @@
 /**
  * SSRF-guarded HTTPS requests for gateway URLs that came from a model,
- * a user, or a provider response. Every DNS answer, including the connect-time
- * lookup, must be public, so a rebinding host cannot slip through.
+ * a user, a remote peer, or a provider response. Every DNS answer, including
+ * the connect-time lookup, must be public, so a rebinding host cannot slip
+ * through, and redirects are never followed.
  *
  * NOT a host allowlist: callers that accept only certain hosts (Discord CDN)
  * check the URL first and then call this.
@@ -18,7 +19,7 @@ import { isPrivateNetworkAddress } from '../../container/shared/private-network.
 export interface PublicHttpsFetchOptions {
   method?: 'GET' | 'POST';
   headers?: OutgoingHttpHeaders;
-  body?: Buffer;
+  body?: Buffer | string;
   timeoutMs?: number;
   readIdleTimeoutMs?: number;
   maxBytes?: number | null;
@@ -128,10 +129,16 @@ function parsePublicHttpsUrl(rawUrl: string | URL): URL {
   return parsed;
 }
 
-export async function fetchPublicHttpsBuffer(
+interface PublicHttpsResponse extends PublicHttpsFetchResult {
+  statusCode: number;
+  headers: IncomingHttpHeaders;
+}
+
+async function requestPublicHttps(
   rawUrl: string | URL,
-  options: PublicHttpsFetchOptions = {},
-): Promise<PublicHttpsFetchResult> {
+  options: PublicHttpsFetchOptions,
+  rejectNonOk: boolean,
+): Promise<PublicHttpsResponse> {
   const parsed = parsePublicHttpsUrl(rawUrl);
   await lookupPublicHostAddresses(parsed.hostname);
 
@@ -145,7 +152,7 @@ export async function fetchPublicHttpsBuffer(
       ? Math.max(1, Math.floor(options.maxBytes))
       : null;
 
-  return await new Promise<PublicHttpsFetchResult>((resolve, reject) => {
+  return await new Promise<PublicHttpsResponse>((resolve, reject) => {
     let settled = false;
     let readIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -155,7 +162,7 @@ export async function fetchPublicHttpsBuffer(
       readIdleTimer = null;
     };
 
-    const resolveOnce = (result: PublicHttpsFetchResult) => {
+    const resolveOnce = (result: PublicHttpsResponse) => {
       if (settled) return;
       settled = true;
       clearReadIdleTimeout();
@@ -177,7 +184,7 @@ export async function fetchPublicHttpsBuffer(
       },
       (response) => {
         const statusCode = response.statusCode ?? 0;
-        if (statusCode < 200 || statusCode >= 300) {
+        if (rejectNonOk && (statusCode < 200 || statusCode >= 300)) {
           response.resume();
           rejectOnce(new Error(`http_${statusCode}`));
           return;
@@ -222,6 +229,8 @@ export async function fetchPublicHttpsBuffer(
         response.on('error', rejectOnce);
         response.on('end', () => {
           resolveOnce({
+            statusCode,
+            headers: response.headers,
             body: Buffer.concat(chunks),
             contentLength,
             contentType: toHeaderString(response.headers, 'content-type'),
@@ -238,5 +247,36 @@ export async function fetchPublicHttpsBuffer(
     request.on('close', clearReadIdleTimeout);
     request.on('error', rejectOnce);
     request.end(options.body);
+  });
+}
+
+export async function fetchPublicHttpsBuffer(
+  rawUrl: string | URL,
+  options: PublicHttpsFetchOptions = {},
+): Promise<PublicHttpsFetchResult> {
+  const { body, contentLength, contentType, url } = await requestPublicHttps(
+    rawUrl,
+    options,
+    true,
+  );
+  return { body, contentLength, contentType, url };
+}
+
+/** fetch()-shaped variant for callers that branch on the status code. */
+export async function fetchPublicHttps(
+  rawUrl: string | URL,
+  options: PublicHttpsFetchOptions = {},
+): Promise<Response> {
+  const result = await requestPublicHttps(rawUrl, options, false);
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(result.headers)) {
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      if (entry !== undefined) headers.append(name, entry);
+    }
+  }
+  const nullBody = [204, 205, 304].includes(result.statusCode);
+  return new Response(nullBody ? null : new Uint8Array(result.body), {
+    status: result.statusCode,
+    headers,
   });
 }

@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import {
+  fetchA2APeer,
   isA2AAllowedHttpUrl,
+  isA2ALoopbackHttpUrl,
   isRecord,
   normalizePositiveInteger,
 } from './utils.js';
@@ -108,11 +110,11 @@ export async function fetchA2AAgentCard(input: {
     headers['if-none-match'] = cached.etag;
   }
 
-  const response = await (input.fetchImpl ?? fetch)(input.agentCardUrl, {
-    method: 'GET',
-    headers,
-    redirect: 'error',
-  });
+  const response = await fetchA2APeer(
+    input.agentCardUrl,
+    { method: 'GET', headers },
+    input.fetchImpl,
+  );
   if (response.status === 304 && cached) {
     const refreshed = { ...cached, expiresAt: nowMs + ttlMs };
     cacheAgentCard(cacheKey, refreshed, nowMs);
@@ -136,6 +138,14 @@ export async function fetchA2AAgentCard(input: {
   if (!isA2AAllowedHttpUrl(card.url)) {
     throw new A2AFailFastError(
       'Agent Card url must use https unless targeting loopback',
+    );
+  }
+  if (
+    isA2ALoopbackHttpUrl(card.url) &&
+    !isA2ALoopbackHttpUrl(input.agentCardUrl)
+  ) {
+    throw new A2AFailFastError(
+      'Agent Card url may target loopback only when the card is served from loopback',
     );
   }
   cacheAgentCard(

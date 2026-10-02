@@ -28,7 +28,7 @@ import type {
   TransportAdapter,
   TransportAdapterContext,
 } from './transport-registry.js';
-import { normalizePositiveInteger } from './utils.js';
+import { fetchA2APeer, normalizePositiveInteger } from './utils.js';
 
 export const WEBHOOK_SIGNATURE_HEADER = 'X-HybridClaw-Signature';
 export const WEBHOOK_BODY_VERSION = '1';
@@ -181,10 +181,12 @@ export function verifyWebhookSignature(
   const parsed = parseSignatureHeader(input.header);
   if (!parsed || !input.secret) return false;
   const now = Math.trunc((input.nowMs ?? Date.now()) / 1000);
-  const replayWindowSeconds = Math.max(
-    0,
-    Math.trunc((input.replayWindowMs ?? WEBHOOK_REPLAY_WINDOW_MS) / 1000),
+  // A peer may shorten the replay window, never widen it past the default.
+  const replayWindowMs = Math.min(
+    input.replayWindowMs ?? WEBHOOK_REPLAY_WINDOW_MS,
+    WEBHOOK_REPLAY_WINDOW_MS,
   );
+  const replayWindowSeconds = Math.max(0, Math.trunc(replayWindowMs / 1000));
   if (Math.abs(now - parsed.timestamp) > replayWindowSeconds) return false;
 
   const expected = signWebhookBody({
@@ -478,7 +480,6 @@ async function deliverWebhookItem(
   opts: WebhookOutboxProcessOptions,
 ): Promise<'delivered' | 'retried' | 'failed'> {
   const now = opts.now?.() ?? new Date();
-  const fetchImpl = opts.fetchImpl ?? fetch;
   const attemptNumber = item.attempts + 1;
   const retryOptions = normalizeRetryOptions(opts);
   const maxAttempts = normalizePositiveInteger(
@@ -504,14 +505,18 @@ async function deliverWebhookItem(
 
   let response: Response;
   try {
-    response = await fetchImpl(item.url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        [item.signatureHeader]: signature,
+    response = await fetchA2APeer(
+      item.url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [item.signatureHeader]: signature,
+        },
+        body,
       },
-      body,
-    });
+      opts.fetchImpl,
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (attemptNumber >= maxAttempts) {

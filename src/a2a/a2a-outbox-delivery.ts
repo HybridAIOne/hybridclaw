@@ -46,6 +46,7 @@ import {
   normalizePublicKeyFingerprint,
 } from './trust-ledger.js';
 import {
+  fetchA2APeer,
   isA2AAllowedHttpUrl,
   isA2ALoopbackHttpUrl,
   isRecord,
@@ -640,26 +641,29 @@ export async function deliverA2AItem(
   const body = JSON.stringify(request);
   let response: Response;
   try {
-    response = await (opts.fetchImpl ?? fetch)(card.url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...authHeaders({
-          item: deliveryItem,
-          envelope: transportEnvelope,
-          audience: card.url,
-          scope:
-            request.method === 'tasks/send'
-              ? A2A_TASK_SEND_SCOPE
-              : A2A_MESSAGE_SEND_SCOPE,
-          now,
-          peerKey,
-          requireBearer: !peerKey,
-        }),
+    response = await fetchA2APeer(
+      card.url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...authHeaders({
+            item: deliveryItem,
+            envelope: transportEnvelope,
+            audience: card.url,
+            scope:
+              request.method === 'tasks/send'
+                ? A2A_TASK_SEND_SCOPE
+                : A2A_MESSAGE_SEND_SCOPE,
+            now,
+            peerKey,
+            requireBearer: !peerKey,
+          }),
+        },
+        body,
       },
-      body,
-      redirect: 'error',
-    });
+      opts.fetchImpl,
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (error instanceof A2AFailFastError) {
