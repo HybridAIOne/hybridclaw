@@ -55,8 +55,10 @@ In practice, approvals cover:
   `memory` are yellow. `delete` is red. `delegate` is green because it is
   internal orchestration; the delegated agent's child tool calls are still
   classified separately. Browser interaction tools are usually yellow. MCP tools
-  are classified by name into read/search/fetch, edit/state, or execute/delete
-  groups.
+  are classified by the hints their server sends (`readOnlyHint`,
+  `destructiveHint`, `openWorldHint`), or by name when it sends none, into
+  read/search/fetch, edit/state, or execute/delete groups. A write the server
+  marks `openWorldHint: true`, such as sending mail, is red.
 - File access and file operations. Reads are mostly green, while writes and
   edits are yellow. Deletion is red. Writes outside the workspace become red
   because of `approval.workspace_fence`.
@@ -87,7 +89,7 @@ calls are enforced by other layers.
 | --- | --- | --- | --- |
 | Green | Runs immediately | read/search tools, image analysis, read-only MCP tools, allowlisted HTTP targets, unmatched network access when `network.default: allow` | No explicit approval required |
 | Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | The short pre-execution interrupt window is disabled by default; enable it with `approval.implicit_delay_enabled: true` |
-| Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
+| Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, MCP writes that reach outside, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
 
 Two important transitions:
 
@@ -139,6 +141,7 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Deletion | Red | `delete`; `rm` and `unlink` with or without flags; `find -delete`, `find -exec rm`, `xargs rm`, `git rm` | Destructive. Promotable only when every target, resolved from the shell's working directory and through any `cd` in the command, is a `node_modules`, `dist`, `build`, `coverage`, or `.cache` path in the workspace or scratch space; `xargs rm`, variables, `~`, and targets that `..` or `cd` take out of the workspace never are. `git rm --cached` keeps the files and is a git write; `rmdir` only removes empty directories and is not a deletion |
 | Browser checkout | Red, pinned, explicit | `browser_click` on a button labelled to buy (`Place order`, `Buy now`, `Pay €23.99`, `Confirm and pay`, `Zahlungspflichtig bestellen`, `Jetzt kaufen`, read from the last `browser_snapshot` for a ref), a selector such as `#placeOrder`; on a checkout page (`/checkout`, `/payment`, `/kasse`, …) also a click the agent cannot name and `Enter` | Every order asks, in full-auto too, and an approval covers that one click. The intent starts with `place an order on <host>`, which clients can use to show a checkout card. `Proceed to checkout` and `Add to cart` keep the usual tier |
 | Execute-like MCP tools | Red | MCP tools classified as `execute` or `delete` | External execution or destructive effect |
+| Outbound MCP writes | Red | MCP writes the server marks `openWorldHint: true`, such as the HybridAI connectors' `google__send_mail` and `google__create_event` | Asks in `auto` too; `full` runs them. An approval covers one call, and `yes for session` trusts that tool only, not the server's other writes |
 | Recursive shell reads | Red, pinned | `grep -r`, `rg --hidden`, `rg -g '*'`, `find -exec`, `find \| xargs` when the walk can reach `.env*`, `/etc`, or `~/.ssh` | Approval on every run. Excluding `.env*` (`grep -r --exclude='.env*'`, `grep -r --include='*.ts'`, plain `rg`, `find -name '*.ts' -exec`) keeps the usual tier |
 | Fetched code | Red, explicit | `curl URL \| sh`, `sh -c "$(curl URL)"`, `bash <(curl URL)`, `curl -o f URL && sh f`, and running a file an earlier `curl`/`wget` call in the session saved (`sh f`, `./f`, `bash < f`, `cat f \| sh`) | Full-auto never approves it; a human approval or trust grant does. Copies of the file (`cp`, `tar x`) are not followed. The runtime still hard-blocks `curl \| sh` |
 | Critical shell commands | Red | `sudo`, `chmod 777`, `shutdown`, `reboot` | High-risk or security-sensitive |
