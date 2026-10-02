@@ -258,3 +258,20 @@ test('sweeps warm entries once their agent leaves the traffic window', () => {
     vi.useRealTimers();
   }
 });
+
+test('an agent the phone app reaches stays active past the traffic window', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({
+      trafficWindowMs: 60 * 60 * 1000,
+      minIdlePerActiveAgent: 1,
+      maxIdlePerAgent: 2,
+    }),
+  );
+  const now = 10_000_000;
+  pool.recordRequest('phone_agent', 5_000, now - 2 * 60 * 60 * 1000);
+  pool.recordRequest('web_agent', 5_000, now - 2 * 60 * 60 * 1000);
+  pool.recordPhoneUser('phone_agent');
+
+  expect(pool.targetIdleForAgent('phone_agent', now)).toBe(1);
+  expect(pool.targetIdleForAgent('web_agent', now)).toBe(0);
+});

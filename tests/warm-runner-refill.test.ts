@@ -257,6 +257,31 @@ test.each(RUNNERS)(
 );
 
 test.each(RUNNERS)(
+  '$runner keeps a phone agent\'s spare past the traffic window',
+  async ({ createExecutor }) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+    });
+    try {
+      vi.stubEnv('HOME', makeTempDir());
+      const warmProcesses: ReturnType<typeof makeFakeChildProcess>[] = [];
+      const spawn = spawnCollectingWarm(warmProcesses);
+      mockRunnerDeps({ spawn });
+
+      const executor = await createExecutor();
+      await executor.exec(turn('session-phone', 'mobile'));
+
+      expect(warmProcesses).toHaveLength(1);
+      vi.advanceTimersByTime(3 * 60 * 60_000);
+      expect(isWarmStopped(spawn, warmProcesses[0])).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each(RUNNERS)(
   '$runner hands a new spare its MCP servers ahead of its first request',
   async ({ createExecutor }) => {
     vi.stubEnv('HOME', makeTempDir());

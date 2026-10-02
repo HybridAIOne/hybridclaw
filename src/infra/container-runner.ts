@@ -1450,6 +1450,7 @@ async function runContainerInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
+      if (params.client === 'mobile') warmPool.recordPhoneUser(agentId);
       // Best-effort: a failed refill must not discard the finished turn.
       try {
         maintainWarmContainerPool({

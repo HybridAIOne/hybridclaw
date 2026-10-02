@@ -1,6 +1,7 @@
 /**
  * Warm process pool: idle pre-spawned agent workers, sized per agent from
- * recent traffic, and the record of which spares exist.
+ * recent traffic, and the record of which spares exist. An agent reached from
+ * the phone app counts as active even without recent traffic.
  *
  * The pool only decides *which* entries leave (claim, trim, pressure, idle
  * sweep); the runner that owns the process stops it. Entries leave the map
@@ -83,6 +84,7 @@ function normalizeInteger(
 export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   private readonly entries = new Map<string, T>();
   private readonly traffic = new Map<string, TrafficSample[]>();
+  private readonly phoneAgents = new Set<string>();
   private readonly coldStartSamples: number[] = [];
   private readonly sortedColdStartSamples: number[] = [];
   private cachedColdStartP95Ms: number | null = null;
@@ -192,6 +194,16 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
     this.traffic.set(agentId, samples);
   }
 
+  /**
+   * Phone turns come hours apart, past any traffic window, so each would find
+   * no spare. An agent the phone app reaches keeps `minIdlePerActiveAgent`
+   * spares until the gateway restarts (owner call, 2026-10-02: keep one spare
+   * for agents with phone users; restoring the set after a restart deferred).
+   */
+  recordPhoneUser(agentId: string): void {
+    if (agentId) this.phoneAgents.add(agentId);
+  }
+
   recordColdStart(durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
     const sample = Math.floor(durationMs);
@@ -223,7 +235,11 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   targetIdleForAgent(agentId: string, now = Date.now()): number {
     if (!this.enabled) return 0;
     const samples = this.prune(agentId, now);
-    if (samples.length === 0) return 0;
+    if (samples.length === 0) {
+      return this.phoneAgents.has(agentId)
+        ? this.config.minIdlePerActiveAgent
+        : 0;
+    }
 
     const requestsPerMinute =
       samples.length / (this.config.trafficWindowMs / 60_000);

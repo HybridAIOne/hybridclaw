@@ -97,9 +97,11 @@ saved revision history directly.
   and container execution. `enabled` turns the pool on, `minIdlePerActiveAgent`
   and `maxIdlePerAgent` bound per-agent prewarming, `trafficWindowMs` decides
   which agents count as recently active (an agent's idle workers stop within a
-  minute of it leaving that window), `coldStartBudgetMs` is the target
+  minute of it leaving that window; an agent that the mobile app has reached
+  stays active until the gateway restarts), `coldStartBudgetMs` is the target
   startup budget, and `memoryPressureRssMb` trims idle entries under memory
-  pressure.
+  pressure. Idle workers connect the configured MCP servers while they wait
+  for their first turn.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
