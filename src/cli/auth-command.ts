@@ -1,9 +1,18 @@
 import readline from 'node:readline/promises';
 import {
+  buildSharedAuthStatusReport,
+  isSharedAuthStatusTarget,
+  resolveCredentialSource,
+} from '../auth/auth-status.js';
+import {
   AUTH_TARGET_CHOICES,
   type AuthTarget,
   resolveAuthTarget,
 } from '../auth/auth-targets.js';
+import {
+  findGenericProviderDef,
+  type GenericProviderAuthDef,
+} from '../auth/generic-provider-auth.js';
 import {
   clearGoogleAuth,
   DEFAULT_GOOGLE_OAUTH_SCOPES,
@@ -784,148 +793,6 @@ async function configureAnthropic(args: string[]): Promise<void> {
   console.log(`  /model set ${fullModelName}`);
 }
 
-interface GenericProviderAuthDef {
-  /** Provider ID used in CLI and config. */
-  id:
-    | 'openai'
-    | 'gemini'
-    | 'deepseek'
-    | 'xai'
-    | 'zai'
-    | 'kimi'
-    | 'minimax'
-    | 'dashscope'
-    | 'xiaomi'
-    | 'kilo';
-  /** Human-readable label shown in status/error output. */
-  label: string;
-  /** Default model used when none is specified. */
-  defaultModel: string;
-  /** Default base URL for the API. */
-  defaultBaseUrl: string;
-  /** Regex to detect the URL path suffix that should be present. */
-  baseUrlSuffixPattern: RegExp;
-  /** Suffix appended to the base URL if the pattern doesn't match. */
-  baseUrlSuffix: string;
-  /** Canonical secret key name used for encrypted storage. */
-  secretKey: string;
-  /** All env var names checked for this provider (order matters). */
-  envVarNames: string[];
-}
-
-const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
-  {
-    id: 'openai',
-    label: 'OpenAI API',
-    defaultModel: 'openai/gpt-5.6-sol',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'OPENAI_API_KEY',
-    envVarNames: ['OPENAI_API_KEY'],
-  },
-  {
-    id: 'gemini',
-    label: 'Google Gemini',
-    defaultModel: 'gemini/gemini-2.5-pro',
-    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    baseUrlSuffixPattern: /\/openai$/i,
-    baseUrlSuffix: '/openai',
-    secretKey: 'GEMINI_API_KEY',
-    envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    defaultModel: 'deepseek/deepseek-chat',
-    defaultBaseUrl: 'https://api.deepseek.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'DEEPSEEK_API_KEY',
-    envVarNames: ['DEEPSEEK_API_KEY'],
-  },
-  {
-    id: 'xai',
-    label: 'xAI',
-    defaultModel: 'xai/grok-3',
-    defaultBaseUrl: 'https://api.x.ai/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'XAI_API_KEY',
-    envVarNames: ['XAI_API_KEY'],
-  },
-  {
-    id: 'zai',
-    label: 'Z.AI / GLM',
-    defaultModel: 'zai/glm-5.1',
-    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
-    baseUrlSuffixPattern: /\/v4$/i,
-    baseUrlSuffix: '/v4',
-    secretKey: 'ZAI_API_KEY',
-    envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
-  },
-  {
-    id: 'kimi',
-    label: 'Kimi / Moonshot',
-    defaultModel: 'kimi/kimi-k2.5',
-    defaultBaseUrl: 'https://api.moonshot.ai/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'KIMI_API_KEY',
-    envVarNames: ['KIMI_API_KEY'],
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    defaultModel: 'minimax/MiniMax-M2',
-    defaultBaseUrl: 'https://api.minimax.io/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'MINIMAX_API_KEY',
-    envVarNames: ['MINIMAX_API_KEY'],
-  },
-  {
-    id: 'dashscope',
-    label: 'DashScope / Qwen',
-    defaultModel: 'dashscope/qwen3-coder-plus',
-    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'DASHSCOPE_API_KEY',
-    envVarNames: ['DASHSCOPE_API_KEY'],
-  },
-  {
-    id: 'xiaomi',
-    label: 'Xiaomi MiMo',
-    defaultModel: 'xiaomi/MiMo-7B-RL',
-    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
-    baseUrlSuffixPattern: /\/v1$/i,
-    baseUrlSuffix: '/v1',
-    secretKey: 'XIAOMI_API_KEY',
-    envVarNames: ['XIAOMI_API_KEY'],
-  },
-  {
-    id: 'kilo',
-    label: 'Kilo Code',
-    defaultModel: 'kilo/anthropic/claude-sonnet-4.6',
-    defaultBaseUrl: 'https://api.kilo.ai/api/gateway',
-    baseUrlSuffixPattern: /\/api\/gateway$/i,
-    baseUrlSuffix: '/api/gateway',
-    secretKey: 'KILO_API_KEY',
-    envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
-  },
-] as const;
-
-const GENERIC_PROVIDER_BY_ID = new Map(
-  GENERIC_PROVIDER_AUTH_DEFS.map((def) => [def.id, def]),
-);
-
-function findGenericProviderDef(
-  id: string,
-): GenericProviderAuthDef | undefined {
-  return GENERIC_PROVIDER_BY_ID.get(id as GenericProviderAuthDef['id']);
-}
-
 async function configureGenericProvider(
   def: GenericProviderAuthDef,
   args: string[],
@@ -1024,67 +891,6 @@ function parseUnifiedProviderArgs(args: string[]): {
 
 function isLocalProviderModel(modelName: string): boolean {
   return /^(ollama|lmstudio|llamacpp|vllm|mlx)\//i.test(modelName.trim());
-}
-
-type ApiKeyProviderConfigKey =
-  | 'openai'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'gemini'
-  | 'deepseek'
-  | 'xai'
-  | 'zai'
-  | 'kimi'
-  | 'minimax'
-  | 'dashscope'
-  | 'xiaomi'
-  | 'kilo';
-
-function printApiKeyProviderStatus(options: {
-  providerLabel?: string;
-  configKey: ApiKeyProviderConfigKey;
-  secretKey: string;
-  envVarNames: string[];
-  showProviderLabel?: boolean;
-  catalog?: string;
-}): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedApiKey = readStoredRuntimeSecret(options.secretKey);
-  const envApiKey =
-    options.envVarNames
-      .map((name) => process.env[name]?.trim())
-      .find((value) => value) || '';
-  const source = envApiKey
-    ? storedApiKey && envApiKey === storedApiKey
-      ? 'runtime-secrets'
-      : 'env'
-    : storedApiKey
-      ? 'runtime-secrets'
-      : null;
-  const apiKey = envApiKey || storedApiKey || '';
-
-  if (options.showProviderLabel && options.providerLabel) {
-    console.log(`Provider: ${options.providerLabel}`);
-  }
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${apiKey ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
-  }
-  if (apiKey) {
-    console.log(`API key: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config[options.configKey].enabled ? 'yes' : 'no'}`);
-  console.log(`Base URL: ${config[options.configKey].baseUrl}`);
-  console.log(
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-  );
-  if (options.catalog) {
-    console.log(`Catalog: ${options.catalog}`);
-  }
 }
 
 function printAnthropicStatus(): void {
@@ -1951,27 +1757,22 @@ function printHybridAIStatus(): void {
 function printMSTeamsStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
-  const storedAppPassword = readStoredRuntimeSecret('MSTEAMS_APP_PASSWORD');
   const envAppId = process.env.MSTEAMS_APP_ID?.trim() || '';
   const envTenantId = process.env.MSTEAMS_TENANT_ID?.trim() || '';
-  const envAppPassword = process.env.MSTEAMS_APP_PASSWORD?.trim() || '';
-  const appPassword = envAppPassword || storedAppPassword || '';
-  const source = envAppPassword
-    ? storedAppPassword && envAppPassword === storedAppPassword
-      ? 'runtime-secrets'
-      : 'env'
-    : storedAppPassword
-      ? 'runtime-secrets'
-      : null;
+  const appPassword = resolveCredentialSource('MSTEAMS_APP_PASSWORD', [
+    'MSTEAMS_APP_PASSWORD',
+  ]);
   const appId = envAppId || config.msteams.appId;
   const tenantId = envTenantId || config.msteams.tenantId;
 
   console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${appId && appPassword ? 'yes' : 'no'}`);
-  if (source) {
-    console.log(`Source: ${source}`);
+  console.log(
+    `Authenticated: ${appId && appPassword.configured ? 'yes' : 'no'}`,
+  );
+  if (appPassword.source) {
+    console.log(`Source: ${appPassword.source}`);
   }
-  if (appPassword) {
+  if (appPassword.configured) {
     console.log(`App password: ${CONFIGURED_SECRET_STATUS}`);
   }
   console.log(`Config: ${runtimeConfigPath()}`);
@@ -1981,52 +1782,6 @@ function printMSTeamsStatus(): void {
   console.log(`Webhook path: ${config.msteams.webhook.path}`);
   console.log(`DM policy: ${config.msteams.dmPolicy}`);
   console.log(`Group policy: ${config.msteams.groupPolicy}`);
-}
-
-function printSlackStatus(): void {
-  ensureRuntimeConfigFile();
-  const config = getRuntimeConfig();
-  const storedBotToken = readStoredRuntimeSecret('SLACK_BOT_TOKEN');
-  const storedAppToken = readStoredRuntimeSecret('SLACK_APP_TOKEN');
-  const envBotToken = process.env.SLACK_BOT_TOKEN?.trim() || '';
-  const envAppToken = process.env.SLACK_APP_TOKEN?.trim() || '';
-  const botToken = envBotToken || storedBotToken || '';
-  const appToken = envAppToken || storedAppToken || '';
-  const botSource = envBotToken
-    ? storedBotToken && envBotToken === storedBotToken
-      ? 'runtime-secrets'
-      : 'env'
-    : storedBotToken
-      ? 'runtime-secrets'
-      : null;
-  const appSource = envAppToken
-    ? storedAppToken && envAppToken === storedAppToken
-      ? 'runtime-secrets'
-      : 'env'
-    : storedAppToken
-      ? 'runtime-secrets'
-      : null;
-
-  console.log(`Path: ${runtimeSecretsPath()}`);
-  console.log(`Authenticated: ${botToken && appToken ? 'yes' : 'no'}`);
-  if (botSource) {
-    console.log(`Bot token source: ${botSource}`);
-  }
-  if (appSource) {
-    console.log(`App token source: ${appSource}`);
-  }
-  if (botToken) {
-    console.log(`Bot token: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  if (appToken) {
-    console.log(`App token: ${CONFIGURED_SECRET_STATUS}`);
-  }
-  console.log(`Config: ${runtimeConfigPath()}`);
-  console.log(`Enabled: ${config.slack.enabled ? 'yes' : 'no'}`);
-  console.log(`DM policy: ${config.slack.dmPolicy}`);
-  console.log(`Group policy: ${config.slack.groupPolicy}`);
-  console.log(`Require mention: ${config.slack.requireMention ? 'yes' : 'no'}`);
-  console.log(`Reply style: ${config.slack.replyStyle}`);
 }
 
 function clearMSTeamsCredentials(): void {
@@ -2695,6 +2450,16 @@ async function dispatchProviderAction(
     await handleCodexCommand([action]);
     return;
   }
+  // The gateway's in-chat `auth status` builds these same reports, so the
+  // branches below handle shared targets only for logout.
+  if (action === 'status' && isSharedAuthStatusTarget(provider)) {
+    ensureRuntimeConfigFile();
+    console.log(`Path: ${runtimeSecretsPath()}`);
+    for (const line of buildSharedAuthStatusReport(provider).lines) {
+      console.log(line);
+    }
+    return;
+  }
   if (provider === 'anthropic') {
     if (action === 'status') {
       await ensureAnthropicAuthApi();
@@ -2705,41 +2470,14 @@ async function dispatchProviderAction(
     return;
   }
   if (provider === 'openrouter') {
-    if (action === 'status') {
-      printApiKeyProviderStatus({
-        configKey: 'openrouter',
-        secretKey: 'OPENROUTER_API_KEY',
-        envVarNames: ['OPENROUTER_API_KEY'],
-        catalog: 'auto-discovered',
-      });
-      return;
-    }
     clearOpenRouterCredentials();
     return;
   }
   if (provider === 'mistral') {
-    if (action === 'status') {
-      printApiKeyProviderStatus({
-        configKey: 'mistral',
-        secretKey: 'MISTRAL_API_KEY',
-        envVarNames: ['MISTRAL_API_KEY'],
-        catalog: 'auto-discovered',
-      });
-      return;
-    }
     clearMistralCredentials();
     return;
   }
   if (provider === 'huggingface') {
-    if (action === 'status') {
-      printApiKeyProviderStatus({
-        configKey: 'huggingface',
-        secretKey: 'HF_TOKEN',
-        envVarNames: ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
-        catalog: 'auto-discovered',
-      });
-      return;
-    }
     clearHuggingFaceCredentials();
     return;
   }
@@ -2769,16 +2507,6 @@ async function dispatchProviderAction(
   }
   const genericDef = findGenericProviderDef(provider);
   if (genericDef) {
-    if (action === 'status') {
-      printApiKeyProviderStatus({
-        providerLabel: genericDef.label,
-        configKey: genericDef.id,
-        secretKey: genericDef.secretKey,
-        envVarNames: genericDef.envVarNames,
-        showProviderLabel: true,
-      });
-      return;
-    }
     clearGenericProviderCredentials(
       genericDef.label,
       genericDef.secretKey,
@@ -2795,10 +2523,6 @@ async function dispatchProviderAction(
     return;
   }
   if (provider === 'slack') {
-    if (action === 'status') {
-      printSlackStatus();
-      return;
-    }
     clearSlackCredentials();
     return;
   }

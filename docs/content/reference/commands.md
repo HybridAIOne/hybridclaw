@@ -911,9 +911,9 @@ gateway refuses further turns for it and pauses its active goal with the reason
   workspace reset flow
 - `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
   servers
-- `/auth status <provider>` shows local auth and config state for the
-  supported local-session providers, including Anthropic and the
-  OpenAI-compatible remote providers
+- `/auth status <provider>` shows local auth and config state for every
+  `hybridclaw auth` target except `anthropic`, `google`, `hubspot`, and
+  `microsoft365`; run `hybridclaw auth status <provider>` for those four
 - Typing `/` in the TUI opens the slash-command menu with inline filtering and
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,

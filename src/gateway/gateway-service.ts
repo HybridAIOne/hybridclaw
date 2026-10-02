@@ -83,7 +83,16 @@ import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
-import { type AuthTarget, resolveAuthTarget } from '../auth/auth-targets.js';
+import {
+  type AuthStatusReport,
+  buildSharedAuthStatusReport,
+  isSharedAuthStatusTarget,
+} from '../auth/auth-status.js';
+import {
+  AUTH_STATUS_TARGETS,
+  type AuthStatusTarget,
+  resolveAuthTarget,
+} from '../auth/auth-targets.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
@@ -155,18 +164,15 @@ import {
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
   GATEWAY_BASE_URL,
-  HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_ENABLE_RAG,
   HYBRIDAI_MODEL,
   HYBRIDAI_ONBOARDING_MODEL,
   IMESSAGE_PASSWORD,
-  MISTRAL_API_KEY,
   MissingRequiredEnvVarError,
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
   MSTEAMS_TENANT_ID,
-  OPENROUTER_API_KEY,
   PROACTIVE_DELEGATION_MODEL,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
@@ -3339,26 +3345,11 @@ function buildHybridAIAuthStatusLines(): string[] {
   ];
 }
 
-const GATEWAY_AUTH_STATUS_PROVIDERS = [
-  'hybridai',
-  'codex',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'local',
-  'msteams',
-] as const satisfies readonly AuthTarget[];
-
-type GatewayAuthStatusProvider = (typeof GATEWAY_AUTH_STATUS_PROVIDERS)[number];
-
 function normalizeGatewayAuthStatusProvider(
   rawProvider: string | undefined,
-): GatewayAuthStatusProvider | null {
+): AuthStatusTarget | null {
   const target = resolveAuthTarget(rawProvider);
-  return (
-    GATEWAY_AUTH_STATUS_PROVIDERS.find((provider) => provider === target) ??
-    null
-  );
+  return AUTH_STATUS_TARGETS.find((provider) => provider === target) ?? null;
 }
 
 function resolveRuntimeCredentialStatus(
@@ -3467,57 +3458,6 @@ function resolveGatewayTokenStatus(params: {
   };
 }
 
-function buildOpenRouterAuthStatusLines(): string[] {
-  const config = getRuntimeConfig();
-  const credential = resolveRuntimeCredentialStatus('OPENROUTER_API_KEY', [
-    OPENROUTER_API_KEY,
-  ]);
-  return [
-    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
-    ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value ? ['API key: configured'] : []),
-    `Config: ${runtimeConfigPath()}`,
-    `Enabled: ${config.openrouter.enabled ? 'yes' : 'no'}`,
-    `Base URL: ${config.openrouter.baseUrl}`,
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-    'Catalog: auto-discovered',
-  ];
-}
-
-function buildMistralAuthStatusLines(): string[] {
-  const config = getRuntimeConfig();
-  const credential = resolveRuntimeCredentialStatus('MISTRAL_API_KEY', [
-    MISTRAL_API_KEY,
-  ]);
-  return [
-    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
-    ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value ? ['API key: configured'] : []),
-    `Config: ${runtimeConfigPath()}`,
-    `Enabled: ${config.mistral.enabled ? 'yes' : 'no'}`,
-    `Base URL: ${config.mistral.baseUrl}`,
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-    'Catalog: auto-discovered',
-  ];
-}
-
-function buildHuggingFaceAuthStatusLines(): string[] {
-  const config = getRuntimeConfig();
-  const credential = resolveRuntimeCredentialStatus('HF_TOKEN', [
-    HUGGINGFACE_API_KEY,
-  ]);
-  return [
-    `Authenticated: ${credential.value ? 'yes' : 'no'}`,
-    ...(credential.source ? [`Source: ${credential.source}`] : []),
-    ...(credential.value ? ['API key: configured'] : []),
-    `Config: ${runtimeConfigPath()}`,
-    `Enabled: ${config.huggingface.enabled ? 'yes' : 'no'}`,
-    `Base URL: ${config.huggingface.baseUrl}`,
-    `Default model: ${formatModelForDisplay(config.hybridai.defaultModel)}`,
-    'Catalog: auto-discovered',
-  ];
-}
-
 function buildCodexAuthStatusLines(): string[] {
   const status = getCodexAuthStatus();
   return [
@@ -3573,10 +3513,12 @@ function buildMSTeamsAuthStatusLines(): string[] {
   ];
 }
 
-function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
-  title: string;
-  lines: string[];
-} {
+function buildGatewayAuthStatusResponse(
+  provider: AuthStatusTarget,
+): AuthStatusReport {
+  if (isSharedAuthStatusTarget(provider)) {
+    return buildSharedAuthStatusReport(provider);
+  }
   switch (provider) {
     case 'hybridai':
       return {
@@ -3587,21 +3529,6 @@ function buildGatewayAuthStatusResponse(provider: GatewayAuthStatusProvider): {
       return {
         title: 'Codex Auth Status',
         lines: buildCodexAuthStatusLines(),
-      };
-    case 'openrouter':
-      return {
-        title: 'OpenRouter Auth Status',
-        lines: buildOpenRouterAuthStatusLines(),
-      };
-    case 'mistral':
-      return {
-        title: 'Mistral Auth Status',
-        lines: buildMistralAuthStatusLines(),
-      };
-    case 'huggingface':
-      return {
-        title: 'Hugging Face Auth Status',
-        lines: buildHuggingFaceAuthStatusLines(),
       };
     case 'local':
       return {
@@ -11253,7 +11180,7 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Usage',
-          `Usage: \`auth status <${GATEWAY_AUTH_STATUS_PROVIDERS.join('|')}>\``,
+          `Usage: \`auth status <${AUTH_STATUS_TARGETS.join('|')}>\``,
         );
       }
 

@@ -1,5 +1,5 @@
 import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
-import { resolveAuthTarget } from '../auth/auth-targets.js';
+import { AUTH_TARGETS, resolveAuthTarget } from '../auth/auth-targets.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../channels/whatsapp/self-chat.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
@@ -169,13 +169,14 @@ Notes:
 }
 
 export function printAuthUsage(): void {
+  const targets = AUTH_TARGETS.join('|');
   console.log(`Usage: hybridclaw auth <command> [provider] [options]
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
-  hybridclaw auth logout <hybridai|openai|codex|anthropic|openrouter|mistral|huggingface|google|hubspot|microsoft365|local|msteams|slack>
+  hybridclaw auth login <${targets}> ...
+  hybridclaw auth status <${targets}>
+  hybridclaw auth logout <${targets}>
   hybridclaw auth whatsapp reset
   hybridclaw auth line reset
 

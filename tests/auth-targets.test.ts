@@ -1,6 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { AUTH_TARGETS, resolveAuthTarget } from '../src/auth/auth-targets.js';
+import {
+  AUTH_STATUS_TARGETS,
+  AUTH_TARGETS,
+  resolveAuthTarget,
+} from '../src/auth/auth-targets.js';
 import { handleAuthCommand } from '../src/cli/auth-command.js';
 import { printHelpTopic } from '../src/cli/help.js';
 import { PROVIDER_ALIASES } from '../src/providers/provider-aliases.js';
@@ -166,6 +170,8 @@ describe('gateway auth status <name>', () => {
     ['or', 'OpenRouter Auth Status'],
     ['hf', 'Hugging Face Auth Status'],
     ['ms-teams', 'Microsoft Teams Auth Status'],
+    ['google-gemini', 'Google Gemini Auth Status'],
+    ['grok', 'xAI Auth Status'],
   ])('%s → %s', async (name, title) => {
     const result = await authStatus(name);
 
@@ -173,12 +179,14 @@ describe('gateway auth status <name>', () => {
   });
 
   it.each([
-    'gemini',
+    'claude',
     'nonsense',
   ])('answers %s with the usage line', async (name) => {
     const result = await authStatus(name);
 
     expect(result).toMatchObject({ kind: 'error', title: 'Usage' });
-    expect(result.text).toContain('auth status <hybridai|codex|');
+    expect(result.text).toContain(
+      `auth status <${AUTH_STATUS_TARGETS.join('|')}>`,
+    );
   });
 });

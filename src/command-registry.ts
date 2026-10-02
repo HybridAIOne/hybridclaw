@@ -2,6 +2,7 @@ import {
   APPROVALS_SLASH_COMMAND,
   APPROVE_COMMAND_USAGE,
 } from './approval-commands.js';
+import { AUTH_STATUS_TARGETS } from './auth/auth-targets.js';
 import { findLoadedPluginCommand } from './plugins/plugin-manager.js';
 
 export interface CanonicalTuiMenuPresentation {
@@ -176,26 +177,6 @@ const MODEL_PROVIDER_CHOICES = [
   { name: 'vllm', value: 'vllm' },
   { name: 'mlx', value: 'mlx' },
 ] satisfies Array<{ name: string; value: string }>;
-
-const AUTH_STATUS_PROVIDERS = [
-  'hybridai',
-  'codex',
-  'openrouter',
-  'mistral',
-  'huggingface',
-  'gemini',
-  'deepseek',
-  'xai',
-  'zai',
-  'kimi',
-  'minimax',
-  'dashscope',
-  'xiaomi',
-  'kilo',
-  'local',
-  'msteams',
-  'slack',
-] as const;
 
 const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   string,
@@ -1449,7 +1430,7 @@ function buildSlashCommandCatalogDefinitions(
       name: 'auth',
       description: 'Show local provider auth and config status',
       tuiOnly: true,
-      tuiMenuEntries: AUTH_STATUS_PROVIDERS.map((provider) => ({
+      tuiMenuEntries: AUTH_STATUS_TARGETS.map((provider) => ({
         id: `auth.status.${provider}`,
         label: `/auth status ${provider}`,
         insertText: `/auth status ${provider}`,
