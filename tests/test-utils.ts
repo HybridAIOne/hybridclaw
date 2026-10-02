@@ -78,7 +78,9 @@ function isRetryableRemoveError(
 
 function removeDirOrIgnoreMissing(dir: string): void {
   try {
-    fs.rmSync(dir, { recursive: true });
+    // Audit appends commit on the libuv pool after a test returns and can add
+    // a file mid-removal; rmSync retries the resulting ENOTEMPTY.
+    fs.rmSync(dir, { recursive: true, maxRetries: 5, retryDelay: 50 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return;
