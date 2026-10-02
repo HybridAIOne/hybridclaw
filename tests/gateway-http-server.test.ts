@@ -12885,6 +12885,7 @@ describe('gateway HTTP server', () => {
         .split('\n')
         .map((line) => JSON.parse(line)),
     ).toEqual([
+      { type: 'accepted' },
       {
         type: 'result',
         result: expect.objectContaining({
@@ -12959,6 +12960,7 @@ describe('gateway HTTP server', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(events.map((event) => event.type)).toEqual([
+      'accepted',
       'text',
       'tool',
       'tool',
@@ -13011,6 +13013,7 @@ describe('gateway HTTP server', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(events).toEqual([
+      { type: 'accepted' },
       {
         type: 'result',
         result: expect.objectContaining({
@@ -13021,7 +13024,7 @@ describe('gateway HTTP server', () => {
         }),
       },
     ]);
-    expect(events[0].result.result).not.toContain(leakedValue);
+    expect(events[1].result.result).not.toContain(leakedValue);
   });
 
   test('threads updated session ids through expanded web slash commands', async () => {
@@ -13275,6 +13278,7 @@ describe('gateway HTTP server', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(events).toEqual([
+      { type: 'accepted' },
       {
         type: 'result',
         result: expect.objectContaining({
@@ -13347,6 +13351,7 @@ describe('gateway HTTP server', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(events).toEqual([
+      { type: 'accepted' },
       {
         type: 'result',
         result: expect.objectContaining({
@@ -14253,6 +14258,7 @@ describe('gateway HTTP server', () => {
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(events).toEqual([
+      { type: 'accepted' },
       {
         type: 'approval',
         approvalId: 'approve123',
@@ -14340,7 +14346,7 @@ describe('gateway HTTP server', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
-    expect(events[0]).toEqual({
+    expect(events[1]).toEqual({
       type: 'approval',
       approvalId: 'approve123',
       prompt: 'I need your approval before I control a local app.',
@@ -14352,7 +14358,7 @@ describe('gateway HTTP server', () => {
       allowAgent: false,
       expiresAt: 1_710_000_000_000,
     });
-    expect(events[1]).toEqual({
+    expect(events[2]).toEqual({
       type: 'result',
       result: expect.objectContaining({
         status: 'success',

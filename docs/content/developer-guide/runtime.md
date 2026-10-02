@@ -403,6 +403,14 @@ Session behavior matches the routing rules above:
   their next message. A 👍 or 👎 is also the reply's response rating, from the
   `userId` sent with it, as Teams reactions are; taking it off clears only the
   rating it made
+- a streaming `/api/chat` response opens with an `accepted` line and sends a
+  `ping` line after 15 s without other output, so proxies and phone read
+  timeouts keep the connection open. Clients skip line types they do not know.
+  The turn does not depend on its connection: if the client drops, the turn
+  keeps running, is stored, and sends its "finished" notification. Only
+  `/stop` ends it early. When the same caller resends the same body while the
+  turn runs, the resend joins that turn. It gets every line so far and then
+  the rest, so the message is not answered twice
 
 ## Persistent Browser Profiles
 

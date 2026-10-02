@@ -234,6 +234,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { openChatStreamTurn } from './chat-stream-turns.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -3476,7 +3477,7 @@ async function handleApiChat(
   if (channelId === 'web' && operatorId)
     trackWebNotificationSession(chatRequest.sessionId, operatorId);
   if (wantsStream) {
-    await handleApiChatStream(req, res, chatRequest, operatorId, adminActions);
+    await handleApiChatStream(res, chatRequest, operatorId, adminActions);
     return;
   }
 
@@ -3830,39 +3831,18 @@ async function handleApiMediaSpeech(
 }
 
 async function handleApiChatStream(
-  req: IncomingMessage,
   res: ServerResponse,
   chatRequest: GatewayChatRequest,
   operatorId: string | null,
   adminActions: string[] | undefined,
 ): Promise<void> {
-  const sendEvent = (payload: object): void => {
-    if (res.writableEnded) return;
-    res.write(`${JSON.stringify(payload)}\n`);
-  };
-
-  res.writeHead(200, {
-    'Content-Type': 'application/x-ndjson; charset=utf-8',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-  });
-
-  const localCommandResult = await resolveApiChatLocalCommandResult(
-    chatRequest,
-    adminActions,
+  // The same operator resending the same body is the same request.
+  const stream = openChatStreamTurn(
+    res,
+    JSON.stringify([operatorId, chatRequest]),
   );
-  if (localCommandResult) {
-    const filteredResult = filterChatResultForSession(
-      localCommandResult.sessionId || chatRequest.sessionId,
-      localCommandResult,
-    );
-    sendEvent({
-      type: 'result',
-      result: filteredResult,
-    });
-    res.end();
-    return;
-  }
+  if (!stream) return;
+  const sendEvent = stream.send;
 
   // Accumulate draft/thinking/tool events into an ordered trace, then persist it
   // against the assistant message so a reload can replay the same collapsed run
@@ -3935,6 +3915,20 @@ async function handleApiChatStream(
   };
 
   try {
+    const localCommandResult = await resolveApiChatLocalCommandResult(
+      chatRequest,
+      adminActions,
+    );
+    if (localCommandResult) {
+      sendEvent({
+        type: 'result',
+        result: filterChatResultForSession(
+          localCommandResult.sessionId || chatRequest.sessionId,
+          localCommandResult,
+        ),
+      });
+      return;
+    }
     let result = normalizePlaceholderToolReply(
       normalizeSilentMessageSendReply(
         await handleGatewayMessage({
@@ -3991,7 +3985,7 @@ async function handleApiChatStream(
     });
     // Close the stream before the bookkeeping below. The trace write is
     // synchronous, so no later request can read the message before it lands.
-    res.end();
+    stream.end();
     tail.mark('resultSent');
     tail.log(
       { sessionId: chatRequest.sessionId, channelId: chatRequest.channelId },
@@ -4031,16 +4025,8 @@ async function handleApiChatStream(
       'Gateway streaming chat failed',
     );
   } finally {
-    if (!res.writableEnded) {
-      res.end();
-    }
+    stream.end();
   }
-
-  req.on('close', () => {
-    if (!res.writableEnded) {
-      res.end();
-    }
-  });
 }
 
 async function handleApiCommand(
