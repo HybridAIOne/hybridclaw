@@ -2189,18 +2189,21 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
 
 /**
  * MCP tool names a remote request keeps behind tool_catalog: every MCP tool in
- * `deferred` mode, else those their server asked to load only when needed.
- * Undefined keeps the plain tool array; local requests use their own starter
- * selection.
+ * `deferred` mode, else those of `tools` their server marks or whose server's
+ * schemas exceed the per-server budget. Undefined keeps the plain tool array;
+ * local requests use their own starter selection.
  */
-function resolveDeferredTools(input: ContainerInput): Set<string> | undefined {
+function resolveDeferredTools(
+  input: ContainerInput,
+  tools: ToolDefinition[],
+): Set<string> | undefined {
   if (!mcpClientManager) return undefined;
   const names =
     input.mcpToolMode === 'deferred'
       ? mcpClientManager
           .getAllToolDefinitions()
           .map((tool) => tool.function.name)
-      : mcpClientManager.getDeferLoadingToolNames();
+      : mcpClientManager.getDeferLoadingToolNames(tools);
   return names.length > 0 ? new Set(names) : undefined;
 }
 
@@ -2322,6 +2325,7 @@ async function main(): Promise<void> {
     };
     console.error('[approval] resolved user response without model run');
   } else {
+    const firstTools = resolveTools(firstInput);
     firstOutput = await processRequestWithMediaFallback(firstInput.messages, {
       sessionId: firstInput.sessionId,
       messages: firstMessagesForRequest,
@@ -2338,11 +2342,11 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: firstRequestHeaders,
-      tools: resolveTools(firstInput),
+      tools: firstTools,
       localToolMode: firstInput.localToolMode,
       localStarterTools: firstInput.localStarterTools,
       localDiscoveryDisabled: firstInput.blockedTools?.includes('tool_catalog'),
-      deferredTools: resolveDeferredTools(firstInput),
+      deferredTools: resolveDeferredTools(firstInput, firstTools),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
       channelId: firstInput.channelId,
@@ -2489,6 +2493,7 @@ async function main(): Promise<void> {
       continue;
     }
 
+    const requestTools = resolveTools(input);
     const output = await processRequestWithMediaFallback(input.messages, {
       sessionId: input.sessionId,
       messages: messagesForRequestWithSkillCache,
@@ -2505,11 +2510,11 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
-      tools: resolveTools(input),
+      tools: requestTools,
       localToolMode: input.localToolMode,
       localStarterTools: input.localStarterTools,
       localDiscoveryDisabled: input.blockedTools?.includes('tool_catalog'),
-      deferredTools: resolveDeferredTools(input),
+      deferredTools: resolveDeferredTools(input, requestTools),
       taskModels,
       contextGuard: input.contextGuard,
       channelId: input.channelId,

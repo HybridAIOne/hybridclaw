@@ -8,12 +8,14 @@ import {
   McpError,
 } from '../container/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js';
 import { McpClientManager } from '../container/src/mcp/client-manager.js';
-import { leadingParallelRun } from '../container/src/tool-parallelism.js';
 import {
   DEFER_LOADING_META,
   type McpClientHandle,
   type McpServerConfig,
 } from '../container/src/mcp/types.js';
+import { ToolCatalog } from '../container/src/tool-catalog.js';
+import { leadingParallelRun } from '../container/src/tool-parallelism.js';
+import type { ToolDefinition } from '../container/src/types.js';
 
 function makeConfig(command: string): McpServerConfig {
   return {
@@ -252,17 +254,81 @@ describe('McpClientManager transport events', () => {
 });
 
 describe('McpClientManager deferred loading', () => {
+  // MAX_LOADED_SERVER_SCHEMA_CHARS in container/src/mcp/client-manager.ts.
+  const BUDGET = 32_000;
+
+  type DeferralInternals = {
+    configs: Map<string, McpServerConfig>;
+    clients: Map<string, McpClientHandle>;
+    mapTools(
+      serverName: string,
+      serverNamespace: string,
+      tools: Array<Record<string, unknown>>,
+      seenNames: Set<string>,
+    ): McpClientHandle['tools'];
+    rebuildToolIndex(): void;
+    getAllToolDefinitions(): ToolDefinition[];
+    getDeferLoadingToolNames(requestTools: ToolDefinition[]): string[];
+  };
+
+  /**
+   * Servers whose unmarked tools serialize to exactly `chars` characters as
+   * the model receives them, plus `marked` tools that carry the _meta hint.
+   */
+  function managerWithServers(
+    servers: Array<{
+      name: string;
+      count: number;
+      chars: number;
+      marked?: number;
+    }>,
+  ): DeferralInternals {
+    const manager = new McpClientManager() as unknown as DeferralInternals;
+    for (const { name, count, chars, marked = 0 } of servers) {
+      const tools = manager.mapTools(
+        name,
+        name,
+        Array.from({ length: count + marked }, (_, index) => ({
+          name: `tool_${String(index).padStart(2, '0')}`,
+          description: 'Does one thing.',
+          inputSchema: {
+            type: 'object',
+            properties: { query: { type: 'string', description: '' } },
+          },
+          ...(index >= count
+            ? { _meta: { [DEFER_LOADING_META]: true } }
+            : {}),
+        })),
+        new Set(),
+      );
+      manager.configs.set(name, makeConfig('node'));
+      manager.clients.set(name, { ...makeHandle(name, 'unused'), tools });
+      const unmarked = tools.filter((tool) => !tool.deferLoading);
+      const loaded = () =>
+        manager
+          .getAllToolDefinitions()
+          .filter((tool) =>
+            unmarked.some((entry) => entry.name === tool.function.name),
+          )
+          .reduce((sum, tool) => sum + JSON.stringify(tool).length, 0);
+      const extra = chars - loaded();
+      unmarked.forEach((tool, index) => {
+        const properties = tool.inputSchema.properties as Record<
+          string,
+          { description: string }
+        >;
+        properties.query.description = 'x'.repeat(
+          Math.floor(extra / count) + (index === 0 ? extra % count : 0),
+        );
+      });
+      expect(loaded()).toBe(chars);
+    }
+    manager.rebuildToolIndex();
+    return manager;
+  }
+
   test('keeps the tools a server marks for loading only when needed', () => {
-    const manager = new McpClientManager() as unknown as {
-      clients: Map<string, McpClientHandle>;
-      mapTools(
-        serverName: string,
-        serverNamespace: string,
-        tools: Array<Record<string, unknown>>,
-        seenNames: Set<string>,
-      ): McpClientHandle['tools'];
-      getDeferLoadingToolNames(): string[];
-    };
+    const manager = new McpClientManager() as unknown as DeferralInternals;
     const tools = manager.mapTools(
       'hybridai',
       'hybridai',
@@ -286,8 +352,73 @@ describe('McpClientManager deferred loading', () => {
       tools,
     });
 
-    expect(manager.getDeferLoadingToolNames()).toEqual([
-      'hybridai__dm__search_products',
+    expect(
+      manager.getDeferLoadingToolNames(manager.getAllToolDefinitions()),
+    ).toEqual(['hybridai__dm__search_products']);
+  });
+
+  test.each([
+    ['at the budget stays loaded', BUDGET, []],
+    [
+      'one character over it is deferred entirely',
+      BUDGET + 1,
+      ['invoice__tool_00', 'invoice__tool_01', 'invoice__tool_02'],
+    ],
+  ])('a server %s', (_label, chars, deferred) => {
+    const manager = managerWithServers([
+      { name: 'connectors', count: 4, chars: BUDGET - 100, marked: 2 },
+      { name: 'invoice', count: 3, chars },
     ]);
+    // Marked tools stay deferred either way and do not count toward the budget.
+    expect(
+      manager.getDeferLoadingToolNames(manager.getAllToolDefinitions()),
+    ).toEqual(['connectors__tool_04', 'connectors__tool_05', ...deferred]);
+  });
+
+  test('sizes the tools the request offers, not the whole server', () => {
+    const manager = managerWithServers([
+      { name: 'invoice', count: 4, chars: 40_000 },
+    ]);
+    const all = manager.getAllToolDefinitions();
+    expect(manager.getDeferLoadingToolNames(all)).toHaveLength(4);
+    // An agent allowed three of the four tools sends ~30K: they stay loaded.
+    expect(manager.getDeferLoadingToolNames(all.slice(1))).toEqual([]);
+  });
+
+  test('every worker exposes the same sorted tools, whatever the connect order', () => {
+    const bash: ToolDefinition = {
+      type: 'function',
+      function: {
+        name: 'bash',
+        description: 'Run a command.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    };
+    const servers = [
+      { name: 'connectors', count: 5, chars: 25_000 },
+      { name: 'invoice', count: 8, chars: 56_000 },
+    ];
+    const exposed = [servers, [...servers].reverse()].map((order) => {
+      const manager = managerWithServers(order);
+      const tools = [bash, ...manager.getAllToolDefinitions()].sort(
+        (a, b) => a.function.name.localeCompare(b.function.name),
+      );
+      const catalog = ToolCatalog.deferring(
+        tools,
+        new Set(manager.getDeferLoadingToolNames(tools)),
+      );
+      return {
+        tools: JSON.stringify(catalog?.tools),
+        guidance: catalog?.promptGuidance(),
+      };
+    });
+    expect(exposed[1]).toEqual(exposed[0]);
+    const names = (JSON.parse(exposed[0].tools) as ToolDefinition[]).map(
+      (entry) => entry.function.name,
+    );
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect(names).toContain('connectors__tool_00');
+    expect(names).not.toContain('invoice__tool_00');
+    expect(exposed[0].guidance).toContain('- invoice__tool_07(query?)');
   });
 });
