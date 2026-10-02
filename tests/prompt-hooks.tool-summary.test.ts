@@ -762,6 +762,7 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('call `hybridai__list_connectors`');
   expect(web).not.toContain('hybridai__list_connectors');
   expect(mobile).toContain('Make replies visual.');
+  expect(mobile).toContain('put its link on a line of its own');
   expect(web).not.toContain('Make replies visual.');
 });
 
