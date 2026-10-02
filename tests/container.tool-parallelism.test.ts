@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { isParallelSafeMcpTool } from '../container/src/mcp/tool-concurrency.js';
+import type { McpToolBehavior } from '../container/src/mcp/types.js';
 import { isLoopGuardedToolName } from '../container/src/tool-loop-detection.js';
 import {
   leadingParallelRun,
@@ -24,10 +26,13 @@ function call(
 
 // Walks a batch the way the tool loop does: a run of two or more calls runs
 // concurrently, otherwise the first call runs alone.
-function plan(calls: ToolCall[]): string[][] {
+function plan(
+  calls: ToolCall[],
+  resolveMcpBehavior?: (name: string) => McpToolBehavior | undefined,
+): string[][] {
   const segments: string[][] = [];
   for (let index = 0; index < calls.length; ) {
-    const run = leadingParallelRun(calls.slice(index));
+    const run = leadingParallelRun(calls.slice(index), resolveMcpBehavior);
     const size = run.length > 1 ? run.length : 1;
     segments.push(calls.slice(index, index + size).map((entry) => entry.id));
     index += size;
@@ -38,6 +43,28 @@ function plan(calls: ToolCall[]): string[][] {
 const search = (id: string) => call(id, 'web_search', { query: id });
 
 describe('leadingParallelRun', () => {
+  test('batches trusted MCP reads around mutations and unknown tools', () => {
+    const batch = [
+      search('a'),
+      call('b', 'mail__lookup'),
+      call('c', 'mail__mutate'),
+      call('d', 'mail__lookup'),
+      call('e', 'unknown__get'),
+      search('f'),
+    ];
+    const resolve = (name: string): McpToolBehavior | undefined =>
+      name.startsWith('mail__')
+        ? { kind: 'read', parallelSafe: name === 'mail__lookup' }
+        : undefined;
+    expect(plan(batch, resolve)).toEqual([
+      ['a', 'b'],
+      ['c'],
+      ['d'],
+      ['e'],
+      ['f'],
+    ]);
+  });
+
   test.each([
     ['bash', { command: 'git status' }],
     ['browser_navigate', { url: 'https://example.com' }],
@@ -170,6 +197,86 @@ describe('leadingParallelRun', () => {
       ['a', 'b'],
       ['file'],
     ]);
+  });
+});
+
+describe('trusted MCP concurrency', () => {
+  test.each([
+    ['name alone', undefined, 'get_mail', undefined, false],
+    ['untrusted hints', undefined, 'lookup', { readOnlyHint: true }, false],
+    [
+      'trusted read',
+      { trustAnnotations: true },
+      'lookup',
+      { readOnlyHint: true },
+      true,
+    ],
+    ['no hints', { trustAnnotations: true }, 'lookup', undefined, false],
+    [
+      'idempotent mutation',
+      { trustAnnotations: true },
+      'lookup',
+      { idempotentHint: true },
+      false,
+    ],
+    [
+      'non-destructive mutation',
+      { trustAnnotations: true },
+      'lookup',
+      { destructiveHint: false },
+      false,
+    ],
+    [
+      'exact override',
+      { overrides: { lookup: 'read-only' } },
+      'lookup',
+      undefined,
+      true,
+    ],
+    [
+      'override is case sensitive',
+      { overrides: { Lookup: 'read-only' } },
+      'lookup',
+      undefined,
+      false,
+    ],
+    [
+      'override is not a pattern',
+      { overrides: { 'get_*': 'read-only' } },
+      'get_mail',
+      undefined,
+      false,
+    ],
+    ['inherited key', { overrides: {} }, 'toString', undefined, false],
+    [
+      'mutation override beats read hint',
+      { trustAnnotations: true, overrides: { lookup: 'mutation' } },
+      'lookup',
+      { readOnlyHint: true },
+      false,
+    ],
+    [
+      'conflicting read hint',
+      { overrides: { lookup: 'read-only' } },
+      'lookup',
+      { readOnlyHint: false },
+      false,
+    ],
+    [
+      'conflicting destructive hint',
+      { trustAnnotations: true },
+      'lookup',
+      { readOnlyHint: true, destructiveHint: true },
+      false,
+    ],
+  ] as const)('%s', (_label, toolBehavior, name, annotations, expected) => {
+    expect(
+      isParallelSafeMcpTool(
+        { transport: 'stdio', toolBehavior },
+        name,
+        annotations,
+      ),
+    ).toBe(expected);
   });
 });
 

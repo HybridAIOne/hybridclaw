@@ -8,6 +8,7 @@ import {
   McpError,
 } from '../container/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js';
 import { McpClientManager } from '../container/src/mcp/client-manager.js';
+import { leadingParallelRun } from '../container/src/tool-parallelism.js';
 import {
   DEFER_LOADING_META,
   type McpClientHandle,
@@ -43,6 +44,57 @@ function makeHandle(serverName: string, toolName: string): McpClientHandle {
 }
 
 describe('McpClientManager tool namespacing', () => {
+  test('rejects malformed IPC declarations before connecting or changing config', async () => {
+    const manager = new McpClientManager();
+    const internals = manager as unknown as ManagerInternals;
+    await expect(
+      manager.replaceClient('mail', {
+        ...makeConfig('node'),
+        toolBehavior: { trustAnnotations: 'true' } as never,
+      }),
+    ).rejects.toThrow();
+    expect(internals.configs.size).toBe(0);
+    expect(internals.clients.size).toBe(0);
+  });
+
+  test('binds concurrency trust to the live handle and revokes it with discovery', () => {
+    const manager = new McpClientManager();
+    const internals = manager as unknown as ManagerInternals;
+    const handle = makeHandle('mail', 'lookup');
+    handle.tools[0].annotations = { readOnlyHint: true };
+    internals.configs.set('mail', {
+      ...makeConfig('node'),
+      toolBehavior: { trustAnnotations: true },
+    });
+    internals.clients.set('mail', handle);
+    internals.rebuildToolIndex();
+    // A pending or failed replacement's config must not bless the old handle.
+    expect(manager.getToolBehavior('mail__lookup')?.parallelSafe).toBe(false);
+    handle.config.toolBehavior = { trustAnnotations: true };
+    expect(manager.getToolBehavior('mail__lookup')?.parallelSafe).toBe(true);
+    internals.configs.set('mail', makeConfig('node'));
+    expect(manager.getToolBehavior('mail__lookup')?.parallelSafe).toBe(false);
+    internals.configs.set('mail', {
+      ...makeConfig('node'),
+      toolBehavior: { trustAnnotations: true },
+    });
+    const calls = ['a', 'b'].map((id) => ({
+      id,
+      type: 'function' as const,
+      function: { name: 'mail__lookup', arguments: '{}' },
+    }));
+    expect(
+      leadingParallelRun(calls, (name) => manager.getToolBehavior(name)),
+    ).toHaveLength(2);
+    delete handle.config.toolBehavior;
+    expect(
+      leadingParallelRun(calls, (name) => manager.getToolBehavior(name)),
+    ).toHaveLength(0);
+    handle.healthy = false;
+    internals.rebuildToolIndex();
+    expect(manager.getToolBehavior('mail__lookup')).toBeUndefined();
+  });
+
   test('keeps tool names unique when server names sanitize to the same segment', () => {
     const manager = new McpClientManager() as unknown as {
       configs: Map<string, McpServerConfig>;

@@ -1,21 +1,14 @@
+/**
+ * Discovered MCP metadata stays separate from operator scheduling declarations.
+ * Approval consumes kind/annotations; only concurrency consumes parallelSafe.
+ */
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-
+import type { McpServerConfig } from '../../shared/mcp-server-config.js';
 import type { ToolKind } from './tool-classifier.js';
 
-export interface McpServerConfig {
-  transport: 'stdio' | 'http' | 'sse';
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-  url?: string;
-  headers?: Record<string, string>;
-  /** OAuth is handled by the gateway, which injects `headers.Authorization`. */
-  auth?: 'oauth';
-  enabled?: boolean;
-}
+export type { McpServerConfig } from '../../shared/mcp-server-config.js';
 
 export interface McpToolDefinition {
   serverName: string;
@@ -38,8 +31,13 @@ export interface McpToolDefinition {
  */
 export const DEFER_LOADING_META = 'hybridai/deferLoading';
 
-/** What the approval policy needs to know about an MCP tool. */
-export type McpToolBehavior = Pick<McpToolDefinition, 'kind' | 'annotations'>;
+/** Approval metadata plus an independent, operator-trusted scheduling decision. */
+export type McpToolBehavior = Pick<
+  McpToolDefinition,
+  'kind' | 'annotations'
+> & {
+  parallelSafe?: boolean;
+};
 
 /** HTTP/SSE request headers, read on every request. */
 export interface LiveHeaders {

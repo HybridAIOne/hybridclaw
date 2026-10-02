@@ -1,3 +1,4 @@
+import type { McpServerConfig } from '../../../container/shared/mcp-server-config.js';
 import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
@@ -1548,17 +1549,7 @@ export interface AdminBoardBudgetResponse {
   budgets: AdminBoardBudgetSummary[];
 }
 
-export interface AdminMcpConfig {
-  transport: 'stdio' | 'http' | 'sse';
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-  url?: string;
-  headers?: Record<string, string>;
-  auth?: 'oauth';
-  enabled?: boolean;
-}
+export type AdminMcpConfig = McpServerConfig;
 
 export type AdminMcpAuthState = 'connected' | 'expired' | 'unauthorized';
 

@@ -1,13 +1,15 @@
 /**
  * Tool-batch concurrency policy: which calls of one model response may overlap.
  *
- * Only allowlisted read-only tools and path-scoped file tools batch; every
- * other tool is a barrier that runs alone, in model order, while the calls
+ * Only allowlisted reads, trusted MCP reads and path-scoped file tools batch.
+ * Every other tool is a barrier that runs alone, in model order, while the calls
  * around it still batch. A file tool joins a run only if its path does not
  * overlap a path in the run when either of the two writes.
  *
  * NOT approval or the loop guard: this never decides whether a call may run.
  */
+
+import type { McpToolBehavior } from './mcp/types.js';
 import {
   isWithinRoot,
   resolveMediaPath,
@@ -19,7 +21,7 @@ import type { ToolCall } from './types.js';
 
 // Engineering choice, 2026-09-26: hermes-agent's read-only allowlist mapped to
 // HybridClaw's tools. Tools that write workspace artifacts (image_generate,
-// diagram_create) stay barriers; a per-server MCP opt-in is deferred.
+// diagram_create) stay barriers. MCP reads require operator-trusted behavior.
 const READ_ONLY_TOOLS = new Set([
   'device_data',
   'session_search',
@@ -77,11 +79,17 @@ function pathsOverlap(left: string, right: string): boolean {
  * before the first barrier and before the first file tool that conflicts with
  * a path already in the run. Fewer than two calls means the first runs alone.
  */
-export function leadingParallelRun(calls: readonly ToolCall[]): ToolCall[] {
+export function leadingParallelRun(
+  calls: readonly ToolCall[],
+  resolveMcpBehavior?: (name: string) => McpToolBehavior | undefined,
+): ToolCall[] {
   const run: ToolCall[] = [];
   const claims: PathClaim[] = [];
   for (const call of calls) {
-    if (!READ_ONLY_TOOLS.has(call.function.name)) {
+    if (
+      !READ_ONLY_TOOLS.has(call.function.name) &&
+      resolveMcpBehavior?.(call.function.name)?.parallelSafe !== true
+    ) {
       const claim = claimPath(call);
       if (
         !claim ||
