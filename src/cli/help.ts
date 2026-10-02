@@ -1,4 +1,5 @@
 import { APPROVE_COMMAND_USAGE } from '../approval-commands.js';
+import { resolveAuthTarget } from '../auth/auth-targets.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../channels/whatsapp/self-chat.js';
 import { runtimeConfigPath } from '../config/runtime-config.js';
 import { runtimeSecretsPath } from '../security/runtime-secrets.js';
@@ -1046,7 +1047,8 @@ export function isHelpRequest(args: string[]): boolean {
 }
 
 export async function printHelpTopic(topic: string): Promise<boolean> {
-  switch (topic.trim().toLowerCase()) {
+  const name = topic.trim().toLowerCase();
+  switch (resolveAuthTarget(name) ?? name) {
     case 'agent':
       printAgentUsage();
       return true;
@@ -1090,7 +1092,6 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       printPluginUsage();
       return true;
     case 'msteams':
-    case 'teams':
       printMSTeamsUsage();
       return true;
     case 'slack':
@@ -1109,25 +1110,18 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       printOpenRouterUsage();
       return true;
     case 'anthropic':
-    case 'claude':
       printAnthropicUsage();
       return true;
     case 'mistral':
       printMistralUsage();
       return true;
     case 'huggingface':
-    case 'hf':
       printHuggingFaceUsage();
       return true;
     case 'hubspot':
-    case 'hs':
       printHubSpotUsage();
       return true;
     case 'microsoft365':
-    case 'microsoft-365':
-    case 'm365':
-    case 'office365':
-    case 'graph':
       printMicrosoft365Usage();
       return true;
     case 'browser':

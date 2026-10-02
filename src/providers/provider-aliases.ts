@@ -1,8 +1,17 @@
 import type { RuntimeProviderId } from './provider-ids.js';
 
+// `google` is deliberately absent (owner call, 2026-10-02): it names the
+// Google Workspace auth target (src/auth/auth-targets.ts), so it no longer
+// also means `gemini` here. Use `gemini` or `google-gemini`.
 export const PROVIDER_ALIASES: Readonly<Record<string, RuntimeProviderId>> = {
+  'hybrid-ai': 'hybridai',
+  hybrid: 'hybridai',
   codex: 'openai-codex',
-  google: 'gemini',
+  claude: 'anthropic',
+  or: 'openrouter',
+  hf: 'huggingface',
+  'hugging-face': 'huggingface',
+  'huggingface-hub': 'huggingface',
   'google-gemini': 'gemini',
   'deep-seek': 'deepseek',
   grok: 'xai',

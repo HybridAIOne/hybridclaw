@@ -83,6 +83,7 @@ import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
+import { type AuthTarget, resolveAuthTarget } from '../auth/auth-targets.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
@@ -3337,57 +3338,26 @@ function buildHybridAIAuthStatusLines(): string[] {
   ];
 }
 
-type GatewayAuthStatusProvider =
-  | 'hybridai'
-  | 'codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'local'
-  | 'msteams';
+const GATEWAY_AUTH_STATUS_PROVIDERS = [
+  'hybridai',
+  'codex',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'local',
+  'msteams',
+] as const satisfies readonly AuthTarget[];
+
+type GatewayAuthStatusProvider = (typeof GATEWAY_AUTH_STATUS_PROVIDERS)[number];
 
 function normalizeGatewayAuthStatusProvider(
   rawProvider: string | undefined,
 ): GatewayAuthStatusProvider | null {
-  const normalized = String(rawProvider || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'hybrid-ai' ||
-    normalized === 'hybrid'
-  ) {
-    return 'hybridai';
-  }
-  if (normalized === 'codex' || normalized === 'openai-codex') {
-    return 'codex';
-  }
-  if (normalized === 'openrouter' || normalized === 'or') {
-    return 'openrouter';
-  }
-  if (normalized === 'mistral') {
-    return 'mistral';
-  }
-  if (
-    normalized === 'huggingface' ||
-    normalized === 'hf' ||
-    normalized === 'hugging-face' ||
-    normalized === 'huggingface-hub'
-  ) {
-    return 'huggingface';
-  }
-  if (normalized === 'local') {
-    return 'local';
-  }
-  if (
-    normalized === 'msteams' ||
-    normalized === 'teams' ||
-    normalized === 'ms-teams'
-  ) {
-    return 'msteams';
-  }
-  return null;
+  const target = resolveAuthTarget(rawProvider);
+  return (
+    GATEWAY_AUTH_STATUS_PROVIDERS.find((provider) => provider === target) ??
+    null
+  );
 }
 
 function resolveRuntimeCredentialStatus(
@@ -11283,7 +11253,7 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Usage',
-          'Usage: `auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`',
+          `Usage: \`auth status <${GATEWAY_AUTH_STATUS_PROVIDERS.join('|')}>\``,
         );
       }
 
