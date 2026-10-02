@@ -62,9 +62,29 @@ Examples:
 /concierge info
 ```
 
-`/model list <provider>` also accepts vendor names as supported provider
-aliases, for example `codex` for `openai-codex`, `google` for `gemini`, `grok`
-for `xai`, `glm` for `zai`, `moonshot` for `kimi`, and `qwen` for `dashscope`.
+## Provider Names
+
+`/model list <provider>` and `/second-opinion --provider <provider>` take the
+provider prefix above or one of these supported vendor names, in any letter
+case:
+
+- `hybrid`, `hybrid-ai` → `hybridai`
+- `codex` → `openai-codex`
+- `claude` → `anthropic`
+- `or` → `openrouter`
+- `hf`, `hugging-face`, `huggingface-hub` → `huggingface`
+- `google-gemini` → `gemini`
+- `deep-seek` → `deepseek`
+- `grok`, `x-ai` → `xai`
+- `z-ai`, `glm`, `zhipu` → `zai`
+- `moonshot`, `kimi-coding` → `kimi`
+- `mini-max` → `minimax`
+- `qwen`, `alibaba` → `dashscope`
+- `mimo` → `xiaomi`
+- `kilocode`, `kilo-code` → `kilo`
+
+`google` is not one of them: it names the Google Workspace login in
+`hybridclaw auth login google`. Use `gemini` to list Gemini models.
 
 ## Scope Rules
 
