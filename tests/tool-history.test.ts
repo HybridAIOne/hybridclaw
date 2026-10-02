@@ -260,6 +260,35 @@ describe('persistent tool history', () => {
     expect(validateToolHistory(sanitized)).toEqual(sanitized);
   });
 
+  test('replays prose about bearer auth byte for byte and masks bearer tokens', () => {
+    const header = 'Authorization: Bearer hcw_0123456789abcdef0123456789abcdef';
+    const history: ChatMessage[] = [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { ...call('a'), function: { name: 'skills_list', arguments: '{}' } },
+          {
+            ...call('b'),
+            function: {
+              name: 'bash',
+              arguments: JSON.stringify({ command: `curl -H "${header}"` }),
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'a',
+        content: '[{"name":"ga4","description":"Reports with bearer auth."}]',
+      },
+      { role: 'tool', tool_call_id: 'b', content: `sent ${header}` },
+    ];
+    const sanitized = sanitizeToolHistory(history);
+    expect(sanitized[1]).toEqual(history[1]);
+    expect(JSON.stringify(sanitized)).not.toContain('0123456789abcdef');
+  });
+
   test('budget selection retains whole recent exchanges and counts arguments', () => {
     const exchange: ChatMessage[] = [
       { role: 'assistant', content: null, tool_calls: [call('a')] },

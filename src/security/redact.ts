@@ -185,6 +185,16 @@ function containsDigit(text: string): boolean {
   return false;
 }
 
+// Prose ("bearer auth,", "bearer tokens.") and code ("bearer = ...") after
+// "Bearer" name no credential, and masking them rewrites replayed tool history.
+// A token has a letter or digit and is not a word: up to 15 letters plus
+// sentence punctuation, as the longest word seen there is "authentication".
+const BEARER_PROSE_WORD_RE = /^[A-Za-z]{1,15}[.:!?)\]]*$/;
+
+function isBearerToken(value: string): boolean {
+  return /[A-Za-z0-9]/.test(value) && !BEARER_PROSE_WORD_RE.test(value);
+}
+
 const JSON_SECRET_KEY_RE =
   /((?:["'])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|webhook[_-]?secret|auth(?:orization)?|token|secret|password|private[_-]?key)(?:["'])\s*:\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,\s}\]]+)/gi;
 const ENV_SECRET_ASSIGNMENT_RE =
@@ -214,9 +224,20 @@ export const CREDENTIAL_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
       shouldRun: (text) => text.includes('='),
     },
     {
-      match: /\b(Bearer\s+)([^\s"',;]+)/gi,
-      replace: (_match: string, prefix: string, token: string) =>
-        `${prefix}${maskSecret(token)}`,
+      // An `Authorization:` header, or a string that is only `Bearer <value>`
+      // (a stored header value), makes any value a credential.
+      match: /(\bAuthorization\s*:\s*)?\b(Bearer\s+)([^\s"',;]+)/gi,
+      replace: (
+        match: string,
+        header: string | undefined,
+        scheme: string,
+        value: string,
+        _offset: unknown,
+        input: unknown,
+      ) =>
+        header || input === match || isBearerToken(value)
+          ? `${header ?? ''}${scheme}${maskSecret(value)}`
+          : match,
       shouldRun: (text) => text.toLowerCase().includes('bearer'),
     },
     {

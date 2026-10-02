@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 
 import {
   redactCredentialSecrets,
@@ -98,6 +101,77 @@ test('masks bearer tokens and preserves short-token hard redaction', () => {
   expect(
     redactSecrets('Authorization: Bearer 1234567890abcdefghijklmnopqrstuv'),
   ).toBe('Authorization: Bearer 123456...stuv');
+});
+
+test.each([
+  'Requests use bearer auth, not cookies.',
+  'The gateway injects bearer tokens.',
+  'Store the bearer token: the helper reads it.',
+  'Bearer authentication (RFC 6750) applies.',
+  'Send a Bearer header with the bearer scheme)',
+  'const bearer = readToken();',
+  'Send Bearer ... with the request.',
+])('keeps prose and code after "bearer": %s', (input) => {
+  expect(redactCredentialSecrets(input)).toBe(input);
+  expect(redactSecrets(input)).toBe(input);
+});
+
+test.each([
+  [
+    'JWT',
+    'sent Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyX2EifQ.c2lnbmF0dXJl ok',
+    'sent Bearer eyJhbG...dXJl ok',
+  ],
+  [
+    'prefixed token',
+    'sent Bearer hcw_0123456789abcdef0123456789abcdef ok',
+    'sent Bearer hcw_01...cdef ok',
+  ],
+  [
+    'hex',
+    'sent Bearer 0123456789abcdef0123456789abcdef ok',
+    'sent Bearer 012345...cdef ok',
+  ],
+  [
+    'base64',
+    'sent Bearer QWxhZGRpbjpvcGVuIHNlc2FtZQ== ok',
+    'sent Bearer QWxhZG...ZQ== ok',
+  ],
+  ['short token with digits', 'sent Bearer abc123 ok', 'sent Bearer *** ok'],
+  ['placeholder key', 'sent Bearer test-key ok', 'sent Bearer *** ok'],
+  ['16+ letters', 'sent Bearer abcdefghijklmnop ok', 'sent Bearer *** ok'],
+  [
+    'header',
+    'curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln" https://example.com',
+    'curl -H "Authorization: Bearer eyJhbG...c2ln" https://example.com',
+  ],
+  [
+    'word in a header',
+    'curl -H "Proxy-Authorization: Bearer changeme" https://example.com',
+    'curl -H "Proxy-Authorization: Bearer ***" https://example.com',
+  ],
+  ['bare header value', 'Bearer changeme', 'Bearer ***'],
+])('masks a bearer %s', (_label, input, expected) => {
+  expect(redactCredentialSecrets(input)).toBe(expected);
+  expect(redactSecrets(input)).toBe(expected);
+});
+
+test('keeps every bundled skill description as skills_list shows it', () => {
+  const skillsDir = path.join(process.cwd(), 'skills');
+  const descriptions = fs
+    .readdirSync(skillsDir)
+    .map((name) => path.join(skillsDir, name, 'SKILL.md'))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => {
+      const frontmatter = fs
+        .readFileSync(file, 'utf8')
+        .match(/^---\n([\s\S]*?)\n---/)?.[1];
+      return String(YAML.parse(frontmatter || '')?.description || '');
+    });
+  expect(descriptions.some((text) => /\bbearer\s+\w/i.test(text))).toBe(true);
+  for (const description of descriptions) {
+    expect(redactCredentialSecrets(description)).toBe(description);
+  }
 });
 
 test('redacts env-style assignments and connection strings', () => {
