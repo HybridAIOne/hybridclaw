@@ -123,6 +123,7 @@ function makeDocument(
     file: {
       ...file,
       content,
+      defaultContent: '# Default Rules',
       revisions,
     },
   };
@@ -327,6 +328,7 @@ describe('AgentFilesPage', () => {
               file: {
                 ...organizationMemoryFile,
                 content: '# Organization Memory',
+                defaultContent: null,
                 revisions: [],
               },
             }
@@ -406,6 +408,7 @@ describe('AgentFilesPage', () => {
                 updatedAt: '2026-04-13T11:00:00.000Z',
                 sizeBytes: 40,
                 content: '# 2026-04-13 daily note',
+                defaultContent: null,
                 revisions: [],
               },
             }
@@ -458,6 +461,75 @@ describe('AgentFilesPage', () => {
       fileName: 'memory/2026-04-13.md',
     });
   });
+
+  it.each(['# Shipped Rules', ''])(
+    'loads a shipped default %j as an unsaved draft that can be discarded or saved',
+    async (defaultContent) => {
+      const agent = makeAgent({});
+      const document = makeDocument(agent, 'AGENTS.md', '# Custom Rules');
+      document.file.defaultContent = defaultContent;
+      fetchAdminAgentsMock.mockResolvedValue([agent]);
+      fetchAdminAgentMarkdownFileMock.mockResolvedValue(document);
+      saveAdminAgentMarkdownFileMock.mockResolvedValue({
+        ...document,
+        file: { ...document.file, content: defaultContent },
+      });
+
+      renderPage();
+
+      const editor = (await screen.findByDisplayValue(
+        '# Custom Rules',
+      )) as HTMLTextAreaElement;
+      const reset = screen.getByRole('button', {
+        name: 'Reset to default',
+      }) as HTMLButtonElement;
+      fireEvent.change(editor, { target: { value: '# Unsaved Rules' } });
+      fireEvent.click(reset);
+      expect(editor.value).toBe(defaultContent);
+      expect(reset.disabled).toBe(true);
+      expect(saveAdminAgentMarkdownFileMock).not.toHaveBeenCalled();
+      expect(screen.getByText('Unsaved changes.')).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reset to Disk' }));
+      expect(editor.value).toBe('# Custom Rules');
+      expect(reset.disabled).toBe(false);
+
+      fireEvent.click(reset);
+      fireEvent.click(screen.getByRole('button', { name: 'Save Markdown' }));
+      await waitFor(() =>
+        expect(saveAdminAgentMarkdownFileMock).toHaveBeenCalledWith(
+          'test-token',
+          { agentId: 'main', fileName: 'AGENTS.md', content: defaultContent },
+        ),
+      );
+    },
+  );
+
+  it.each([
+    { defaultContent: null, readOnly: false },
+    { defaultContent: '# Default Rules', readOnly: true },
+    { defaultContent: '# Custom Rules', readOnly: false },
+  ])(
+    'disables default reset when unavailable or unnecessary: %j',
+    async (state) => {
+      const agent = makeAgent({});
+      const document = makeDocument(agent, 'AGENTS.md', '# Custom Rules');
+      Object.assign(document.file, state);
+      fetchAdminAgentsMock.mockResolvedValue([agent]);
+      fetchAdminAgentMarkdownFileMock.mockResolvedValue(document);
+
+      renderPage();
+
+      await screen.findByDisplayValue('# Custom Rules');
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Reset to default',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true);
+    },
+  );
 
   it('saves edited markdown content for the selected agent file', async () => {
     const agent = makeAgent({});

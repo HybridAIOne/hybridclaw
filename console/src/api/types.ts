@@ -1,5 +1,8 @@
 import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
-import type { GatewayStatus as RuntimeGatewayStatus } from '../../../src/gateway/gateway-types.js';
+import type {
+  GatewayAdminAgentMarkdownFileResponse,
+  GatewayStatus as RuntimeGatewayStatus,
+} from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
 export const LOG_LEVELS = [
   'fatal',
@@ -1342,10 +1345,7 @@ export interface AdminTeamStructureRevisionResponse {
 
 export interface AdminAgentMarkdownFileResponse {
   agent: AdminAgent;
-  file: AdminAgentMarkdownFile & {
-    content: string;
-    revisions: AdminAgentMarkdownRevision[];
-  };
+  file: GatewayAdminAgentMarkdownFileResponse['file'];
 }
 
 export interface AdminAgentMarkdownRevisionResponse {

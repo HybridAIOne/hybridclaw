@@ -529,6 +529,24 @@ export function AgentFilesPage(
                   >
                     Reset to Disk
                   </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    disabled={
+                      selectedFileReadOnly ||
+                      saveMutation.isPending ||
+                      fileQuery.data?.file.defaultContent == null ||
+                      draftContent === fileQuery.data.file.defaultContent
+                    }
+                    onClick={() => {
+                      const defaultContent =
+                        fileQuery.data?.file.defaultContent;
+                      if (defaultContent != null)
+                        setDraftContent(defaultContent);
+                    }}
+                  >
+                    Reset to default
+                  </Button>
                   <p className="supporting-text">
                     {selectedFileIsDailyMemory
                       ? 'Read-only daily memory note written by the agent memory tool.'
