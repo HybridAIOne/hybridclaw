@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## [0.34.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.6) - 2026-10-03
+
+### Changed
+
+- **Mobile reply style**: App replies favor short, conversational paragraphs
+  and include relevant pictures and source links returned by tools.
+- **Smaller mobile responses**: Streamed chat results omit tool arguments and
+  outputs already sent during the turn, reducing downloads on slow networks.
+- **Parallel web searches**: The auto-added HybridAI connector server allows
+  independent web searches to overlap, while preserving operator overrides
+  and existing approval rules.
+- **Smaller MCP prompts**: Remote requests defer a server's tools through
+  `tool_catalog` when their loaded schemas exceed 32,000 characters. Smaller
+  servers stay loaded; deferred tools remain discoverable and callable.
+- **Platform retrieval defaults**: New sessions inherit the agent's RAG
+  setting or `hybridai.enableRag`, which defaults to off. Existing sessions
+  retain their stored setting.
+
+### Fixed
+
+- **Reply image and preview safety**: Pictures and automatic link previews
+  require an exact address already supplied by a user or tool in the session.
+  Model-created addresses cannot gain trust through echoed tool arguments.
+  Unverified pictures become descriptions, and unverified preview links stay
+  available to tap. The same checks apply to streamed and stored replies.
+- **Immediate chat acceptance**: Streamed chats flush their acceptance line
+  before building reply context, including resends joining a running turn.
+- **Current-time answers**: Time questions use the latest turn context and
+  the user's time zone without unnecessary skill reads or shell calls.
+- **Bearer redaction**: Ordinary prose after "bearer" stays readable instead
+  of disrupting logs and conversation caching. Token-shaped values and
+  Authorization header credentials remain masked.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for MCP schema deferral changes.
+- To enable HybridAI platform retrieval for new sessions, set
+  `hybridai.enableRag: true` or the agent's `enableRag`. Use `/rag on` to enable
+  it for an individual session.
+
 ## [0.34.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.5) - 2026-10-02
 
 ### Added

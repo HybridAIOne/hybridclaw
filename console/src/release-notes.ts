@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.5',
+  version: '0.34.6',
   highlights: [
-    'Faster long chats and memory recall',
-    'Responsive shell commands and MCP reads',
-    'Reset agent files to shipped defaults',
-    'Signed webhooks and safer outbound requests',
+    'Faster mobile replies and web searches',
+    'Shorter app replies with pictures and links',
+    'Safer images and link previews',
+    'Smaller prompts for large MCP servers',
   ],
 } as const;
 
