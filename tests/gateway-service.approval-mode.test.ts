@@ -41,6 +41,8 @@ test('approvals mode defaults to auto and persists a change with an audit record
   expect(memoryService.getSessionById('s-mode')?.approval_mode).toBe('ask');
   expect(effective()).toBe('ask');
 
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
   const audit = db
     .getRecentStructuredAuditForSession('s-mode')
     .filter((entry) => entry.event_type === 'approval.mode_changed');

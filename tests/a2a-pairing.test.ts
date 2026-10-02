@@ -100,6 +100,7 @@ describe('A2A operator pairing', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const pairing = await import('../src/a2a/pairing.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
@@ -159,6 +160,7 @@ describe('A2A operator pairing', () => {
       senderAgentId: 'remote@team@peer-prod',
       publicKeyPem: delegationPublicKeyPem,
     });
+    await flushAuditTrail();
     const overrideAudit = getRecentStructuredAuditForSession(
       'a2a:trust-ledger',
       10,

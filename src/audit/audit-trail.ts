@@ -1,5 +1,16 @@
+/**
+ * Hash-chained audit wire log (`<DATA_DIR>/audit/<session>/wire.jsonl`).
+ *
+ * Appends never block the event loop: they queue in call order and are
+ * group-committed per session file on the libuv pool. `seq` and `_prevHash`
+ * are assigned at commit time, so a failed write leaves the chain as it was,
+ * and `appendAuditEvent` resolves only after its line is fsynced. Mirrors of a
+ * record (the SQLite `audit_events` row in `audit-events.ts`) are written after
+ * that promise resolves, never before. This module never touches SQLite.
+ */
 import { hash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import { type FileHandle, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
@@ -55,7 +66,19 @@ interface SessionAuditState {
   lastHash: string;
 }
 
+interface QueuedAppend extends AppendAuditEventInput {
+  timestamp: string;
+  resolve: (record: WireRecord) => void;
+  reject: (error: unknown) => void;
+}
+
+// 64 KiB: one read covers the last record of nearly every wire log.
+const CHAIN_HEAD_READ_BYTES = 64 * 1024;
+
 const sessionStateCache = new Map<string, SessionAuditState>();
+let queuedAppends: QueuedAppend[] = [];
+let draining = false;
+let drainDone: Promise<void> = Promise.resolve();
 
 function sha256(text: string): string {
   return hash('sha256', text, 'hex');
@@ -106,17 +129,17 @@ export function getAuditWirePath(sessionId: string): string {
   return path.join(getAuditSessionDir(sessionId), WIRE_FILE_NAME);
 }
 
-function appendLineSync(filePath: string, line: string): void {
-  const fd = fs.openSync(
+async function appendLines(filePath: string, lines: string[]): Promise<void> {
+  const handle = await open(
     filePath,
     fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_WRONLY,
     0o600,
   );
   try {
-    fs.writeSync(fd, `${line}\n`, undefined, 'utf-8');
-    fs.fsyncSync(fd);
+    await handle.appendFile(`${lines.join('\n')}\n`, 'utf-8');
+    await handle.sync();
   } finally {
-    fs.closeSync(fd);
+    await handle.close();
   }
 }
 
@@ -128,98 +151,116 @@ function computeWireRecordHash(record: Omit<WireRecord, '_hash'>): string {
   return sha256(stableStringify(record));
 }
 
-function readSessionStateFromDisk(
-  sessionId: string,
-  filePath: string,
-): SessionAuditState {
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-    const metadata: WireMetadataRecord = {
-      type: 'metadata',
-      protocolVersion: AUDIT_PROTOCOL_VERSION,
-      sessionId,
-      createdAt: new Date().toISOString(),
-    };
-    appendLineSync(filePath, JSON.stringify(metadata));
-    return {
-      filePath,
-      seq: 0,
-      lastHash: computeMetadataHash(metadata),
-    };
-  }
-
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const lines = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) {
-    const metadata: WireMetadataRecord = {
-      type: 'metadata',
-      protocolVersion: AUDIT_PROTOCOL_VERSION,
-      sessionId,
-      createdAt: new Date().toISOString(),
-    };
-    appendLineSync(filePath, JSON.stringify(metadata));
-    return {
-      filePath,
-      seq: 0,
-      lastHash: computeMetadataHash(metadata),
-    };
-  }
-
-  let seq = 0;
-  let lastHash = FALLBACK_PREV_HASH;
-  let startIndex = 0;
+function parseChainLink(
+  line: string,
+): Pick<SessionAuditState, 'seq' | 'lastHash'> | null {
   try {
-    const firstParsed = JSON.parse(lines[0]) as Partial<WireMetadataRecord>;
-    if (firstParsed.type === 'metadata') {
-      const metadata: WireMetadataRecord = {
+    const parsed = JSON.parse(line) as Partial<WireRecord>;
+    if (
+      typeof parsed.seq === 'number' &&
+      Number.isFinite(parsed.seq) &&
+      typeof parsed._hash === 'string' &&
+      parsed._hash
+    ) {
+      return { seq: parsed.seq, lastHash: parsed._hash };
+    }
+  } catch {
+    // Best effort; skip malformed historical lines.
+  }
+  return null;
+}
+
+function chainRootHash(firstLine: string, sessionId: string): string {
+  try {
+    const parsed = JSON.parse(firstLine) as Partial<WireMetadataRecord>;
+    if (parsed.type === 'metadata') {
+      return computeMetadataHash({
         type: 'metadata',
         protocolVersion: AUDIT_PROTOCOL_VERSION,
         sessionId:
-          typeof firstParsed.sessionId === 'string'
-            ? firstParsed.sessionId
-            : sessionId,
+          typeof parsed.sessionId === 'string' ? parsed.sessionId : sessionId,
         createdAt:
-          typeof firstParsed.createdAt === 'string'
-            ? firstParsed.createdAt
+          typeof parsed.createdAt === 'string'
+            ? parsed.createdAt
             : new Date().toISOString(),
-      };
-      lastHash = computeMetadataHash(metadata);
-      startIndex = 1;
+      });
     }
   } catch {
     // Existing file without metadata. Keep fallback previous hash.
   }
-
-  for (let i = startIndex; i < lines.length; i++) {
-    try {
-      const parsed = JSON.parse(lines[i]) as Partial<WireRecord>;
-      if (
-        typeof parsed.seq === 'number' &&
-        Number.isFinite(parsed.seq) &&
-        typeof parsed._hash === 'string' &&
-        parsed._hash
-      ) {
-        seq = parsed.seq;
-        lastHash = parsed._hash;
-      }
-    } catch {
-      // Best effort; skip malformed historical lines.
-    }
-  }
-
-  return { filePath, seq, lastHash };
+  return FALLBACK_PREV_HASH;
 }
 
-function getSessionState(sessionId: string): SessionAuditState {
+async function* readLinesFromEnd(handle: FileHandle): AsyncGenerator<string> {
+  let position = (await handle.stat()).size;
+  // Bytes of the line that straddles the chunk boundary, in file order.
+  let carried: Buffer[] = [];
+  while (position > 0) {
+    const length = Math.min(CHAIN_HEAD_READ_BYTES, position);
+    position -= length;
+    const chunk = Buffer.alloc(length);
+    await handle.read(chunk, 0, length, position);
+    let end = length;
+    let newline = chunk.lastIndexOf(0x0a, end - 1);
+    while (newline >= 0) {
+      yield Buffer.concat([chunk.subarray(newline + 1, end), ...carried])
+        .toString('utf-8')
+        .trim();
+      carried = [];
+      end = newline;
+      newline = end > 0 ? chunk.lastIndexOf(0x0a, end - 1) : -1;
+    }
+    carried.unshift(chunk.subarray(0, end));
+  }
+  yield Buffer.concat(carried).toString('utf-8').trim();
+}
+
+// Scans back from EOF, so a cold start reads one chunk instead of parsing the
+// whole history. Returns null for a missing or blank file.
+async function readChainHead(
+  sessionId: string,
+  filePath: string,
+): Promise<SessionAuditState | null> {
+  let handle: FileHandle;
+  try {
+    handle = await open(filePath, 'r');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  try {
+    let firstLine: string | null = null;
+    for await (const line of readLinesFromEnd(handle)) {
+      if (!line) continue;
+      const link = parseChainLink(line);
+      if (link) return { filePath, ...link };
+      firstLine = line;
+    }
+    if (firstLine === null) return null;
+    return { filePath, seq: 0, lastHash: chainRootHash(firstLine, sessionId) };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function loadSessionState(sessionId: string): Promise<SessionAuditState> {
   const existing = sessionStateCache.get(sessionId);
   if (existing) return existing;
 
   const sessionDir = getAuditSessionDir(sessionId);
-  fs.mkdirSync(sessionDir, { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
   const filePath = path.join(sessionDir, WIRE_FILE_NAME);
-  const state = readSessionStateFromDisk(sessionId, filePath);
+  let state = await readChainHead(sessionId, filePath);
+  if (!state) {
+    const metadata: WireMetadataRecord = {
+      type: 'metadata',
+      protocolVersion: AUDIT_PROTOCOL_VERSION,
+      sessionId,
+      createdAt: new Date().toISOString(),
+    };
+    await appendLines(filePath, [JSON.stringify(metadata)]);
+    state = { filePath, seq: 0, lastHash: computeMetadataHash(metadata) };
+  }
   sessionStateCache.set(sessionId, state);
   return state;
 }
@@ -229,32 +270,110 @@ export function createAuditRunId(prefix = 'run'): string {
   return `${normalized}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 }
 
-export function appendAuditEvent(input: AppendAuditEventInput): WireRecord {
-  const state = getSessionState(input.sessionId);
-  const seq = state.seq + 1;
-  const event = redactSecretsDeep(input.event) as AuditEventPayload;
+/**
+ * Queues one record and resolves with it once its line is fsynced; records
+ * are chained in call order. Rejects (never throws) when the write fails.
+ */
+export function appendAuditEvent(
+  input: AppendAuditEventInput,
+): Promise<WireRecord> {
+  return new Promise((resolve, reject) => {
+    queuedAppends.push({
+      ...input,
+      event: redactSecretsDeep(input.event) as AuditEventPayload,
+      timestamp: new Date().toISOString(),
+      resolve,
+      reject,
+    });
+    if (draining) return;
+    draining = true;
+    drainDone = drainQueuedAppends();
+  });
+}
 
-  const recordWithoutHash: Omit<WireRecord, '_hash'> = {
-    version: AUDIT_PROTOCOL_VERSION,
-    seq,
-    timestamp: new Date().toISOString(),
-    runId: input.runId,
-    sessionId: input.sessionId,
-    parentRunId: input.parentRunId,
-    event,
-    _prevHash: state.lastHash,
-  };
+/**
+ * Resolves once every queued append has settled. Continuations awaiting those
+ * appends (the SQLite mirror) have run by then. Used at gateway shutdown.
+ */
+export async function flushAuditTrail(): Promise<void> {
+  while (draining) await drainDone;
+}
 
-  const _hash = computeWireRecordHash(recordWithoutHash);
-  const record: WireRecord = {
-    ...recordWithoutHash,
-    _hash,
-  };
+async function drainQueuedAppends(): Promise<void> {
+  try {
+    while (queuedAppends.length > 0) {
+      const batch = queuedAppends;
+      queuedAppends = [];
+      const bySession = new Map<string, QueuedAppend[]>();
+      for (const entry of batch) {
+        const entries = bySession.get(entry.sessionId);
+        if (entries) entries.push(entry);
+        else bySession.set(entry.sessionId, [entry]);
+      }
+      for (const [sessionId, entries] of bySession) {
+        await commitSessionAppends(sessionId, entries);
+      }
+    }
+  } finally {
+    // Cleared in the same tick the queue is seen empty, so an append queued
+    // by a continuation of this drain always starts the next one.
+    draining = false;
+  }
+}
 
-  appendLineSync(state.filePath, JSON.stringify(record));
+async function commitSessionAppends(
+  sessionId: string,
+  entries: QueuedAppend[],
+): Promise<void> {
+  let state: SessionAuditState;
+  try {
+    state = await loadSessionState(sessionId);
+  } catch (error) {
+    for (const entry of entries) entry.reject(error);
+    return;
+  }
+
+  let { seq, lastHash } = state;
+  const committed: Array<{ entry: QueuedAppend; record: WireRecord }> = [];
+  const lines: string[] = [];
+  for (const entry of entries) {
+    try {
+      const recordWithoutHash: Omit<WireRecord, '_hash'> = {
+        version: AUDIT_PROTOCOL_VERSION,
+        seq: seq + 1,
+        timestamp: entry.timestamp,
+        runId: entry.runId,
+        sessionId: entry.sessionId,
+        parentRunId: entry.parentRunId,
+        event: entry.event,
+        _prevHash: lastHash,
+      };
+      const record: WireRecord = {
+        ...recordWithoutHash,
+        _hash: computeWireRecordHash(recordWithoutHash),
+      };
+      lines.push(JSON.stringify(record));
+      committed.push({ entry, record });
+      seq = record.seq;
+      lastHash = record._hash;
+    } catch (error) {
+      // An unserializable event fails alone; the rest chain past it.
+      entry.reject(error);
+    }
+  }
+  if (lines.length === 0) return;
+
+  try {
+    await appendLines(state.filePath, lines);
+  } catch (error) {
+    // Part of the batch may have landed; re-read the chain head next time.
+    sessionStateCache.delete(sessionId);
+    for (const { entry } of committed) entry.reject(error);
+    return;
+  }
   state.seq = seq;
-  state.lastHash = _hash;
-  return record;
+  state.lastHash = lastHash;
+  for (const { entry, record } of committed) entry.resolve(record);
 }
 
 function parseWireLines(filePath: string): string[] {

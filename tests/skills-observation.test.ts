@@ -1131,6 +1131,7 @@ test('records audit event when agent skill score recompute fails', async () => {
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   const observation = recordSkillExecution({
     skillName: context.skillName,
@@ -1153,6 +1154,8 @@ test('records audit event when agent skill score recompute fails', async () => {
     skillId: context.skillName,
   });
   expect(recomputeSpy.mock.results[0]?.type).toBe('throw');
+
+  await flushAuditTrail();
 
   const auditEvents = context.dbModule.getRecentStructuredAuditForSession(
     'session-recompute-failure',
@@ -1557,6 +1560,7 @@ people:
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   recordSkillExecution({
     skillName: context.skillName,
@@ -1598,6 +1602,8 @@ people:
   expect(serialized).not.toContain('Project Falcon');
   expect(serialized).not.toContain('Jane Doe');
   expect(serialized).not.toContain('jane@company.com');
+
+  await flushAuditTrail();
 
   const auditRows = context.dbModule.getStructuredAuditForSession(
     'session-trajectory-scrub',
@@ -1651,6 +1657,7 @@ test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   recordSkillExecution({
     skillName: context.skillName,
@@ -1707,6 +1714,8 @@ test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async
   });
   expect(JSON.stringify(aliceRow)).not.toContain(aliceAgentId);
   expect(JSON.stringify(bobRow)).not.toContain(bobAgentId);
+
+  await flushAuditTrail();
 
   const aliceAuditRows =
     context.dbModule.getStructuredAuditForSession(aliceAgentId);

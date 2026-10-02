@@ -1516,6 +1516,7 @@ test('sessions prune confirm deletes old sessions and skips protected sessions',
     storeMessage,
     withMemoryDatabase,
   } = await import('../src/memory/db.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -1601,6 +1602,7 @@ test('sessions prune confirm deletes old sessions and skips protected sessions',
   expect(result.text).toContain('Matched: 1 session');
   expect(result.text).toContain('Protected skipped: 3');
   expect(result.text).toContain('Deleted: 1 session');
+  await flushAuditTrail();
   const auditEvents = getRecentStructuredAuditForSession(
     'session-prune-command-confirm',
     10,
@@ -2546,6 +2548,7 @@ test('status uses OpenRouter context_length metadata for the context window', as
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2561,6 +2564,8 @@ test('status uses OpenRouter context_length metadata for the context window', as
       promptTokens: 12_000,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-openrouter-context',
@@ -2620,6 +2625,7 @@ test('status reports context from the latest model call instead of aggregate pro
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2650,6 +2656,8 @@ test('status reports context from the latest model call instead of aggregate pro
       ],
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-context-latest-call',
@@ -2709,6 +2717,7 @@ test('status uses Hugging Face context_length metadata for the context window', 
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2724,6 +2733,8 @@ test('status uses Hugging Face context_length metadata for the context window', 
       promptTokens: 10_000,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-huggingface-context',
@@ -2784,6 +2795,7 @@ test('status uses Mistral max_context_length metadata for the context window', a
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2799,6 +2811,8 @@ test('status uses Mistral max_context_length metadata for the context window', a
       promptTokens: 11_000,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-mistral-context',
@@ -2861,6 +2875,7 @@ test('status uses Hugging Face provider-level context_length metadata for the co
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2876,6 +2891,8 @@ test('status uses Hugging Face provider-level context_length metadata for the co
       promptTokens: 23_000,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-huggingface-provider-context',
@@ -2964,6 +2981,7 @@ test('status reuses the context window recorded by model set when later discover
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -2979,6 +2997,8 @@ test('status reuses the context window recorded by model set when later discover
       promptTokens: 21_000,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-model-set-context',
@@ -3004,6 +3024,7 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -3032,6 +3053,8 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
     },
   });
 
+  await flushAuditTrail();
+
   const result = await handleGatewayCommand({
     sessionId: 'session-status-zero-cache',
     guildId: null,
@@ -3055,6 +3078,7 @@ test('status reads nested OpenAI-style cache writes', async () => {
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -3075,6 +3099,8 @@ test('status reads nested OpenAI-style cache writes', async () => {
       },
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-nested-cache-write',
@@ -3124,6 +3150,7 @@ test('status shows estimated cost when model pricing is cached', async () => {
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -3140,6 +3167,8 @@ test('status shows estimated cost when model pricing is cached', async () => {
       completionTokens: 100,
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-cost',
@@ -3170,6 +3199,7 @@ test('status shows delegate model, delegate token totals, and local token share'
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -3209,6 +3239,8 @@ test('status shows delegate model, delegate token totals, and local token share'
     },
   });
 
+  await flushAuditTrail();
+
   const result = await handleGatewayCommand({
     sessionId: 'session-status-delegate-tokens',
     guildId: null,
@@ -3240,6 +3272,7 @@ test('status reports input, output, and total tokens per second with stddev', as
   const { makeAuditRunId, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -3273,6 +3306,8 @@ test('status reports input, output, and total tokens per second with stddev', as
       ],
     },
   });
+
+  await flushAuditTrail();
 
   const result = await handleGatewayCommand({
     sessionId: 'session-status-tps',

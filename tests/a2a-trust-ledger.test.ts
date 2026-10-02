@@ -50,6 +50,7 @@ describe('A2A public-key trust ledger', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
@@ -87,6 +88,7 @@ describe('A2A public-key trust ledger', () => {
       revokedReason: 'rotating peer',
     });
 
+    await flushAuditTrail();
     const auditTypes = getRecentStructuredAuditForSession(
       'a2a:trust-ledger',
       10,
@@ -143,6 +145,7 @@ describe('A2A public-key trust ledger', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
@@ -185,6 +188,7 @@ describe('A2A public-key trust ledger', () => {
     expect(hydrated.publicKeyJwk).toMatchObject({ kty: 'OKP', crv: 'Ed25519' });
     expect(hydrated.lastSeenAt).toBe('2030-01-01T00:00:05.000Z');
 
+    await flushAuditTrail();
     const auditTypes = getRecentStructuredAuditForSession(
       'a2a:trust-ledger',
       10,

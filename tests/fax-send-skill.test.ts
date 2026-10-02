@@ -472,6 +472,7 @@ test('fax accounting persists structured audit events and page usage totals', as
     recordFaxSendStart,
     recordFaxUsageEvent,
   } = await import('../src/fax/accounting.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true, dbPath });
   const runId = recordFaxSendStart({
@@ -510,6 +511,7 @@ test('fax accounting persists structured audit events and page usage totals', as
     costUsd: 0.45,
   });
 
+  await flushAuditTrail();
   const audit = getRecentStructuredAuditForSession('session-fax', 10);
   expect(audit.map((event) => event.event_type)).toEqual([
     'fax.send.failed',

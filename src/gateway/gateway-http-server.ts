@@ -9170,20 +9170,18 @@ function recordPublicationSessionMint(params: {
   sourceIp: string | null;
   viewerSub?: string | null;
 }): void {
-  try {
-    appendAuditEvent({
-      sessionId: `app-publication-${params.publication.id}`,
-      runId: `pub_${randomUUID().replace(/-/g, '')}`,
-      event: {
-        type: 'app.publication.session.mint',
-        publicationId: params.publication.id,
-        appId: params.app.id,
-        policyKind: params.policyKind,
-        viewerSub: params.viewerSub ?? null,
-        sourceIp: params.sourceIp,
-      },
-    });
-  } catch (error) {
+  appendAuditEvent({
+    sessionId: `app-publication-${params.publication.id}`,
+    runId: `pub_${randomUUID().replace(/-/g, '')}`,
+    event: {
+      type: 'app.publication.session.mint',
+      publicationId: params.publication.id,
+      appId: params.app.id,
+      policyKind: params.policyKind,
+      viewerSub: params.viewerSub ?? null,
+      sourceIp: params.sourceIp,
+    },
+  }).catch((error) => {
     logger.warn(
       {
         err: error instanceof Error ? error.message : String(error),
@@ -9192,7 +9190,7 @@ function recordPublicationSessionMint(params: {
       },
       'Failed to record app publication session mint audit event',
     );
-  }
+  });
 }
 
 function handlePublicationShell(

@@ -51,6 +51,11 @@ function structuredAuditEntry(params: {
   };
 }
 
+async function flushAudit(): Promise<void> {
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
+}
+
 test('audit command shows recent structured audit events for the current session', async () => {
   setupHome();
 
@@ -74,6 +79,7 @@ test('audit command shows recent structured audit events for the current session
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const result = await handleGatewayCommand({
     sessionId: 'session-audit',
     guildId: null,
@@ -182,6 +188,7 @@ test('audit command shows latest turn-level tool trace with redacted details', a
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const result = await handleGatewayCommand({
     sessionId: 'session-turn-audit',
     guildId: null,
@@ -380,6 +387,7 @@ test('audit command selects a turn by session id and stable turn index', async (
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const result = await handleGatewayCommand({
     sessionId: 'current-session',
     guildId: null,
@@ -461,6 +469,7 @@ test('admin tools exposes recent tool error summaries', async () => {
   const { getGatewayAdminTools } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const result = await getGatewayAdminTools();
   const readTool = result.groups
     .flatMap((group) => group.tools)
@@ -512,6 +521,7 @@ test('admin audit event type filter supports partial type-ahead matches', async 
   const { getGatewayAdminAudit } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const result = getGatewayAdminAudit({
     eventType: 'usage',
     limit: 10,
@@ -544,6 +554,7 @@ test('admin audit returns nextCursor and paginates back via the cursor', async (
     '../src/gateway/gateway-service.ts'
   );
 
+  await flushAudit();
   const firstPage = getGatewayAdminAudit({
     sessionId: 'session-pagination',
     limit: 2,
@@ -598,6 +609,7 @@ test('admin audit returns nextCursor when limit equals the DB maxLimit cap', asy
   const { getGatewayAdminAudit } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAudit();
   const page = getGatewayAdminAudit({
     sessionId: 'session-boundary',
     limit: 200,
@@ -626,6 +638,7 @@ test('admin audit since filter excludes entries before the cutoff', async () => 
     '../src/gateway/gateway-service.ts'
   );
 
+  await flushAudit();
   // A cutoff in the far future excludes every just-inserted row.
   const future = getGatewayAdminAudit({
     sessionId: 'session-since',
@@ -682,6 +695,7 @@ test('bot set records a structured audit event for observability export', async 
     text: 'Chatbot set to `bot-research` and model set to `hybridai/gpt-4o-mini` for this session.',
   });
 
+  await flushAudit();
   const events = getRecentStructuredAuditForSession(
     'session-bot-set-audit',
     10,
@@ -787,6 +801,7 @@ test('bot clear clears the session chatbot and records a structured audit event'
   });
   expect(getSessionById('session-bot-clear-audit')?.chatbot_id).toBeNull();
 
+  await flushAudit();
   const events = getRecentStructuredAuditForSession(
     'session-bot-clear-audit',
     10,
@@ -833,6 +848,7 @@ test('handleGatewayMessage records agent handoff before agent-side timeouts', as
 
   expect(result.status).toBe('error');
 
+  await flushAudit();
   const raw = fs.readFileSync(getAuditWirePath(sessionId), 'utf-8');
   const records = raw
     .split('\n')
@@ -947,6 +963,7 @@ test('handleGatewayMessage persists the user message and an assistant placeholde
   expect(assistantMessage?.content).toContain('- bash: failed; result: exit 1');
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
+  await flushAudit();
   const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
     (row) => row.event_type === 'turn.end',
   );
@@ -1072,6 +1089,7 @@ test('handleGatewayMessage persists the user message when the agent run throws',
   );
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
+  await flushAudit();
   const sessionEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
     (row) => row.event_type === 'session.end',
   );
@@ -1305,6 +1323,7 @@ test('handleGatewayMessage records the stored assistant message id on successful
   expect(assistantMessage).toBeTruthy();
   expect(result.assistantMessageId).toBe(assistantMessage?.id);
 
+  await flushAudit();
   const turnEnd = getRecentStructuredAuditForSession(sessionId, 20).find(
     (row) => row.event_type === 'turn.end',
   );

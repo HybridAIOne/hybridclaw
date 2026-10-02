@@ -596,6 +596,7 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
     '../src/memory/db.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'
   );
@@ -629,6 +630,7 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
       }),
     }),
   );
+  await flushAuditTrail();
   const auditRows = getRecentStructuredAuditForSession(
     'session-cua-secret',
     20,
@@ -647,6 +649,7 @@ test('mac-cua provider audits and disposes SecretHandle fills', async () => {
   const { createSecretHandle, unsafeEscapeSecretHandle } = await import(
     '../src/security/secret-handles.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   const { MacCuaBrowserProvider } = await import(
     '../src/browser/mac-cua-provider.js'
   );
@@ -677,6 +680,7 @@ test('mac-cua provider audits and disposes SecretHandle fills', async () => {
       audit: () => undefined,
     }),
   ).toThrow(/already disposed/i);
+  await flushAuditTrail();
   const auditRows = getRecentStructuredAuditForSession(
     'session-cua-handle',
     20,

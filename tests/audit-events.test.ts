@@ -35,6 +35,7 @@ test('does not emit approval events for auto-approved read-only tools', async ()
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   emitToolExecutionAuditEvents({
@@ -57,6 +58,7 @@ test('does not emit approval events for auto-approved read-only tools', async ()
     ],
   });
 
+  await flushAuditTrail();
   const events = getRecentStructuredAuditForSession('session-auto-read', 10);
   expect(events.map((event) => event.event_type)).toEqual([
     'tool.result',
@@ -137,6 +139,7 @@ test('emits approval request and response events for pending red actions', async
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   emitToolExecutionAuditEvents({
@@ -170,6 +173,7 @@ test('emits approval request and response events for pending red actions', async
     ],
   });
 
+  await flushAuditTrail();
   const events = getRecentStructuredAuditForSession('session-red-pending', 10);
   expect(events.map((event) => event.event_type)).toEqual([
     'tool.result',
@@ -209,6 +213,7 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   emitToolExecutionAuditEvents({
@@ -230,6 +235,7 @@ test('tool result audit stores a redacted truncated preview beyond the summary',
     ],
   });
 
+  await flushAuditTrail();
   const result = getRecentStructuredAuditForSession(
     'session-result-preview',
     10,
@@ -267,6 +273,7 @@ test('tool result audit can truncate retained full results through runtime confi
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   updateRuntimeConfig((draft) => {
@@ -288,6 +295,7 @@ test('tool result audit can truncate retained full results through runtime confi
     ],
   });
 
+  await flushAuditTrail();
   const result = getRecentStructuredAuditForSession(
     'session-result-truncated',
     10,
@@ -311,6 +319,7 @@ test('autonomy audit falls back to internally consistent approval metadata', asy
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   emitToolExecutionAuditEvents({
@@ -330,6 +339,7 @@ test('autonomy audit falls back to internally consistent approval metadata', asy
     ],
   });
 
+  await flushAuditTrail();
   const events = getRecentStructuredAuditForSession(
     'session-autonomy-fallback',
     10,
@@ -365,6 +375,7 @@ test('weekly agent anomaly rollups count flagged and confirmed-normal tool check
   const { emitToolExecutionAuditEvents } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   getOrCreateSession('session-anomaly-rollup', null, 'channel-a', 'lena');
@@ -395,6 +406,7 @@ test('weekly agent anomaly rollups count flagged and confirmed-normal tool check
     ],
   });
 
+  await flushAuditTrail();
   expect(
     getWeeklyAgentAnomalyRollups(new Date()).find(
       (rollup) => rollup.agent_id === 'lena',

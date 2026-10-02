@@ -147,7 +147,10 @@ function createMockPlaywright(): {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // Settle queued audit appends before their data dir is removed.
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
+  await flushAuditTrail();
   vi.restoreAllMocks();
   if (tempRoot) {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -175,6 +178,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
   const { BrowserUseCloudProvider } = await import(
     '../src/browser/browser-use-cloud-provider.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   saveNamedRuntimeSecrets({ BROWSER_USE_API_KEY: 'bu_test_key' });
 
@@ -237,6 +241,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
   expect(totals.total_cost_usd).toBeCloseTo(0.02 / 60, 6);
   expect(totals.call_count).toBe(1);
 
+  await flushAuditTrail();
   const auditEvents = getRecentStructuredAuditForSession('session-cloud', 10);
   const started = auditEvents.find(
     (event) => event.event_type === 'browser.session_started',

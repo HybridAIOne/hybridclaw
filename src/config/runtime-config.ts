@@ -6074,7 +6074,7 @@ function auditConfiguredSecretUnsafeEscape(
 
   queueMicrotask(() => {
     void import('../audit/audit-events.js')
-      .then((auditEvents) => {
+      .then(async (auditEvents) => {
         const sessionId = 'secret-resolution';
         const runId = makeRuntimeConfigSecretAuditRunId();
         const recordAuditEvent = Object.hasOwn(
@@ -6083,28 +6083,25 @@ function auditConfiguredSecretUnsafeEscape(
         )
           ? auditEvents.recordAuditEventStrict
           : auditEvents.recordAuditEvent;
-        try {
-          recordAuditEvent({
-            sessionId,
-            runId,
-            event: {
-              type: 'secret.resolved',
-              ...event,
-            },
-          });
-          recordAuditEvent({
-            sessionId,
-            runId,
-            event: {
-              type: 'secret.unsafe_escape',
-              ...event,
-              reason,
-            },
-          });
-        } catch {
-          // Runtime config can be normalized before the audit sink is ready.
-        }
+        await recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'secret.resolved',
+            ...event,
+          },
+        });
+        await recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'secret.unsafe_escape',
+            ...event,
+            reason,
+          },
+        });
       })
+      // Runtime config can be normalized before the audit sink is ready.
       .catch(() => {});
   });
 }

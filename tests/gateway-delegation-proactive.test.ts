@@ -142,6 +142,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
     },
   );
 
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { enqueueDelegationBatchFromSideEffects } = await import(
     '../src/gateway/gateway-delegation.ts'
   );
@@ -484,6 +485,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
   expect(furukamaUserPrompt).toContain('Current delegation depth: 1.');
   expect(furukamaUserPrompt).toContain('Research furukama.com branding.');
 
+  await flushAuditTrail();
   const furukamaAudit = getRecentStructuredAuditForSession(
     furukamaRow?.session_id || '',
     10,

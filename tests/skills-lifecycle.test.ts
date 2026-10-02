@@ -82,7 +82,10 @@ describe('skill package lifecycle', () => {
     vi.resetModules();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Lifecycle audit appends are queued; drain them before the data dir goes.
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+    await flushAuditTrail();
     vi.unstubAllEnvs();
     vi.resetModules();
     if (originalHome === undefined) {
@@ -165,7 +168,10 @@ describe('skill package lifecycle', () => {
       actor: 'test',
       homeDir: tempHome,
     });
-    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const { flushAuditTrail, getAuditWirePath } = await import(
+      '../src/audit/audit-trail.ts'
+    );
+    await flushAuditTrail();
     const auditLines = fs
       .readFileSync(getAuditWirePath('skill-lifecycle'), 'utf-8')
       .split('\n')
@@ -494,7 +500,10 @@ describe('skill package lifecycle', () => {
       config.getRuntimeConfig().skills.channelDisabled?.slack || [],
     ).not.toContain('managed-skill');
 
-    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const { flushAuditTrail, getAuditWirePath } = await import(
+      '../src/audit/audit-trail.ts'
+    );
+    await flushAuditTrail();
     const auditEvents = fs
       .readFileSync(getAuditWirePath('skill-lifecycle'), 'utf-8')
       .split('\n')

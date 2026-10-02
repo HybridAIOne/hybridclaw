@@ -15371,7 +15371,10 @@ describe('gateway HTTP server', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).json).toEqual({ results: [] });
-    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const { flushAuditTrail, getAuditWirePath } = await import(
+      '../src/audit/audit-trail.ts'
+    );
+    await flushAuditTrail();
     const auditRecords = fs
       .readFileSync(getAuditWirePath('hubspot-audit'), 'utf-8')
       .split('\n')
@@ -15446,7 +15449,10 @@ describe('gateway HTTP server', () => {
       }),
     );
     expect(res.statusCode).toBe(200);
-    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const { flushAuditTrail, getAuditWirePath } = await import(
+      '../src/audit/audit-trail.ts'
+    );
+    await flushAuditTrail();
     const auditRecords = fs
       .readFileSync(getAuditWirePath('hubspot-private-audit'), 'utf-8')
       .split('\n')
@@ -15568,7 +15574,10 @@ describe('gateway HTTP server', () => {
       id: 'user-id',
       displayName: 'User',
     });
-    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const { flushAuditTrail, getAuditWirePath } = await import(
+      '../src/audit/audit-trail.ts'
+    );
+    await flushAuditTrail();
     const auditRecords = fs
       .readFileSync(getAuditWirePath('microsoft-365-audit'), 'utf-8')
       .split('\n')

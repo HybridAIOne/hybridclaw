@@ -27,6 +27,7 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
   const { emitToolExecutionAuditEvents, makeAuditRunId } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { getGatewayHistorySummary } = await import(
     '../src/gateway/gateway-service.ts'
@@ -80,6 +81,9 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
     ],
   });
 
+  // Audit timestamps are taken when an event is queued, so move the window
+  // start strictly past the "before" events (`timestamp >= since`).
+  await new Promise((resolve) => setTimeout(resolve, 5));
   const sinceMs = Date.now();
 
   recordUsageEvent({
@@ -124,6 +128,8 @@ test('getGatewayHistorySummary reports windowed usage, tools, and file changes',
       },
     ],
   });
+
+  await flushAuditTrail();
 
   expect(getGatewayHistorySummary(session.id, { sinceMs })).toEqual({
     messageCount: 2,
@@ -189,6 +195,7 @@ test('getGatewayHistorySummary accepts canonical session keys and preserves tool
   const { emitToolExecutionAuditEvents, makeAuditRunId } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
   const { getGatewayHistorySummary } = await import(
     '../src/gateway/gateway-service.ts'
@@ -231,6 +238,8 @@ test('getGatewayHistorySummary accepts canonical session keys and preserves tool
       },
     ],
   });
+
+  await flushAuditTrail();
 
   expect(
     getGatewayHistorySummary(session.session_key || session.id, { sinceMs }),

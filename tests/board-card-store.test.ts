@@ -364,6 +364,7 @@ describe.sequential('board card store', () => {
     const { subscribeRuntimeEvents, subscribeSkillRunEvents } = await import(
       '../src/skills/skill-run-events.js'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
     const runtimeEvents: unknown[] = [];
     const boardEvents: unknown[] = [];
     const skillRunEvents: unknown[] = [];
@@ -407,6 +408,7 @@ describe.sequential('board card store', () => {
     expect(boardEvents).toEqual(runtimeEvents);
     expect(skillRunEvents).toHaveLength(0);
 
+    await flushAuditTrail();
     const audit = dbModule.getRecentStructuredAuditForSession(
       'board-event-session',
       10,
@@ -562,6 +564,7 @@ describe.sequential('board card store', () => {
     const { subscribeRuntimeEvents, subscribeSkillRunEvents } = await import(
       '../src/skills/skill-run-events.js'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
     const runtimeEvents: unknown[] = [];
     const skillRunEvents: unknown[] = [];
     const unsubscribeRuntime = subscribeRuntimeEvents((event) => {
@@ -621,6 +624,7 @@ describe.sequential('board card store', () => {
     ]);
     expect(skillRunEvents).toHaveLength(0);
 
+    await flushAuditTrail();
     const audit = dbModule.getRecentStructuredAuditForSession(
       'board-edge-event-session',
       10,

@@ -250,6 +250,7 @@ describe('A2A runtime API', () => {
       },
     );
 
+    await audit.flushAuditTrail();
     const wirePath = audit.getAuditWirePath('session-a2a-audit');
     const lines = fs
       .readFileSync(wirePath, 'utf-8')
@@ -314,6 +315,7 @@ describe('A2A runtime API', () => {
       },
     );
 
+    await audit.flushAuditTrail();
     const records = fs
       .readFileSync(
         audit.getAuditWirePath('session-a2a-inbound-audit'),
@@ -392,6 +394,7 @@ describe('A2A runtime API', () => {
       recipient_agent_id: 'remote@team@peer-instance',
     });
 
+    await audit.flushAuditTrail();
     const wirePath = audit.getAuditWirePath('session-a2a-queued-audit');
     const records = fs
       .readFileSync(wirePath, 'utf-8')
@@ -465,6 +468,7 @@ describe('A2A runtime API', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
 
@@ -501,6 +505,7 @@ describe('A2A runtime API', () => {
       failure_reason: 'No A2A transport adapter registered for "smtp".',
     });
 
+    await flushAuditTrail();
     const events = getRecentStructuredAuditForSession(
       'session-a2a-transport',
       10,
