@@ -122,7 +122,10 @@ function buildLearningState(params: {
 
 useCleanMocks({
   restoreAllMocks: true,
-  cleanup: () => {
+  cleanup: async () => {
+    vi.useRealTimers();
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+    await flushAuditTrail();
     runAgentMock.mockReset();
     stopSessionExecutionMock.mockReset();
     stopSessionExecutionMock.mockImplementation(() => false);
@@ -145,7 +148,6 @@ useCleanMocks({
       activeSessionIds: [],
       warning: 'Running in host mode without container isolation.',
     }));
-    vi.useRealTimers();
     restoreEnvVar('HOME', ORIGINAL_HOME);
   },
   resetModules: true,

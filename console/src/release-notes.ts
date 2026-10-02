@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.3',
+  version: '0.34.4',
   highlights: [
-    'Set your time zone with /timezone',
-    'Reliable goal check-ins and reminders',
-    'Grocery links for Knuspr and Gurkerl',
-    'Legacy commands removed: see upgrade notes',
+    'Reliable chat streams on mobile networks',
+    'Faster phone and MCP startup',
+    'Phone ratings respect your consent',
+    'Auth status for every TUI menu target',
   ],
 } as const;
 
