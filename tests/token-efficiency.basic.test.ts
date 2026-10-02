@@ -70,6 +70,29 @@ test('history optimization drops whole old turns without changing retained messa
   );
 });
 
+test('history optimization drops a turn together with the context it was sent with', () => {
+  const context = (day: number): ChatMessage => ({
+    role: 'user',
+    content: `<context>\nDate (UTC): 2026-10-0${day}\n</context>`,
+  });
+  const messages: ChatMessage[] = [
+    context(1),
+    { role: 'user', content: `old user ${'a'.repeat(40)}` },
+    { role: 'assistant', content: `old answer ${'b'.repeat(40)}` },
+    context(2),
+    { role: 'user', content: `kept user ${'c'.repeat(40)}` },
+    { role: 'assistant', content: `kept answer ${'d'.repeat(40)}` },
+  ];
+
+  // Room for the kept turn and the old turn's messages, but not its context.
+  const optimized = optimizeHistoryMessagesForPrompt(messages, {
+    maxTokens: 100,
+  });
+
+  expect(optimized.messages).toEqual(messages.slice(3));
+  expect(optimized.stats.droppedTurns).toBe(1);
+});
+
 test('history optimization keeps everything within the token budget', () => {
   const messages: ChatMessage[] = [
     { role: 'user', content: 'first' },

@@ -314,6 +314,14 @@ turn.
 History budgets drop a contiguous prefix of complete old turns; retained
 messages are never sliced or rewritten.
 
+The conversation on the wire is append-only. Each user message is stored with
+the dynamic context it was sent with (`messages.dynamic_context`), and later
+turns replay both, along with the turn's tool exchanges, so every request is a
+prefix of the next. Providers that cache only whole earlier requests, such as
+the HybridAI relay and OpenAI, then read the conversation history from cache,
+not just the system prompt. For the same reason, the tool list and system
+prompt depend on the agent, user, and client, never on the current message.
+
 Anthropic requests keep the system prompt in volatility-ordered cache blocks:
 static core instructions, workspace and durable memory, then skills. The
 provider adds cache breakpoints at those boundaries and at the last stable

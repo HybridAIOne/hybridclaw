@@ -188,6 +188,7 @@ export interface MemoryBackend {
     source?: string | null,
     toolHistory?: ChatMessage[],
     media?: readonly MediaContextItem[],
+    dynamicContext?: string | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -252,6 +253,7 @@ export interface StoreTurnParams {
     username: string | null;
     content: string;
     media?: readonly MediaContextItem[];
+    dynamicContext?: string | null;
   };
   assistant: {
     userId?: string;
@@ -764,6 +766,7 @@ export class MemoryService {
     source?: string | null;
     toolHistory?: ChatMessage[];
     media?: readonly MediaContextItem[];
+    dynamicContext?: string | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -776,6 +779,7 @@ export class MemoryService {
       params.source,
       params.toolHistory,
       params.media,
+      params.dynamicContext,
     );
   }
 
@@ -817,6 +821,7 @@ export class MemoryService {
       role: 'user',
       content: params.user.content,
       media: params.user.media,
+      dynamicContext: params.user.dynamicContext,
     });
     const assistantMessageId = this.storeMessage({
       sessionId: params.sessionId,

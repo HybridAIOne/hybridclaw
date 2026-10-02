@@ -57,7 +57,8 @@ function promptOfCall(index: number): {
 } {
   const messages = (runAgentMock.mock.calls[index][0] as ExecutorRequest)
     .messages as ChatMessage[];
-  const dynamicContext = messages.find(
+  // Earlier turns replay their own context; the current one comes last.
+  const dynamicContext = messages.findLast(
     (message) =>
       message.role === 'user' && isDynamicContextMessageText(message.content),
   );
