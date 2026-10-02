@@ -1,6 +1,7 @@
 /**
  * Skill guard text scan — applies line rules to one file's text and flags
- * invisible Unicode, returning findings without judging them.
+ * invisible Unicode, distinguishing literal diagnostics and documented unsafe
+ * code examples from actions. Critical examples still produce findings.
  *
  * Owns the rule shape (`ThreatRule`) and how a rule applies to a line, not
  * the rules: the table, verdict, and trust policy live in `skills-guard.ts`,
@@ -24,6 +25,84 @@ export interface ThreatRule {
   ignore?: RegExp;
   /** Paths the rule skips because its syntax means something else there. */
   skipFiles?: RegExp;
+  /** Literal diagnostics or test data can mention an operation without doing it. */
+  ignoreLine?: (line: string, file: string, previousLine: string) => boolean;
+}
+
+const QUOTED_LITERAL = String.raw`(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`;
+const PYTHON_DIAGNOSTIC = new RegExp(
+  String.raw`^\s*raise\s+SystemExit\(\s*${QUOTED_LITERAL}\s*\)\s*$`,
+);
+const PYTHON_LITERAL_LINE = new RegExp(
+  String.raw`^\s*${QUOTED_LITERAL}\s*,?\s*$`,
+);
+const SHELL_DIAGNOSTIC = new RegExp(
+  String.raw`^\s*echo\s+${QUOTED_LITERAL}\s+>&2\s*$`,
+);
+const LITERAL_TEST_DATA = new RegExp(
+  String.raw`^\s*const\s+\w+\s*=\s*${QUOTED_LITERAL}\s*;\s*$`,
+);
+
+export function isLiteralTestData(line: string, file: string): boolean {
+  return /\.test\.[cm]?[jt]sx?$/i.test(file) && LITERAL_TEST_DATA.test(line);
+}
+
+export function isLiteralDiagnostic(
+  line: string,
+  file: string,
+  previousLine: string,
+): boolean {
+  if (/\.py$/i.test(file)) {
+    return (
+      PYTHON_DIAGNOSTIC.test(line) ||
+      (/^\s*raise\s+SystemExit\(\s*$/.test(previousLine) &&
+        PYTHON_LITERAL_LINE.test(line))
+    );
+  }
+  return (
+    /\.(?:sh|bash|zsh)$/i.test(file) &&
+    SHELL_DIAGNOSTIC.test(line) &&
+    !/\$\(|`/.test(line)
+  );
+}
+
+// Only code-operation rules use this context. A heading cannot excuse prompt
+// injection, credential exposure, persistence, or critical findings.
+const DOCUMENTED_CODE_CATEGORIES = new Set<SkillGuardCategory>([
+  'exfiltration',
+  'destructive-ops',
+  'reverse-shells',
+  'obfuscation',
+]);
+
+function insecureExampleLines(lines: string[]): Set<number> {
+  const examples = new Set<number>();
+  let inExamples = false;
+  let fence: string | undefined;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] || '';
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) {
+      if (!fence) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length)
+        fence = undefined;
+      inExamples = false;
+      continue;
+    }
+    if (fence) continue;
+    if (/^Insecure patterns:\s*$/.test(line)) {
+      inExamples = true;
+    } else if (inExamples && /^\s*[-*]\s+/.test(line)) {
+      examples.add(i);
+    } else if (line.trim()) {
+      inExamples = false;
+    }
+  }
+  return examples;
+}
+
+function stripInlineCode(line: string): string {
+  return line.replace(/(?<![\\`])`[^`\n]+`(?!`)/g, '');
 }
 
 /** Rule patterns match case-insensitively; a rule needing exact case passes its own RegExp. */
@@ -121,6 +200,24 @@ const INVISIBLE_CHAR_NAMES: Record<string, string> = {
   '\u2069': 'pop directional isolate',
 };
 
+const INVISIBLE_DATA_LITERAL = new RegExp(
+  String.raw`^\s*(?:const|let|var)\s+\w+\s*=\s*(['"])[${INVISIBLE_CHARS.join('')}]+\1\s*;?\s*$`,
+);
+const INVISIBLE_REGEX_CLASS = new RegExp(
+  String.raw`(?<=\.replace\(\s*)/\[[${INVISIBLE_CHARS.join('')}-]+\]/[gimuys]*`,
+  'g',
+);
+
+function visibleCodeLine(line: string, file: string): string {
+  if (!/\.[cm]?[jt]sx?$/i.test(file)) return line;
+  if (INVISIBLE_DATA_LITERAL.test(line)) return '';
+  // Character-only data, a removal regex, and a BOM in a frontmatter fixture
+  // contain no concealed text. Inspect the rest of the line as usual.
+  return line
+    .replace(INVISIBLE_REGEX_CLASS, '')
+    .replace(/(?<=['"])\ufeff(?=---\\n)/g, '');
+}
+
 export function scanFile(
   entry: SkillFileEntry,
   rules: readonly ThreatRule[],
@@ -148,6 +245,9 @@ export function scanTextContent(
   const normalizedPath = relativePath.trim() || 'SKILL.md';
 
   const lines = content.split('\n');
+  const examples = /\.md$/i.test(normalizedPath)
+    ? insecureExampleLines(lines)
+    : new Set<number>();
   const seen = new Set<string>();
   const findings: SkillGuardFinding[] = [];
 
@@ -162,6 +262,14 @@ export function scanTextContent(
       // Only lines that match pay for `ignore`; stripping every line cost
       // several times more than the rules themselves.
       if (rule.ignore && !rule.regex.test(line.replace(rule.ignore, '')))
+        continue;
+      if (rule.ignoreLine?.(line, normalizedPath, lines[i - 1] || '')) continue;
+      if (
+        examples.has(i) &&
+        rule.severity !== 'critical' &&
+        DOCUMENTED_CODE_CATEGORIES.has(rule.category) &&
+        !rule.regex.test(stripInlineCode(line))
+      )
         continue;
       seen.add(dedupeKey);
       const matched = line.trim();
@@ -179,7 +287,7 @@ export function scanTextContent(
 
   for (let i = 0; i < lines.length; i += 1) {
     const lineNo = i + 1;
-    const line = lines[i] || '';
+    const line = visibleCodeLine(lines[i] || '', normalizedPath);
     for (const char of INVISIBLE_CHARS) {
       if (!line.includes(char)) continue;
       const charName =
