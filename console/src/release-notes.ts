@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.1',
+  version: '0.34.2',
   highlights: [
-    'Website sign-ins with protected credentials',
-    'Faster browsing and mobile replies',
-    'Set your name with /name',
-    'Shared phone data survives chat resets',
+    'Chat reactions and thumbs-up/down ratings',
+    'App links for food, trains, and hotels',
+    'Quieter scheduled replies',
+    'More reliable browsing and send approvals',
   ],
 } as const;
 
