@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+## [0.34.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.2) - 2026-10-02
+
+### Added
+
+- **Chat reactions and ratings**: Clients sending `reactions: true` on
+  `/api/chat` let the agent react to a user's message with one emoji. Users
+  can react to replies through `POST /api/chat/reaction`; thumbs up or down
+  also rate the reply, and removing a reaction clears only the rating it made.
+- **App handoff links**: The bundled `handoff-links` skill provides prefilled
+  links for Lieferando, Wolt, Uber Eats, DB Navigator, and Booking.com so
+  users can finish delivery orders, train searches, and hotel bookings in
+  their own apps.
+- **Direct model access for owner phones**: Newly issued owner phone tokens
+  include `openai.api` for `/v1/chat/completions` and `/v1/models`.
+
+### Changed
+
+- **Quieter scheduled replies**: `/schedule add --reply-only` keeps task runs
+  out of chat and posts only substantive replies as assistant messages.
+  Combining it with `--alert <kind>` sends a phone alert with the reply text.
+- **Shorter workspace instructions**: New workspaces receive more concise
+  `AGENTS.md` and `SOUL.md` templates that let requested work proceed while
+  runtime approval policies continue to gate risky actions.
+
+### Fixed
+
+- **Browser page content**: Local browser navigation and clicks wait briefly
+  for page requests to settle before taking the returned snapshot, preventing
+  carts and search results from being read before their content loads.
+- **Two-factor prompts**: Phone-number, postcode, and voucher fields, and
+  incidental mentions of push or SMS, no longer trigger false sign-in pauses.
+- **Outbound MCP approvals**: MCP writes marked as reaching outside, such as
+  sending mail or calendar invites, require approval in Auto mode. Session
+  approval trusts the individual tool rather than other writes on its server.
+- **Plugin settings**: Writes reject undeclared configuration keys, including
+  nested properties, instead of saving settings the plugin ignores.
+- **Agent uninstall cleanup**: Uninstalling an agent removes its workspace
+  skills folder from `skills.extraDirs`, preventing leftover skills from
+  loading for other agents.
+- **Cloud voice calls**: Twilio webhook validation, stream URLs, and outbound
+  calls use `deployment.public_url` when the configured gateway URL is absent
+  or private. Outbound calls reject private webhook addresses.
+- **Shell execution**: Bash wrapper paths stay out of command arguments.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for reactions and browser fixes.
+  Existing device tokens keep their scopes; obtain a new owner phone token
+  to use `openai.api`.
+- Scheduled tasks that send through outbound MCP tools need a prior approval
+  with `yes for agent` or `yes for all` to send unattended in Auto mode.
+  Full access retains its existing behavior.
+- For an agent removed with an older version, run
+  `hybridclaw agent uninstall <id>` again to clear a leftover skills entry.
+- Existing workspace instruction files are preserved.
+
 ## [0.34.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.1) - 2026-10-01
 
 ### Added
