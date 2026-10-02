@@ -1,11 +1,11 @@
 /**
  * Container end of the file-based IPC with the gateway (`src/infra/ipc.ts`).
  *
- * Output files appear whole: a poller sees no file or complete JSON, never a
+ * Output files appear whole: a reader sees no file or complete JSON, never a
  * half-written one. Each request's reply goes to its own file, so a late reply
  * never lands where a later request reads. Input files carry no such
  * guarantee, so the input reader treats unparseable JSON as not yet written
- * and polls again.
+ * and retries after a directory wakeup or periodic reconciliation.
  *
  * `input.json` lives where this agent's own tools can write, so a follow-up is
  * honored only when its authenticity envelope verifies against the per-worker
@@ -23,6 +23,10 @@ import path from 'node:path';
 
 import { decodeAuthenticatedInput } from '../shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../shared/ipc-output-files.js';
+import {
+  createIpcWakeup,
+  IPC_RECONCILE_INTERVAL_MS,
+} from '../shared/ipc-wakeup.js';
 import { writeMemoryFileAtomic } from '../shared/memory-file.js';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
@@ -31,15 +35,6 @@ import type { ContainerInput, ContainerOutput } from './types.js';
 const INPUT_PATH = path.join(IPC_DIR, 'input.json');
 const HEALTH_INPUT_PATH = path.join(IPC_DIR, 'health-input.json');
 const HEALTH_OUTPUT_PATH = path.join(IPC_DIR, 'health-output.json');
-const MIN_INPUT_POLL_INTERVAL_MS = 5;
-// 50ms (turn-latency audit, 2026-10-01): at 200ms a reused worker picked up
-// the next turn ~100ms late on average; now ~25ms. An idle worker makes two
-// existsSync calls per poll until its idle timeout. Event-driven reads
-// (fs.watch) are deferred.
-const MAX_INPUT_POLL_INTERVAL_MS = 50;
-// Keep the backoff formula aligned with src/infra/ipc.ts.
-const INPUT_POLL_BACKOFF_FACTOR = 1.5;
-
 // The per-worker secret from the first stdin payload. Held only in memory here;
 // never read from or written to a file.
 let ipcAuthSecret = '';
@@ -122,37 +117,35 @@ function readHealthInputFile(inputPath: string): ContainerInput | null {
 }
 
 /**
- * Poll for input.json. Returns null once the idle timeout expires or shutdown
- * starts. The shutdown check and the reads after it run in one synchronous
- * step, so no shutdown can start between them.
+ * Wait for input.json with advisory directory wakeups and periodic checks.
+ * Returns null once the idle timeout expires or shutdown starts. The shutdown
+ * check and the reads after it run synchronously, so they cannot race shutdown.
  */
 export async function waitForInput(
   idleTimeoutMs: number,
 ): Promise<ContainerInput | null> {
   const deadline = Date.now() + idleTimeoutMs;
-  let pollInterval = MIN_INPUT_POLL_INTERVAL_MS;
+  const wakeup = createIpcWakeup(IPC_DIR);
 
-  while (!isShuttingDown() && Date.now() < deadline) {
-    if (fs.existsSync(HEALTH_INPUT_PATH)) {
-      const input = readHealthInputFile(HEALTH_INPUT_PATH);
-      if (input) return input;
+  try {
+    while (!isShuttingDown() && Date.now() < deadline) {
+      if (fs.existsSync(HEALTH_INPUT_PATH)) {
+        const input = readHealthInputFile(HEALTH_INPUT_PATH);
+        if (input) return input;
+      }
+      if (fs.existsSync(INPUT_PATH)) {
+        const input = readInputFile(INPUT_PATH);
+        if (input) return input;
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      await wakeup.wait(Math.min(IPC_RECONCILE_INTERVAL_MS, remainingMs));
     }
-    if (fs.existsSync(INPUT_PATH)) {
-      const input = readInputFile(INPUT_PATH);
-      if (input) return input;
-    }
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) break;
-    await new Promise((resolve) =>
-      setTimeout(resolve, Math.min(pollInterval, remainingMs)),
-    );
-    pollInterval = Math.min(
-      Math.ceil(pollInterval * INPUT_POLL_BACKOFF_FACTOR),
-      MAX_INPUT_POLL_INTERVAL_MS,
-    );
+
+    return null; // Idle timeout or shutdown
+  } finally {
+    wakeup.close();
   }
-
-  return null; // Idle timeout or shutdown
 }
 
 export function writeOutput(
@@ -161,10 +154,10 @@ export function writeOutput(
 ): void {
   writeMemoryFileAtomic(
     path.join(IPC_DIR, ipcOutputFileName(requestId)),
-    JSON.stringify(output, null, 2),
+    JSON.stringify(output),
   );
 }
 
 export function writeHealthOutput(output: ContainerOutput): void {
-  writeMemoryFileAtomic(HEALTH_OUTPUT_PATH, JSON.stringify(output, null, 2));
+  writeMemoryFileAtomic(HEALTH_OUTPUT_PATH, JSON.stringify(output));
 }
