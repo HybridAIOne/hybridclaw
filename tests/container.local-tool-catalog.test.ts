@@ -233,6 +233,27 @@ describe('deferred MCP tools behind the catalog', () => {
     expect(catalog.resolveCall(call('crm__search', {})).function.name).toBe('crm__search');
     expect(() => catalog.resolveCall(call('crm__delete', {}))).toThrow('not available');
   });
+  test('names each deferred tool with its parameters, so it can be called without discovery', () => {
+    const search: ToolDefinition = {
+      type: 'function',
+      function: {
+        name: 'hybridai__dm__search_products',
+        description: "[MCP hybridai] Searches dm's range with prices. Returns up to ten products.",
+        parameters: { type: 'object', properties: { query: { type: 'string' }, store_id: { type: 'string' } }, required: ['query'] },
+      },
+    };
+    const prompt = ToolCatalog.deferring([...builtins, search, ...mcp], new Set([search.function.name, ...deferred]))!.promptGuidance();
+    expect(prompt).toContain("- hybridai__dm__search_products(query, store_id?): Searches dm's range with prices.");
+    expect(prompt).toContain('- crm__create_note(): crm__create_note');
+    expect(prompt).not.toContain('- bash(');
+    const many = Array.from({ length: 45 }, (_, i) => tool(`crm__tool_${i}`));
+    const capped = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)))!.promptGuidance();
+    expect(capped).toContain('- crm__tool_39(');
+    expect(capped).not.toContain('- crm__tool_40(');
+    expect(capped).toContain('…and 5 more: find them with action=list.');
+    // Local requests pick their own starters and keep the plain guidance.
+    expect(new ToolCatalog(builtins, ['read']).promptGuidance()).not.toContain('with their parameters');
+  });
   test('is not created when the request holds no deferred tool', () => {
     expect(ToolCatalog.deferring(builtins, deferred)).toBeNull();
     expect(ToolCatalog.deferring([], deferred)).toBeNull();
@@ -243,7 +264,7 @@ describe('deferred MCP tools behind the catalog', () => {
     expect(catalog.tools).toHaveLength(31);
     const prompt = catalog.promptGuidance();
     expect(prompt).toContain('## Tool call boundary');
-    expect(prompt).toContain('Tools from connected MCP servers are not exposed as direct functions are available through tool_catalog');
+    expect(prompt).toContain('Tools of connected MCP servers that are not exposed as direct functions are available through tool_catalog');
     expect(prompt).not.toContain('Never emit a direct read call');
     expect(new ToolCatalog(builtins, ['read']).promptGuidance()).toContain('Additional permitted tools are available through tool_catalog');
   });

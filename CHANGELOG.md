@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **Rarely used MCP tools load on demand**: A tool whose MCP server marks it
+  `_meta` `"hybridai/deferLoading": true`, such as HybridAI's catalog tools
+  (dm, trivago), is kept behind `tool_catalog` even in `full` mode. Deferred
+  tools are listed in the prompt by name and parameters, so the model calls
+  one directly instead of searching for it first.
+
 ## [0.34.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.4) - 2026-10-02
 
 ### Changed

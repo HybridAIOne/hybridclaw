@@ -2185,14 +2185,20 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
 }
 
 /**
- * MCP tool names a remote request keeps behind tool_catalog. Undefined keeps
- * the plain tool array; local requests use their own starter selection.
+ * MCP tool names a remote request keeps behind tool_catalog: every MCP tool in
+ * `deferred` mode, else those their server asked to load only when needed.
+ * Undefined keeps the plain tool array; local requests use their own starter
+ * selection.
  */
 function resolveDeferredTools(input: ContainerInput): Set<string> | undefined {
-  if (input.mcpToolMode !== 'deferred' || !mcpClientManager) return undefined;
-  return new Set(
-    mcpClientManager.getAllToolDefinitions().map((tool) => tool.function.name),
-  );
+  if (!mcpClientManager) return undefined;
+  const names =
+    input.mcpToolMode === 'deferred'
+      ? mcpClientManager
+          .getAllToolDefinitions()
+          .map((tool) => tool.function.name)
+      : mcpClientManager.getDeferLoadingToolNames();
+  return names.length > 0 ? new Set(names) : undefined;
 }
 
 async function main(): Promise<void> {

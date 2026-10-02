@@ -207,6 +207,10 @@ saved revision history directly.
   model-facing tool array and reaches them through `tool_catalog` (list,
   describe, call) with unchanged permissions and approvals, which keeps
   requests under provider tool caps such as OpenAI's 128 definitions.
+  In `full` mode, a tool whose server sets `_meta` `"hybridai/deferLoading":
+  true` (HybridAI's catalog tools, such as dm or trivago) still goes behind
+  `tool_catalog`. Deferred tools are named in the prompt with their parameters,
+  up to 40, so the model can call one without a list or describe step.
   `agents.list[].mcpToolMode` overrides it per agent. Local model requests use
   `tools.localToolMode` instead.
 - `sessionReset.*` for daily and idle reset policy; the default policy resets

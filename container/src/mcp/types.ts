@@ -25,7 +25,18 @@ export interface McpToolDefinition {
   inputSchema: Record<string, unknown>;
   kind: ToolKind;
   annotations?: ToolAnnotations;
+  /**
+   * The server asks to keep this tool's schema out of the prompt until it is
+   * needed (`_meta` `DEFER_LOADING_META`), e.g. HybridAI's catalog tools.
+   */
+  deferLoading?: boolean;
 }
+
+/**
+ * MCP `_meta` key a server sets on a tool that is rarely needed: the runtime
+ * then lists it by name behind `tool_catalog` instead of as a function.
+ */
+export const DEFER_LOADING_META = 'hybridai/deferLoading';
 
 /** What the approval policy needs to know about an MCP tool. */
 export type McpToolBehavior = Pick<McpToolDefinition, 'kind' | 'annotations'>;

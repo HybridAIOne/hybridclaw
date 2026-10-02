@@ -24,12 +24,13 @@ import {
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
-import type {
-  LiveHeaders,
-  McpClientHandle,
-  McpServerConfig,
-  McpToolBehavior,
-  McpToolDefinition,
+import {
+  DEFER_LOADING_META,
+  type LiveHeaders,
+  type McpClientHandle,
+  type McpServerConfig,
+  type McpToolBehavior,
+  type McpToolDefinition,
 } from './types.js';
 
 const MCP_CONNECT_TIMEOUT_MS = 60_000;
@@ -270,6 +271,13 @@ export class McpClientManager {
     );
   }
 
+  /** Tools whose server asked to load them only when needed. */
+  getDeferLoadingToolNames(): string[] {
+    return Array.from(this.clients.values()).flatMap((handle) =>
+      handle.tools.filter((tool) => tool.deferLoading).map((tool) => tool.name),
+    );
+  }
+
   async callToolDetailed(
     namespacedName: string,
     args: Record<string, unknown>,
@@ -492,6 +500,9 @@ export class McpClientManager {
         inputSchema: rawSchema,
         kind: classifyMcpTool(tool.name, tool.annotations),
         annotations: tool.annotations,
+        ...(tool._meta?.[DEFER_LOADING_META] === true
+          ? { deferLoading: true }
+          : {}),
       };
     });
   }
