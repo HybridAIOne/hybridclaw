@@ -128,6 +128,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
 | PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Background processes, `/tmp` files | Worker | Lost |
+| IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
 | Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
@@ -601,6 +602,29 @@ only:
   down.
 - Requests without an id reply in `output.json`; the gateway also accepts that
   file from agent images built before request ids.
+
+## IPC Wakeups And Reconciliation
+
+Both IPC readers watch the session directory before their first file check.
+Directory notifications wake them promptly, including when an atomic reply
+rename replaces a file. Notifications received between a check and a wait are
+remembered, and repeated events coalesce. Event filenames and event counts are
+never used to select or authorize a payload: readers recheck the expected paths,
+verify follow-up input authentication, and keep replies scoped to their request.
+
+Readers also reconcile from disk once per second, bounded by their idle and
+wall-clock deadlines. This covers missing events and unavailable or failed
+watchers on [Docker and virtualized filesystems](https://nodejs.org/docs/latest-v22.x/api/fs.html#caveats).
+Worker exit and shutdown state are checked on each wakeup or reconciliation;
+gateway interrupts wake the output wait immediately. Watchers, wait timers, and
+abort listeners close when the read finishes, including timeout and interrupt.
+Machine-only input, health, and output JSON is compact.
+
+This reduces gateway/worker handoff latency and idle filesystem checks. The
+handoff occurs on reused-worker input and final replies; tool calls within a
+turn do not each pay this cost. Expected savings are tens of milliseconds,
+depending on notification delivery; missed events can take up to one
+reconciliation interval to recover.
 
 ## Authenticated Agent Input
 

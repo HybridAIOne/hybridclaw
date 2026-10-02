@@ -2,7 +2,8 @@
  * File-based IPC between the gateway and the agent process: per request, one
  * input and one reply file (`output-<requestId>.json`, named in
  * `container/shared/ipc-output-files.js`) in the session's `ipc/` dir; auth
- * material from the first stdin request is never written to disk.
+ * material from the first stdin request is never written to disk. Directory
+ * notifications only wake readers; periodic disk checks cover missed events.
  *
  * Follow-up inputs live in a directory the agent's own tools can reach, so
  * `writeInput` wraps each one in an authenticity envelope keyed by the
@@ -24,6 +25,11 @@ import {
   ipcOutputFileName,
   isIpcOutputFileName,
 } from '../../container/shared/ipc-output-files.js';
+import {
+  createIpcWakeup,
+  IPC_RECONCILE_INTERVAL_MS,
+  type IpcWakeup,
+} from '../../container/shared/ipc-wakeup.js';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -149,7 +155,7 @@ export function writeInput(
   opts: { authSecret: string },
 ): string {
   const inputPath = ipcFilePath(sessionId, 'input.json');
-  const body = JSON.stringify(buildRedactedInput(input), null, 2);
+  const body = JSON.stringify(buildRedactedInput(input));
   fs.writeFileSync(inputPath, encodeAuthenticatedInput(opts.authSecret, body), {
     mode: 0o600,
   });
@@ -163,7 +169,7 @@ export function writeHealthInput(
 ): string {
   const inputPath = ipcFilePath(sessionId, 'health-input.json');
   const toWrite = buildRedactedInput(input);
-  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
+  fs.writeFileSync(inputPath, JSON.stringify(toWrite), {
     mode: 0o600,
   });
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC health input');
@@ -171,8 +177,8 @@ export function writeHealthInput(
 }
 
 /**
- * Read output from the container agent. Polls until file appears, the idle
- * timeout expires, or a hard wall-clock deadline is reached.
+ * Read output on directory wakeups, reconciling from disk periodically until
+ * the file appears, the idle timeout expires, or the hard deadline is reached.
  */
 function interruptedOutput(): ContainerOutput {
   return {
@@ -181,30 +187,6 @@ function interruptedOutput(): ContainerOutput {
     toolsUsed: [],
     error: 'Interrupted by user.',
   };
-}
-
-async function sleepWithAbort(
-  ms: number,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  if (!signal) {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-    return false;
-  }
-  if (signal.aborted) return true;
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(false);
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      resolve(true);
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 /**
@@ -232,14 +214,6 @@ export function createActivityTracker(): ActivityTracker {
 }
 
 const ACTIVITY_HARD_TIMEOUT_MULTIPLIER = 4;
-const MIN_OUTPUT_POLL_INTERVAL_MS = 5;
-// 50ms (turn-latency audit, 2026-10-01): at 250ms a reply that landed late in
-// a long turn waited ~125ms on average to be read, while the app still showed
-// "Writing…"; now ~25ms. A poll is two existsSync calls. Event-driven reads
-// (fs.watch) are deferred.
-const MAX_OUTPUT_POLL_INTERVAL_MS = 50;
-// Keep the backoff formula aligned with container/src/ipc.ts.
-const OUTPUT_POLL_BACKOFF_FACTOR = 1.5;
 // 2s (agent call, 2026-09-26, pending owner review): the agent writes its
 // SIGTERM output synchronously and `docker stop` signals well within this, so
 // the wait only runs out when no output is coming. It caps how long collecting
@@ -308,75 +282,81 @@ async function readOutputFile(
         : Math.max(idleTimeoutMs, requestedWallClockMs);
   const hardDeadline =
     hardTimeoutMs === null ? Number.POSITIVE_INFINITY : start + hardTimeoutMs;
-  let pollInterval = MIN_OUTPUT_POLL_INTERVAL_MS;
 
   if (signal?.aborted) return interruptedOutput();
 
-  while (true) {
-    const now = Date.now();
-    const idleDeadline =
-      idleTimeoutMs === null
-        ? Number.POSITIVE_INFINITY
-        : (activity ? activity.lastActivityMs : start) + idleTimeoutMs;
-    if (now >= hardDeadline) {
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error:
-          idleTimeoutMs === null
-            ? `Timeout waiting for agent output after ${hardTimeoutMs}ms total`
-            : `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${idleTimeoutMs}ms inactivity window)`,
-      };
-    }
-    if (now >= idleDeadline) break;
-    if (signal?.aborted) {
-      return collectInterruptedOutput(
-        sessionId,
-        outputPaths,
-        opts?.terminalError,
+  const wakeup = createIpcWakeup(ipcDir(sessionId));
+  try {
+    while (true) {
+      const now = Date.now();
+      const idleDeadline =
+        idleTimeoutMs === null
+          ? Number.POSITIVE_INFINITY
+          : (activity ? activity.lastActivityMs : start) + idleTimeoutMs;
+      if (now >= hardDeadline) {
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error:
+            idleTimeoutMs === null
+              ? `Timeout waiting for agent output after ${hardTimeoutMs}ms total`
+              : `Timeout waiting for agent output after ${hardTimeoutMs}ms total (${idleTimeoutMs}ms inactivity window)`,
+        };
+      }
+      if (now >= idleDeadline) break;
+      if (signal?.aborted) {
+        return await collectInterruptedOutput(
+          sessionId,
+          outputPaths,
+          wakeup,
+          opts?.terminalError,
+        );
+      }
+
+      const output = readOutputFiles(sessionId, outputPaths);
+      if (output) return output;
+      const terminalError = opts?.terminalError?.();
+      if (terminalError) {
+        return {
+          status: 'error',
+          result: null,
+          toolsUsed: [],
+          error: terminalError,
+        };
+      }
+      const waitMs = Math.max(
+        1,
+        Math.min(
+          IPC_RECONCILE_INTERVAL_MS,
+          idleDeadline - now,
+          hardDeadline - now,
+        ),
       );
+      const aborted = await wakeup.wait(waitMs, signal);
+      if (aborted) {
+        return await collectInterruptedOutput(
+          sessionId,
+          outputPaths,
+          wakeup,
+          opts?.terminalError,
+        );
+      }
     }
 
-    const output = pollOutputFiles(sessionId, outputPaths);
-    if (output) return output;
-    const terminalError = opts?.terminalError?.();
-    if (terminalError) {
-      return {
-        status: 'error',
-        result: null,
-        toolsUsed: [],
-        error: terminalError,
-      };
-    }
-    const sleepMs = Math.max(
-      1,
-      Math.min(pollInterval, idleDeadline - now, hardDeadline - now),
-    );
-    const aborted = await sleepWithAbort(sleepMs, signal);
-    if (aborted) {
-      return collectInterruptedOutput(
-        sessionId,
-        outputPaths,
-        opts?.terminalError,
-      );
-    }
-    pollInterval = Math.min(
-      Math.ceil(pollInterval * OUTPUT_POLL_BACKOFF_FACTOR),
-      MAX_OUTPUT_POLL_INTERVAL_MS,
-    );
+    return {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: `Timeout waiting for agent output after ${idleTimeoutMs}ms`,
+    };
+  } finally {
+    wakeup.close();
   }
-
-  return {
-    status: 'error',
-    result: null,
-    toolsUsed: [],
-    error: `Timeout waiting for agent output after ${idleTimeoutMs}ms`,
-  };
 }
 
 /** One look at the reply files: the parsed output, an oversize error, or null. */
-function pollOutputFiles(
+function readOutputFiles(
   sessionId: string,
   outputPaths: readonly string[],
 ): ContainerOutput | null {
@@ -419,12 +399,12 @@ function pollOutputFiles(
 async function collectInterruptedOutput(
   sessionId: string,
   outputPaths: readonly string[],
+  wakeup: IpcWakeup,
   terminalError?: () => string | null,
 ): Promise<ContainerOutput> {
   const deadline = Date.now() + INTERRUPTED_OUTPUT_GRACE_MS;
-  let pollInterval = MIN_OUTPUT_POLL_INTERVAL_MS;
   while (true) {
-    const late = pollOutputFiles(sessionId, outputPaths);
+    const late = readOutputFiles(sessionId, outputPaths);
     if (late) {
       return {
         ...interruptedOutput(),
@@ -440,11 +420,7 @@ async function collectInterruptedOutput(
     const remainingMs = deadline - Date.now();
     // An agent that already exited will not write anything more.
     if (remainingMs <= 0 || terminalError?.()) return interruptedOutput();
-    await sleepWithAbort(Math.min(pollInterval, remainingMs));
-    pollInterval = Math.min(
-      Math.ceil(pollInterval * OUTPUT_POLL_BACKOFF_FACTOR),
-      MAX_OUTPUT_POLL_INTERVAL_MS,
-    );
+    await wakeup.wait(Math.min(IPC_RECONCILE_INTERVAL_MS, remainingMs));
   }
 }
 
