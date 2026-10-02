@@ -459,6 +459,7 @@ async function importFreshCli(options?: {
     workspacePath: string;
     removedAgentRoot: boolean;
     removedRegistration: boolean;
+    removedSkillsExtraDir: boolean;
     removedBootstrapAutostartMarkers: number;
   };
   fetchMock?: (input: string | URL | Request, init?: RequestInit) => unknown;
@@ -919,6 +920,7 @@ async function importFreshCli(options?: {
         workspacePath: `/tmp/.hybridclaw/data/agents/${agentId}/workspace`,
         removedAgentRoot: true,
         removedRegistration: true,
+        removedSkillsExtraDir: true,
         removedBootstrapAutostartMarkers: 0,
       }
     );
@@ -1409,6 +1411,8 @@ async function importFreshCli(options?: {
     inspectClawArchive,
     packAgent,
     unpackAgent,
+  }));
+  vi.doMock('../src/agents/agent-uninstall.js', () => ({
     uninstallAgent,
   }));
   vi.doMock('../src/plugins/plugin-install.ts', () => ({
@@ -1650,6 +1654,7 @@ useCleanMocks({
     '../src/memory/db.js',
     '../src/agents/agent-registry.js',
     '../src/agents/claw-archive.js',
+    '../src/agents/agent-uninstall.js',
     '../src/plugins/plugin-install.ts',
     '../src/plugins/plugin-install.js',
     '../src/plugins/plugin-config.js',
@@ -6219,6 +6224,9 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Uninstalled agent writer.');
     expect(logSpy).toHaveBeenCalledWith(
       'Removed agent files at /tmp/.hybridclaw/data/agents/writer.',
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'Removed /tmp/.hybridclaw/data/agents/writer/workspace/skills from skills.extraDirs.',
     );
   });
 
