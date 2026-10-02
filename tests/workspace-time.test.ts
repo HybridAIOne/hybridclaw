@@ -11,3 +11,11 @@ test('blank and invalid user zones use inherited host TZ around midnight', () =>
   expect(currentDateStampInTimezone('Invalid/Zone', now)).toBe('2026-09-07');
   expect(currentDateStampInTimezone('Europe/Berlin', now)).toBe('2026-09-08');
 });
+
+test('the zone is the first word of the USER.md line', () => {
+  const zoneOf = (line: string) => extractUserTimezone(`- **Timezone:** ${line}\n`);
+  expect(zoneOf('Europe/Berlin (inferred from location; confirm if needed)')).toBe('Europe/Berlin');
+  expect(zoneOf('America/New_York, EST')).toBe('America/New_York');
+  expect(zoneOf('`Asia/Tokyo`')).toBe('Asia/Tokyo');
+  expect(zoneOf('_(optional)_')).toBeUndefined();
+});

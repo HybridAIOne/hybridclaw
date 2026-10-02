@@ -90,7 +90,6 @@ import {
   type PendingApproval,
   type ToolProgressEvent,
 } from '../types/execution.js';
-import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
@@ -1118,8 +1117,6 @@ async function runContainerInner(
     fullAutoNeverApproveTools,
     scheduleSideEffectsEnabled,
     skipContainerSystemPrompt,
-    scheduledTasks,
-    hiddenScheduledTaskCount,
     allowedTools,
     blockedTools,
     onTextDelta,
@@ -1248,23 +1245,6 @@ async function runContainerInner(
     client: params.client,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
-    hiddenScheduledTaskCount,
-    scheduledTasks: scheduledTasks?.map(
-      (task): ScheduledTaskInput => ({
-        id: task.id,
-        channelId: task.channel_id,
-        cronExpr: task.cron_expr,
-        tz: task.tz,
-        runAt: task.run_at,
-        everyMs: task.every_ms,
-        prompt: task.prompt,
-        enabled: task.enabled,
-        lastRun: task.last_run,
-        lastStatus: task.last_status,
-        lastError: task.last_error,
-        createdAt: task.created_at,
-      }),
-    ),
     skillCatalog: params.skillCatalog,
     localToolMode: modelRuntime.isLocal
       ? resolveLocalToolMode(agentId)

@@ -8,7 +8,6 @@ import {
   getPendingSideEffects,
   resetSideEffects,
   setGatewayContext,
-  setScheduledTasks,
   setScheduleSideEffectsEnabled,
   setSessionContext,
   validateCronExpression,
@@ -54,7 +53,6 @@ describe.sequential('container cron tool', () => {
     globalThis.fetch = ORIGINAL_FETCH;
     resetSideEffects();
     setScheduleSideEffectsEnabled(true);
-    setScheduledTasks(undefined);
     setGatewayContext(undefined, undefined, '');
     setSessionContext('');
   });
@@ -232,123 +230,23 @@ describe.sequential('container cron tool', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('lists the delivery channel for injected scheduled tasks', async () => {
-    setScheduledTasks([
-      {
-        id: 16,
-        channelId: 'ops@example.com',
-        cronExpr: '',
-        tz: '',
-        runAt: null,
-        everyMs: 1_800_000,
-        prompt: 'Write a short operational update email.',
-        enabled: 1,
-        lastRun: null,
-        createdAt: '2026-04-11T12:58:18.861Z',
-      },
-    ]);
+  test('lists the tasks live through the gateway', async () => {
+    const text =
+      '#3 [enabled] 15 7 * * * (UTC) -> web — the check-in of goal #1 "Half marathon"; change or stop it with the `track` tool ("every", "at", "tz")';
+    const calls = installGatewayFetch(() => ({
+      body: { ok: true, action: 'list', text },
+    }));
 
     const result = await executeTool(
       'cron',
       JSON.stringify({ action: 'list' }),
     );
 
-    expect(result).toContain('ops@example.com');
-    expect(result).toContain('#16');
-  });
-
-  test.each([
-    { tasks: [], expected: /^No scheduled tasks in this chat\. 2 more task\(s\)/ },
-    {
-      tasks: [
-        {
-          id: 16,
-          channelId: 'ops@example.com',
-          cronExpr: '0 9 * * *',
-          tz: '',
-          runAt: null,
-          everyMs: null,
-          prompt: 'Morning briefing',
-          enabled: 1,
-          lastRun: null,
-          createdAt: '2026-04-11T12:58:18.861Z',
-        },
-      ],
-      expected: /^#16 .*\n2 more task\(s\)/,
-    },
-  ])(
-    'says when other conversations hold tasks this chat cannot see ($tasks.length visible)',
-    async ({ tasks, expected }) => {
-      setScheduledTasks(tasks, 2);
-
-      const result = await executeTool(
-        'cron',
-        JSON.stringify({ action: 'list' }),
-      );
-
-      expect(result).toMatch(expected);
-    },
-  );
-
-  test('lists the last failure for tasks that errored or were disabled', async () => {
-    setScheduledTasks([
-      {
-        id: 21,
-        channelId: 'ops@example.com',
-        cronExpr: '0 9 * * *',
-        tz: 'Europe/Berlin',
-        runAt: null,
-        everyMs: null,
-        prompt: 'Morning briefing',
-        enabled: 1,
-        lastRun: '2026-09-08T07:00:00.000Z',
-        lastStatus: 'error',
-        lastError: 'Delivery to email failed: not linked',
-        createdAt: '2026-09-01T12:00:00.000Z',
-      },
-      {
-        id: 22,
-        channelId: 'ops@example.com',
-        cronExpr: '61 * * * *',
-        tz: '',
-        runAt: null,
-        everyMs: null,
-        prompt: 'Broken',
-        enabled: 0,
-        lastRun: null,
-        lastStatus: 'error',
-        lastError: 'Invalid cron expression "61 * * * *"',
-        createdAt: '2026-09-01T12:00:00.000Z',
-      },
-      {
-        id: 23,
-        channelId: 'ops@example.com',
-        cronExpr: '',
-        tz: '',
-        runAt: null,
-        everyMs: 60_000,
-        prompt: 'Healthy',
-        enabled: 1,
-        lastRun: '2026-09-08T07:00:00.000Z',
-        lastStatus: 'success',
-        lastError: 'stale error from an earlier run',
-        createdAt: '2026-09-01T12:00:00.000Z',
-      },
-    ]);
-
-    const result = await executeTool(
-      'cron',
-      JSON.stringify({ action: 'list' }),
-    );
-
-    expect(result).toContain(
-      '#21 [enabled] 0 9 * * * (Europe/Berlin) -> ops@example.com — Morning briefing (last run failed: Delivery to email failed: not linked)',
-    );
-    expect(result).toContain(
-      '#22 [disabled] 61 * * * * -> ops@example.com — Broken (last run failed: Invalid cron expression "61 * * * *")',
-    );
-    expect(result).toContain('#23 [enabled] every 60s -> ops@example.com — Healthy');
-    expect(result).not.toContain('stale error');
+    expect(result).toBe(text);
+    expect(readRequestBody(calls[0])).toEqual({
+      action: 'list',
+      sessionId: 'session-cron',
+    });
   });
 
   test('blocks schedule creation when side effects are disabled', async () => {
@@ -482,30 +380,6 @@ describe.sequential('container cron tool', () => {
       vi.resetModules();
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
     }
-  });
-
-  test('lists the timezone of injected cron tasks', async () => {
-    setScheduledTasks([
-      {
-        id: 17,
-        channelId: '',
-        cronExpr: '0 9 * * *',
-        tz: 'Europe/Berlin',
-        runAt: null,
-        everyMs: null,
-        prompt: 'Write the morning briefing.',
-        enabled: 1,
-        lastRun: null,
-        createdAt: '2026-04-11T12:58:18.861Z',
-      },
-    ]);
-
-    const result = await executeTool(
-      'cron',
-      JSON.stringify({ action: 'list' }),
-    );
-
-    expect(result).toContain('0 9 * * * (Europe/Berlin)');
   });
 
   test('requires an explicit delivery channel in heartbeat sessions', async () => {

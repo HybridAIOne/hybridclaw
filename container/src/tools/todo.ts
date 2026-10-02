@@ -15,9 +15,9 @@ export const TODO_TOOL_DEFINITION: ToolDefinition = {
     description:
       'Keep the user’s todo list: one-off todos and repeating ones (habits such as "30 minutes of Chinese" daily) that open again every day and count a streak. Actions:\n' +
       '- "list": every todo with today’s state\n' +
-      '- "add": needs "title"; optional "repeat", "due", "remind"\n' +
+      '- "add": needs "title"; optional "repeat", "due", "remind", "tz"\n' +
       '- "done" / "undo": check a todo off, or reopen it, for today or a "date" in the past week\n' +
-      '- "edit": change "title", "repeat", "due" or "remind" of todo "id"\n' +
+      '- "edit": change "title", "repeat", "due", "remind" or "tz" of todo "id"\n' +
       '- "remove": delete todo "id"\n' +
       'Use a todo when the user wants to do something themselves and have it tracked or reminded; use cron when you should act at a time. When the user says they did something on the list, or you see clear evidence of it (a workout in their health data, a finished calendar event), check it off without asking: they can undo it. Never check off what they only plan to do.',
     parameters: {
@@ -44,7 +44,12 @@ export const TODO_TOOL_DEFINITION: ToolDefinition = {
         remind: {
           type: 'string',
           description:
-            'Local time HH:MM to remind the user while the todo is still open, or "off"',
+            'Time HH:MM, in "tz", to remind the user while the todo is still open, or "off"',
+        },
+        tz: {
+          type: 'string',
+          description:
+            'The user’s IANA time zone, e.g. "Europe/Berlin"; default: the Timezone in USER.md. Give it when USER.md has none or the result shows a zone that is not the user’s.',
         },
         date: {
           type: 'string',

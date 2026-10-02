@@ -4,7 +4,11 @@
  */
 import os from 'node:os';
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
-import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
+import {
+  currentDateStampInTimezone,
+  isValidTimezone,
+  resolveEffectiveTimezone,
+} from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
 import { getUserReactionsSinceLastMessage } from '../memory/db.js';
@@ -148,6 +152,13 @@ export function buildDynamicContextMessage(
       `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
     );
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
+    // Without this the agent never learns that a zone it wrote, such as
+    // "Europe/Munich", is not one, and the user's check-ins run off by hours.
+    if (userTimezone && !isValidTimezone(userTimezone)) {
+      lines.push(
+        `USER.md Timezone "${userTimezone}" is not an IANA time zone, so dates, check-ins and reminders use ${resolveEffectiveTimezone()}. Write a valid one there, such as Europe/Berlin.`,
+      );
+    }
 
     const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {
       now,

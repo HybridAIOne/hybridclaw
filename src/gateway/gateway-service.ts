@@ -676,6 +676,7 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
+import { handleTimezoneCommand } from './timezone-command.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -9210,7 +9211,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...FULLAUTO_NEVER_APPROVE_TOOLS,
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
-      scheduledTasks: [],
       blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
@@ -13325,6 +13325,9 @@ export async function handleGatewayCommand(
 
       case 'name':
         return handleNameCommand(req, resolveSessionAgentId(session));
+
+      case 'timezone':
+        return handleTimezoneCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);
