@@ -8791,7 +8791,6 @@ async function runLiveAppBridgeTool(params: {
       },
     ],
     allowedTools: [params.toolName],
-    scheduledTasks: [],
     scheduleSideEffectsEnabled: false,
     maxTokens: 512,
     maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,
@@ -10934,8 +10933,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === CHAT_REACTION_PATH && method === 'POST') {
-            if (operatorId) await handleChatReactionRoute(req, res, operatorId);
-            else sendJson(res, 404, { error: 'Message not found.' });
+            if (operatorId) {
+              await handleChatReactionRoute(
+                req,
+                res,
+                operatorId,
+                (requestedUserId) =>
+                  resolveGatewayRequestUserId({
+                    req,
+                    channelId: 'web',
+                    requestedUserId,
+                    fallbackUserId: 'web',
+                  }) || 'web',
+              );
+            } else {
+              sendJson(res, 404, { error: 'Message not found.' });
+            }
             return;
           }
           if (pathname === '/api/events' && method === 'GET') {

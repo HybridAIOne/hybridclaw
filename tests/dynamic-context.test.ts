@@ -1,4 +1,7 @@
-import { expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { expect, test, vi } from 'vitest';
 
 import {
   DYNAMIC_CONTEXT_MESSAGE_PREFIX,
@@ -128,4 +131,50 @@ test('history window note renders only when turns were omitted', async () => {
   expect(content.indexOf('## History Window')).toBeLessThan(
     content.indexOf('## Session Summary'),
   );
+});
+
+test('an invalid USER.md zone is named, with the zone used instead', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-zone-'));
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', dataDir);
+  vi.stubEnv('TZ', 'UTC');
+  vi.resetModules();
+  try {
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const conversation = await import('../src/agent/conversation.js');
+    const contextWith = (agentId: string, zone: string) => {
+      const workspace = agentWorkspaceDir(agentId);
+      fs.mkdirSync(workspace, { recursive: true });
+      fs.writeFileSync(
+        path.join(workspace, 'USER.md'),
+        `# USER.md\n\n- **Timezone:** ${zone}\n`,
+      );
+      return String(
+        conversation.buildDynamicContextMessage({
+          agentId,
+          now: new Date('2026-10-02T07:13:00.000Z'),
+        }).content,
+      );
+    };
+
+    // What a model wrote into USER.md in a live run.
+    const munich = contextWith(
+      'munich',
+      'Europe/Munich (inferred from location; confirm if needed)',
+    );
+    expect(munich).toContain(
+      'USER.md Timezone "Europe/Munich" is not an IANA time zone, so dates, check-ins and reminders use UTC.',
+    );
+    expect(munich).toContain('— 07:13 (UTC)');
+
+    const berlin = contextWith(
+      'berlin',
+      'Europe/Berlin (inferred from location; confirm if needed)',
+    );
+    expect(berlin).not.toContain('is not an IANA time zone');
+    expect(berlin).toContain('— 09:13 (Europe/Berlin)');
+  } finally {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

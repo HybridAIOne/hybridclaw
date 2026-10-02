@@ -65,7 +65,8 @@ Examples:
 ## Provider Names
 
 `/model list <provider>` and `/second-opinion --provider <provider>` take the
-provider prefix above or one of these vendor names, in any letter case:
+provider prefix above or one of these supported vendor names, in any letter
+case:
 
 - `hybrid`, `hybrid-ai` → `hybridai`
 - `codex` → `openai-codex`

@@ -1,3 +1,12 @@
+/**
+ * Provider aliases — vendor and brand names users type for a runtime provider
+ * (`grok` → `xai`, `qwen` → `dashscope`).
+ *
+ * Supported product API for `/model list <provider>`, `/second-opinion
+ * --provider`, and every model-provider `hybridclaw auth` target
+ * (`src/auth/auth-targets.ts`), not backward-compatibility shims: they carry
+ * no `compat:` marker and are not retired by release cleanup.
+ */
 import type { RuntimeProviderId } from './provider-ids.js';
 
 // `google` is deliberately absent (owner call, 2026-10-02): it names the

@@ -2097,8 +2097,8 @@ async function handleGatewayMessageInner(
     req.userId,
   );
   try {
-    const { tasks: scheduledTasks, hiddenCount: hiddenScheduledTaskCount } =
-      listManageableScheduledTasks(session);
+    const scheduledTaskCount =
+      listManageableScheduledTasks(session).tasks.length;
     let firstTextDeltaMs: number | null = null;
     const tail = new TurnTailTimer();
     const onTextDelta = (delta: string): void => {
@@ -2147,7 +2147,7 @@ async function handleGatewayMessageInner(
     logger.debug(
       {
         ...debugMeta,
-        scheduledTaskCount: scheduledTasks.length,
+        scheduledTaskCount,
       },
       'Gateway chat invoking agent',
     );
@@ -2158,7 +2158,7 @@ async function handleGatewayMessageInner(
         type: 'agent.start',
         provider,
         model,
-        scheduledTaskCount: scheduledTasks.length,
+        scheduledTaskCount,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
         dynamicContext: readDynamicContextMessage(messages),
@@ -2207,8 +2207,6 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
-        scheduledTasks,
-        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,
@@ -2328,8 +2326,6 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
-        scheduledTasks,
-        hiddenScheduledTaskCount,
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools: mediaPolicy.blockedTools,

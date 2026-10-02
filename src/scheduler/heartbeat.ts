@@ -30,7 +30,6 @@ import {
 import { isHeartbeatOkText } from '../gateway/proactive-delivery.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getAllJobs } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   modelRequiresChatbotId,
@@ -274,10 +273,6 @@ export function startHeartbeat(
         },
       });
 
-      const scheduledTasks = getAllJobs({
-        kind: 'scheduled_task',
-        sessionId,
-      });
       const output = await runAgent({
         sessionId,
         runId,
@@ -287,7 +282,6 @@ export function startHeartbeat(
         model,
         agentId: resolvedAgentId,
         channelId: heartbeatChannelId,
-        scheduledTasks,
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,
       });
       emitToolExecutionAuditEvents({

@@ -2188,7 +2188,13 @@ async function runAgentBrowser(
   sessionId: string,
   command: string,
   commandArgs: string[] = [],
-  options: { timeoutMs?: number; cdpUrl?: string; headed?: boolean } = {},
+  options: {
+    timeoutMs?: number;
+    cdpUrl?: string;
+    headed?: boolean;
+    /** agent-browser's own limit for a wait, below its 25 s default. */
+    actionTimeoutMs?: number;
+  } = {},
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const runner = resolveRunner();
   if (!runner) {
@@ -2233,6 +2239,9 @@ async function runAgentBrowser(
     AGENT_BROWSER_DOWNLOAD_PATH: downloadPath,
     AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
+  if (options.actionTimeoutMs) {
+    browserEnv.AGENT_BROWSER_DEFAULT_TIMEOUT = String(options.actionTimeoutMs);
+  }
   if (session.stateName) {
     browserEnv.AGENT_BROWSER_SESSION_NAME = session.stateName;
   }
@@ -2717,11 +2726,29 @@ const BROWSER_PAGE_RESULT_TOOLS = new Set([
   'browser_click',
 ]);
 
+// Many pages fill themselves in after they load: a cart, search results, a
+// product. A snapshot taken at once shows them empty, and the model acts on
+// that. Wait for the page's requests to settle, but not for long: a page that
+// polls never goes quiet.
+const PAGE_SETTLE_TIMEOUT_MS = 2_500;
+
 async function addPageSnapshot(
   result: Record<string, unknown>,
   args: Record<string, unknown>,
   sessionId: string,
 ): Promise<string> {
+  if (!shouldUseGatewayManagedBrowser('browser_snapshot')) {
+    // A page still busy after the wait is read as it is.
+    await runAgentBrowser(
+      normalizeSessionKey(sessionId || 'default'),
+      'wait',
+      ['--load', 'networkidle'],
+      {
+        timeoutMs: PAGE_SETTLE_TIMEOUT_MS + 5_000,
+        actionTimeoutMs: PAGE_SETTLE_TIMEOUT_MS,
+      },
+    );
+  }
   const page = asRecord(
     safeJsonParse(
       await runBrowserTool(

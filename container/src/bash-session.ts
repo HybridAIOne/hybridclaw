@@ -51,15 +51,18 @@ const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
 const SESSION_CWD_FILE = 'bash-cwd';
 // 2026-09-10, Codex CI review: keep command contents out of process argv.
 // NUL framing preserves whitespace and gives child commands an exhausted stdin.
-const READ_BASH_COMMAND_SCRIPT = `IFS= read -r -d '' __hybridclaw_command || exit 125`;
-const STATELESS_BASH_WRAPPER_SCRIPT = `${READ_BASH_COMMAND_SCRIPT}
+// 2026-10-02, CodeQL alert #83: the persistent wrapper's paths ride the same
+// frame ahead of the command, so argv holds only constants.
+const readStdinField = (variable: string) =>
+  `IFS= read -r -d '' ${variable} || exit 125`;
+const STATELESS_BASH_WRAPPER_SCRIPT = `${readStdinField('__hybridclaw_command')}
 eval "$__hybridclaw_command"`;
 const PERSISTENT_BASH_WRAPPER_SCRIPT = `
-__hybridclaw_session_dir=$1
-__hybridclaw_snapshot=$2
-__hybridclaw_cwd_file=$3
-__hybridclaw_default_cwd=$4
-${READ_BASH_COMMAND_SCRIPT}
+${readStdinField('__hybridclaw_session_dir')}
+${readStdinField('__hybridclaw_snapshot')}
+${readStdinField('__hybridclaw_cwd_file')}
+${readStdinField('__hybridclaw_default_cwd')}
+${readStdinField('__hybridclaw_command')}
 __hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
 __hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
 umask 077
@@ -203,20 +206,6 @@ function getPersistentBashSession(sessionId: string): PersistentBashSession {
   return persistentBashSession;
 }
 
-function buildPersistentBashWrapperArgs(
-  session: PersistentBashSession,
-): string[] {
-  return [
-    session.initialized ? '-c' : '-lc',
-    PERSISTENT_BASH_WRAPPER_SCRIPT,
-    'hybridclaw-bash-wrapper',
-    session.sessionDir,
-    session.snapshotPath,
-    session.cwdPath,
-    session.defaultCwd,
-  ];
-}
-
 function isDirectory(dirPath: string): boolean {
   try {
     return fs.statSync(dirPath).isDirectory();
@@ -260,8 +249,18 @@ export function runBash(params: BashRunParams): {
       ? describeInheritedShell(session.cwdPath)
       : null;
   const result = runBashProcess(
-    buildPersistentBashWrapperArgs(session),
+    [
+      session.initialized ? '-c' : '-lc',
+      PERSISTENT_BASH_WRAPPER_SCRIPT,
+      'hybridclaw-bash-wrapper',
+    ],
     params,
+    [
+      session.sessionDir,
+      session.snapshotPath,
+      session.cwdPath,
+      session.defaultCwd,
+    ],
   );
   if (result.error === undefined || result.status !== null) {
     session.initialized = true;

@@ -927,8 +927,7 @@ Notes:
   - Use \`--force\` to replace an existing agent workspace or bundled plugin install during install.
   - Use \`--skip-skill-scan\` to bypass the imported skill security scanner during install.
   - Use \`--skip-externals\` to skip manifest-declared imported skills and other external references during install.
-  - Use \`--skip-import-errors\` to continue agent install when an imported skill fetch/install fails, and print retry commands instead.
-  - Legacy aliases remain accepted: \`pack\` maps to \`export\`, and \`unpack\` maps to \`install\`.`);
+  - Use \`--skip-import-errors\` to continue agent install when an imported skill fetch/install fails, and print retry commands instead.`);
 }
 
 export function printCoworkerUsage(): void {

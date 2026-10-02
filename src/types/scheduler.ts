@@ -21,18 +21,3 @@ export interface ScheduledTask {
    */
   reply_only?: boolean;
 }
-
-export interface ScheduledTaskInput {
-  id: number;
-  channelId: string;
-  cronExpr: string;
-  tz: string;
-  runAt: string | null;
-  everyMs: number | null;
-  prompt: string;
-  enabled: number;
-  lastRun: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  createdAt: string;
-}

@@ -371,3 +371,21 @@ test('a turn sees open todos unless the todo tool is blocked', async () => {
   expect(lastMessage()).toContain('"Chinese"');
   expect(lastMessage(['todo'])).not.toContain('"Chinese"');
 });
+
+test('the agent sets the zone of a reminder, and the list names it', async () => {
+  const { session, runTodoToolAction, allTasks } = await load();
+  await session('app-chat');
+
+  const added = runTodoToolAction({
+    sessionId: 'app-chat',
+    action: 'add',
+    title: 'Stretch',
+    repeat: 'daily',
+    remind: '07:16',
+    tz: 'Europe/Berlin',
+  });
+  expect(added.result).toContain('reminder 07:16 Europe/Berlin');
+  expect(allTasks()).toMatchObject([
+    { cron_expr: '16 7 * * *', tz: 'Europe/Berlin' },
+  ]);
+});

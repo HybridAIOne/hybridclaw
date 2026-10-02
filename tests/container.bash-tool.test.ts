@@ -46,6 +46,11 @@ describe.sequential('container bash tool persistence', () => {
     return JSON.stringify({ command });
   }
 
+  // The NUL-terminated fields a launch writes to the wrapper's stdin.
+  function stdinFields(options: { input?: unknown } | undefined): string[] {
+    return String(options?.input).split('\0').slice(0, -1);
+  }
+
   afterEach(() => {
     tools?.resetPersistentBashSessions();
     tools = null;
@@ -93,11 +98,11 @@ describe.sequential('container bash tool persistence', () => {
     );
     expect(fs.existsSync(path.join(workspaceRoot, 'injected'))).toBe(false);
     expect(fs.existsSync(path.join(workspaceRoot, 'also-injected'))).toBe(false);
-    const args = vi.mocked(spawnSync).mock.calls.find(
-      ([file]) => file === 'bash',
-    )?.[1];
-    expect(args?.[1]).not.toContain(tempRoot);
-    expect(args?.[3]).toContain(tempRoot);
+    const [, args, options] = vi
+      .mocked(spawnSync)
+      .mock.calls.find(([file]) => file === 'bash')!;
+    expect(args).not.toContainEqual(expect.stringContaining(tempRoot));
+    expect(stdinFields(options)[0]).toContain(tempRoot);
   });
 
   test('persists exported environment variables across bash calls', async () => {
@@ -250,8 +255,7 @@ describe.sequential('container bash tool persistence', () => {
     vi.mocked(spawnSync).mockReturnValue({ pid: 1, status: 0, signal: null, stdout: 'ok', stderr: '', output: ['', 'ok', ''] });
     const { executeTool } = await createBashTestRuntime({ sessionId: 'bash-session-docker' });
     expect(await executeTool('bash', bashCommand('pwd'))).toBe('ok');
-    const args = vi.mocked(spawnSync).mock.calls[0][1] as string[];
-    const cwdFile = args[args.indexOf('hybridclaw-bash-wrapper') + 3];
+    const cwdFile = stdinFields(vi.mocked(spawnSync).mock.calls[0][2])[2];
     expect(cwdFile.startsWith('/tmp/')).toBe(true);
     expect(sessionCwdFiles()).toEqual([]);
   });
@@ -288,7 +292,8 @@ describe.sequential('container bash tool persistence', () => {
     expect(call).toBeDefined();
     expect(call![1]).not.toContain(command);
     expect(JSON.stringify(call![1])).not.toContain('trailing whitespace');
-    expect(call![2]).toMatchObject({ input: `${command}\0` });
+    expect(stdinFields(call![2])).toHaveLength(persistBashState ? 5 : 1);
+    expect(stdinFields(call![2]).at(-1)).toBe(command);
   });
 
   test.each([false, true])('child commands see EOF after the command frame (persistent=%s)', async (persistBashState) => {
@@ -327,7 +332,8 @@ describe.sequential('container bash tool persistence', () => {
     expect(file).toBe('docker');
     expect(args!.slice(0, 6)).toEqual(['exec', '-i', '-w', '/workspace', 'test-sandbox', 'bash']);
     expect(args).not.toContain(command);
-    expect(options).toMatchObject({ input: `${command}\0` });
+    expect(args!.slice(8)).toEqual(persistBashState ? ['hybridclaw-bash-wrapper'] : []);
+    expect(stdinFields(options).at(-1)).toBe(command);
   });
 
 });

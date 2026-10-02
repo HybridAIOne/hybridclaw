@@ -106,17 +106,6 @@ function normalizeResultItem(item) {
   };
 }
 
-function extractResultArray(payload) {
-  if (Array.isArray(payload)) return payload;
-  // qmd search/vsearch/query --json currently returns a top-level array.
-  // Keep a narrow compatibility path for wrapped payloads instead of probing
-  // multiple speculative shapes.
-  if (isRecord(payload) && Array.isArray(payload.results)) {
-    return payload.results;
-  }
-  return [];
-}
-
 function resolveCaptureLimitBytes(config) {
   const configuredBudget =
     typeof config?.maxInjectedChars === 'number' &&
@@ -367,8 +356,13 @@ async function searchQmd(query, config) {
   } catch {
     throw new Error('QMD returned invalid JSON for search results.');
   }
+  // `qmd search|vsearch|query --json` prints a top-level array; only qmd's MCP
+  // server wraps results in `{ results }`, and this plugin never calls it.
+  if (!Array.isArray(parsed)) {
+    throw new Error('QMD search results must be a JSON array.');
+  }
 
-  return extractResultArray(parsed)
+  return parsed
     .map((item) => normalizeResultItem(item))
     .filter((item) => item.snippet || item.context || item.path || item.title);
 }

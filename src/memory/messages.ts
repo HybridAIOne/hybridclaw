@@ -293,30 +293,37 @@ export function setMessageRoutingTrace(
 /**
  * Puts the other side's emoji on a message of this session, or takes it off
  * with null: the agent reacts to a user message, the user to the agent's.
- * False when the session has no such message in that role.
+ * Returns the emoji it replaced, or null when the session has no such message
+ * in that role.
  */
 export function setMessageReaction(input: {
   sessionId: string;
   messageId: number;
   role: 'user' | 'assistant';
   emoji: string | null;
-}): boolean {
-  const result = getMessageDatabase()
-    .prepare(
-      `UPDATE messages
-       SET reaction = ?,
-           reaction_at = CASE WHEN ? IS NULL THEN NULL
-             ELSE strftime('%Y-%m-%d %H:%M:%f', 'now') END
-       WHERE id = ? AND session_id = ? AND role = ?`,
-    )
-    .run(
-      input.emoji,
-      input.emoji,
+}): { previous: string | null } | null {
+  const database = getMessageDatabase();
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  return database.transaction(() => {
+    const row = queryOne<{ reaction: string | null }, [number, string, string]>(
+      database,
+      'SELECT reaction FROM messages WHERE id = ? AND session_id = ? AND role = ?',
       input.messageId,
-      resolveSessionIdCompat(input.sessionId),
+      sessionId,
       input.role,
     );
-  return result.changes > 0;
+    if (!row) return null;
+    database
+      .prepare(
+        `UPDATE messages
+         SET reaction = ?,
+             reaction_at = CASE WHEN ? IS NULL THEN NULL
+               ELSE strftime('%Y-%m-%d %H:%M:%f', 'now') END
+         WHERE id = ?`,
+      )
+      .run(input.emoji, input.emoji, input.messageId);
+    return { previous: row.reaction };
+  })();
 }
 
 /**

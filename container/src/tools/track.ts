@@ -16,13 +16,13 @@ export const TRACK_TOOL_DEFINITION: ToolDefinition = {
     description:
       'Keep the user’s goals ("sleep through the night", "run a half marathon") and what you track for them ("airline refund", "ticket prices for the Boston trip"). Each item has a one-line status that the user sees on their Goals page. Actions:\n' +
       '- "list": every item with its status, steps and check-ins\n' +
-      '- "add": needs "title"; optional "kind", "outcome", "status", "every", "at"\n' +
+      '- "add": needs "title"; optional "kind", "outcome", "status", "every", "at", "tz"\n' +
       '- "status": set "status" of item "id" to where it stands now\n' +
-      '- "edit": change "title", "kind", "outcome", "every" or "at" of item "id"\n' +
+      '- "edit": change "title", "kind", "outcome", "every", "at" or "tz" of item "id"\n' +
       '- "add_step" ("step"), "step_done" / "step_undo" / "remove_step" ("step_id"): the plan\n' +
       '- "done" / "undo": the outcome is reached, or not after all\n' +
       '- "remove": delete item "id"\n' +
-      'Add an item when the user says what they want to reach or asks you to keep an eye on something. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own; leave it out when the user drives it.',
+      'Add an item when the user says what they want to reach or asks you to keep an eye on something. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own, or the user asks you to check in; leave it out when the user drives it. A goal’s check-in writes to the user every time, a tracked item’s only when there is news; it is the only check-in the item needs, so add no cron task for it.',
     parameters: {
       type: 'object',
       properties: {
@@ -56,7 +56,12 @@ export const TRACK_TOOL_DEFINITION: ToolDefinition = {
         },
         at: {
           type: 'string',
-          description: 'Local time HH:MM of the check-in; default 09:00',
+          description: 'Time HH:MM of the check-in, in "tz"; default 09:00',
+        },
+        tz: {
+          type: 'string',
+          description:
+            'The user’s IANA time zone, e.g. "Europe/Berlin"; default: the Timezone in USER.md. Give it when USER.md has none or the result shows a zone that is not the user’s.',
         },
         step: { type: 'string', description: 'Title of a new step' },
         step_id: { type: 'number', description: 'Step id, from "list"' },

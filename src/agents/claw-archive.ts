@@ -9,15 +9,13 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { validatePluginConfig } from '../plugins/plugin-config-validation.js';
 import {
   type InstallPluginResult,
   installPlugin,
   type PluginInstallCommandRunner,
 } from '../plugins/plugin-install.js';
-import {
-  loadPluginManifest,
-  validatePluginConfig,
-} from '../plugins/plugin-manager.js';
+import { loadPluginManifest } from '../plugins/plugin-manager.js';
 import type { PluginManifest } from '../plugins/plugin-types.js';
 import { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 import {

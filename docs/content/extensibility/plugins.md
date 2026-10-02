@@ -91,7 +91,9 @@ after install.
 
 Use `plugin config <plugin-id> [key] [value|--unset]` when you want to inspect
 or change one top-level `plugins.list[].config` key without editing
-`~/.hybridclaw/config.json` by hand.
+`~/.hybridclaw/config.json` by hand. It rejects a key, or a property nested in
+the value, that the plugin's `configSchema` does not declare. Undeclared keys
+in a hand-edited config are dropped when the plugin loads.
 
 ## Repo-Shipped Examples
 

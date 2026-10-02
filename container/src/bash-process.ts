@@ -1,7 +1,9 @@
 /**
- * Shell launch keeps command text and short-lived credentials out of argv.
- * Unlike the bash tool dispatcher, this module neither approves commands nor
- * resolves credentials; it only supplies the approved process environment.
+ * Shell launch keeps command text, wrapper paths, and short-lived credentials
+ * out of argv: argv holds only constants, and everything else arrives as
+ * NUL-terminated stdin fields or environment values. Unlike the bash tool
+ * dispatcher, this module neither approves commands nor resolves credentials;
+ * it only supplies the approved process environment.
  */
 import { spawnSync } from 'node:child_process';
 import { buildSanitizedEnv } from '../shared/sensitive-env.js';
@@ -24,6 +26,8 @@ export function runBashProcess(
     timeoutMs: number;
     runtimeEnv: Record<string, string>;
   },
+  // Fields the wrapper script reads from stdin before the command.
+  stdinFields: string[] = [],
 ) {
   const env = buildSanitizedEnv(process.env);
   const gatewayUrl = String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim();
@@ -33,7 +37,9 @@ export function runBashProcess(
   if (gatewayUrl) env.HYBRIDCLAW_GATEWAY_URL = gatewayUrl;
   if (gatewayToken) env.HYBRIDCLAW_GATEWAY_TOKEN = gatewayToken;
   const options = {
-    input: `${params.command}\0`,
+    input: [...stdinFields, params.command]
+      .map((field) => `${field}\0`)
+      .join(''),
     timeout: params.timeoutMs,
     encoding: 'utf-8' as const,
     maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,

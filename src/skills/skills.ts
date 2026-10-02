@@ -149,6 +149,7 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'todo',
   'track',
   'name',
+  'timezone',
   'device-data',
 ]);
 const warnedBlockedSkills = new Set<string>();
