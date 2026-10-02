@@ -391,16 +391,17 @@ export function resolveSessionIdCompat(sessionId: string): string {
 
 /**
  * RAG flag a brand-new session starts with: the agent's configured `enableRag`
- * (admin API / `agents.list[].enableRag`) when it is set, otherwise `null` so
- * the column keeps its schema default. `/rag on|off` still overrides per session.
+ * (admin API / `agents.list[].enableRag`) when it is set, otherwise the
+ * `hybridai.enableRag` default. `/rag on|off` still overrides per session.
  */
-function resolveInitialSessionRag(agentId: string): 0 | 1 | null {
+function resolveInitialSessionRag(agentId: string): 0 | 1 {
+  let enableRag = getRuntimeConfig().hybridai.enableRag;
   try {
-    const enableRag = resolveAgentConfig(agentId).enableRag;
-    return typeof enableRag === 'boolean' ? (enableRag ? 1 : 0) : null;
+    enableRag = resolveAgentConfig(agentId).enableRag ?? enableRag;
   } catch {
-    return null;
+    // An agent that does not resolve starts with the global default.
   }
+  return enableRag ? 1 : 0;
 }
 
 export function getOrCreateSession(
@@ -513,7 +514,7 @@ export function getOrCreateSession(
        agent_id,
        legacy_session_id,
        enable_rag
-     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, COALESCE(?, 1))`,
+     ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`,
     )
     .run(
       nextSessionId,

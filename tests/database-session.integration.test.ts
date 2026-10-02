@@ -149,11 +149,11 @@ describe('database session integration', () => {
     expect(
       getOrCreateSession('sess-rag-on', null, 'openai', 'rag-on-agent').enable_rag,
     ).toBe(1);
-    // No agent-level value -> the column keeps its schema default (enabled).
+    // No agent-level value -> the hybridai.enableRag default (off).
     expect(
       getOrCreateSession('sess-rag-unset', null, 'openai', 'rag-unset-agent')
         .enable_rag,
-    ).toBe(1);
+    ).toBe(0);
   });
 
   it('getOrCreateSession returns existing session on second call', () => {

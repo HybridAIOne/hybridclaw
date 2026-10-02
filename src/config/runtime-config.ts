@@ -1937,7 +1937,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     onboardingModel: DEFAULT_HYBRIDAI_ONBOARDING_MODEL,
     defaultChatbotId: '',
     maxTokens: 4_096,
-    enableRag: true,
+    // Owner call, 2026-10-02: off unless enabled. Platform RAG ran a retrieval
+    // on every tool round of every agent turn, for bots that mostly have no
+    // documents.
+    enableRag: false,
     models: ['gpt-4.1-mini', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5'],
   },
   codex: {

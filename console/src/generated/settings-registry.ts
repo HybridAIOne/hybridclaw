@@ -1280,7 +1280,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'hybridai.enableRag',
       section: 'hybridai',
       kind: 'boolean',
-      defaultValue: true,
+      defaultValue: false,
     },
     {
       path: 'hybridai.maxTokens',
