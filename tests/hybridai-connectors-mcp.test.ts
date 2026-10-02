@@ -62,6 +62,7 @@ describe('HybridAI connectors MCP auto registration', () => {
           Authorization: 'Bearer hai-test-secret',
         },
         enabled: true,
+        toolBehavior: { overrides: { web_search: 'read-only' } },
       },
     });
   });
@@ -108,6 +109,30 @@ describe('HybridAI connectors MCP auto registration', () => {
         'X-Trace': 'test',
       },
       enabled: true,
+      toolBehavior: { overrides: { web_search: 'read-only' } },
+    });
+  });
+
+  test("keeps the operator's toolBehavior, whose overrides win", async () => {
+    const { withAutoHybridAIConnectorsMcpServer } = await importHelper();
+
+    expect(
+      withAutoHybridAIConnectorsMcpServer(
+        {
+          hybridai: {
+            transport: 'http',
+            url: 'https://hybridai.one/api/v1/connectors/mcp',
+            toolBehavior: {
+              trustAnnotations: true,
+              overrides: { web_search: 'mutation', list_connectors: 'read-only' },
+            },
+          },
+        },
+        { apiKey: 'hai-test-secret' },
+      ).hybridai?.toolBehavior,
+    ).toEqual({
+      trustAnnotations: true,
+      overrides: { web_search: 'mutation', list_connectors: 'read-only' },
     });
   });
 

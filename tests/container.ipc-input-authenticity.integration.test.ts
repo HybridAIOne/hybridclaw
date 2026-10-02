@@ -251,7 +251,13 @@ test(
       () => !fs.existsSync(path.join(agent.ipc, 'input.json')),
     );
     expect(dropped).toBe(true);
-    expect(agent.stderr()).toContain('rejected unauthenticated input');
+    // The worker logs before it unlinks, but the line can still be in the
+    // stderr pipe when the unlink is already visible here.
+    expect(
+      await pollUntil(() =>
+        agent.stderr().includes('rejected unauthenticated input'),
+      ),
+    ).toBe(true);
     // Give the agent room to (wrongly) act before asserting it did not.
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(fs.existsSync(agent.marker)).toBe(false);

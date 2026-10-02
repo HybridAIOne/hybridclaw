@@ -498,6 +498,10 @@ descriptions, idempotency hints and non-destructive hints never establish read
 safety. A `readOnlyHint: false` or `destructiveHint: true` always keeps a tool
 serial, including when an override claims otherwise.
 
+The auto-added `hybridai` connectors server declares the platform's
+`web_search` as `read-only`, so a batch of searches overlaps. Entries under
+`mcpServers.hybridai.toolBehavior` are kept, and their overrides win.
+
 Trusted reads share the existing limit of eight calls per batch with built-in
 tools. Results remain in model order; mutations and unknown tools drain the
 preceding batch and run alone. Required or denied approvals stop batch

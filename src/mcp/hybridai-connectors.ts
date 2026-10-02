@@ -8,6 +8,11 @@ import type { McpServerConfig } from '../types/models.js';
 export const HYBRIDAI_CONNECTORS_MCP_SERVER_NAME = 'hybridai';
 export const HYBRIDAI_CONNECTORS_MCP_PATH = '/api/v1/connectors/mcp';
 
+// Owner call, 2026-10-02: the platform's own web search only reads, so a batch
+// of searches overlaps. HybridClaw declares it as the operator of this
+// auto-added server; an operator's own `toolBehavior` entries win.
+const PLATFORM_READ_ONLY_TOOLS = { web_search: 'read-only' } as const;
+
 interface HybridAIConnectorsMcpOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -53,6 +58,13 @@ export function withAutoHybridAIConnectorsMcpServer(
       url: existing?.url?.trim() || resolveGatewayUrl(options),
       headers,
       enabled: true,
+      toolBehavior: {
+        ...existing?.toolBehavior,
+        overrides: {
+          ...PLATFORM_READ_ONLY_TOOLS,
+          ...existing?.toolBehavior?.overrides,
+        },
+      },
     },
   };
 }
