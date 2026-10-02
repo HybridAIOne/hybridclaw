@@ -319,7 +319,13 @@ export function getSessionAssistantMessage(
   messageId: number,
 ): Pick<
   StoredMessage,
-  'id' | 'session_id' | 'agent_id' | 'content' | 'artifacts' | 'created_at'
+  | 'id'
+  | 'session_id'
+  | 'agent_id'
+  | 'content'
+  | 'artifacts'
+  | 'source'
+  | 'created_at'
 > | null {
   const row = queryOne<
     {
@@ -328,12 +334,13 @@ export function getSessionAssistantMessage(
       agent_id: string | null;
       content: string;
       artifacts_json: string | null;
+      source: string | null;
       created_at: string;
     },
     [number, string]
   >(
     getMessageDatabase(),
-    `SELECT id, session_id, agent_id, content, artifacts_json, created_at
+    `SELECT id, session_id, agent_id, content, artifacts_json, source, created_at
      FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'`,
     messageId,
     resolveSessionIdCompat(sessionId),
@@ -345,6 +352,7 @@ export function getSessionAssistantMessage(
     agent_id: row.agent_id,
     content: row.content,
     artifacts: parseMessageArtifacts(row.artifacts_json),
+    source: row.source,
     created_at: row.created_at,
   };
 }

@@ -61,7 +61,8 @@ Each answers one line of JSON. Without kinds a phone gets the three browser
 kinds, `turn`, `reminder` and `approval`, each only while the operator's
 preference for it is on. An app that names other kinds, such as `proactive`,
 gets those from plugins that send them, or from tasks added with
-`/schedule add --alert <kind>`, whose alert shows the first item a run lists. Each operator can register up to 16
+`/schedule add --alert <kind>`, whose alert shows the first item a run lists,
+or the reply itself for a task added with `--reply-only` as well. Each operator can register up to 16
 phones; registering a phone another operator holds moves it.
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
@@ -79,7 +80,9 @@ previews are set to always show. The payload holds `kind`, `id`, `sessionId`
 and `agentId` next to `aps`, and `thread-id` is the conversation. A reminder
 adds `messageId`, the stored reply (also the last part of `id`), which the app
 reads with `GET /api/chat/message?sessionId=…&id=…`. A reply of a task added
-with `--alert` rings with its listed items instead of as a reminder.
+with `--alert` rings with its listed items instead of as a reminder; one added
+with `--reply-only` too rings like a reminder of the alert's kind. The message
+read back carries `source`, `schedule:<id>` for a reply a task posted.
 
 Apple's signing key is not on the gateway. The gateway hands each alert to
 HybridAI (`POST /v1/push` on `hybridai.baseUrl`), authenticated with the

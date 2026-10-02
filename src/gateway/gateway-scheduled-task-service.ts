@@ -502,6 +502,7 @@ export async function runGatewayScheduledTask(
   onError: (error: unknown) => void,
   runKey?: string,
   preferredAgentId?: string,
+  replyOnly = false,
 ): Promise<void> {
   let currentSessionId = origSessionId;
   const sessionResetPolicy = {
@@ -585,7 +586,9 @@ export async function runGatewayScheduledTask(
     chatbotId,
     model,
     agentId,
-    sessionId: session.id,
+    // Apart, the run is stored under its own key and only its reply is
+    // delivered to the chat (web-scheduled-delivery.ts).
+    sessionId: replyOnly ? undefined : session.id,
     sessionKey: runKey,
     mainSessionKey: session.main_session_key,
     onResult,

@@ -30,6 +30,7 @@ export interface CreateJobInput {
   runAt?: string;
   everyMs?: number;
   alert?: string;
+  replyOnly?: boolean;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -150,13 +151,24 @@ function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
   };
 }
 
-/** Not part of the runtime-config action shape; only `/schedule add` writes it. */
-function alertOf(rawAction: string): string | null {
-  const alert = parseJobJson<{ alert?: unknown } | null>(
+/**
+ * Options only `/schedule add` sets: `alert` and `replyOnly`. Not part of the
+ * runtime-config action shape, so they are read and kept apart from it.
+ */
+function addOptionsOf(rawAction: string): {
+  alert?: string;
+  replyOnly?: true;
+} {
+  const action = parseJobJson<{ alert?: unknown; replyOnly?: unknown } | null>(
     rawAction,
     null,
-  )?.alert;
-  return typeof alert === 'string' && alert ? alert : null;
+  );
+  return {
+    ...(typeof action?.alert === 'string' && action.alert
+      ? { alert: action.alert }
+      : {}),
+    ...(action?.replyOnly === true ? { replyOnly: true as const } : {}),
+  };
 }
 
 function scheduledJobFromRow(row: JobRow): ScheduledTask {
@@ -189,7 +201,8 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
     created_at: row.created_at,
-    alert: alertOf(row.action),
+    alert: addOptionsOf(row.action).alert ?? null,
+    reply_only: addOptionsOf(row.action).replyOnly ?? false,
   };
 }
 
@@ -308,6 +321,7 @@ export function createJob(input: CreateJobInput): number {
           kind: 'agent_turn',
           message: input.prompt,
           ...(input.alert ? { alert: input.alert } : {}),
+          ...(input.replyOnly ? { replyOnly: true } : {}),
         }),
         JSON.stringify({
           kind: 'channel',
@@ -390,13 +404,11 @@ export function updateScheduledTask(
       .run(
         patch.channelId,
         JSON.stringify(schedule),
-        // An edit keeps the alert the task was created with.
+        // An edit keeps the options the task was created with.
         JSON.stringify({
           kind: 'agent_turn',
           message: patch.prompt,
-          ...(alertOf(existing.action)
-            ? { alert: alertOf(existing.action) }
-            : {}),
+          ...addOptionsOf(existing.action),
         }),
         JSON.stringify({
           kind: 'channel',
