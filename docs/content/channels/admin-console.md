@@ -215,6 +215,11 @@ and `/secret set` use.
 Agent-file edits in `/admin/agents` update the selected agent's shipped
 workspace bootstrap files such as `AGENTS.md`. The editor is intentionally
 scoped to the built-in allowlist and is not a general workspace file browser.
+Use **Reset to Disk** to discard unsaved edits, or **Reset to default** to load
+the shipped template for a bootstrap file. Review the default content and click
+**Save Markdown** to apply it; the previous disk content remains in revision
+history. Read-only memory files and files without a shipped template cannot be
+reset to a default.
 
 ## When To Prefer The Admin Console
 

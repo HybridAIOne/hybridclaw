@@ -19,19 +19,14 @@ import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
+import {
+  readWorkspaceTemplate,
+  WORKSPACE_TEMPLATES_DIR as TEMPLATES_DIR,
+  WORKSPACE_BOOTSTRAP_FILES,
+} from './workspace-templates.js';
 
-export const WORKSPACE_BOOTSTRAP_FILES = [
-  'AGENTS.md',
-  'SOUL.md',
-  'IDENTITY.md',
-  'USER.md',
-  'TOOLS.md',
-  'MEMORY.md',
-  'HEARTBEAT.md',
-  'BOOTSTRAP.md',
-  'OPENING.md',
-  'BOOT.md',
-] as const;
+export { WORKSPACE_BOOTSTRAP_FILES } from './workspace-templates.js';
+
 const ONE_TIME_BOOTSTRAP_FILES = new Set(['BOOTSTRAP.md']);
 const WORKSPACE_STATE_DIRNAME = '.hybridclaw';
 const WORKSPACE_STATE_FILENAME = 'workspace-state.json';
@@ -85,11 +80,6 @@ audit:
 `;
 
 const MAX_FILE_CHARS = 20_000;
-const TEMPLATES_DIR = resolveInstallPath('templates');
-const templateFileCache = new Map<
-  (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
-  string
->();
 
 /**
  * Directory (inside the agent container image) where runtime node_modules
@@ -265,18 +255,6 @@ export function seedWorkspaceFromAgent(params: {
   );
 }
 
-function readTemplateFile(
-  filename: (typeof WORKSPACE_BOOTSTRAP_FILES)[number],
-): string {
-  const cached = templateFileCache.get(filename);
-  if (cached != null) return cached;
-
-  const templatePath = path.join(TEMPLATES_DIR, filename);
-  const content = fs.readFileSync(templatePath, 'utf-8');
-  templateFileCache.set(filename, content);
-  return content;
-}
-
 const LEGACY_DEFAULT_BOOTSTRAP_MARKERS = [
   'Use the hatching task ideas guide in the docs website when available',
   'docs/content/guides/hatching-task-ideas.md',
@@ -376,7 +354,7 @@ function isEmptyHeartbeatContext(content: string): boolean {
   try {
     if (
       normalized ===
-      normalizeBootstrapComparisonText(readTemplateFile('HEARTBEAT.md'))
+      normalizeBootstrapComparisonText(readWorkspaceTemplate('HEARTBEAT.md'))
     ) {
       return true;
     }
@@ -1290,7 +1268,7 @@ export function resolveStartupBootstrapFile(
     const content = fs.readFileSync(openingPath, 'utf-8');
     if (!content.trim()) return null;
     return normalizeBootstrapComparisonText(content) ===
-      normalizeBootstrapComparisonText(readTemplateFile('OPENING.md'))
+      normalizeBootstrapComparisonText(readWorkspaceTemplate('OPENING.md'))
       ? null
       : 'OPENING.md';
   } catch (error) {

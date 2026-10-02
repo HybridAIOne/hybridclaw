@@ -480,6 +480,7 @@ import {
   resolveStartupBootstrapFile,
   WORKSPACE_BOOTSTRAP_FILES,
 } from '../workspace.js';
+import { readWorkspaceTemplate } from '../workspace-templates.js';
 import {
   getActiveThreadAgentId,
   resolveAgentAddressing,
@@ -1876,6 +1877,7 @@ function buildGatewayAdminAgentMarkdownFileResponse(params: {
     file: {
       ...mappedFile,
       content: fileState.content,
+      defaultContent: readWorkspaceTemplate(params.resolved.fileName),
       revisions:
         params.revisions ??
         (params.resolved.sharedMemoryFile || params.resolved.dailyMemoryFile

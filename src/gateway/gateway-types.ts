@@ -1466,6 +1466,7 @@ export interface GatewayAdminAgentMarkdownFileResponse {
   agent: GatewayAdminAgent;
   file: GatewayAdminAgentMarkdownFile & {
     content: string;
+    defaultContent: string | null;
     revisions: GatewayAdminAgentMarkdownRevision[];
   };
 }
