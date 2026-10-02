@@ -255,6 +255,7 @@ describe('device authorization grants', () => {
           'voice.session',
           'sign_ins.manage',
           'chat.history',
+          'openai.api',
         ],
         owner: true,
       },
@@ -262,6 +263,9 @@ describe('device authorization grants', () => {
     expect(grants.isOwnerDeviceToken(verified?.claims)).toBe(true);
     expect(
       rbac.isAdminActionAllowed(verified?.claims ?? null, 'chat.history'),
+    ).toBe(true);
+    expect(
+      rbac.isAdminActionAllowed(verified?.claims ?? null, 'openai.api'),
     ).toBe(true);
     expect(recordAuditEvent.mock.calls[0][0]).toMatchObject({
       sessionId: 'device-handoff:pass-1',

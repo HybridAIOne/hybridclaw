@@ -61,7 +61,10 @@ short `exp`. The phone sends `POST /api/device/handoff` with
 `{"handoff": "…", "client_name": "…"}` and gets
 `{"access_token": "hck_…", "token_type": "Bearer"}`, or `invalid_grant` for a
 bad, expired or already used pass. That token also holds `chat.history`
-(`GET /api/history`) and the claim `"owner": true`: its notifications and chats
+(`GET /api/history`), `openai.api`, so a phone without a language model of its
+own can ask the agent's model a short question on the
+[OpenAI-compatible API](../guides/openai-compatible-api.md) without an agent
+turn, and the claim `"owner": true`: its notifications and chats
 are the owner's, the same ones the master token reaches, so chats the hosting
 service relayed before stay readable. A browser launch token is never accepted
 as a pass, and a pass never opens the console.

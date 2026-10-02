@@ -58,9 +58,14 @@ export const DEVICE_TOKEN_ACTIONS = [
 // 2026-10-01 (product owner): the owner's own phone talks to the gateway
 // instead of through HybridAI, so it also reads back its chats' history, which
 // a new phone restores its main thread from.
+// 2026-10-02 (product owner): when the phone has no language model of its own,
+// it asks the agent's model small things on the OpenAI-compatible API, such as
+// which picture of the agent fits the moment, with a few lines of context and
+// no agent turn (`openai.api`). Its chat turns could already reach that model.
 export const OWNER_DEVICE_TOKEN_ACTIONS = [
   ...DEVICE_TOKEN_ACTIONS,
   'chat.history',
+  'openai.api',
 ] as const satisfies readonly AdminRbacAction[];
 
 // A token with this claim is the owner's: notifications and chats bound to the
