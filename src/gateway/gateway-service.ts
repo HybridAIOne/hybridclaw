@@ -126,7 +126,7 @@ import {
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
-  resolveVoiceWebhookPaths,
+  resolveVoiceCallWebhookUrl,
 } from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
@@ -4425,59 +4425,6 @@ function formatRouteSecretLabel(
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
   if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = String(hostname || '')
-    .trim()
-    .toLowerCase();
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1' ||
-    normalized === '[::1]'
-  );
-}
-
-function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
-  url?: string;
-  error?: string;
-} {
-  const baseUrl = String(GATEWAY_BASE_URL || '').trim();
-  if (!baseUrl) {
-    return {
-      error:
-        'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
-    };
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    return {
-      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
-    };
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return {
-      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
-    };
-  }
-
-  if (isLoopbackHostname(parsed.hostname)) {
-    return {
-      error:
-        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
-    };
-  }
-
-  const paths = resolveVoiceWebhookPaths(webhookBasePath);
-  const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
-  return {
-    url: `${normalizedBaseUrl}${paths.webhookPath}`,
-  };
 }
 
 function formatHttpRequestAuthRule(
@@ -11739,7 +11686,7 @@ export async function handleGatewayCommand(
 
         const voiceConfig = getRuntimeConfig().voice;
         const sub = parseLowerArg(req.args, 1);
-        const publicWebhook = resolveVoiceCommandWebhookUrl(
+        const publicWebhook = resolveVoiceCallWebhookUrl(
           voiceConfig.webhookPath,
         );
 

@@ -98,6 +98,7 @@ test('handleVoiceWebhook returns relay TwiML when voice runtime is available', a
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
@@ -173,6 +174,7 @@ test('handleVoiceWebhook hangs up cleanly when voice runtime is unavailable', as
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
@@ -234,7 +236,24 @@ test('handleVoiceWebhook hangs up cleanly when voice runtime is unavailable', as
   await shutdownVoice();
 });
 
-test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () => {
+test.each([
+  {
+    source: 'forwarded request headers',
+    gatewayBaseUrl: '',
+    deployment: { mode: 'local', public_url: '' },
+    headers: { 'x-forwarded-proto': 'https' },
+  },
+  {
+    source: 'deployment.public_url in cloud mode',
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    deployment: { mode: 'cloud', public_url: 'https://voice.example.com' },
+    headers: { host: '127.0.0.1:9090' },
+  },
+])('handleVoiceWebhook returns realtime TwiML for the public URL from $source', async ({
+  gatewayBaseUrl,
+  deployment,
+  headers,
+}) => {
   const getConfigSnapshot = vi.fn(() => ({
     voice: {
       enabled: true,
@@ -257,6 +276,7 @@ test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () 
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment,
     speech: {
       realtime: {
         model: 'gpt-realtime',
@@ -268,7 +288,7 @@ test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () 
   }));
 
   vi.doMock('../src/config/config.js', () => ({
-    GATEWAY_BASE_URL: '',
+    GATEWAY_BASE_URL: gatewayBaseUrl,
     OPENAI_API_KEY: 'test-key',
     TWILIO_AUTH_TOKEN: 'env-voice-token',
     getConfigSnapshot,
@@ -299,10 +319,7 @@ test('handleVoiceWebhook returns media stream TwiML in realtime mode', async () 
   const req = makeFormRequest({
     url: '/voice/webhook',
     body,
-    headers: {
-      'x-forwarded-proto': 'https',
-      'x-twilio-signature': signature,
-    },
+    headers: { ...headers, 'x-twilio-signature': signature },
   });
   const res = makeResponse();
 
@@ -345,6 +362,7 @@ test('handleVoiceWebhook rejects duplicate Twilio webhook replays', async () => 
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
@@ -439,6 +457,7 @@ test('handleVoiceWebhook rejects duplicate Twilio action callback replays', asyn
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
@@ -534,6 +553,7 @@ test('handleVoiceWebhook warns once when the Twilio auth token is missing', asyn
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
@@ -623,6 +643,7 @@ test('voice relay websocket close does not abort an active prompt turn', async (
       webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
+    deployment: { mode: 'local', public_url: '' },
   }));
 
   vi.doMock('../src/config/config.js', () => ({
