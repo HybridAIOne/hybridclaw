@@ -25,6 +25,47 @@ import { webNotificationSessionOperator } from './web-notification-store.js';
 
 export const CHAT_REACTION_PATH = '/api/chat/reaction';
 
+// What a lone emoji is made of: pictographs, skin tones, flags, joiners and
+// keycaps. The longest single emoji (a kiss with two skin tones) is 15 units.
+const EMOJI_PARTS =
+  /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f|\u20e3)*$/u;
+const LONE_EMOJI_MAX_LENGTH = 16;
+
+/**
+ * Holds a streamed reply back while it could still be one emoji alone, which
+ * the turn makes a reaction instead of a reply, so it never shows as a reply
+ * first. Any other reply passes once its first characters are in. `flush`
+ * hands back what is held and holds again, as text after a tool call is a new
+ * reply.
+ */
+export function createLoneEmojiHold(): {
+  push: (delta: string) => string;
+  flush: () => string;
+} {
+  let held = '';
+  let passing = false;
+  const flush = (): string => {
+    const text = held;
+    held = '';
+    passing = false;
+    return text;
+  };
+  return {
+    push(delta: string): string {
+      if (passing || !delta) return delta;
+      held += delta;
+      const text = held.trim();
+      if (text.length <= LONE_EMOJI_MAX_LENGTH && EMOJI_PARTS.test(text)) {
+        return '';
+      }
+      const passed = flush();
+      passing = true;
+      return passed;
+    },
+    flush,
+  };
+}
+
 /** The emoji of the turn's last reaction that went through, if any. */
 export function turnReaction(
   executions: readonly ToolExecution[] | undefined,

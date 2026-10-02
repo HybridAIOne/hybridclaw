@@ -355,6 +355,37 @@ export function getUserReactionsSinceLastMessage(
   );
 }
 
+/**
+ * The user's messages the agent answered with a reaction alone, newest first:
+ * its reply to each is `silentReply`, which never reaches the model's history.
+ */
+export function getReactionOnlyAnswers(
+  sessionId: string,
+  silentReply: string,
+  limit = 3,
+): { emoji: string; content: string }[] {
+  return queryAll<{ emoji: string; content: string }, [string, string, number]>(
+    getMessageDatabase(),
+    `SELECT asked.reaction AS emoji, asked.content
+     FROM messages AS asked
+     WHERE asked.session_id = ?
+       AND asked.role = 'user'
+       AND asked.reaction IS NOT NULL
+       AND (
+         SELECT reply.content
+         FROM messages AS reply
+         WHERE reply.session_id = asked.session_id AND reply.id > asked.id
+         ORDER BY reply.id
+         LIMIT 1
+       ) = ?
+     ORDER BY asked.id DESC
+     LIMIT ?`,
+    resolveSessionIdCompat(sessionId),
+    silentReply,
+    limit,
+  );
+}
+
 export function getConversationHistory(
   sessionId: string,
   limit = 50,

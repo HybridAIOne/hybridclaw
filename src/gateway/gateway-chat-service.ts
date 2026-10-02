@@ -8,7 +8,10 @@
  */
 
 import path from 'node:path';
-import { REACT_TOOL_NAME } from '../../container/shared/reactions.js';
+import {
+  REACT_TOOL_NAME,
+  readSingleEmoji,
+} from '../../container/shared/reactions.js';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -2808,10 +2811,22 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
-    // A reaction can be the whole answer, as in a messenger.
-    const reaction = turnReaction(toolExecutions);
+    // A reaction can be the whole answer, as in a messenger. Where reactions
+    // show, a reply that is one emoji alone is that reaction, so the model
+    // need not choose between writing an emoji and reacting with it.
+    const toolReaction = turnReaction(toolExecutions);
+    const loneEmoji =
+      req.reactions &&
+      !toolReaction &&
+      !delegationAcknowledgement &&
+      !sideEffectNotice &&
+      !output.artifacts?.length &&
+      !output.pendingApproval
+        ? readSingleEmoji(output.result)
+        : '';
+    const reaction = toolReaction || loneEmoji || null;
     const agentResultText =
-      output.result ||
+      (loneEmoji ? '' : output.result) ||
       (reaction ? '' : buildEmptyAgentResponseFallback(output.artifacts));
     const rawResultText =
       delegationAcknowledgement ||

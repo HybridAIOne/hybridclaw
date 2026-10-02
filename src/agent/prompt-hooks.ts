@@ -544,11 +544,15 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
-// A client that shows emoji reactions: the agent reacts rarely, and an emoji
-// stands in a reply now and then, as between friends texting.
+// A client that shows emoji reactions: the agent reacts where a friend
+// texting would, an emoji alone is a reaction (the gateway makes a written one
+// so), and an emoji stands in a reply now and then. `react` ends the turn, so
+// the tool call style, which defers the answer until after tool results, must
+// not keep the reply from being written with it.
 export const REACTION_STYLE_LINES = [
-  'The app shows emoji reactions. Use `react` rarely, and write no status line before it: what you write with it is your reply.',
-  'An emoji fits in a reply now and then, where a friend texting would use one. One is plenty and most replies need none; a single emoji can be the whole reply when that is the natural answer.',
+  'The app shows emoji reactions. Use `react` where a friend texting would answer with a reaction alone: thanks, a compliment, a joke, an "ok", a goodbye. Good news and milestones deserve words; questions and requests get no reaction. When one emoji is all you would say, react with it instead of writing it.',
+  '`react` is no step of work and ends your turn, so the tool call style below does not apply to it: anything you write in the same response, before the call, is your reply.',
+  'When you react, leave emoji out of your text. Otherwise an emoji fits in a reply now and then, where a friend texting would use one; most replies need none. Use only common emoji that phones show as emoji, never sign a reply with one, and keep the emoji in IDENTITY.md out of your messages.',
 ];
 
 function buildSafetyHook(context: PromptHookContext): string {
