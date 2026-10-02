@@ -1,8 +1,5 @@
 import type { RuntimeProvider } from './providers/shared.js';
-import {
-  isPremiumModelPermissionError,
-  ProviderRequestError,
-} from './providers/shared.js';
+import { ProviderRequestError } from './providers/shared.js';
 
 const TRANSIENT_NETWORK_ERROR_RE =
   /fetch failed|network|socket|timeout|timed out|ECONNRESET|ECONNREFUSED|EAI_AGAIN|terminated/i;
@@ -15,6 +12,9 @@ const TRANSIENT_CODEX_STREAM_ERROR_RE =
 // neither.
 const CONTEXT_WINDOW_EXCEEDED_RE =
   /context_length_exceeded|exceed_context_size|prompt is too long|input is too long|input token count|maximum (?:context|prompt) length|context length of only|model token limit|(?:exceed(?:s|ed)?|greater than) (?:[\w']+ ){0,3}context (?:window|length|limit|size)/i;
+// A provider refusing to stream this request, e.g. OpenAI's `"param": "stream"`
+// for a model the organization may not stream. `\b` skips "upstream".
+const STREAM_REJECTED_RE = /\bstream/i;
 const MAX_ERROR_DETAIL_DEPTH = 3;
 
 interface ErrorLike {
@@ -163,12 +163,16 @@ export function isContextWindowExceededError(error: unknown): boolean {
 
 export function shouldFallbackFromStreamError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
-    // Keep 429 on retry/backoff path; fallback does not help throttling.
-    if (error.status === 429) return false;
-    if (isPremiumModelPermissionError(error)) return false;
-    // The same prompt is just as long without streaming.
-    if (isContextWindowExceededError(error)) return false;
-    return error.status >= 400 && error.status <= 599;
+    // An HTTP error rejects the request, not the stream: the same body fails
+    // the same way without streaming, and transient statuses re-stream
+    // through the retry path. Replaying without streaming would only hide the
+    // reply until it is complete. The exception is a 4xx that names streaming.
+    return (
+      error.status >= 400 &&
+      error.status <= 499 &&
+      error.status !== 429 &&
+      STREAM_REJECTED_RE.test(error.body)
+    );
   }
   const message = error instanceof Error ? error.message : String(error);
   if (!message.trim()) return false;

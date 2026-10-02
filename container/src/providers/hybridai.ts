@@ -17,7 +17,11 @@ import {
   ProviderRequestError,
   readRetryAfterMs,
 } from './shared.js';
-import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
+import {
+  fetchWithHeaderTimeout,
+  readWithIdleTimeout,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-utils.js';
 
 interface StreamToolCallDelta {
   index?: number;
@@ -244,16 +248,19 @@ export async function callHybridAIProviderStream(
     });
   }
 
-  const response = await fetchHybridAIDestination(
-    `${args.baseUrl}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: buildHybridAIRequestHeaders(args, {
-        Accept: 'text/event-stream, application/x-ndjson, application/json',
-      }),
-      body: JSON.stringify(body),
-    },
-    args.requestHeaders,
+  const response = await fetchWithHeaderTimeout((signal) =>
+    fetchHybridAIDestination(
+      `${args.baseUrl}/v1/chat/completions`,
+      {
+        method: 'POST',
+        headers: buildHybridAIRequestHeaders(args, {
+          Accept: 'text/event-stream, application/x-ndjson, application/json',
+        }),
+        body: JSON.stringify(body),
+        signal,
+      },
+      args.requestHeaders,
+    ),
   );
 
   if (!response.ok) {

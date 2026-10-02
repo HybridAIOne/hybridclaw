@@ -52,10 +52,6 @@ describe('ProviderRequestError', () => {
     expect(error.message).toBe(
       'Provider API error 400: Stream must be set to true',
     );
-    expect(error.parsedBody).toEqual({
-      message: 'Stream must be set to true',
-      type: null,
-    });
   });
 
   test('preserves the original response body for debugging', () => {
@@ -69,24 +65,6 @@ describe('ProviderRequestError', () => {
     const error = new ProviderRequestError(500, body);
 
     expect(error.body).toBe(body);
-  });
-
-  test('caches the parsed provider error body on the request error', () => {
-    const error = new ProviderRequestError(
-      403,
-      JSON.stringify({
-        error: {
-          message:
-            'Premium models require a paid plan or token-credit balance.',
-          type: 'permission_error',
-        },
-      }),
-    );
-
-    expect(error.parsedBody).toEqual({
-      message: 'Premium models require a paid plan or token-credit balance.',
-      type: 'permission_error',
-    });
   });
 });
 

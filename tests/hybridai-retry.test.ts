@@ -36,46 +36,57 @@ describe('canReplayModelRequestAfterStreamError', () => {
 });
 
 describe('shouldFallbackFromStreamError', () => {
-  test('allows fallback for 500 stream errors', () => {
-    expect(
-      shouldFallbackFromStreamError(
-        new ProviderRequestError(500, '{"error":"server_error"}'),
+  test.each([
+    ['a 500', new ProviderRequestError(500, '{"error":"server_error"}')],
+    ['a 502', new ProviderRequestError(502, '{"error":"bad_gateway"}')],
+    ['a 400', new ProviderRequestError(400, '{"error":"bad_request"}')],
+    ['a 401', new ProviderRequestError(401, '{"error":"unauthorized"}')],
+    ['a 429', new ProviderRequestError(429, '{"error":"rate_limited"}')],
+    [
+      'a premium-model permission error',
+      new ProviderRequestError(
+        403,
+        JSON.stringify({
+          error: {
+            message:
+              'Premium models require a paid plan or token-credit balance.',
+            type: 'permission_error',
+            code: 403,
+          },
+        }),
       ),
-    ).toBe(true);
+    ],
+    [
+      'a context-length rejection',
+      new ProviderRequestError(
+        400,
+        '{"error":{"message":"Input rejected.","code":"context_length_exceeded"}}',
+      ),
+    ],
+    [
+      'a 5xx that mentions streaming',
+      new ProviderRequestError(503, '{"error":"upstream stream unavailable"}'),
+    ],
+  ])('re-streams instead of replaying %s without streaming', (_name, error) => {
+    expect(shouldFallbackFromStreamError(error)).toBe(false);
   });
 
-  test('allows fallback for non-429 4xx errors', () => {
-    expect(
-      shouldFallbackFromStreamError(
-        new ProviderRequestError(400, '{"error":"bad_request"}'),
-      ),
-    ).toBe(true);
-  });
-
-  test('keeps 429 on retry/backoff path (no fallback)', () => {
-    expect(
-      shouldFallbackFromStreamError(
-        new ProviderRequestError(429, '{"error":"rate_limited"}'),
-      ),
-    ).toBe(false);
-  });
-
-  test('does not fall back for premium-model permission errors', () => {
+  test('replays without streaming when the provider refuses to stream', () => {
     expect(
       shouldFallbackFromStreamError(
         new ProviderRequestError(
-          403,
+          400,
           JSON.stringify({
             error: {
-              message:
-                'Premium models require a paid plan or token-credit balance.',
-              type: 'permission_error',
-              code: 403,
+              message: 'Your organization must be verified to stream this model.',
+              type: 'invalid_request_error',
+              param: 'stream',
+              code: 'unsupported_value',
             },
           }),
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test('falls back for transient network stream errors', () => {
@@ -95,15 +106,14 @@ describe('shouldFallbackFromStreamError', () => {
     ).toBe(true);
   });
 
-  test('does not fall back for context-length rejections', () => {
+  test('falls back when the response headers never arrive', () => {
     expect(
       shouldFallbackFromStreamError(
-        new ProviderRequestError(
-          400,
-          '{"error":{"message":"Input rejected.","code":"context_length_exceeded"}}',
+        new Error(
+          'Stream idle timeout after 90000ms waiting for response headers',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -224,10 +234,7 @@ describe('shouldDowngradeStreamToNonStreaming', () => {
 
   test('still downgrades other provider stream failures when fallback is valid', () => {
     expect(
-      shouldDowngradeStreamToNonStreaming(
-        'hybridai',
-        new ProviderRequestError(500, '{"error":"server_error"}'),
-      ),
+      shouldDowngradeStreamToNonStreaming('hybridai', new Error('terminated')),
     ).toBe(true);
   });
 });
