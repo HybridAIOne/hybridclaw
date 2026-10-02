@@ -70,7 +70,7 @@ function makeStructuredSummary(label: string): string {
 }
 
 describe('memory compaction', () => {
-  test('summaries receive tool evidence with its owning assistant message', async () => {
+  test('summaries receive tool evidence with its owning assistant message, not the turn context', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-tool-compaction-'));
     const toolHistory = [
       {
@@ -91,7 +91,11 @@ describe('memory compaction', () => {
       await compactConversation({
         session: makeSession(),
         messages: [
-          makeMessage(1, 'user', 'Read the inventory'),
+          {
+            ...makeMessage(1, 'user', 'Read the inventory'),
+            dynamic_context:
+              '<context>\nDate (UTC): 2026-10-02\n</context>\n\n## Open Todos\n- stale-todo',
+          },
           {
             ...makeMessage(2, 'assistant', 'Done'),
             tool_history_json: JSON.stringify(toolHistory),
@@ -119,6 +123,7 @@ describe('memory compaction', () => {
       expect(prompts.join('\n')).toContain('Inventory count: 42');
       expect(prompts.join('\n')).toContain('call-a');
       expect(prompts.join('\n')).toContain('report.txt');
+      expect(prompts.join('\n')).not.toContain('stale-todo');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

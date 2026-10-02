@@ -1,3 +1,4 @@
+import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
 import type { ChatMessage } from '../types/api.js';
 
 export const DEFAULT_CHARS_PER_TOKEN = 4;
@@ -75,7 +76,12 @@ function groupHistoryTurns(
   let currentTurn: PromptHistoryMessage[] = [];
 
   for (const message of messages) {
-    if (message.role === 'user' && currentTurn.length > 0) {
+    // A replayed dynamic context opens the turn of the user message after it.
+    if (
+      message.role === 'user' &&
+      currentTurn.length > 0 &&
+      !isDynamicContextMessageText(currentTurn.at(-1)?.content)
+    ) {
       turns.push(currentTurn);
       currentTurn = [];
     }

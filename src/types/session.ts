@@ -53,6 +53,12 @@ export interface StoredMessage {
   tool_history_json?: string | null;
   /** Attachment paths of a user turn; read with `parseMessageMedia`. */
   media_json?: string | null;
+  /**
+   * The dynamic context message sent just before this user message. Replayed
+   * verbatim so each request is a prefix of the next one and the provider's
+   * prompt cache covers the conversation history.
+   */
+  dynamic_context?: string | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
   /**

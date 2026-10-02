@@ -155,7 +155,8 @@ function formatStoredMessagesForPrompt(messages: StoredMessage[]): string {
       return [
         `---`,
         `id=${message.id} role=${normalizeStoredMessageRole(message.role)} created_at=${message.created_at}${username}`,
-        ...expandStoredMessage(message)
+        // The context a turn was sent with is runtime state, not conversation.
+        ...expandStoredMessage({ ...message, dynamic_context: null })
           .slice(0, -1)
           .map((entry) => JSON.stringify(entry)),
         message.content.trim() || '(empty)',

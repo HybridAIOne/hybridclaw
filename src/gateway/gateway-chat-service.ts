@@ -211,7 +211,6 @@ import {
   resolveCanonicalContextScope,
   resolveChannelType,
   resolveGatewayChatbotId,
-  resolveMediaToolPolicy,
   resolveOnboardingTurnModel,
   resolveSessionAutoResetPolicy,
   resolveTurnBrowserProvider,
@@ -1840,17 +1839,14 @@ async function handleGatewayMessageInner(
         source === 'fullauto' ? 'background' : 'supervised',
       )
     : undefined;
-  const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
-  mediaPolicy.blockedTools = blockDeviceDataToolUnlessShared(
-    mediaPolicy.blockedTools,
-    req.userId,
-  );
+  // Blocks follow the user and client, never the message (owner call,
+  // 2026-10-02): a per-turn block changes the tool list and system prompt at
+  // the front of the cached prefix. Photo questions dropped their
+  // browser_vision block; [MediaContext] steers them to vision_analyze.
+  let blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
   // Only a client that shows reactions gets the tool to make them.
   if (!req.reactions) {
-    mediaPolicy.blockedTools = [
-      ...(mediaPolicy.blockedTools ?? []),
-      REACT_TOOL_NAME,
-    ];
+    blockedTools = [...(blockedTools ?? []), REACT_TOOL_NAME];
   }
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
@@ -1863,6 +1859,7 @@ async function handleGatewayMessageInner(
     historyStats,
     promptOverheadTokens,
     explicitSkillInvocation,
+    dynamicContext,
   } = buildConversationContext({
     agentId,
     sessionSummary: mergedSessionSummary,
@@ -1899,7 +1896,7 @@ async function handleGatewayMessageInner(
       workspacePath: workspaceDisplayPath,
     },
     allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
-    blockedTools: mediaPolicy.blockedTools,
+    blockedTools,
   });
   let historyStart = 0;
   while (messages[historyStart]?.role === 'system') historyStart += 1;
@@ -1932,16 +1929,6 @@ async function handleGatewayMessageInner(
       pluginContextSectionsIncluded: pluginPromptDetails.sections.length,
     },
   });
-  if (mediaPolicy.prioritizeVisionTool) {
-    logger.info(
-      {
-        sessionId: req.sessionId,
-        mediaCount: media.length,
-        blockedTools: mediaPolicy.blockedTools || [],
-      },
-      'Routing Discord image question to vision_analyze tool',
-    );
-  }
   const mediaContextBlock = buildMediaPromptContext(media);
   const skillArgsContext = explicitSkillInvocation
     ? await preprocessContextReferences({
@@ -2061,7 +2048,7 @@ async function handleGatewayMessageInner(
       historyMessages: history.length,
       promptMessages: messages.length + 1,
       skillsLoaded: skills.length,
-      blockedTools: mediaPolicy.blockedTools || [],
+      blockedTools: blockedTools || [],
       scheduledTaskHistoryCount: historyStats.includedCount,
     },
     'Gateway chat context prepared',
@@ -2209,7 +2196,7 @@ async function handleGatewayMessageInner(
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
-        blockedTools: mediaPolicy.blockedTools,
+        blockedTools,
         onTextDelta: params.onTextDelta,
         onThinkingDelta: params.onThinkingDelta,
         onToolProgress: params.onToolProgress,
@@ -2328,7 +2315,7 @@ async function handleGatewayMessageInner(
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
-        blockedTools: mediaPolicy.blockedTools,
+        blockedTools,
         onTextDelta: emitTextDeltas,
         onThinkingDelta: emitThinkingDeltas,
         onToolProgress,
@@ -2725,6 +2712,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         userMedia: media,
+        userDynamicContext: dynamicContext,
         error: errorMessage,
         toolHistory: output.toolHistory,
         toolHistoryForReplay: output.toolHistoryForReplay,
@@ -2912,6 +2900,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       userMedia: media,
+      userDynamicContext: dynamicContext,
       // A reaction alone is kept as a reply that says nothing, as a silent
       // channel reply is, so no assistant turn is ever stored empty.
       resultText: !resultText && reaction ? SILENT_REPLY_TOKEN : resultText,
@@ -3102,6 +3091,8 @@ async function handleGatewayMessageInner(
           canonicalScopeId: canonicalContextScope,
           userContent: buildStoredUserTurnContent(userTurnContent, media),
           userMedia: media,
+          userDynamicContext:
+            agentStage === 'pre-agent' ? null : dynamicContext,
           error: errorMsg,
           tools: observedToolCalls,
           delegationAcknowledgement,

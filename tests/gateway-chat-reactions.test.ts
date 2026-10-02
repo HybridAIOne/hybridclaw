@@ -169,7 +169,12 @@ test('the user’s reaction reaches the agent with their next message, once', as
 
   expect(sentToModel(1)).toContain('## Reactions From The User');
   expect(sentToModel(1)).toContain('❤️ on \\"Here is your summary.\\"');
-  expect(sentToModel(2)).not.toContain('## Reactions From The User');
+  // Later turns replay that context with its message; their own carries none.
+  const currentContext = String(
+    runAgentMock.mock.calls[2]?.[0].messages.at(-2)?.content,
+  );
+  expect(currentContext).toContain('<context>');
+  expect(currentContext).not.toContain('## Reactions From The User');
 });
 
 test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears it', async () => {

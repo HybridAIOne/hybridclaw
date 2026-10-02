@@ -2,6 +2,8 @@
  * Stored tool exchanges belong to their final assistant message and expand as
  * one unit for replay and compaction. This is conversation storage, not the
  * audit trail; only validated tool exchanges may introduce tool-role messages.
+ * A user message expands with the dynamic context it was sent with, so replay
+ * reproduces the earlier request byte for byte.
  */
 import {
   toolResultForHistory,
@@ -58,11 +60,14 @@ export function expandStoredMessage(message: {
   content: ChatMessage['content'];
   session_id?: string;
   tool_history_json?: string | null;
+  dynamic_context?: string | null;
 }): ChatMessage[] {
   const finalMessage: ChatMessage = {
     role: message.role as ChatMessage['role'],
     content: message.content,
   };
+  if (message.role === 'user' && message.dynamic_context)
+    return [{ role: 'user', content: message.dynamic_context }, finalMessage];
   if (message.role !== 'assistant' || !message.tool_history_json)
     return [finalMessage];
   const history = validateToolHistory(JSON.parse(message.tool_history_json));

@@ -786,6 +786,8 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',
+    // Earlier turns keep the context they were sent with (prompt caching).
+    'Each `<context>` message shows the runtime state when the message after it was sent. The latest one is current; a section missing from it is empty now.',
     // Intentional overlap with templates/SOUL.md:
     // keep brevity guidance in both the identity layer and the always-on runtime
     // layer so prompt modes that omit one still retain concise-answer steering.

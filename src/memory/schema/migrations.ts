@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 67;
+export const DATABASE_SCHEMA_VERSION = 68;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3886,6 +3886,20 @@ export function runMigrations(
   if (currentVersion < 65) migrateV65(database, opts);
   if (currentVersion < 66) migrateV66(database, opts);
   if (currentVersion < 67) migrateV67(database, opts);
+  if (currentVersion < 68) {
+    addColumnIfMissing({
+      database,
+      table: 'messages',
+      column: 'dynamic_context',
+      ddl: 'dynamic_context TEXT',
+      quiet,
+    });
+    recordMigration(
+      database,
+      68,
+      'Replay the context each user turn was sent with',
+    );
+  }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

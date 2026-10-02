@@ -1133,7 +1133,8 @@ export function readSystemPromptMessage(
 export function readDynamicContextMessage(
   messages: ChatMessage[],
 ): string | null {
-  for (const message of messages) {
+  // History replays earlier turns' context; the current one comes last.
+  for (const message of [...messages].reverse()) {
     if (message.role !== 'user') continue;
     const dynamicContextPart = Array.isArray(message.content)
       ? message.content.find(
@@ -1252,10 +1253,6 @@ function buildSpeechRealtimeStatusLines(prefix: string): string[] {
       : `${prefix}credential: missing — ${resolved.error}`,
   ];
 }
-const IMAGE_QUESTION_RE =
-  /(what(?:'s| is)? on (?:the )?(?:image|picture|photo|screenshot)|describe (?:this|the) (?:image|picture|photo)|image|picture|photo|screenshot|ocr|diagram|chart|grafik|bild|foto|was steht|was ist auf dem bild)/i;
-const BROWSER_TAB_RE =
-  /(browser|tab|current tab|web page|website|seite im browser|aktuellen tab)/i;
 let cachedGitCommitShort: string | null | undefined;
 const pendingSessionResets = new Map<string, PendingSessionReset>();
 
@@ -2456,50 +2453,6 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
     '',
     '',
   ].join('\n');
-}
-
-function isImageQuestion(content: string): boolean {
-  const normalized = content.trim();
-  if (!normalized) return false;
-  return IMAGE_QUESTION_RE.test(normalized);
-}
-
-function isExplicitBrowserTabQuestion(content: string): boolean {
-  const normalized = content.trim();
-  if (!normalized) return false;
-  return BROWSER_TAB_RE.test(normalized);
-}
-
-export interface MediaToolPolicy {
-  blockedTools?: string[];
-  prioritizeVisionTool: boolean;
-}
-
-export function resolveMediaToolPolicy(
-  content: string,
-  media: MediaContextItem[],
-): MediaToolPolicy {
-  const imageMedia = media.filter((item) => isImageMediaItem(item));
-  if (imageMedia.length === 0) {
-    return {
-      blockedTools: undefined,
-      prioritizeVisionTool: false,
-    };
-  }
-
-  const imageQuestion = isImageQuestion(content);
-  const explicitBrowserTab = isExplicitBrowserTabQuestion(content);
-  if (imageQuestion && !explicitBrowserTab) {
-    return {
-      blockedTools: ['browser_vision'],
-      prioritizeVisionTool: true,
-    };
-  }
-
-  return {
-    blockedTools: undefined,
-    prioritizeVisionTool: false,
-  };
 }
 
 function resolveGitCommitShort(): string | null {
@@ -3728,6 +3681,8 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   userMedia?: readonly MediaContextItem[];
+  /** The dynamic context the user message was sent with, for replay. */
+  userDynamicContext?: string | null;
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
@@ -3750,6 +3705,7 @@ export function recordSuccessfulTurn(opts: {
             role: 'user',
             content: opts.userContent,
             media: opts.userMedia,
+            dynamicContext: opts.userDynamicContext,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -3769,6 +3725,7 @@ export function recordSuccessfulTurn(opts: {
             username: opts.username,
             content: opts.userContent,
             media: opts.userMedia,
+            dynamicContext: opts.userDynamicContext,
           },
           assistant: {
             userId: 'assistant',
@@ -3981,6 +3938,7 @@ export function recordErrorTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   userMedia?: readonly MediaContextItem[];
+  userDynamicContext?: string | null;
   error: string;
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
@@ -4010,6 +3968,7 @@ export function recordErrorTurn(opts: {
             role: 'user',
             content: opts.userContent,
             media: opts.userMedia,
+            dynamicContext: opts.userDynamicContext,
           }),
           assistantMessageId: memoryService.storeMessage({
             sessionId: opts.sessionId,
@@ -4028,6 +3987,7 @@ export function recordErrorTurn(opts: {
             username: opts.username,
             content: opts.userContent,
             media: opts.userMedia,
+            dynamicContext: opts.userDynamicContext,
           },
           assistant: {
             userId: 'assistant',

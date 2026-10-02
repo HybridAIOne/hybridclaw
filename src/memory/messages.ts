@@ -212,6 +212,7 @@ export function storeMessage(
   source?: string | null,
   toolHistory?: ChatMessage[],
   media?: readonly MediaContextItem[],
+  dynamicContext?: string | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
@@ -225,6 +226,8 @@ export function storeMessage(
     throw new Error('Attachment media requires a user message.');
   const storedMedia = normalizeMessageMedia(media ?? []);
   const mediaJson = storedMedia.length ? JSON.stringify(storedMedia) : null;
+  if (dynamicContext && role !== 'user')
+    throw new Error('Dynamic context requires a user message.');
   const result = getMessageDatabase()
     .prepare(
       `INSERT INTO messages (
@@ -238,8 +241,9 @@ export function storeMessage(
          source,
          tool_history_json,
          media_json,
+         dynamic_context,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
     )
     .run(
       resolvedSessionId,
@@ -252,6 +256,7 @@ export function storeMessage(
       source?.trim() || null,
       toolHistoryJson,
       mediaJson,
+      dynamicContext || null,
     );
 
   getMessageDatabase()

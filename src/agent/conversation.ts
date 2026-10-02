@@ -56,6 +56,7 @@ interface HistoryMessage {
   content: ChatMessage['content'];
   session_id?: string;
   tool_history_json?: string | null;
+  dynamic_context?: string | null;
 }
 
 const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
@@ -209,6 +210,11 @@ export interface ConversationContext {
   historyStats: HistoryOptimizationStats;
   /** Estimated tokens of the system blocks plus the dynamic context message. */
   promptOverheadTokens: number;
+  /**
+   * Text of the trailing dynamic context message, if one was built. Store it
+   * with the user turn so later requests replay it at the same position.
+   */
+  dynamicContext: string | null;
   explicitSkillInvocation: SkillInvocation | null;
 }
 
@@ -356,19 +362,20 @@ export function buildConversationContext(params: {
   });
 
   messages.push(...optimizedHistory.messages);
+  let dynamicContext: string | null = null;
   if (systemPromptBlocks.length > 0) {
     const { droppedTurns, droppedCount } = optimizedHistory.stats;
-    messages.push(
-      buildDynamicContext(
-        droppedTurns > 0 || historyTruncated
-          ? {
-              droppedTurns,
-              droppedMessages: droppedCount,
-              historyTruncated,
-            }
-          : null,
-      ),
+    const contextMessage = buildDynamicContext(
+      droppedTurns > 0 || historyTruncated
+        ? {
+            droppedTurns,
+            droppedMessages: droppedCount,
+            historyTruncated,
+          }
+        : null,
     );
+    dynamicContext = String(contextMessage.content);
+    messages.push(contextMessage);
   }
   return {
     messages,
@@ -376,5 +383,6 @@ export function buildConversationContext(params: {
     historyStats: optimizedHistory.stats,
     promptOverheadTokens,
     explicitSkillInvocation,
+    dynamicContext,
   };
 }
