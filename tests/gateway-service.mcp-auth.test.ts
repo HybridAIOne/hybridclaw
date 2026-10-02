@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { parseMcpServerConfig } from '../src/gateway/gateway-service.js';
+import { parseMcpServerConfig } from '../src/mcp/server-config.js';
 
 test('accepts oauth auth for remote transports and normalizes the transport', () => {
   const parsed = parseMcpServerConfig(

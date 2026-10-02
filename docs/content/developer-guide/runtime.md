@@ -134,7 +134,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
 | Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
 | Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
-| MCP connections | Worker | Reconnected from config on the next turn; an idle warm worker connects them before its first turn |
+| MCP connections and scheduling declarations | Worker | Reconnected and revalidated from gateway config on the next turn; an idle warm worker connects them before its first turn |
 | Web fetch and search caches, approval counters, seen hosts | Worker memory | Lost; later calls may ask again |
 
 Exported variables stay in the worker on purpose: the shell snapshot holds the
@@ -456,6 +456,46 @@ Runtime details:
   path, including JSON-preserving handling for `/mcp add <name> <json>`.
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
+
+MCP calls are serial barriers by default. Operators can declare trusted read
+behavior under a server's `toolBehavior` configuration:
+
+```json
+{
+  "transport": "http",
+  "url": "https://mcp.example.com/mcp",
+  "toolBehavior": {
+    "trustAnnotations": true,
+    "overrides": {
+      "lookup_messages": "read-only",
+      "send_message": "mutation"
+    }
+  }
+}
+```
+
+`trustAnnotations: true` admits tools with an explicit `readOnlyHint: true`
+from that server. Enable it only after reviewing the server's behavior and
+annotation source. Exact overrides use the original discovered tool name
+(without HybridClaw's server prefix); `read-only` can admit an unannotated tool,
+and `mutation` keeps it serial even if the server calls it read-only. Names,
+descriptions, idempotency hints and non-destructive hints never establish read
+safety. A `readOnlyHint: false` or `destructiveHint: true` always keeps a tool
+serial, including when an override claims otherwise.
+
+Trusted reads share the existing limit of eight calls per batch with built-in
+tools. Results remain in model order; mutations and unknown tools drain the
+preceding batch and run alone. Required or denied approvals stop batch
+preparation at that call: these declarations do not grant permission or change
+approval tiers. Server-specific rate limits still apply; omit trust or use a
+`mutation` override when a tool must run serially.
+
+Risk boundary: a lying trusted server or an incorrect operator declaration can
+cause side effects to overlap. Trust is explicit and disabled by default. Both
+the live connection and the requested config must admit overlap, so a failed
+replacement cannot broaden the old connection's trust, and revocation takes
+effect even if reconnect fails. Discovery and config are rebuilt after worker
+replacement; no session-only trust decision is retained.
 
 ## Audit Trail Internals
 

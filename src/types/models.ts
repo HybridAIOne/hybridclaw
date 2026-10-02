@@ -5,21 +5,7 @@ export type ProviderKind = RuntimeProviderId;
 
 export type AnthropicMethod = 'api-key' | 'claude-cli';
 
-export interface McpServerConfig {
-  transport: 'stdio' | 'http' | 'sse';
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-  url?: string;
-  headers?: Record<string, string>;
-  /**
-   * `oauth` enables the gateway-managed OAuth 2.1 flow for http/sse servers;
-   * the gateway injects a fresh `Authorization` header on each container turn.
-   */
-  auth?: 'oauth';
-  enabled?: boolean;
-}
+export type { McpServerConfig } from '../../container/shared/mcp-server-config.js';
 
 export interface TaskModelPolicy {
   provider?: ProviderKind;

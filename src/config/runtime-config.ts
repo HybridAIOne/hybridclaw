@@ -22,6 +22,7 @@ import {
   normalizeLocalStarterTools,
   normalizeMcpToolMode,
 } from '../../container/shared/local-tool-config.js';
+import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,
@@ -3350,6 +3351,7 @@ function normalizeMcpServerConfig(value: unknown): McpServerConfig | null {
     ...(url ? { url } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
     ...(auth ? { auth } : {}),
+    toolBehavior: parseMcpToolBehaviorConfig(value.toolBehavior),
     enabled,
   };
 }

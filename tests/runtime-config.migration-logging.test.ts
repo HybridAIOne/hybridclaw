@@ -383,6 +383,7 @@ describe('runtime config migration logging', () => {
           transport: 'http',
           url: 'https://example.com/mcp',
           auth: 'oauth',
+          toolBehavior: { trustAnnotations: true, overrides: { send: 'mutation' } },
           enabled: true,
         },
         local: {
@@ -404,6 +405,7 @@ describe('runtime config migration logging', () => {
     ) as RuntimeConfig;
 
     expect(stored.mcpServers.remote.auth).toBe('oauth');
+    expect(stored.mcpServers.remote.toolBehavior).toEqual({ trustAnnotations: true, overrides: { send: 'mutation' } });
     expect(stored.mcpServers.local.auth).toBeUndefined();
   });
 

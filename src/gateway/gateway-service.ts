@@ -242,7 +242,11 @@ import {
   type McpOAuthStatus,
   startMcpOAuthFlow,
 } from '../mcp/mcp-oauth.js';
-import { MCP_SERVER_NAME_RE, supportsMcpOAuth } from '../mcp/server-config.js';
+import {
+  MCP_SERVER_NAME_RE,
+  parseMcpServerConfig,
+  supportsMcpOAuth,
+} from '../mcp/server-config.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import {
@@ -4401,79 +4405,6 @@ export function parseMcpServerName(rawName: string): {
     };
   }
   return { name };
-}
-
-export function parseMcpServerConfig(rawJson: string): {
-  config?: McpServerConfig;
-  error?: string;
-} {
-  const trimmed = rawJson.trim();
-  if (!trimmed) {
-    return { error: 'Usage: `mcp add <name> <json>`' };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch (error) {
-    return {
-      error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { error: 'MCP server config must be a JSON object.' };
-  }
-
-  const record = parsed as Record<string, unknown>;
-  const rawTransport = String(record.transport ?? record.type ?? '')
-    .trim()
-    .toLowerCase();
-  const transport =
-    rawTransport === 'streamable-http' || rawTransport === 'streamable_http'
-      ? 'http'
-      : rawTransport;
-
-  if (transport !== 'stdio' && transport !== 'http' && transport !== 'sse') {
-    return {
-      error: 'MCP server transport must be one of `stdio`, `http`, or `sse`.',
-    };
-  }
-  if (
-    transport === 'stdio' &&
-    (typeof record.command !== 'string' || !record.command.trim())
-  ) {
-    return { error: 'stdio MCP servers require a non-empty `command`.' };
-  }
-  if (
-    (transport === 'http' || transport === 'sse') &&
-    (typeof record.url !== 'string' || !record.url.trim())
-  ) {
-    return {
-      error: `${transport} MCP servers require a non-empty \`url\`.`,
-    };
-  }
-
-  const rawAuth = String(record.auth ?? '')
-    .trim()
-    .toLowerCase();
-  if (rawAuth && rawAuth !== 'none' && rawAuth !== 'oauth') {
-    return { error: 'MCP server `auth` must be `oauth` when set.' };
-  }
-  if (rawAuth === 'oauth' && !supportsMcpOAuth(transport)) {
-    return {
-      error: 'OAuth is only supported for `http` and `sse` MCP servers.',
-    };
-  }
-
-  const config = parsed as McpServerConfig;
-  config.transport = transport;
-  if (rawAuth === 'oauth') {
-    config.auth = 'oauth';
-  } else {
-    delete config.auth;
-  }
-  return { config };
 }
 
 function describeMcpServerAuth(status: McpOAuthStatus): string {

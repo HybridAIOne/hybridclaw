@@ -1892,6 +1892,7 @@ async function processRequestInner(
         ? []
         : leadingParallelRun(
             toolCalls.slice(callIndex, callIndex + MAX_PARALLEL_TOOL_CALLS),
+            (name) => mcpClientManager?.getToolBehavior(name),
           );
 
       if (candidateCalls.length > 1) {
