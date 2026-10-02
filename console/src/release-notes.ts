@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.2',
+  version: '0.34.3',
   highlights: [
-    'Chat reactions and thumbs-up/down ratings',
-    'App links for food, trains, and hotels',
-    'Quieter scheduled replies',
-    'More reliable browsing and send approvals',
+    'Set your time zone with /timezone',
+    'Reliable goal check-ins and reminders',
+    'Grocery links for Knuspr and Gurkerl',
+    'Legacy commands removed: see upgrade notes',
   ],
 } as const;
 

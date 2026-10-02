@@ -75,14 +75,22 @@ test('an app sets the time zone the runtime reads from USER.md', async () => {
       '- **Timezone:** Europe/Munich (inferred from the city)',
     ),
   );
-  expect((await send('/timezone')).text).toContain(
-    'USER.md says "Europe/Munich", which isn\'t a time zone',
-  );
+  expect(runtimeZone()).toBe('Europe/Munich');
+  expect((await send('/timezone --json')).json).toEqual({
+    version: 1,
+    timezone: null,
+  });
+  const invalid = (await send('/timezone')).text;
+  expect(invalid).toContain('"Europe/Munich"');
+  expect(invalid).not.toContain('inferred');
   expect((await send('/timezone set america/new_york --json')).json).toEqual({
     version: 1,
     timezone: 'America/New_York',
   });
   expect(runtimeZone()).toBe('America/New_York');
+  expect(fs.readFileSync(userFile(), 'utf-8')).toContain(
+    '- **Timezone:** America/New_York\n',
+  );
   expect((await send('/timezone')).text).toBe(
     'Your time zone is America/New_York.',
   );

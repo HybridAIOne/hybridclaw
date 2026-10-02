@@ -27,7 +27,10 @@ export function setupA2AWebhookTestEnv(tempHomePrefix: string): void {
     vi.resetModules();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Settle queued audit appends before their data dir is removed.
+    const { flushAuditTrail } = await import('../../src/audit/audit-trail.js');
+    await flushAuditTrail();
     restoreEnvVar('HYBRIDCLAW_DATA_DIR', originalDataDir);
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', originalInstanceId);

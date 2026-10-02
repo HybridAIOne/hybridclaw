@@ -517,15 +517,3 @@ Current built-in SecretRef surfaces include:
 Use `{ "source": "store", "id": "SECRET_NAME" }` in those fields.
 New configuration should use store-backed SecretRefs; env-backed SecretRefs
 are legacy-only and rejected on new secret-bearing surfaces.
-
-Legacy aliases are still supported, for example:
-
-```bash
-hybridclaw hybridai login --browser
-hybridclaw codex status
-hybridclaw local configure ollama llama3.2
-```
-
-Legacy aliases such as `hybridclaw codex status` and
-`hybridclaw local configure ...` still work, but the `auth` namespace is the
-current primary surface.

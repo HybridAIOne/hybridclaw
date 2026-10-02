@@ -65,6 +65,7 @@ async function recordObservabilityBotSetEvent(
   runId: string,
 ): Promise<void> {
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   recordAuditEvent({
     sessionId,
     runId,
@@ -81,6 +82,7 @@ async function recordObservabilityBotSetEvent(
       username: 'alice',
     },
   });
+  await flushAuditTrail();
 }
 
 test('observability ingest forwards bot.set audit events to HybridAI', async () => {
@@ -142,6 +144,7 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { startObservabilityIngest, stopObservabilityIngest } = await import(
     '../src/audit/observability-ingest.ts'
   );
@@ -163,6 +166,8 @@ test('observability ingest forwards bot.set audit events to HybridAI', async () 
       username: 'alice',
     },
   });
+
+  await flushAuditTrail();
 
   startObservabilityIngest();
 
@@ -254,6 +259,7 @@ test('observability ingest repairs unsafe unicode before posting events', async 
 
   const { initDatabase } = await import('../src/memory/db.ts');
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { startObservabilityIngest, stopObservabilityIngest } = await import(
     '../src/audit/observability-ingest.ts'
   );
@@ -270,6 +276,8 @@ test('observability ingest repairs unsafe unicode before posting events', async 
       },
     },
   });
+
+  await flushAuditTrail();
 
   startObservabilityIngest();
 
@@ -366,6 +374,7 @@ test('observability ingest proactively rotates stale cached tokens', async () =>
   vi.stubGlobal('fetch', fetchMock);
 
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { initDatabase, setObservabilityIngestToken, withMemoryDatabase } =
     await import('../src/memory/db.ts');
   const { startObservabilityIngest, stopObservabilityIngest } = await import(
@@ -404,6 +413,8 @@ test('observability ingest proactively rotates stale cached tokens', async () =>
       username: 'alice',
     },
   });
+
+  await flushAuditTrail();
 
   startObservabilityIngest();
 
@@ -641,6 +652,7 @@ test('observability ingest restart dispatches a new startup flush without waitin
   vi.stubGlobal('fetch', fetchMock);
 
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const {
     getObservabilityIngestState,
     startObservabilityIngest,
@@ -665,6 +677,8 @@ test('observability ingest restart dispatches a new startup flush without waitin
       username: 'alice',
     },
   });
+
+  await flushAuditTrail();
 
   startObservabilityIngest();
 
@@ -789,6 +803,7 @@ test('observability ingest rate-limits repeated transient outage warnings', asyn
 
     const { initDatabase } = await import('../src/memory/db.ts');
     const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const { startObservabilityIngest, stopObservabilityIngest } = await import(
       '../src/audit/observability-ingest.ts'
     );
@@ -810,6 +825,8 @@ test('observability ingest rate-limits repeated transient outage warnings', asyn
         username: 'alice',
       },
     });
+
+    await flushAuditTrail();
 
     startObservabilityIngest();
 

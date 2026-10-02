@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 let tmpDir: string;
 
 let appendAuditEvent: typeof import('../src/audit/audit-trail.js').appendAuditEvent;
+let flushAuditTrail: typeof import('../src/audit/audit-trail.js').flushAuditTrail;
 let verifyAuditSessionChain: typeof import('../src/audit/audit-trail.js').verifyAuditSessionChain;
 let getAuditWirePath: typeof import('../src/audit/audit-trail.js').getAuditWirePath;
 let createAuditRunId: typeof import('../src/audit/audit-trail.js').createAuditRunId;
@@ -41,6 +42,7 @@ beforeAll(async () => {
 
   const auditMod = await import('../src/audit/audit-trail.js');
   appendAuditEvent = auditMod.appendAuditEvent;
+  flushAuditTrail = auditMod.flushAuditTrail;
   verifyAuditSessionChain = auditMod.verifyAuditSessionChain;
   getAuditWirePath = auditMod.getAuditWirePath;
   createAuditRunId = auditMod.createAuditRunId;
@@ -73,20 +75,20 @@ afterAll(() => {
 describe('audit trail integration', () => {
   const sessionId = 'audit-test-session-1';
 
-  it('appendAuditEvent writes entries that can be read back from disk', () => {
+  it('appendAuditEvent writes entries that can be read back from disk', async () => {
     const runId = createAuditRunId('test');
 
-    const record1 = appendAuditEvent({
+    const record1 = await appendAuditEvent({
       sessionId,
       runId,
       event: { type: 'test.start', detail: 'first entry' },
     });
-    const record2 = appendAuditEvent({
+    const record2 = await appendAuditEvent({
       sessionId,
       runId,
       event: { type: 'test.progress', detail: 'second entry' },
     });
-    const record3 = appendAuditEvent({
+    const record3 = await appendAuditEvent({
       sessionId,
       runId,
       event: { type: 'test.end', detail: 'third entry' },
@@ -111,14 +113,14 @@ describe('audit trail integration', () => {
     expect(parsedRecord.event.type).toBe('test.start');
   });
 
-  it('hash chain links each entry to the previous via _prevHash', () => {
+  it('hash chain links each entry to the previous via _prevHash', async () => {
     // Use a fresh session so the chain starts clean.
     const chainSessionId = 'audit-chain-test';
     const runId = createAuditRunId('chain');
 
-    const records: WireRecord[] = [];
+    const pending: Promise<WireRecord>[] = [];
     for (let i = 0; i < 5; i++) {
-      records.push(
+      pending.push(
         appendAuditEvent({
           sessionId: chainSessionId,
           runId,
@@ -126,6 +128,7 @@ describe('audit trail integration', () => {
         }),
       );
     }
+    const records = await Promise.all(pending);
 
     // Each record's _prevHash should equal the previous record's _hash.
     for (let i = 1; i < records.length; i++) {
@@ -137,17 +140,18 @@ describe('audit trail integration', () => {
     expect(hashes.size).toBe(records.length);
   });
 
-  it('verifyAuditSessionChain passes for a valid chain', () => {
+  it('verifyAuditSessionChain passes for a valid chain', async () => {
     const validSessionId = 'audit-verify-valid';
     const runId = createAuditRunId('verify');
 
     for (let i = 0; i < 5; i++) {
-      appendAuditEvent({
+      void appendAuditEvent({
         sessionId: validSessionId,
         runId,
         event: { type: 'verify.entry', index: i },
       });
     }
+    await flushAuditTrail();
 
     const result = verifyAuditSessionChain(validSessionId);
     expect(result.ok).toBe(true);
@@ -156,17 +160,18 @@ describe('audit trail integration', () => {
     expect(result.lastSeq).toBe(5);
   });
 
-  it('verifyAuditSessionChain detects tampering in the middle of the chain', () => {
+  it('verifyAuditSessionChain detects tampering in the middle of the chain', async () => {
     const tamperSessionId = 'audit-tamper-detect';
     const runId = createAuditRunId('tamper');
 
     for (let i = 0; i < 5; i++) {
-      appendAuditEvent({
+      void appendAuditEvent({
         sessionId: tamperSessionId,
         runId,
         event: { type: 'tamper.entry', index: i },
       });
     }
+    await flushAuditTrail();
 
     // Verify the chain is initially valid.
     const beforeTamper = verifyAuditSessionChain(tamperSessionId);
@@ -196,17 +201,18 @@ describe('audit trail integration', () => {
     ).toBe(true);
   });
 
-  it('verifyAuditSessionChain detects removed records (append-only violation)', () => {
+  it('verifyAuditSessionChain detects removed records (append-only violation)', async () => {
     const removeSessionId = 'audit-remove-detect';
     const runId = createAuditRunId('remove');
 
     for (let i = 0; i < 5; i++) {
-      appendAuditEvent({
+      void appendAuditEvent({
         sessionId: removeSessionId,
         runId,
         event: { type: 'remove.entry', index: i },
       });
     }
+    await flushAuditTrail();
 
     // Remove record 3 (line index 3) from the wire file.
     const wirePath = getAuditWirePath(removeSessionId);
@@ -229,13 +235,13 @@ describe('audit trail integration', () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  it('sequential appends produce monotonically increasing seq numbers', () => {
+  it('sequential appends produce monotonically increasing seq numbers', async () => {
     const seqSessionId = 'audit-seq-monotonic';
     const runId = createAuditRunId('seq');
 
-    const records: WireRecord[] = [];
+    const pending: Promise<WireRecord>[] = [];
     for (let i = 0; i < 10; i++) {
-      records.push(
+      pending.push(
         appendAuditEvent({
           sessionId: seqSessionId,
           runId,
@@ -243,13 +249,14 @@ describe('audit trail integration', () => {
         }),
       );
     }
+    const records = await Promise.all(pending);
 
     for (let i = 1; i < records.length; i++) {
       expect(records[i].seq).toBe(records[i - 1].seq + 1);
     }
   });
 
-  it('confidential runtime writes metadata-only mask and rehydrate audit events', () => {
+  it('confidential runtime writes metadata-only mask and rehydrate audit events', async () => {
     const secretSessionId = 'audit-confidential-runtime';
     const runId = createAuditRunId('secret-redaction');
     const clientSecret = 'AsterWorks Labs';
@@ -288,6 +295,7 @@ keywords:
     expect(rehydrated).toContain(clientSecret);
     expect(rehydrated).toContain(contractSecret);
 
+    await flushAuditTrail();
     const wirePath = getAuditWirePath(secretSessionId);
     const wireText = fs.readFileSync(wirePath, 'utf-8');
     expect(wireText).not.toContain(clientSecret);
@@ -326,5 +334,134 @@ keywords:
     const result = verifyAuditSessionChain(secretSessionId);
     expect(result.ok).toBe(true);
     expect(result.checkedRecords).toBe(2);
+  });
+  it('commits concurrent appends in call order per session', async () => {
+    const runId = createAuditRunId('order');
+    const records = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        appendAuditEvent({
+          sessionId: index % 2 === 0 ? 'audit-order-a' : 'audit-order-b',
+          runId,
+          event: { type: 'order.entry', index },
+        }),
+      ),
+    );
+
+    for (const [sessionId, offset] of [
+      ['audit-order-a', 0],
+      ['audit-order-b', 1],
+    ] as const) {
+      const own = records.filter((record) => record.sessionId === sessionId);
+      expect(own.map((record) => record.seq)).toEqual(
+        own.map((_, i) => i + 1),
+      );
+      expect(own.map((record) => record.event.index)).toEqual(
+        own.map((_, i) => 2 * i + offset),
+      );
+      expect(verifyAuditSessionChain(sessionId)).toMatchObject({
+        ok: true,
+        checkedRecords: 10,
+      });
+    }
+  });
+
+  it('a fresh process resumes the chain past an oversized record and a malformed tail', async () => {
+    const coldSessionId = 'audit-cold-start';
+    const runId = createAuditRunId('cold');
+    await appendAuditEvent({
+      sessionId: coldSessionId,
+      runId,
+      event: { type: 'cold.small' },
+    });
+    // Larger than one 64 KiB head read, so the line straddles chunks.
+    const big = await appendAuditEvent({
+      sessionId: coldSessionId,
+      runId,
+      event: { type: 'cold.big', detail: 'x'.repeat(200_000) },
+    });
+    fs.appendFileSync(getAuditWirePath(coldSessionId), '{"seq":\n\n');
+
+    vi.resetModules();
+    const fresh = await import('../src/audit/audit-trail.js');
+    const next = await fresh.appendAuditEvent({
+      sessionId: coldSessionId,
+      runId,
+      event: { type: 'cold.after-restart' },
+    });
+
+    expect(next.seq).toBe(big.seq + 1);
+    expect(next._prevHash).toBe(big._hash);
+    const result = fresh.verifyAuditSessionChain(coldSessionId);
+    expect(result.checkedRecords).toBe(3);
+    expect(result.errors).toEqual([expect.stringContaining('invalid JSON')]);
+  });
+
+  it('a failed write rejects and leaves the chain where it was', async () => {
+    const failSessionId = 'audit-write-failure';
+    const runId = createAuditRunId('fail');
+    const first = await appendAuditEvent({
+      sessionId: failSessionId,
+      runId,
+      event: { type: 'fail.before' },
+    });
+    const wirePath = getAuditWirePath(failSessionId);
+    const durable = fs.readFileSync(wirePath);
+    fs.rmSync(wirePath);
+    fs.mkdirSync(wirePath); // opening a directory for append fails (EISDIR)
+
+    await expect(
+      appendAuditEvent({
+        sessionId: failSessionId,
+        runId,
+        event: { type: 'fail.lost' },
+      }),
+    ).rejects.toThrow();
+
+    fs.rmdirSync(wirePath);
+    fs.writeFileSync(wirePath, durable);
+    const next = await appendAuditEvent({
+      sessionId: failSessionId,
+      runId,
+      event: { type: 'fail.after' },
+    });
+    expect(next.seq).toBe(first.seq + 1);
+    expect(next._prevHash).toBe(first._hash);
+    expect(verifyAuditSessionChain(failSessionId)).toMatchObject({
+      ok: true,
+      checkedRecords: 2,
+    });
+  });
+
+  it('an unserializable event fails alone and the chain skips it', async () => {
+    const skipSessionId = 'audit-unserializable';
+    const runId = createAuditRunId('skip');
+    const [before, broken, after] = await Promise.allSettled([
+      appendAuditEvent({
+        sessionId: skipSessionId,
+        runId,
+        event: { type: 'skip.before' },
+      }),
+      appendAuditEvent({
+        sessionId: skipSessionId,
+        runId,
+        event: { type: 'skip.broken', value: 1n },
+      }),
+      appendAuditEvent({
+        sessionId: skipSessionId,
+        runId,
+        event: { type: 'skip.after' },
+      }),
+    ]);
+
+    expect(broken.status).toBe('rejected');
+    if (before.status !== 'fulfilled' || after.status !== 'fulfilled') {
+      throw new Error('Expected the serializable appends to commit.');
+    }
+    expect(after.value.seq).toBe(before.value.seq + 1);
+    expect(after.value._prevHash).toBe(before.value._hash);
+    expect(verifyAuditSessionChain(skipSessionId)).toMatchObject({
+      ok: true,
+      checkedRecords: 2,
+    });
   });
 });

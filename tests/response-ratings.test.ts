@@ -115,6 +115,7 @@ describe('response ratings', () => {
       typeof import('../src/audit/audit-events.js')
     >('../src/audit/audit-events.js');
     service.recordAuditEvent.mockImplementation(recordAuditEventStrict);
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
     const { logger } = await import('../src/logger.js');
     const warn = vi.spyOn(logger, 'warn');
 
@@ -127,6 +128,7 @@ describe('response ratings', () => {
       });
     }
 
+    await flushAuditTrail();
     const events = service.getStructuredAuditForSession(service.sessionId);
     expect(events).toHaveLength(3);
     expect(events.map((entry) => JSON.parse(entry.payload).rating)).toEqual([

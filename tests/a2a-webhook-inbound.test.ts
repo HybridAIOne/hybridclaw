@@ -26,6 +26,7 @@ describe('A2A webhook inbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
     const outbound = await import('../src/a2a/webhook-outbound.ts');
@@ -71,6 +72,7 @@ describe('A2A webhook inbound adapter', () => {
     ]);
     expect(runtime.inbox('main')[0]?.recipient_agent_id).toMatch(/^main@/);
 
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:webhook-inbound:zapier-prod',
       10,
@@ -183,6 +185,7 @@ describe('A2A webhook inbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
     const outbound = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
@@ -241,6 +244,7 @@ describe('A2A webhook inbound adapter', () => {
       body: { error: 'Rate limit exceeded' },
     });
 
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:webhook-inbound:rate-limited',
       10,
@@ -261,6 +265,7 @@ describe('A2A webhook inbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
@@ -306,6 +311,7 @@ describe('A2A webhook inbound adapter', () => {
     expect(JSON.parse(response.body)).toEqual({
       error: 'Internal server error',
     });
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:webhook-inbound:broken-stream',
       10,
@@ -327,6 +333,7 @@ describe('A2A webhook inbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
 
     initDatabase({ quiet: true });
@@ -363,6 +370,7 @@ describe('A2A webhook inbound adapter', () => {
 
     expect(response.statusCode).toBe(401);
     expect(JSON.parse(response.body)).toEqual({ error: 'Unauthorized' });
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:webhook-inbound:unknown-peer',
       10,
@@ -384,6 +392,7 @@ describe('A2A webhook inbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
@@ -427,6 +436,7 @@ describe('A2A webhook inbound adapter', () => {
     expect(JSON.parse(response.body)).toEqual({
       error: 'Request body too large.',
     });
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:webhook-inbound:oversized',
       10,

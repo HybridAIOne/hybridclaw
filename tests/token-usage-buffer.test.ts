@@ -555,6 +555,7 @@ describe.sequential('token usage buffer', () => {
     const {
       _resetTokenUsageBufferForTests,
       enqueueTokenUsage,
+      flushTokenUsageBuffer,
       getTokenUsageBufferStats,
       startTokenUsageBuffer,
       stopTokenUsageBuffer,
@@ -582,6 +583,8 @@ describe.sequential('token usage buffer', () => {
 
     const stats = getTokenUsageBufferStats();
     expect(stats.queueSize).toBe(0);
+    // Waits for the opportunistic flush, which is still awaiting its audit fsync.
+    await flushTokenUsageBuffer();
 
     const Database = (await import('better-sqlite3')).default;
     const probe = new Database(dbPath, { readonly: true });

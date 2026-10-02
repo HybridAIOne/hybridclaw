@@ -45,12 +45,14 @@ function closeServer(server: http.Server): Promise<void> {
 async function loadInboundTestModules() {
   const [
     { initDatabase, getRecentStructuredAuditForSession },
+    { flushAuditTrail },
     runtimeConfig,
     runtime,
     inbound,
     outbound,
   ] = await Promise.all([
     import('../src/memory/db.ts'),
+    import('../src/audit/audit-trail.ts'),
     import('../src/config/runtime-config.ts'),
     import('../src/a2a/runtime.ts'),
     import('../src/a2a/a2a-inbound.ts'),
@@ -64,6 +66,7 @@ async function loadInboundTestModules() {
 
   return {
     getRecentStructuredAuditForSession,
+    flushAuditTrail,
     runtime,
     inbound,
     outbound,
@@ -81,12 +84,14 @@ async function loadHttpEnvelopeInstance(params: {
   vi.resetModules();
   const [
     { initDatabase, getRecentStructuredAuditForSession },
+    { flushAuditTrail },
     runtimeConfig,
     runtime,
     inbound,
     outbound,
   ] = await Promise.all([
     import('../src/memory/db.ts'),
+    import('../src/audit/audit-trail.ts'),
     import('../src/config/runtime-config.ts'),
     import('../src/a2a/runtime.ts'),
     import('../src/a2a/a2a-inbound.ts'),
@@ -109,6 +114,7 @@ async function loadHttpEnvelopeInstance(params: {
     home: params.home,
     instanceId: params.instanceId,
     getRecentStructuredAuditForSession,
+    flushAuditTrail,
     runtime,
     inbound,
     outbound,
@@ -173,8 +179,13 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('accepts a signed delegation token and delivers to the local inbox', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      runtime,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -229,6 +240,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
         recipient_agent_id: 'main@team@local-dev',
       },
     ]);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:peer-prod',
       10,
@@ -254,8 +266,13 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('answers a replayed JSON-RPC message idempotently', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      runtime,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -311,6 +328,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       },
     });
     expect(runtime.inbox('main')).toHaveLength(1);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:peer-replay',
       10,
@@ -526,6 +544,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
           recipient_agent_id: 'remote@team@inst-y',
         }),
       ]);
+      await instanceY.flushAuditTrail();
       const audit = instanceY
         .getRecentStructuredAuditForSession('a2a:inbound:instance-x', 20)
         .map((event) => JSON.parse(event.payload || '{}'));
@@ -676,8 +695,12 @@ describe('A2A JSON-RPC inbound adapter', () => {
       };
     });
     try {
-      const { getRecentStructuredAuditForSession, runtime, inbound } =
-        await loadInboundTestModules();
+      const {
+        getRecentStructuredAuditForSession,
+        flushAuditTrail,
+        runtime,
+        inbound,
+      } = await loadInboundTestModules();
       const keyPair = generateKeyPairSync('rsa', {
         modulusLength: 2048,
         publicKeyEncoding: { type: 'spki', format: 'pem' },
@@ -712,6 +735,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
         body: { error: 'Internal server error' },
       });
       expect(runtime.inbox('main')).toEqual([]);
+      await flushAuditTrail();
       const audit = getRecentStructuredAuditForSession(
         'a2a:inbound:instance-x',
         10,
@@ -774,8 +798,13 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('accepts trusted mTLS client certificates and delivers to the local inbox', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      runtime,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -819,6 +848,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
         recipient_agent_id: 'main@team@local-dev',
       },
     ]);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:mtls-peer',
       10,
@@ -840,8 +870,13 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('honors delegation token revocation before delivery', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      runtime,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -892,6 +927,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       },
     });
     expect(runtime.inbox('main')).toEqual([]);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:revoked-peer',
       10,
@@ -911,8 +947,12 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('audits unknown trusted senders separately from bad signatures', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -954,6 +994,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       },
     });
 
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:unknown',
       10,
@@ -973,8 +1014,13 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('rejects mTLS client certificates that are not trusted for the sender', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
-      await loadInboundTestModules();
+    const {
+      getRecentStructuredAuditForSession,
+      flushAuditTrail,
+      runtime,
+      inbound,
+      outbound,
+    } = await loadInboundTestModules();
 
     const trustedKeyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -1020,6 +1066,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
       },
     });
     expect(runtime.inbox('main')).toEqual([]);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'a2a:inbound:mtls-mismatch-peer',
       10,

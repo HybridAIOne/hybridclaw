@@ -172,7 +172,7 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     '../src/memory/db.js'
   );
   const { getSessionUsageTotals } = await import('../src/memory/db.js');
-  const { verifyAuditSessionChain } = await import(
+  const { flushAuditTrail, verifyAuditSessionChain } = await import(
     '../src/audit/audit-trail.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
@@ -290,6 +290,7 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
   expect(totals.total_tool_calls).toBe(2);
   expect(totals.total_cost_usd).toBeCloseTo(0.004, 6);
 
+  await flushAuditTrail();
   const auditEvents = getRecentStructuredAuditForSession(
     'session-managed',
     10,
@@ -389,6 +390,7 @@ test('managed cloud browser provider returns guard denials before page navigatio
   const { ManagedCloudBrowserProvider } = await import(
     '../src/browser/managed-cloud-provider.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
 
   const mock = createMockPlaywright();
@@ -424,6 +426,7 @@ test('managed cloud browser provider returns guard denials before page navigatio
     /host belongs to tenant-b/u,
   );
   expect(mock.page.goto).not.toHaveBeenCalled();
+  await flushAuditTrail();
   const navigation = getRecentStructuredAuditForSession(
     'session-deny',
     10,
@@ -447,6 +450,7 @@ test('managed cloud browser provider audits session loss on CDP disconnect', asy
   const { ManagedCloudBrowserProvider } = await import(
     '../src/browser/managed-cloud-provider.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
 
   const mock = createMockPlaywright();
@@ -483,6 +487,7 @@ test('managed cloud browser provider audits session loss on CDP disconnect', asy
   await expect(session.screenshot()).rejects.toThrow(/Target closed/u);
   await provider.closeSession(session);
 
+  await flushAuditTrail();
   const events = getRecentStructuredAuditForSession(
     'session-lost-client',
     10,
@@ -514,6 +519,7 @@ test('managed cloud browser provider supports upload, pdf, console, and waypoint
   const { ManagedCloudBrowserProvider } = await import(
     '../src/browser/managed-cloud-provider.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveManagedBrowserSecrets({
     MANAGED_BROWSER_POOL_TOKEN: 'pool-token',
@@ -587,6 +593,7 @@ test('managed cloud browser provider supports upload, pdf, console, and waypoint
     }),
   ]);
 
+  await flushAuditTrail();
   const audit = getRecentStructuredAuditForSession('session-actions', 20).map(
     (entry) => JSON.parse(entry.payload),
   );
@@ -630,6 +637,7 @@ test('managed cloud browser provider keeps F13 credential injection opaque', asy
   const { ManagedCloudBrowserProvider } = await import(
     '../src/browser/managed-cloud-provider.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveManagedBrowserSecrets({
     TEST_BROWSER_PASSWORD: 'opaque-managed-password',
@@ -668,6 +676,7 @@ test('managed cloud browser provider keeps F13 credential injection opaque', asy
   expect(locator.pressSequentially).toHaveBeenCalledWith(
     'opaque-managed-password',
   );
+  await flushAuditTrail();
   const payloads = getRecentStructuredAuditForSession('session-secret', 10).map(
     (entry) => JSON.parse(entry.payload),
   );

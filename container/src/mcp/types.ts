@@ -30,11 +30,18 @@ export interface McpToolDefinition {
 /** What the approval policy needs to know about an MCP tool. */
 export type McpToolBehavior = Pick<McpToolDefinition, 'kind' | 'annotations'>;
 
+/** HTTP/SSE request headers, read on every request. */
+export interface LiveHeaders {
+  current: Record<string, string>;
+}
+
 export interface McpClientHandle {
   serverName: string;
   config: McpServerConfig;
   client: Client;
   transport: Transport;
+  /** Swapped in place when the gateway rotates the token; none for stdio. */
+  headers?: LiveHeaders;
   tools: McpToolDefinition[];
   healthy: boolean;
   lastError?: string;

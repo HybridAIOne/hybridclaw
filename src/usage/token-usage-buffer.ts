@@ -204,12 +204,10 @@ export async function stopTokenUsageBuffer(): Promise<void> {
     state.flushTimer = null;
   }
   state.started = false;
-  if (state.queue.length > 0) {
-    try {
-      await flushTokenUsageBuffer();
-    } catch (err) {
-      logger.warn({ err }, 'token_usage: final flush failed');
-    }
+  try {
+    await flushTokenUsageBuffer();
+  } catch (err) {
+    logger.warn({ err }, 'token_usage: final flush failed');
   }
   logger.info(
     {
@@ -355,18 +353,31 @@ function getInvalidUsageNumericFields(event: TokenUsageEvent): string[] {
   return invalidFields;
 }
 
+// One flush at a time: it awaits the audit fsync before writing chargeback
+// rows, and a later flush (or stop) must not finish ahead of it.
+let activeFlush: Promise<void> | null = null;
+
 /**
  * Drain queued events to the SQLite chargeback table and emit one
  * `usage.batch_flushed` audit event per affected session, anchoring the
- * batch into the hash chain.
+ * batch into the hash chain. Waits for a flush already in flight first.
  */
 export async function flushTokenUsageBuffer(): Promise<void> {
+  while (activeFlush) await activeFlush.catch(() => {});
   if (state.queue.length === 0) return;
+  activeFlush = flushQueuedUsage();
+  try {
+    await activeFlush;
+  } finally {
+    activeFlush = null;
+  }
+}
 
+async function flushQueuedUsage(): Promise<void> {
   const batch = state.queue.splice(0, state.queue.length);
   try {
     const groups = prepareUsageBatchGroups(batch);
-    emitBatchAuditEvents(groups);
+    await emitBatchAuditEvents(groups);
     recordUsageEventBatch(
       groups.flatMap((group) =>
         group.events.map((event) => ({
@@ -489,7 +500,9 @@ function prepareUsageBatchGroups(
   return groups;
 }
 
-function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
+async function emitBatchAuditEvents(
+  groups: PreparedUsageBatchGroup[],
+): Promise<void> {
   // Group by session so each affected session's hash chain gets its own
   // batch attestation.
   for (const group of groups) {
@@ -508,7 +521,7 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
     const agents = Array.from(new Set(events.map((e) => e.agentId))).sort();
     const runId = group.auditRunId || makeAuditRunId('usage-batch');
 
-    recordAuditEventStrict({
+    await recordAuditEventStrict({
       sessionId,
       runId,
       event: {

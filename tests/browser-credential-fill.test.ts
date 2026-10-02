@@ -115,6 +115,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
   const { fillBrowserField } = await import(
     '../src/browser/playwright-utils.js'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
   const { page, locator } = createPage();
 
@@ -138,6 +139,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
     'datev-cleartext-secret',
   );
 
+  await flushAuditTrail();
   const events = getRecentStructuredAuditForSession('session-datev-fill', 10);
   const payloads = events.map((entry) => JSON.parse(entry.payload));
   expect(payloads).toEqual(

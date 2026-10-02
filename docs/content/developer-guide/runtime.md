@@ -133,7 +133,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
 | Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
 | Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
-| MCP connections | Worker | Reconnected from config on the next turn |
+| MCP connections | Worker | Reconnected from config on the next turn; an idle warm worker connects them before its first turn |
 | Web fetch and search caches, approval counters, seen hosts | Worker memory | Lost; later calls may ask again |
 
 Exported variables stay in the worker on purpose: the shell snapshot holds the
@@ -403,6 +403,14 @@ Session behavior matches the routing rules above:
   their next message. A 👍 or 👎 is also the reply's response rating, from the
   `userId` sent with it, as Teams reactions are; taking it off clears only the
   rating it made
+- a streaming `/api/chat` response opens with an `accepted` line and sends a
+  `ping` line after 15 s without other output, so proxies and phone read
+  timeouts keep the connection open. Clients skip line types they do not know.
+  The turn does not depend on its connection: if the client drops, the turn
+  keeps running, is stored, and sends its "finished" notification. Only
+  `/stop` ends it early. When the same caller resends the same body while the
+  turn runs, the resend joins that turn. It gets every line so far and then
+  the rest, so the message is not answered twice
 
 ## Persistent Browser Profiles
 
@@ -444,6 +452,10 @@ HybridClaw records forensic audit events by default:
   `~/.hybridclaw/data/audit/<session>/wire.jsonl`
 - tamper-evident hash chain from `_prevHash` to `_hash`
 - normalized SQLite tables: `audit_events` and `approvals`
+- appends queue in call order and are group-committed off the event loop
+  (`src/audit/audit-trail.ts`); a record reaches `audit_events` only after its
+  wire line is fsynced, and gateway shutdown drains the queue before closing
+  the database
 - model calls to the `hybridai` provider carry `X-HybridClaw-Session-Id`,
   `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`
   headers whose values match the `sessionId` and `runId` of the wire log, so
@@ -504,8 +516,8 @@ enables them.
 Enable and configure a backend with:
 
 ```bash
-hybridclaw local configure <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
-hybridclaw local status
+hybridclaw auth login local <backend> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]
+hybridclaw auth status local
 ```
 
 Runtime details:

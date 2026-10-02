@@ -1660,6 +1660,7 @@ useCleanMocks({
     '../src/plugins/plugin-config.js',
     '../src/plugins/plugin-manager.js',
     '../src/update.ts',
+    '../src/cli/help.js',
   ],
 });
 
@@ -1675,20 +1676,6 @@ describe('CLI hybridai commands', () => {
         'Usage: hybridclaw auth <command> [provider] [options]',
       ),
     );
-  });
-
-  it('hides deprecated aliases from the top-level help output', async () => {
-    const { cli } = await importFreshCli();
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    await cli.main(['help']);
-
-    const output = logSpy.mock.calls
-      .map(([message]) => String(message))
-      .join('\n');
-    expect(output).not.toContain('Deprecated alias for local provider');
-    expect(output).not.toContain('Deprecated alias for HybridAI provider');
-    expect(output).not.toContain('Deprecated alias for Codex provider');
   });
 
   it('prints the CLI version without loading the runtime config module', async () => {
@@ -2837,28 +2824,34 @@ describe('CLI hybridai commands', () => {
     expect(resetWhatsAppAuthState).toHaveBeenCalled();
   });
 
-  it('prints hybridai help', async () => {
+  it.each([
+    ['hybridai', ['help', 'hybridai']],
+    ['codex', ['help', 'codex']],
+    ['hybridai', ['auth', 'login', 'hybridai', '--help']],
+    ['codex', ['auth', 'login', 'codex', '--help']],
+  ])('prints %s help with only the auth surface (%j)', async (provider, argv) => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['help', 'hybridai']);
+    await cli.main(argv);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Usage: hybridclaw hybridai <command> (deprecated)',
-      ),
-    );
+    const output = logSpy.mock.calls.flat().join('\n');
+    expect(output).toContain(`hybridclaw auth login ${provider}`);
+    expect(output).not.toContain(`hybridclaw ${provider} `);
+    expect(output).not.toContain('deprecated');
   });
 
-  it('marks local help as deprecated', async () => {
+  it('prints local help with the MLX commands and the auth backend surface', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cli.main(['help', 'local']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Usage: hybridclaw local <command> (deprecated)'),
-    );
+    const output = logSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('hybridclaw local setup');
+    expect(output).toContain('hybridclaw auth login local');
+    expect(output).not.toMatch(/hybridclaw local (status|configure)/);
+    expect(output).not.toContain('deprecated');
   });
 
   it('prints channels help', async () => {
@@ -3624,23 +3617,6 @@ describe('CLI hybridai commands', () => {
     );
   });
 
-  it('prints hybridai usage for bare hybridai', async () => {
-    const { cli } = await importFreshCli();
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await cli.main(['hybridai']);
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('`hybridclaw hybridai ...` is deprecated'),
-    );
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'hybridclaw auth login hybridai [--device-code|--browser|--api-key|--import] [--base-url <url>]',
-      ),
-    );
-  });
-
   it('prints authenticated hybridai status', async () => {
     const { cli, getHybridAIAuthStatus } = await importFreshCli({
       hybridAIStatus: {
@@ -3651,13 +3627,9 @@ describe('CLI hybridai commands', () => {
       },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await cli.main(['hybridai', 'status']);
+    await cli.main(['auth', 'status', 'hybridai']);
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Use `hybridclaw auth status hybridai` instead.'),
-    );
     expect(getHybridAIAuthStatus).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith('Authenticated: yes');
     expect(logSpy).toHaveBeenCalledWith('Source: runtime-secrets');
@@ -3688,22 +3660,11 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Access token: configured');
   });
 
-  it('warns when using the deprecated local alias', async () => {
-    const { cli } = await importFreshCli();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await cli.main(['local', 'status']);
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Use `hybridclaw auth status local` instead.'),
-    );
-  });
-
   it('prints unauthenticated hybridai status without source details', async () => {
     const { cli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['hybridai', 'status']);
+    await cli.main(['auth', 'status', 'hybridai']);
 
     expect(logSpy).toHaveBeenCalledWith('Authenticated: no');
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Source:'));
@@ -3886,7 +3847,7 @@ describe('CLI hybridai commands', () => {
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['hybridai', 'login', '--browser']);
+    await cli.main(['auth', 'login', 'hybridai', '--browser']);
 
     expect(loginHybridAIInteractive).toHaveBeenCalledWith({
       method: 'browser',
@@ -3896,42 +3857,6 @@ describe('CLI hybridai commands', () => {
     );
     expect(logSpy).toHaveBeenCalledWith('Login method: browser');
     expect(logSpy).toHaveBeenCalledWith('Validated: yes');
-  });
-
-  it('updates the HybridAI base URL from the deprecated hybridai command', async () => {
-    const { cli, updateRuntimeConfig } = await importFreshCli();
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await cli.main(['hybridai', 'base-url', 'http://localhost:5000']);
-
-    expect(updateRuntimeConfig).toHaveBeenCalled();
-    const nextConfig = updateRuntimeConfig.mock.results[0]?.value as {
-      hybridai: {
-        baseUrl: string;
-      };
-    };
-    expect(nextConfig.hybridai.baseUrl).toBe('http://localhost:5000');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Use `hybridclaw auth login hybridai --base-url <url>` instead.',
-      ),
-    );
-    expect(logSpy).toHaveBeenCalledWith('Provider: hybridai');
-    expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
-    expect(logSpy).toHaveBeenCalledWith('  hybridclaw hybridai status');
-  });
-
-  it('rejects invalid HybridAI base URLs from the deprecated hybridai command', async () => {
-    const { cli, updateRuntimeConfig } = await importFreshCli();
-
-    await expect(
-      cli.main(['hybridai', 'base-url', 'javascript://alert(1)']),
-    ).rejects.toThrow(
-      'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
-    );
-
-    expect(updateRuntimeConfig).not.toHaveBeenCalled();
   });
 
   it('routes auth login hybridai --base-url through the HybridAI auth flow and updates config', async () => {
@@ -3962,19 +3887,15 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('Base URL: http://localhost:5000');
   });
 
-  it('rejects invalid HybridAI login --base-url values before persisting config', async () => {
+  it.each([
+    '/relative',
+    'javascript://alert(1)',
+  ])('rejects the HybridAI login --base-url %s before persisting config', async (baseUrl) => {
     const { cli, loginHybridAIInteractive, updateRuntimeConfig } =
       await importFreshCli();
 
     await expect(
-      cli.main([
-        'auth',
-        'login',
-        'hybridai',
-        '--base-url',
-        '/relative',
-        '--browser',
-      ]),
+      cli.main(['auth', 'login', 'hybridai', '--base-url', baseUrl, '--browser']),
     ).rejects.toThrow(
       'Invalid HybridAI base URL. Expected an absolute http:// or https:// URL.',
     );
@@ -3986,20 +3907,10 @@ describe('CLI hybridai commands', () => {
   it('runs hybridai login with auto mode by default', async () => {
     const { cli, loginHybridAIInteractive } = await importFreshCli();
 
-    await cli.main(['hybridai', 'login']);
+    await cli.main(['auth', 'login', 'hybridai']);
 
     expect(loginHybridAIInteractive).toHaveBeenCalledWith({
       method: 'auto',
-    });
-  });
-
-  it('routes auth login hybridai to the HybridAI auth flow', async () => {
-    const { cli, loginHybridAIInteractive } = await importFreshCli();
-
-    await cli.main(['auth', 'login', 'hybridai', '--browser']);
-
-    expect(loginHybridAIInteractive).toHaveBeenCalledWith({
-      method: 'browser',
     });
   });
 
@@ -4779,11 +4690,59 @@ describe('CLI hybridai commands', () => {
     );
   });
 
+  // Removed in the release after v0.34.1; `auth` replaced them in v0.7.1.
+  it.each([
+    [['hybridai']],
+    [['hybridai', 'login', '--browser']],
+    [['hybridai', 'status']],
+    [['hybridai', 'logout']],
+    [['hybridai', 'base-url', 'http://localhost:5000']],
+    [['codex', 'login', '--import']],
+    [['codex', 'status']],
+    [['codex', 'logout']],
+  ])('treats the removed provider namespace %j as an unknown command', async (argv) => {
+    const mocks = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    await mocks.cli.main(argv);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw <command>'),
+    );
+    for (const handler of [
+      mocks.loginHybridAIInteractive,
+      mocks.getHybridAIAuthStatus,
+      mocks.logoutHybridAI,
+      mocks.loginCodexInteractive,
+      mocks.getCodexAuthStatus,
+      mocks.clearCodexCredentials,
+      mocks.updateRuntimeConfig,
+    ]) {
+      expect(handler).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    [['status']],
+    [['configure', 'ollama', 'llama3.2']],
+  ])('rejects the removed local backend alias local %j', async (args) => {
+    const { cli, updateRuntimeConfig } = await importFreshCli();
+
+    await expect(cli.main(['local', ...args])).rejects.toThrow(
+      `Unknown MLX command: ${args[0]}`,
+    );
+    expect(updateRuntimeConfig).not.toHaveBeenCalled();
+  });
+
   it('runs hybridai logout', async () => {
     const { cli, logoutHybridAI } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cli.main(['hybridai', 'logout']);
+    await cli.main(['auth', 'logout', 'hybridai']);
 
     expect(logoutHybridAI).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
@@ -4798,7 +4757,7 @@ describe('CLI hybridai commands', () => {
     const { cli } = await importFreshCli();
 
     await expect(
-      cli.main(['hybridai', 'login', '--browser', '--import']),
+      cli.main(['auth', 'login', 'hybridai', '--browser', '--import']),
     ).rejects.toThrow(
       'Use only one of `--device-code`, `--browser`, or `--import`.',
     );
@@ -4808,7 +4767,13 @@ describe('CLI hybridai commands', () => {
     const { cli } = await importFreshCli();
 
     await expect(
-      cli.main(['hybridai', 'login', '--base-ur', 'http://localhost:5000']),
+      cli.main([
+        'auth',
+        'login',
+        'hybridai',
+        '--base-ur',
+        'http://localhost:5000',
+      ]),
     ).rejects.toThrow('Unknown flag: --base-ur');
   });
 

@@ -24,6 +24,7 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
   );
@@ -135,6 +136,8 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
   if (!refreshedSession) {
     throw new Error('Expected refreshed session to exist');
   }
+
+  await flushAuditTrail();
 
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
@@ -298,6 +301,7 @@ test('trace export resolves assistant messages by stable id and preserves legacy
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
   );
@@ -508,6 +512,8 @@ test('trace export resolves assistant messages by stable id and preserves legacy
   if (!refreshedSession) {
     throw new Error('Expected refreshed session to exist');
   }
+  await flushAuditTrail();
+
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
     session: refreshedSession,
@@ -572,6 +578,7 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
       updateSessionModel,
     } = await import('../src/memory/db.ts');
     const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const { buildConversationContext } = await import(
       '../src/agent/conversation.ts'
     );
@@ -733,6 +740,7 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     };
 
     const exportTraceRecord = async (turns: 1 | 2) => {
+      await flushAuditTrail();
       const refreshedSession = getSessionById(session.id);
       if (!refreshedSession) {
         throw new Error('Expected refreshed session to exist');
@@ -824,6 +832,7 @@ test('trace export fills repository, dependencies, security, and attribution fro
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
@@ -951,6 +960,8 @@ test('trace export fills repository, dependencies, security, and attribution fro
     throw new Error('Expected refreshed session to exist');
   }
 
+  await flushAuditTrail();
+
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
     session: refreshedSession,
@@ -1046,6 +1057,7 @@ test('gateway export trace command writes the ATIF-compatible trace file', async
     storeMessage,
   } = await import('../src/memory/db.ts');
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   const session = getOrCreateSession(
@@ -1090,6 +1102,8 @@ test('gateway export trace command writes the ATIF-compatible trace file', async
     toolCalls: 0,
   });
 
+  await flushAuditTrail();
+
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -1131,6 +1145,7 @@ test('gateway export trace command writes a focused turn trace', async () => {
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
   const session = getOrCreateSession(
@@ -1211,6 +1226,8 @@ test('gateway export trace command writes a focused turn trace', async () => {
     outputTokens: 10,
     totalTokens: 30,
   });
+
+  await flushAuditTrail();
 
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
@@ -1444,6 +1461,7 @@ test('trace export enriches outcome with commit metadata from bash tool results'
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
   );
@@ -1502,6 +1520,8 @@ test('trace export enriches outcome with commit metadata from bash tool results'
     throw new Error('Expected refreshed session to exist');
   }
 
+  await flushAuditTrail();
+
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
     session: refreshedSession,
@@ -1557,6 +1577,7 @@ test('gateway export trace all writes per-session ATIF-compatible trace files', 
   const { getOrCreateSession, initDatabase, recordUsageEvent, storeMessage } =
     await import('../src/memory/db.ts');
   const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
 
   initDatabase({ quiet: true });
 
@@ -1610,6 +1631,8 @@ test('gateway export trace all writes per-session ATIF-compatible trace files', 
     });
   }
 
+  await flushAuditTrail();
+
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
@@ -1648,6 +1671,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
   );
@@ -1747,6 +1771,8 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
   if (!refreshedSession) {
     throw new Error('Expected refreshed session to exist');
   }
+
+  await flushAuditTrail();
 
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,
@@ -1880,6 +1906,7 @@ test('trace export preserves tool call linkage ids even when they look random', 
   const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
     '../src/audit/audit-events.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { exportSessionTraceAtifJsonl } = await import(
     '../src/session/session-trace-export.ts'
   );
@@ -1950,6 +1977,8 @@ test('trace export preserves tool call linkage ids even when they look random', 
   if (!refreshedSession) {
     throw new Error('Expected refreshed session to exist');
   }
+
+  await flushAuditTrail();
 
   const exported = await exportSessionTraceAtifJsonl({
     agentId: refreshedSession.agent_id,

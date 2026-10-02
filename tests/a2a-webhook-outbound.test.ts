@@ -168,6 +168,7 @@ describe('A2A webhook outbound adapter', () => {
     });
 
     const sessionId = 'a2a:thread:thread-webhook';
+    await audit.flushAuditTrail();
     const records = fs
       .readFileSync(audit.getAuditWirePath(sessionId), 'utf-8')
       .split('\n')
@@ -196,6 +197,7 @@ describe('A2A webhook outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
@@ -239,6 +241,7 @@ describe('A2A webhook outbound adapter', () => {
       lastError:
         'a2a.webhook.secretRef references stored secret MISSING_WEBHOOK_SECRET but it is not set',
     });
+    await flushAuditTrail();
     expect(
       getRecentStructuredAuditForSession(
         'session-webhook-missing-secret',
@@ -363,6 +366,7 @@ describe('A2A webhook outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
@@ -448,6 +452,7 @@ describe('A2A webhook outbound adapter', () => {
       attempts: 1,
       lastStatusCode: 401,
     });
+    await flushAuditTrail();
     expect(
       getRecentStructuredAuditForSession('session-webhook-fail', 10).map(
         (event) => event.event_type,

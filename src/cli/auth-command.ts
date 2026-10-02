@@ -1754,23 +1754,6 @@ function printHybridAIStatus(): void {
   );
 }
 
-function configureHybridAIBaseUrl(args: string[]): void {
-  ensureRuntimeConfigFile();
-  const requested = args.join(' ').trim();
-  const normalizedBaseUrl = normalizeHybridAIBaseUrl(requested);
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.hybridai.baseUrl = normalizedBaseUrl;
-  });
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Provider: hybridai`);
-  console.log(`Base URL: ${nextConfig.hybridai.baseUrl}`);
-  console.log('Next:');
-  console.log('  hybridclaw gateway restart --foreground');
-  console.log('  hybridclaw hybridai status');
-  console.log('  hybridclaw tui');
-}
-
 function printMSTeamsStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
@@ -2055,7 +2038,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
+      'Usage: `hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
@@ -2267,31 +2250,6 @@ function configureLocalBackend(args: string[]): void {
     console.log(`  /model list ${parsed.backend}`);
     console.log(`  /model set ${modelPrefix}/<model>`);
   }
-}
-
-export async function handleLocalCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printLocalUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (['setup', 'serve', 'benchmark', 'stop'].includes(sub)) {
-    const { handleMlxCommand } = await import('../inference/mlx-command.js');
-    await handleMlxCommand(normalized);
-    return;
-  }
-  if (sub === 'status') {
-    printLocalStatus();
-    return;
-  }
-  if (sub === 'configure') {
-    configureLocalBackend(normalized.slice(1));
-    return;
-  }
-
-  throw new Error(`Unknown local subcommand: ${sub}`);
 }
 
 async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
@@ -2955,18 +2913,9 @@ async function configureSlackAuth(args: string[]): Promise<void> {
   console.log('  hybridclaw gateway status');
 }
 
-export async function handleHybridAICommand(args: string[]): Promise<void> {
+async function handleHybridAICommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printHybridAIUsage();
-    return;
-  }
-
   const sub = normalized[0].toLowerCase();
-  if (sub === 'base-url') {
-    configureHybridAIBaseUrl(normalized.slice(1));
-    return;
-  }
   if (sub === 'login') {
     await ensureHybridAIAuthApi();
     const parsed = parseHybridAILoginArgs(normalized.slice(1));
@@ -3018,13 +2967,8 @@ export async function handleHybridAICommand(args: string[]): Promise<void> {
   throw new Error(`Unknown hybridai subcommand: ${sub}`);
 }
 
-export async function handleCodexCommand(args: string[]): Promise<void> {
+async function handleCodexCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printCodexUsage();
-    return;
-  }
-
   await ensureCodexAuthApi();
 
   const sub = normalized[0].toLowerCase();

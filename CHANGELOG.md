@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+## [0.34.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.3) - 2026-10-02
+
+### Added
+
+- **Your time zone**: `/timezone` shows, sets, or clears the time zone in
+  `USER.md`. Schedules without an explicit zone, daily notes, and the agent's
+  current-time context follow it. Companion apps can use `--json` to keep
+  the phone's zone in sync.
+- **Grocery handoff links**: `handoff-links` sends grocery lists to Knuspr or
+  Gurkerl's Maia assistant, which fills the user's cart in the shop's app.
+
+### Changed
+
+- **Provider names**: Auth commands and provider help resolve names from one
+  shared table. Model filters and second opinions also accept `claude`, `hf`,
+  `or`, and `hybrid`. `google` refers to Google Workspace; Gemini uses
+  `gemini` or `google-gemini`.
+- **Legacy command removal**: Remove the deprecated top-level `hybridai` and
+  `codex` auth commands, `local status` and `local configure`, and `agent pack`
+  and `agent unpack`. Slack handles only `/hc-*` slash commands. See migration
+  instructions below.
+- **Plugin configuration warnings**: Loading a plugin logs configuration keys
+  its schema ignores instead of silently dropping them.
+
+### Fixed
+
+- **Goal check-ins**: Goals always send a check-in with their status, next
+  step, and a question. Tracked items keep quiet unless there is news.
+- **Reminder time zones**: Goal check-ins and todo reminders accept explicit
+  zones and follow the zone in `USER.md`, including when a note follows its
+  name. Invalid zones are reported to the agent instead of silently using UTC.
+- **Schedule ownership**: `cron` lists tasks from the gateway's current state
+  and cannot change or remove goal check-ins or todo reminders. Their owning
+  tools manage them, preventing duplicate or orphaned schedules.
+- **QMD memory search**: Search output that is not a JSON array is reported as
+  an error instead of being treated as an empty result.
+
+### Migration
+
+- Update the gateway and agent image together for time zones and schedule
+  ownership changes.
+- Scripts using removed commands must switch to the following replacements:
+
+  | Removed | Replacement |
+  | --- | --- |
+  | `hybridclaw hybridai login [flags]` | `hybridclaw auth login hybridai [flags]` |
+  | `hybridclaw hybridai status` / `logout` | `hybridclaw auth status hybridai` / `hybridclaw auth logout hybridai` |
+  | `hybridclaw hybridai base-url <url>` | `hybridclaw auth login hybridai --base-url <url>` (also signs in again) |
+  | `hybridclaw codex login [flags]` | `hybridclaw auth login codex [flags]` |
+  | `hybridclaw codex status` / `logout` | `hybridclaw auth status codex` / `hybridclaw auth logout codex` |
+  | `hybridclaw local configure <backend> ...` | `hybridclaw auth login local <backend> ...` |
+  | `hybridclaw local status` | `hybridclaw auth status local` |
+  | `hybridclaw agent pack` / `unpack` | `hybridclaw agent export` / `install` |
+
+- `hybridclaw local setup`, `serve`, `stop`, and `benchmark` remain available
+  for managed MLX models.
+- Replace `/model list google` with `/model list gemini`, and
+  `/second-opinion --provider google` with `/second-opinion --provider gemini`.
+- Slack apps registering `/status` or `/hybridclaw-*` commands must re-run
+  `hybridclaw channels slack register-commands --app-id <app-id> --config-token <token>`
+  to replace them with `/hc-*` commands.
+- Manage goal check-ins through `track` and todo reminders through `todo`,
+  rather than editing their schedules through `cron`.
+
 ## [0.34.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.2) - 2026-10-02
 
 ### Added
