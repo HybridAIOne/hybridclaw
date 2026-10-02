@@ -227,11 +227,10 @@ Practical rules:
 - example: `/hc-model info` means Slack command `/hc-model` with `info` as the
   text payload
 
-HybridClaw still accepts older unprefixed command names if you already created
-them manually, and it also accepts the earlier `/hybridclaw-*` prefixed form if
-you already registered that version. The recommended registration path now uses
-`/hc-*` so Slack's command picker can distinguish the commands from built-in
-Slack commands without being too verbose.
+HybridClaw listens only on the `/hc-*` names. If your Slack app still has
+older commands such as `/status` or `/hybridclaw-status` from an earlier setup,
+re-run `hybridclaw channels slack register-commands`: it removes those entries
+from the app manifest and registers the `/hc-*` commands in their place.
 
 If Slack says the app has pending permission changes after manifest updates,
 reinstall it from the Slack developer UI:

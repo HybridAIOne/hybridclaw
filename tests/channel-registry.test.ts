@@ -84,6 +84,19 @@ test('normalizeSkillConfigChannelKind accepts supported scopes and the teams ali
   expect(normalizeSkillConfigChannelKind('scheduler')).toBeUndefined();
 });
 
+test.each([
+  ['teams', 'msteams'],
+  ['discordwebhook', 'discord_webhook'],
+  ['discord-webhook', 'discord_webhook'],
+  ['slackwebhook', 'slack_webhook'],
+  ['slack-webhook', 'slack_webhook'],
+])('normalizeChannelKind keeps the supported %s spelling for %s', async (alias, kind) => {
+  const { normalizeChannelKind } = await importFreshChannelRegistryModules();
+
+  expect(normalizeChannelKind(alias)).toBe(kind);
+  expect(normalizeChannelKind(alias.toUpperCase())).toBe(kind);
+});
+
 test('getChannel returns undefined for unregistered and unknown channel kinds', async () => {
   const { getChannel } = await importFreshChannelRegistryModules();
 

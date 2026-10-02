@@ -355,10 +355,9 @@ hybridclaw agent uninstall <agent-id> [--yes]
 hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 ```
 
-`agent export` and `agent install` are the primary archive verbs. Legacy
-aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
-maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
-for the same archive flows against a running gateway.
+`agent export` and `agent install` are the archive verbs. Local TUI/web
+sessions also expose `/agent install <source>` for the same archive flows
+against a running gateway.
 `agent activate <agent-id>` sets the default agent for new requests that do not
 pin an agent explicitly.
 
