@@ -66,8 +66,8 @@ test('an app sets the time zone the runtime reads from USER.md', async () => {
   expect(user.match(/\*\*Timezone:\*\*/g)).toHaveLength(1);
   expect(user).toContain('- **Pronouns:** _(optional)_\n- **Timezone:** Europe/Berlin\n');
 
-  // A note the agent wrote after the zone made the line unreadable; set again,
-  // the line is replaced whole.
+  // A zone that isn't one, with the agent's note after it: only the first word
+  // is read, and set again, the line is replaced whole.
   fs.writeFileSync(
     userFile(),
     user.replace(
@@ -76,7 +76,7 @@ test('an app sets the time zone the runtime reads from USER.md', async () => {
     ),
   );
   expect((await send('/timezone')).text).toContain(
-    'USER.md says "Europe/Munich (inferred from the city)", which isn\'t a time zone',
+    'USER.md says "Europe/Munich", which isn\'t a time zone',
   );
   expect((await send('/timezone set america/new_york --json')).json).toEqual({
     version: 1,

@@ -579,7 +579,7 @@ export function readUserTimezone(agentId: string): string | null {
 
 /**
  * Sets USER.md's "Timezone" to a zone name, or empties it for `null`. The
- * caller checks the name: the runtime reads the whole rest of the line.
+ * caller checks the name: the runtime reads the line's first word.
  */
 export function writeUserTimezone(agentId: string, zone: string | null): void {
   writeUserField(agentId, TIMEZONE_FIELD, zone ?? '', [
