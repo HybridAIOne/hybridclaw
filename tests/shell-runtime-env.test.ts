@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -13,8 +13,23 @@ vi.mock('../src/auth/google-auth.js', () => ({
 vi.mock('../src/logger.js', () => ({ logger: { warn: vi.fn() } }));
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
-  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+  return { ...actual, spawn: vi.fn((...args: Parameters<typeof actual.spawn>) => {
+    const child = actual.spawn(...args);
+    if (child.stdin) vi.spyOn(child.stdin, 'end');
+    return child;
+  }) };
 });
+async function mockDockerSpawn(output: string) {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  vi.mocked(spawn).mockImplementation(() => {
+    const child = actual.spawn('bash', ['-c', 'printf "hybridclaw-bash-pgid:999999\\n"; cat >/dev/null; printf %s "$TEST_OUTPUT"'], {
+      env: { ...process.env, TEST_OUTPUT: output },
+    });
+    vi.spyOn(child.stdin, 'end');
+    return child;
+  });
+}
+
 const makeTemp = useTempDir('shell-env-');
 useCleanMocks({
   unstubAllEnvs: true,
@@ -23,8 +38,10 @@ useCleanMocks({
 });
 
 // The NUL-terminated fields a launch writes to the wrapper's stdin.
-function stdinFields(options: { input?: unknown } | undefined): string[] {
-  return String(options?.input).split('\0').slice(0, -1);
+function stdinFields(options: unknown): string[] {
+  const index = vi.mocked(spawn).mock.calls.findIndex((call) => call[2] === options);
+    const child = vi.mocked(spawn).mock.results[index].value;
+    return String(vi.mocked(child.stdin.end).mock.calls[0][0]).split('\0').slice(0, -1);
 }
 
 function response() {
@@ -134,7 +151,7 @@ test.each([false, true])(
           }),
         );
         expect(result).toBe('ok');
-        const [, args, options] = vi.mocked(spawnSync).mock.calls.at(-1)!;
+        const [, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
         expect(JSON.stringify(args)).not.toContain(token);
         expect(options).toMatchObject({ env: { GOG_ACCESS_TOKEN: token } });
         if (persistent) {
@@ -143,7 +160,7 @@ test.each([false, true])(
         }
       }
     } finally {
-      tools.resetPersistentBashSessions();
+      await tools.resetPersistentBashSessions();
     }
   },
 );
@@ -151,20 +168,13 @@ test.each([false, true])(
 test('Docker exec passes token names in argv and values only in its environment', async () => {
   vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
   const { runBashProcess } = await import('../container/src/bash-process.js');
-  vi.mocked(spawnSync).mockReturnValue({
-    pid: 1,
-    status: 0,
-    signal: null,
-    stdout: '',
-    stderr: '',
-    output: [],
-  });
-  runBashProcess(['-c', 'true'], {
+  await mockDockerSpawn('');
+  await runBashProcess(['-c', 'true'], {
     command: 'true',
     timeoutMs: 1000,
     runtimeEnv: { GOG_ACCESS_TOKEN: 'test-key' },
   });
-  const [file, args, options] = vi.mocked(spawnSync).mock.calls.at(-1)!;
+  const [file, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
   expect(file).toBe('docker');
   expect(args).toContain('GOG_ACCESS_TOKEN');
   expect(args).not.toContain('test-key');
@@ -178,7 +188,11 @@ test.each([false, true])(
       await vi.importActual<typeof import('node:child_process')>(
         'node:child_process',
       );
-    vi.mocked(spawnSync).mockImplementation(actual.spawnSync);
+    vi.mocked(spawn).mockImplementation((...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      if (child.stdin) vi.spyOn(child.stdin, 'end');
+      return child;
+    });
     const root = makeTemp();
     const workspace = path.join(
       root,
@@ -202,7 +216,7 @@ test.each([false, true])(
         );
         expect(output.trim()).toBe('ok');
         const [executable, args, options] = vi
-          .mocked(spawnSync)
+          .mocked(spawn)
           .mock.calls.at(-1)!;
         expect(executable).toBe('bash');
         expect(args).not.toContainEqual(expect.stringContaining(workspace));
@@ -211,7 +225,7 @@ test.each([false, true])(
         expect(stdinFields(options).at(-1)).toBe(command);
       }
     } finally {
-      tools.resetPersistentBashSessions();
+      await tools.resetPersistentBashSessions();
     }
   },
 );

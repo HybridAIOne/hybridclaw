@@ -9,15 +9,14 @@
  * command guard or approval classifier: commands arrive here already allowed;
  * this module runs them and tells the classifier where the next one starts.
  */
-import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_RUNTIME_ENV_NAMES } from '../shared/shell-runtime-env.js';
 import {
-  BASH_DOCKER_CONTAINER,
   BASH_DOCKER_CWD,
+  type BashProcessResult,
   runBashProcess,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
@@ -27,6 +26,7 @@ import {
   WORKSPACE_ROOT,
 } from './runtime-paths.js';
 import { ensureSessionStateDir, sessionStatePath } from './session-state.js';
+import { haltIfShuttingDown } from './shutdown-latch.js';
 
 type PersistentBashSession = {
   sessionId: string;
@@ -117,29 +117,15 @@ function getPersistentBashTempRoot(): string {
   return resolved ? path.resolve(resolved) : '/tmp';
 }
 
-function cleanupPersistentBashSessionArtifacts(
+async function cleanupPersistentBashSessionArtifacts(
   session: PersistentBashSession | undefined,
-): void {
+): Promise<void> {
   if (!session) return;
   try {
     if (TASK_SANDBOX_FS_ENABLED) {
-      spawnSync(
-        'docker',
-        [
-          'exec',
-          '-i',
-          BASH_DOCKER_CONTAINER,
-          'rm',
-          '-rf',
-          '--',
-          session.sessionDir,
-        ],
-        {
-          encoding: 'utf-8',
-          timeout: 5_000,
-          maxBuffer: 1024 * 1024,
-          env: { ...process.env },
-        },
+      await runBashProcess(
+        ['-c', 'IFS= read -r -d \'\' dir || exit 125; rm -rf -- "$dir"'],
+        { command: session.sessionDir, timeoutMs: 5_000, runtimeEnv: {} },
       );
       return;
     }
@@ -150,9 +136,10 @@ function cleanupPersistentBashSessionArtifacts(
 }
 
 /** Drops this worker's shell state; the session's working directory stays. */
-export function resetPersistentBashSessions(): void {
-  cleanupPersistentBashSessionArtifacts(persistentBashSession || undefined);
+export async function resetPersistentBashSessions(): Promise<void> {
+  const session = persistentBashSession;
   persistentBashSession = null;
+  await cleanupPersistentBashSessionArtifacts(session || undefined);
 }
 
 export function isPersistentBashStateEnabled(): boolean {
@@ -164,7 +151,7 @@ export function setPersistentBashStateEnabled(enabled: boolean): boolean {
   const normalized = enabled !== false;
   if (normalized === persistentBashStateEnabled) return false;
   persistentBashStateEnabled = normalized;
-  resetPersistentBashSessions();
+  void resetPersistentBashSessions();
   return true;
 }
 
@@ -181,11 +168,13 @@ function resolveSessionCwdPath(sessionId: string): string | null {
   }
 }
 
-function getPersistentBashSession(sessionId: string): PersistentBashSession {
+async function getPersistentBashSession(
+  sessionId: string,
+): Promise<PersistentBashSession> {
   if (persistentBashSession?.sessionId === sessionId) {
     return persistentBashSession;
   }
-  resetPersistentBashSessions();
+  await resetPersistentBashSessions();
 
   const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${randomUUID()}`;
   const tempRoot = getPersistentBashTempRoot();
@@ -233,22 +222,27 @@ function describeInheritedShell(cwdPath: string): string | null {
  * Runs one approved command. `notice` is set on the first call in a worker
  * that inherited the session's working directory from an earlier worker.
  */
-export function runBash(params: BashRunParams): {
-  result: SpawnSyncReturns<string>;
+export async function runBash(params: BashRunParams): Promise<{
+  result: BashProcessResult;
   notice: string | null;
-} {
+}> {
   if (!persistentBashStateEnabled) {
+    await haltIfShuttingDown();
     return {
-      result: runBashProcess(['-lc', STATELESS_BASH_WRAPPER_SCRIPT], params),
+      result: await runBashProcess(
+        ['-lc', STATELESS_BASH_WRAPPER_SCRIPT],
+        params,
+      ),
       notice: null,
     };
   }
-  const session = getPersistentBashSession(params.sessionId);
+  const session = await getPersistentBashSession(params.sessionId);
   const notice =
     !session.initialized && session.cwdOutlivesWorker
       ? describeInheritedShell(session.cwdPath)
       : null;
-  const result = runBashProcess(
+  await haltIfShuttingDown();
+  const result = await runBashProcess(
     [
       session.initialized ? '-c' : '-lc',
       PERSISTENT_BASH_WRAPPER_SCRIPT,
