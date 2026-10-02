@@ -516,6 +516,7 @@ function cleanMarkdownInline(value: string | undefined): string {
 }
 
 const PREFERRED_NAME_FIELD = 'What to call them';
+const TIMEZONE_FIELD = 'Timezone';
 export const MAX_USER_NAME_LENGTH = 80;
 
 function markdownFieldPattern(fieldName: string): RegExp {
@@ -550,26 +551,67 @@ export function readUserNames(agentId: string): {
 
 /**
  * Sets USER.md's "What to call them", or empties it for `null`. USER.md is in
- * every turn's prompt, so the agent uses the name from its next turn on. A
- * workspace without USER.md is set up first, as a first turn would.
+ * every turn's prompt, so the agent uses the name from its next turn on.
  */
 export function writeUserPreferredName(
   agentId: string,
   name: string | null,
 ): void {
-  const value = cleanMarkdownInline(name ?? '');
+  writeUserField(
+    agentId,
+    PREFERRED_NAME_FIELD,
+    cleanMarkdownInline(name ?? ''),
+    ['Name'],
+  );
+}
+
+/**
+ * USER.md's "Timezone" as the runtime reads it for schedules, the daily note
+ * and the prompt's current time, or null when not filled in. Only a valid IANA
+ * name counts there; anything else falls back to the host's zone.
+ */
+export function readUserTimezone(agentId: string): string | null {
+  return (
+    extractUserTimezone(readUserMarkdown(agentWorkspaceDir(agentId))) ?? null
+  );
+}
+
+/**
+ * Sets USER.md's "Timezone" to a zone name, or empties it for `null`. The
+ * caller checks the name: the runtime reads the whole rest of the line.
+ */
+export function writeUserTimezone(agentId: string, zone: string | null): void {
+  writeUserField(agentId, TIMEZONE_FIELD, zone ?? '', [
+    PREFERRED_NAME_FIELD,
+    'Name',
+  ]);
+}
+
+/**
+ * Sets one `- **Field:** value` line of USER.md in place, or empties it. A
+ * missing line goes after the first of `after` there is, else at the end. A
+ * workspace without USER.md is set up first, as a first turn would.
+ */
+function writeUserField(
+  agentId: string,
+  fieldName: string,
+  value: string,
+  after: string[],
+): void {
   const wsDir = agentWorkspaceDir(agentId);
   const userPath = path.join(wsDir, 'USER.md');
   if (!fs.existsSync(userPath)) ensureBootstrapFiles(agentId);
   const content = readUserMarkdown(wsDir) ?? '# USER.md - About Your Human\n';
-  const line = `- **${PREFERRED_NAME_FIELD}:**${value ? ` ${value}` : ''}`;
-  const field = markdownFieldPattern(PREFERRED_NAME_FIELD);
-  const nameField = markdownFieldPattern('Name');
-  // Replaced through functions, so a `$` in a name stays as typed.
+  const line = `- **${fieldName}:**${value ? ` ${value}` : ''}`;
+  const field = markdownFieldPattern(fieldName);
+  const anchor = after
+    .map(markdownFieldPattern)
+    .find((pattern) => pattern.test(content));
+  // Replaced through functions, so a `$` in a value stays as written.
   const next = field.test(content)
     ? content.replace(field, (_match, indent: string) => `${indent}${line}`)
-    : nameField.test(content)
-      ? content.replace(nameField, (found) => `${found}\n${line}`)
+    : anchor
+      ? content.replace(anchor, (found) => `${found}\n${line}`)
       : `${content.trimEnd()}\n\n${line}\n`;
   if (next !== content) fs.writeFileSync(userPath, next, 'utf-8');
 }

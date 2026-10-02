@@ -676,6 +676,7 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
+import { handleTimezoneCommand } from './timezone-command.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -13325,6 +13326,9 @@ export async function handleGatewayCommand(
 
       case 'name':
         return handleNameCommand(req, resolveSessionAgentId(session));
+
+      case 'timezone':
+        return handleTimezoneCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);

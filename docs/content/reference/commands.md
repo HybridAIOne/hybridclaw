@@ -714,6 +714,24 @@ at most 80 characters. Companion apps set it from their settings with
 same escaping as `schedule`: "What to call them" and "Name", each `null` when
 not filled in.
 
+### Time zone
+
+```text
+/timezone
+/timezone set <zone>
+/timezone clear
+```
+
+The user's time zone, kept as "Timezone" in the agent's `USER.md`. Schedules
+the agent creates without a zone of their own, the daily memory note and the
+prompt's current time use it; while it is empty or not a valid zone they use
+the host's zone. `set`
+takes an IANA name such as `Europe/Berlin` and writes it in its canonical
+spelling, replacing the whole line. Companion apps send the phone's zone with
+`--json`, which answers `{"version": 1, "timezone": …}` in the same escaping as
+`schedule`, `null` when there is no valid zone. Scheduled tasks that already
+exist keep the zone they were created with.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session
@@ -794,6 +812,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/help` or `/h` | local and chat channels | Show slash-command help |
 | `/info` | TUI | Show bot, model, and runtime status together |
 | `/name [set <name>|clear]` | local TUI/web | Show or change what the agent calls you |
+| `/timezone [set <zone>|clear]` | local TUI/web | Show or change your time zone for schedules and dates |
 | `/mcp [list|add|toggle|remove|reconnect|login|logout|status]` | local and chat channels | Manage runtime MCP servers and OAuth login state |
 | `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
 | `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |
