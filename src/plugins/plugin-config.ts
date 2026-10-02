@@ -8,7 +8,10 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import { validatePluginConfig } from './plugin-config-validation.js';
+import {
+  assertPluginConfigKeyDeclared,
+  validatePluginConfig,
+} from './plugin-config-validation.js';
 import {
   PluginManager,
   resolveEffectivePluginConfigSchema,
@@ -95,6 +98,7 @@ async function validatePluginOverride(
   pluginId: string,
   config: RuntimeConfig,
   runtime?: PluginConfigRuntimeOverride,
+  writtenKey?: string,
 ): Promise<void> {
   const manager = new PluginManager({
     homeDir: runtime?.homeDir || DEFAULT_RUNTIME_HOME_DIR,
@@ -110,7 +114,16 @@ async function validatePluginOverride(
     );
   }
   const schema = await resolveEffectivePluginConfigSchema(candidate);
-  validatePluginConfig(schema, candidate.config);
+  if (writtenKey === undefined) {
+    validatePluginConfig(schema, candidate.config);
+    return;
+  }
+  assertPluginConfigKeyDeclared({
+    pluginId,
+    schema,
+    config: candidate.config,
+    key: writtenKey,
+  });
 }
 
 async function ensurePluginExistsForConfig(
@@ -195,7 +208,12 @@ export async function writePluginConfigValue(
   const entry = ensurePluginEntry(nextConfig, normalizedPluginId);
   const previousValue = entry.config?.[normalizedKey];
   entry.config[normalizedKey] = value;
-  await validatePluginOverride(normalizedPluginId, nextConfig, runtime);
+  await validatePluginOverride(
+    normalizedPluginId,
+    nextConfig,
+    runtime,
+    normalizedKey,
+  );
   saveRuntimeConfig(nextConfig);
   return {
     pluginId: normalizedPluginId,
