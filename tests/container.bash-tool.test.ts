@@ -1,13 +1,29 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { withToolActivityHeartbeat } from '../container/src/tool-activity-heartbeat.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:child_process')>();
-  return { ...original, spawnSync: vi.fn(original.spawnSync) };
+  return { ...original, spawn: vi.fn((...args: Parameters<typeof original.spawn>) => {
+    const child = original.spawn(...args);
+    if (child.stdin) vi.spyOn(child.stdin, 'end');
+    return child;
+  }) };
 });
+
+async function mockDockerSpawn(output: string) {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  vi.mocked(spawn).mockImplementation(() => {
+    const child = actual.spawn('bash', ['-c', 'printf "hybridclaw-bash-pgid:999999\\n"; cat >/dev/null; printf %s "$TEST_OUTPUT"'], {
+      env: { ...process.env, TEST_OUTPUT: output },
+    });
+    vi.spyOn(child.stdin, 'end');
+    return child;
+  });
+}
 
 describe.sequential('container bash tool persistence', () => {
   type ToolsModule = typeof import('../container/src/tools.js');
@@ -47,14 +63,22 @@ describe.sequential('container bash tool persistence', () => {
   }
 
   // The NUL-terminated fields a launch writes to the wrapper's stdin.
-  function stdinFields(options: { input?: unknown } | undefined): string[] {
-    return String(options?.input).split('\0').slice(0, -1);
+  function stdinFields(options: unknown): string[] {
+    const index = vi.mocked(spawn).mock.calls.findIndex((call) => call[2] === options);
+    const child = vi.mocked(spawn).mock.results[index].value;
+    return String(vi.mocked(child.stdin.end).mock.calls[0][0]).split('\0').slice(0, -1);
   }
 
-  afterEach(() => {
-    tools?.resetPersistentBashSessions();
+  afterEach(async () => {
+    await tools?.resetPersistentBashSessions();
     tools = null;
-    vi.mocked(spawnSync).mockReset();
+    vi.mocked(spawn).mockClear();
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    vi.mocked(spawn).mockImplementation((...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      if (child.stdin) vi.spyOn(child.stdin, 'end');
+      return child;
+    });
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -62,6 +86,21 @@ describe.sequential('container bash tool persistence', () => {
       fs.rmSync(workspaceRoot, { recursive: true, force: true });
       workspaceRoot = '';
     }
+  });
+
+  test.each([false, true])('emits heartbeats during a real shell command (persistent=%s)', async (persistBashState) => {
+    const { executeTool } = await createBashTestRuntime({ persistBashState });
+    const emit = vi.fn();
+    const result = await withToolActivityHeartbeat(
+      () => executeTool('bash', bashCommand('sleep 0.32; printf done')),
+      emit,
+      20,
+    );
+    expect(result).toBe('done');
+    expect(emit.mock.calls.length).toBeGreaterThanOrEqual(5);
+    const count = emit.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(emit).toHaveBeenCalledTimes(count);
   });
 
   test('persists cwd across bash calls in the same session', async () => {
@@ -99,7 +138,7 @@ describe.sequential('container bash tool persistence', () => {
     expect(fs.existsSync(path.join(workspaceRoot, 'injected'))).toBe(false);
     expect(fs.existsSync(path.join(workspaceRoot, 'also-injected'))).toBe(false);
     const [, args, options] = vi
-      .mocked(spawnSync)
+      .mocked(spawn)
       .mock.calls.find(([file]) => file === 'bash')!;
     expect(args).not.toContainEqual(expect.stringContaining(tempRoot));
     expect(stdinFields(options)[0]).toContain(tempRoot);
@@ -202,7 +241,7 @@ describe.sequential('container bash tool persistence', () => {
 
   // A new worker for the session: fresh module state, same workspace.
   async function restartWorker(sessionId: string): Promise<ToolsModule> {
-    tools?.resetPersistentBashSessions();
+    await tools?.resetPersistentBashSessions();
     vi.resetModules();
     const restarted = await loadTools();
     restarted.setSessionContext(sessionId);
@@ -252,10 +291,10 @@ describe.sequential('container bash tool persistence', () => {
 
   test('the docker-exec sandbox keeps the session cwd in its own /tmp', async () => {
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
-    vi.mocked(spawnSync).mockReturnValue({ pid: 1, status: 0, signal: null, stdout: 'ok', stderr: '', output: ['', 'ok', ''] });
+    await mockDockerSpawn('ok');
     const { executeTool } = await createBashTestRuntime({ sessionId: 'bash-session-docker' });
     expect(await executeTool('bash', bashCommand('pwd'))).toBe('ok');
-    const cwdFile = stdinFields(vi.mocked(spawnSync).mock.calls[0][2])[2];
+    const cwdFile = stdinFields(vi.mocked(spawn).mock.calls[0][2])[2];
     expect(cwdFile.startsWith('/tmp/')).toBe(true);
     expect(sessionCwdFiles()).toEqual([]);
   });
@@ -288,7 +327,7 @@ describe.sequential('container bash tool persistence', () => {
     const command = "  printf '%s\\n' 'quote \" and dollar $ and backtick `'\n# trailing whitespace\n\n";
     const result = await executeTool('bash', bashCommand(command));
     expect(result).toBe('quote " and dollar $ and backtick `\n');
-    const call = vi.mocked(spawnSync).mock.calls.find(([file]) => file === 'bash');
+    const call = vi.mocked(spawn).mock.calls.find(([file]) => file === 'bash');
     expect(call).toBeDefined();
     expect(call![1]).not.toContain(command);
     expect(JSON.stringify(call![1])).not.toContain('trailing whitespace');
@@ -318,21 +357,21 @@ describe.sequential('container bash tool persistence', () => {
       const result = await executeToolWithMetadata('bash', JSON.stringify({ command }));
       expect(result.isError).toBe(true);
     }
-    expect(spawnSync).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   test.each([false, true])('Docker receives the same framed stdin and fixed wrapper (persistent=%s)', async (persistBashState) => {
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
     vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CWD', '/workspace');
-    vi.mocked(spawnSync).mockReturnValue({ pid: 1, status: 0, signal: null, stdout: 'sandbox-result', stderr: '', output: ['', 'sandbox-result', ''] });
+    await mockDockerSpawn('sandbox-result');
     const { executeTool } = await createBashTestRuntime({ persistBashState });
     const command = 'printf approved-sandbox-command';
     expect(await executeTool('bash', bashCommand(command))).toBe('sandbox-result');
-    const [file, args, options] = vi.mocked(spawnSync).mock.calls[0];
+    const [file, args, options] = vi.mocked(spawn).mock.calls[0];
     expect(file).toBe('docker');
     expect(args!.slice(0, 6)).toEqual(['exec', '-i', '-w', '/workspace', 'test-sandbox', 'bash']);
     expect(args).not.toContain(command);
-    expect(args!.slice(8)).toEqual(persistBashState ? ['hybridclaw-bash-wrapper'] : []);
+    expect(args!.slice(-1)).toEqual(persistBashState ? ['hybridclaw-bash-wrapper'] : [expect.any(String)]);
     expect(stdinFields(options).at(-1)).toBe(command);
   });
 

@@ -97,6 +97,21 @@ replacement, including when a gateway-owned browser window survives. Refresh
 the snapshot before using element refs after a restart. Checkout actions require
 one-time approval in every mode; see [Browser checkout](./approvals.md#action-reference).
 
+### Shell Execution
+
+Bash commands run asynchronously so tool activity heartbeats and worker signal
+handlers remain responsive. The worker retains at most 4 MiB of combined stdout
+and stderr; exceeding that limit cancels the command and returns partial output
+with an error. Timeouts and graceful worker shutdown send SIGTERM to the command's
+process group, then SIGKILL after 250 ms, including descendants that ignore
+SIGTERM. Task sandboxes receive those signals inside the container rather than
+only losing their local `docker exec` client.
+
+Active command handles and process-group identities live in worker memory and
+are discarded after the command finishes. Persistent shell snapshots and fresh
+credential delivery follow the persistence boundaries below. Cancellation can
+stop the wrapper before it saves changes made by that command to shell state.
+
 ### Persistence Boundaries
 
 A session's turns run in a worker: an agent container in `container` mode, an

@@ -11,6 +11,7 @@ import type {
   ContainerInput,
   ContainerOutput,
 } from '../container/src/types.js';
+import { expectProcessStopped } from './helpers/process-state.js';
 import { useTempDir } from './test-utils.js';
 
 const SLOW_EXIT_MCP_SERVER = path.resolve(
@@ -297,3 +298,44 @@ test('a stop during the implicit approval delay cancels the tool', async () => {
   expect(fs.existsSync(path.join(agent.dir, 'after-stop.txt'))).toBe(false);
   expect(agent.modelCalls).toHaveLength(1);
 }, 30_000);
+
+test.each(['SIGINT', 'SIGTERM'] as const)(
+  '%s interrupts an active shell and kills its descendants before worker exit',
+  async (signal) => {
+    const agent = await startAgent(
+      (messages) =>
+        messages.some((message) => message.role === 'tool')
+          ? { role: 'assistant', content: 'done' }
+          : toolCall('bash', {
+              command: 'sleep 30 & echo $! > shell-child.pid; wait',
+            }),
+      [],
+    );
+    agent.child.stdin?.write(
+      `${JSON.stringify({
+        ...agent.request('shell-request', 'Run the shell command'),
+        allowedTools: ['bash'],
+      })}\n`,
+    );
+    const pidFile = path.join(agent.dir, 'shell-child.pid');
+    await vi.waitFor(
+      () => expect(fs.existsSync(pidFile), agent.stderr()).toBe(true),
+      { timeout: 10_000 },
+    );
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    agent.child.kill(signal);
+    await vi.waitFor(
+      () => expect(agent.stderr()).toContain(`shutting down (${signal})`),
+      { timeout: 5_000 },
+    );
+    await expect(agent.takeReply('shell-request')).resolves.toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(`received ${signal}`),
+    });
+    await agent.exited;
+    await expectProcessStopped(pid);
+    expect(agent.modelCalls).toHaveLength(1);
+    expect(fs.readdirSync(agent.ipc)).toEqual([]);
+  },
+  30_000,
+);
