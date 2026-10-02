@@ -34,6 +34,22 @@ Skill roots include:
   `.mts`, `.jsx`, `.tsx`), `.zsh` scripts, and any file that starts with a
   `#!` shebang; a `<secret:NAME>` placeholder or an auth header built from a
   credential is ordinary use, not exposure
+- literal Python exit diagnostics and shell stderr messages do not count as
+  writes to agent instruction files; executable expressions and real writes
+  beside those messages still count
+- inline code in Markdown bullet lists immediately under `Insecure patterns:`
+  is treated as a negative example for noncritical code-operation rules.
+  The exception ends at the next paragraph, heading, or code fence; critical,
+  prompt-injection, persistence, credential, and supply-chain rules still apply.
+  Labels are supplied by the skill author, so this narrow exception is not a
+  guarantee of safety or an exemption from runtime approvals
+- character-only JavaScript/TypeScript Unicode literals, character-removal
+  regexes, and BOM-prefixed frontmatter fixtures do not count as concealed
+  instructions; surrounding text and other invisible characters still count
+- a complete `const` string assignment in a JavaScript/TypeScript `*.test.*`
+  file is data for the unpinned npm-install rule. Calls, interpolated strings,
+  and appended commands still count; other rules continue to scan that string.
+  This does not trace later uses of the data or make test files trusted
 - skills that reference the runtime secret store
   (`~/.hybridclaw/credentials.json`, the master key) or tell the agent to write
   `AGENTS.md`, `CLAUDE.md`, or `~/.hybridclaw/config.json` are blocked at every

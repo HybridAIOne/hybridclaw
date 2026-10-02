@@ -1,11 +1,8 @@
 /**
- * Skill guard — text rules over a skill's files plus the trust-level policy
- * that turns the verdict into allow or block.
+ * Skill guard — file text rules and the trust policy turning verdicts into blocks.
  *
- * Critical rules block at every non-builtin trust level, so each must match
- * the threat, not a mention or lookalike syntax; a test holds the bundled
- * skills to zero critical findings beyond the real ones it lists. The
- * exfiltration and credential rules live in `skills-guard-exfil-rules.ts` and
+ * Critical rules block non-builtin skills; literal diagnostics are not operations.
+ * Exfiltration and credential rules live in `skills-guard-exfil-rules.ts` and
  * `skills-guard-credential-rules.ts`; skill content is decided by the walk in
  * `skills-guard-structure.ts`. NOT a sandbox: rules are line-level regex
  * heuristics, and a loaded skill's actions still go through runtime approvals.
@@ -21,6 +18,8 @@ import {
 } from './skills-guard-structure.js';
 import {
   firstOnLine,
+  isLiteralDiagnostic,
+  isLiteralTestData,
   r,
   scanFile,
   scanTextContent,
@@ -521,8 +520,7 @@ const THREAT_RULES: ThreatRule[] = [
     description: 'modifies global git configuration',
   },
   {
-    // Writes only: skills routinely name these files ("do not overwrite
-    // AGENTS.md", install docs), which is not persistence.
+    // Naming an instruction file is not persistence; match writes only.
     regex: r(
       [
         String.raw`(?<!(?:\bnot|\bnever|n['’]t)\s+)\b${WRITE_VERB}\b.*${AGENT_CONFIG_FILE}`,
@@ -531,6 +529,7 @@ const THREAT_RULES: ThreatRule[] = [
       ].join('|'),
     ),
     patternId: 'agent_config_mod',
+    ignoreLine: isLiteralDiagnostic,
     severity: 'critical',
     category: 'persistence',
     description: 'writes to agent instruction or config files (persistence)',
@@ -761,6 +760,7 @@ const THREAT_RULES: ThreatRule[] = [
   {
     regex: r(String.raw`npm\s+install\s+(?!.*@\d)`),
     patternId: 'unpinned_npm_install',
+    ignoreLine: isLiteralTestData,
     severity: 'medium',
     category: 'supply-chain',
     description: 'npm install without version pinning',
