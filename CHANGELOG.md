@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## [0.34.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.4) - 2026-10-02
+
+### Changed
+
+- **Faster phone turns**: Agents reached by the mobile app keep a warm spare
+  ready until the gateway restarts. Idle workers connect configured MCP
+  servers before their first turn, connect them in parallel, and refresh
+  OAuth tokens without reconnecting the server.
+- **More responsive gateway**: Audit writes group-commit off the event loop
+  while preserving ordered, durable records. Recent-chat summaries use indexed
+  lookups, and dashboard streams reuse their overview status.
+
+### Fixed
+
+- **Chat on slow networks**: Streaming responses send an immediate acceptance
+  line and keep-alive pings. Turns keep running after a disconnect; resending
+  the same request while it runs joins the existing reply instead of answering
+  twice.
+- **Streaming retries**: Retryable HTTP errors preserve streaming rather than
+  replaying without it. Remote streaming requests stop waiting
+  after 90 seconds without response headers, replacing the 300-second wait.
+- **Phone rating consent**: Mobile ratings reach HybridAI only when the account
+  explicitly enables product-improvement feedback. An unavailable consent
+  endpoint, error, or timeout prevents forwarding; local ratings still count.
+- **Auth status coverage**: In-chat `/auth status` answers for every TUI menu
+  target, including OpenAI, Gemini, and Slack. CLI help lists all auth targets,
+  and status identifies stored secrets as the credential source when they take
+  precedence over environment variables.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for MCP preconnection, token
+  refresh, and streaming timeout changes.
+
 ## [0.34.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.3) - 2026-10-02
 
 ### Added
