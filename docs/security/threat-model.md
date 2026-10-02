@@ -67,6 +67,10 @@ Mitigations:
 - Keep secret values behind structured secret handles or gateway APIs.
 - Require explicit approval for direct reads of secret-bearing files.
 - Reject string coercion or serialization of secret references.
+- Do not let a reply make the user's device fetch an address without a tap:
+  a Markdown picture or a link on its own line keeps its address only when
+  the session held it before the model wrote it
+  (`src/gateway/reply-fetch-guard.ts`).
 
 ### Confused Deputy Secret Injection
 
