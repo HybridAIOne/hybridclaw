@@ -37,6 +37,13 @@ const PLAIN_LABEL_RE = /^[^`!<>\\[\]\n]*$/;
 const LINE_LINK_RE =
   /\[[^[\]\n]*\]\(\s*<?((?:[^()<>\s]|\([^()<>\s]*\))+)>?\s*\)|<(https?:\/\/[^>\s]+)>|(https?:\/\/[^\s<>[\]]+)/gi;
 const LETTER_RE = /\p{L}/u;
+const HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  quot: '"',
+  '#39': "'",
+  lt: '<',
+  gt: '>',
+};
 
 type Source = { said: boolean; text: string };
 type Decision = 'show' | 'describe' | 'wait';
@@ -350,17 +357,14 @@ function hostWords(url: string): string {
 // Tool results quote addresses as JSON or HTML; the model writes them plain.
 function readableForms(text: string, decodePercent = false): string[] {
   const forms = [text];
-  const json = text
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replaceAll('\\/', '/');
-  const html = json
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'")
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>');
+  // One pass each, so a decoded `\` or `&` never starts another escape.
+  const json = text.replace(/\\(?:u([0-9a-fA-F]{4})|\/)/g, (_, hex) =>
+    hex ? String.fromCharCode(Number.parseInt(hex, 16)) : '/',
+  );
+  const html = json.replace(
+    /&(amp|quot|#39|lt|gt);/g,
+    (_, name: string) => HTML_ENTITIES[name],
+  );
   forms.push(json, html);
   if (decodePercent) {
     try {

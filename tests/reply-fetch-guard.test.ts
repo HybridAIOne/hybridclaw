@@ -80,6 +80,18 @@ describe('pictures', () => {
     expect(guard([], [execution(CDN)]).rewrite(reply)).toBe(expected);
   });
 
+  it('reads HTML and JSON escapes in a tool result once', () => {
+    const query = 'https://cdn.example.com/i?a=1&b=2';
+    const html = guard([], [execution('<img src="https://cdn.example.com/i?a=1&amp;b=2">')]);
+    expect(html.rewrite(`![x](${query})`)).toBe(`![x](${query})`);
+    // `&amp;lt;` reads as `&lt;`, never as `<`.
+    const twice = guard([], [execution('https://cdn.example.com/i?q=&amp;lt;')]);
+    expect(twice.rewrite('![x](https://cdn.example.com/i?q=&lt;)')).toBe(
+      '![x](https://cdn.example.com/i?q=&lt;)',
+    );
+    expect(twice.rewrite('![x](https://cdn.example.com/i?q=<)')).toBe('x');
+  });
+
   it('keeps workspace pictures, which no client fetches from the web', () => {
     const reply = '![chart](sandbox:/workspace/out/chart.png)';
     expect(guard().rewrite(reply)).toBe(reply);
