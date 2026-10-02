@@ -547,6 +547,11 @@ Support hierarchy:
 2. confirms removal unless `--yes` is set
 3. removes the registered agent entry
 4. removes the agent workspace root under the normal runtime path
+5. removes the agent's workspace `skills/` directory from `skills.extraDirs`
+
+If the agent's folder and registration are already gone but its
+`skills.extraDirs` entry remains, the command still runs and removes the entry.
+Run it again for an agent uninstalled by an older version.
 
 ## What `list` Does
 
