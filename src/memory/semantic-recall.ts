@@ -1,7 +1,12 @@
 export type MemoryQueryMode = 'raw' | 'no-stopwords';
 export type MemoryRecallBackend = 'full-text' | 'cosine' | 'hybrid';
 export type MemoryRecallRerank = 'none' | 'bm25';
-export type MemoryRecallTokenizer = 'unicode61' | 'porter' | 'trigram';
+export const MEMORY_RECALL_TOKENIZERS = [
+  'unicode61',
+  'porter',
+  'trigram',
+] as const;
+export type MemoryRecallTokenizer = (typeof MEMORY_RECALL_TOKENIZERS)[number];
 
 const MEMORY_RECALL_STOPWORDS = new Set([
   'a',
@@ -193,13 +198,6 @@ export function buildMemoryFtsMatchQuery(
       ? tokenizeMemoryRecallQuery(query, maxTerms, 'unicode61')
       : tokenizeMemoryRecallQuery(query, maxTerms, tokenizer);
   return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(' OR ');
-}
-
-export function buildMemoryFtsDocument(
-  content: string,
-  _tokenizer: MemoryRecallTokenizer = 'unicode61',
-): string {
-  return content;
 }
 
 export function getMemoryFtsTokenizerSpec(
