@@ -6,6 +6,7 @@ import {
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {
   CallToolResult,
   Tool as SdkTool,
@@ -24,6 +25,7 @@ import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
 import type {
+  LiveHeaders,
   McpClientHandle,
   McpServerConfig,
   McpToolBehavior,
@@ -53,6 +55,20 @@ function stableHash(input: string): string {
 
 function cloneConfig(config: McpServerConfig): McpServerConfig {
   return JSON.parse(JSON.stringify(config)) as McpServerConfig;
+}
+
+/**
+ * Adds `headers` to every request on top of the SDK's own. They are read per
+ * request, so a rotated token takes effect without a new connection.
+ */
+function fetchWithHeaders(headers: LiveHeaders): FetchLike {
+  return (url, init) => {
+    const merged = new Headers(init?.headers);
+    for (const [key, value] of Object.entries(headers.current)) {
+      merged.set(key, value);
+    }
+    return fetch(url, { ...init, headers: merged });
+  };
 }
 
 function withTimeout<T>(
@@ -206,24 +222,28 @@ export class McpClientManager {
   }
 
   async replaceClient(name: string, config: McpServerConfig): Promise<void> {
+    return this.runWithLock(name, () => this.connectClient(name, config));
+  }
+
+  /**
+   * Applies a config that differs only in its `Authorization` header (the
+   * gateway's OAuth refresh). A healthy HTTP/SSE connection sends the new
+   * header from its next request on and keeps its session and tools; a server
+   * without one connects with the new header.
+   */
+  async rotateAuthorization(
+    name: string,
+    config: McpServerConfig,
+  ): Promise<void> {
     return this.runWithLock(name, async () => {
-      this.configs.set(name, cloneConfig(config));
-      if (config.enabled === false) {
-        await this.disconnectClient(name);
+      const handle = this.clients.get(name);
+      if (!handle?.headers || !handle.healthy) {
+        await this.connectClient(name, config);
         return;
       }
-
-      const existing = this.clients.get(name);
-      const nextHandle = await this.buildClient(name, config);
-      this.clients.set(name, nextHandle);
-      this.rebuildToolIndex();
-      await emitRuntimeEvent({
-        event: 'mcp_server_connected',
-        serverName: name,
-        transport: config.transport,
-        toolCount: nextHandle.tools.length,
-      });
-      if (existing) await this.closeHandle(existing);
+      this.configs.set(name, cloneConfig(config));
+      handle.config = cloneConfig(config);
+      handle.headers.current = { ...config.headers };
     });
   }
 
@@ -280,11 +300,38 @@ export class McpClientManager {
     this.configs.clear();
   }
 
+  private async connectClient(
+    name: string,
+    config: McpServerConfig,
+  ): Promise<void> {
+    this.configs.set(name, cloneConfig(config));
+    if (config.enabled === false) {
+      await this.disconnectClient(name);
+      return;
+    }
+
+    const existing = this.clients.get(name);
+    const nextHandle = await this.buildClient(name, config);
+    this.clients.set(name, nextHandle);
+    this.rebuildToolIndex();
+    await emitRuntimeEvent({
+      event: 'mcp_server_connected',
+      serverName: name,
+      transport: config.transport,
+      toolCount: nextHandle.tools.length,
+    });
+    if (existing) await this.closeHandle(existing);
+  }
+
   private async buildClient(
     name: string,
     config: McpServerConfig,
   ): Promise<McpClientHandle> {
-    const transport = this.createTransport(name, config);
+    const headers: LiveHeaders | undefined =
+      config.transport === 'stdio'
+        ? undefined
+        : { current: { ...config.headers } };
+    const transport = this.createTransport(name, config, headers);
     this.attachTransportHandlers(name, transport);
 
     if (transport instanceof StdioClientTransport && transport.stderr) {
@@ -306,6 +353,7 @@ export class McpClientManager {
       config: cloneConfig(config),
       client,
       transport,
+      headers,
       tools: [],
       healthy: true,
     };
@@ -320,7 +368,11 @@ export class McpClientManager {
     return handle;
   }
 
-  private createTransport(name: string, config: McpServerConfig) {
+  private createTransport(
+    name: string,
+    config: McpServerConfig,
+    headers: LiveHeaders = { current: {} },
+  ) {
     switch (config.transport) {
       case 'stdio': {
         const command = normalizeText(config.command);
@@ -344,9 +396,7 @@ export class McpClientManager {
           throw new Error(`MCP server ${name} requires a URL for http`);
         }
         return new StreamableHTTPClientTransport(new URL(url), {
-          requestInit: {
-            headers: config.headers || {},
-          },
+          fetch: fetchWithHeaders(headers),
         });
       }
       case 'sse': {
@@ -355,9 +405,7 @@ export class McpClientManager {
           throw new Error(`MCP server ${name} requires a URL for sse`);
         }
         return new SSEClientTransport(new URL(url), {
-          requestInit: {
-            headers: config.headers || {},
-          },
+          fetch: fetchWithHeaders(headers),
         });
       }
       default:
