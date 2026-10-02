@@ -247,10 +247,15 @@ describe('deferred MCP tools behind the catalog', () => {
     expect(prompt).toContain('- crm__create_note(): crm__create_note');
     expect(prompt).not.toContain('- bash(');
     const many = Array.from({ length: 45 }, (_, i) => tool(`crm__tool_${i}`));
-    const capped = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)))!.promptGuidance();
+    const cappedCatalog = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)))!;
+    const capped = cappedCatalog.promptGuidance();
     expect(capped).toContain('- crm__tool_39(');
     expect(capped).not.toContain('- crm__tool_40(');
     expect(capped).toContain('…and 5 more: find them with action=list.');
+    // A tool past the cap is still found by list and called through the catalog.
+    const found = JSON.parse(cappedCatalog.discoveryResult(catalogCall({ action: 'list', query: 'crm tool 44' }))!.output);
+    expect(found.tools[0].name).toBe('crm__tool_44');
+    expect(cappedCatalog.resolveCall(catalogCall({ action: 'call', name: 'crm__tool_44', arguments: {} })).function.name).toBe('crm__tool_44');
     // Local requests pick their own starters and keep the plain guidance.
     expect(new ToolCatalog(builtins, ['read']).promptGuidance()).not.toContain('with their parameters');
   });

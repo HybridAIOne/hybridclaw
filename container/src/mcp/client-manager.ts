@@ -42,6 +42,13 @@ import {
 
 const MCP_CONNECT_TIMEOUT_MS = 60_000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 120_000;
+// 32,000 chars of serialized schema per server, ≈8K tokens (agent call,
+// 2026-10-02, pending owner review). A server past it goes behind
+// tool_catalog: Zoho-sized (32 tools, 56K) is deferred, HybridAI's connectors
+// (42 tools, 25K) stay loaded because a catalog step costs a model round trip.
+// Deferred: a budget for the whole tool payload, and compacting nested
+// property descriptions instead of deferring whole servers.
+const MAX_LOADED_SERVER_SCHEMA_CHARS = 32_000;
 const MCP_CLIENT_INFO = {
   name: 'hybridclaw-agent',
   version: process.env.npm_package_version || '0.0.0',
@@ -296,11 +303,29 @@ export class McpClientManager {
     );
   }
 
-  /** Tools whose server asked to load them only when needed. */
-  getDeferLoadingToolNames(): string[] {
-    return Array.from(this.clients.values()).flatMap((handle) =>
-      handle.tools.filter((tool) => tool.deferLoading).map((tool) => tool.name),
+  /**
+   * Tools of `requestTools` to load only when needed: those their server
+   * marks, and every tool of a server whose unmarked schemas in this request
+   * together exceed MAX_LOADED_SERVER_SCHEMA_CHARS. Sized from the definitions
+   * the model receives, so a request defers the same set on every worker.
+   */
+  getDeferLoadingToolNames(requestTools: ToolDefinition[]): string[] {
+    const offered = new Map(
+      requestTools.map((tool) => [tool.function.name, tool]),
     );
+    return Array.from(this.clients.values()).flatMap((handle) => {
+      const tools = handle.tools.filter((tool) => offered.has(tool.name));
+      const loadedChars = tools
+        .filter((tool) => !tool.deferLoading)
+        .reduce(
+          (sum, tool) => sum + JSON.stringify(offered.get(tool.name)).length,
+          0,
+        );
+      const oversized = loadedChars > MAX_LOADED_SERVER_SCHEMA_CHARS;
+      return tools
+        .filter((tool) => oversized || tool.deferLoading)
+        .map((tool) => tool.name);
+    });
   }
 
   async callToolDetailed(
