@@ -195,3 +195,26 @@ test('buildConversationContext appends dynamic context after unchanged history',
    expect(message.content).toContain('Date (UTC): 2026-05-12');
    expect(message.content).toContain('Daily note: memory/2026-05-13.md');
  });
+
+test('the current-time skill points at a line the dynamic context renders', async () => {
+  await createWorkspaceWithBootstrapFiles('current-time-agent');
+  const { buildDynamicContextMessage } = await import(
+    '../src/agent/conversation.js'
+  );
+  const skill = fs.readFileSync(
+    path.join(process.cwd(), 'skills', 'current-time', 'SKILL.md'),
+    'utf-8',
+  );
+  const description = skill.match(/^description: (.+)$/m)?.[1] ?? '';
+  // The description's first code span names the line the model answers from.
+  const label = description.match(/`([^`<]+)`/)?.[1];
+  expect(label).toBeTruthy();
+
+  const message = buildDynamicContextMessage({
+    agentId: 'current-time-agent',
+    now: new Date('2026-05-13T12:00:00Z'),
+  });
+  expect(String(message.content)).toMatch(
+    new RegExp(`^${label}: .*\\(Europe/Berlin\\)$`, 'm'),
+  );
+});

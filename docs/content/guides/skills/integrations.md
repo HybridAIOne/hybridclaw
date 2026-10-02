@@ -907,7 +907,8 @@ personal Gmail, Calendar, Drive, Docs, and Sheets access.
 
 ## current-time
 
-Return the current system time and timezone.
+Answer the current date, time, and timezone from the time HybridClaw adds to
+every turn (the `USER.md` timezone, else the host's), without a tool call.
 
 **Prerequisites** — none.
 
