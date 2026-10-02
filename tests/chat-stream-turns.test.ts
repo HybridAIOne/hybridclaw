@@ -1,7 +1,12 @@
 import { EventEmitter } from 'node:events';
-import type { ServerResponse } from 'node:http';
+import http, { type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { text } from 'node:stream/consumers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { openChatStreamTurn } from '../src/gateway/chat-stream-turns.js';
+import {
+  type ChatStreamTurn,
+  openChatStreamTurn,
+} from '../src/gateway/chat-stream-turns.js';
 
 class FakeResponse extends EventEmitter {
   statusCode = 0;
@@ -139,5 +144,72 @@ describe('chat stream turns', () => {
     first.turn?.send({ type: 'text', delta: 'late' });
     expect(next.res.types()).toEqual(['accepted']);
     next.turn?.end();
+  });
+});
+
+describe('chat stream turns on a real socket', () => {
+  it('hands the opening lines to the socket before the turn yields', async () => {
+    const sockets: Array<{ corked?: number; buffered?: number }> = [];
+    const turns: ChatStreamTurn[] = [];
+    let handled = () => {};
+    const server = http.createServer(async (req, res) => {
+      // As in the gateway: awaiting the body makes the rest of the handler a
+      // microtask, and Node runs `process.nextTick` callbacks only after the
+      // microtask queue drains.
+      await text(req);
+      const turn = openChatStreamTurn(res, 'real-socket');
+      // Stand-in for the context build: synchronous work chained through
+      // resolved awaits.
+      for (let step = 0; step < 5; step += 1) await Promise.resolve();
+      sockets.push({
+        corked: res.socket?.writableCorked,
+        buffered: res.socket?.writableLength,
+      });
+      if (turn) {
+        turns.push(turn);
+        turn.send({ type: 'text', delta: 'Working' });
+      }
+      handled();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    const request = async () => {
+      const wasHandled = new Promise<void>((resolve) => {
+        handled = resolve;
+      });
+      const body = fetch(url, { method: 'POST', body: '{}' }).then(
+        (response) => response.text(),
+      );
+      await wasHandled;
+      return { body };
+    };
+
+    try {
+      const first = await request();
+      const resend = await request();
+      for (const turn of turns) turn.end();
+
+      // Uncorked, and nothing left in the socket's write buffer: the lines
+      // went to the kernel before the handler's synchronous work ended.
+      expect(sockets).toEqual([
+        { corked: 0, buffered: 0 },
+        { corked: 0, buffered: 0 },
+      ]);
+      const types = (body: string) =>
+        body
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line).type);
+      const bodies = await Promise.all([first.body, resend.body]);
+      expect(bodies.map(types)).toEqual([
+        ['accepted', 'text'],
+        ['accepted', 'text'],
+      ]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });

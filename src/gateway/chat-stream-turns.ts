@@ -79,6 +79,10 @@ function join(turn: RunningTurn, res: ServerResponse): void {
   );
   for (const line of turn.lines) connection.write(line);
   turn.connections.add(connection);
+  // `res.write` corks the socket until the next tick, and in the gateway that
+  // tick waits for the turn's synchronous context build. Send the opening
+  // lines now; Node's own uncork on that tick then does nothing.
+  res.socket?.uncork();
 }
 
 /**
