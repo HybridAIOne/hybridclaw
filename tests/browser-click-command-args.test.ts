@@ -11,9 +11,10 @@ const PAGE_INFO_READ = {
   command: 'eval',
   args: ['(() => ({ url: location.href, title: document.title }))()'],
 };
-// A click that is not a download returns the page: a full snapshot, then the
-// snapshot's iframe and 2FA-field reads.
+// A click that is not a download returns the page once its requests settle: a
+// full snapshot, then the snapshot's iframe and 2FA-field reads.
 const PAGE_SNAPSHOT_READ = [
+  { command: 'wait', args: ['--load', 'networkidle'] },
   { command: 'snapshot', args: ['-C'] },
   { command: 'eval', args: [expect.any(String)] },
   { command: 'eval', args: [expect.any(String)] },
