@@ -981,10 +981,11 @@ bash skills/distil-pii-redactor/scripts/stop.sh
 
 ## handoff-links
 
-Hand food delivery, train trips and hotel stays to Lieferando, Wolt, Uber
-Eats, DB Navigator or Booking.com. These services have no ordering or booking
-API, so the agent writes a link that opens the user's app, or the website,
-with the search already filled in. The user picks, pays and confirms there.
+Hand food delivery, grocery shopping, train trips and hotel stays to
+Lieferando, Wolt, Uber Eats, Knuspr, Gurkerl, DB Navigator or Booking.com. The
+agent can't order or book there itself, so it writes a link that opens the
+user's app, or the website, with the search or shopping list already filled
+in. The user picks, pays and confirms there.
 
 **Prerequisites** — none.
 
@@ -997,6 +998,10 @@ with the search already filled in. The user picks, pays and confirms there.
 > and which resolves station names itself. Travellers and BahnCard come from
 > the profile saved in DB Navigator.
 >
+> Grocery links hand the agent's shopping list to Maia, the shopping assistant
+> in the Knuspr and Gurkerl apps, which puts matching products into the
+> user's cart.
+>
 > The agent never orders or books on these sites itself.
 
 > 🎯 **Try it yourself**
@@ -1006,6 +1011,8 @@ with the search already filled in. The user picks, pays and confirms there.
 > `Find me a train from Munich to Berlin on Friday morning`
 >
 > `Find a hotel in Hamburg for two from October 10 to 12`
+>
+> `Put the ingredients for tacos for four into my Knuspr cart, I live in Munich`
 >
 > **Conversation flow:**
 >

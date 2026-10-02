@@ -1,14 +1,15 @@
 ---
 name: handoff-links
-description: Hand off food delivery, train trips and hotel stays to Lieferando, Wolt, Uber Eats, DB Navigator or Booking.com with a prefilled link that opens the user's app. Use when the user wants to order food, find a train in or from Germany, or find a place to stay; you cannot order or book in these services yourself.
+description: Hand off food delivery, grocery shopping, train trips and hotel stays to Lieferando, Wolt, Uber Eats, Knuspr, Gurkerl, DB Navigator or Booking.com with a prefilled link that opens the user's app. Use when the user wants to order food, get groceries or a recipe's ingredients delivered, find a train in or from Germany, or find a place to stay; you cannot order or book in these services yourself.
 user-invocable: false
 metadata:
   hybridclaw:
     category: productivity
-    short_description: "Prefilled links into delivery, rail and hotel apps."
+    short_description: "Prefilled links into delivery, grocery, rail and hotel apps."
     tags:
       - food
       - delivery
+      - groceries
       - train
       - hotel
       - travel
@@ -16,11 +17,11 @@ metadata:
 ---
 # Handoff Links
 
-Lieferando, Wolt, Uber Eats, Deutsche Bahn and Booking.com have no API you can
-order or book through. Do the searching and thinking, then hand the last step
-to the user: a link that opens their app, or the website when the app is
-missing, with the search already filled in. The user picks, pays and confirms
-there.
+You can't order or book for the user at Lieferando, Wolt, Uber Eats, Knuspr,
+Gurkerl, Deutsche Bahn or Booking.com. Do the searching and thinking, then hand
+the last step to the user: a link that opens their app, or the website when the
+app is missing, with the search or the shopping list already filled in. The user
+picks, pays and confirms there.
 
 ## Rules
 
@@ -65,6 +66,36 @@ large cities.
 - Uber Eats asks for no place: the app uses the address saved there.
 - Neither Lieferando nor Wolt delivers in Switzerland. Offer Uber Eats there.
 
+## Groceries: Knuspr and Gurkerl
+
+Knuspr (Germany) and Gurkerl (Austria) deliver groceries within hours. Their
+app has its own shopping assistant, Maia, which puts products into the user's
+cart. Hand Maia the list you made with the user:
+
+```text
+https://www.knuspr.de/maiaQuery?prompt=<list>
+https://www.gurkerl.at/maiaQuery?prompt=<list>
+```
+
+- Settle the list with the user first: a recipe's ingredients for the number of
+  servings, or the weekly shop. Leave out what they already have at home.
+- `prompt` is one German sentence that names every item with its amount, for
+  example `Bitte in den Warenkorb: 2 Avocados, 8 Weizentortillas, 500 g
+  Rinderhackfleisch`. Use plain product words, and brands only when the user
+  asked for one. Keep it to about 25 items.
+- Show the list in your reply too, so the user sees what goes in, and label the
+  link with what happens, for example
+  `[5 Zutaten in den Knuspr-Warenkorb](https://...)`.
+- The link opens the Knuspr or Gurkerl app. Maia finds a product for each item
+  and puts it in the cart, and the user checks the cart, picks a delivery slot
+  and pays there. Say so; never say the order is placed.
+- Knuspr delivers around Berlin, Munich, Frankfurt and Rhine-Main, and Mannheim,
+  Ludwigshafen and Heidelberg. Gurkerl delivers in Vienna and its surroundings.
+  Elsewhere, say that they don't deliver there instead of sending the link.
+- If you have Knuspr tools from a connected Knuspr account, fill the cart with
+  them instead, never place the order, and then link `https://www.knuspr.de/` so
+  the app opens on the filled cart.
+
 ## Trains: DB Navigator
 
 ```text
@@ -104,4 +135,18 @@ Hier ist Sushi in deiner Nähe:
 
 [Sushi in 80331 bei Lieferando](https://www.lieferando.de/lieferservice/essen/80331?q=sushi)
 [Sushi in München bei Wolt](https://wolt.com/de/deu/munich/search?q=sushi)
+```
+
+The user writes "Mach mir Tacos für 4 heute Abend, ich hab nur Gewürze da" and
+you know they live in Munich:
+
+```markdown
+Das kommt in den Warenkorb:
+- 500 g Rinderhackfleisch
+- 8 Weizentortillas
+- 2 Avocados
+- 1 Limette
+- 200 g Schmand
+
+[5 Zutaten in den Knuspr-Warenkorb](https://www.knuspr.de/maiaQuery?prompt=Bitte%20in%20den%20Warenkorb%3A%20500%20g%20Rinderhackfleisch%2C%208%20Weizentortillas%2C%202%20Avocados%2C%201%20Limette%2C%20200%20g%20Schmand)
 ```
