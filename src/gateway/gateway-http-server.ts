@@ -8791,7 +8791,6 @@ async function runLiveAppBridgeTool(params: {
       },
     ],
     allowedTools: [params.toolName],
-    scheduledTasks: [],
     scheduleSideEffectsEnabled: false,
     maxTokens: 512,
     maxWallClockMs: LIVE_APP_BRIDGE_TIMEOUT_MS,

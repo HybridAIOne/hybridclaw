@@ -3,9 +3,12 @@
  *
  * A job exists in SQLite before the tool result reaches the model, so the
  * assistant can only confirm a schedule that is actually persisted and quote
- * its real id. Same-agent web chats may manage each other's tasks; messaging
- * sessions remain isolated. Validation here is the trust boundary for container input;
- * schedule semantics (cron parsing, firing) belong to `scheduler.ts`.
+ * its real id, and "list" reads SQLite too, so it includes what the turn just
+ * changed. Same-agent web chats may manage each other's tasks; messaging
+ * sessions remain isolated. A goal's check-in or a todo's reminder is listed
+ * but left to the `track` or `todo` tool, whose store moves it with the item.
+ * Validation here is the trust boundary for container input; schedule
+ * semantics (cron parsing, firing) belong to `scheduler.ts`.
  *
  * NOT the admin scheduler API (`gateway-scheduled-task-service.ts`), which
  * edits jobs on behalf of operators rather than the running agent turn.
@@ -21,8 +24,15 @@ import {
   updateScheduledTask,
 } from '../memory/jobs.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
+import { todoOwningTask } from '../todos/todo-store.js';
+import { trackedOwningTask } from '../tracking/track-store.js';
+import type { ScheduledTask } from '../types/scheduler.js';
+import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
-import { canManageScheduledTask } from './scheduled-task-access.js';
+import {
+  canManageScheduledTask,
+  listManageableScheduledTasks,
+} from './scheduled-task-access.js';
 
 interface PersistedTaskResult {
   ok: true;
@@ -39,10 +49,68 @@ interface PersistedTaskResult {
 export type ScheduledTaskToolActionResult =
   | (PersistedTaskResult & { action: 'add' })
   | (PersistedTaskResult & { action: 'update' })
-  | { ok: true; action: 'remove'; taskId: number; sessionId: string };
+  | { ok: true; action: 'remove'; taskId: number; sessionId: string }
+  | { ok: true; action: 'list'; sessionId: string; text: string };
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * What a goal's check-in or a todo's reminder belongs to. A live run showed
+ * why `cron` must not change one: the edited prompt made the store disown it,
+ * so the goal set a second check-in and the first outlived the goal.
+ */
+function ownerNote(taskId: number): string | null {
+  const item = trackedOwningTask(taskId);
+  if (item) {
+    return `the check-in of ${item.kind} #${item.id} "${item.title}"; change or stop it with the \`track\` tool ("every", "at")`;
+  }
+  const todo = todoOwningTask(taskId);
+  if (todo) {
+    return `the reminder of todo #${todo.id} "${todo.title}"; change or stop it with the \`todo\` tool ("remind")`;
+  }
+  return null;
+}
+
+function refuseOwnedTask(taskId: number): void {
+  const owner = ownerNote(taskId);
+  if (owner) throw new GatewayRequestError(409, `Task #${taskId} is ${owner}.`);
+}
+
+function scheduleText(task: ScheduledTask): string {
+  if (task.run_at) return `at ${task.run_at}`;
+  if (task.every_ms) {
+    const secs = task.every_ms / 1000;
+    if (secs < 120) return `every ${secs}s`;
+    if (secs < 7200) return `every ${Math.round(secs / 60)}m`;
+    return `every ${Math.round(secs / 3600)}h`;
+  }
+  return task.tz ? `${task.cron_expr} (${task.tz})` : task.cron_expr;
+}
+
+function listText(session: Session): string {
+  const { tasks, hiddenCount } = listManageableScheduledTasks(session);
+  const hiddenNote =
+    hiddenCount > 0
+      ? `${hiddenCount} more task(s) of this agent belong to other conversations. This chat cannot list or change them; Automation → Scheduler in the console can. Ask the user before adding a task that may duplicate one.`
+      : '';
+  if (tasks.length === 0) {
+    return hiddenNote
+      ? `No scheduled tasks in this chat. ${hiddenNote}`
+      : 'No scheduled tasks.';
+  }
+  const lines = tasks.map((task) => {
+    const status = task.enabled ? 'enabled' : 'disabled';
+    const destination = task.channel_id ? ` -> ${task.channel_id}` : '';
+    const failure =
+      task.last_error && (task.last_status === 'error' || !task.enabled)
+        ? ` (last run failed: ${task.last_error})`
+        : '';
+    return `#${task.id} [${status}] ${scheduleText(task)}${destination} — ${ownerNote(task.id) ?? task.prompt}${failure}`;
+  });
+  if (hiddenNote) lines.push(hiddenNote);
+  return lines.join('\n');
 }
 
 interface ScheduledTaskFields {
@@ -117,10 +185,15 @@ export function runScheduledTaskToolAction(
     throw new GatewayRequestError(400, 'Request body must be a JSON object.');
   }
   const action = readString(body.action);
-  if (action !== 'add' && action !== 'remove' && action !== 'update') {
+  if (
+    action !== 'list' &&
+    action !== 'add' &&
+    action !== 'remove' &&
+    action !== 'update'
+  ) {
     throw new GatewayRequestError(
       400,
-      'Invalid `action`. Allowed: "add", "update", "remove".',
+      'Invalid `action`. Allowed: "list", "add", "update", "remove".',
     );
   }
   const sessionId = readString(body.sessionId);
@@ -128,6 +201,10 @@ export function runScheduledTaskToolAction(
   const session = getSessionById(sessionId);
   if (!session) {
     throw new GatewayRequestError(404, `Unknown session: ${sessionId}`);
+  }
+
+  if (action === 'list') {
+    return { ok: true, action, sessionId, text: listText(session) };
   }
 
   if (action === 'remove') {
@@ -142,6 +219,7 @@ export function runScheduledTaskToolAction(
         `Unknown task #${taskId} for this session.`,
       );
     }
+    refuseOwnedTask(taskId);
     deleteJob(taskId);
     rearmScheduler();
     logger.info({ taskId, sessionId }, 'Cron tool removed task');
@@ -160,6 +238,7 @@ export function runScheduledTaskToolAction(
         `Unknown task #${taskId} for this session.`,
       );
     }
+    refuseOwnedTask(taskId);
 
     // A patch schedule field (cronExpr/runAt/everyMs) replaces the stored
     // schedule wholesale; everything else defaults to the stored job so an

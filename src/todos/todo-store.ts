@@ -516,11 +516,18 @@ export function isTodoReminderSettled(
   taskId: number,
   now = new Date(),
 ): boolean {
+  const todo = todoOwningTask(taskId);
+  return todo ? isDoneOn(todo, todayOf(todo, now)) : false;
+}
+
+/** The todo task `taskId` is the reminder of, so other tools leave it alone. */
+export function todoOwningTask(taskId: number): Todo | null {
   for (const list of load().values()) {
     const todo = list.todos.find(
-      (candidate) => candidate.reminderTaskId === taskId,
+      (candidate) =>
+        candidate.reminderTaskId === taskId && ownsReminder(candidate),
     );
-    if (todo && ownsReminder(todo)) return isDoneOn(todo, todayOf(todo, now));
+    if (todo) return todo;
   }
-  return false;
+  return null;
 }

@@ -305,6 +305,17 @@ function change(
   );
 }
 
+/** The item task `taskId` is the check-in of, so other tools leave it alone. */
+export function trackedOwningTask(taskId: number): Tracked | null {
+  for (const list of load().values()) {
+    const item = list.items.find(
+      (candidate) => candidate.checkTaskId === taskId && ownsCheck(candidate),
+    );
+    if (item) return item;
+  }
+  return null;
+}
+
 export function listTracked(session: Session): Tracked[] {
   return load().get(todoOwnerOf(session))?.items ?? [];
 }

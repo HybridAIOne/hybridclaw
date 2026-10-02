@@ -197,21 +197,6 @@ export interface ContextGuardConfig {
   maxRetries: number;
 }
 
-export interface ScheduledTaskInput {
-  id: number;
-  channelId: string;
-  cronExpr: string;
-  tz: string;
-  runAt: string | null;
-  everyMs: number | null;
-  prompt: string;
-  enabled: number;
-  lastRun: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  createdAt: string;
-}
-
 export type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
@@ -280,9 +265,6 @@ export interface ContainerInput extends SessionAttachmentAccess {
   client?: string;
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
-  scheduledTasks?: ScheduledTaskInput[];
-  /** Tasks of this agent that this chat may not list or change. */
-  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];

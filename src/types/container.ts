@@ -19,7 +19,6 @@ import type {
   ProviderKind,
   TaskModelPolicies,
 } from './models.js';
-import type { ScheduledTaskInput } from './scheduler.js';
 import type { DelegationSideEffect } from './side-effects.js';
 import type { TokenUsageStats } from './usage.js';
 
@@ -94,9 +93,6 @@ export interface ContainerInput extends SessionAttachmentAccess {
   client?: string;
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
-  scheduledTasks?: ScheduledTaskInput[];
-  /** Tasks of this agent that this chat may not list or change. */
-  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];

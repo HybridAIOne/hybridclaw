@@ -150,21 +150,6 @@ function guardCommand(command: string): string | null {
   return null;
 }
 
-type ScheduledTaskInfo = {
-  id: number;
-  channelId: string;
-  cronExpr: string;
-  tz: string;
-  runAt: string | null;
-  everyMs: number | null;
-  prompt: string;
-  enabled: number;
-  lastRun: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  createdAt: string;
-};
-
 // Heartbeat has no user-facing conversation for scheduled output.
 const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['heartbeat']);
 
@@ -331,8 +316,6 @@ function describeSchedule(task: {
 
 let pendingDelegations: DelegationSideEffect[] = [];
 let delegateCallsThisTurn = 0;
-let injectedTasks: ScheduledTaskInfo[] = [];
-let hiddenTaskCount = 0;
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let currentAgentId = '';
@@ -746,14 +729,6 @@ export function getPendingSideEffects():
   | undefined {
   if (pendingDelegations.length === 0) return undefined;
   return { delegations: pendingDelegations };
-}
-
-export function setScheduledTasks(
-  tasks: ScheduledTaskInfo[] | undefined,
-  hiddenCount = 0,
-): void {
-  injectedTasks = tasks || [];
-  hiddenTaskCount = hiddenCount;
 }
 
 export function setScheduleSideEffectsEnabled(enabled: boolean): void {
@@ -1330,11 +1305,13 @@ async function callGatewaySchedulerTask(
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
     const actionLabel =
-      payload.action === 'remove'
-        ? 'removal'
-        : payload.action === 'update'
-          ? 'update'
-          : 'creation';
+      payload.action === 'list'
+        ? 'listing'
+        : payload.action === 'remove'
+          ? 'removal'
+          : payload.action === 'update'
+            ? 'update'
+            : 'creation';
     throw new ToolExecutionFailure(
       `Error: scheduled task ${actionLabel} failed (HTTP ${response.status}): ${detail}`,
     );
@@ -4021,35 +3998,10 @@ async function executeToolInternal(
     case 'cron': {
       const action = args.action;
 
+      // Read live, so the list shows what `track` or `todo` just changed.
       if (action === 'list') {
-        const hiddenNote =
-          hiddenTaskCount > 0
-            ? `${hiddenTaskCount} more task(s) of this agent belong to other conversations. This chat cannot list or change them; Automation → Scheduler in the console can. Ask the user before adding a task that may duplicate one.`
-            : '';
-        if (injectedTasks.length === 0) {
-          return hiddenNote
-            ? `No scheduled tasks in this chat. ${hiddenNote}`
-            : 'No scheduled tasks.';
-        }
-        const lines = injectedTasks.map((t) => {
-          let schedule: string;
-          if (t.runAt) schedule = `at ${t.runAt}`;
-          else if (t.everyMs) {
-            const secs = t.everyMs / 1000;
-            if (secs < 120) schedule = `every ${secs}s`;
-            else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
-            else schedule = `every ${Math.round(secs / 3600)}h`;
-          } else schedule = t.tz ? `${t.cronExpr} (${t.tz})` : t.cronExpr;
-          const status = t.enabled ? 'enabled' : 'disabled';
-          const destination = t.channelId ? ` -> ${t.channelId}` : '';
-          const failure =
-            t.lastError && (t.lastStatus === 'error' || !t.enabled)
-              ? ` (last run failed: ${t.lastError})`
-              : '';
-          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
-        });
-        if (hiddenNote) lines.push(hiddenNote);
-        return lines.join('\n');
+        const listed = await callGatewaySchedulerTask({ action: 'list' });
+        return String(listed.text);
       }
 
       if (action === 'add') {
