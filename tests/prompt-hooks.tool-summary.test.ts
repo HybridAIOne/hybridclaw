@@ -761,6 +761,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('share only absolute https URLs');
   expect(mobile).toContain('call `hybridai__list_connectors`');
   expect(web).not.toContain('hybridai__list_connectors');
+  expect(mobile).toContain('Write like a friend texting back');
+  expect(web).not.toContain('Write like a friend texting back');
 });
 
 test('the mobile client prompt leaves out coding, document-building and browser detail', () => {
