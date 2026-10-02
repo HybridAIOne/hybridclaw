@@ -429,7 +429,9 @@ test('browser_navigate can request a headed browser session', async () => {
   expect(records.map((record) => record.command)).toEqual([
     'open',
     'network',
-    // The page navigate returns: a full snapshot, its iframes, 2FA fields.
+    // The page navigate returns, once its requests settle: a full snapshot,
+    // its iframes, 2FA fields.
+    'wait',
     'snapshot',
     'eval',
     'eval',
@@ -532,16 +534,20 @@ test('browser_navigate relaunches when headed mode changes', async () => {
 
   expect(parsed.success).toBe(true);
   expect(parsed.headed).toBe(false);
-  const navigation = ['open', 'network', 'snapshot', 'eval', 'eval', 'eval'];
+  const navigation = ['open', 'network', 'wait', 'snapshot', 'eval', 'eval', 'eval'];
   expect(records.map((record) => record.command)).toEqual([
     ...navigation,
     'close',
     ...navigation,
   ]);
-  expect(records.slice(0, 7).every((record) => record.headed === '1')).toBe(
-    true,
-  );
-  expect(records.slice(7).every((record) => record.headed === '0')).toBe(true);
+  // The headed launch and its close, then the headless one.
+  const headedRecords = navigation.length + 1;
+  expect(
+    records.slice(0, headedRecords).every((record) => record.headed === '1'),
+  ).toBe(true);
+  expect(
+    records.slice(headedRecords).every((record) => record.headed === '0'),
+  ).toBe(true);
 });
 
 test('browser_navigate preserves configured browser args in headed mode', async () => {
