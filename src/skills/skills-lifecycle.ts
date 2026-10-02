@@ -15,6 +15,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { logger } from '../logger.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
   assertImportBudget,
@@ -425,6 +426,11 @@ function recordSkillLifecycleAudit(params: {
       revisionId: params.revisionId || null,
       actor: actorOrDefault(params.actor),
     },
+  }).catch((err) => {
+    logger.warn(
+      { err, skillName: params.skillName, action: params.action },
+      'Failed to record skill lifecycle audit event',
+    );
   });
 }
 

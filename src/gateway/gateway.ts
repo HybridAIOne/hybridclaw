@@ -35,6 +35,7 @@ import {
   listAgents,
   resolveAgentForRequest,
 } from '../agents/agent-registry.js';
+import { flushAuditTrail } from '../audit/audit-trail.js';
 import {
   startObservabilityIngest,
   stopObservabilityIngest,
@@ -4107,6 +4108,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopMemoryConsolidationScheduler();
+    await runShutdownStep('flush audit trail', flushAuditTrail);
     // Every database writer is stopped by now; checkpoint and close so no
     // WAL is left behind if the process is killed during the flushes below.
     await runShutdownStep('close database', closeDatabase);

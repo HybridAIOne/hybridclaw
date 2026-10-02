@@ -444,6 +444,10 @@ HybridClaw records forensic audit events by default:
   `~/.hybridclaw/data/audit/<session>/wire.jsonl`
 - tamper-evident hash chain from `_prevHash` to `_hash`
 - normalized SQLite tables: `audit_events` and `approvals`
+- appends queue in call order and are group-committed off the event loop
+  (`src/audit/audit-trail.ts`); a record reaches `audit_events` only after its
+  wire line is fsynced, and gateway shutdown drains the queue before closing
+  the database
 - model calls to the `hybridai` provider carry `X-HybridClaw-Session-Id`,
   `X-HybridClaw-Run-Id`, `X-HybridClaw-Agent-Id`, and `X-HybridClaw-Channel-Id`
   headers whose values match the `sessionId` and `runId` of the wire log, so

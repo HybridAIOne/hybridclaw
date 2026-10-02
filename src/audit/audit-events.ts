@@ -27,9 +27,7 @@ export function makeAuditRunId(prefix = 'run'): string {
 }
 
 export function recordAuditEvent(input: RecordAuditEventInput): void {
-  try {
-    recordAuditEventStrict(input);
-  } catch (err) {
+  recordAuditEventStrict(input).catch((err) => {
     logger.warn(
       {
         sessionId: input.sessionId,
@@ -39,11 +37,15 @@ export function recordAuditEvent(input: RecordAuditEventInput): void {
       },
       'Failed to persist structured audit event',
     );
-  }
+  });
 }
 
-export function recordAuditEventStrict(input: RecordAuditEventInput): void {
-  const record = appendAuditEvent(input);
+// Mirrors to SQLite only after the wire line is durable, so the table never
+// holds a record the hash chain lost.
+export async function recordAuditEventStrict(
+  input: RecordAuditEventInput,
+): Promise<void> {
+  const record = await appendAuditEvent(input);
   logStructuredAuditEvent(record);
 }
 

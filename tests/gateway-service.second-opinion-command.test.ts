@@ -29,6 +29,11 @@ async function loadGatewayFixture() {
   return { memoryService, handleGatewayCommand };
 }
 
+async function flushAudit(): Promise<void> {
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
+}
+
 function mockModelCatalog(
   models: string[] | Record<string, string[]>,
   metadataOverrides: Record<
@@ -268,6 +273,7 @@ test.each([false, true])('second-opinion validates the previous answer and attri
   expect(payload.original_question).toBe('How should we migrate the database?');
   expect(payload.active_assistant_draft).toContain('delete the old one');
 
+  await flushAudit();
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
   );
@@ -501,6 +507,7 @@ test('second-opinion fact-check adds web search and fetch evidence to validation
     'at least 10 independent Internet sources',
   );
 
+  await flushAudit();
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
   );
@@ -616,6 +623,7 @@ test('second-opinion caps explicit questions before the stronger model call', as
   expect(payload.original_question).toContain('Question truncated to 4000');
   expect(payload.original_question.length).toBeLessThan(longQuestion.length);
 
+  await flushAudit();
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
   );
@@ -711,6 +719,7 @@ test('second-opinion audits model metadata cost and context estimates', async ()
 
   expect(result.kind).toBe('info');
 
+  await flushAudit();
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
   );
@@ -1036,6 +1045,7 @@ test('second-opinion blocks critical confidential payloads for remote stronger m
   expect(result.text).toContain('critical confidential policy');
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
 
+  await flushAudit();
   const { getRecentStructuredAuditForSession } = await import(
     '../src/memory/db.ts'
   );

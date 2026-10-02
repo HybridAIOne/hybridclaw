@@ -59,6 +59,7 @@ describe('remote policy authority', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const remote = await import('../src/policy/remote-policy-authority.ts');
 
     initDatabase({ quiet: true });
@@ -127,6 +128,7 @@ network:
     ).toContain('api.github.com');
 
     expect(remote.listPolicyRevisions(workspacePath)).toHaveLength(1);
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'policy:update:cve-denylist-1',
       5,

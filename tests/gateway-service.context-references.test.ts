@@ -19,6 +19,11 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
+async function flushAudit(): Promise<void> {
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
+}
+
 test('handleGatewayMessage expands context references only for llm-facing paths', async () => {
   setupHome();
 
@@ -88,6 +93,7 @@ test('handleGatewayMessage expands context references only for llm-facing paths'
     content,
   );
 
+  await flushAudit();
   const records = fs
     .readFileSync(getAuditWirePath(sessionId), 'utf8')
     .split('\n')
@@ -402,6 +408,7 @@ test('handleGatewayMessage completes hatching after the welcome message send', a
     (runAgentMock.mock.calls[1]?.[0] as { model?: string } | undefined)?.model,
   ).toBe('gpt-5-mini');
 
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     'session-onboarding-email-complete',
     100,
@@ -551,6 +558,7 @@ test('handleGatewayMessage records terminal hatching audit when persistence fail
   expect(result?.error).toContain('store failed after hatching');
   expect(fs.existsSync(bootstrapPath)).toBe(false);
 
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     'session-onboarding-complete-store-failure',
     100,
@@ -702,6 +710,7 @@ test('handleGatewayMessage completes hatching when the agent deletes BOOTSTRAP.m
     onboardingCompletedAt: expect.stringMatching(/\d{4}-\d{2}-\d{2}T/),
   });
 
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     'session-onboarding-agent-delete-complete',
     100,
@@ -918,6 +927,7 @@ test('handleGatewayMessage completes hatching after three turns without a messag
     (runAgentMock.mock.calls[3]?.[0] as { model?: string } | undefined)?.model,
   ).toBe('gpt-5-mini');
 
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     'session-onboarding-no-message-fallback',
     100,

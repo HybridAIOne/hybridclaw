@@ -32,6 +32,7 @@ describe('A2A outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -187,6 +188,7 @@ describe('A2A outbound adapter', () => {
       scope: [a2a.A2A_MESSAGE_SEND_SCOPE],
       parent_run_id: 'run-a2a-outbound',
     });
+    await flushAuditTrail();
     const audit = getRecentStructuredAuditForSession(
       'session-a2a-outbound',
       10,
@@ -282,6 +284,7 @@ describe('A2A outbound adapter', () => {
     });
 
     const sessionId = 'a2a:thread:thread-a2a';
+    await audit.flushAuditTrail();
     const records = fs
       .readFileSync(audit.getAuditWirePath(sessionId), 'utf-8')
       .split('\n')
@@ -527,6 +530,7 @@ describe('A2A outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -589,6 +593,7 @@ describe('A2A outbound adapter', () => {
       peerId: 'peer-prod',
       status: 'trusted',
     });
+    await flushAuditTrail();
     expect(
       getRecentStructuredAuditForSession('a2a:trust-ledger', 10).map(
         (event) => event.event_type,
@@ -823,6 +828,7 @@ describe('A2A outbound adapter', () => {
     const { getRecentStructuredAuditForSession, initDatabase } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -872,6 +878,7 @@ describe('A2A outbound adapter', () => {
       retried: 1,
     });
 
+    await flushAuditTrail();
     const retryAudit = getRecentStructuredAuditForSession(
       'session-resolved-peer-retry',
       5,
@@ -889,6 +896,7 @@ describe('A2A outbound adapter', () => {
     const { getRecentStructuredAuditForSession, initDatabase } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -938,6 +946,7 @@ describe('A2A outbound adapter', () => {
       lastError:
         'A2A identity discovery public key mismatch for remote@team@peer-instance',
     });
+    await flushAuditTrail();
     const failureAudit = getRecentStructuredAuditForSession(
       'session-resolved-peer-mismatch',
       5,
@@ -1004,6 +1013,7 @@ describe('A2A outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -1076,6 +1086,7 @@ describe('A2A outbound adapter', () => {
       status: 'failed',
       lastError: expect.stringContaining('public key mismatch'),
     });
+    await flushAuditTrail();
     expect(
       getRecentStructuredAuditForSession('a2a:trust-ledger', 10).map(
         (event) => event.event_type,
@@ -1305,6 +1316,7 @@ describe('A2A outbound adapter', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
@@ -1390,6 +1402,7 @@ describe('A2A outbound adapter', () => {
       attempts: 1,
       lastStatusCode: 401,
     });
+    await flushAuditTrail();
     expect(
       getRecentStructuredAuditForSession('session-a2a-fail', 10).map(
         (event) => event.event_type,

@@ -1163,34 +1163,32 @@ function getRecentSessionBoundaryRows(
   sessionIds: string[],
   userId: string | null,
 ): RecentSessionBoundaryRow[] {
+  // Seek boundary ids on idx_messages_session, then fetch only those rows:
+  // ranking every message in a long session blocked the event loop.
   return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
     queryAll<RecentSessionBoundaryRow>(
       getSessionDatabase(),
-      `WITH ranked AS (
+      `WITH boundary_ids AS (
          SELECT
-           session_id,
-           role,
-           content,
-           CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END AS is_target_user,
-           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
-           ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
-           ROW_NUMBER() OVER (
-             PARTITION BY session_id, CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END
-             ORDER BY id ASC
-           ) AS rn_target_group
-         FROM messages
-         WHERE session_id IN (${placeholders})
+           s.id AS session_id,
+           (SELECT id FROM messages WHERE session_id = s.id ORDER BY id ASC LIMIT 1) AS first_id,
+           (SELECT id FROM messages WHERE session_id = s.id ORDER BY id DESC LIMIT 1) AS last_id,
+           (SELECT id FROM messages
+             WHERE session_id = s.id AND role = 'user' AND (? IS NULL OR user_id = ?)
+             ORDER BY id ASC LIMIT 1) AS first_user_id
+         FROM sessions s
+         WHERE s.id IN (${placeholders})
        )
        SELECT
-         session_id,
-         MAX(CASE WHEN is_target_user = 1 AND rn_target_group = 1 THEN content END) AS first_user_content,
-         MAX(CASE WHEN rn_first = 1 THEN content END) AS first_content,
-         MAX(CASE WHEN rn_last = 1 THEN content END) AS last_content,
-         MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
-       FROM ranked
-       GROUP BY session_id`,
-      userId,
-      userId,
+         b.session_id,
+         first_user.content AS first_user_content,
+         first.content AS first_content,
+         last.content AS last_content,
+         last.role AS last_role
+       FROM boundary_ids b
+       LEFT JOIN messages first_user ON first_user.id = b.first_user_id
+       LEFT JOIN messages first ON first.id = b.first_id
+       LEFT JOIN messages last ON last.id = b.last_id`,
       userId,
       userId,
       ...batch,

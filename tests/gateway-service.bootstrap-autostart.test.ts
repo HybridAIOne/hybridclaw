@@ -102,6 +102,11 @@ const { setupHome } = setupGatewayTest({
   },
 });
 
+async function flushAudit(): Promise<void> {
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
+}
+
 test('ensureGatewayBootstrapAutostart stores BOOTSTRAP opener once per agent workspace', async () => {
   setupHome();
 
@@ -224,6 +229,7 @@ test('ensureGatewayBootstrapAutostart stores BOOTSTRAP opener once per agent wor
 
   const storedSession = memoryService.getSessionById(sessionId);
   expect(storedSession?.message_count).toBe(2);
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     storedSession?.id || sessionId,
     100,
@@ -520,6 +526,7 @@ test('ensureGatewayBootstrapAutostart records terminal hatching audit when a pos
 
   expect(fs.existsSync(path.join(workspaceDir, 'BOOTSTRAP.md'))).toBe(false);
   const storedSession = memoryService.getSessionById(sessionId);
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(
     storedSession?.id || sessionId,
     100,
@@ -598,6 +605,7 @@ test('ensureGatewayBootstrapAutostart records later onboarding turns as continue
   });
 
   const storedSessionId = getSessionById(sessionId)?.id || sessionId;
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(storedSessionId, 100);
   const onboardingTurnEvents = auditRows
     .filter(
@@ -668,6 +676,7 @@ test('ensureGatewayBootstrapAutostart audits onboarding abort when bootstrap is 
 
   expect(runAgentMock).not.toHaveBeenCalled();
   const storedSessionId = getSessionById(sessionId)?.id || sessionId;
+  await flushAudit();
   const auditRows = getRecentStructuredAuditForSession(storedSessionId, 20);
   const abortEvent = auditRows.find(
     (row) => row.event_type === 'onboarding.abort',

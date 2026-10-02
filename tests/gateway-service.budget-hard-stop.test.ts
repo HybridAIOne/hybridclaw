@@ -92,6 +92,8 @@ test('refuses the turn and pauses the goal once the agent reaches its cap', asyn
   expect(runAgentMock).not.toHaveBeenCalled();
   expect(goal?.status).toBe('paused');
   expect(goal?.pausedReason).toBe('agent budget hard-stop');
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+  await flushAuditTrail();
   const hardStop = db
     .getRecentStructuredAuditForSession(sessionId, 20)
     .find((row) => row.event_type === 'budget.hard_stop');

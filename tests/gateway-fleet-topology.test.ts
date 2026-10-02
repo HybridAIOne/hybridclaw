@@ -115,6 +115,7 @@ describe('gateway admin fleet topology', () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const service = await import('../src/gateway/gateway-fleet-topology.ts');
 
     initDatabase({ quiet: true });
@@ -130,6 +131,7 @@ describe('gateway admin fleet topology', () => {
       peerId: 'audited-child',
       fetchImpl: vi.fn() as unknown as typeof fetch,
     });
+    await flushAuditTrail();
 
     const auditTypes = getRecentStructuredAuditForSession(
       'a2a:trust-ledger',

@@ -7916,8 +7916,9 @@ function handleApiEvents(
 
   const sendSnapshot = async (): Promise<void> => {
     try {
-      sendEvent('overview', await getGatewayAdminOverview());
-      sendEvent('status', await getGatewayStatus());
+      const overview = await getGatewayAdminOverview();
+      sendEvent('overview', overview);
+      sendEvent('status', overview.status);
     } catch (err) {
       logger.debug({ err }, 'SSE snapshot failed');
     }
@@ -9177,20 +9178,18 @@ function recordPublicationSessionMint(params: {
   sourceIp: string | null;
   viewerSub?: string | null;
 }): void {
-  try {
-    appendAuditEvent({
-      sessionId: `app-publication-${params.publication.id}`,
-      runId: `pub_${randomUUID().replace(/-/g, '')}`,
-      event: {
-        type: 'app.publication.session.mint',
-        publicationId: params.publication.id,
-        appId: params.app.id,
-        policyKind: params.policyKind,
-        viewerSub: params.viewerSub ?? null,
-        sourceIp: params.sourceIp,
-      },
-    });
-  } catch (error) {
+  appendAuditEvent({
+    sessionId: `app-publication-${params.publication.id}`,
+    runId: `pub_${randomUUID().replace(/-/g, '')}`,
+    event: {
+      type: 'app.publication.session.mint',
+      publicationId: params.publication.id,
+      appId: params.app.id,
+      policyKind: params.policyKind,
+      viewerSub: params.viewerSub ?? null,
+      sourceIp: params.sourceIp,
+    },
+  }).catch((error) => {
     logger.warn(
       {
         err: error instanceof Error ? error.message : String(error),
@@ -9199,7 +9198,7 @@ function recordPublicationSessionMint(params: {
       },
       'Failed to record app publication session mint audit event',
     );
-  }
+  });
 }
 
 function handlePublicationShell(

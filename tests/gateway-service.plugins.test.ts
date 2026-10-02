@@ -2311,9 +2311,11 @@ test('admin tools catalog excludes stale plugin tool executions when the plugin 
     },
   ]);
 
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   const { getGatewayAdminTools } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  await flushAuditTrail();
   const result = await getGatewayAdminTools();
   const catalogNames = result.groups.flatMap((group) =>
     group.tools.map((tool) => tool.name),
