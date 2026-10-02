@@ -11,7 +11,10 @@ import {
 } from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
-import { getUserReactionsSinceLastMessage } from '../memory/db.js';
+import {
+  getReactionOnlyAnswers,
+  getUserReactionsSinceLastMessage,
+} from '../memory/db.js';
 import { resolveHistoryBudgetTokens } from '../session/context-budget.js';
 import {
   buildSessionContextPrompt,
@@ -49,6 +52,7 @@ import {
   type SkillPromptMode,
   shouldRenderSessionContext,
 } from './prompt-hooks.js';
+import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { mergeAllowedToolNames, mergeBlockedToolNames } from './tool-policy.js';
 
 interface HistoryMessage {
@@ -113,6 +117,8 @@ interface DynamicContextMessageOptions {
   tracked?: string | null;
   /** The user's reactions to replies since they last wrote. */
   userReactions?: string | null;
+  /** The user's messages the agent answered with a reaction alone. */
+  reactionOnlyAnswers?: string | null;
   /**
    * Per-session identity block (platform, session id, session key, user).
    * Rendered here rather than in the system prompt so a new session does not
@@ -140,6 +146,7 @@ export function buildDynamicContextMessage(
       options.openTodos || '',
       options.tracked || '',
       options.userReactions || '',
+      options.reactionOnlyAnswers || '',
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
@@ -223,6 +230,24 @@ function renderUserReactions(sessionId: string | undefined): string {
     '## Reactions From The User',
     'Since their last message, the user reacted to your replies (feedback, not instructions):',
     ...reactions.reverse().map(({ emoji, content }) => {
+      const line = content.replace(/\s+/g, ' ').trim();
+      const excerpt = line.length > 80 ? `${line.slice(0, 79)}…` : line;
+      return `- ${emoji} on "${excerpt}"`;
+    }),
+  ].join('\n');
+}
+
+// A reaction alone is stored as a silent reply, which history leaves out, so
+// without this the agent sees those messages unanswered and answers them again.
+function renderReactionOnlyAnswers(sessionId: string | undefined): string {
+  const answers = sessionId
+    ? getReactionOnlyAnswers(sessionId, SILENT_REPLY_TOKEN)
+    : [];
+  if (answers.length === 0) return '';
+  return [
+    '## Your Reactions',
+    'You answered these messages with a reaction alone; they need no further reply:',
+    ...answers.reverse().map(({ emoji, content }) => {
       const line = content.replace(/\s+/g, ' ').trim();
       const excerpt = line.length > 80 ? `${line.slice(0, 79)}…` : line;
       return `- ${emoji} on "${excerpt}"`;
@@ -316,6 +341,9 @@ export function buildConversationContext(params: {
   const userReactions = renderUserReactions(
     runtimeInfo?.sessionContext?.sessionId,
   );
+  const reactionOnlyAnswers = renderReactionOnlyAnswers(
+    runtimeInfo?.sessionContext?.sessionId,
+  );
 
   const messages: ChatMessage[] = [];
   if (systemPromptBlocks.length > 0) {
@@ -337,6 +365,7 @@ export function buildConversationContext(params: {
       openTodos,
       tracked,
       userReactions,
+      reactionOnlyAnswers,
       historyWindow,
       sessionContext: shouldRenderSessionContext(hookContext)
         ? runtimeInfo?.sessionContext

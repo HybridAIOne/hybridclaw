@@ -131,6 +131,65 @@ test('the agent’s reaction lands on the user’s message, and alone it is the 
   );
 });
 
+test('where reactions show, a reply of one emoji alone is a reaction', async () => {
+  const { turn, getGatewayHistory } = await setup();
+  runAgentMock
+    .mockResolvedValueOnce(answered(' 😊\n'))
+    .mockResolvedValueOnce(answered('😊 Gern!'))
+    .mockResolvedValueOnce(answered('🎉🎉'))
+    .mockResolvedValueOnce(answered('😊'));
+
+  const lone = await turn('Supi!');
+  const withText = await turn('Danke');
+  const two = await turn('Bestanden!');
+  const elsewhere = await turn('Super', false);
+
+  expect(lone).toMatchObject({ result: '', reaction: '😊' });
+  expect(withText).toMatchObject({ result: '😊 Gern!' });
+  expect(withText.reaction).toBeUndefined();
+  expect(two.reaction).toBeUndefined();
+  expect(elsewhere).toMatchObject({ result: '😊' });
+  expect(elsewhere.reaction).toBeUndefined();
+  expect(
+    getGatewayHistory(String(lone.sessionId)).history[0],
+  ).toMatchObject({ role: 'user', content: 'Supi!', reaction: '😊' });
+});
+
+test('a message answered with a reaction alone reads as answered later', async () => {
+  const { turn, sentToModel } = await setup();
+  runAgentMock
+    .mockResolvedValueOnce(answered(null, '🎉'))
+    .mockResolvedValueOnce(answered('Any time!', '❤️'))
+    .mockResolvedValueOnce(answered('Deep sleep restores the body.'));
+
+  await turn('I got the job!');
+  await turn('Thanks');
+  await turn('What is deep sleep?');
+
+  expect(sentToModel(1)).toContain('## Your Reactions');
+  expect(sentToModel(2)).toContain('🎉 on \\"I got the job!\\"');
+  // A reaction that came with words is in the history already.
+  expect(sentToModel(2)).not.toContain('❤️ on');
+});
+
+test('a streamed reply is held back only while it could be one emoji alone', async () => {
+  const { createLoneEmojiHold } = await import(
+    '../src/gateway/chat-reactions.js'
+  );
+  const hold = createLoneEmojiHold();
+
+  expect(hold.push('👍')).toBe('');
+  expect(hold.push('🏽')).toBe('');
+  expect(hold.flush()).toBe('👍🏽');
+  // After a tool call, a new reply is held again.
+  expect(hold.push('😊')).toBe('');
+  expect(hold.push(' Gern')).toBe('😊 Gern');
+  expect(hold.push('!')).toBe('!');
+  expect(hold.flush()).toBe('');
+  expect(hold.push('Hallo')).toBe('Hallo');
+  expect(hold.push(' 🎉')).toBe(' 🎉');
+});
+
 test('the user’s reaction reaches the agent with their next message, once', async () => {
   const { turn, sentToModel } = await setup();
   runAgentMock.mockResolvedValue(answered('Here is your summary.'));
