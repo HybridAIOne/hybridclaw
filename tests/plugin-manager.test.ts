@@ -743,7 +743,7 @@ test('loadPluginManifest rejects blank manifest ids', async () => {
 
 test('validatePluginConfig enforces common JSON Schema keywords via Ajv', async () => {
   const { validatePluginConfig } = await import(
-    '../src/plugins/plugin-manager.js'
+    '../src/plugins/plugin-config-validation.js'
   );
 
   const schema = {
@@ -788,7 +788,7 @@ test('validatePluginConfig enforces common JSON Schema keywords via Ajv', async 
 
 test('validatePluginConfig applies defaults and strips additional properties', async () => {
   const { validatePluginConfig } = await import(
-    '../src/plugins/plugin-manager.js'
+    '../src/plugins/plugin-config-validation.js'
   );
 
   expect(
