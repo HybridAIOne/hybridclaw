@@ -8,9 +8,10 @@ import {
   McpError,
 } from '../container/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js';
 import { McpClientManager } from '../container/src/mcp/client-manager.js';
-import type {
-  McpClientHandle,
-  McpServerConfig,
+import {
+  DEFER_LOADING_META,
+  type McpClientHandle,
+  type McpServerConfig,
 } from '../container/src/mcp/types.js';
 
 function makeConfig(command: string): McpServerConfig {
@@ -195,5 +196,46 @@ describe('McpClientManager transport events', () => {
 
     transport.onclose?.();
     expect(manager.isKnownTool('mail__send')).toBe(false);
+  });
+});
+
+describe('McpClientManager deferred loading', () => {
+  test('keeps the tools a server marks for loading only when needed', () => {
+    const manager = new McpClientManager() as unknown as {
+      clients: Map<string, McpClientHandle>;
+      mapTools(
+        serverName: string,
+        serverNamespace: string,
+        tools: Array<Record<string, unknown>>,
+        seenNames: Set<string>,
+      ): McpClientHandle['tools'];
+      getDeferLoadingToolNames(): string[];
+    };
+    const tools = manager.mapTools(
+      'hybridai',
+      'hybridai',
+      [
+        { name: 'web_search', inputSchema: { type: 'object' } },
+        {
+          name: 'dm__search_products',
+          inputSchema: { type: 'object' },
+          _meta: { [DEFER_LOADING_META]: true },
+        },
+        {
+          name: 'trivago__search',
+          inputSchema: { type: 'object' },
+          _meta: { [DEFER_LOADING_META]: 'yes' },
+        },
+      ],
+      new Set(),
+    );
+    manager.clients.set('hybridai', {
+      ...makeHandle('hybridai', 'unused'),
+      tools,
+    });
+
+    expect(manager.getDeferLoadingToolNames()).toEqual([
+      'hybridai__dm__search_products',
+    ]);
   });
 });

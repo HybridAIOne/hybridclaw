@@ -23,6 +23,12 @@ const MAX_SCHEMA_CHARS = 24_000;
 // Engineering choice, 2026-09-10: two catalog corrections per request.
 // Missing fields/lookups may recover; unavailable actions stay fail-fast.
 const MAX_CATALOG_CORRECTIONS = 2;
+// Deferred MCP tools are named in the prompt with their parameters, so the
+// model can call one without a list or describe round trip. Bounded: past the
+// cap it searches with action=list.
+const MAX_INDEXED_TOOLS = 40;
+const MAX_INDEXED_PARAMETERS = 8;
+const MAX_INDEX_SUMMARY_CHARS = 100;
 const CATALOG_TOOL: ToolDefinition = {
   type: 'function',
   function: {
@@ -72,6 +78,15 @@ function readArgs(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** The first sentence of a tool's description, without the MCP server tag. */
+function indexSummary(description: string): string {
+  const text = description.replace(/^\[MCP [^\]]*\]\s*/, '').trim();
+  const sentence = text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
+  return sentence.length > MAX_INDEX_SUMMARY_CHARS
+    ? `${sentence.slice(0, MAX_INDEX_SUMMARY_CHARS - 1)}…`
+    : sentence;
+}
+
 class CatalogArgumentError extends Error {}
 
 export class ToolCatalog {
@@ -95,13 +110,17 @@ export class ToolCatalog {
   ): ToolCatalog | null {
     const names = availableTools.map((tool) => tool.function.name);
     if (!names.some((name) => deferredTools.has(name))) return null;
-    return new ToolCatalog(
+    const catalog = new ToolCatalog(
       availableTools,
       new Set(names.filter((name) => !deferredTools.has(name))),
       false,
-      'Tools from connected MCP servers are not exposed as direct functions',
+      'Tools of connected MCP servers that are not exposed as direct functions',
     );
+    catalog.indexDeferred = true;
+    return catalog;
   }
+
+  private indexDeferred = false;
 
   constructor(
     availableTools: ToolDefinition[],
@@ -144,6 +163,7 @@ export class ToolCatalog {
       directory
         ? `${this.deferredLabel} are available through tool_catalog. Execute them with action=call, their exact name in name, and their parameters in arguments; their own schemas do not need to be directly exposed.`
         : '',
+      directory && this.indexDeferred ? this.deferredIndex() : '',
       'Skills are instruction packages, not tool functions. Reading a SKILL.md provides workflow instructions; it does not register tools or grant permissions.',
       directory && this.byName.has('read') && !names.includes('read')
         ? 'To read a known skill file, call tool_catalog with {"action":"call","name":"read","arguments":{"path":"the skill location"}}. Never emit a direct read call: it is not an exposed function.'
@@ -160,6 +180,31 @@ export class ToolCatalog {
       directory
         ? 'For catalog execution, the function name is tool_catalog and the target tool goes in its name argument. Listing or describing a tool does not add a directly callable function.'
         : 'Direct function calls use the names in the supplied schemas.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  /** Each deferred tool as `name(param, optional?): first sentence`. */
+  private deferredIndex(): string {
+    const deferred = [...this.byName.values()].filter(
+      (tool) => !this.starters.has(tool.function.name),
+    );
+    const lines = deferred.slice(0, MAX_INDEXED_TOOLS).map((tool) => {
+      const parameters = tool.function.parameters;
+      const required = new Set(parameters.required ?? []);
+      const names = Object.keys(parameters.properties ?? {});
+      const shown = names
+        .slice(0, MAX_INDEXED_PARAMETERS)
+        .map((name) => (required.has(name) ? name : `${name}?`));
+      if (names.length > MAX_INDEXED_PARAMETERS) shown.push('…');
+      return `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
+    });
+    const more = deferred.length - lines.length;
+    return [
+      'Tools reachable through tool_catalog, with their parameters (? marks optional ones). When the arguments are clear, call one directly with action=call; describe it first only if a parameter is unclear.',
+      ...lines,
+      more > 0 ? `…and ${more} more: find them with action=list.` : '',
     ]
       .filter(Boolean)
       .join('\n');
