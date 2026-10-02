@@ -7907,8 +7907,9 @@ function handleApiEvents(
 
   const sendSnapshot = async (): Promise<void> => {
     try {
-      sendEvent('overview', await getGatewayAdminOverview());
-      sendEvent('status', await getGatewayStatus());
+      const overview = await getGatewayAdminOverview();
+      sendEvent('overview', overview);
+      sendEvent('status', overview.status);
     } catch (err) {
       logger.debug({ err }, 'SSE snapshot failed');
     }
