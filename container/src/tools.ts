@@ -3,7 +3,7 @@
  * Bash commands travel on stdin to fixed shell wrappers, never in launch arguments;
  * local guards still apply, and this dispatcher does not grant action approval.
  */
-import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,6 +30,7 @@ import {
 import {
   BASH_DOCKER_CONTAINER,
   BASH_EXEC_MAX_BUFFER_BYTES,
+  type BashProcessResult,
   TASK_SANDBOX_FS_ENABLED,
 } from './bash-process.js';
 import {
@@ -459,7 +460,7 @@ export function setPersistentBashStateEnabled(enabled: boolean): void {
 }
 
 function formatBashExecutionResult(
-  result: SpawnSyncReturns<string>,
+  result: BashProcessResult,
   timeoutMs: number,
   notice: string | null,
 ): string {
@@ -470,7 +471,7 @@ function formatBashExecutionResult(
     replaceWorkspaceRootInOutput(stdout || '(no output)'),
   );
 
-  if (result.status === 0) {
+  if (result.status === 0 && !result.error) {
     return `${prefix}${formattedStdout}`;
   }
 
@@ -3216,7 +3217,7 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
-      const { result, notice } = runBash({
+      const { result, notice } = await runBash({
         command: args.command,
         timeoutMs,
         runtimeEnv: await resolveShellRuntimeEnv(

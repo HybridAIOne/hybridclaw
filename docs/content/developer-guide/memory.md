@@ -450,6 +450,20 @@ message includes a `## History Window` note with the omitted turn count.
 | semantic stale threshold | `7` days | only memories not accessed for at least seven days are decayed |
 | semantic decay floor | `0.1` | nightly decay never pushes confidence below this floor |
 
+Semantic lexical recall uses durable, contentless FTS5 indexes for each supported
+tokenizer. Database migration backfills active memories once; transactional
+triggers keep inserts, content edits, soft deletes, and hard deletes synchronized.
+Recall performs no index creation or population. Text candidate reads omit
+embedding blobs; only vector scoring and the final returned memories decode them.
+
+BM25 reranking retains statistics from the selected candidate corpus, including
+nonmatching candidates. Memories in other sessions or excluded by recall filters
+do not affect those scores. Equal computed scores retain candidate order;
+last-bit floating-point differences from SQLite's native scorer may change the
+order of otherwise tied results. The scorer reads SQLite's documented FTS5 size
+records and recovers native phrase occurrence counts before applying candidate
+corpus statistics, preserving tokenizer and overlapping-phrase behavior.
+
 Local model embeddings ship as the `transformers-embeddings` plugin, so the
 ONNX runtime is only installed where it is used:
 

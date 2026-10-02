@@ -10,6 +10,7 @@ import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
+import { cancelBashProcesses } from './bash-process.js';
 import {
   BROWSER_CACHE_DIRS,
   cleanupAllBrowserSessions,
@@ -324,7 +325,8 @@ function shutdownAgentProcess(
 ): Promise<never> {
   return startShutdown(async () => {
     console.error(`[hybridclaw-agent] shutting down (${reason})`);
-    resetPersistentBashSessions();
+    await cancelBashProcesses();
+    await resetPersistentBashSessions();
     await cleanupAllBrowserSessions().catch((error) => {
       console.error('[hybridclaw-agent] browser cleanup failed:', error);
     });
@@ -1892,9 +1894,7 @@ async function processRequestInner(
         ? []
         : leadingParallelRun(
             toolCalls.slice(callIndex, callIndex + MAX_PARALLEL_TOOL_CALLS),
-            (name) =>
-              mcpClientManager?.getToolBehavior(name)?.annotations
-                ?.readOnlyHint === true,
+            (name) => mcpClientManager?.getToolBehavior(name),
           );
 
       if (candidateCalls.length > 1) {

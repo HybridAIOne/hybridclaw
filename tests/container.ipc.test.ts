@@ -1,10 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { encodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
 import type { ContainerOutput } from '../container/src/types.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
+
+import { mockIpcWatcher } from './helpers/ipc-watcher.js';
+
+let watcher: ReturnType<typeof mockIpcWatcher>;
+beforeEach(() => {
+  watcher = mockIpcWatcher();
+});
 
 const WORKER_SECRET = 'worker-secret';
 
@@ -46,7 +53,7 @@ test.each([
     else ipc.writeHealthOutput(output);
 
     expect(polled).toEqual([null]);
-    expect(JSON.parse(fs.readFileSync(target, 'utf8'))).toEqual(output);
+    expect(fs.readFileSync(target, 'utf8')).toBe(JSON.stringify(output));
     expect(fs.readdirSync(ipcDir)).toEqual([name]);
   },
 );
@@ -81,7 +88,9 @@ test.each([
     const { waitForInput, setIpcAuthSecret } = await import(
       '../container/src/ipc.js'
     );
-    const { startShutdown } = await import('../container/src/shutdown-latch.js');
+    const { startShutdown } = await import(
+      '../container/src/shutdown-latch.js'
+    );
     setIpcAuthSecret(WORKER_SECRET);
     write(ipcDir);
     await expect(waitForInput(1_000)).resolves.toMatchObject(expected);
@@ -89,6 +98,7 @@ test.each([
     const waiting = waitForInput(5_000);
     void startShutdown(() => new Promise<never>(() => {}));
     write(ipcDir);
+    watcher.notify();
 
     await expect(waiting).resolves.toBeNull();
     expect(fs.readdirSync(ipcDir)).toEqual([name]);
@@ -96,7 +106,7 @@ test.each([
 );
 
 test.each([5_000, 5_010, 5_030])(
-  'a worker idle for %ims picks up the next turn within 50ms',
+  'a worker idle for %ims picks up the next turn on notification before reconciliation',
   async (landsAtMs) => {
     const ipcDir = makeTempDir();
     vi.stubEnv('HYBRIDCLAW_AGENT_IPC_DIR', ipcDir);
@@ -114,14 +124,15 @@ test.each([5_000, 5_010, 5_030])(
             JSON.stringify({ sessionId: 'session-a', messages: [] }),
           ),
         );
+        watcher.notify();
       }, landsAtMs);
       let settled = false;
       const waiting = waitForInput(60_000).finally(() => {
         settled = true;
       });
 
-      // By now the poll interval has backed off to its cap.
-      await vi.advanceTimersByTimeAsync(landsAtMs + 50);
+      // Notification wakes the reader before its next reconciliation.
+      await vi.advanceTimersByTimeAsync(landsAtMs + 1);
 
       expect(settled).toBe(true);
       await expect(waiting).resolves.toMatchObject({ sessionId: 'session-a' });

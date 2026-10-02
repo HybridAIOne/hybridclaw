@@ -1,3 +1,9 @@
+/**
+ * MCP connections own discovered tools and bind scheduling trust to their config.
+ * Overlap needs both live and requested config trust, including after a failed
+ * replacement. Unlike approval-policy, this manager does not grant approvals
+ * or infer concurrency from tool names.
+ */
 import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -16,14 +22,15 @@ import {
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
+import { parseMcpToolBehaviorConfig } from '../../shared/mcp-server-config.js';
 import {
   buildMcpServerNamespaces,
   sanitizeMcpToolSegment,
 } from '../../shared/mcp-tool-namespaces.js';
-
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
+import { isParallelSafeMcpTool } from './tool-concurrency.js';
 import {
   DEFER_LOADING_META,
   type LiveHeaders,
@@ -55,7 +62,9 @@ function stableHash(input: string): string {
 }
 
 function cloneConfig(config: McpServerConfig): McpServerConfig {
-  return JSON.parse(JSON.stringify(config)) as McpServerConfig;
+  const cloned = JSON.parse(JSON.stringify(config)) as McpServerConfig;
+  cloned.toolBehavior = parseMcpToolBehaviorConfig(cloned.toolBehavior);
+  return cloned;
 }
 
 /**
@@ -210,7 +219,23 @@ export class McpClientManager {
 
   getToolBehavior(name: string): McpToolBehavior | undefined {
     const entry = this.toolIndex.get(name);
-    return entry && { kind: entry.kind, annotations: entry.annotations };
+    const handle = entry && this.clients.get(entry.serverName);
+    const config = entry && this.configs.get(entry.serverName);
+    return (
+      entry && {
+        kind: entry.kind,
+        annotations: entry.annotations,
+        parallelSafe:
+          !!handle &&
+          !!config &&
+          isParallelSafeMcpTool(config, entry.toolName, entry.annotations) &&
+          isParallelSafeMcpTool(
+            handle.config,
+            entry.toolName,
+            entry.annotations,
+          ),
+      }
+    );
   }
 
   hasServer(name: string): boolean {

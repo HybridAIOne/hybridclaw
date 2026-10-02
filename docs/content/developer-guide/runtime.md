@@ -97,6 +97,21 @@ replacement, including when a gateway-owned browser window survives. Refresh
 the snapshot before using element refs after a restart. Checkout actions require
 one-time approval in every mode; see [Browser checkout](./approvals.md#action-reference).
 
+### Shell Execution
+
+Bash commands run asynchronously so tool activity heartbeats and worker signal
+handlers remain responsive. The worker retains at most 4 MiB of combined stdout
+and stderr; exceeding that limit cancels the command and returns partial output
+with an error. Timeouts and graceful worker shutdown send SIGTERM to the command's
+process group, then SIGKILL after 250 ms, including descendants that ignore
+SIGTERM. Task sandboxes receive those signals inside the container rather than
+only losing their local `docker exec` client.
+
+Active command handles and process-group identities live in worker memory and
+are discarded after the command finishes. Persistent shell snapshots and fresh
+credential delivery follow the persistence boundaries below. Cancellation can
+stop the wrapper before it saves changes made by that command to shell state.
+
 ### Persistence Boundaries
 
 A session's turns run in a worker: an agent container in `container` mode, an
@@ -128,12 +143,13 @@ agent archives skip and `reset yes` removes with the workspace.
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
 | PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
 | Background processes, `/tmp` files | Worker | Lost |
+| IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
 | Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
 | Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
 | Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
-| MCP connections | Worker | Reconnected from config on the next turn; an idle warm worker connects them before its first turn |
+| MCP connections and scheduling declarations | Worker | Reconnected and revalidated from gateway config on the next turn; an idle warm worker connects them before its first turn |
 | Web fetch and search caches, approval counters, seen hosts | Worker memory | Lost; later calls may ask again |
 
 Exported variables stay in the worker on purpose: the shell snapshot holds the
@@ -456,6 +472,50 @@ Runtime details:
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
 
+MCP calls are serial barriers by default. Operators can declare trusted read
+behavior under a server's `toolBehavior` configuration:
+
+```json
+{
+  "transport": "http",
+  "url": "https://mcp.example.com/mcp",
+  "toolBehavior": {
+    "trustAnnotations": true,
+    "overrides": {
+      "lookup_messages": "read-only",
+      "send_message": "mutation"
+    }
+  }
+}
+```
+
+`trustAnnotations: true` admits tools with an explicit `readOnlyHint: true`
+from that server. Enable it only after reviewing the server's behavior and
+annotation source. Exact overrides use the original discovered tool name
+(without HybridClaw's server prefix); `read-only` can admit an unannotated tool,
+and `mutation` keeps it serial even if the server calls it read-only. Names,
+descriptions, idempotency hints and non-destructive hints never establish read
+safety. A `readOnlyHint: false` or `destructiveHint: true` always keeps a tool
+serial, including when an override claims otherwise.
+
+The auto-added `hybridai` connectors server declares the platform's
+`web_search` as `read-only`, so a batch of searches overlaps. Entries under
+`mcpServers.hybridai.toolBehavior` are kept, and their overrides win.
+
+Trusted reads share the existing limit of eight calls per batch with built-in
+tools. Results remain in model order; mutations and unknown tools drain the
+preceding batch and run alone. Required or denied approvals stop batch
+preparation at that call: these declarations do not grant permission or change
+approval tiers. Server-specific rate limits still apply; omit trust or use a
+`mutation` override when a tool must run serially.
+
+Risk boundary: a lying trusted server or an incorrect operator declaration can
+cause side effects to overlap. Trust is explicit and disabled by default. Both
+the live connection and the requested config must admit overlap, so a failed
+replacement cannot broaden the old connection's trust, and revocation takes
+effect even if reconnect fails. Discovery and config are rebuilt after worker
+replacement; no session-only trust decision is retained.
+
 ## Audit Trail Internals
 
 HybridClaw records forensic audit events by default:
@@ -601,6 +661,29 @@ only:
   down.
 - Requests without an id reply in `output.json`; the gateway also accepts that
   file from agent images built before request ids.
+
+## IPC Wakeups And Reconciliation
+
+Both IPC readers watch the session directory before their first file check.
+Directory notifications wake them promptly, including when an atomic reply
+rename replaces a file. Notifications received between a check and a wait are
+remembered, and repeated events coalesce. Event filenames and event counts are
+never used to select or authorize a payload: readers recheck the expected paths,
+verify follow-up input authentication, and keep replies scoped to their request.
+
+Readers also reconcile from disk once per second, bounded by their idle and
+wall-clock deadlines. This covers missing events and unavailable or failed
+watchers on [Docker and virtualized filesystems](https://nodejs.org/docs/latest-v22.x/api/fs.html#caveats).
+Worker exit and shutdown state are checked on each wakeup or reconciliation;
+gateway interrupts wake the output wait immediately. Watchers, wait timers, and
+abort listeners close when the read finishes, including timeout and interrupt.
+Machine-only input, health, and output JSON is compact.
+
+This reduces gateway/worker handoff latency and idle filesystem checks. The
+handoff occurs on reused-worker input and final replies; tool calls within a
+turn do not each pay this cost. Expected savings are tens of milliseconds,
+depending on notification delivery; missed events can take up to one
+reconciliation interval to recover.
 
 ## Authenticated Agent Input
 

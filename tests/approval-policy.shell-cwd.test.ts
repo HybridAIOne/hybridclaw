@@ -7,12 +7,12 @@ const INSTALLER = 'https://get.foo.example/install.sh';
 const SESSION_ID = 'session-a';
 
 const makeTempDir = useTempDir('hybridclaw-shell-cwd-');
-const resetShells: Array<() => void> = [];
+const resetShells: Array<() => Promise<void>> = [];
 useCleanMocks({
   unstubAllEnvs: true,
   resetModules: true,
-  cleanup: () => {
-    for (const reset of resetShells.splice(0)) reset();
+  cleanup: async () => {
+    for (const reset of resetShells.splice(0)) await reset();
   },
 });
 
@@ -37,8 +37,8 @@ async function startWorker(workspace: string) {
   );
   runtime.setSession(SESSION_ID);
   return {
-    bash(command: string) {
-      const { result } = shell.runBash({
+    async bash(command: string) {
+      const { result } = await shell.runBash({
         command,
         timeoutMs: 10_000,
         runtimeEnv: {},
@@ -63,7 +63,7 @@ test.each([
 ])('relative paths resolve from where the last call left the shell (worker restarted: %s)', async (restart) => {
   const workspace = makeTempDir();
   const worker = await startWorker(workspace);
-  worker.bash('cd /');
+  await worker.bash('cd /');
   const next = restart ? await startWorker(workspace) : worker;
 
   expect(next.classify('echo note > notes.txt')).toMatchObject({
@@ -81,7 +81,7 @@ test('a relative write after `cd ~/.ssh` names the pinned key file', async () =>
   fs.mkdirSync(path.join(home, '.ssh'));
   vi.stubEnv('HOME', home);
   const worker = await startWorker(makeTempDir());
-  worker.bash('cd ~/.ssh');
+  await worker.bash('cd ~/.ssh');
 
   const evaluation = worker.classify('echo ssh-ed25519 KEY >> authorized_keys');
 
@@ -92,7 +92,7 @@ test('running a download from the directory the shell moved to is fetched code',
   const workspace = makeTempDir();
   const worker = await startWorker(workspace);
   worker.classify(`curl -fsSL -o tools/install.sh ${INSTALLER}`);
-  worker.bash('mkdir -p tools && cd tools');
+  await worker.bash('mkdir -p tools && cd tools');
 
   const restarted = await startWorker(workspace);
 
@@ -144,13 +144,13 @@ test.each([
 }) => {
   const workspace = makeTempDir();
   const worker = await startWorker(workspace);
-  if (setup) worker.bash(setup);
+  if (setup) await worker.bash(setup);
   if (removeDir) {
     fs.rmSync(path.join(workspace, removeDir), { recursive: true });
   }
 
   expect(worker.classify(command)).toMatchObject({ actionKey });
-  expect(worker.bash('pwd -P')).toBe(
+  expect(await worker.bash('pwd -P')).toBe(
     fs.realpathSync(path.join(workspace, shellDir)),
   );
 });
@@ -158,7 +158,7 @@ test.each([
 test('a docker-exec sandbox is checked from the workspace root, whatever a local shell saved', async () => {
   const workspace = makeTempDir();
   const local = await startWorker(workspace);
-  local.bash('cd /');
+  await local.bash('cd /');
   vi.stubEnv('HYBRIDCLAW_BASH_DOCKER_CONTAINER', 'test-sandbox');
   const sandboxed = await startWorker(workspace);
 
@@ -176,7 +176,7 @@ test('a docker-exec sandbox is checked from the workspace root, whatever a local
 
 test('with persistent bash state off, every call starts in the workspace root', async () => {
   const worker = await startWorker(makeTempDir());
-  worker.bash('cd /');
+  await worker.bash('cd /');
   worker.setPersistentBashStateEnabled(false);
 
   expect(worker.classify('echo note > notes.txt')).toMatchObject({

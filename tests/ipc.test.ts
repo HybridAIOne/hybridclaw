@@ -2,10 +2,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 import { decodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+
+import { mockIpcWatcher } from './helpers/ipc-watcher.js';
+
+let watcher: ReturnType<typeof mockIpcWatcher>;
+beforeEach(() => {
+  watcher = mockIpcWatcher();
+});
 
 const ORIGINAL_HOME = process.env.HOME;
 
@@ -14,7 +21,14 @@ function makeTempHome(): string {
 }
 
 function ipcDirOf(homeDir: string, sessionId: string): string {
-  return path.join(homeDir, '.hybridclaw', 'data', 'sessions', sessionId, 'ipc');
+  return path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'sessions',
+    sessionId,
+    'ipc',
+  );
 }
 
 function writeReply(
@@ -26,6 +40,7 @@ function writeReply(
     path.join(dir, ipcOutputFileName(requestId)),
     JSON.stringify(output),
   );
+  watcher.notify();
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -107,6 +122,7 @@ test('writeInput omits auth material from IPC files', async () => {
   );
   expect(decoded.status).toBe('ok');
   if (decoded.status !== 'ok') throw new Error('expected authentic input');
+  expect(decoded.body).toBe(JSON.stringify(JSON.parse(decoded.body)));
   const written = JSON.parse(decoded.body) as Record<string, unknown>;
 
   // Credentials never reach the follow-up file: the per-worker secret, the
@@ -195,7 +211,7 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
     maxWallClockMs: null,
   });
 
-  // Output appears at 500ms; adaptive polling may need one capped cycle.
+  // Output appears at 500ms and wakes the reader immediately.
   await vi.advanceTimersByTimeAsync(750);
 
   await expect(outputPromise).resolves.toEqual(
@@ -206,7 +222,7 @@ test('readOutput does not time out when inactivity and wall-clock timeouts are d
   );
 });
 
-test('readOutput reads a reply that lands late in a long turn within 50ms', async () => {
+test('readOutput reads a reply that lands late in a long turn on notification before reconciliation', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.useFakeTimers();
@@ -222,7 +238,7 @@ test('readOutput reads a reply that lands late in a long turn within 50ms', asyn
       result: 'ok',
       toolsUsed: [],
     });
-  }, 5_000);
+  }, 5_010);
   let settled = false;
   const outputPromise = readOutput('session-1', 'request-1', 60_000).finally(
     () => {
@@ -230,8 +246,8 @@ test('readOutput reads a reply that lands late in a long turn within 50ms', asyn
     },
   );
 
-  // By now the poll interval has backed off to its cap.
-  await vi.advanceTimersByTimeAsync(5_050);
+  // Advance to just after the write, before the next reconciliation.
+  await vi.advanceTimersByTimeAsync(5_011);
 
   expect(settled).toBe(true);
   await expect(outputPromise).resolves.toEqual(
@@ -286,52 +302,53 @@ const LATE_INTERRUPTED_REPLY = {
 test.each([
   { when: 'while it is still waiting', steps: ['late', 'wait', 'own'] },
   { when: 'after its own reply landed', steps: ['own', 'late'] },
-] as const)('readOutput ignores an earlier request that answers late $when', async ({
-  steps,
-}) => {
-  const homeDir = makeTempHome();
-  process.env.HOME = homeDir;
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
-  vi.resetModules();
+] as const)(
+  'readOutput ignores an earlier request that answers late $when',
+  async ({ steps }) => {
+    const homeDir = makeTempHome();
+    process.env.HOME = homeDir;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-11T00:00:00Z'));
+    vi.resetModules();
 
-  const { cleanupIpc, ensureSessionDirs, readOutput } = await import(
-    '../src/infra/ipc.ts'
-  );
+    const { cleanupIpc, ensureSessionDirs, readOutput } = await import(
+      '../src/infra/ipc.ts'
+    );
 
-  ensureSessionDirs('session-1');
-  cleanupIpc('session-1');
-  const dir = ipcDirOf(homeDir, 'session-1');
-  let settled = false;
-  const outputPromise = readOutput('session-1', 'request-b', 1_000).finally(
-    () => {
-      settled = true;
-    },
-  );
+    ensureSessionDirs('session-1');
+    cleanupIpc('session-1');
+    const dir = ipcDirOf(homeDir, 'session-1');
+    let settled = false;
+    const outputPromise = readOutput('session-1', 'request-b', 1_000).finally(
+      () => {
+        settled = true;
+      },
+    );
 
-  for (const step of steps) {
-    if (step === 'late') writeReply(dir, 'request-a', LATE_INTERRUPTED_REPLY);
-    if (step === 'own') {
-      writeReply(dir, 'request-b', {
-        status: 'success',
-        result: 'reply b',
-        toolsUsed: [],
-      });
+    for (const step of steps) {
+      if (step === 'late') writeReply(dir, 'request-a', LATE_INTERRUPTED_REPLY);
+      if (step === 'own') {
+        writeReply(dir, 'request-b', {
+          status: 'success',
+          result: 'reply b',
+          toolsUsed: [],
+        });
+      }
+      if (step === 'wait') {
+        await vi.advanceTimersByTimeAsync(500);
+        expect(settled).toBe(false);
+      }
     }
-    if (step === 'wait') {
-      await vi.advanceTimersByTimeAsync(500);
-      expect(settled).toBe(false);
-    }
-  }
-  await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(300);
 
-  const output = await outputPromise;
-  expect(output).toEqual({
-    status: 'success',
-    result: 'reply b',
-    toolsUsed: [],
-  });
-});
+    const output = await outputPromise;
+    expect(output).toEqual({
+      status: 'success',
+      result: 'reply b',
+      toolsUsed: [],
+    });
+  },
+);
 
 test('cleanupIpc removes request files and late replies but keeps other IPC files', async () => {
   const homeDir = makeTempHome();
@@ -392,7 +409,8 @@ const INTERRUPTED_TOOL_HISTORY = [
         type: 'function',
         function: {
           name: 'vision_analyze',
-          arguments: '{"image_url":"/uploaded-media-cache/2026-09-26/1-a-Logo.png"}',
+          arguments:
+            '{"image_url":"/uploaded-media-cache/2026-09-26/1-a-Logo.png"}',
         },
       },
     ],
@@ -458,6 +476,7 @@ test('an interrupted readOutput keeps only the tool history the stopped agent fl
         spilledToolCallIds: ['call-1'],
       }),
     );
+    watcher.notify();
   }, 150);
 
   await vi.advanceTimersByTimeAsync(500);
@@ -481,7 +500,7 @@ test('an interrupted readOutput waits at most the grace window for shutdown outp
   await expect(output).resolves.toEqual(INTERRUPTED);
 });
 
-test('an interrupted readOutput stops waiting once the agent has exited', async () => {
+test('an interrupted readOutput reconciles an agent exit without a file notification', async () => {
   let exited = false;
   const { output, isSettled } = await startInterruptedRead(() =>
     exited ? 'Host agent process exited (signal SIGTERM)' : null,
@@ -490,7 +509,7 @@ test('an interrupted readOutput stops waiting once the agent has exited', async 
     exited = true;
   }, 120);
 
-  await vi.advanceTimersByTimeAsync(400);
+  await vi.advanceTimersByTimeAsync(1_100);
 
   expect(isSettled()).toBe(true);
   await expect(output).resolves.toEqual(INTERRUPTED);

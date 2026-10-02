@@ -202,6 +202,12 @@ saved revision history directly.
 - `mcpServers.*` for Model Context Protocol servers; HybridClaw connects to
   them per session and exposes their tools as namespaced functions such as
   `server__tool`
+- `mcpServers.*.toolBehavior` for operator-trusted MCP read concurrency.
+  `trustAnnotations: true` trusts explicit server read-only annotations;
+  `overrides` maps exact original tool names to `read-only` or `mutation`.
+  Default: serial. Scheduling trust does not grant approval. See
+  [MCP runtime notes](../developer-guide/runtime.md#mcp-runtime-notes) for the
+  trust boundary, conflicting hints, and the shared eight-call cap.
 - `tools.mcpToolMode` (`full` or `deferred`, default `full`) for how remote
   model requests see MCP server tools. `deferred` keeps them out of the
   model-facing tool array and reaches them through `tool_catalog` (list,
