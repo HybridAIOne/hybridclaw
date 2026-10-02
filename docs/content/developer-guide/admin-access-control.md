@@ -45,7 +45,10 @@ so it can save the website sign-ins the agent's browser asks for (see
 `/api/push/`, and fetches one reply the gateway stored there on its own, such
 as a reminder, with `GET /api/chat/message?sessionId=…&id=…` (the id is the
 last part of a `reminder` notification id). That route answers only for chats
-the same token started and never returns user turns. `chat.send` also covers
+the same token started and never returns user turns. In those chats it also
+puts one emoji on a reply, or takes it off with `null`, with
+`POST /api/chat/reaction` (`sessionId`, `messageId`, `emoji`); that runs no
+turn. `chat.send` also covers
 `POST /api/media/upload`, so a phone can send a photo or document with a
 message: the file lands in the uploaded-media cache for a day, and the turn
 names it in `media`. Chatting is not administration: a slash command such as

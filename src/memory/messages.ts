@@ -49,6 +49,7 @@ interface ConversationHistoryPageRow {
   artifacts_json: string | null;
   activity_trace_json: string | null;
   routing_trace_json: string | null;
+  reaction: string | null;
   created_at: string | null;
 }
 
@@ -287,6 +288,64 @@ export function setMessageRoutingTrace(
       "UPDATE messages SET routing_trace_json = ? WHERE id = ? AND role = 'assistant'",
     )
     .run(serialized, messageId);
+}
+
+/**
+ * Puts the other side's emoji on a message of this session, or takes it off
+ * with null: the agent reacts to a user message, the user to the agent's.
+ * False when the session has no such message in that role.
+ */
+export function setMessageReaction(input: {
+  sessionId: string;
+  messageId: number;
+  role: 'user' | 'assistant';
+  emoji: string | null;
+}): boolean {
+  const result = getMessageDatabase()
+    .prepare(
+      `UPDATE messages
+       SET reaction = ?,
+           reaction_at = CASE WHEN ? IS NULL THEN NULL
+             ELSE strftime('%Y-%m-%d %H:%M:%f', 'now') END
+       WHERE id = ? AND session_id = ? AND role = ?`,
+    )
+    .run(
+      input.emoji,
+      input.emoji,
+      input.messageId,
+      resolveSessionIdCompat(input.sessionId),
+      input.role,
+    );
+  return result.changes > 0;
+}
+
+/**
+ * The user's reactions to the agent's messages since the user last wrote,
+ * newest first: what the agent has not been told about yet.
+ */
+export function getUserReactionsSinceLastMessage(
+  sessionId: string,
+  limit = 5,
+): { emoji: string; content: string }[] {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  return queryAll<{ emoji: string; content: string }, [string, string, number]>(
+    getMessageDatabase(),
+    `SELECT reaction AS emoji, content
+     FROM messages
+     WHERE session_id = ?
+       AND role = 'assistant'
+       AND reaction IS NOT NULL
+       AND julianday(reaction_at) > COALESCE((
+         SELECT julianday(MAX(created_at))
+         FROM messages
+         WHERE session_id = ? AND role = 'user'
+       ), 0)
+     ORDER BY id DESC
+     LIMIT ?`,
+    resolvedSessionId,
+    resolvedSessionId,
+    limit,
+  );
 }
 
 export function getConversationHistory(
@@ -700,6 +759,7 @@ export function getConversationHistoryPage(
          m.artifacts_json,
          m.activity_trace_json,
          m.routing_trace_json,
+         m.reaction,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -754,6 +814,7 @@ export function getConversationHistoryPage(
       artifacts: parseMessageArtifacts(row.artifacts_json),
       ...(activityTrace ? { activityTrace } : {}),
       ...(routingTrace ? { routingTrace } : {}),
+      ...(row.reaction ? { reaction: row.reaction } : {}),
       created_at: row.created_at,
     });
   }

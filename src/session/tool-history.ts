@@ -66,10 +66,21 @@ export function expandStoredMessage(message: {
   if (message.role !== 'assistant' || !message.tool_history_json)
     return [finalMessage];
   const history = validateToolHistory(JSON.parse(message.tool_history_json));
-  return [
-    ...history.map((entry) =>
-      toolResultForHistory(entry, message.session_id || 'session'),
-    ),
-    finalMessage,
-  ];
+  const replay = history.map((entry) =>
+    toolResultForHistory(entry, message.session_id || 'session'),
+  );
+  // A reply written together with the turn's last tool calls, as with a
+  // reaction, is in the replay already; repeating it would say it twice.
+  const lastCall = [...replay]
+    .reverse()
+    .find((entry) => entry.role === 'assistant');
+  if (
+    typeof message.content === 'string' &&
+    message.content.trim() &&
+    typeof lastCall?.content === 'string' &&
+    lastCall.content.trim() === message.content.trim()
+  ) {
+    return replay;
+  }
+  return [...replay, finalMessage];
 }
