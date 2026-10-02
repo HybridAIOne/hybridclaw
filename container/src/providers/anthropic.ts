@@ -25,7 +25,11 @@ import {
   ProviderRequestError,
   readRetryAfterMs,
 } from './shared.js';
-import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
+import {
+  fetchWithHeaderTimeout,
+  readWithIdleTimeout,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-utils.js';
 
 interface ServerSentEvent {
   event: string | null;
@@ -933,13 +937,13 @@ export async function callAnthropicProviderStream(
       },
     });
   }
-  const response = await fetch(
-    `${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`,
-    {
+  const response = await fetchWithHeaderTimeout((signal) =>
+    fetch(`${normalizeAnthropicBaseUrl(args.baseUrl)}/messages`, {
       method: 'POST',
       headers: buildHeaders({ ...args, stream: true }),
       body: JSON.stringify(body),
-    },
+      signal,
+    }),
   );
 
   if (!response.ok) {

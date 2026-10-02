@@ -27,7 +27,11 @@ import {
   ProviderRequestError,
   readRetryAfterMs,
 } from './shared.js';
-import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
+import {
+  fetchWithHeaderTimeout,
+  readWithIdleTimeout,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-utils.js';
 import {
   createThinkingStreamEmitter,
   extractThinkingBlocks,
@@ -750,7 +754,7 @@ export async function callLocalOpenAICompatProviderStream(
     args.provider === 'mlx'
       ? (url: string, init: RequestInit) => fetchMlx(url, init, args.sessionId)
       : fetch;
-  const response = await requestFetch(url, {
+  const init: RequestInit = {
     method: 'POST',
     headers: {
       ...buildHeaders(args.apiKey),
@@ -758,7 +762,14 @@ export async function callLocalOpenAICompatProviderStream(
       Accept: 'text/event-stream, application/json',
     },
     body: JSON.stringify(requestBody),
-  });
+  };
+  // Local servers hold their headers through model load and prefill, which can
+  // outlast the stream idle bound, so they keep the transport's own timeout.
+  const response = args.isLocal
+    ? await requestFetch(url, init)
+    : await fetchWithHeaderTimeout((signal) =>
+        requestFetch(url, { ...init, signal }),
+      );
 
   if (!response.ok) {
     throw new ProviderRequestError(

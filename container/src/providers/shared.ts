@@ -114,19 +114,16 @@ function summarizeParsedErrorBody(
 export class ProviderRequestError extends Error {
   status: number;
   body: string;
-  readonly parsedBody: ParsedProviderErrorBody | null;
   /** The wait the provider asked for in Retry-After, when it sent one. */
   readonly retryAfterMs: number | undefined;
 
   constructor(status: number, body: string, retryAfterMs?: number) {
-    const parsedBody = parseProviderErrorBody(body);
     super(
-      `Provider API error ${status}: ${summarizeParsedErrorBody(parsedBody)}`,
+      `Provider API error ${status}: ${summarizeParsedErrorBody(parseProviderErrorBody(body))}`,
     );
     this.name = 'ProviderRequestError';
     this.status = status;
     this.body = body;
-    this.parsedBody = parsedBody;
     this.retryAfterMs = retryAfterMs;
   }
 }
@@ -143,20 +140,6 @@ export function readRetryAfterMs(headers: Headers): number | undefined {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1_000);
   const date = Date.parse(value);
   return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
-}
-
-export function isPremiumModelPermissionError(error: unknown): boolean {
-  if (!(error instanceof ProviderRequestError) || error.status !== 403) {
-    return false;
-  }
-  const parsed = error.parsedBody;
-  return (
-    parsed?.type === 'permission_error' &&
-    typeof parsed.message === 'string' &&
-    /premium models require a paid plan or token-credit balance/i.test(
-      parsed.message,
-    )
-  );
 }
 
 export function isHybridAIEmptyVisibleCompletion(

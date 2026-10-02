@@ -244,8 +244,7 @@ describe('Anthropic container provider', () => {
   test('does not impose a total-duration timeout on streaming API requests', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
-        expect(init?.signal).toBeUndefined();
+      async (_input: RequestInfo | URL, _init?: RequestInit) => {
         return makeEventStreamResponse([
           'event: message_start\n',
           'data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-6","usage":{"input_tokens":4,"output_tokens":0}}}\n\n',

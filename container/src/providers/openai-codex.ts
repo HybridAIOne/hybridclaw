@@ -20,7 +20,11 @@ import {
   ProviderRequestError,
   readRetryAfterMs,
 } from './shared.js';
-import { readWithIdleTimeout, STREAM_IDLE_TIMEOUT_MS } from './stream-utils.js';
+import {
+  fetchWithHeaderTimeout,
+  readWithIdleTimeout,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-utils.js';
 
 interface CodexAccumulatedContentPart {
   type: string;
@@ -842,14 +846,17 @@ async function callOpenAIResponsesProviderStreamInternal(
       },
     });
   }
-  const response = await fetch(`${args.baseUrl}/responses`, {
-    method: 'POST',
-    headers: {
-      ...buildRequestHeaders(args.apiKey, args.requestHeaders),
-      Accept: 'text/event-stream, application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await fetchWithHeaderTimeout((signal) =>
+    fetch(`${args.baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        ...buildRequestHeaders(args.apiKey, args.requestHeaders),
+        Accept: 'text/event-stream, application/json',
+      },
+      body: JSON.stringify(body),
+      signal,
+    }),
+  );
   logCodexTransport(
     args.provider,
     `stream response headers model=${normalizeCodexModelName(args.model)} status=${response.status} durationMs=${Date.now() - startedAt} contentType=${response.headers.get('content-type') || '<missing>'}`,
