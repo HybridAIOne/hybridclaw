@@ -8,7 +8,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Ajv, type AnySchemaObject, type ErrorObject } from 'ajv';
 import * as wsModule from 'ws';
 import { parse as parseYaml } from 'yaml';
 import {
@@ -59,6 +58,7 @@ import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { isRecord } from '../utils/type-guards.js';
 import { createPluginApi } from './plugin-api.js';
+import { validatePluginConfig } from './plugin-config-validation.js';
 import { linkPluginSdk } from './plugin-sdk-link.js';
 import type {
   HybridClawPluginDefinition,
@@ -120,14 +120,6 @@ const DEFAULT_ENTRYPOINT_CANDIDATES = [
 
 const PLUGIN_MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const PLUGIN_DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
-
-const pluginConfigValidator = new Ajv({
-  allErrors: false,
-  removeAdditional: true,
-  strictSchema: true,
-  strictTypes: false,
-  useDefaults: true,
-});
 
 type RuntimePluginConfigEntryLike = {
   id: string;
@@ -654,80 +646,6 @@ function formatMissingBinaryRequirement(params: {
     return `${params.requirement.name} (from ${params.requirement.configKey}=${params.command})`;
   }
   return params.requirement.name;
-}
-
-function decodeJsonPointerSegment(value: string): string {
-  return value.replaceAll('~1', '/').replaceAll('~0', '~');
-}
-
-function formatAjvInstancePath(instancePath: string): string {
-  if (!instancePath) return 'plugin config';
-  const segments = instancePath
-    .split('/')
-    .slice(1)
-    .map(decodeJsonPointerSegment);
-  let output = 'plugin config';
-  for (const segment of segments) {
-    if (/^\d+$/.test(segment)) {
-      output += `[${segment}]`;
-      continue;
-    }
-    output += `.${segment}`;
-  }
-  return output;
-}
-
-function formatAjvValidationError(error: ErrorObject): string {
-  const pointer = formatAjvInstancePath(error.instancePath);
-  if (error.keyword === 'required') {
-    const missingProperty = isRecord(error.params)
-      ? normalizeTrimmedString(error.params.missingProperty)
-      : undefined;
-    if (missingProperty) {
-      return `${pointer}.${missingProperty} is required.`;
-    }
-  }
-  if (error.keyword === 'enum' && Array.isArray(error.schema)) {
-    return `${pointer} must be one of ${error.schema.join(', ')}.`;
-  }
-  if (error.keyword === 'additionalProperties') {
-    const additionalProperty = isRecord(error.params)
-      ? normalizeTrimmedString(error.params.additionalProperty)
-      : undefined;
-    if (additionalProperty) {
-      return `${pointer}.${additionalProperty} is not allowed.`;
-    }
-  }
-  return `${pointer} ${error.message || 'is invalid'}.`;
-}
-
-export function validatePluginConfig(
-  schema: PluginConfigSchema | undefined,
-  value: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  if (!schema) return structuredClone(value || {});
-  let validate: ReturnType<typeof pluginConfigValidator.compile>;
-  try {
-    validate = pluginConfigValidator.compile(schema as AnySchemaObject);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || 'Unknown error');
-    throw new Error(`Invalid plugin config schema: ${message}`);
-  }
-
-  const normalized = structuredClone(value || {});
-  if (!validate(normalized)) {
-    const [firstError] = validate.errors || [];
-    if (firstError) {
-      throw new Error(formatAjvValidationError(firstError));
-    }
-    throw new Error('Plugin config is invalid.');
-  }
-
-  if (!isRecord(normalized)) {
-    throw new Error('Plugin config schema must resolve to an object.');
-  }
-  return normalized;
 }
 
 function createPluginImportSnapshot(pluginDir: string): {
@@ -1293,6 +1211,16 @@ export class PluginManager {
       }
       const schema = definition.configSchema || candidate.manifest.configSchema;
       const validatedConfig = validatePluginConfig(schema, candidate.config);
+      const ignoredConfigKeys = Object.keys(candidate.config || {}).filter(
+        (key) => !Object.hasOwn(validatedConfig, key),
+      );
+      if (ignoredConfigKeys.length > 0) {
+        // Ajv strips undeclared keys; name them instead of dropping silently.
+        this.logger.warn(
+          { pluginId: candidate.id, ignoredConfigKeys },
+          'Plugin config keys are not in the plugin schema and were ignored',
+        );
+      }
       api = createPluginApi({
         manager: this,
         pluginId: definition.id,

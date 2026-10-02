@@ -100,6 +100,8 @@ Notes:
   without editing agent bootstrap files. Keep it short and spoken-language
   focused.
 - `ops.gatewayBaseUrl` must be the public URL Twilio sees, not a local one.
+  With `deployment.mode` set to `cloud`, voice uses `deployment.public_url`
+  instead while `ops.gatewayBaseUrl` is still a localhost or private address.
 - `voice.webhookPath` controls the base path for:
   - `<webhookPath>/webhook`
   - `<webhookPath>/relay` (relay mode)
@@ -485,7 +487,7 @@ The outbound command:
 - validates the number as E.164
 - checks that voice is enabled
 - checks that `TWILIO_AUTH_TOKEN` is available from the secret store
-- refuses to dial if `ops.gatewayBaseUrl` still points at `localhost`
+- refuses to dial if the resolved webhook base is a localhost or private address
 - returns the Twilio `CallSid` and the initial Twilio call status
 
 Important:

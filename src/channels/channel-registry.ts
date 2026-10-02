@@ -59,6 +59,8 @@ const SKILL_CONFIG_CHANNEL_KIND_SET = new Set<ChannelKind>(
   SKILL_CONFIG_CHANNEL_KINDS,
 );
 
+// Supported input spellings for operator-typed channel kinds (skill
+// `channels:`, `--channel`), not compat shims for renamed kinds.
 const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
   teams: 'msteams',
   discordwebhook: 'discord_webhook',

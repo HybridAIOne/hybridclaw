@@ -1801,7 +1801,7 @@ export async function ensureRuntimeCredentials(
     }
     if (currentAuth === 'openai-codex') {
       throw new Error(
-        'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
+        'OpenAI Codex credentials are missing. Run `hybridclaw auth login codex` or `hybridclaw onboarding` in an interactive terminal.',
       );
     }
     if (currentAuth === 'openrouter') {

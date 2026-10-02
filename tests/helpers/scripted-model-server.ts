@@ -45,7 +45,9 @@ export async function startScriptedModelServer(
       message = await reply(body);
     } catch (error) {
       res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: String(error) } }));
+      const message =
+        error instanceof Error ? error.message : 'scripted reply failed';
+      res.end(JSON.stringify({ error: { message } }));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -1,5 +1,10 @@
 import readline from 'node:readline/promises';
 import {
+  AUTH_TARGET_CHOICES,
+  type AuthTarget,
+  resolveAuthTarget,
+} from '../auth/auth-targets.js';
+import {
   clearGoogleAuth,
   DEFAULT_GOOGLE_OAUTH_SCOPES,
   GOOGLE_ACCOUNT_SECRET,
@@ -55,7 +60,6 @@ import { resolveModelProvider } from '../providers/factory.js';
 import { validateLocalEndpointName } from '../providers/local-endpoints.js';
 import type { LocalBackendType } from '../providers/local-types.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
-import { getProviderAliasesFor } from '../providers/provider-aliases.js';
 import {
   isLocalBackendType,
   LOCAL_BACKEND_IDS,
@@ -807,8 +811,6 @@ interface GenericProviderAuthDef {
   secretKey: string;
   /** All env var names checked for this provider (order matters). */
   envVarNames: string[];
-  /** CLI aliases that resolve to this provider. */
-  aliases: string[];
 }
 
 const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
@@ -821,7 +823,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'OPENAI_API_KEY',
     envVarNames: ['OPENAI_API_KEY'],
-    aliases: getProviderAliasesFor('openai'),
   },
   {
     id: 'gemini',
@@ -832,7 +833,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/openai',
     secretKey: 'GEMINI_API_KEY',
     envVarNames: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-    aliases: getProviderAliasesFor('gemini'),
   },
   {
     id: 'deepseek',
@@ -843,7 +843,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'DEEPSEEK_API_KEY',
     envVarNames: ['DEEPSEEK_API_KEY'],
-    aliases: getProviderAliasesFor('deepseek'),
   },
   {
     id: 'xai',
@@ -854,7 +853,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'XAI_API_KEY',
     envVarNames: ['XAI_API_KEY'],
-    aliases: getProviderAliasesFor('xai'),
   },
   {
     id: 'zai',
@@ -865,7 +863,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v4',
     secretKey: 'ZAI_API_KEY',
     envVarNames: ['GLM_API_KEY', 'ZAI_API_KEY', 'Z_AI_API_KEY'],
-    aliases: getProviderAliasesFor('zai'),
   },
   {
     id: 'kimi',
@@ -876,7 +873,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'KIMI_API_KEY',
     envVarNames: ['KIMI_API_KEY'],
-    aliases: getProviderAliasesFor('kimi'),
   },
   {
     id: 'minimax',
@@ -887,7 +883,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'MINIMAX_API_KEY',
     envVarNames: ['MINIMAX_API_KEY'],
-    aliases: getProviderAliasesFor('minimax'),
   },
   {
     id: 'dashscope',
@@ -898,7 +893,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'DASHSCOPE_API_KEY',
     envVarNames: ['DASHSCOPE_API_KEY'],
-    aliases: getProviderAliasesFor('dashscope'),
   },
   {
     id: 'xiaomi',
@@ -909,7 +903,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/v1',
     secretKey: 'XIAOMI_API_KEY',
     envVarNames: ['XIAOMI_API_KEY'],
-    aliases: getProviderAliasesFor('xiaomi'),
   },
   {
     id: 'kilo',
@@ -920,7 +913,6 @@ const GENERIC_PROVIDER_AUTH_DEFS: readonly GenericProviderAuthDef[] = [
     baseUrlSuffix: '/api/gateway',
     secretKey: 'KILO_API_KEY',
     envVarNames: ['KILOCODE_API_KEY', 'KILO_API_KEY'],
-    aliases: getProviderAliasesFor('kilo'),
   },
 ] as const;
 
@@ -980,105 +972,8 @@ async function configureGenericProvider(
   });
 }
 
-type UnifiedProvider =
-  | 'hybridai'
-  | 'openai'
-  | 'codex'
-  | 'anthropic'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'google'
-  | 'hubspot'
-  | 'microsoft365'
-  | 'gemini'
-  | 'deepseek'
-  | 'xai'
-  | 'zai'
-  | 'kimi'
-  | 'minimax'
-  | 'dashscope'
-  | 'xiaomi'
-  | 'kilo'
-  | 'local'
-  | 'msteams'
-  | 'slack';
-
-function normalizeUnifiedProvider(
-  rawProvider: string | undefined,
-): UnifiedProvider | null {
-  const normalized = String(rawProvider || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'hybrid-ai' ||
-    normalized === 'hybrid'
-  ) {
-    return 'hybridai';
-  }
-  if (normalized === 'codex' || normalized === 'openai-codex') {
-    return 'codex';
-  }
-  if (normalized === 'anthropic' || normalized === 'claude') {
-    return 'anthropic';
-  }
-  if (normalized === 'openrouter' || normalized === 'or') {
-    return 'openrouter';
-  }
-  if (normalized === 'mistral') {
-    return 'mistral';
-  }
-  if (
-    normalized === 'huggingface' ||
-    normalized === 'hf' ||
-    normalized === 'hugging-face' ||
-    normalized === 'huggingface-hub'
-  ) {
-    return 'huggingface';
-  }
-  if (normalized === 'google' || normalized === 'gog') {
-    return 'google';
-  }
-  if (normalized === 'hubspot' || normalized === 'hs') {
-    return 'hubspot';
-  }
-  if (
-    normalized === 'microsoft365' ||
-    normalized === 'microsoft-365' ||
-    normalized === 'm365' ||
-    normalized === 'office365' ||
-    normalized === 'office-365' ||
-    normalized === 'graph' ||
-    normalized === 'msgraph'
-  ) {
-    return 'microsoft365';
-  }
-  // Check data-driven generic providers by id or alias.
-  for (const def of GENERIC_PROVIDER_AUTH_DEFS) {
-    if (normalized === def.id || def.aliases.includes(normalized)) {
-      return def.id;
-    }
-  }
-  if (normalized === 'local') {
-    return 'local';
-  }
-  if (
-    normalized === 'msteams' ||
-    normalized === 'teams' ||
-    normalized === 'ms-teams'
-  ) {
-    return 'msteams';
-  }
-  if (normalized === 'slack') {
-    return 'slack';
-  }
-  return null;
-}
-
 function parseUnifiedProviderArgs(args: string[]): {
-  provider: UnifiedProvider | null;
+  provider: AuthTarget | null;
   remaining: string[];
 } {
   if (args.length === 0) {
@@ -1094,10 +989,10 @@ function parseUnifiedProviderArgs(args: string[]): {
     if (!rawProvider) {
       throw new Error('Missing value for `--provider`.');
     }
-    const provider = normalizeUnifiedProvider(rawProvider);
+    const provider = resolveAuthTarget(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use ${AUTH_TARGET_CHOICES}.`,
       );
     }
     return {
@@ -1108,10 +1003,10 @@ function parseUnifiedProviderArgs(args: string[]): {
 
   if (first.startsWith('--provider=')) {
     const rawProvider = first.slice('--provider='.length);
-    const provider = normalizeUnifiedProvider(rawProvider);
+    const provider = resolveAuthTarget(rawProvider);
     if (!provider) {
       throw new Error(
-        `Unknown provider "${rawProvider}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+        `Unknown provider "${rawProvider}". Use ${AUTH_TARGET_CHOICES}.`,
       );
     }
     return {
@@ -1120,7 +1015,7 @@ function parseUnifiedProviderArgs(args: string[]): {
     };
   }
 
-  const provider = normalizeUnifiedProvider(first);
+  const provider = resolveAuthTarget(first);
   return {
     provider,
     remaining: provider == null ? args : args.slice(1),
@@ -2053,23 +1948,6 @@ function printHybridAIStatus(): void {
   );
 }
 
-function configureHybridAIBaseUrl(args: string[]): void {
-  ensureRuntimeConfigFile();
-  const requested = args.join(' ').trim();
-  const normalizedBaseUrl = normalizeHybridAIBaseUrl(requested);
-  const nextConfig = updateRuntimeConfig((draft) => {
-    draft.hybridai.baseUrl = normalizedBaseUrl;
-  });
-
-  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
-  console.log(`Provider: hybridai`);
-  console.log(`Base URL: ${nextConfig.hybridai.baseUrl}`);
-  console.log('Next:');
-  console.log('  hybridclaw gateway restart --foreground');
-  console.log('  hybridclaw hybridai status');
-  console.log('  hybridclaw tui');
-}
-
 function printMSTeamsStatus(): void {
   ensureRuntimeConfigFile();
   const config = getRuntimeConfig();
@@ -2220,7 +2098,7 @@ function clearLocalBackends(): void {
   }
 }
 
-function printUnifiedProviderUsage(provider: UnifiedProvider): void {
+function printUnifiedProviderUsage(provider: AuthTarget): void {
   if (provider === 'hybridai') {
     printHybridAIUsage();
     return;
@@ -2405,7 +2283,7 @@ function parseLocalConfigureArgs(args: string[]): ParsedLocalConfigureArgs {
 
   if (positional.length < 1) {
     throw new Error(
-      'Usage: `hybridclaw local configure <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
+      'Usage: `hybridclaw auth login local <ollama|lmstudio|llamacpp|vllm|mlx> [model-id] [--name <endpoint>] [--base-url <url>] [--api-key <key>] [--thinking-format qwen] [--no-default]`',
     );
   }
 
@@ -2619,31 +2497,6 @@ function configureLocalBackend(args: string[]): void {
   }
 }
 
-export async function handleLocalCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printLocalUsage();
-    return;
-  }
-
-  const sub = normalized[0].toLowerCase();
-  if (['setup', 'serve', 'benchmark', 'stop'].includes(sub)) {
-    const { handleMlxCommand } = await import('../inference/mlx-command.js');
-    await handleMlxCommand(normalized);
-    return;
-  }
-  if (sub === 'status') {
-    printLocalStatus();
-    return;
-  }
-  if (sub === 'configure') {
-    configureLocalBackend(normalized.slice(1));
-    return;
-  }
-
-  throw new Error(`Unknown local subcommand: ${sub}`);
-}
-
 async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   if (normalizedArgs.length === 0) {
     const { ensureRuntimeCredentials } = await ensureOnboardingApi();
@@ -2660,7 +2513,7 @@ async function handleAuthLoginCommand(normalizedArgs: string[]): Promise<void> {
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown auth login provider "${normalizedArgs[0]}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown auth login provider "${normalizedArgs[0]}". Use ${AUTH_TARGET_CHOICES}.`,
     );
   }
   if (isHelpRequest(parsed.remaining)) {
@@ -2831,7 +2684,7 @@ async function handleAuthWhatsAppCommand(
 type ProviderAction = 'status' | 'logout';
 
 async function dispatchProviderAction(
-  provider: UnifiedProvider,
+  provider: AuthTarget,
   action: ProviderAction,
 ): Promise<void> {
   if (provider === 'hybridai') {
@@ -2969,7 +2822,7 @@ async function handleProviderActionCommand(
   const parsed = parseUnifiedProviderArgs(normalizedArgs);
   if (!parsed.provider) {
     throw new Error(
-      `Unknown ${action} provider "${normalizedArgs[0]}". Use \`hybridai\`, \`openai\`, \`codex\`, \`anthropic\`, \`openrouter\`, \`mistral\`, \`huggingface\`, \`google\`, \`hubspot\`, \`microsoft365\`, \`gemini\`, \`deepseek\`, \`xai\`, \`zai\`, \`kimi\`, \`minimax\`, \`dashscope\`, \`xiaomi\`, \`kilo\`, \`local\`, \`msteams\`, or \`slack\`.`,
+      `Unknown ${action} provider "${normalizedArgs[0]}". Use ${AUTH_TARGET_CHOICES}.`,
     );
   }
   if (parsed.remaining.length > 0) {
@@ -3336,18 +3189,9 @@ async function configureSlackAuth(args: string[]): Promise<void> {
   console.log('  hybridclaw gateway status');
 }
 
-export async function handleHybridAICommand(args: string[]): Promise<void> {
+async function handleHybridAICommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printHybridAIUsage();
-    return;
-  }
-
   const sub = normalized[0].toLowerCase();
-  if (sub === 'base-url') {
-    configureHybridAIBaseUrl(normalized.slice(1));
-    return;
-  }
   if (sub === 'login') {
     await ensureHybridAIAuthApi();
     const parsed = parseHybridAILoginArgs(normalized.slice(1));
@@ -3399,13 +3243,8 @@ export async function handleHybridAICommand(args: string[]): Promise<void> {
   throw new Error(`Unknown hybridai subcommand: ${sub}`);
 }
 
-export async function handleCodexCommand(args: string[]): Promise<void> {
+async function handleCodexCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printCodexUsage();
-    return;
-  }
-
   await ensureCodexAuthApi();
 
   const sub = normalized[0].toLowerCase();

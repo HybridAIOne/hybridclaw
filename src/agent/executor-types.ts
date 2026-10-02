@@ -15,7 +15,6 @@ import type {
   PluginRuntimeToolDefinition,
   ToolProgressEvent,
 } from '../types/execution.js';
-import type { ScheduledTask } from '../types/scheduler.js';
 import type { PromptClient } from './prompt-hooks.js';
 
 export interface ExecutorRequest extends SessionAttachmentAccess {
@@ -51,8 +50,6 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
-  scheduledTasks?: ScheduledTask[];
-  hiddenScheduledTaskCount?: number;
   skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];

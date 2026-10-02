@@ -92,6 +92,7 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
+import { REACT_TOOL_DEFINITION, runReactTool } from './tools/react.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -148,21 +149,6 @@ function guardCommand(command: string): string | null {
   }
   return null;
 }
-
-type ScheduledTaskInfo = {
-  id: number;
-  channelId: string;
-  cronExpr: string;
-  tz: string;
-  runAt: string | null;
-  everyMs: number | null;
-  prompt: string;
-  enabled: number;
-  lastRun: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  createdAt: string;
-};
 
 // Heartbeat has no user-facing conversation for scheduled output.
 const CHANNELS_WITHOUT_PROACTIVE_DELIVERY = new Set(['heartbeat']);
@@ -330,8 +316,6 @@ function describeSchedule(task: {
 
 let pendingDelegations: DelegationSideEffect[] = [];
 let delegateCallsThisTurn = 0;
-let injectedTasks: ScheduledTaskInfo[] = [];
-let hiddenTaskCount = 0;
 let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let currentAgentId = '';
@@ -745,14 +729,6 @@ export function getPendingSideEffects():
   | undefined {
   if (pendingDelegations.length === 0) return undefined;
   return { delegations: pendingDelegations };
-}
-
-export function setScheduledTasks(
-  tasks: ScheduledTaskInfo[] | undefined,
-  hiddenCount = 0,
-): void {
-  injectedTasks = tasks || [];
-  hiddenTaskCount = hiddenCount;
 }
 
 export function setScheduleSideEffectsEnabled(enabled: boolean): void {
@@ -1329,11 +1305,13 @@ async function callGatewaySchedulerTask(
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
     const actionLabel =
-      payload.action === 'remove'
-        ? 'removal'
-        : payload.action === 'update'
-          ? 'update'
-          : 'creation';
+      payload.action === 'list'
+        ? 'listing'
+        : payload.action === 'remove'
+          ? 'removal'
+          : payload.action === 'update'
+            ? 'update'
+            : 'creation';
     throw new ToolExecutionFailure(
       `Error: scheduled task ${actionLabel} failed (HTTP ${response.status}): ${detail}`,
     );
@@ -3725,6 +3703,11 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
 
+    case 'react': {
+      const { ok, text } = runReactTool(args);
+      return ok ? text : failTool(text);
+    }
+
     case 'session_search': {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
       if (!query)
@@ -4015,35 +3998,10 @@ async function executeToolInternal(
     case 'cron': {
       const action = args.action;
 
+      // Read live, so the list shows what `track` or `todo` just changed.
       if (action === 'list') {
-        const hiddenNote =
-          hiddenTaskCount > 0
-            ? `${hiddenTaskCount} more task(s) of this agent belong to other conversations. This chat cannot list or change them; Automation → Scheduler in the console can. Ask the user before adding a task that may duplicate one.`
-            : '';
-        if (injectedTasks.length === 0) {
-          return hiddenNote
-            ? `No scheduled tasks in this chat. ${hiddenNote}`
-            : 'No scheduled tasks.';
-        }
-        const lines = injectedTasks.map((t) => {
-          let schedule: string;
-          if (t.runAt) schedule = `at ${t.runAt}`;
-          else if (t.everyMs) {
-            const secs = t.everyMs / 1000;
-            if (secs < 120) schedule = `every ${secs}s`;
-            else if (secs < 7200) schedule = `every ${Math.round(secs / 60)}m`;
-            else schedule = `every ${Math.round(secs / 3600)}h`;
-          } else schedule = t.tz ? `${t.cronExpr} (${t.tz})` : t.cronExpr;
-          const status = t.enabled ? 'enabled' : 'disabled';
-          const destination = t.channelId ? ` -> ${t.channelId}` : '';
-          const failure =
-            t.lastError && (t.lastStatus === 'error' || !t.enabled)
-              ? ` (last run failed: ${t.lastError})`
-              : '';
-          return `#${t.id} [${status}] ${schedule}${destination} — ${t.prompt}${failure}`;
-        });
-        if (hiddenNote) lines.push(hiddenNote);
-        return lines.join('\n');
+        const listed = await callGatewaySchedulerTask({ action: 'list' });
+        return String(listed.text);
       }
 
       if (action === 'add') {
@@ -4330,6 +4288,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
+  REACT_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
@@ -5394,6 +5353,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         '- "add": create a task. Provide execution instruction in "prompt" (or aliases "message"/"text"), plus one schedule field: "at" (ISO-8601 one-shot), "at_seconds" (one-shot seconds from now), "cron" (recurring 5-field cron expression, evaluated in the user timezone from USER.md, or in "tz" when given), or "every" (recurring interval seconds). Optional "channel" overrides where the generated result is delivered. In heartbeat sessions "channel" is required. Web chat output is saved in the originating conversation.\n' +
         '- "update": change an existing task by taskId (get it from "list"). Provide any of "prompt", "channel", and at most one schedule field ("at"/"at_seconds", "cron"[+"tz"], or "every") to change; omitted fields keep their current value. Use this instead of "remove" + "add" when changing the time, channel, or prompt of a schedule the user already has, so the task keeps its id and does not duplicate.\n' +
         '- "remove": delete a task by taskId\n' +
+        'A goal’s check-in and a todo’s reminder belong to the `track` and `todo` tools ("every"/"at", "remind"); never add a cron task for the same thing.\n' +
         'The "prompt" is what the model will receive when the task fires. Use an explicit instruction (not the original user sentence). If you set "channel", describe the content to generate for that destination instead of telling the model to send it itself. A success result means the task is saved and returns its id; an Error result means nothing was scheduled. Quote the id and schedule from the result when confirming to the user.',
       parameters: {
         type: 'object',

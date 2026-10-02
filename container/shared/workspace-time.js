@@ -72,7 +72,9 @@ function getTimezoneOffsetMs(timezone, date) {
 export function extractUserTimezone(content) {
   if (typeof content !== 'string' || !content.trim()) return undefined;
   const match = content.match(/\*\*Timezone:\*\*[ \t]*([^\r\n]*)/i);
-  const timezone = match?.[1]?.trim();
+  // The zone is the first word. Agents note how they learned it, as in
+  // "Europe/Berlin (from the user's city)", and the whole line is no zone.
+  const timezone = match?.[1]?.replace(/^[\s_*`]+/, '').split(/[\s(,;*`]/)[0];
   return timezone || undefined;
 }
 

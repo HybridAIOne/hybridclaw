@@ -7,7 +7,9 @@
  * condition holds, and NOT todos (`src/todos/`), which are the user's to do
  * on a day. An item with `every` owns one scheduled task in the chat that set
  * it: a check-in in which the agent looks into the item and updates its
- * status. Owners are the todo owners: all web chats of an agent share one list.
+ * status, then writes to the user about a goal, or about a tracked item only
+ * when there is news. Owners are the todo owners: all web chats of an agent
+ * share one list.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -158,11 +160,27 @@ export function parseAt(raw: string): string {
   return value;
 }
 
-function checkPrompt(item: Tracked): string {
+const LOOK_INTO_IT =
+  'Look into where it stands with the tools and connected data you have. Then call the `track` tool with action "status" and one short line on where it stands now, or action "done" when the outcome is reached.';
+
+/** A tracked item's check-in: the agent looks, and speaks only on news. */
+function watchPrompt(item: Tracked): string {
   return [
     `[Tracking check-in] #${item.id} "${item.title}" (${item.kind}).${item.outcome ? ` Desired outcome: ${item.outcome}` : ''}`,
-    'Look into where it stands with the tools and connected data you have. Then call the `track` tool with action "status" and one short line on where it stands now, or action "done" when the outcome is reached.',
+    LOOK_INTO_IT,
     `If there is news the user should hear or a decision only they can make, tell them in one or two sentences, in the language you usually speak with them. Otherwise reply with exactly ${SILENT_REPLY_TOKEN}.`,
+  ].join('\n');
+}
+
+// A goal's check-in always writes (owner call, 2026-10-02): the user asked to
+// be checked in with, and a live test showed "check in with me daily" ending
+// in silence when nothing new had turned up.
+function checkPrompt(item: Tracked): string {
+  if (item.kind !== 'goal') return watchPrompt(item);
+  return [
+    `[Goal check-in] #${item.id} "${item.title}".${item.outcome ? ` Desired outcome: ${item.outcome}` : ''}`,
+    LOOK_INTO_IT,
+    'Then check in with the user in two or three sentences, in the language you usually speak with them: where it stands, the next open step, and one question about how it is going.',
   ].join('\n');
 }
 
@@ -178,9 +196,15 @@ function checkCron(item: Tracked): string {
  * id alone could name someone else's task.
  */
 function ownsCheck(item: Tracked): boolean {
-  if (!item.checkTaskId) return false;
-  const task = getJob(item.checkTaskId, { kind: 'scheduled_task' });
-  return task?.prompt === checkPrompt(item);
+  const prompt = storedCheckPrompt(item);
+  // compat: remove after v0.36 — v0.34 gave goals the tracking check-in;
+  // owning it lets the goal's next change replace it instead of adding one.
+  return prompt === checkPrompt(item) || prompt === watchPrompt(item);
+}
+
+function storedCheckPrompt(item: Tracked): string | null {
+  if (!item.checkTaskId) return null;
+  return getJob(item.checkTaskId, { kind: 'scheduled_task' })?.prompt ?? null;
 }
 
 function dropCheck(item: Tracked): void {
@@ -222,7 +246,9 @@ function applyFields(item: Tracked, fields: TrackFields): void {
   if (fields.at !== undefined) item.at = fields.at;
   if (fields.tz !== undefined) {
     if (!isValidTimezone(fields.tz)) {
-      throw new TrackError(`\`${fields.tz}\` is not a time zone.`);
+      throw new TrackError(
+        `\`${fields.tz}\` is not a time zone; use an IANA name such as \`Europe/Berlin\`.`,
+      );
     }
     item.tz = fields.tz;
   }
@@ -271,7 +297,7 @@ function change(
         checkCron(item) !== checkCron(previous) ||
         item.tz !== previous.tz ||
         Boolean(item.done) !== Boolean(previous.done) ||
-        !ownsCheck(previous)
+        storedCheckPrompt(previous) !== checkPrompt(previous)
       ) {
         syncCheck(item, previous, session);
       }
@@ -279,6 +305,17 @@ function change(
     },
     now,
   );
+}
+
+/** The item task `taskId` is the check-in of, so other tools leave it alone. */
+export function trackedOwningTask(taskId: number): Tracked | null {
+  for (const list of load().values()) {
+    const item = list.items.find(
+      (candidate) => candidate.checkTaskId === taskId && ownsCheck(candidate),
+    );
+    if (item) return item;
+  }
+  return null;
 }
 
 export function listTracked(session: Session): Tracked[] {

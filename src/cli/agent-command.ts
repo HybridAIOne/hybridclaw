@@ -125,9 +125,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   await ensureAgentPackagingRuntime();
 
-  const rawSub = normalized[0].toLowerCase();
-  const sub =
-    rawSub === 'pack' ? 'export' : rawSub === 'unpack' ? 'install' : rawSub;
+  const sub = normalized[0].toLowerCase();
   if (sub === 'list') {
     if (normalized.length !== 1) {
       printAgentUsage();
@@ -876,7 +874,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
     }
 
-    const { uninstallAgent } = await import('../agents/claw-archive.js');
+    const { uninstallAgent } = await import('../agents/agent-uninstall.js');
     const result = uninstallAgent(targetAgentId, { existingAgent });
     console.log(`Uninstalled agent ${result.agentId}.`);
     console.log(
@@ -884,11 +882,16 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         ? `Removed agent files at ${result.agentRootPath}.`
         : `No agent files were present at ${result.agentRootPath}.`,
     );
+    if (result.removedSkillsExtraDir) {
+      console.log(
+        `Removed ${path.join(result.workspacePath, 'skills')} from skills.extraDirs.`,
+      );
+    }
     return;
   }
 
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
+    `Unknown agent subcommand: ${sub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
   );
 }

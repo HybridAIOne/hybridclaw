@@ -55,6 +55,11 @@ export interface StoredMessage {
   media_json?: string | null;
   /** Provenance of the turn, e.g. 'voice' for realtime speech transcripts. */
   source?: string | null;
+  /**
+   * The emoji the other side reacted with: the agent's on a user message, the
+   * user's on the agent's.
+   */
+  reaction?: string | null;
   created_at: string;
 }
 

@@ -23,7 +23,7 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 
-export const DATABASE_SCHEMA_VERSION = 66;
+export const DATABASE_SCHEMA_VERSION = 67;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3684,6 +3684,24 @@ function migrateV66(
   recordMigration(database, 66, 'Track Teams user emails');
 }
 
+// In a one-to-one chat only the other side reacts to a message: the agent to
+// the user's, the user to the agent's. One emoji each, so one column holds it.
+function migrateV67(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  for (const column of ['reaction', 'reaction_at']) {
+    addColumnIfMissing({
+      database,
+      table: 'messages',
+      column,
+      ddl: `${column} TEXT`,
+      quiet: opts?.quiet === true,
+    });
+  }
+  recordMigration(database, 67, 'Persist emoji reactions on chat messages');
+}
+
 export function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -3867,6 +3885,7 @@ export function runMigrations(
   if (currentVersion < 64) migrateV64(database, opts);
   if (currentVersion < 65) migrateV65(database, opts);
   if (currentVersion < 66) migrateV66(database, opts);
+  if (currentVersion < 67) migrateV67(database, opts);
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

@@ -1,5 +1,18 @@
+/**
+ * Twilio voice URLs and REST calls — the one place that decides which public
+ * base URL Twilio reaches this gateway on.
+ *
+ * Webhook signature checks, generated TwiML stream/relay URLs, and the
+ * outbound `voice call` webhook all derive from `resolveConfiguredVoiceBaseUrl`;
+ * if they disagree, Twilio's signatures never verify. Does not serve webhooks
+ * (`runtime.ts` does).
+ */
 import type { IncomingMessage } from 'node:http';
 import { GATEWAY_BASE_URL, getConfigSnapshot } from '../../config/config.js';
+import {
+  isPrivateHttpBaseUrl,
+  normalizeHttpBaseUrl,
+} from '../../gateway/gateway-url-utils.js';
 import { normalizeBaseUrl } from '../../providers/utils.js';
 import { isRecord } from '../../utils/type-guards.js';
 
@@ -50,8 +63,54 @@ export function resolveVoiceWebhookPaths(
   };
 }
 
-export function resolvePublicBaseUrl(req: IncomingMessage): string {
+// `ops.gatewayBaseUrl` defaults to loopback, which Twilio cannot reach; a cloud
+// deployment already knows its public origin, so prefer that over a private
+// or unset base. Cloud mode only (#1446); local-mode tunnel URLs are not
+// consulted.
+function resolveConfiguredVoiceBaseUrl(): string {
   const configured = normalizeBaseUrl(GATEWAY_BASE_URL);
+  if (configured && !isPrivateHttpBaseUrl(configured)) return configured;
+  const { deployment } = getConfigSnapshot();
+  const publicUrl =
+    deployment.mode === 'cloud'
+      ? normalizeHttpBaseUrl(deployment.public_url)
+      : undefined;
+  return publicUrl || configured;
+}
+
+export function resolveVoiceCallWebhookUrl(webhookBasePath: string): {
+  url?: string;
+  error?: string;
+} {
+  const baseUrl = resolveConfiguredVoiceBaseUrl();
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return {
+      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
+    };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
+    };
+  }
+
+  if (isPrivateHttpBaseUrl(baseUrl)) {
+    return {
+      error:
+        'Set `ops.gatewayBaseUrl` (or `deployment.public_url` in cloud mode) to a public URL before using `voice call`; Twilio cannot reach localhost or private-network webhooks.',
+    };
+  }
+
+  const paths = resolveVoiceWebhookPaths(webhookBasePath);
+  return { url: `${baseUrl}${paths.webhookPath}` };
+}
+
+export function resolvePublicBaseUrl(req: IncomingMessage): string {
+  const configured = resolveConfiguredVoiceBaseUrl();
   if (configured) {
     return configured;
   }

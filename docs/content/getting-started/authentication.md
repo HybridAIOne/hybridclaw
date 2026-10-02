@@ -82,6 +82,22 @@ hybridclaw auth logout slack
 hybridclaw auth whatsapp reset
 ```
 
+## Provider Names
+
+`auth login`, `auth status`, and `auth logout` also accept alternative names,
+in any letter case:
+
+- model providers take the same vendor names as `/model list`, for example
+  `claude` for `anthropic`, `hf` for `huggingface`, `grok` for `xai`, and
+  `openai-codex` for `codex` (full list in
+  [Model Selection](../reference/model-selection.md#provider-names))
+- `gog` for `google`, `hs` for `hubspot`, `m365`, `microsoft-365`,
+  `office365`, `office-365`, `graph`, or `msgraph` for `microsoft365`, and
+  `teams` or `ms-teams` for `msteams`
+
+`google` always means the Google Workspace OAuth login described below. For
+the Gemini API, use `gemini` or `google-gemini`.
+
 ## Notes
 
 - `hybridclaw auth login` without a provider runs the standard onboarding flow.
@@ -501,15 +517,3 @@ Current built-in SecretRef surfaces include:
 Use `{ "source": "store", "id": "SECRET_NAME" }` in those fields.
 New configuration should use store-backed SecretRefs; env-backed SecretRefs
 are legacy-only and rejected on new secret-bearing surfaces.
-
-Legacy aliases are still supported, for example:
-
-```bash
-hybridclaw hybridai login --browser
-hybridclaw codex status
-hybridclaw local configure ollama llama3.2
-```
-
-Legacy aliases such as `hybridclaw codex status` and
-`hybridclaw local configure ...` still work, but the `auth` namespace is the
-current primary surface.

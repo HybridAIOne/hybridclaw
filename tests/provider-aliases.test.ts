@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import { normalizeModelCatalogProviderFilter } from '../src/providers/model-catalog.js';
@@ -31,13 +34,32 @@ describe('provider aliases', () => {
     expect(normalizeModelCatalogProviderFilter('nonsense-provider')).toBeNull();
   });
 
+  test('google is not a model-provider alias (it names the Workspace auth target)', () => {
+    expect(normalizeModelCatalogProviderFilter('google')).toBeNull();
+  });
+
   test('getProviderAliasesFor returns every alias that maps to the given id', () => {
-    expect(getProviderAliasesFor('gemini').sort()).toEqual(
-      ['google', 'google-gemini'].sort(),
-    );
+    expect(getProviderAliasesFor('gemini')).toEqual(['google-gemini']);
     expect(getProviderAliasesFor('zai').sort()).toEqual(
       ['z-ai', 'glm', 'zhipu'].sort(),
     );
     expect(getProviderAliasesFor('mistral')).toEqual([]);
+  });
+
+  test('the model-selection docs list exactly PROVIDER_ALIASES', () => {
+    const doc = fs.readFileSync(
+      path.join(process.cwd(), 'docs/content/reference/model-selection.md'),
+      'utf-8',
+    );
+    const section = doc.split('\n## Provider Names\n')[1]?.split('\n## ')[0];
+    const documented: Record<string, string> = {};
+    for (const [, names, canonical] of (section ?? '').matchAll(
+      /^- (.+) → `([^`]+)`$/gm,
+    )) {
+      for (const [, alias] of names.matchAll(/`([^`]+)`/g)) {
+        documented[alias] = canonical;
+      }
+    }
+    expect(documented).toEqual(PROVIDER_ALIASES);
   });
 });

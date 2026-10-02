@@ -15,8 +15,10 @@ import {
  * Rings the chat owner's phones after the reply is stored. A reminder shows
  * the assistant's name and the reminder itself. A task added with `--alert`
  * rings with the first item its reply lists instead, and not at all when it
- * lists none, so a phone never shows such a reply's raw list. Best effort:
- * looked up after the reply is stored, and a failure only loses the alert.
+ * lists none, so a phone never shows such a reply's raw list. With
+ * `--reply-only` as well, the reply is a message written for the chat, so it
+ * rings like a reminder of the alert's kind. Best effort: looked up after the
+ * reply is stored, and a failure only loses the alert.
  */
 async function alertPhones(
   delivery: WebNotificationDelivery | null,
@@ -27,11 +29,12 @@ async function alertPhones(
   messageId: number,
 ): Promise<void> {
   const taskId = /^schedule:(\d+)$/.exec(source)?.[1];
-  const alert = taskId
+  const task = taskId
     ? (await import('../memory/jobs.js')).getJob(Number(taskId), {
         kind: 'scheduled_task',
-      })?.alert
+      })
     : null;
+  const alert = task?.alert;
   const reminder =
     !alert && delivery?.devices.length && delivery.state.preferences.reminder;
   if (!alert && !reminder) return;
@@ -41,7 +44,19 @@ async function alertPhones(
   ]);
   const agent = getAgentById(agentId);
   const assistant = push.phoneAssistantName(agentId, agent);
-  if (alert) {
+  if (alert && task?.reply_only) {
+    if (!delivery) return;
+    await push.sendMobilePush(delivery.devices, {
+      ...push.reminderAlert({
+        notification: delivery.notification,
+        assistant,
+        text,
+        unread: unreadReminders(delivery),
+        messageId,
+      }),
+      kind: alert,
+    });
+  } else if (alert) {
     await push.alertListedItems({
       sessionId,
       kind: alert,
@@ -56,13 +71,17 @@ async function alertPhones(
         notification: delivery.notification,
         assistant,
         text,
-        unread: delivery.state.notifications.filter(
-          (notice) => notice.kind === 'reminder',
-        ).length,
+        unread: unreadReminders(delivery),
         messageId,
       }),
     );
   }
+}
+
+function unreadReminders(delivery: WebNotificationDelivery): number {
+  return delivery.state.notifications.filter(
+    (notice) => notice.kind === 'reminder',
+  ).length;
 }
 
 export function deliverWebScheduledMessage(

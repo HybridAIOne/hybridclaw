@@ -83,6 +83,7 @@ import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
+import { type AuthTarget, resolveAuthTarget } from '../auth/auth-targets.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
@@ -126,7 +127,7 @@ import {
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
-  resolveVoiceWebhookPaths,
+  resolveVoiceCallWebhookUrl,
 } from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
@@ -676,6 +677,7 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
+import { handleTimezoneCommand } from './timezone-command.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -3337,57 +3339,26 @@ function buildHybridAIAuthStatusLines(): string[] {
   ];
 }
 
-type GatewayAuthStatusProvider =
-  | 'hybridai'
-  | 'codex'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'local'
-  | 'msteams';
+const GATEWAY_AUTH_STATUS_PROVIDERS = [
+  'hybridai',
+  'codex',
+  'openrouter',
+  'mistral',
+  'huggingface',
+  'local',
+  'msteams',
+] as const satisfies readonly AuthTarget[];
+
+type GatewayAuthStatusProvider = (typeof GATEWAY_AUTH_STATUS_PROVIDERS)[number];
 
 function normalizeGatewayAuthStatusProvider(
   rawProvider: string | undefined,
 ): GatewayAuthStatusProvider | null {
-  const normalized = String(rawProvider || '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return null;
-  if (
-    normalized === 'hybridai' ||
-    normalized === 'hybrid-ai' ||
-    normalized === 'hybrid'
-  ) {
-    return 'hybridai';
-  }
-  if (normalized === 'codex' || normalized === 'openai-codex') {
-    return 'codex';
-  }
-  if (normalized === 'openrouter' || normalized === 'or') {
-    return 'openrouter';
-  }
-  if (normalized === 'mistral') {
-    return 'mistral';
-  }
-  if (
-    normalized === 'huggingface' ||
-    normalized === 'hf' ||
-    normalized === 'hugging-face' ||
-    normalized === 'huggingface-hub'
-  ) {
-    return 'huggingface';
-  }
-  if (normalized === 'local') {
-    return 'local';
-  }
-  if (
-    normalized === 'msteams' ||
-    normalized === 'teams' ||
-    normalized === 'ms-teams'
-  ) {
-    return 'msteams';
-  }
-  return null;
+  const target = resolveAuthTarget(rawProvider);
+  return (
+    GATEWAY_AUTH_STATUS_PROVIDERS.find((provider) => provider === target) ??
+    null
+  );
 }
 
 function resolveRuntimeCredentialStatus(
@@ -4425,59 +4396,6 @@ function formatRouteSecretLabel(
   if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
   if (isMicrosoftOAuthSecretRef(secret)) return 'microsoft-oauth';
   return `${secret.source}:${secret.id}`;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = String(hostname || '')
-    .trim()
-    .toLowerCase();
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1' ||
-    normalized === '[::1]'
-  );
-}
-
-function resolveVoiceCommandWebhookUrl(webhookBasePath: string): {
-  url?: string;
-  error?: string;
-} {
-  const baseUrl = String(GATEWAY_BASE_URL || '').trim();
-  if (!baseUrl) {
-    return {
-      error:
-        'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
-    };
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    return {
-      error: `Configured \`ops.gatewayBaseUrl\` is invalid: ${baseUrl}`,
-    };
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return {
-      error: 'Configured `ops.gatewayBaseUrl` must use `http` or `https`.',
-    };
-  }
-
-  if (isLoopbackHostname(parsed.hostname)) {
-    return {
-      error:
-        'Set `ops.gatewayBaseUrl` to a public tunnel or hostname before using `voice call`; Twilio cannot reach localhost webhooks.',
-    };
-  }
-
-  const paths = resolveVoiceWebhookPaths(webhookBasePath);
-  const normalizedBaseUrl = parsed.toString().replace(/\/+$/, '');
-  return {
-    url: `${normalizedBaseUrl}${paths.webhookPath}`,
-  };
 }
 
 function formatHttpRequestAuthRule(
@@ -9263,7 +9181,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...FULLAUTO_NEVER_APPROVE_TOOLS,
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
-      scheduledTasks: [],
       blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
@@ -11336,7 +11253,7 @@ export async function handleGatewayCommand(
         }
         return badCommand(
           'Usage',
-          'Usage: `auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`',
+          `Usage: \`auth status <${GATEWAY_AUTH_STATUS_PROVIDERS.join('|')}>\``,
         );
       }
 
@@ -11739,7 +11656,7 @@ export async function handleGatewayCommand(
 
         const voiceConfig = getRuntimeConfig().voice;
         const sub = parseLowerArg(req.args, 1);
-        const publicWebhook = resolveVoiceCommandWebhookUrl(
+        const publicWebhook = resolveVoiceCallWebhookUrl(
           voiceConfig.webhookPath,
         );
 
@@ -13378,6 +13295,9 @@ export async function handleGatewayCommand(
 
       case 'name':
         return handleNameCommand(req, resolveSessionAgentId(session));
+
+      case 'timezone':
+        return handleTimezoneCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);

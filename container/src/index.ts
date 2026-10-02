@@ -8,6 +8,7 @@
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
+import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import {
@@ -146,7 +147,6 @@ import {
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
-  setScheduledTasks,
   setScheduleSideEffectsEnabled,
   setSessionContext,
   setTaskModelPolicies,
@@ -2118,6 +2118,35 @@ async function processRequestInner(
       toolCalls: toolCalls.length,
       successfulToolCalls: successfulToolCallsThisTurn,
     });
+    // A reaction needs nothing back from the model: the text written with it
+    // is the reply, and a reaction alone answers by itself. A reaction that
+    // failed goes back to the model like any failed call.
+    const executedNow = toolExecutions.slice(-toolCalls.length);
+    if (
+      executedNow.length === toolCalls.length &&
+      executedNow.every(
+        (execution) => execution.name === REACT_TOOL_NAME && !execution.isError,
+      )
+    ) {
+      latestFinalAssistantText = assistantSegment.text;
+      textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
+      const reacted: ContainerOutput = {
+        status: 'success',
+        result: latestFinalAssistantText,
+        toolsUsed: [...new Set(toolsUsed)],
+        outputPresentation: finalOutputPresentation(latestFinalAssistantText),
+        ...(artifacts.length > 0 ? { artifacts } : {}),
+        toolExecutions,
+        tokenUsage: finalizeTokenUsage(tokenUsage),
+        effectiveUserPrompt,
+      };
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: reacted.status,
+        toolsUsed: reacted.toolsUsed,
+      });
+      return reacted;
+    }
   }
 
   collectRequestedArtifacts({
@@ -2242,10 +2271,6 @@ async function main(): Promise<void> {
 
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
-  setScheduledTasks(
-    firstInput.scheduledTasks,
-    firstInput.hiddenScheduledTaskCount,
-  );
   setEligibleSkillsCatalog(firstInput.skillCatalog);
   setScheduleSideEffectsEnabled(
     firstInput.scheduleSideEffectsEnabled !== false,
@@ -2408,7 +2433,6 @@ async function main(): Promise<void> {
 
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
-    setScheduledTasks(input.scheduledTasks, input.hiddenScheduledTaskCount);
     setEligibleSkillsCatalog(input.skillCatalog);
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);

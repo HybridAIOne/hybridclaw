@@ -22,6 +22,11 @@ useCleanMocks({
   resetModules: true,
 });
 
+// The NUL-terminated fields a launch writes to the wrapper's stdin.
+function stdinFields(options: { input?: unknown } | undefined): string[] {
+  return String(options?.input).split('\0').slice(0, -1);
+}
+
 function response() {
   return {
     setHeader: vi.fn(),
@@ -133,9 +138,7 @@ test.each([false, true])(
         expect(JSON.stringify(args)).not.toContain(token);
         expect(options).toMatchObject({ env: { GOG_ACCESS_TOKEN: token } });
         if (persistent) {
-          const snapshot = args!.find((arg) =>
-            arg.endsWith('/state.snapshot'),
-          )!;
+          const snapshot = stdinFields(options)[1];
           expect(fs.readFileSync(snapshot, 'utf8')).not.toContain(token);
         }
       }
@@ -202,12 +205,10 @@ test.each([false, true])(
           .mocked(spawnSync)
           .mock.calls.at(-1)!;
         expect(executable).toBe('bash');
-        expect(args![1]).not.toContain(workspace);
-        expect(args![1]).not.toContain(temp);
-        expect(options).toMatchObject({
-          cwd: workspace,
-          input: `${command}\0`,
-        });
+        expect(args).not.toContainEqual(expect.stringContaining(workspace));
+        expect(args).not.toContainEqual(expect.stringContaining(temp));
+        expect(options).toMatchObject({ cwd: workspace });
+        expect(stdinFields(options).at(-1)).toBe(command);
       }
     } finally {
       tools.resetPersistentBashSessions();

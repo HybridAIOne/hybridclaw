@@ -15,19 +15,9 @@ export interface ScheduledTask {
   created_at: string;
   /** Phone alert kind for a run whose reply is a list of items (`/schedule add --alert`). */
   alert?: string | null;
-}
-
-export interface ScheduledTaskInput {
-  id: number;
-  channelId: string;
-  cronExpr: string;
-  tz: string;
-  runAt: string | null;
-  everyMs: number | null;
-  prompt: string;
-  enabled: number;
-  lastRun: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  createdAt: string;
+  /**
+   * Runs keep their prompt and work out of the chat; only a reply that says
+   * something is posted to it (`/schedule add --reply-only`).
+   */
+  reply_only?: boolean;
 }

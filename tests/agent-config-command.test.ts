@@ -399,3 +399,19 @@ test('agent config command rejects nested markdown file paths before upserting',
   );
   expect(getAgentById('felix')).toBeNull();
 });
+
+test.each(['pack', 'unpack'])(
+  'agent %s is rejected as an unknown subcommand',
+  async (subcommand) => {
+    setupHome();
+
+    const { handleAgentPackageCommand } = await import(
+      '../src/cli/agent-command.ts'
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await expect(handleAgentPackageCommand([subcommand])).rejects.toThrow(
+      `Unknown agent subcommand: ${subcommand}.`,
+    );
+  },
+);

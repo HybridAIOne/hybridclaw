@@ -49,6 +49,7 @@ interface ConversationHistoryPageRow {
   artifacts_json: string | null;
   activity_trace_json: string | null;
   routing_trace_json: string | null;
+  reaction: string | null;
   created_at: string | null;
 }
 
@@ -289,6 +290,71 @@ export function setMessageRoutingTrace(
     .run(serialized, messageId);
 }
 
+/**
+ * Puts the other side's emoji on a message of this session, or takes it off
+ * with null: the agent reacts to a user message, the user to the agent's.
+ * Returns the emoji it replaced, or null when the session has no such message
+ * in that role.
+ */
+export function setMessageReaction(input: {
+  sessionId: string;
+  messageId: number;
+  role: 'user' | 'assistant';
+  emoji: string | null;
+}): { previous: string | null } | null {
+  const database = getMessageDatabase();
+  const sessionId = resolveSessionIdCompat(input.sessionId);
+  return database.transaction(() => {
+    const row = queryOne<{ reaction: string | null }, [number, string, string]>(
+      database,
+      'SELECT reaction FROM messages WHERE id = ? AND session_id = ? AND role = ?',
+      input.messageId,
+      sessionId,
+      input.role,
+    );
+    if (!row) return null;
+    database
+      .prepare(
+        `UPDATE messages
+         SET reaction = ?,
+             reaction_at = CASE WHEN ? IS NULL THEN NULL
+               ELSE strftime('%Y-%m-%d %H:%M:%f', 'now') END
+         WHERE id = ?`,
+      )
+      .run(input.emoji, input.emoji, input.messageId);
+    return { previous: row.reaction };
+  })();
+}
+
+/**
+ * The user's reactions to the agent's messages since the user last wrote,
+ * newest first: what the agent has not been told about yet.
+ */
+export function getUserReactionsSinceLastMessage(
+  sessionId: string,
+  limit = 5,
+): { emoji: string; content: string }[] {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  return queryAll<{ emoji: string; content: string }, [string, string, number]>(
+    getMessageDatabase(),
+    `SELECT reaction AS emoji, content
+     FROM messages
+     WHERE session_id = ?
+       AND role = 'assistant'
+       AND reaction IS NOT NULL
+       AND julianday(reaction_at) > COALESCE((
+         SELECT julianday(MAX(created_at))
+         FROM messages
+         WHERE session_id = ? AND role = 'user'
+       ), 0)
+     ORDER BY id DESC
+     LIMIT ?`,
+    resolvedSessionId,
+    resolvedSessionId,
+    limit,
+  );
+}
+
 export function getConversationHistory(
   sessionId: string,
   limit = 50,
@@ -319,7 +385,13 @@ export function getSessionAssistantMessage(
   messageId: number,
 ): Pick<
   StoredMessage,
-  'id' | 'session_id' | 'agent_id' | 'content' | 'artifacts' | 'created_at'
+  | 'id'
+  | 'session_id'
+  | 'agent_id'
+  | 'content'
+  | 'artifacts'
+  | 'source'
+  | 'created_at'
 > | null {
   const row = queryOne<
     {
@@ -328,12 +400,13 @@ export function getSessionAssistantMessage(
       agent_id: string | null;
       content: string;
       artifacts_json: string | null;
+      source: string | null;
       created_at: string;
     },
     [number, string]
   >(
     getMessageDatabase(),
-    `SELECT id, session_id, agent_id, content, artifacts_json, created_at
+    `SELECT id, session_id, agent_id, content, artifacts_json, source, created_at
      FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'`,
     messageId,
     resolveSessionIdCompat(sessionId),
@@ -345,6 +418,7 @@ export function getSessionAssistantMessage(
     agent_id: row.agent_id,
     content: row.content,
     artifacts: parseMessageArtifacts(row.artifacts_json),
+    source: row.source,
     created_at: row.created_at,
   };
 }
@@ -692,6 +766,7 @@ export function getConversationHistoryPage(
          m.artifacts_json,
          m.activity_trace_json,
          m.routing_trace_json,
+         m.reaction,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -746,6 +821,7 @@ export function getConversationHistoryPage(
       artifacts: parseMessageArtifacts(row.artifacts_json),
       ...(activityTrace ? { activityTrace } : {}),
       ...(routingTrace ? { routingTrace } : {}),
+      ...(row.reaction ? { reaction: row.reaction } : {}),
       created_at: row.created_at,
     });
   }

@@ -7,7 +7,10 @@
  * data, so only the creating chat reads it back. `--json` answers in one line
  * that survives a chat relay, for apps that drive this command. `--alert
  * <kind>` has a run whose reply lists items ring the creator's phones with
- * the first item (`mobile-push.ts`).
+ * the first item (`mobile-push.ts`). `--reply-only` keeps each run's prompt
+ * and work out of the chat: a run works in a session of its own, and only a
+ * reply that says something is posted here, as the agent's message, so an
+ * app can let a background check write into the conversation itself.
  *
  * NOT the scheduler (`scheduler.ts`, which fires tasks) and NOT the admin
  * scheduler API, which edits every task on an operator's behalf.
@@ -45,7 +48,7 @@ import {
 } from './scheduled-task-access.js';
 
 const USAGE =
-  'Usage: `schedule add [--tz <zone>] [--alert <kind>] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`. Add `--json` for a machine-readable answer.';
+  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`. Add `--json` for a machine-readable answer.';
 const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
@@ -86,6 +89,7 @@ function taskJson(task: ScheduledTask) {
     last_error: task.last_error,
     consecutive_errors: task.consecutive_errors,
     alert: task.alert ?? null,
+    reply_only: task.reply_only ?? false,
   };
 }
 
@@ -110,11 +114,13 @@ function readOptions(
   tz: string;
   limit: string;
   alert: string;
+  replyOnly: boolean;
   rest: string[];
   error: string | null;
 } {
   const rest: string[] = [];
   let json = false;
+  let replyOnly = false;
   let tz = '';
   let limit = '';
   let alert = '';
@@ -124,6 +130,8 @@ function readOptions(
       rest.push(arg);
     } else if (arg === '--json') {
       json = true;
+    } else if (arg === '--reply-only') {
+      replyOnly = true;
     } else if (arg === '--tz' || arg === '--limit' || arg === '--alert') {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) {
@@ -132,6 +140,7 @@ function readOptions(
           tz,
           limit,
           alert,
+          replyOnly,
           rest,
           error: `\`${arg}\` needs a value.`,
         };
@@ -144,7 +153,7 @@ function readOptions(
       rest.push(arg);
     }
   }
-  return { json, tz, limit, alert, rest, error: null };
+  return { json, tz, limit, alert, replyOnly, rest, error: null };
 }
 
 function findManageable(
@@ -158,7 +167,7 @@ function findManageable(
 
 function add(
   spec: string,
-  options: { tz: string; json: boolean; alert: string },
+  options: { tz: string; json: boolean; alert: string; replyOnly: boolean },
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
@@ -175,6 +184,7 @@ function add(
     );
   }
   const alert = options.alert || undefined;
+  const replyOnly = options.replyOnly || undefined;
   if (options.tz && !isValidTimezone(options.tz)) {
     return badCommand(
       'Invalid Time Zone',
@@ -198,6 +208,7 @@ function add(
       prompt: at[2],
       runAt: runAt.toISOString(),
       alert,
+      replyOnly,
     });
   } else if (every) {
     const everyMs = Number.parseInt(every[1], 10);
@@ -215,6 +226,7 @@ function add(
       prompt: every[2],
       everyMs,
       alert,
+      replyOnly,
     });
   } else if (cron) {
     try {
@@ -233,6 +245,7 @@ function add(
       tz: options.tz || undefined,
       prompt: cron[2],
       alert,
+      replyOnly,
     });
   } else {
     return badCommand('Usage', USAGE);
@@ -253,14 +266,17 @@ const MAX_CHAT_SESSIONS = 50;
 
 /**
  * Replies the task's runs stored, newest last: each directly follows the run's
- * prompt, asked by the scheduler. Read across the chat's sessions, because a
- * reset moves the task to a new session but leaves earlier replies behind.
+ * prompt, asked by the scheduler. A `--reply-only` task stores no prompt here,
+ * so its replies are the messages it posted. Read across the chat's sessions,
+ * because a reset moves the task to a new session but leaves earlier replies
+ * behind.
  */
 function runReplies(task: ScheduledTask, limit: number) {
   // A run stores its prompt as the scheduler wrapped it, with the time of the run.
   const head = cronPromptHead(dbTaskLabel(task.id), task.prompt);
   const askedByTask = (content: string) =>
     content === task.prompt || content.startsWith(head);
+  const posted = `schedule:${task.id}`;
   const key = getSessionById(task.session_id)?.session_key;
   const sessionIds = key
     ? listSessionInstancesForKey(key, { limit: MAX_CHAT_SESSIONS }).map(
@@ -275,15 +291,15 @@ function runReplies(task: ScheduledTask, limit: number) {
   for (const sessionId of sessionIds) {
     // Enough rows for `limit` runs even when the chat talks in between.
     const messages = getRecentMessages(sessionId, limit * 6 + 20);
-    for (let index = 1; index < messages.length; index += 1) {
+    for (let index = 0; index < messages.length; index += 1) {
       const reply = messages[index];
       const asked = messages[index - 1];
-      if (
-        reply.role === 'assistant' &&
-        asked.role === 'user' &&
-        asked.user_id === 'scheduler' &&
-        askedByTask(asked.content)
-      ) {
+      const answered = task.reply_only
+        ? reply.source === posted
+        : asked?.role === 'user' &&
+          asked.user_id === 'scheduler' &&
+          askedByTask(asked.content);
+      if (reply.role === 'assistant' && answered) {
         replies.push({
           id: reply.id,
           created_at: isoTime(reply.created_at),

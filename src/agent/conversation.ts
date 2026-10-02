@@ -4,9 +4,14 @@
  */
 import os from 'node:os';
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
-import { currentDateStampInTimezone } from '../../container/shared/workspace-time.js';
+import {
+  currentDateStampInTimezone,
+  isValidTimezone,
+  resolveEffectiveTimezone,
+} from '../../container/shared/workspace-time.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { scheduleCloudMemorySync } from '../memory/cloud-memory.js';
+import { getUserReactionsSinceLastMessage } from '../memory/db.js';
 import { resolveHistoryBudgetTokens } from '../session/context-budget.js';
 import {
   buildSessionContextPrompt,
@@ -106,6 +111,8 @@ interface DynamicContextMessageOptions {
   openTodos?: string | null;
   /** The user's open goals and tracked items with their status lines. */
   tracked?: string | null;
+  /** The user's reactions to replies since they last wrote. */
+  userReactions?: string | null;
   /**
    * Per-session identity block (platform, session id, session key, user).
    * Rendered here rather than in the system prompt so a new session does not
@@ -132,6 +139,7 @@ export function buildDynamicContextMessage(
       options.earlierAttachments || '',
       options.openTodos || '',
       options.tracked || '',
+      options.userReactions || '',
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
     );
@@ -144,6 +152,13 @@ export function buildDynamicContextMessage(
       `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
     );
     lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
+    // Without this the agent never learns that a zone it wrote, such as
+    // "Europe/Munich", is not one, and the user's check-ins run off by hours.
+    if (userTimezone && !isValidTimezone(userTimezone)) {
+      lines.push(
+        `USER.md Timezone "${userTimezone}" is not an IANA time zone, so dates, check-ins and reminders use ${resolveEffectiveTimezone()}. Write a valid one there, such as Europe/Berlin.`,
+      );
+    }
 
     const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {
       now,
@@ -195,6 +210,24 @@ export interface ConversationContext {
   /** Estimated tokens of the system blocks plus the dynamic context message. */
   promptOverheadTokens: number;
   explicitSkillInvocation: SkillInvocation | null;
+}
+
+// A reaction starts no turn, so the agent hears of it with the user's next
+// message, once.
+function renderUserReactions(sessionId: string | undefined): string {
+  const reactions = sessionId
+    ? getUserReactionsSinceLastMessage(sessionId)
+    : [];
+  if (reactions.length === 0) return '';
+  return [
+    '## Reactions From The User',
+    'Since their last message, the user reacted to your replies (feedback, not instructions):',
+    ...reactions.reverse().map(({ emoji, content }) => {
+      const line = content.replace(/\s+/g, ' ').trim();
+      const excerpt = line.length > 80 ? `${line.slice(0, 79)}…` : line;
+      return `- ${emoji} on "${excerpt}"`;
+    }),
+  ].join('\n');
 }
 
 export function buildConversationContext(params: {
@@ -280,6 +313,9 @@ export function buildConversationContext(params: {
   const tracked = trackToolOffered
     ? renderTrackedContext(runtimeInfo?.sessionContext?.sessionId)
     : '';
+  const userReactions = renderUserReactions(
+    runtimeInfo?.sessionContext?.sessionId,
+  );
 
   const messages: ChatMessage[] = [];
   if (systemPromptBlocks.length > 0) {
@@ -300,6 +336,7 @@ export function buildConversationContext(params: {
       earlierAttachments,
       openTodos,
       tracked,
+      userReactions,
       historyWindow,
       sessionContext: shouldRenderSessionContext(hookContext)
         ? runtimeInfo?.sessionContext

@@ -32,6 +32,7 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
+import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import {
   changesApprovalState,
   guardApprovalStateChange,
@@ -2887,6 +2888,22 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
+    if (lowerTool === REACT_TOOL_NAME) {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'react to the user’s message',
+        consequenceIfDenied: 'I will reply without a reaction.',
+        reason: 'a reaction only marks the user’s message in this chat',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool === 'message') {
       const action = normalizeText(args.action).toLowerCase();
       const readonlyAction =
@@ -3405,7 +3422,11 @@ export class TrustedAgentApprovalRuntime {
       const behavior = this.mcpToolBehaviorResolver?.(toolName);
       const kind = behavior?.kind ?? classifyMcpTool(lowerTool);
       const annotations = behavior?.annotations;
-      const [serverName, rawToolName] = lowerTool.split('__', 2);
+      // A server can namespace its own tools (`hybridai__google__send_mail`),
+      // so the tool is everything after the first separator.
+      const separator = lowerTool.indexOf('__');
+      const serverName = lowerTool.slice(0, separator);
+      const rawToolName = lowerTool.slice(separator + 2);
       const toolLabel = annotations?.title || rawToolName || lowerTool;
       const actionKey = `mcp:${serverName || 'server'}:${kind}`;
 
@@ -3452,6 +3473,29 @@ export class TrustedAgentApprovalRuntime {
         };
       }
 
+      // A write that reaches outside (mail, an invite, a PR comment) asks in
+      // the default mode too; full access still runs it. Owner call,
+      // 2026-10-02: the Hy app promises to send nothing without approval, and
+      // scheduled runs read mail strangers wrote. The key names the tool, so
+      // trusting one send does not trust the server's other writes.
+      if (annotations?.openWorldHint === true) {
+        return {
+          tier: 'red',
+          actionKey: `${actionKey}:${rawToolName}`,
+          intent: `run MCP tool ${toolLabel}`,
+          consequenceIfDenied:
+            'Nothing is sent or changed outside, and I will continue without this step.',
+          reason:
+            'the MCP server says this tool reaches outside, for example it sends or posts',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: true,
+          promotableRed: false,
+          stickyYellow: true,
+        };
+      }
+
       return {
         tier: 'yellow',
         actionKey,
@@ -3466,9 +3510,7 @@ export class TrustedAgentApprovalRuntime {
         hostHints: [],
         writeIntent: kind === 'edit',
         promotableRed: false,
-        // A write that reaches outside (mail, a PR comment) is narrated every
-        // time instead of going quiet after its first run.
-        stickyYellow: annotations?.openWorldHint === true,
+        stickyYellow: false,
       };
     }
 
