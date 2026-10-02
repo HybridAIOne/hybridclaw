@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.4',
+  version: '0.34.5',
   highlights: [
-    'Reliable chat streams on mobile networks',
-    'Faster phone and MCP startup',
-    'Phone ratings respect your consent',
-    'Auth status for every TUI menu target',
+    'Faster long chats and memory recall',
+    'Responsive shell commands and MCP reads',
+    'Reset agent files to shipped defaults',
+    'Signed webhooks and safer outbound requests',
   ],
 } as const;
 

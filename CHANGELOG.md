@@ -2,13 +2,62 @@
 
 ## Unreleased
 
+## [0.34.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.5) - 2026-10-02
+
+### Added
+
+- **Agent file defaults**: The agent Markdown editor can load a shipped
+  template with **Reset to default**. Review the draft before saving; the
+  previous content stays in revision history.
+
 ### Changed
 
+- **Faster long chats**: Stored per-turn context lets providers reuse their
+  prompt cache for conversation history. Photo questions keep the tool list
+  stable rather than invalidating the cached system prompt.
+- **Faster memory recall**: Semantic memory uses persistent text indexes
+  instead of rebuilding them for each search, while preserving recall filters
+  and candidate-local ranking.
+- **Trusted MCP reads**: Operators can opt MCP servers into bounded
+  concurrency for independent read-only tools. Approvals and mutation ordering
+  still apply; concurrency is disabled by default.
 - **Rarely used MCP tools load on demand**: A tool whose MCP server marks it
   `_meta` `"hybridai/deferLoading": true`, such as HybridAI's catalog tools
   (dm, trivago), is kept behind `tool_catalog` even in `full` mode. Deferred
   tools are listed in the prompt by name and parameters, so the model calls
   one directly instead of searching for it first.
+- **Faster worker handoffs**: Directory notifications replace frequent IPC
+  polling, with periodic disk reconciliation when notifications are missed.
+
+### Fixed
+
+- **Responsive shell execution**: Running commands keep activity heartbeats
+  and interruption responsive. Timeouts, output overflow, and worker shutdown
+  cancel command descendants, including inside task sandboxes.
+- **Chat reactions**: A reply containing a single emoji becomes a reaction
+  when the client supports reactions. Reaction-only answers remain visible to
+  the agent's context, and agent identity symbols stay out of replies.
+- **Skill scanning**: Diagnostic messages, documented insecure examples, and
+  Unicode test data produce fewer false positives while operational threat
+  checks remain enforced.
+- **Outbound request security**: Scheduler webhooks require public HTTPS
+  endpoints, refuse redirects, and sign each delivery with HMAC-SHA256. A2A
+  requests to non-loopback peers reject private, link-local, and metadata
+  addresses, including DNS rebinding. A2A webhook replay windows are capped at
+  five minutes, and Twilio voice webhooks are refused without an auth token.
+
+### Migration
+
+- Update the gateway and agent image together for shell execution, MCP
+  scheduling and deferred loading, and IPC wakeup changes.
+- Scheduler webhook jobs require a public `https://` URL and a signing secret.
+  Run `hybridclaw secret set SCHEDULER_WEBHOOK_SECRET <secret>` and update the
+  receiver to verify `X-HybridClaw-Signature: t=<unix seconds>, v1=<hex HMAC>`.
+  Compute HMAC-SHA256 over `<t>.<body>` with that secret and reject signatures
+  older than five minutes. Jobs using `http://`, private endpoints, or no
+  signing secret fail delivery.
+- Non-loopback A2A peers must use public HTTPS endpoints. Local loopback peers
+  remain supported.
 
 ## [0.34.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.4) - 2026-10-02
 
