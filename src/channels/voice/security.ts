@@ -39,6 +39,8 @@ export function validateTwilioSignature(params: {
   url: string;
   values?: TwilioSignatureParams;
 }): boolean {
+  // An HMAC keyed with an empty token is computable by anyone.
+  if (!String(params.authToken || '').trim()) return false;
   const expected = buildTwilioSignature({
     authToken: params.authToken,
     url: params.url,

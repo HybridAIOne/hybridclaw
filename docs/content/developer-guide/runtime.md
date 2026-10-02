@@ -207,7 +207,11 @@ Common advanced areas:
   [Approvals](./approvals.md)
 - Scheduler jobs: SQLite-backed jobs with cron, every, at, or `one_shot`
   delivery targets (`one_shot` jobs run immediately, retry up to
-  `maxRetries`, and land in review on success or terminal failure)
+  `maxRetries`, and land in review on success or terminal failure).
+  `webhook` delivery posts only to public `https://` URLs, never follows
+  redirects, and signs every body with the stored `SCHEDULER_WEBHOOK_SECRET`
+  in `X-HybridClaw-Signature: t=<unix seconds>, v1=<hex HMAC-SHA256 of
+  "<t>.<body>">`; receivers should reject signatures older than five minutes.
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`

@@ -45,7 +45,7 @@ import {
   upsertA2ATrustedA2APeer,
   upsertA2ATrustedPublicKeyPeer,
 } from './trust-ledger.js';
-import { isA2AAllowedHttpUrl, isRecord } from './utils.js';
+import { fetchA2APeer, isA2AAllowedHttpUrl, isRecord } from './utils.js';
 
 export const A2A_PAIRING_REQUEST_PATH = '/a2a/pairing/requests';
 const A2A_PAIRING_REQUEST_SCHEMA_VERSION = 2;
@@ -704,26 +704,29 @@ async function notifyRemotePairingRequest(params: {
     params.proposal.deliveryUrl,
   );
   try {
-    const response = await (params.fetchImpl ?? fetch)(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        peerId: identity.instanceId,
-        agentCardUrl: identityUrl,
-        deliveryUrl: new URL('/a2a', localBaseUrl).toString(),
-        publicKeyJwk: identity.publicKeyJwk,
-        publicKeyFingerprint: identity.publicKeyFingerprint,
-        name:
-          typeof localCard.name === 'string' && localCard.name.trim()
-            ? localCard.name
-            : null,
-        delegation,
-        e2ee: localE2EE,
-        pairingId,
-        requestedBy: params.actor || null,
-      }),
-      redirect: 'error',
-    });
+    const response = await fetchA2APeer(
+      endpoint.toString(),
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          peerId: identity.instanceId,
+          agentCardUrl: identityUrl,
+          deliveryUrl: new URL('/a2a', localBaseUrl).toString(),
+          publicKeyJwk: identity.publicKeyJwk,
+          publicKeyFingerprint: identity.publicKeyFingerprint,
+          name:
+            typeof localCard.name === 'string' && localCard.name.trim()
+              ? localCard.name
+              : null,
+          delegation,
+          e2ee: localE2EE,
+          pairingId,
+          requestedBy: params.actor || null,
+        }),
+      },
+      params.fetchImpl,
+    );
     if (!response.ok) {
       return {
         status: 'failed',

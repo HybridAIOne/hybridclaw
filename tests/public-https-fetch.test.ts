@@ -71,6 +71,26 @@ describe('fetchPublicHttpsBuffer', () => {
     expect(request.end).toHaveBeenCalledWith(body);
   });
 
+  test('fetch-shaped variant returns a redirect as its status instead of following it', async () => {
+    const { fetchPublicHttps, requestMock } = await loadWithNetworkMocks([
+      { address: '93.184.216.34', family: 4 },
+    ]);
+    const request = Object.assign(new EventEmitter(), { setTimeout: vi.fn(), end: vi.fn() });
+    requestMock.mockImplementation((_url, _options, callback) => {
+      request.end.mockImplementation(() => {
+        const response = Object.assign(new EventEmitter(), { statusCode: 302, headers: { location: 'https://169.254.169.254/' } });
+        callback(response);
+        response.emit('end');
+      });
+      return request;
+    });
+
+    const response = await fetchPublicHttps('https://peer.example.com/a2a', { method: 'POST', body: '{}' });
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('https://169.254.169.254/');
+    expect(requestMock).toHaveBeenCalledOnce();
+  });
+
   test('guarded POST rejects DNS rebinding at connection time', async () => {
     const { fetchPublicHttpsBuffer, requestMock, lookupMock } = await loadWithNetworkMocks([
       { address: '93.184.216.34', family: 4 },

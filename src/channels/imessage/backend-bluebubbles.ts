@@ -101,6 +101,7 @@ function readWebhookPassword(
   if (typeof headerValue === 'string' && headerValue.trim()) {
     return { password: headerValue.trim(), source: 'header' };
   }
+  // BlueBubbles server webhooks are a bare URL with no custom headers.
   for (const key of ['password', 'guid', 'token']) {
     const value = url.searchParams.get(key);
     if (value?.trim()) {

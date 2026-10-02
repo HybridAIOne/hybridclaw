@@ -1312,6 +1312,24 @@ describe('A2A outbound adapter', () => {
     );
   });
 
+  test.each([
+    ['https://peer.example.com/.well-known/agent.json', false],
+    ['http://127.0.0.1:9090/.well-known/agent.json', true],
+  ])('Agent Card from %s may advertise a loopback url: %s', async (agentCardUrl, allowed) => {
+    const cards = await import('../src/a2a/a2a-agent-card.ts');
+    cards.clearA2AAgentCardCache();
+    const result = cards.fetchA2AAgentCard({
+      agentCardUrl,
+      fetchImpl: vi.fn(async () =>
+        Response.json({ url: 'http://127.0.0.1:9090/a2a' }),
+      ),
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    if (allowed) await expect(result).resolves.toMatchObject({});
+    else await expect(result).rejects.toThrow(cards.A2AFailFastError);
+  });
+
   test('retries transient responses and fails fast with audit escalation on 4xx', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'

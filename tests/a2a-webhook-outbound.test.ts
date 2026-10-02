@@ -6,6 +6,11 @@ import {
   setupA2AWebhookTestEnv,
 } from './helpers/a2a-webhook-fixtures.ts';
 
+const mocks = vi.hoisted(() => ({ fetchPublicHttps: vi.fn() }));
+vi.mock('../src/security/public-https-fetch.js', () => ({
+  fetchPublicHttps: mocks.fetchPublicHttps,
+}));
+
 setupA2AWebhookTestEnv('hc-a2a-webhook-');
 
 describe('A2A webhook outbound adapter', () => {
@@ -123,7 +128,7 @@ describe('A2A webhook outbound adapter', () => {
         nowMs: Date.parse('2030-01-01T00:00:00.000Z'),
         replayWindowMs: Number.MAX_SAFE_INTEGER,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(webhook.listWebhookOutboxItems()[0]).toMatchObject({
       status: 'delivered',
       attempts: 1,
@@ -337,21 +342,22 @@ describe('A2A webhook outbound adapter', () => {
     ).resolves.toMatchObject({ processed: 1, retried: 1 });
 
     vi.setSystemTime(new Date('2030-01-01T00:00:02.000Z'));
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(new Response('', { status: 202 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    mocks.fetchPublicHttps.mockResolvedValue(
+      new Response('', { status: 202 }),
+    );
     try {
       webhook.startWebhookOutboxProcessor(1_000);
       await Promise.resolve();
       await Promise.resolve();
     } finally {
       webhook.stopWebhookOutboxProcessor();
-      vi.unstubAllGlobals();
       vi.useRealTimers();
     }
 
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchPublicHttps).toHaveBeenCalledExactlyOnceWith(
+      'https://hooks.example.com/startup-sweep',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(
       webhook
         .listWebhookOutboxItems()
