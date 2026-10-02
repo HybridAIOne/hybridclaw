@@ -8,10 +8,10 @@ import {
   saveRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { validatePluginConfig } from './plugin-config-validation.js';
 import {
   PluginManager,
   resolveEffectivePluginConfigSchema,
-  validatePluginConfig,
 } from './plugin-manager.js';
 
 export interface PluginConfigReadResult {
