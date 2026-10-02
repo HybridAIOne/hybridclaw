@@ -979,6 +979,42 @@ bash skills/distil-pii-redactor/scripts/stop.sh
 
 ---
 
+## handoff-links
+
+Hand food delivery, train trips and hotel stays to Lieferando, Wolt, Uber
+Eats, DB Navigator or Booking.com. These services have no ordering or booking
+API, so the agent writes a link that opens the user's app, or the website,
+with the search already filled in. The user picks, pays and confirms there.
+
+**Prerequisites** — none.
+
+> 💡 **Tips & Tricks**
+>
+> Links use the postcode, city and home station the agent already knows.
+> When the link needs something it doesn't know, it asks once.
+>
+> Train links open bahn.de's `buchung/start` entry, which DB Navigator handles
+> and which resolves station names itself. Travellers and BahnCard come from
+> the profile saved in DB Navigator.
+>
+> The agent never orders or books on these sites itself.
+
+> 🎯 **Try it yourself**
+>
+> `I feel like sushi tonight, I live in 80331 Munich`
+>
+> `Find me a train from Munich to Berlin on Friday morning`
+>
+> `Find a hotel in Hamburg for two from October 10 to 12`
+>
+> **Conversation flow:**
+>
+> `1. I need to be in Cologne on Monday at 10 am, I'm leaving from Frankfurt`
+> `2. And back on Tuesday evening`
+> `3. Also find me a hotel near the cathedral for that night`
+
+---
+
 ## hybridclaw-help
 
 Primary skill for product questions about HybridClaw setup, configuration,

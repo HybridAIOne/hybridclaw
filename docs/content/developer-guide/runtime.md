@@ -400,7 +400,9 @@ Session behavior matches the routing rules above:
   token). `react` sends no `tool` event; the `result` carries the emoji as
   `reaction`, and `/api/history` returns each message's `reaction`. The user's
   own reactions (`POST /api/chat/reaction`) reach the agent's context with
-  their next message
+  their next message. A 👍 or 👎 is also the reply's response rating, from the
+  `userId` sent with it, as Teams reactions are; taking it off clears only the
+  rating it made
 
 ## Persistent Browser Profiles
 
