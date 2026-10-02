@@ -764,6 +764,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('Make replies visual.');
   expect(mobile).toContain('put its link on a line of its own');
   expect(web).not.toContain('Make replies visual.');
+  expect(mobile).toContain('Write like a friend texting back');
+  expect(web).not.toContain('Write like a friend texting back');
 });
 
 test('the mobile client prompt leaves out coding, document-building and browser detail', () => {

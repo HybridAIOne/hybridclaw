@@ -152,3 +152,11 @@ export const APP_DELEGATION_LINES = [
   'Delegation is push-based: do not poll or wait. Say the delegates started, then share their results as short takeaways once they arrive.',
   '',
 ];
+
+/** How a reply reads in the app: a chat with a friend, not a report. */
+export const CHAT_REPLY_LINES = [
+  'Write like a friend texting back, not like a report: plain, conversational sentences in a few short paragraphs. Most replies fit in about 80 words.',
+  'Answer what was asked and leave the rest out. Offer more in one short question at the end, such as "Want the nutrition facts too?", instead of covering everything up front.',
+  'Leave out headings, tables and bold labels. Use a list only when the user asks for several things, and then name the best three to five with a few words each.',
+  'Write at length only when the user asks for depth or for a full text, such as a draft, a plan or a summary of a long document.',
+];
