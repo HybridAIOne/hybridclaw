@@ -64,11 +64,11 @@ function readString(value: unknown): string {
 function ownerNote(taskId: number): string | null {
   const item = trackedOwningTask(taskId);
   if (item) {
-    return `the check-in of ${item.kind} #${item.id} "${item.title}"; change or stop it with the \`track\` tool ("every", "at")`;
+    return `the check-in of ${item.kind} #${item.id} "${item.title}"; change or stop it with the \`track\` tool ("every", "at", "tz")`;
   }
   const todo = todoOwningTask(taskId);
   if (todo) {
-    return `the reminder of todo #${todo.id} "${todo.title}"; change or stop it with the \`todo\` tool ("remind")`;
+    return `the reminder of todo #${todo.id} "${todo.title}"; change or stop it with the \`todo\` tool ("remind", "tz")`;
   }
   return null;
 }

@@ -246,7 +246,9 @@ function applyFields(item: Tracked, fields: TrackFields): void {
   if (fields.at !== undefined) item.at = fields.at;
   if (fields.tz !== undefined) {
     if (!isValidTimezone(fields.tz)) {
-      throw new TrackError(`\`${fields.tz}\` is not a time zone.`);
+      throw new TrackError(
+        `\`${fields.tz}\` is not a time zone; use an IANA name such as \`Europe/Berlin\`.`,
+      );
     }
     item.tz = fields.tz;
   }

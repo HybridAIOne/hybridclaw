@@ -324,6 +324,32 @@ test('the agent adds and updates items through its tool, recorded as its own', a
   expect(allTasks()).toEqual([]);
 });
 
+test('the agent sets the zone of a check-in; a made-up zone gets a hint', async () => {
+  const { session, runTrackToolAction, allTasks } = await load();
+  await session('app-chat');
+
+  const added = runTrackToolAction({
+    sessionId: 'app-chat',
+    action: 'add',
+    title: 'Half marathon',
+    every: 'daily',
+    at: '07:15',
+    tz: 'Europe/Berlin',
+  });
+  expect(added.result).toContain('you check in daily at 07:15 Europe/Berlin');
+  expect(allTasks()).toMatchObject([
+    { cron_expr: '15 7 * * *', tz: 'Europe/Berlin' },
+  ]);
+  expect(() =>
+    runTrackToolAction({
+      sessionId: 'app-chat',
+      action: 'edit',
+      id: 1,
+      tz: 'Europe/Munich',
+    }),
+  ).toThrow('use an IANA name such as `Europe/Berlin`');
+});
+
 test.each([
   [{ sessionId: 'app-chat', action: 'explode' }, 400],
   [{ sessionId: 'app-chat', action: 'status' }, 400],

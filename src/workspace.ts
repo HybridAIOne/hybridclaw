@@ -13,6 +13,7 @@ import { escapeRegExp } from '../container/shared/regex.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
+  resolveEffectiveTimezone,
 } from '../container/shared/workspace-time.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
@@ -1145,10 +1146,7 @@ export function loadBootstrapFiles(agentId: string): ContextFile[] {
  * e.g. "Tuesday, February 24th, 2026 — 14:32"
  */
 export function formatCurrentTime(timezone?: string, now = new Date()): string {
-  const tz =
-    timezone?.trim() ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    'UTC';
+  const tz = resolveEffectiveTimezone(timezone);
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,

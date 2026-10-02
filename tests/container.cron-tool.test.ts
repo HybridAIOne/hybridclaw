@@ -232,7 +232,7 @@ describe.sequential('container cron tool', () => {
 
   test('lists the tasks live through the gateway', async () => {
     const text =
-      '#3 [enabled] 15 7 * * * (UTC) -> web — the check-in of goal #1 "Half marathon"; change or stop it with the `track` tool ("every", "at")';
+      '#3 [enabled] 15 7 * * * (UTC) -> web — the check-in of goal #1 "Half marathon"; change or stop it with the `track` tool ("every", "at", "tz")';
     const calls = installGatewayFetch(() => ({
       body: { ok: true, action: 'list', text },
     }));

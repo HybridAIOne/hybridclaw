@@ -289,7 +289,9 @@ function applyFields(todo: Todo, fields: TodoFields): void {
   }
   if (fields.tz !== undefined) {
     if (!isValidTimezone(fields.tz)) {
-      throw new TodoError(`\`${fields.tz}\` is not a time zone.`);
+      throw new TodoError(
+        `\`${fields.tz}\` is not a time zone; use an IANA name such as \`Europe/Berlin\`.`,
+      );
     }
     todo.tz = fields.tz;
   }
@@ -485,7 +487,7 @@ export function describeTodo(todo: Todo, now = new Date()): string {
       ? 'open'
       : 'not due today';
   const streak = view.streak > 1 ? `, ${view.streak}-day streak` : '';
-  const remind = view.remind ? `, reminder ${view.remind}` : '';
+  const remind = view.remind ? `, reminder ${view.remind} ${view.tz}` : '';
   return `#${view.id} "${view.title}" — ${when}, ${state}${streak}${remind}`;
 }
 
