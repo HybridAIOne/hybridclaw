@@ -611,6 +611,51 @@ test('QMD prompt search fails cleanly when search output exceeds the capture lim
   ).rejects.toThrow('QMD search output exceeded the capture limit.');
 });
 
+test('QMD prompt search rejects search output that is not a JSON array', async () => {
+  const cwd = makeTempDir('hybridclaw-qmd-project-');
+  const qmdCommand = writeQmdStub(cwd, {
+    searchPayload: {
+      results: [
+        {
+          title: 'Wrapped hit',
+          file: 'qmd://hybridclaw/docs/wrapped.md',
+          snippet: 'Wrapped snippet',
+          score: 0.5,
+        },
+      ],
+    },
+  });
+
+  const { buildQmdPromptContextResult } = await import(
+    '../plugins/qmd-memory/src/qmd-process.js'
+  );
+
+  await expect(
+    buildQmdPromptContextResult({
+      config: {
+        command: qmdCommand,
+        workingDirectory: cwd,
+        searchMode: 'search',
+        maxResults: 10,
+        maxSnippetChars: 600,
+        maxInjectedChars: 4000,
+        timeoutMs: 10_000,
+      },
+      recentMessages: [
+        {
+          id: 1,
+          session_id: 'session-wrapped-search',
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'plugin',
+          created_at: '2026-03-19T10:00:00.000Z',
+        },
+      ],
+    }),
+  ).rejects.toThrow('QMD search results must be a JSON array.');
+});
+
 test('QMD plugin warns during startup when the QMD status probe fails', async () => {
   const homeDir = makeTempDir('hybridclaw-qmd-home-');
   const cwd = makeTempDir('hybridclaw-qmd-project-');

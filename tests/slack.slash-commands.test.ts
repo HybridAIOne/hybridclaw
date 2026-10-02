@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   buildSlackSlashCommandDefinitions,
+  getSlackNativeSlashCommandNames,
   mergeSlackSlashCommandsIntoManifest,
   renderSlackSlashCommandManifest,
   resolveSlackNativeSlashCommandArgs,
@@ -37,6 +38,11 @@ test('mergeSlackSlashCommandsIntoManifest preserves unrelated commands', () => {
         {
           command: '/status',
           description: 'Old status',
+          should_escape: true,
+        },
+        {
+          command: '/hybridclaw-status',
+          description: 'Old prefixed status',
           should_escape: true,
         },
       ],
@@ -81,23 +87,22 @@ test('renderSlackSlashCommandManifest renders yaml with commands scope', () => {
   expect(output).toContain('command: "/hc-status"');
 });
 
-test('resolveSlackNativeSlashCommandArgs accepts prefixed and legacy names', () => {
-  expect(
-    resolveSlackNativeSlashCommandArgs({
-      commandName: 'hc-status',
-      text: '',
-    }),
-  ).toEqual([['status']]);
-  expect(
-    resolveSlackNativeSlashCommandArgs({
-      commandName: 'status',
-      text: '',
-    }),
-  ).toEqual([['status']]);
-  expect(
-    resolveSlackNativeSlashCommandArgs({
-      commandName: 'hybridclaw-status',
-      text: '',
-    }),
-  ).toEqual([['status']]);
+test('the gateway listens only on hc- prefixed Slack command names', () => {
+  const names = getSlackNativeSlashCommandNames();
+
+  expect(names).toContain('hc-status');
+  expect(names.every((name) => name.startsWith('hc-'))).toBe(true);
 });
+
+test.each([
+  { commandName: 'hc-status', expected: [['status']] },
+  { commandName: 'status', expected: null },
+  { commandName: 'hybridclaw-status', expected: null },
+])(
+  'resolveSlackNativeSlashCommandArgs maps $commandName to $expected',
+  ({ commandName, expected }) => {
+    expect(
+      resolveSlackNativeSlashCommandArgs({ commandName, text: '' }),
+    ).toEqual(expected);
+  },
+);

@@ -149,24 +149,11 @@ async function importFreshSlackRuntime() {
     }),
   }));
   vi.doMock('../src/channels/slack/slash-commands.js', () => ({
-    getSlackNativeSlashCommandNames: () => [
-      'hc-status',
-      'hybridclaw-status',
-      'status',
-    ],
+    getSlackNativeSlashCommandNames: () => ['hc-status'],
     resolveSlackNativeSlashCommandArgs: (params: {
       commandName: string;
       text?: string | null;
-    }) => {
-      if (
-        params.commandName === 'status' ||
-        params.commandName === 'hc-status' ||
-        params.commandName === 'hybridclaw-status'
-      ) {
-        return [['status']];
-      }
-      return null;
-    },
+    }) => (params.commandName === 'hc-status' ? [['status']] : null),
   }));
   vi.doMock('../src/channels/channel-registry.js', () => ({
     registerChannel,
