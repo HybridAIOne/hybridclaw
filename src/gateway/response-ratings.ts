@@ -55,6 +55,9 @@ const HYBRIDAI_CHAT_FEEDBACK_TIMEOUT_MS = 10_000;
 const HYBRIDAI_CHAT_FEEDBACK_URL = `${normalizeBaseUrl(
   HYBRIDAI_BASE_URL,
 )}/api/chat_feedback`;
+const HYBRIDAI_DATA_CONTROLS_URL = `${normalizeBaseUrl(
+  HYBRIDAI_BASE_URL,
+)}/v1/account/data-controls`;
 
 function findRatedAgentConfig(agentId: string | null | undefined) {
   if (!agentId?.trim()) return null;
@@ -94,6 +97,27 @@ function warnHybridAIChatFeedbackForwardingFailed(
   logger.warn(context, 'HybridAI chat feedback forwarding failed');
 }
 
+/**
+ * Whether the account agreed that HybridAI may use its ratings to improve the
+ * app. The person sets it in the app; the platform keeps it. Anything but a
+ * clear yes, an unreachable platform or one without the route included, is no.
+ */
+async function hasHybridAIProductImprovementConsent(
+  apiKey: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(HYBRIDAI_DATA_CONTROLS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(HYBRIDAI_CHAT_FEEDBACK_TIMEOUT_MS),
+    });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { product_improvement?: unknown };
+    return body.product_improvement === true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveHybridAIChatFeedbackBrowserId(sessionId: string): string {
   // HybridAI's feedback API requires a stable opaque browser_id. Web ratings
   // are session-scoped and do not expose a separate browser fingerprint here,
@@ -120,6 +144,14 @@ async function forwardHybridAIChatFeedbackForRating(input: {
 
   const chatbotId = resolveHybridAIChatFeedbackBotId(input.target);
   if (!chatbotId) return;
+  // The phone app's user rates their own assistant; HybridAI gets the rating
+  // only with their consent, unlike a workspace's ratings of its own bot.
+  if (
+    input.sourceSurface === 'mobile' &&
+    !(await hasHybridAIProductImprovementConsent(apiKey))
+  ) {
+    return;
+  }
 
   const agentId = input.target.agent_id?.trim();
   const payload = {

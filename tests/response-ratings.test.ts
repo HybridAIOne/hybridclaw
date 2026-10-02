@@ -637,6 +637,72 @@ describe('response ratings', () => {
     },
   );
 
+  test.each([
+    ['no consent', { ok: true, status: 200, json: { product_improvement: false } }],
+    ['a platform without the route', { ok: false, status: 404, json: {} }],
+  ])(
+    'keeps a phone rating from HybridAI with %s',
+    async (_label, controls) => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: controls.ok,
+        status: controls.status,
+        json: async () => controls.json,
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const service = await setup({
+        apiKey: 'hai-feedback-test-key',
+        hybridAIBaseUrl: 'https://hybridai.example/',
+        chatbotId: 'bot-feedback',
+      });
+
+      service.submitResponseRating({
+        sessionId: service.sessionId,
+        messageId: service.assistantMessageId,
+        operatorUserId: 'operator-a',
+        rating: 'down',
+        sourceSurface: 'mobile',
+      });
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://hybridai.example/v1/account/data-controls');
+      expect(request.headers).toMatchObject({
+        Authorization: 'Bearer hai-feedback-test-key',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(fetchMock).toHaveBeenCalledOnce();
+      // The rating still counts in the sandbox itself.
+      expect(service.recordSkillFeedbackForObservation).toHaveBeenCalled();
+    },
+  );
+
+  test('forwards a phone rating once its user agreed', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+      url.endsWith('/v1/account/data-controls')
+        ? { ok: true, status: 200, json: async () => ({ product_improvement: true }) }
+        : { ok: true, status: 201 },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const service = await setup({
+      apiKey: 'hai-feedback-test-key',
+      hybridAIBaseUrl: 'https://hybridai.example/',
+      chatbotId: 'bot-feedback',
+    });
+
+    service.submitResponseRating({
+      sessionId: service.sessionId,
+      messageId: service.assistantMessageId,
+      operatorUserId: 'operator-a',
+      rating: 'up',
+      sourceSurface: 'mobile',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://hybridai.example/api/chat_feedback',
+    );
+  });
+
   test('does not forward without a HybridAI key', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
