@@ -22,7 +22,7 @@ export const TRACK_TOOL_DEFINITION: ToolDefinition = {
       '- "add_step" ("step"), "step_done" / "step_undo" / "remove_step" ("step_id"): the plan\n' +
       '- "done" / "undo": the outcome is reached, or not after all\n' +
       '- "remove": delete item "id"\n' +
-      'Add an item when the user says what they want to reach or asks you to keep an eye on something. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own; leave it out when the user drives it.',
+      'Add an item when the user says what they want to reach or asks you to keep an eye on something. Whenever you learn where an item stands, set its status: short and concrete ("Refund approved, posts in 5–7 days"). Use "every" when the item needs you to look again on your own, or the user asks you to check in; leave it out when the user drives it. A goal’s check-in writes to the user every time, a tracked item’s only when there is news.',
     parameters: {
       type: 'object',
       properties: {

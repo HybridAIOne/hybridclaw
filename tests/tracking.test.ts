@@ -188,6 +188,54 @@ test('a check-in removed with /schedule does not take a later task with it', asy
   expect(allTasks().map((task) => task.prompt)).toEqual(['Morning briefing']);
 });
 
+test('a goal check-in always writes to the user; a tracked item only on news', async () => {
+  const { run, allTasks } = await load();
+  await run('app-chat', ['add', '--every', 'daily', 'Half', 'marathon']);
+  await run('app-chat', [
+    'add',
+    '--kind',
+    'tracking',
+    '--every',
+    'daily',
+    'Refund',
+  ]);
+
+  const prompts = allTasks().map((task) => task.prompt);
+  const goal = prompts.find((prompt) => prompt.includes('#1 '));
+  const watch = prompts.find((prompt) => prompt.includes('#2 '));
+  expect(goal).toMatch(/^\[Goal check-in\] #1 "Half marathon"\./);
+  expect(goal).toContain('check in with the user');
+  expect(goal).not.toContain('__MESSAGE_SEND_HANDLED__');
+  expect(watch).toMatch(/^\[Tracking check-in\] #2 "Refund" \(tracking\)\./);
+  expect(watch).toContain(
+    'Otherwise reply with exactly __MESSAGE_SEND_HANDLED__',
+  );
+});
+
+test('a goal check-in set by v0.34 is replaced on the next change, not doubled', async () => {
+  const { run, allTasks } = await load();
+  await run('app-chat', ['add', '--every', 'daily', 'Half', 'marathon']);
+  const [check] = allTasks();
+  const { updateScheduledTask } = await import('../src/memory/jobs.ts');
+  updateScheduledTask(check.id, {
+    cronExpr: check.cron_expr,
+    tz: check.tz,
+    channelId: check.channel_id,
+    prompt: [
+      '[Tracking check-in] #1 "Half marathon" (goal).',
+      'Look into where it stands with the tools and connected data you have. Then call the `track` tool with action "status" and one short line on where it stands now, or action "done" when the outcome is reached.',
+      'If there is news the user should hear or a decision only they can make, tell them in one or two sentences, in the language you usually speak with them. Otherwise reply with exactly __MESSAGE_SEND_HANDLED__.',
+    ].join('\n'),
+  });
+
+  await run('app-chat', ['status', '1', 'Ran', '12', 'km']);
+  expect(allTasks().map((task) => task.prompt)).toEqual([
+    expect.stringMatching(/^\[Goal check-in\] #1 "Half marathon"\./),
+  ]);
+  await run('app-chat', ['remove', '1']);
+  expect(allTasks()).toEqual([]);
+});
+
 test('status lines keep the newest twenty; done items go after ninety days', async () => {
   const { session, store } = await load();
   const chat = await session('app-chat');
