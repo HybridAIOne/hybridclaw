@@ -445,6 +445,7 @@ import {
 } from './interactive-escalation.js';
 import { handleLocalClassifierAdmin } from './local-classifier-admin.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
+import { chatResultForClient } from './mobile-chat-result.js';
 import {
   isMSTeamsTabViewerAllowed,
   type MSTeamsTabSsoConfig,
@@ -3995,7 +3996,7 @@ async function handleApiChatStream(
     );
     sendEvent({
       type: 'result',
-      result: filteredResult,
+      result: chatResultForClient(chatRequest.client, filteredResult),
     });
     // Close the stream before the bookkeeping below. The trace write is
     // synchronous, so no later request can read the message before it lands.

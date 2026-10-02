@@ -439,6 +439,11 @@ Session behavior matches the routing rules above:
   `/stop` ends it early. When the same caller resends the same body while the
   turn runs, the resend joins that turn. It gets every line so far and then
   the rest, so the message is not answered twice
+- a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
+  line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
+  `userMessageId`, `assistantMessageId`, `artifacts`, and `reaction`. Tool
+  arguments and outputs, usage, prompts, and routing are left out; the `tool`
+  lines already reported each call
 
 ## Persistent Browser Profiles
 
