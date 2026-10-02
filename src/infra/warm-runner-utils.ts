@@ -1,8 +1,11 @@
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { encodeWarmWorkerFrame } from '../../container/shared/warm-worker-frame.js';
 import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import type { McpServerConfig } from '../types/models.js';
 import { containerBootstrapScriptPath } from './install-root.js';
 import {
   cleanupHealthIpc,
@@ -410,6 +413,31 @@ export function collectIdleSessionEvictions<
   );
   candidates.sort((left, right) => left.lastUsedAt - right.lastUsedAt);
   return candidates.slice(0, excess);
+}
+
+/**
+ * Hands a new warm worker its MCP servers on stdin, so it connects them while
+ * it waits for a request. Skipped once the worker is claimed: its first
+ * request then carries the servers itself.
+ */
+export async function sendWarmWorkerFrame(
+  entry: WarmRunnerEntry & {
+    process: Pick<ChildProcess, 'stdin' | 'killed' | 'exitCode'>;
+  },
+  resolveMcpServers: () => Promise<Record<string, McpServerConfig>>,
+): Promise<void> {
+  try {
+    const mcpServers = await resolveMcpServers();
+    if (!entry.warm || entry.process.killed || entry.process.exitCode !== null)
+      return;
+    if (Object.keys(mcpServers).length === 0) return;
+    entry.process.stdin?.write(encodeWarmWorkerFrame(mcpServers));
+  } catch (err) {
+    logger.warn(
+      { agentId: entry.agentId, err },
+      'Failed to send MCP servers to warm worker',
+    );
+  }
 }
 
 export function maintainWarmPool<T extends WarmRunnerEntry>(params: {

@@ -6,7 +6,6 @@
  * calls grant permissions or approvals, and replay never repeats side effects.
  */
 import path from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
@@ -80,6 +79,7 @@ import {
   shouldRetryEmptyFinalResponse,
   shouldRetryEmptyVisibleCompletion,
 } from './stalled-turns.js';
+import { createLineReader, readFirstInput } from './stdin.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -406,37 +406,6 @@ function injectSkillCacheHint(messages: ChatMessage[]): ChatMessage[] {
     ].join('\n'),
     'last',
   );
-}
-
-/**
- * Read a single line from stdin (the initial request JSON containing secrets).
- * Resolves on the first newline — does not consume the entire stream, so docker -i
- * keeps the container alive after the host stops writing.
- */
-function readStdinLine(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    // Pipe chunks can split a multi-byte character; decoding each chunk alone
-    // would turn both halves into U+FFFD.
-    const decoder = new StringDecoder('utf8');
-    const onData = (chunk: Buffer) => {
-      buffer += decoder.write(chunk);
-      const nl = buffer.indexOf('\n');
-      if (nl !== -1) {
-        process.stdin.removeListener('data', onData);
-        process.stdin.removeListener('error', onError);
-        process.stdin.pause();
-        resolve(buffer.slice(0, nl));
-      }
-    };
-    const onError = (err: Error) => {
-      process.stdin.removeListener('data', onData);
-      reject(err);
-    };
-    process.stdin.on('data', onData);
-    process.stdin.on('error', onError);
-    process.stdin.resume();
-  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -2243,9 +2212,11 @@ async function main(): Promise<void> {
   });
 
   // First request arrives via stdin (contains apiKey — never written to disk)
-  const stdinData = await readStdinLine();
+  const firstInput = await readFirstInput(
+    createLineReader(process.stdin),
+    syncMcpConfig,
+  );
   await haltIfShuttingDown();
-  const firstInput: ContainerInput = JSON.parse(stdinData);
   inFlightInput = firstInput;
   // The stdin payload is the one input not on a tool-writable path; the secret
   // it carries authenticates every later input.json.

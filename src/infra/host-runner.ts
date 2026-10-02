@@ -127,6 +127,7 @@ import {
   pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
+  sendWarmWorkerFrame,
   stopWarmEntries as stopWarmPoolEntries,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
@@ -618,9 +619,16 @@ function maintainWarmHostPool(params: {
     eligibility: params,
     stopEntries: stopWarmEntries,
     spawnWarm: (sessionId, agentId) => {
-      getOrSpawnHostProcess({ sessionId, agentId, warm: true });
+      const entry = getOrSpawnHostProcess({ sessionId, agentId, warm: true });
+      void sendWarmWorkerFrame(entry, resolveHostMcpServers);
     },
   });
+}
+
+function resolveHostMcpServers() {
+  return resolveMcpServersForRuntime(
+    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
+  );
 }
 
 function getOrSpawnHostProcess(
@@ -999,9 +1007,7 @@ async function runHostProcessInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveMcpServersForRuntime(
-    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS),
-  );
+  const mcpServers = await resolveHostMcpServers();
   const existingEntry = pool.get(sessionId);
   const requestId = randomUUID();
 
