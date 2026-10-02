@@ -22,8 +22,9 @@ import {
   parseSessionKey,
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
+import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 68;
+export const DATABASE_SCHEMA_VERSION = 69;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3898,6 +3899,16 @@ export function runMigrations(
       database,
       68,
       'Replay the context each user turn was sent with',
+    );
+  }
+  if (currentVersion < 69) {
+    if (tableExists(database, 'semantic_memories')) {
+      createSemanticMemoryIndexes(database);
+    }
+    recordMigration(
+      database,
+      69,
+      'Maintain durable semantic memory lexical indexes',
     );
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);

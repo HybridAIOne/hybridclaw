@@ -1,16 +1,19 @@
 /**
  * Semantic rows stay scoped to their resolved session and recall confidence floor.
  * Unlike prompt assembly, this module owns stored-row eligibility and retrieval;
- * it does not embed queries or report client activity.
+ * durable lexical indexes never rebuild during recall. Text ranking reads no
+ * embeddings; only vector candidates and final results decode them.
  */
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import type { SemanticMemoryEntry } from '../types/memory.js';
 import type { StoredMessage } from '../types/session.js';
 import { withMemoryDatabase } from './database.js';
 import {
-  buildMemoryFtsDocument,
+  rankSemanticMemoryIds,
+  semanticMemoryIndexTable,
+} from './semantic-memory-index.js';
+import {
   buildMemoryFtsMatchQuery,
-  getMemoryFtsTokenizerSpec,
   type MemoryRecallBackend,
   type MemoryRecallRerank,
   type MemoryRecallTokenizer,
@@ -123,6 +126,10 @@ function scoreSemanticLikeCandidate(
   if (hoursSinceAccess < 24) score += 1;
   return score;
 }
+
+const SEMANTIC_TEXT_COLUMNS = `id, session_id, role, source, scope, metadata,
+  content, confidence, NULL AS embedding, source_message_id,
+  created_at, accessed_at, access_count`;
 
 type RawSemanticMemoryRow = Omit<
   SemanticMemoryEntry,
@@ -319,7 +326,7 @@ function recallSemanticMemoriesByLike(params: {
 
   const rawRows = queryAll<RawSemanticMemoryRow>(
     getSemanticMemoryDatabase(),
-    `SELECT *
+    `SELECT ${SEMANTIC_TEXT_COLUMNS}
      FROM semantic_memories
      WHERE ${whereClauses.join('\n         AND ')}
      ORDER BY confidence DESC, accessed_at DESC
@@ -418,114 +425,20 @@ function recallSemanticMemoriesByVector(params: {
   return ranked;
 }
 
-function rankSemanticMemoriesWithFts(params: {
-  rows: SemanticMemoryEntry[];
-  query: string;
-  limit: number;
-  tokenizer: MemoryRecallTokenizer;
-  rankMode: 'source' | 'bm25';
-}): SemanticMemoryEntry[] {
-  if (params.rows.length === 0) return [];
-  const matchQuery = buildMemoryFtsMatchQuery(
-    params.query,
-    12,
-    params.tokenizer,
-  );
-  if (!matchQuery) {
-    return [];
-  }
-
-  const ftsDb = new Database(':memory:');
-  try {
-    const tokenizerSpec = getMemoryFtsTokenizerSpec(params.tokenizer);
-    ftsDb.exec(
-      `CREATE VIRTUAL TABLE semantic_recall USING fts5(memory_id UNINDEXED, content, tokenize='${tokenizerSpec}')`,
-    );
-  } catch (error) {
-    ftsDb.close();
-    throw new Error(
-      `Full-text semantic recall requires SQLite FTS5 support: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  try {
-    const rowsById = new Map<number, SemanticMemoryEntry>();
-    const insert = ftsDb.prepare(
-      'INSERT INTO semantic_recall (memory_id, content) VALUES (?, ?)',
-    );
-    const transaction = ftsDb.transaction(() => {
-      for (const row of params.rows) {
-        rowsById.set(row.id, row);
-        insert.run(
-          row.id,
-          buildMemoryFtsDocument(row.content, params.tokenizer),
-        );
-      }
-    });
-    transaction();
-
-    if (params.rankMode === 'source') {
-      const matches = ftsDb
-        .prepare(
-          `SELECT memory_id
-           FROM semantic_recall
-           WHERE semantic_recall MATCH ?`,
-        )
-        .all(matchQuery) as Array<{
-        memory_id: number;
-      }>;
-      const matchedIds = new Set<number>(
-        matches.map((match) => Number(match.memory_id)),
-      );
-      const ordered: SemanticMemoryEntry[] = [];
-      for (const row of params.rows) {
-        if (!matchedIds.has(row.id)) {
-          continue;
-        }
-        ordered.push(row);
-        if (ordered.length >= Math.max(1, params.limit)) {
-          break;
-        }
-      }
-      return ordered;
-    }
-
-    const matches = ftsDb
-      .prepare(
-        `SELECT memory_id
-         FROM semantic_recall
-         WHERE semantic_recall MATCH ?
-         ORDER BY bm25(semantic_recall)
-         LIMIT ?`,
-      )
-      .all(matchQuery, Math.max(1, params.limit)) as Array<{
-      memory_id: number;
-    }>;
-
-    const ordered: SemanticMemoryEntry[] = [];
-    for (const match of matches) {
-      const row = rowsById.get(Number(match.memory_id));
-      if (row) {
-        ordered.push(row);
-      }
-    }
-    return ordered;
-  } finally {
-    ftsDb.close();
-  }
-}
-
 function rerankSemanticMemoriesWithFts(params: {
   rows: SemanticMemoryEntry[];
   query: string;
   tokenizer: MemoryRecallTokenizer;
 }): SemanticMemoryEntry[] {
-  const reranked = rankSemanticMemoriesWithFts({
-    rows: params.rows,
-    query: params.query,
-    limit: params.rows.length,
-    tokenizer: params.tokenizer,
-    rankMode: 'bm25',
+  const rowsById = new Map(params.rows.map((row) => [row.id, row]));
+  const reranked = rankSemanticMemoryIds(
+    getSemanticMemoryDatabase(),
+    params.rows.map((row) => row.id),
+    params.query,
+    params.tokenizer,
+  ).flatMap((id) => {
+    const row = rowsById.get(id);
+    return row ? [row] : [];
   });
   if (reranked.length === 0) {
     return params.rows;
@@ -610,7 +523,6 @@ function recallSemanticMemoriesByFts(params: {
   limit: number;
   minConfidence: number;
   tokenizer: MemoryRecallTokenizer;
-  rankMode: 'source' | 'bm25';
   filter?: SemanticRecallFilter;
   touch?: boolean;
 }): SemanticMemoryEntry[] {
@@ -625,25 +537,26 @@ function recallSemanticMemoriesByFts(params: {
     args,
     filter: params.filter,
   });
-  const rows = queryAll<RawSemanticMemoryRow>(
+  const matchQuery = buildMemoryFtsMatchQuery(
+    params.normalizedQuery,
+    12,
+    params.tokenizer,
+  );
+  if (!matchQuery) return [];
+  const table = semanticMemoryIndexTable(params.tokenizer);
+  whereClauses.push(
+    `id IN (SELECT rowid FROM ${table} WHERE ${table} MATCH ?)`,
+  );
+  args.push(matchQuery, params.limit);
+  const ranked = queryAll<RawSemanticMemoryRow>(
     getSemanticMemoryDatabase(),
-    `SELECT *
+    `SELECT ${SEMANTIC_TEXT_COLUMNS}
      FROM semantic_memories
      WHERE ${whereClauses.join('\n         AND ')}
-     ORDER BY accessed_at DESC, confidence DESC`,
+     ORDER BY accessed_at DESC, confidence DESC, id ASC
+     LIMIT ?`,
     ...args,
   ).map(mapSemanticMemoryRow);
-  if (rows.length === 0) {
-    return [];
-  }
-
-  const ranked = rankSemanticMemoriesWithFts({
-    rows,
-    query: params.normalizedQuery,
-    limit: params.limit,
-    tokenizer: params.tokenizer,
-    rankMode: params.rankMode,
-  });
   if (params.touch !== false) {
     touchSemanticMemoryRows(ranked);
   }
@@ -671,7 +584,7 @@ function recallSemanticMemoriesByRecent(params: {
   args.push(params.limit);
   const rows = queryAll<RawSemanticMemoryRow>(
     getSemanticMemoryDatabase(),
-    `SELECT *
+    `SELECT ${SEMANTIC_TEXT_COLUMNS}
      FROM semantic_memories
      WHERE ${whereClauses.join('\n         AND ')}
      ORDER BY accessed_at DESC, confidence DESC
@@ -788,7 +701,7 @@ export function storeSemanticMemory(params: {
   return result.lastInsertRowid as number;
 }
 
-export function recallSemanticMemories(params: {
+function selectSemanticMemories(params: {
   sessionId: string;
   query: string;
   limit?: number;
@@ -850,7 +763,6 @@ export function recallSemanticMemories(params: {
       limit: fullTextCandidateLimit,
       minConfidence,
       tokenizer,
-      rankMode: 'source',
       filter: params.filter,
       touch: false,
     });
@@ -901,7 +813,6 @@ export function recallSemanticMemories(params: {
       limit: cosineCandidateLimit,
       minConfidence,
       tokenizer,
-      rankMode: 'source',
       filter: params.filter,
       touch: false,
     });
@@ -939,6 +850,30 @@ export function recallSemanticMemories(params: {
     touchSemanticMemoryRows(cosineCandidates);
   }
   return cosineCandidates;
+}
+
+export function recallSemanticMemories(
+  params: Parameters<typeof selectSemanticMemories>[0],
+): SemanticMemoryEntry[] {
+  const selected = selectSemanticMemories(params);
+  const ids = selected
+    .filter((row) => row.embedding === null)
+    .map((row) => row.id);
+  if (ids.length > 0) {
+    const embeddings = new Map(
+      queryAll<{ id: number; embedding: Buffer | null }>(
+        getSemanticMemoryDatabase(),
+        `SELECT id, embedding FROM semantic_memories
+       WHERE id IN (SELECT value FROM json_each(?)) AND embedding IS NOT NULL`,
+        JSON.stringify(ids),
+      ).map((row) => [row.id, embeddingFromBlob(row.embedding)]),
+    );
+    for (const row of selected) {
+      if (embeddings.has(row.id))
+        row.embedding = embeddings.get(row.id) || null;
+    }
+  }
+  return selected;
 }
 
 export function forgetSemanticMemory(id: number): boolean {
