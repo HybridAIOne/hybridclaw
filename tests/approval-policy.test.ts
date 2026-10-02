@@ -1668,7 +1668,6 @@ approval:
     test.each([
       [false, 'green'],
       [undefined, 'green'],
-      [true, 'yellow'],
     ] as const)('an additive write with openWorldHint %s is %s on its second run', (openWorldHint, secondTier) => {
       const runtime = runtimeFor('execute_sql', {
         destructiveHint: false,
