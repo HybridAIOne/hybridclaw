@@ -143,6 +143,7 @@ import {
   pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
+  sendWarmWorkerFrame,
   stopWarmEntries as stopWarmPoolEntries,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
@@ -591,7 +592,8 @@ function maintainWarmContainerPool(params: {
     eligibility: params,
     stopEntries: stopWarmEntries,
     spawnWarm: (sessionId, agentId) => {
-      getOrSpawnContainer({ sessionId, agentId, warm: true });
+      const entry = getOrSpawnContainer({ sessionId, agentId, warm: true });
+      void sendWarmWorkerFrame(entry, resolveContainerMcpServers);
     },
   });
 }
@@ -736,6 +738,14 @@ function getContainerWorkspacePath(params: {
   if (trimmed) return path.resolve(trimmed);
   const { workspacePath } = getSessionPaths(params.sessionId, params.agentId);
   return workspacePath;
+}
+
+function resolveContainerMcpServers() {
+  return resolveMcpServersForRuntime(
+    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS, {
+      mapUrl: remapHostBaseUrlForContainer,
+    }),
+  );
 }
 
 /**
@@ -1198,11 +1208,7 @@ async function runContainerInner(
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveMcpServersForRuntime(
-    withAutoHybridAIConnectorsMcpServer(MCP_SERVERS, {
-      mapUrl: remapHostBaseUrlForContainer,
-    }),
-  );
+  const mcpServers = await resolveContainerMcpServers();
   const existingEntry = pool.get(sessionId);
   const requestId = randomUUID();
 
@@ -1444,6 +1450,7 @@ async function runContainerInner(
     if (!timedOut) {
       entry.lastUsedAt = Date.now();
       warmPool.recordRequest(agentId, duration);
+      if (params.client === 'mobile') warmPool.recordPhoneUser(agentId);
       // Best-effort: a failed refill must not discard the finished turn.
       try {
         maintainWarmContainerPool({

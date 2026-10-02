@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 
+import { readWarmWorkerFrame } from '../container/shared/warm-worker-frame.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-warm-refill-');
@@ -46,6 +47,86 @@ function makeFakeChildProcess() {
     return true;
   });
   return proc;
+}
+
+function mockRunnerDeps(params: {
+  spawn: (...args: never[]) => unknown;
+  readOutput?: () => Promise<unknown>;
+  warn?: (...args: unknown[]) => void;
+}): void {
+  vi.doMock('node:child_process', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('node:child_process')>()),
+    spawn: params.spawn,
+  }));
+  vi.doMock('../src/infra/ipc.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/infra/ipc.js')>()),
+    readOutput:
+      params.readOutput ??
+      (async () => ({
+        status: 'success' as const,
+        result: 'done',
+        toolsUsed: [],
+      })),
+  }));
+  vi.doMock('../src/providers/factory.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/providers/factory.js')>()),
+    resolveModelRuntimeCredentials: async () => ({
+      provider: 'hybridai',
+      apiKey: '',
+      baseUrl: 'https://hybridai.one',
+      chatbotId: 'bot-a',
+      enableRag: false,
+      requestHeaders: {},
+      agentId: 'main',
+      isLocal: false,
+      contextWindow: 128_000,
+    }),
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: params.warn ?? vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+}
+
+/** Spawns fake workers, collecting the warm ones. */
+function spawnCollectingWarm(
+  warmProcesses: ReturnType<typeof makeFakeChildProcess>[],
+) {
+  return vi.fn((_command: string, args?: string[], options?: SpawnOptions) => {
+    const proc = makeFakeChildProcess();
+    if (isWarmSpawn(args, options)) warmProcesses.push(proc);
+    return proc;
+  });
+}
+
+// The host runner signals the child; the container runner `docker stop`s it.
+function isWarmStopped(
+  spawn: ReturnType<typeof vi.fn>,
+  proc: ReturnType<typeof makeFakeChildProcess> | undefined,
+): boolean {
+  return (
+    Boolean(proc?.kill.mock.calls.length) ||
+    spawn.mock.calls.some(
+      ([command, args]) => command === 'docker' && args?.[0] === 'stop',
+    )
+  );
+}
+
+function turn(sessionId: string, client?: 'mobile') {
+  return {
+    sessionId,
+    messages: [{ role: 'user' as const, content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'main',
+    channelId: 'tui',
+    client,
+  };
 }
 
 const RUNNERS = [
@@ -101,31 +182,11 @@ test.each(RUNNERS)(
       },
     );
     const warn = vi.fn();
-    vi.doMock('node:child_process', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('node:child_process')>()),
+    mockRunnerDeps({
       spawn,
-    }));
-    vi.doMock('../src/infra/ipc.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../src/infra/ipc.js')>()),
       readOutput: async () => structuredClone(turnOutput),
-    }));
-    vi.doMock('../src/providers/factory.js', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('../src/providers/factory.js')>()),
-      resolveModelRuntimeCredentials: async () => ({
-        provider: 'hybridai',
-        apiKey: '',
-        baseUrl: 'https://hybridai.one',
-        chatbotId: 'bot-a',
-        enableRag: false,
-        requestHeaders: {},
-        agentId: 'main',
-        isLocal: false,
-        contextWindow: 128_000,
-      }),
-    }));
-    vi.doMock('../src/logger.js', () => ({
-      logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
-    }));
+      warn,
+    });
 
     const executor = await createExecutor();
     const output = await executor.exec({
@@ -174,55 +235,12 @@ test.each(RUNNERS)(
           return proc;
         },
       );
-      vi.doMock('node:child_process', async (importOriginal) => ({
-        ...(await importOriginal<typeof import('node:child_process')>()),
-        spawn,
-      }));
-      vi.doMock('../src/infra/ipc.js', async (importOriginal) => ({
-        ...(await importOriginal<typeof import('../src/infra/ipc.js')>()),
-        readOutput: async () => ({
-          status: 'success' as const,
-          result: 'done',
-          toolsUsed: [],
-        }),
-      }));
-      vi.doMock('../src/providers/factory.js', async (importOriginal) => ({
-        ...(await importOriginal<
-          typeof import('../src/providers/factory.js')
-        >()),
-        resolveModelRuntimeCredentials: async () => ({
-          provider: 'hybridai',
-          apiKey: '',
-          baseUrl: 'https://hybridai.one',
-          chatbotId: 'bot-a',
-          enableRag: false,
-          requestHeaders: {},
-          agentId: 'main',
-          isLocal: false,
-          contextWindow: 128_000,
-        }),
-      }));
-      vi.doMock('../src/logger.js', () => ({
-        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      }));
+      mockRunnerDeps({ spawn });
 
       const executor = await createExecutor();
-      await executor.exec({
-        sessionId: 'session-sweep',
-        messages: [{ role: 'user', content: 'hello' }],
-        chatbotId: 'bot-a',
-        enableRag: false,
-        model: 'gpt-5',
-        agentId: 'main',
-        channelId: 'tui',
-      });
+      await executor.exec(turn('session-sweep'));
 
-      // The host runner signals the child; the container runner `docker stop`s it.
-      const warmStopped = () =>
-        Boolean(warmProcesses[0]?.kill.mock.calls.length) ||
-        spawn.mock.calls.some(
-          ([command, args]) => command === 'docker' && args?.[0] === 'stop',
-        );
+      const warmStopped = () => isWarmStopped(spawn, warmProcesses[0]);
       expect(warmProcesses).toHaveLength(1);
       vi.advanceTimersByTime(30 * 60_000);
       expect(warmStopped()).toBe(false);
@@ -235,5 +253,55 @@ test.each(RUNNERS)(
     } finally {
       vi.useRealTimers();
     }
+  },
+);
+
+test.each(RUNNERS)(
+  '$runner keeps a phone agent\'s spare past the traffic window',
+  async ({ createExecutor }) => {
+    vi.useFakeTimers({
+      toFake: ['setInterval', 'clearInterval', 'Date'],
+      shouldAdvanceTime: true,
+    });
+    try {
+      vi.stubEnv('HOME', makeTempDir());
+      const warmProcesses: ReturnType<typeof makeFakeChildProcess>[] = [];
+      const spawn = spawnCollectingWarm(warmProcesses);
+      mockRunnerDeps({ spawn });
+
+      const executor = await createExecutor();
+      await executor.exec(turn('session-phone', 'mobile'));
+
+      expect(warmProcesses).toHaveLength(1);
+      vi.advanceTimersByTime(3 * 60 * 60_000);
+      expect(isWarmStopped(spawn, warmProcesses[0])).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each(RUNNERS)(
+  '$runner hands a new spare its MCP servers ahead of its first request',
+  async ({ createExecutor }) => {
+    vi.stubEnv('HOME', makeTempDir());
+    vi.stubEnv('HYBRIDAI_API_KEY', 'test-key');
+    const warmProcesses: ReturnType<typeof makeFakeChildProcess>[] = [];
+    mockRunnerDeps({ spawn: spawnCollectingWarm(warmProcesses) });
+
+    const executor = await createExecutor();
+    await executor.exec(turn('session-a'));
+    const spare = warmProcesses[0];
+    await vi.waitFor(() => expect(spare?.stdin.write).toHaveBeenCalledOnce());
+    // The next new session claims the spare.
+    await executor.exec(turn('session-b'));
+
+    const [frame, request] = (spare?.stdin.write.mock.calls ?? []).map(
+      ([line]) => JSON.parse(String(line)),
+    );
+    const servers = readWarmWorkerFrame(frame);
+    expect(servers).toHaveProperty('hybridai');
+    // Same map as the frame, so the worker has nothing left to connect.
+    expect(request).toMatchObject({ sessionId: 'session-b', mcpServers: servers });
   },
 );

@@ -133,7 +133,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
 | Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
 | Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
-| MCP connections | Worker | Reconnected from config on the next turn |
+| MCP connections | Worker | Reconnected from config on the next turn; an idle warm worker connects them before its first turn |
 | Web fetch and search caches, approval counters, seen hosts | Worker memory | Lost; later calls may ask again |
 
 Exported variables stay in the worker on purpose: the shell snapshot holds the
