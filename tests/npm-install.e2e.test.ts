@@ -21,9 +21,6 @@ const REQUEST_TIMEOUT_MS = 5_000;
 // CI maintenance (2026-09-22): allow shutdown plus removal of both installed
 // dependency trees on slower runners; startup/request timeouts stay separate.
 const CLEANUP_TIMEOUT_MS = 60_000;
-const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
-  '2026-05-20T08:35:12.000Z',
-);
 
 let tempDir: string;
 let gatewayProcess: ChildProcess | null = null;
@@ -48,14 +45,6 @@ function installedCliPath(): string {
     'dist',
     'cli.js',
   );
-}
-
-function npmMinReleaseAgeArg(): string {
-  // Baileys 7.0.0-rc11 was published on 2026-05-13T08:35:11Z. The bypass is
-  // only needed until npm's seven-day age gate can see that pinned version.
-  return Date.now() < BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT
-    ? '--min-release-age=0 '
-    : '';
 }
 
 function verifyPnpmInstallBlocksExoticSubdeps(tarball: string): void {
@@ -102,14 +91,11 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
 
     verifyPnpmInstallBlocksExoticSubdeps(tarball);
 
-    execSync(
-      `npm ${npmMinReleaseAgeArg()}install -g "${tarball}" --prefix "${npmPrefix()}"`,
-      {
-        encoding: 'utf-8',
-        timeout: 120_000,
-        env: { ...process.env, HOME: tempDir },
-      },
-    );
+    execSync(`npm install -g "${tarball}" --prefix "${npmPrefix()}"`, {
+      encoding: 'utf-8',
+      timeout: 120_000,
+      env: { ...process.env, HOME: tempDir },
+    });
 
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),

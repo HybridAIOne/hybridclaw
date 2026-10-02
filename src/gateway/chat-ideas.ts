@@ -11,6 +11,7 @@
  */
 
 import type { ServerResponse } from 'node:http';
+import { readSingleEmoji } from '../../container/shared/reactions.js';
 import {
   findAgentConfig,
   resolveAgentForRequest,
@@ -108,16 +109,6 @@ function readIdeaField(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-// A single emoji (ZWJ sequences, skin tones, and flags included), so model
-// text never reaches the icon slot.
-const SINGLE_EMOJI_PATTERN =
-  /^(?:\p{Regional_Indicator}{2}|\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\uFE0F|\u20E3)*(?:\u200D\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|\uFE0F)*)*)$/u;
-
-function readIdeaEmoji(value: unknown): string {
-  const emoji = readIdeaField(value);
-  return SINGLE_EMOJI_PATTERN.test(emoji) ? emoji : '';
-}
-
 export function parseChatIdeas(content: string): ChatIdea[] {
   const withoutThinking = content.replace(/<think>[\s\S]*?<\/think>/gi, '');
   const start = withoutThinking.indexOf('{');
@@ -135,7 +126,7 @@ export function parseChatIdeas(content: string): ChatIdea[] {
     const prompt = readIdeaField(record.prompt);
     if (!title || !prompt) continue;
     ideas.push({
-      emoji: readIdeaEmoji(record.emoji),
+      emoji: readSingleEmoji(record.emoji),
       title,
       description: readIdeaField(record.description),
       prompt,

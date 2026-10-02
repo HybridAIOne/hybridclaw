@@ -3,26 +3,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as yazl from 'yazl';
-import { DATA_DIR } from '../config/config.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import {
-  deleteMemoryValuesByKey,
-  deleteMemoryValuesByKeyPrefix,
-} from '../memory/db.js';
+import { validatePluginConfig } from '../plugins/plugin-config-validation.js';
 import {
   type InstallPluginResult,
   installPlugin,
   type PluginInstallCommandRunner,
 } from '../plugins/plugin-install.js';
-import {
-  loadPluginManifest,
-  validatePluginConfig,
-} from '../plugins/plugin-manager.js';
+import { loadPluginManifest } from '../plugins/plugin-manager.js';
 import type { PluginManifest } from '../plugins/plugin-types.js';
 import { isSkillContentEntry } from '../skills/skills-guard-structure.js';
 import {
@@ -37,7 +30,7 @@ import {
   resolveAgentConfig,
   upsertRegisteredAgent,
 } from './agent-registry.js';
-import { type AgentConfig, DEFAULT_AGENT_ID } from './agent-types.js';
+import { DEFAULT_AGENT_ID } from './agent-types.js';
 import {
   CLAW_FORMAT_VERSION,
   type ClawManifest,
@@ -52,8 +45,6 @@ import { safeExtractZip, scanClawArchive } from './claw-security.js';
 const MANIFEST_FILE_NAME = 'manifest.json';
 const SKILL_MANIFEST_FILE = 'SKILL.md';
 const PLUGIN_MANIFEST_FILE = 'hybridclaw.plugin.yaml';
-const GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX =
-  'gateway.bootstrap_autostart.v1';
 
 interface ArchivedFile {
   absolutePath: string;
@@ -173,19 +164,6 @@ export interface UnpackAgentResult {
   installedPlugins: InstallPluginResult[];
   externalActions: string[];
   runtimeConfigChanged: boolean;
-}
-
-export interface UninstallAgentResult {
-  agentId: string;
-  agentRootPath: string;
-  workspacePath: string;
-  removedAgentRoot: boolean;
-  removedRegistration: boolean;
-  removedBootstrapAutostartMarkers: number;
-}
-
-export interface UninstallAgentOptions {
-  existingAgent?: AgentConfig | null;
 }
 
 function sanitizeArchiveFileStem(value: string): string {
@@ -1383,76 +1361,4 @@ export async function unpackAgent(
   } finally {
     fs.rmSync(extractionRoot, { recursive: true, force: true });
   }
-}
-
-export function uninstallAgent(
-  agentId: string,
-  options: UninstallAgentOptions = {},
-): UninstallAgentResult {
-  const normalizedAgentId = normalizeString(agentId);
-  if (!normalizedAgentId) {
-    throw new Error('Agent id is required.');
-  }
-  if (normalizedAgentId === DEFAULT_AGENT_ID) {
-    throw new Error('The main agent cannot be uninstalled.');
-  }
-
-  const workspacePath = agentWorkspaceDir(normalizedAgentId);
-  const agentRootPath = path.dirname(workspacePath);
-  const expectedAgentsRootPath = path.resolve(DATA_DIR, 'agents');
-  const normalizedAgentRootPath = path.resolve(agentRootPath);
-  const relativeAgentRootPath = path.relative(
-    expectedAgentsRootPath,
-    normalizedAgentRootPath,
-  );
-  if (
-    !relativeAgentRootPath ||
-    relativeAgentRootPath.startsWith('..') ||
-    path.isAbsolute(relativeAgentRootPath)
-  ) {
-    throw new Error(
-      `Refusing to remove agent files outside ${expectedAgentsRootPath}.`,
-    );
-  }
-  const existingAgent =
-    options.existingAgent === undefined
-      ? getAgentById(normalizedAgentId)
-      : options.existingAgent;
-  const agentRootExists = fs.existsSync(agentRootPath);
-  if (agentRootExists) {
-    const resolvedAgentsRootPath = fs.realpathSync.native(
-      expectedAgentsRootPath,
-    );
-    const resolvedAgentRootPath = fs.realpathSync.native(agentRootPath);
-    if (
-      resolvedAgentRootPath === resolvedAgentsRootPath ||
-      !resolvedAgentRootPath.startsWith(`${resolvedAgentsRootPath}${path.sep}`)
-    ) {
-      throw new Error(
-        `Refusing to remove agent files outside ${expectedAgentsRootPath}.`,
-      );
-    }
-  }
-  if (!existingAgent && !agentRootExists) {
-    throw new Error(`Agent "${normalizedAgentId}" is not installed.`);
-  }
-
-  if (agentRootExists) {
-    fs.rmSync(agentRootPath, { recursive: true, force: true });
-  }
-  const removedRegistration = existingAgent
-    ? deleteRegisteredAgent(normalizedAgentId)
-    : false;
-  const bootstrapAutostartMarkerKey = `${GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX}.${normalizedAgentId}`;
-  const removedBootstrapAutostartMarkers =
-    deleteMemoryValuesByKey(bootstrapAutostartMarkerKey) +
-    deleteMemoryValuesByKeyPrefix(`${bootstrapAutostartMarkerKey}.`);
-  return {
-    agentId: normalizedAgentId,
-    agentRootPath,
-    workspacePath,
-    removedAgentRoot: agentRootExists,
-    removedRegistration,
-    removedBootstrapAutostartMarkers,
-  };
 }

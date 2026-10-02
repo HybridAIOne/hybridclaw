@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { REACT_TOOL_NAME } from '../../container/shared/reactions.js';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -27,7 +28,7 @@ import {
   formatSideEffectNotice,
   processSideEffects,
 } from '../agent/side-effects.js';
-import { isSilentReply } from '../agent/silent-reply.js';
+import { isSilentReply, SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
   resolveAgentEscalationTarget,
@@ -70,6 +71,7 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
+  setMessageReaction,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -157,6 +159,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
+import { turnReaction } from './chat-reactions.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -1842,6 +1845,13 @@ async function handleGatewayMessageInner(
     mediaPolicy.blockedTools,
     req.userId,
   );
+  // Only a client that shows reactions gets the tool to make them.
+  if (!req.reactions) {
+    mediaPolicy.blockedTools = [
+      ...(mediaPolicy.blockedTools ?? []),
+      REACT_TOOL_NAME,
+    ];
+  }
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,
@@ -1878,6 +1888,7 @@ async function handleGatewayMessageInner(
       chatbotId,
       ...(req.client ? { client: req.client } : {}),
       ...(req.toolStatus ? { toolStatus: true } : {}),
+      ...(req.reactions ? { reactions: true } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,
@@ -2801,8 +2812,11 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
+    // A reaction can be the whole answer, as in a messenger.
+    const reaction = turnReaction(toolExecutions);
     const agentResultText =
-      output.result || buildEmptyAgentResponseFallback(output.artifacts);
+      output.result ||
+      (reaction ? '' : buildEmptyAgentResponseFallback(output.artifacts));
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2902,7 +2916,9 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       userMedia: media,
-      resultText,
+      // A reaction alone is kept as a reply that says nothing, as a silent
+      // channel reply is, so no assistant turn is ever stored empty.
+      resultText: !resultText && reaction ? SILENT_REPLY_TOKEN : resultText,
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
@@ -2912,6 +2928,14 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
+    if (reaction) {
+      setMessageReaction({
+        sessionId: req.sessionId,
+        messageId: storedTurn.userMessageId,
+        role: 'user',
+        emoji: reaction,
+      });
+    }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -3017,6 +3041,7 @@ async function handleGatewayMessageInner(
         getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
+      ...(reaction ? { reaction } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await emitPostTurnForResult(result);

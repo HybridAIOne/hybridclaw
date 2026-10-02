@@ -86,6 +86,8 @@ export interface PromptRuntimeInfo {
    * line and keeps only the text after the last tool as the reply.
    */
   toolStatus?: boolean;
+  /** The client shows emoji reactions on messages; the agent has `react`. */
+  reactions?: boolean;
   model?: string;
   defaultModel?: string;
   channelType?: string;
@@ -542,6 +544,13 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
+// A client that shows emoji reactions: the agent reacts rarely, and an emoji
+// stands in a reply now and then, as between friends texting.
+export const REACTION_STYLE_LINES = [
+  'The app shows emoji reactions. Use `react` rarely, and write no status line before it: what you write with it is your reply.',
+  'An emoji fits in a reply now and then, where a friend texting would use one. One is plenty and most replies need none; a single emoji can be the whole reply when that is the natural answer.',
+];
+
 function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
@@ -600,6 +609,9 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
+    ...(context.runtimeInfo?.reactions
+      ? ['## Reactions', ...REACTION_STYLE_LINES, '']
+      : []),
     '## Tool Call Style',
     ...(context.runtimeInfo?.toolStatus
       ? TOOL_STATUS_STYLE_LINES

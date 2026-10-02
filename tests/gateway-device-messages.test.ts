@@ -71,6 +71,7 @@ describe('reading back a stored reply', () => {
       sessionId: 'ios-a',
       agentId: 'main',
       content: 'abendroutine',
+      source: 'schedule',
       artifacts: [
         { path: '/tmp/a.pdf', filename: 'a.pdf', mimeType: 'application/pdf' },
       ],

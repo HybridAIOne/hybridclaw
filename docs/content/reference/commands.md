@@ -574,6 +574,7 @@ actions. Common examples:
 !claw schedule add "<cron>" <prompt>
 !claw schedule add --tz Europe/Berlin "<cron>" <prompt>
 !claw schedule add --alert proactive "<cron>" <prompt>
+!claw schedule add --reply-only --alert proactive "<cron>" <prompt>
 !claw schedule add at "<ISO time>" <prompt>
 !claw schedule add every <ms> <prompt>
 !claw schedule list
@@ -598,6 +599,15 @@ and `count`; a phone gets it only if it registered that kind with `/push`
 (see [Web chat notifications](../guides/web-notifications.md#phones)). A reply
 that lists nothing sends no alert, and such a task's replies never ring as
 reminders. The item's title shows on the lock screen.
+
+`--reply-only` (before the schedule) keeps each run's prompt and work out of
+the chat: the run works in a session of its own, and only its reply is posted
+to the chat, as a message from the agent with the source `schedule:<id>`. A
+run that has nothing to say answers with the silent reply token and posts
+nothing. Use it for a background check that should write into a conversation
+the user also talks in, such as an app's main chat. With `--alert <kind>` as
+well, a posted reply rings like a reminder of that kind, with the reply as the
+body, and `results` lists the replies the task posted.
 
 Every subcommand takes `--json` for clients that drive the command, such as an
 app sending it through chat: the answer is one line of JSON (`{"version": 1,

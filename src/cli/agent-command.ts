@@ -874,7 +874,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       }
     }
 
-    const { uninstallAgent } = await import('../agents/claw-archive.js');
+    const { uninstallAgent } = await import('../agents/agent-uninstall.js');
     const result = uninstallAgent(targetAgentId, { existingAgent });
     console.log(`Uninstalled agent ${result.agentId}.`);
     console.log(
@@ -882,6 +882,11 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
         ? `Removed agent files at ${result.agentRootPath}.`
         : `No agent files were present at ${result.agentRootPath}.`,
     );
+    if (result.removedSkillsExtraDir) {
+      console.log(
+        `Removed ${path.join(result.workspacePath, 'skills')} from skills.extraDirs.`,
+      );
+    }
     return;
   }
 

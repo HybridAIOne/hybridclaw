@@ -15,6 +15,11 @@ export interface ScheduledTask {
   created_at: string;
   /** Phone alert kind for a run whose reply is a list of items (`/schedule add --alert`). */
   alert?: string | null;
+  /**
+   * Runs keep their prompt and work out of the chat; only a reply that says
+   * something is posted to it (`/schedule add --reply-only`).
+   */
+  reply_only?: boolean;
 }
 
 export interface ScheduledTaskInput {

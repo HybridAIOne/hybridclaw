@@ -392,6 +392,17 @@ Session behavior matches the routing rules above:
   only the text after the last tool as the reply (the `result` carries only
   that part). The agent is then asked to begin each tool-calling response with
   one short line such as "Checking the page…" instead of calling tools silently
+- a streaming `/api/chat` client that sends `reactions: true` shows emoji
+  reactions. The agent then gets the `react` tool, which puts one emoji on the
+  user's message. A response whose only tool calls are `react` ends the turn
+  without another model call: its text is the reply, and a reaction alone
+  answers by itself (`result` is then empty and the stored reply is the silent
+  token). `react` sends no `tool` event; the `result` carries the emoji as
+  `reaction`, and `/api/history` returns each message's `reaction`. The user's
+  own reactions (`POST /api/chat/reaction`) reach the agent's context with
+  their next message. A 👍 or 👎 is also the reply's response rating, from the
+  `userId` sent with it, as Teams reactions are; taking it off clears only the
+  rating it made
 
 ## Persistent Browser Profiles
 

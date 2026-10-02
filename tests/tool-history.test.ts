@@ -283,4 +283,28 @@ describe('persistent tool history', () => {
         .includedTokens,
     ).toBeGreaterThan(40);
   });
+
+  test('a reply written with the last tool calls is replayed once', () => {
+    const react = {
+      id: 'r',
+      type: 'function' as const,
+      function: { name: 'react', arguments: '{"emoji":"🎉"}' },
+    };
+    const exchange: ChatMessage[] = [
+      { role: 'assistant', content: 'Congratulations!', tool_calls: [react] },
+      { role: 'tool', content: 'Reacted with 🎉.', tool_call_id: 'r' },
+    ];
+    const stored = (content: string) =>
+      expandStoredMessage({
+        role: 'assistant',
+        content,
+        session_id: 'session-a',
+        tool_history_json: JSON.stringify(exchange),
+      });
+    expect(stored('Congratulations!')).toEqual(exchange);
+    expect(stored('Something else').at(-1)).toEqual({
+      role: 'assistant',
+      content: 'Something else',
+    });
+  });
 });

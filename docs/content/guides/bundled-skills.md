@@ -25,6 +25,7 @@ A few notable categories:
 - personal and Apple workflows: `apple-calendar`, `apple-passwords`, `apple-music`
 - marketplace and automation workflows: `sokosumi`
 - communication and runtime utilities: `fax-send`, `hybridclaw-help`, `current-time`, `personality`, `channel-catchup`
+- delivery and travel handoffs: `handoff-links`
 
 ## Commands
 

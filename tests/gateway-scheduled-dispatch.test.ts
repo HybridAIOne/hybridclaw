@@ -30,6 +30,13 @@ test('web scheduled turns reuse the persisted message instead of entering the un
   expect(deps.deliverProactiveMessage).not.toHaveBeenCalled();
 });
 
+test('a reply-only task runs apart from the chat it delivers to', async () => {
+  await runScheduledTask({ ...request(), replyOnly: true }, dependencies());
+  expect(mocks.run.mock.calls[0][8]).toBe(true);
+  await runScheduledTask(request(), dependencies());
+  expect(mocks.run.mock.calls[1][8]).toBeUndefined();
+});
+
 test('web system events persist without running an agent', async () => {
   await runScheduledTask({ ...request(), actionKind: 'system_event' }, dependencies());
   expect(mocks.run).not.toHaveBeenCalled();

@@ -39,6 +39,8 @@ export function handleDeviceMessageRoute(
     agentId: message.agent_id ?? null,
     content: message.content,
     artifacts: message.artifacts ?? [],
+    // `schedule:<task id>` for a reply a task posted, so an app can tell its own.
+    source: message.source ?? null,
     // SQLite stores UTC without a zone.
     createdAt: `${message.created_at.replace(' ', 'T')}Z`,
   });

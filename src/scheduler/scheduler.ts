@@ -75,6 +75,8 @@ export interface SchedulerDispatchRequest {
     | { kind: 'channel'; channelId: string }
     | { kind: 'last-channel' }
     | { kind: 'webhook'; webhookUrl: string };
+  /** The run works apart from `sessionId`, which only receives its reply. */
+  replyOnly?: boolean;
 }
 
 type TaskRunner = (request: SchedulerDispatchRequest) => Promise<void>;
@@ -729,6 +731,7 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
       kind: 'channel',
       channelId: task.channel_id,
     },
+    ...(task.reply_only ? { replyOnly: true } : {}),
   });
 }
 
