@@ -220,6 +220,8 @@ function toolFields(body: Record<string, unknown>): TrackFields {
   if (every) fields.every = parseEvery(every);
   const at = optionalString(body.at);
   if (at) fields.at = parseAt(at);
+  const tz = optionalString(body.tz);
+  if (tz) fields.tz = tz;
   return fields;
 }
 

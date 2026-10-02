@@ -188,6 +188,8 @@ function toolFields(body: Record<string, unknown>): TodoFields {
   if (due) fields.due = parseDue(due);
   const remind = optionalString(body.remind);
   if (remind) fields.remind = parseRemind(remind);
+  const tz = optionalString(body.tz);
+  if (tz) fields.tz = tz;
   return fields;
 }
 

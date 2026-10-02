@@ -9210,7 +9210,6 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...FULLAUTO_NEVER_APPROVE_TOOLS,
         ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
       ],
-      scheduledTasks: [],
       blockedTools: ['delegate'],
       skillCatalog: buildEligibleSkillCatalog(skills),
       pluginTools: pluginManager?.getToolDefinitions() ?? [],

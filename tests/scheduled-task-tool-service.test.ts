@@ -162,7 +162,7 @@ test('rejects unknown sessions and malformed payloads without creating jobs', as
   expect(statusOf(() => runScheduledTaskToolAction('nope'))).toBe(400);
   expect(
     statusOf(() =>
-      runScheduledTaskToolAction({ action: 'list', sessionId: 'session-1' }),
+      runScheduledTaskToolAction({ action: 'explode', sessionId: 'session-1' }),
     ),
   ).toBe(400);
   expect(
@@ -208,6 +208,135 @@ test('rejects unknown sessions and malformed payloads without creating jobs', as
 
   expect(getAllJobs({ kind: 'scheduled_task' })).toHaveLength(0);
   expect(rearmScheduler).not.toHaveBeenCalled();
+});
+
+test('list shows the tasks as stored now, with delivery and a failing run', async () => {
+  const { createJob, markJobFailure, runScheduledTaskToolAction } =
+    await setup();
+  const briefing = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'ops@example.com',
+    cronExpr: '0 9 * * *',
+    tz: 'Europe/Berlin',
+    prompt: 'Morning briefing',
+  });
+  markJobFailure(briefing, 5, 'Delivery to email failed: not linked');
+  const broken = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'ops@example.com',
+    cronExpr: '0 8 * * *',
+    prompt: 'Broken',
+  });
+  markJobFailure(broken, 1, 'Model unavailable');
+  const pulse = createJob({
+    kind: 'scheduled_task',
+    sessionId: 'session-1',
+    channelId: 'ops@example.com',
+    everyMs: 60_000,
+    prompt: 'Healthy',
+  });
+
+  const listed = runScheduledTaskToolAction({
+    action: 'list',
+    sessionId: 'session-1',
+  });
+  expect(listed).toMatchObject({ ok: true, action: 'list' });
+  expect(listed.text.split('\n').sort()).toEqual([
+    `#${briefing} [enabled] 0 9 * * * (Europe/Berlin) -> ops@example.com — Morning briefing (last run failed: Delivery to email failed: not linked)`,
+    `#${broken} [disabled] 0 8 * * * -> ops@example.com — Broken (last run failed: Model unavailable)`,
+    `#${pulse} [enabled] every 60s -> ops@example.com — Healthy`,
+  ]);
+
+  runScheduledTaskToolAction({
+    action: 'remove',
+    sessionId: 'session-1',
+    taskId: pulse,
+  });
+  expect(
+    runScheduledTaskToolAction({ action: 'list', sessionId: 'session-1' })
+      .text,
+  ).not.toContain('Healthy');
+});
+
+test('list says when other chats of the agent hold tasks this one cannot see', async () => {
+  const { createJob, getOrCreateSession, runScheduledTaskToolAction } =
+    await setup();
+  const web = getOrCreateSession('web-own', null, 'web', 'main');
+  const discord = getOrCreateSession('discord-own', null, 'discord-2', 'main');
+  createJob({
+    kind: 'scheduled_task',
+    sessionId: discord.id,
+    channelId: 'discord-2',
+    cronExpr: '0 9 * * *',
+    prompt: 'discord peer',
+  });
+
+  expect(
+    runScheduledTaskToolAction({ action: 'list', sessionId: web.id }).text,
+  ).toMatch(/^No scheduled tasks in this chat\. 1 more task\(s\)/);
+  expect(
+    runScheduledTaskToolAction({ action: 'list', sessionId: discord.id }).text,
+  ).not.toContain('more task(s)');
+});
+
+test('a goal check-in or todo reminder is listed as theirs and left to their tool', async () => {
+  const { getAllJobs, getOrCreateSession, runScheduledTaskToolAction } =
+    await setup();
+  const chat = getOrCreateSession('web-chat-1', null, 'web', 'main');
+  const { addTracked } = await import('../src/tracking/track-store.ts');
+  const { addTodo } = await import('../src/todos/todo-store.ts');
+  const daily = [0, 1, 2, 3, 4, 5, 6];
+  const goal = addTracked(
+    chat,
+    { title: 'Half marathon', every: daily, at: '07:15', tz: 'UTC' },
+    'agent',
+  );
+  const todo = addTodo(chat, {
+    title: 'Stretch',
+    repeat: daily,
+    remind: '07:16',
+    tz: 'UTC',
+  });
+  const stored = getAllJobs({ kind: 'scheduled_task' });
+
+  const listed = runScheduledTaskToolAction({
+    action: 'list',
+    sessionId: chat.id,
+  }).text;
+  expect(listed).toContain(
+    `#${goal.checkTaskId} [enabled] 15 7 * * * (UTC) -> web — the check-in of goal #1 "Half marathon"; change or stop it with the \`track\` tool`,
+  );
+  expect(listed).toContain(
+    `#${todo.reminderTaskId} [enabled] 16 7 * * * (UTC) -> web — the reminder of todo #1 "Stretch"; change or stop it with the \`todo\` tool`,
+  );
+
+  // The live run that found this: the model "fixed" the check-in's zone and
+  // prompt through cron, the goal disowned it and set a second one.
+  for (const taskId of [goal.checkTaskId, todo.reminderTaskId]) {
+    expect(
+      statusOf(() =>
+        runScheduledTaskToolAction({
+          action: 'update',
+          sessionId: chat.id,
+          taskId,
+          tz: 'Europe/Berlin',
+          prompt: 'Ask Ben how training went.',
+        }),
+      ),
+    ).toBe(409);
+    expect(
+      statusOf(() =>
+        runScheduledTaskToolAction({
+          action: 'remove',
+          sessionId: chat.id,
+          taskId,
+        }),
+      ),
+    ).toBe(409);
+  }
+  expect(getAllJobs({ kind: 'scheduled_task' })).toEqual(stored);
 });
 
 test('remove only deletes tasks owned by the calling session', async () => {
