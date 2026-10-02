@@ -22,12 +22,15 @@ function call(
   };
 }
 
+const READ_ONLY_MCP_TOOLS = new Set(['hybridai__web_search']);
+const isReadOnlyMcpTool = (name: string) => READ_ONLY_MCP_TOOLS.has(name);
+
 // Walks a batch the way the tool loop does: a run of two or more calls runs
 // concurrently, otherwise the first call runs alone.
 function plan(calls: ToolCall[]): string[][] {
   const segments: string[][] = [];
   for (let index = 0; index < calls.length; ) {
-    const run = leadingParallelRun(calls.slice(index));
+    const run = leadingParallelRun(calls.slice(index), isReadOnlyMcpTool);
     const size = run.length > 1 ? run.length : 1;
     segments.push(calls.slice(index, index + size).map((entry) => entry.id));
     index += size;
@@ -77,6 +80,7 @@ describe('leadingParallelRun', () => {
       call('7', 'read', { path: 'src/index.ts' }),
       call('8', 'glob', { pattern: 'src/**/*.ts' }),
       call('9', 'grep', { pattern: 'TODO' }),
+      call('10', 'hybridai__web_search', { query: 'ai news' }),
     ];
 
     expect(plan(batch)).toEqual([batch.map((entry) => entry.id)]);

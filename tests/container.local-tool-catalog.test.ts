@@ -45,7 +45,7 @@ describe('local tool catalog boundary', () => {
     expect(resolved.id).toBe(original.id);
     expect(resolved.function).toEqual({ name: 'bash', arguments: '{"command":"pwd"}' });
     expect(original.function.name).toBe('tool_catalog');
-    expect(leadingParallelRun([resolved, resolved])).toEqual([]);
+    expect(leadingParallelRun([resolved, resolved], () => false)).toEqual([]);
   });
   test.each([
     { action: 'call', name: 'tool_catalog', arguments: {} },
