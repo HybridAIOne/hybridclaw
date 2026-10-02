@@ -62,6 +62,10 @@ Examples:
 /concierge info
 ```
 
+`/model list <provider>` also accepts vendor names as supported provider
+aliases, for example `codex` for `openai-codex`, `google` for `gemini`, `grok`
+for `xai`, `glm` for `zai`, `moonshot` for `kimi`, and `qwen` for `dashscope`.
+
 ## Scope Rules
 
 - `hybridai.defaultModel` in `~/.hybridclaw/config.json` is the global default;
