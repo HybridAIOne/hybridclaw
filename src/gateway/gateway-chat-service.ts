@@ -244,6 +244,7 @@ import {
 } from './model-routing-state.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { forwardGatewayMessageToProxyAgent } from './proxy-agent.js';
+import { ReplyFetchGuard } from './reply-fetch-guard.js';
 import { recoverGeneratedMediaArtifactsFromResultText } from './result-text-artifacts.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 import {
@@ -2091,6 +2092,9 @@ async function handleGatewayMessageInner(
       listManageableScheduledTasks(session).tasks.length;
     let firstTextDeltaMs: number | null = null;
     const tail = new TurnTailTimer();
+    const replyFetches = new ReplyFetchGuard(messages, (text) =>
+      req.onTextDelta?.(text),
+    );
     const onTextDelta = (delta: string): void => {
       if (delta) tail.noteTextDelta();
       if (firstTextDeltaMs == null && delta) {
@@ -2104,9 +2108,7 @@ async function handleGatewayMessageInner(
           'Gateway chat emitted first text delta',
         );
       }
-      if (!outputGuardActive) {
-        req.onTextDelta?.(delta);
-      }
+      if (!outputGuardActive) replyFetches.push(delta);
     };
     const emitTextDeltas =
       req.onTextDelta && !outputGuardActive ? onTextDelta : undefined;
@@ -2119,6 +2121,7 @@ async function handleGatewayMessageInner(
         : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
       trackObservedToolCall(observedToolCalls, event);
+      replyFetches.noteToolProgress(event);
       emitGatewayToolProgress(event);
     };
     const onApprovalProgress = (approval: PendingApproval): void => {
@@ -2333,6 +2336,7 @@ async function handleGatewayMessageInner(
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
       });
     }
+    replyFetches.finish(output.toolExecutions);
     const executionDurationMs = Date.now() - executionStartedAt;
     tail.mark('agentReturn');
     // The shadow call runs alongside execution, never before dispatch. Settle it
@@ -2872,6 +2876,7 @@ async function handleGatewayMessageInner(
         );
       }
     }
+    resultText = replyFetches.rewrite(resultText);
     tail.mark('outputGuards');
     const memoryCitations = extractMemoryCitations(
       resultText,
