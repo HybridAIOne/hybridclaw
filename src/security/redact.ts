@@ -138,12 +138,40 @@ function isLikelyPhoneNumber(value: string): boolean {
   return true;
 }
 
-function replacePhone(_match: string, value: string): string {
-  return isLikelyPhoneNumber(value) ? '***PHONE_REDACTED***' : value;
+// A digit run in a URL (host, path, query, fragment) is an id, not a card or
+// phone number: a 19-digit TikTok video id passes the Luhn check. The scan
+// stops at whitespace, quotes and angle brackets, and looks back at most 2 KiB.
+const URL_START_RE = /:\\?\/\\?\/|\bwww\.|\.[a-z]{2,}\\?\//i;
+const URL_TOKEN_STOP_RE = /[\s"'`<>]/;
+
+function isInsideUrl(offset: unknown, input: unknown): boolean {
+  if (typeof offset !== 'number' || typeof input !== 'string') return false;
+  const limit = Math.max(0, offset - 2048);
+  let start = offset;
+  while (start > limit && !URL_TOKEN_STOP_RE.test(input[start - 1])) start -= 1;
+  return URL_START_RE.test(input.slice(start, offset));
 }
 
-function replaceCreditCard(_match: string, value: string): string {
-  return luhnCheck(value) ? '***CREDIT_CARD_REDACTED***' : value;
+function replacePhone(
+  _match: string,
+  value: string,
+  offset: unknown,
+  input: unknown,
+): string {
+  return isLikelyPhoneNumber(value) && !isInsideUrl(offset, input)
+    ? '***PHONE_REDACTED***'
+    : value;
+}
+
+function replaceCreditCard(
+  _match: string,
+  value: string,
+  offset: unknown,
+  input: unknown,
+): string {
+  return luhnCheck(value) && !isInsideUrl(offset, input)
+    ? '***CREDIT_CARD_REDACTED***'
+    : value;
 }
 
 function unwrapQuotedValue(value: string): {
@@ -389,11 +417,17 @@ export function redactSecrets(text: string): string {
   return next;
 }
 
-export function redactSecretsDeep<T>(value: T): T {
+// `redactText` picks the patterns: the default hides contact details too, for
+// what leaves the user's view (audit, Sentry, exports); `redactCredentialSecrets`
+// keeps them for what the user sees of their own data.
+export function redactSecretsDeep<T>(
+  value: T,
+  redactText: (text: string) => string = redactSecrets,
+): T {
   if (!isRedactionEnabled()) return value;
-  if (typeof value === 'string') return redactSecrets(value) as T;
+  if (typeof value === 'string') return redactText(value) as T;
   if (Array.isArray(value)) {
-    return value.map((entry) => redactSecretsDeep(entry)) as T;
+    return value.map((entry) => redactSecretsDeep(entry, redactText)) as T;
   }
   if (!value || typeof value !== 'object') return value;
 
@@ -403,7 +437,7 @@ export function redactSecretsDeep<T>(value: T): T {
       redacted[key] = redactStructuredSecretValue(raw);
       continue;
     }
-    redacted[key] = redactSecretsDeep(raw);
+    redacted[key] = redactSecretsDeep(raw, redactText);
   }
   return redacted as T;
 }
