@@ -82,6 +82,14 @@ Daily notes are preserved. Failed model calls use deterministic consolidation.
 
 ## Worker State
 
+### Auxiliary Model Routing
+
+Browser vision and auxiliary tools share one model context and task-policy store
+in `container/src/model-context.ts`. Each request rebuilds it from `ContainerInput`,
+including the provider method, model behavior, and local-model parsing settings.
+Tool calls capture routing and header snapshots before calling auxiliary models.
+This state lives in worker memory and is rebuilt when a worker is replaced.
+
 ### Browser Live Frames
 
 After successful page-changing calls, local and mac-cua browsers attach

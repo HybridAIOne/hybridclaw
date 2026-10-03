@@ -93,17 +93,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      'vllm',
-      undefined,
-      'http://haigpu1:8000/v1',
-      '',
-      'vllm/Qwen/Qwen3.5-27B-FP8',
-      '',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: 'vllm',
+      providerMethod: undefined,
+      baseUrl: 'http://haigpu1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      chatbotId: '',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',
@@ -173,17 +176,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      'vllm',
-      undefined,
-      'http://haigpu1:8000/v1',
-      '',
-      'vllm/Qwen/Qwen3.5-27B-FP8',
-      '',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: 'vllm',
+      providerMethod: undefined,
+      baseUrl: 'http://haigpu1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      chatbotId: '',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',
@@ -225,17 +231,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      undefined,
-      undefined,
-      'http://haigpu1:8000/v1',
-      '',
-      'vllm/Qwen/Qwen3.5-27B-FP8',
-      '',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: undefined,
+      providerMethod: undefined,
+      baseUrl: 'http://haigpu1:8000/v1',
+      apiKey: '',
+      model: 'vllm/Qwen/Qwen3.5-27B-FP8',
+      chatbotId: '',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',
@@ -301,21 +310,25 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
-      await import('../container/src/tools.js');
-    setModelContext(
-      'openai-codex',
-      undefined,
-      'https://chatgpt.com/backend-api/codex',
-      'codex-test-key',
-      'openai-codex/gpt-5.4',
-      '',
-      {
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
+    );
+    const { setModelContext, setTaskModelPolicies } = await import(
+      '../container/src/model-context.js'
+    );
+    setModelContext({
+      provider: 'openai-codex',
+      providerMethod: undefined,
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      apiKey: 'codex-test-key',
+      model: 'openai-codex/gpt-5.4',
+      chatbotId: '',
+      requestHeaders: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer codex-test-key',
         'OpenAI-Beta': 'responses=experimental',
       },
-    );
+    });
     setTaskModelPolicies(undefined);
 
     const result = await executeToolWithMetadata(
@@ -354,17 +367,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      'ollama',
-      undefined,
-      'http://127.0.0.1:11434/v1',
-      '',
-      'ollama/llava:7b',
-      '',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: 'ollama',
+      providerMethod: undefined,
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      apiKey: '',
+      model: 'ollama/llava:7b',
+      chatbotId: '',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',
@@ -425,17 +441,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      'lmstudio',
-      undefined,
-      'http://127.0.0.1:1234',
-      '',
-      'lmstudio/qwen/qwen2.5-vl',
-      '',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: 'lmstudio',
+      providerMethod: undefined,
+      baseUrl: 'http://127.0.0.1:1234',
+      apiKey: '',
+      model: 'lmstudio/qwen/qwen2.5-vl',
+      chatbotId: '',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',
@@ -483,16 +502,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
-      await import('../container/src/tools.js');
-    setModelContext(
-      'hybridai',
-      undefined,
-      'https://hybridai.one',
-      'main-model-key',
-      'gpt-5-nano',
-      'bot_123',
+    const { executeToolWithMetadata } = await import(
+      '../container/src/tools.js'
     );
+    const { setModelContext, setTaskModelPolicies } = await import(
+      '../container/src/model-context.js'
+    );
+    setModelContext({
+      provider: 'hybridai',
+      providerMethod: undefined,
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-model-key',
+      model: 'gpt-5-nano',
+      chatbotId: 'bot_123',
+    });
     setTaskModelPolicies({
       vision: {
         provider: 'lmstudio',
@@ -564,17 +587,20 @@ describe.sequential('container tool runtime guards', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { executeToolWithMetadata, setModelContext } = await import(
+    const { executeToolWithMetadata } = await import(
       '../container/src/tools.js'
     );
-    setModelContext(
-      'hybridai',
-      undefined,
-      'https://hybridai.one',
-      'hybridai-test-key',
-      'gpt-5.4',
-      'bot_123',
+    const { setModelContext } = await import(
+      '../container/src/model-context.js'
     );
+    setModelContext({
+      provider: 'hybridai',
+      providerMethod: undefined,
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'hybridai-test-key',
+      model: 'gpt-5.4',
+      chatbotId: 'bot_123',
+    });
 
     const result = await executeToolWithMetadata(
       'vision_analyze',

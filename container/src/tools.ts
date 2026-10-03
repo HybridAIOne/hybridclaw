@@ -47,8 +47,6 @@ import {
   emitBrowserSignInRequest,
   executeBrowserTool,
   setBrowserGatewayContext,
-  setBrowserModelContext,
-  setBrowserTaskModelPolicies,
   usesGatewayManagedBrowser,
 } from './browser-tools.js';
 import { waitForDelegation } from './delegate-wait.js';
@@ -69,13 +67,12 @@ import {
   postGatewayJson,
 } from './gateway-json-post.js';
 import type { McpClientManager } from './mcp/client-manager.js';
-import type { ModelBehavior } from './model-behavior.js';
+import {
+  type AuxiliaryRuntimeContext,
+  captureAuxiliaryRuntimeContext,
+} from './model-context.js';
 import { PDF_READ_PARAMETERS } from './pdf-read.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import {
-  type RuntimeProvider,
-  resolveRuntimeProviderContext,
-} from './providers/provider-ids.js';
 import { setVisualMediaAllowed } from './providers/visual-content.js';
 import {
   resolveSessionMediaReadPath,
@@ -105,16 +102,14 @@ import {
 } from './tools/skills-list.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
-import {
-  type DelegationSideEffect,
-  type DelegationTaskSpec,
-  type MediaContextItem,
-  type PluginRuntimeToolDefinition,
-  TASK_MODEL_KEYS,
-  type TaskModelKey,
-  type TaskModelPolicies,
-  type ToolDefinition,
-  type ToolRunResult,
+import type {
+  DelegationSideEffect,
+  DelegationTaskSpec,
+  MediaContextItem,
+  PluginRuntimeToolDefinition,
+  TaskModelKey,
+  ToolDefinition,
+  ToolRunResult,
 } from './types.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
@@ -323,17 +318,8 @@ let currentAgentId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
-let currentModelProvider: RuntimeProvider = 'hybridai';
-let currentModelBaseUrl = '';
-let currentModelApiKey = '';
-let currentModelName = '';
-let currentChatbotId = '';
-let currentModelHeaders: Record<string, string> = {};
-let currentModelMaxTokens: number | undefined;
-let currentModelDebugResponses = false;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
-let currentTaskModelPolicies: TaskModelPolicies | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_DELEGATE_CALLS_PER_TURN = 3;
@@ -703,23 +689,6 @@ export function getMessageToolDescription(
   return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
 }
 
-function cloneTaskModelPolicies(
-  taskModels?: TaskModelPolicies,
-): TaskModelPolicies | undefined {
-  const cloned: TaskModelPolicies = {};
-  for (const key of TASK_MODEL_KEYS) {
-    const taskModel = taskModels?.[key];
-    if (!taskModel) continue;
-    cloned[key] = {
-      ...taskModel,
-      requestHeaders: taskModel.requestHeaders
-        ? { ...taskModel.requestHeaders }
-        : undefined,
-    };
-  }
-  return Object.keys(cloned).length > 0 ? cloned : undefined;
-}
-
 export function resetSideEffects(): void {
   pendingDelegations = [];
   delegateCallsThisTurn = 0;
@@ -764,48 +733,6 @@ export function setGatewayContext(
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
-}
-
-export function setModelContext(
-  provider: RuntimeProvider | undefined,
-  providerMethod: string | undefined,
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  chatbotId: string,
-  requestHeaders?: Record<string, string>,
-  maxTokens?: number,
-  modelBehavior?: ModelBehavior,
-  debugModelResponses = false,
-): void {
-  currentModelProvider = resolveRuntimeProviderContext(provider, model);
-  currentModelBaseUrl = String(baseUrl || '').trim();
-  currentModelApiKey = String(apiKey || '').trim();
-  currentModelName = String(model || '').trim();
-  currentChatbotId = String(chatbotId || '').trim();
-  currentModelHeaders = { ...(requestHeaders || {}) };
-  currentModelMaxTokens =
-    typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
-      ? Math.floor(maxTokens)
-      : undefined;
-  currentModelDebugResponses = debugModelResponses;
-  setBrowserModelContext(
-    currentModelProvider,
-    providerMethod,
-    baseUrl,
-    apiKey,
-    model,
-    chatbotId,
-    requestHeaders,
-    currentModelMaxTokens,
-    modelBehavior,
-    debugModelResponses,
-  );
-}
-
-export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
-  currentTaskModelPolicies = cloneTaskModelPolicies(taskModels);
-  setBrowserTaskModelPolicies(currentTaskModelPolicies);
 }
 
 export function setMediaContext(
@@ -2619,31 +2546,6 @@ function summarizeSessionCandidate(
     last_message_at: lastTs,
     summary: summaryParts.join(' '),
     snippets,
-  };
-}
-
-function currentAuxiliaryFallbackContext() {
-  return {
-    provider: currentModelProvider,
-    baseUrl: currentModelBaseUrl,
-    apiKey: currentModelApiKey,
-    model: currentModelName,
-    chatbotId: currentChatbotId,
-    requestHeaders: { ...currentModelHeaders },
-    maxTokens: currentModelMaxTokens,
-    debugModelResponses: currentModelDebugResponses,
-  };
-}
-
-type AuxiliaryRuntimeContext = {
-  fallbackContext: ReturnType<typeof currentAuxiliaryFallbackContext>;
-  taskModels?: TaskModelPolicies;
-};
-
-function captureAuxiliaryRuntimeContext(): AuxiliaryRuntimeContext {
-  return {
-    fallbackContext: currentAuxiliaryFallbackContext(),
-    taskModels: cloneTaskModelPolicies(currentTaskModelPolicies),
   };
 }
 

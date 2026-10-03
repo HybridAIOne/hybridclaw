@@ -75,17 +75,19 @@ test('session_search upgrades summaries with the auxiliary session_search task m
   });
   vi.stubGlobal('fetch', fetchMock);
 
-  const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
-    await import('../container/src/tools.js');
-  setModelContext(
-    'hybridai',
-    undefined,
-    'https://hybridai.one',
-    'test-key',
-    'gpt-5-nano',
-    'bot_123',
-    {},
+  const { executeToolWithMetadata } = await import('../container/src/tools.js');
+  const { setModelContext, setTaskModelPolicies } = await import(
+    '../container/src/model-context.js'
   );
+  setModelContext({
+    provider: 'hybridai',
+    providerMethod: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_123',
+    requestHeaders: {},
+  });
   setTaskModelPolicies({
     session_search: {
       provider: 'vllm',
@@ -134,12 +136,11 @@ test('session_search scans the newest transcripts when there are too many to sca
   ]);
   const past = new Date(1_700_000_000_000);
   for (const name of fs.readdirSync(transcriptDir)) {
-    if (name !== last) fs.utimesSync(path.join(transcriptDir, name), past, past);
+    if (name !== last)
+      fs.utimesSync(path.join(transcriptDir, name), past, past);
   }
 
-  const { executeToolWithMetadata } = await import(
-    '../container/src/tools.js'
-  );
+  const { executeToolWithMetadata } = await import('../container/src/tools.js');
   const result = await executeToolWithMetadata(
     'session_search',
     JSON.stringify({ query: 'quarterly forecast', useLlmSummary: false }),
@@ -191,17 +192,19 @@ test('web_extract applies auxiliary web processing by default', async () => {
   );
   vi.stubGlobal('fetch', fetchMock);
 
-  const { executeToolWithMetadata, setModelContext, setTaskModelPolicies } =
-    await import('../container/src/tools.js');
-  setModelContext(
-    'hybridai',
-    undefined,
-    'https://hybridai.one',
-    'test-key',
-    'gpt-5-nano',
-    'bot_123',
-    {},
+  const { executeToolWithMetadata } = await import('../container/src/tools.js');
+  const { setModelContext, setTaskModelPolicies } = await import(
+    '../container/src/model-context.js'
   );
+  setModelContext({
+    provider: 'hybridai',
+    providerMethod: undefined,
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'test-key',
+    model: 'gpt-5-nano',
+    chatbotId: 'bot_123',
+    requestHeaders: {},
+  });
   setTaskModelPolicies({
     web_extract: {
       provider: 'vllm',
