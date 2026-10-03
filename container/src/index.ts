@@ -2,8 +2,8 @@
  * Agent loop keeps request schemas stable while concrete actions pass policy.
  * Local wrappers resolve before approval; rejected batches never execute.
  * Full tool exchanges and surviving model context are retained separately;
- * durable storage belongs to the gateway. Neither instructions nor historical
- * calls grant permissions or approvals, and replay never repeats side effects.
+ * durable storage lives in the gateway or mounted workspace. Instructions and
+ * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 import path from 'node:path';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
@@ -29,8 +29,7 @@ import {
   runAfterToolHooks,
   runBeforeToolHooks,
 } from './extensions.js';
-import { compactInLoop } from './in-loop-compaction.js';
-import { archiveInLoopCompaction } from './in-loop-compaction-archive.js';
+import { compactInLoopWithModel } from './in-loop-compaction-runtime.js';
 import {
   setIpcAuthSecret,
   waitForInput,
@@ -58,7 +57,6 @@ import {
   injectNativeVisionContent,
   shouldRetryWithoutNativeMedia,
 } from './native-media.js';
-import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   callRoutedModel,
   callRoutedModelStream,
@@ -1395,48 +1393,28 @@ async function processRequestInner(
       config: contextGuard,
       cache: tokenEstimateCache,
     });
-    if (guardResult.compactedToolResults > 0) {
-      console.error(
-        `[context] guard adjusted history compacted=${guardResult.compactedToolResults} totalTokens=${guardResult.totalTokensAfter}/${guardResult.overflowBudgetTokens}`,
-      );
-    }
     if (guardResult.tier3Triggered) {
       const compacted =
         compactionRetries < maxContextGuardRetries
-          ? await compactInLoop({
+          ? await compactInLoopWithModel({
               history,
+              sessionId,
               contextWindowTokens: guardContextWindow,
-              archive: (messages) =>
-                archiveInLoopCompaction(sessionId, messages),
-              summarize: async (summaryMessages, summaryMaxTokens) => {
-                await haltIfShuttingDown();
-                tokenUsage.modelCalls += 1;
-                tokenUsage.estimatedPromptTokens +=
-                  estimateMessageTokens(summaryMessages);
-                const response = await callAuxiliaryModel({
-                  task: 'compression',
-                  taskModels,
-                  fallbackContext: {
-                    provider,
-                    baseUrl,
-                    apiKey,
-                    model,
-                    chatbotId,
-                    requestHeaders,
-                    isLocal,
-                    contextWindow,
-                    modelBehavior,
-                    thinkingFormat,
-                  },
-                  messages: summaryMessages,
-                  maxTokens: summaryMaxTokens,
-                  toolName: 'in_loop_compaction',
-                });
-                accumulateApiUsage(tokenUsage, response.response);
-                tokenUsage.estimatedCompletionTokens += estimateTextTokens(
-                  response.content,
-                );
-                return response.content;
+              taskModels,
+              tools: availableTools,
+              tokenUsage,
+              fallbackContext: {
+                provider,
+                providerMethod,
+                baseUrl,
+                apiKey,
+                model,
+                chatbotId,
+                requestHeaders,
+                isLocal,
+                contextWindow,
+                modelBehavior,
+                thinkingFormat,
               },
             })
           : null;

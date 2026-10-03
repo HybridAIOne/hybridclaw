@@ -591,13 +591,27 @@ The model receives complete tool results, and stored exchanges replay complete
 results. Large results cross IPC as file references, restored by the gateway;
 this transport threshold does not shorten model input. Whole-context compaction
 and model context-window recovery still apply to the combined conversation.
-In-loop compaction sends every selected message intact to the compression model,
-including tool calls, results, and structured content. It archives the original
+The context guard measures pressure without rewriting tool results. In-loop
+compaction sends every selected message intact to the compression model,
+including tool calls, results, structured content, and the schemas needed to
+interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
 replacement summary. Replacement must reduce the estimated token count,
-including its label and archive reference. Failed or empty summaries, archive
-write failures, and summaries that do not shrink the region leave history
-unchanged; there is no heuristic fallback or character-based transcript cutoff.
+including its label and archive reference, before any archive is written.
+Failed, empty, or length-truncated summaries, archive write failures, and
+summaries that do not shrink the region leave history unchanged; there is no
+heuristic fallback or character-based transcript cutoff. Each rejected attempt
+logs a distinct reason without logging response text or error payloads.
+
+The compression model needs enough context for the complete selected region,
+its historical tool schemas, and the summary output budget. It falls back to
+the active model when no compression override is configured. For long tasks,
+configure `auxiliaryModels.compression` with sufficient capacity; a larger
+window than the active model helps recover even when that model overflows.
+An input rejected as too large reports `summary_context_overflow` and ends the
+turn without replacing history. Archives contain conversation and tool data
+that the agent can read; private file permissions protect against other host
+users, and workspace reset removes them.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. There is no replacement per-result limit.
 

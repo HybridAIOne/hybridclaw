@@ -176,6 +176,7 @@ describe('OpenAI Codex provider', () => {
     });
 
     expect(result.choices[0]?.message.content).toBe('ls -la');
+    expect(result.choices[0]?.finish_reason).toBe('length');
   });
 
   test('surfaces the error a response.failed event carries on its response', async () => {
