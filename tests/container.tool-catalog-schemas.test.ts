@@ -20,7 +20,7 @@ const parameters = {
 describe('input schemas supplied with catalog discovery', () => {
   test('allows execution directly from a search result without changing exposed tools', () => {
     const target = tool('records__lookup', parameters);
-    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]))!;
+    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]), () => false)!;
     const offered = JSON.stringify(catalog.tools);
     const result = JSON.parse(catalog.discoveryResult(call('list'))!.output);
     expect(result.tools[0].parameters).toEqual(parameters);
@@ -32,7 +32,7 @@ describe('input schemas supplied with catalog discovery', () => {
 
   test('supplies complete small schemas in the initial deferred index', () => {
     const target = tool('records__lookup', parameters);
-    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]))!;
+    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]), () => false)!;
     const indexed = catalog.promptGuidance().split('\n').find((line) => line.startsWith('  parameters: '));
     expect(JSON.parse(indexed!.slice('  parameters: '.length))).toEqual(parameters);
     expect(catalog.promptGuidance()).toBe(catalog.promptGuidance());
@@ -49,7 +49,7 @@ describe('input schemas supplied with catalog discovery', () => {
   test('retains explicit discovery for large schemas without truncating their rules', () => {
     const schema = { ...parameters, description: 'x'.repeat(2100) };
     const target = tool('records__lookup', schema);
-    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]))!;
+    const catalog = ToolCatalog.deferring([target], new Set([target.function.name]), () => false)!;
     const result = JSON.parse(catalog.discoveryResult(call('list'))!.output);
     expect(result.tools[0].parameters).toBeUndefined();
     expect(result.tools[0].next.arguments).toEqual({ action: 'describe', name: target.function.name });
@@ -60,7 +60,7 @@ describe('input schemas supplied with catalog discovery', () => {
 
   test('bounds inline schema text across a deferred index and excludes unavailable tools', () => {
     const targets = Array.from({ length: 40 }, (_, i) => tool(`records__lookup_${i}`, { ...parameters, description: 'x'.repeat(1500) }));
-    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)))!;
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)), () => false)!;
     const schemas = catalog.promptGuidance().split('\n').filter((line) => line.startsWith('  parameters: '));
     expect(schemas.length).toBeGreaterThan(0);
     expect(schemas.length).toBeLessThan(targets.length);
@@ -72,7 +72,7 @@ describe('input schemas supplied with catalog discovery', () => {
     const targets = Array.from({ length: 80 }, (_, i) => tool(`records__lookup_${i}`, { ...parameters, description: 'x'.repeat(1500) }));
     const last = tool('records__small', parameters);
     targets.push(last);
-    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)))!;
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)), () => false)!;
     const prompt = catalog.promptGuidance();
     expect(prompt).toContain(`- ${last.function.name}(`);
     expect(prompt).toContain(`  parameters: ${JSON.stringify(parameters)}`);
@@ -83,7 +83,7 @@ describe('input schemas supplied with catalog discovery', () => {
 
   test('keeps overflow tools callable when names alone exhaust the index budget', () => {
     const targets = Array.from({ length: 1000 }, (_, i) => tool(`records__lookup_${i}`, parameters));
-    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)))!;
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)), () => false)!;
     expect(catalog.promptGuidance()).not.toContain('- records__lookup_999(');
     expect(catalog.resolveCall(call('call', 'records__lookup_999', { ids: [1] })).function.name).toBe('records__lookup_999');
     const listed = JSON.parse(catalog.discoveryResult({ id: 'search', type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action: 'list', query: 'lookup 999' }) } })!.output);
@@ -94,10 +94,29 @@ describe('input schemas supplied with catalog discovery', () => {
     const small = tool('read', parameters);
     const bulky = tool('http_request', { ...parameters, description: 'x'.repeat(2100) });
     const remote = tool('records__lookup', parameters);
-    const catalog = ToolCatalog.deferring([small, bulky, remote], new Set([remote.function.name]))!;
+    const catalog = ToolCatalog.deferring([small, bulky, remote], new Set([remote.function.name]), () => false)!;
     expect(catalog.tools.map((entry) => entry.function.name)).toEqual(['read', 'tool_catalog']);
     expect(catalog.resolveCall(call('call', bulky.function.name, { ids: [1] })).function.name).toBe(bulky.function.name);
     expect(() => catalog.resolveCall(call('call', bulky.function.name, { ids: [] }))).toThrow('do not match');
-    expect(ToolCatalog.deferring([small, bulky], new Set([remote.function.name]))).toBeNull();
+    expect(ToolCatalog.deferring([small, bulky], new Set([remote.function.name]), () => false)).toBeNull();
+  });
+
+  test('exposes only reviewed small reads directly and shares their directory budget', () => {
+    const targets = Array.from({ length: 40 }, (_, i) => tool(`records__read_${i}`, { ...parameters, description: 'x'.repeat(1200) }));
+    const mutation = tool('records__mutate', parameters);
+    const all = [...targets, mutation];
+    const deferred = new Set(all.map(entry => entry.function.name));
+    const reviewed = new Set(targets.map(entry => entry.function.name));
+    const catalog = ToolCatalog.deferring(all, deferred, name => reviewed.has(name))!;
+    const exposed = catalog.tools.filter(entry => entry.function.name !== 'tool_catalog');
+    expect(exposed.length).toBeGreaterThan(0);
+    expect(exposed.length).toBeLessThan(targets.length);
+    expect(exposed.every(entry => reviewed.has(entry.function.name))).toBe(true);
+    expect(catalog.tools).not.toContainEqual(mutation);
+    const directory = catalog.promptGuidance().split('\n').filter(line => line.startsWith('- ') || line.startsWith('  parameters: ')).join('\n');
+    expect(exposed.reduce((size, entry) => size + JSON.stringify(entry).length, 0) + directory.length).toBeLessThanOrEqual(24_000);
+    expect(ToolCatalog.deferring([...all].reverse(), deferred, name => reviewed.has(name))!.tools).toEqual(catalog.tools);
+    expect(catalog.resolveCall(call('call', mutation.function.name, { ids: [1] })).function.name).toBe(mutation.function.name);
+    expect(() => catalog.resolveCall(call('call', 'records__blocked', { ids: [1] }))).toThrow('not available');
   });
 });

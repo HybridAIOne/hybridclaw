@@ -3751,7 +3751,7 @@ async function executeToolInternal(
       const lines = [meta];
       if (result.escalationHint) {
         lines.push(
-          `Escalation hint: ${result.escalationHint} (retry with browser_navigate for this URL).`,
+          `Escalation hint: ${result.escalationHint}. Next retrieval: ${JSON.stringify({ name: 'browser_navigate', arguments: { url: result.finalUrl } })}.`,
         );
       }
       if (result.warning) {

@@ -512,10 +512,12 @@ Runtime details:
   namespaced functions (`server__tool`) alongside built-in tools.
 
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
-deferred, direct function definitions larger than 2,000 characters also use
-the catalog. The initial index reserves tool names before including complete
-input schemas up to 2,000 characters, within a 24,000-character entry budget;
-small schemas get priority. `action=list` includes small schemas within its
+deferred, complete definitions up to 2,000 characters for reviewed read tools
+are exposed directly, smallest first. Review uses the same live/configured
+trust and annotation checks as concurrent reads. Other connector tools and
+bulky direct definitions use the catalog. The direct connector definitions and
+remaining index share a 24,000-character budget. The index reserves names before
+including complete input schemas up to 2,000 characters. `action=list` includes small schemas within its
 24,000-character schema budget and requires no `name` argument. The model can execute those tools with
 `action=call` without a separate `describe` response. Larger schemas keep the
 explicit `describe` step. Discovery does not change the request's exposed

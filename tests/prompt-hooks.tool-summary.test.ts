@@ -916,7 +916,7 @@ test('the one-line skill catalog shortens descriptions to fit its budget', () =>
 
 test('web retrieval routing names the search tool the instance offers', () => {
   const local = buildSystemPromptFromHooks({ agentId: 'test-agent', skills: [] });
-  expect(local).toContain('use `web_search` to discover');
+  expect(local.match(/## Web Retrieval Routing \(([^/]+)\/web_fetch/)?.[1]).toBe('web_search');
   expect(local).not.toContain('hybridai__web_search');
 
   const hosted = buildSystemPromptFromHooks({
@@ -924,8 +924,6 @@ test('web retrieval routing names the search tool the instance offers', () => {
     skills: [],
     blockedTools: ['web_search'],
   });
-  expect(hosted).toContain(
-    'use `hybridai__web_search` to discover',
-  );
+  expect(hosted.match(/## Web Retrieval Routing \(([^/]+)\/web_fetch/)?.[1]).toBe('hybridai__web_search');
   expect(hosted).not.toContain('use `web_search`');
 });

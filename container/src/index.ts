@@ -1154,7 +1154,12 @@ async function processRequestInner(
   const toolCatalog = isLocal
     ? new ToolCatalog(availableTools, localStarterTools, localDiscoveryDisabled)
     : deferredTools && !localDiscoveryDisabled
-      ? (ToolCatalog.deferring(availableTools, deferredTools) ?? undefined)
+      ? (ToolCatalog.deferring(
+          availableTools,
+          deferredTools,
+          (name) =>
+            mcpClientManager?.getToolBehavior(name)?.parallelSafe === true,
+        ) ?? undefined)
       : undefined;
   const tools =
     isLocal &&
