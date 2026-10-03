@@ -445,6 +445,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/chat/reaction' && method === 'POST') {
     return 'chat.send';
   }
+  // A note for the caller's own running turn is part of chatting; the route
+  // checks the session is the caller's.
+  if (pathname === '/api/chat/steer' && method === 'POST') {
+    return 'chat.send';
+  }
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
   }

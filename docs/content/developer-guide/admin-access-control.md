@@ -48,7 +48,13 @@ last part of a `reminder` notification id). That route answers only for chats
 the same token started and never returns user turns. In those chats it also
 puts one emoji on a reply, or takes it off with `null`, with
 `POST /api/chat/reaction` (`sessionId`, `messageId`, `emoji`, and the `userId`
-of its chat turns); that runs no turn, and a 👍 or 👎 also rates the reply. `chat.send` also covers
+of its chat turns); that runs no turn, and a 👍 or 👎 also rates the reply.
+While a turn of its own runs, it adds to it with `POST /api/chat/steer`
+(`sessionId`, `content`): `{ "accepted": true }` means the running turn shows
+the text to the model at its next step and stores it as a user message;
+`{ "accepted": false }` means nothing happened (no turn of its own runs there,
+the turn is finishing, or the text is a `/` command), and the phone sends it
+as a turn of its own afterwards. `chat.send` also covers
 `POST /api/media/upload`, so a phone can send a photo or document with a
 message: the file lands in the uploaded-media cache for a day, and the turn
 names it in `media`. Chatting is not administration: a slash command such as
