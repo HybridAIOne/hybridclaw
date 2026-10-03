@@ -32,13 +32,18 @@ import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
 } from './model-usage.js';
-import { cronPromptHead, dbTaskLabel } from './scheduler.js';
+import {
+  cronPromptHead,
+  dbTaskLabel,
+  type SchedulerDispatchRequest,
+} from './scheduler.js';
 
 // One day (engineering choice, 2026-10-03): background work must not use an old phone snapshot.
 const MAX_DEVICE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
+  taskOwner?: SchedulerDispatchRequest['taskOwner'];
   prompt: string;
   channelId: string;
   chatbotId: string;
@@ -52,6 +57,7 @@ export async function runIsolatedScheduledTask(params: {
 }): Promise<void> {
   const {
     taskId,
+    taskOwner,
     prompt: storedPrompt,
     channelId,
     chatbotId,
@@ -89,6 +95,8 @@ export async function runIsolatedScheduledTask(params: {
   const owner =
     task?.enabled &&
     task.channel_id === channelId &&
+    taskOwner?.userId === task.owner_user_id &&
+    taskOwner?.sessionId === task.session_id &&
     (task.prompt === storedPrompt ||
       storedPrompt.startsWith(
         cronPromptHead(dbTaskLabel(task.id), task.prompt),

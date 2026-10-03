@@ -25,7 +25,8 @@ async function load() {
   });
   const run = (taskId: number, prompt = 'Prepare a brief', agentId = 'main') => runner.runIsolatedScheduledTask({
     taskId, prompt, agentId, channelId: 'web', chatbotId: 'test', model: 'gpt-4o-mini',
-    sessionId: 'scheduled-test', onResult: vi.fn(), onError: vi.fn(),
+    sessionId: 'scheduled-test',
+      taskOwner: { userId: 'alice', sessionId: session.id }, onResult: vi.fn(), onError: vi.fn(),
   });
   return { jobs, device, scheduler, create, run, session };
 }
@@ -121,4 +122,29 @@ test('signed-in schedule and goal commands bind their owner', async () => {
   anonymous();
   expect(device.renderDeviceDataForSession('nested', null)).toContain('Alice meeting');
   end();
+});
+
+ test('an old dispatch cannot inherit the owner of a reused task ID', async () => {
+  const { jobs, device, create, run } = await load();
+  const oldId = create('alice');
+  jobs.deleteJob(oldId);
+  const replacement = create('bob');
+  expect(replacement).toBe(oldId);
+  runAgentMock.mockImplementation(async (input) => {
+    expect(input.blockedTools).toContain('device_data');
+    expect(device.renderDeviceDataForSession(input.sessionId, null)).not.toContain('Bob private');
+    return { status: 'success', result: 'NO_REPLY', toolExecutions: [] };
+  });
+  await run(oldId);
+});
+
+test('overlapping users fail closed and out-of-order cleanup leaves no old grant', async () => {
+  const { device } = await load();
+  const alice = device.beginDeviceDataTurn('overlap', 'alice');
+  const bob = device.beginDeviceDataTurn('overlap', 'bob');
+  expect(device.renderDeviceDataForSession('overlap', null)).toContain('shares nothing');
+  alice();
+  expect(device.renderDeviceDataForSession('overlap', null)).toContain('Bob private');
+  bob();
+  expect(device.renderDeviceDataForSession('overlap', null)).toContain('shares nothing');
 });

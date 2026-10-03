@@ -35,6 +35,7 @@ import {
   rearmScheduler,
   resetConfigJobRuntime,
   resumeConfigJob,
+  type SchedulerDispatchRequest,
 } from '../scheduler/scheduler.js';
 import type { SessionResetPolicy } from '../session/session-reset.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -503,6 +504,7 @@ export async function runGatewayScheduledTask(
   runKey?: string,
   preferredAgentId?: string,
   replyOnly = false,
+  taskOwner?: SchedulerDispatchRequest['taskOwner'],
 ): Promise<void> {
   let currentSessionId = origSessionId;
   const sessionResetPolicy = {
@@ -581,6 +583,7 @@ export async function runGatewayScheduledTask(
 
   await runIsolatedScheduledTask({
     taskId,
+    taskOwner,
     prompt,
     channelId,
     chatbotId,

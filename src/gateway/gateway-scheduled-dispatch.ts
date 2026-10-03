@@ -206,6 +206,7 @@ export async function runScheduledTask(
     runKey,
     request.agentId,
     request.replyOnly,
+    request.taskOwner,
   );
   if (runError !== null) {
     throw runError instanceof Error ? runError : new Error(String(runError));

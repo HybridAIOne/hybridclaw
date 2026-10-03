@@ -1,15 +1,29 @@
 /**
- * The verified user of a running turn, scoped to its execution session.
- * Cleanup restores a nested binding; no user can be selected by a tool argument.
- * This is transient execution context, not durable session ownership.
+ * Verified users of running turns, scoped to their execution session.
+ * Each cleanup removes only its own grant. Overlapping turns with different
+ * users (or an anonymous turn) fail closed rather than sharing phone access.
  */
 export interface TurnUser {
   userId: string;
   maxDeviceAgeMs?: number;
 }
-const users = new Map<string, TurnUser>();
+const users = new Map<string, Map<symbol, TurnUser | undefined>>();
 export function currentTurnUser(sessionId: string): TurnUser | undefined {
-  return users.get(sessionId);
+  const grants = users.get(sessionId);
+  if (!grants?.size) return undefined;
+  let userId: string | undefined;
+  let maxDeviceAgeMs: number | undefined;
+  for (const grant of grants.values()) {
+    if (!grant || (userId && userId !== grant.userId)) return undefined;
+    userId = grant.userId;
+    if (grant.maxDeviceAgeMs !== undefined) {
+      maxDeviceAgeMs = Math.min(
+        maxDeviceAgeMs ?? Infinity,
+        grant.maxDeviceAgeMs,
+      );
+    }
+  }
+  return userId ? { userId, maxDeviceAgeMs } : undefined;
 }
 export function beginTurnUser(
   sessionId: string,
@@ -17,14 +31,15 @@ export function beginTurnUser(
   maxDeviceAgeMs?: number,
 ): () => void {
   const id = userId?.trim();
-  const previous = users.get(sessionId);
-  const next =
+  const grant =
     id && id.length <= 200 ? { userId: id, maxDeviceAgeMs } : undefined;
-  if (next) users.set(sessionId, next);
-  else users.delete(sessionId);
+  const key = Symbol();
+  const grants = users.get(sessionId) ?? new Map();
+  grants.set(key, grant);
+  users.set(sessionId, grants);
   return () => {
-    if (users.get(sessionId) !== next) return;
-    if (previous) users.set(sessionId, previous);
-    else users.delete(sessionId);
+    grants.delete(key);
+    if (grants.size === 0 && users.get(sessionId) === grants)
+      users.delete(sessionId);
   };
 }
