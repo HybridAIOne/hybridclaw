@@ -60,6 +60,8 @@ export function parseSchedulerTimestampMs(
 export interface SchedulerDispatchRequest {
   source: 'scheduled-task' | 'scheduler-job';
   taskId?: number;
+  /** Ownership captured before async dispatch; never supplied by a model. */
+  taskOwner?: { userId: string; sessionId: string };
   jobId?: string;
   agentId?: string;
   sessionId: string;
@@ -721,6 +723,11 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   await taskRunner({
     source: 'scheduled-task',
     taskId: task.id,
+    ...(task.owner_user_id
+      ? {
+          taskOwner: { userId: task.owner_user_id, sessionId: task.session_id },
+        }
+      : {}),
     sessionId: task.session_id,
     channelId: task.channel_id,
     prompt,

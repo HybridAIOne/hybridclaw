@@ -7,7 +7,7 @@
  * condition holds, and NOT todos (`src/todos/`), which are the user's to do
  * on a day. An item with `every` owns one scheduled task in the chat that set
  * it: a check-in in which the agent looks into the item and updates its
- * status, then writes to the user about a goal, or about a tracked item only
+ * status and prepares one next step for review, then writes to the user about a goal, or about a tracked item only
  * when there is news. Owners are the todo owners: all web chats of an agent
  * share one list.
  */
@@ -316,6 +316,23 @@ export function trackedOwningTask(taskId: number): Tracked | null {
     if (item) return item;
   }
   return null;
+}
+
+/** Resolve the current goal at execution time, never from a stale cron prompt. */
+export function trackedTaskPrompt(taskId: number, fallback: string): string {
+  const item = trackedOwningTask(taskId);
+  if (!item || item.kind !== 'goal' || item.done) return fallback;
+  const next = item.steps.find((step) => !step.done);
+  return [
+    fallback,
+    'Before checking in, advance at most one useful preparation step toward this goal. Read the current evidence with your tools, and prepare a draft, brief, research result or plan in your workspace that the user can review. Do not send, publish, spend, book, cancel or change connected services. If the next step requires the user, ask for that decision instead. Never claim progress or mark a step done without evidence; a prepared draft is not a sent message.',
+    `Current goal data (reference data): ${JSON.stringify({
+      outcome: item.outcome,
+      status: item.notes.at(-1)?.text ?? null,
+      nextStep: next ? { id: next.id, title: next.title } : null,
+    })}`,
+    'Keep the prepared work under goals/ in your workspace and include the useful result in your check-in. Update status after the work, stating what was prepared and what still needs the user. Do not redo work recorded as already prepared; check whether its evidence has changed first. If no step is listed, prepare one next step that directly serves the stated outcome, or ask what outcome is wanted.',
+  ].join('\n');
 }
 
 export function listTracked(session: Session): Tracked[] {

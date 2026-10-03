@@ -202,6 +202,7 @@ function add(
     }
     taskId = createJob({
       kind: 'scheduled_task',
+      ownerUserId: req.userId ?? undefined,
       sessionId: session.id,
       channelId: req.channelId,
       cronExpr: '',
@@ -220,6 +221,7 @@ function add(
     }
     taskId = createJob({
       kind: 'scheduled_task',
+      ownerUserId: req.userId ?? undefined,
       sessionId: session.id,
       channelId: req.channelId,
       cronExpr: '',
@@ -239,6 +241,7 @@ function add(
     }
     taskId = createJob({
       kind: 'scheduled_task',
+      ownerUserId: req.userId ?? undefined,
       sessionId: session.id,
       channelId: req.channelId,
       cronExpr: cron[1],

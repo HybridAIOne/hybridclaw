@@ -20,4 +20,6 @@ export interface ScheduledTask {
    * something is posted to it (`/schedule add --reply-only`).
    */
   reply_only?: boolean;
+  /** Verified creator, retained across edits; never selected by model tool arguments. */
+  owner_user_id?: string | null;
 }

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
+import { currentTurnUser } from '../session/turn-user.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { withMemoryDatabase } from './database.js';
 import { resolveSessionIdCompat } from './sessions.js';
@@ -31,6 +32,7 @@ export interface CreateJobInput {
   everyMs?: number;
   alert?: string;
   replyOnly?: boolean;
+  ownerUserId?: string;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -152,20 +154,27 @@ function schedulerJobToDbValues(job: RuntimeSchedulerJob): {
 }
 
 /**
- * Options only `/schedule add` sets: `alert` and `replyOnly`. Not part of the
+ * Companion delivery options and verified ownership kept with the action. Not part of the
  * runtime-config action shape, so they are read and kept apart from it.
  */
 function addOptionsOf(rawAction: string): {
   alert?: string;
   replyOnly?: true;
+  ownerUserId?: string;
 } {
-  const action = parseJobJson<{ alert?: unknown; replyOnly?: unknown } | null>(
-    rawAction,
-    null,
-  );
+  const action = parseJobJson<{
+    alert?: unknown;
+    replyOnly?: unknown;
+    ownerUserId?: unknown;
+  } | null>(rawAction, null);
   return {
     ...(typeof action?.alert === 'string' && action.alert
       ? { alert: action.alert }
+      : {}),
+    ...(typeof action?.ownerUserId === 'string' &&
+    action.ownerUserId.trim() &&
+    action.ownerUserId.trim().length <= 200
+      ? { ownerUserId: action.ownerUserId.trim() }
       : {}),
     ...(action?.replyOnly === true ? { replyOnly: true as const } : {}),
   };
@@ -203,6 +212,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     created_at: row.created_at,
     alert: addOptionsOf(row.action).alert ?? null,
     reply_only: addOptionsOf(row.action).replyOnly ?? false,
+    owner_user_id: addOptionsOf(row.action).ownerUserId ?? null,
   };
 }
 
@@ -272,6 +282,11 @@ function listStoredScheduledTasks(
 }
 
 export function createJob(input: CreateJobInput): number {
+  const ownerUserId = (
+    input.ownerUserId ?? currentTurnUser(input.sessionId)?.userId
+  )?.trim();
+  if (ownerUserId && ownerUserId.length > 200)
+    throw new Error('Invalid scheduled task owner.');
   return withMemoryDatabase((database) => {
     const jobId = nextLegacyJobId(database);
     const schedule: RuntimeSchedulerJob['schedule'] = input.runAt
@@ -322,6 +337,7 @@ export function createJob(input: CreateJobInput): number {
           message: input.prompt,
           ...(input.alert ? { alert: input.alert } : {}),
           ...(input.replyOnly ? { replyOnly: true } : {}),
+          ...(ownerUserId ? { ownerUserId } : {}),
         }),
         JSON.stringify({
           kind: 'channel',

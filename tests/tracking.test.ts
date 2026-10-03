@@ -438,3 +438,23 @@ test('`/help` in a web chat lists `/track`, which apps probe for', async () => {
   expect(help.text).toContain('`/track`');
   expect(help.text).toContain('`/todo`');
 });
+
+
+test('goal runs use current unfinished steps and status, while watches stay read-only', async () => {
+  const { run, allTasks, store } = await load();
+  await run('app-chat', ['add', '--every', 'daily', 'Prepare proposal']);
+  await run('app-chat', ['step', '1', 'add', 'Research options']);
+  await run('app-chat', ['step', '1', 'add', 'Draft proposal']);
+  await run('app-chat', ['step', '1', 'done', '1']);
+  await run('app-chat', ['status', '1', 'Research prepared']);
+  const [task] = allTasks();
+  const prompt = store.trackedTaskPrompt(task.id, task.prompt);
+  expect(prompt).toContain('"nextStep":{"id":2,"title":"Draft proposal"}');
+  expect(prompt).toContain('"status":"Research prepared"');
+  expect(prompt).not.toContain('"title":"Research options"');
+  await run('app-chat', ['add', '--kind', 'tracking', '--every', 'daily', 'Refund']);
+  const watch = allTasks().find((item) => item.id !== task.id)!;
+  expect(store.trackedTaskPrompt(watch.id, watch.prompt)).toBe(watch.prompt);
+  await run('app-chat', ['done', '1']);
+  expect(store.trackedTaskPrompt(task.id, 'unrelated replacement')).toBe('unrelated replacement');
+});
