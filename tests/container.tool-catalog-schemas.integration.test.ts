@@ -11,7 +11,7 @@ test.each([false, true])('executes dependent MCP reads without describe (list fi
     const stage = turn++ - Number(listFirst);
     if (stage === -1) return {
       role: 'assistant', content: null, tool_calls: [{
-        id: 'discover', type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action: 'list', name: '', query: 'lookup' }) },
+        id: 'discover', type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action: 'list', query: 'lookup' }) },
       }],
     };
     if (stage === 0) {

@@ -284,6 +284,21 @@ describe('web fetch escalation and pagination', () => {
       html: '<html><head><title>Just a moment...</title></head><body><p>Checking your browser before accessing the site.</p></body></html>',
       expected: 'bot_blocked',
     },
+    {
+      name: 'an app shell loading reCAPTCHA',
+      html: '<html><head><title>Example store</title><script src="https://www.google.com/recaptcha/enterprise.js"></script></head><body><div id="app"></div></body></html>',
+      expected: 'spa_shell_only',
+    },
+    {
+      name: 'a short page loading a Cloudflare library',
+      html: '<html><head><script src="https://cdnjs.cloudflare.com/x.js"></script><style>.captcha { display: none }</style></head><body><h1>Example store</h1></body></html>',
+      expected: undefined,
+    },
+    {
+      name: 'a visible CAPTCHA challenge',
+      html: '<html><body><h1>Verification required</h1><p>Complete the CAPTCHA to continue.</p></body></html>',
+      expected: 'bot_blocked',
+    },
   ])('flags bot blocking only for $name', async ({ html, expected }) => {
     vi.stubGlobal(
       'fetch',
@@ -320,4 +335,3 @@ describe('web fetch escalation and pagination', () => {
     expect(result.nextPageUrl).toBe(expected);
   });
 });
-

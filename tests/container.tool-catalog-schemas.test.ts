@@ -67,4 +67,37 @@ describe('input schemas supplied with catalog discovery', () => {
     expect(schemas.reduce((size, line) => size + line.slice('  parameters: '.length).length, 0)).toBeLessThanOrEqual(24_000);
     expect(() => catalog.resolveCall(call('call', 'records__missing', { ids: [1] }))).toThrow('not available');
   });
+
+  test('reserves late names and small schemas before spending the index budget', () => {
+    const targets = Array.from({ length: 80 }, (_, i) => tool(`records__lookup_${i}`, { ...parameters, description: 'x'.repeat(1500) }));
+    const last = tool('records__small', parameters);
+    targets.push(last);
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)))!;
+    const prompt = catalog.promptGuidance();
+    expect(prompt).toContain(`- ${last.function.name}(`);
+    expect(prompt).toContain(`  parameters: ${JSON.stringify(parameters)}`);
+    const entries = prompt.split('\n').filter((line) => line.startsWith('- ') || line.startsWith('  parameters: ')).join('\n');
+    expect(entries.length).toBeLessThanOrEqual(24_000);
+    expect(entries.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(targets.length);
+  });
+
+  test('keeps overflow tools callable when names alone exhaust the index budget', () => {
+    const targets = Array.from({ length: 1000 }, (_, i) => tool(`records__lookup_${i}`, parameters));
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map((entry) => entry.function.name)))!;
+    expect(catalog.promptGuidance()).not.toContain('- records__lookup_999(');
+    expect(catalog.resolveCall(call('call', 'records__lookup_999', { ids: [1] })).function.name).toBe('records__lookup_999');
+    const listed = JSON.parse(catalog.discoveryResult({ id: 'search', type: 'function', function: { name: 'tool_catalog', arguments: JSON.stringify({ action: 'list', query: 'lookup 999' }) } })!.output);
+    expect(listed.tools[0].name).toBe('records__lookup_999');
+  });
+
+  test('defers bulky built-ins through the same validated catalog without affecting plain requests', () => {
+    const small = tool('read', parameters);
+    const bulky = tool('http_request', { ...parameters, description: 'x'.repeat(2100) });
+    const remote = tool('records__lookup', parameters);
+    const catalog = ToolCatalog.deferring([small, bulky, remote], new Set([remote.function.name]))!;
+    expect(catalog.tools.map((entry) => entry.function.name)).toEqual(['read', 'tool_catalog']);
+    expect(catalog.resolveCall(call('call', bulky.function.name, { ids: [1] })).function.name).toBe(bulky.function.name);
+    expect(() => catalog.resolveCall(call('call', bulky.function.name, { ids: [] }))).toThrow('do not match');
+    expect(ToolCatalog.deferring([small, bulky], new Set([remote.function.name]))).toBeNull();
+  });
 });

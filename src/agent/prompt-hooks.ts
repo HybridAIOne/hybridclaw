@@ -33,7 +33,10 @@ import { formatModelForDisplay } from '../providers/model-names.js';
 import { isLocalBackendType } from '../providers/provider-ids.js';
 import type { SessionContext } from '../session/session-context.js';
 import type { Skill, SkillInvocation } from '../skills/skills.js';
-import { buildSkillsSection } from '../skills/skills-prompt.js';
+import {
+  buildSkillsPrompt,
+  buildSkillsSection,
+} from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
@@ -50,7 +53,6 @@ import {
   CODE_AUTHORING_LINES,
   DELEGATION_PLAYBOOK_LINES,
   HEADED_BROWSER_LINES,
-  OFFICE_EXPORT_LINES,
   SOURCE_FOLDER_LINES,
   WEB_CHAT_ARTIFACT_LINES,
 } from './mobile-prompt.js';
@@ -235,37 +237,6 @@ export function buildSessionSummaryPrompt(
   ].join('\n');
 }
 
-function escapeCompactSkillValue(value: string): string {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-function buildCompactSkillsPrompt(skills: Skill[]): string {
-  const promptCandidates = skills.filter(
-    (skill) => !skill.disableModelInvocation,
-  );
-  if (promptCandidates.length === 0) return '';
-
-  const lines = ['## Skills', '<available_skills>'];
-
-  for (const skill of promptCandidates) {
-    lines.push(
-      '  <skill>',
-      `    <name>${escapeCompactSkillValue(skill.name)}</name>`,
-      `    <category>${escapeCompactSkillValue(skill.category)}</category>`,
-      `    <description>${escapeCompactSkillValue(skill.description || skill.name)}</description>`,
-      `    <location>${escapeCompactSkillValue(skill.location)}</location>`,
-      '  </skill>',
-    );
-  }
-
-  lines.push('</available_skills>');
-  return lines.join('\n');
-}
-
 function buildBootstrapHook(context: PromptHookContext): string {
   const blocks = buildBootstrapSystemBlocks(context);
   return [blocks.staticCore, blocks.workspaceMemory, blocks.skills]
@@ -329,11 +300,11 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   );
   const prompt =
     context.skillPromptMode === 'compact'
-      ? buildCompactSkillsPrompt(selection.skills)
-      : buildSkillsSection(
-          selection.skills,
-          isMobileClient(context) ? 'lines' : 'xml',
-        );
+      ? buildSkillsPrompt(
+          selection.skills.map((skill) => ({ ...skill, always: false })),
+          'lines',
+        )
+      : buildSkillsSection(selection.skills, 'lines');
   const directoryAvailable = isToolOffered(context, 'skills_list');
   const directory =
     selection.discovery && directoryAvailable
@@ -649,30 +620,13 @@ function buildSafetyHook(context: PromptHookContext): string {
     'When the user asks you to create or generate a file and return or upload it in the current chat, include the file immediately in the final response. Do not ask a follow-up question offering to upload it later.',
     'For deliverable-generation tasks such as presentations, slide decks, spreadsheets, documents, PDFs, reports, images, or videos, assume the created asset should be returned in the final reply unless the user explicitly says not to send the file.',
     ...byClient(mobile, WEB_CHAT_ARTIFACT_LINES, APP_ARTIFACT_LINES),
-    'If you created or updated the requested deliverable successfully, attach the asset in the final response instead of replying with a path plus "if you want, I can upload it."',
     'For deliverable-generation tasks, once the requested file exists and the generation command succeeded, stop. Do not reread your own generated script, re-list the folder, or run extra confirmation commands unless the file failed to generate, the user asked for diagnosis, or a required QA step is actually available.',
-    ...byClient(mobile, OFFICE_EXPORT_LINES),
     'For reminder scheduling via `cron`, set `prompt` as a clear instruction for the future model run (for example: "Reply exactly with: TIMER IS OVER!").',
     'For relative one-shot reminders, prefer `cron` with `at_seconds` (seconds from now) over computing absolute timestamps yourself.',
     'For absolute one-shot reminders via `cron` `at`, emit an offset-bearing ISO-8601 timestamp that mirrors the user timezone shown in current context (for example `2026-04-10T09:00:00+02:00`), not a `Z` timestamp unless the user explicitly asked for UTC.',
     '',
-    '### Attachment Example',
-    'User: "Pull the key fields from this attached invoice PDF."',
-    'Current-turn context already includes a local PDF path or injected `<file>` block.',
-    'Action: use that attachment content directly and answer from the extracted text.',
-    'Then answer with the extracted invoice fields.',
-    '',
-    '### Cron reminder few-shot examples',
-    'Example 1',
-    'User: "Remind me in 2 minutes with the text \\"TIMER IS OVER!\\""',
-    'Tool call: `cron` {"action":"add","at_seconds":120,"prompt":"Reply exactly with: TIMER IS OVER!"}',
-    '',
-    'Example 2',
-    'User: "Remind me tomorrow at 09:00 to submit report"',
-    'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
-    '',
     `## Web Retrieval Routing (${webSearchTool}/web_fetch vs browser_*)`,
-    `Decision rule: use \`${webSearchTool}\` to discover relevant URLs when the target page is not already known, then use \`web_fetch\` for read-only content retrieval.`,
+    `Use connected source-specific tools when their documented scope covers the request. Otherwise use \`${webSearchTool}\` to discover unknown URLs, then \`web_fetch\` for content retrieval.`,
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. Never emit the real token in prose or tool arguments.',
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -680,7 +634,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
     'Prefer browser for: SPAs/client-rendered apps (React/Vue/Angular/Next client routes), dashboards/web apps, social feeds, login/OAuth/cookie-consent/CAPTCHA flows, or API-driven pages that populate after initial render.',
     'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
-    'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
+    'When `web_fetch` returns an escalation hint, navigate that URL with `browser_navigate`; another search will not render it. Describe shell-only, JavaScript-required, empty or boilerplate extraction as needing browser rendering; claim blocking only for an actual access denial or challenge.',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
     ...byClient(mobile, HEADED_BROWSER_LINES),
     '`browser_navigate` and `browser_click` return the page they leave the browser on as a full `browser_snapshot`; read it from that result instead of calling `browser_snapshot` again.',

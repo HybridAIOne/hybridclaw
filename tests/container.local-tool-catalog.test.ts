@@ -18,7 +18,7 @@ describe('local tool catalog boundary', () => {
     const catalog = new ToolCatalog(available);
     const before = JSON.stringify(catalog.tools);
     expect(catalog.tools).toHaveLength(10);
-    expect(catalog.tools.find((entry) => entry.function.name === 'tool_catalog')?.function.parameters.required).toEqual(['action', 'name']);
+    expect(catalog.tools.find((entry) => entry.function.name === 'tool_catalog')?.function.parameters.required).toEqual(['action']);
     expect(catalog.tools.map((entry) => entry.function.name)).not.toContain('memory');
     expect(catalog.discoveryResult(catalogCall({ action: 'describe', name: 'memory' }))?.output).toContain('parameters');
     catalog.resolveCall(catalogCall({ action: 'call', name: 'memory', arguments: {} }));
@@ -159,11 +159,11 @@ test('only malformed catalog call fields can receive bounded correction', () => 
 });
 
 
-test('requires the catalog name field even when listing tools', () => {
+test('lists tools without a target name and still requires names for execution', () => {
   const catalog = new ToolCatalog(available);
-  const invalid = call('tool_catalog', { action: 'list' });
-  expect(() => catalog.resolveCall(invalid)).toThrow('top-level name');
-  expect(catalog.discoveryResult(catalogCall({ action: 'list' }))?.isError).toBe(false);
+  expect(catalog.discoveryResult(call('tool_catalog', { action: 'list' }))?.isError).toBe(false);
+  expect(() => catalog.resolveCall(call('tool_catalog', { action: 'call', arguments: {} }))).toThrow('top-level name');
+  expect(() => catalog.resolveCall(call('tool_catalog', { action: 'describe' }))).toThrow('exact tool name');
 });
 
 
@@ -251,9 +251,9 @@ describe('deferred MCP tools behind the catalog', () => {
     const cappedCatalog = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)))!;
     const capped = cappedCatalog.promptGuidance();
     expect(capped).toContain('- crm__tool_39(');
-    expect(capped).not.toContain('- crm__tool_40(');
-    expect(capped).toContain('…and 5 more: find them with action=list.');
-    // A tool past the cap is still found by list and called through the catalog.
+    expect(capped).toContain('- crm__tool_44(');
+    expect(capped).not.toContain('more: find them');
+    // Indexed tools also remain available through discovery.
     const found = JSON.parse(cappedCatalog.discoveryResult(catalogCall({ action: 'list', query: 'crm tool 44' }))!.output);
     expect(found.tools[0].name).toBe('crm__tool_44');
     expect(cappedCatalog.resolveCall(catalogCall({ action: 'call', name: 'crm__tool_44', arguments: {} })).function.name).toBe('crm__tool_44');
@@ -270,7 +270,7 @@ describe('deferred MCP tools behind the catalog', () => {
     expect(catalog.tools).toHaveLength(31);
     const prompt = catalog.promptGuidance();
     expect(prompt).toContain('## Tool call boundary');
-    expect(prompt).toContain('Tools of connected MCP servers that are not exposed as direct functions are available through tool_catalog');
+    expect(prompt).toContain('connected MCP servers');
     expect(prompt).not.toContain('Never emit a direct read call');
     expect(new ToolCatalog(builtins, ['read']).promptGuidance()).toContain('Additional permitted tools are available through tool_catalog');
   });
