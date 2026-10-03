@@ -205,6 +205,8 @@ export interface ChatStreamThinkingDelta {
 export interface ChatStreamToolEvent {
   type: 'tool';
   toolName: string;
+  /** The model's id for this call; pairs a finish with its start. */
+  toolCallId?: string;
   phase: 'start' | 'finish';
   preview?: string;
   durationMs?: number;

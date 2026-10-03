@@ -3871,13 +3871,19 @@ async function handleApiChatStream(
     if (event.phase === 'start') {
       sendText(emojiHold?.flush() ?? '');
       pushStreamedTextDraft();
-      traceBuilder.startTool(event.toolName, event.preview);
+      traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
     } else {
-      traceBuilder.finishTool(event.toolName, event.durationMs, event.preview);
+      traceBuilder.finishTool(
+        event.toolName,
+        event.durationMs,
+        event.preview,
+        event.toolCallId,
+      );
     }
     sendEvent({
       type: 'tool',
       toolName: event.toolName,
+      ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
       phase: event.phase,
       preview: event.preview,
       durationMs: event.durationMs,

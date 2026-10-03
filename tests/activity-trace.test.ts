@@ -75,6 +75,19 @@ describe('ActivityTraceBuilder', () => {
     ]);
   });
 
+  it('pairs a finish with its start by tool call id', () => {
+    const builder = new ActivityTraceBuilder();
+    builder.startTool('web_search', 'site:a.example', 'call_a');
+    builder.startTool('web_search', 'site:b.example', 'call_b');
+    builder.finishTool('web_search', 801, 'a results', 'call_a');
+    builder.finishTool('web_search', 4700, 'b results', 'call_b');
+
+    expect(builder.build()?.steps).toMatchObject([
+      { argsPreview: 'site:a.example', resultPreview: 'a results' },
+      { argsPreview: 'site:b.example', resultPreview: 'b results' },
+    ]);
+  });
+
   it('coerces a still-running tool to done in the terminal build', () => {
     const builder = new ActivityTraceBuilder();
     builder.startTool('exec', 'sleep');

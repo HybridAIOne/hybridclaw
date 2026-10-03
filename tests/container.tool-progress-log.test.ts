@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import type { ToolApprovalEvaluation } from '../container/src/tool-approval.js';
 import {
   formatLineSafeToolProgressText,
+  formatToolCallIdLabel,
   formatToolCallStartProgressText,
   LINE_SAFE_TOOL_PROGRESS_PREFIX,
   TOOL_PROGRESS_PREVIEW_MAX_CHARS,
@@ -119,4 +120,12 @@ test('uses yellow-tier web search command previews instead of raw arguments', ()
       formatToolCallStartProgressText('web_search', argsJson, approval),
     ),
   ).toBe('search the web for project documentation');
+});
+
+test('keeps a provider tool call id inside one label on one line', () => {
+  expect(formatToolCallIdLabel('functions.web_search:0')).toBe(
+    ' [call=functions.web_search:0]',
+  );
+  expect(formatToolCallIdLabel('a] b\nc')).toBe(' [call=a__b_c]');
+  expect(formatToolCallIdLabel('')).toBe('');
 });

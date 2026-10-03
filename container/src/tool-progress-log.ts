@@ -36,3 +36,12 @@ export function formatToolCallStartProgressText(
   }
   return formatLineSafeToolProgressText(argsJson);
 }
+
+// The model's tool call id, as a `[call=<id>]` label after the tool name so
+// the gateway pairs a result with its start when same-name calls run in
+// parallel. Ids come from the provider: anything outside a conservative set is
+// replaced so the id cannot end the label or the line.
+export function formatToolCallIdLabel(toolCallId: string): string {
+  const id = toolCallId.replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 128);
+  return id ? ` [call=${id}]` : '';
+}

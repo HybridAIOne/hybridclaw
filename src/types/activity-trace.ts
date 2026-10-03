@@ -41,11 +41,13 @@ export interface ActivityTrace {
 /**
  * Accumulates streamed draft/thinking/tool events into an ordered trace.
  * Consecutive thinking deltas merge, and a tool `finish` collapses into the
- * most recent matching running `start` (parallel same-name tools can finish out
- * of order).
+ * running `start` with the same tool call id (parallel same-name tools finish
+ * out of order); without an id, into the most recent running call of the tool.
  */
 export class ActivityTraceBuilder {
   private readonly steps: ActivityTraceStep[] = [];
+  // Pairing only: the persisted trace does not carry call ids.
+  private readonly toolCallIds = new WeakMap<ActivityTraceToolStep, string>();
 
   pushThinking(delta: string): void {
     if (!delta) return;
@@ -68,26 +70,30 @@ export class ActivityTraceBuilder {
     }
   }
 
-  startTool(toolName: string, argsPreview?: string): void {
-    this.steps.push({
+  startTool(toolName: string, argsPreview?: string, toolCallId?: string): void {
+    const step: ActivityTraceToolStep = {
       kind: 'tool',
       toolName,
       status: 'running',
       ...(argsPreview ? { argsPreview } : {}),
-    });
+    };
+    if (toolCallId) this.toolCallIds.set(step, toolCallId);
+    this.steps.push(step);
   }
 
   finishTool(
     toolName: string,
     durationMs?: number,
     resultPreview?: string,
+    toolCallId?: string,
   ): void {
     for (let i = this.steps.length - 1; i >= 0; i--) {
       const step = this.steps[i];
       if (
         step?.kind === 'tool' &&
         step.status === 'running' &&
-        step.toolName === toolName
+        step.toolName === toolName &&
+        this.toolCallIds.get(step) === toolCallId
       ) {
         step.status = 'done';
         if (durationMs !== undefined) step.durationMs = durationMs;

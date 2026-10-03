@@ -22,6 +22,8 @@ export interface TraceDraftStep {
 export interface TraceToolStep {
   kind: 'tool';
   toolName: string;
+  /** Live stream only: pairs a finish with its start. */
+  toolCallId?: string;
   status: 'running' | 'done';
   argsPreview?: string;
   resultPreview?: string;

@@ -163,6 +163,8 @@ export interface GatewayChatToolProgressEvent {
   type: 'tool';
   phase: 'start' | 'finish';
   toolName: string;
+  /** The model's id for this call; pairs a finish with its start. */
+  toolCallId?: string;
   preview?: string;
   durationMs?: number;
   /** On a browser tool's finish: the page it left the browser on. */

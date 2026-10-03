@@ -76,6 +76,28 @@ test('parses labelled browser tool progress lines using the canonical tool name'
   });
 });
 
+test('parses the tool call id label next to other labels', () => {
+  expect(
+    parseToolProgressLine(
+      '[tool] browser_click [browser=mac-cua] [call=functions.browser_click:0]: json:"{}"',
+    ),
+  ).toEqual({
+    toolName: 'browser_click',
+    toolCallId: 'functions.browser_click:0',
+    phase: 'start',
+    preview: '{}',
+  });
+  expect(
+    parseToolProgressLine('[tool] web_search [call=call_b] result (801ms): ok'),
+  ).toEqual({
+    toolName: 'web_search',
+    toolCallId: 'call_b',
+    phase: 'finish',
+    durationMs: 801,
+    preview: 'ok',
+  });
+});
+
 test('ignores non-tool progress lines', () => {
   expect(
     parseToolProgressLine('[tool] running 2 tool calls concurrently'),

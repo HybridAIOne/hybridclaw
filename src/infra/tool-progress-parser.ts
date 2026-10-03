@@ -2,18 +2,20 @@ import { normalizeBrowserSignInHost } from '../security/browser-sign-ins.js';
 import type { BrowserFrame, ToolProgressEvent } from '../types/execution.js';
 
 const TOOL_NAME_PATTERN = '([a-zA-Z0-9_.-]+)';
-const TOOL_LABEL_PATTERN = '(?:\\s+\\[[^\\]\\r\\n]*\\])*';
+const TOOL_LABEL_PATTERN = '((?:\\s+\\[[^\\]\\r\\n]*\\])*)';
 const TOOL_RESULT_RE = new RegExp(
   `^\\[tool\\]\\s+${TOOL_NAME_PATTERN}${TOOL_LABEL_PATTERN}\\s+result\\s+\\((\\d+)ms\\):\\s*(.*)$`,
 );
 const TOOL_START_RE = new RegExp(
   `^\\[tool\\]\\s+${TOOL_NAME_PATTERN}${TOOL_LABEL_PATTERN}:\\s*(.*)$`,
 );
+// Written by `formatToolCallIdLabel` in container/src/tool-progress-log.ts.
+const TOOL_CALL_ID_LABEL_RE = /\[call=([^\]\s]+)\]/;
 const LINE_SAFE_TOOL_PROGRESS_PREFIX = 'json:';
 
 export type ParsedToolProgressLine = Pick<
   ToolProgressEvent,
-  'toolName' | 'phase' | 'durationMs' | 'preview'
+  'toolName' | 'toolCallId' | 'phase' | 'durationMs' | 'preview'
 >;
 
 export function parseToolProgressLine(
@@ -23,9 +25,10 @@ export function parseToolProgressLine(
   if (resultMatch) {
     return {
       toolName: resultMatch[1] || 'tool',
+      ...parseToolCallId(resultMatch[2]),
       phase: 'finish',
-      durationMs: parseInt(resultMatch[2] || '0', 10),
-      preview: parseToolProgressPreview(resultMatch[3] || ''),
+      durationMs: parseInt(resultMatch[3] || '0', 10),
+      preview: parseToolProgressPreview(resultMatch[4] || ''),
     };
   }
 
@@ -33,9 +36,15 @@ export function parseToolProgressLine(
   if (!startMatch) return null;
   return {
     toolName: startMatch[1] || 'tool',
+    ...parseToolCallId(startMatch[2]),
     phase: 'start',
-    preview: parseToolProgressPreview(startMatch[2] || ''),
+    preview: parseToolProgressPreview(startMatch[3] || ''),
   };
+}
+
+function parseToolCallId(labels: string | undefined): { toolCallId?: string } {
+  const toolCallId = labels?.match(TOOL_CALL_ID_LABEL_RE)?.[1];
+  return toolCallId ? { toolCallId } : {};
 }
 
 function parseToolProgressPreview(raw: string): string {
