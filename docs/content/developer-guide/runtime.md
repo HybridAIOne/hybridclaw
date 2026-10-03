@@ -511,6 +511,10 @@ Runtime details:
   path, including JSON-preserving handling for `/mcp add <name> <json>`.
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
+- A turn that starts over a minute after a server's last tool listing lists
+  its tools again first (5 s limit), so tools a server adds without a config
+  change, such as HybridAI catalog tools, reach a warm worker. A server that
+  fails to answer keeps its previous tools.
 
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools

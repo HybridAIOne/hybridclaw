@@ -42,6 +42,12 @@ import {
 
 const MCP_CONNECT_TIMEOUT_MS = 60_000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 120_000;
+// A warm worker lists a server's tools again on a turn that starts over a
+// minute after the last listing. HybridAI's gateway adds catalog tools without
+// a config change and sends no tools/list_changed (agent call, 2026-10-03).
+const MCP_TOOLS_MAX_AGE_MS = 60_000;
+// The listing runs before the turn, so a slow server must not hold it long.
+const MCP_RELIST_TIMEOUT_MS = 5_000;
 // 32,000 chars of serialized schema per server, ≈8K tokens (agent call,
 // 2026-10-02, pending owner review). A server past it goes behind
 // tool_catalog: Zoho-sized (32 tools, 56K) is deferred, HybridAI's connectors
@@ -328,6 +334,22 @@ export class McpClientManager {
     });
   }
 
+  /**
+   * Lists again the tools of every server last listed over
+   * MCP_TOOLS_MAX_AGE_MS ago. A server that fails to answer keeps the tools it
+   * had and is tried again after the same interval.
+   */
+  async relistStaleTools(): Promise<void> {
+    const staleBefore = Date.now() - MCP_TOOLS_MAX_AGE_MS;
+    await Promise.all(
+      [...this.clients.values()]
+        .filter((handle) => handle.healthy && handle.listedAt <= staleBefore)
+        .map((handle) =>
+          this.runWithLock(handle.serverName, () => this.relistTools(handle)),
+        ),
+    );
+  }
+
   async callToolDetailed(
     namespacedName: string,
     args: Record<string, unknown>,
@@ -413,11 +435,12 @@ export class McpClientManager {
       transport,
       headers,
       tools: [],
+      listedAt: Date.now(),
       healthy: true,
     };
 
     try {
-      handle.tools = await this.discoverTools(handle);
+      handle.tools = await this.discoverTools(handle, MCP_CONNECT_TIMEOUT_MS);
     } catch (error) {
       await this.closeHandle(handle);
       throw error;
@@ -498,8 +521,27 @@ export class McpClientManager {
     };
   }
 
+  private async relistTools(handle: McpClientHandle): Promise<void> {
+    // A reconnect or failure while this waited for the lock replaced it.
+    if (this.clients.get(handle.serverName) !== handle || !handle.healthy) {
+      return;
+    }
+    handle.listedAt = Date.now();
+    try {
+      handle.tools = await this.discoverTools(handle, MCP_RELIST_TIMEOUT_MS);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[mcp:${handle.serverName}] failed to relist tools: ${detail}`,
+      );
+      return;
+    }
+    this.rebuildToolIndex();
+  }
+
   private async discoverTools(
     handle: McpClientHandle,
+    timeoutMs: number,
   ): Promise<McpToolDefinition[]> {
     const serverNamespace = this.getServerNamespace(handle.serverName);
     const seenNames = new Set<string>();
@@ -509,7 +551,7 @@ export class McpClientManager {
     do {
       const result = (await withTimeout(
         handle.client.listTools(cursor ? { cursor } : undefined),
-        MCP_CONNECT_TIMEOUT_MS,
+        timeoutMs,
         `List tools from MCP server ${handle.serverName}`,
       )) as ListToolsResult;
       tools.push(
