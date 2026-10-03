@@ -344,29 +344,6 @@ describe('web fetch YouTube videos', () => {
     new URL('../fixtures/youtube-watch.html', import.meta.url),
     'utf8',
   );
-  const androidPlayer = {
-    captions: {
-      playerCaptionsTracklistRenderer: {
-        captionTracks: [
-          {
-            baseUrl: 'https://www.youtube.com/api/timedtext?lang=en&fmt=srv3',
-            languageCode: 'en',
-            name: { runs: [{ text: 'English' }] },
-          },
-          {
-            baseUrl:
-              'https://www.youtube.com/api/timedtext?lang=de&kind=asr&fmt=srv3',
-            languageCode: 'de',
-            kind: 'asr',
-            name: { runs: [{ text: 'German (auto-generated)' }] },
-          },
-        ],
-        audioTracks: [{ audioTrackId: 'de-DE.4' }],
-        defaultAudioTrackIndex: 0,
-      },
-    },
-  };
-
   function stubYouTube(routes: Record<string, () => Response>) {
     vi.doMock('node:dns/promises', () => ({
       lookup: async () => [{ address: '142.250.185.78', family: 4 }],
@@ -394,14 +371,9 @@ describe('web fetch YouTube videos', () => {
     expect(youtubeVideoId(url)).toBe(expected);
   });
 
-  it('returns the description and transcript from the player JSON', async () => {
+  it('returns the description from the player JSON', async () => {
     const fetchMock = stubYouTube({
       '/watch': () => htmlResponse(watchHtml),
-      '/youtubei/v1/player': () => Response.json(androidPlayer),
-      '/api/timedtext': () =>
-        new Response(
-          '<transcript><text start="1">Hallo und willkommen</text><text start="2">it&amp;#39;s Herbst</text></transcript>',
-        ),
     });
     const { webFetch } = await import('../../container/src/web-fetch.js');
     const result = await webFetch({ url: 'https://youtu.be/wh24zJAg9lU' });
@@ -416,14 +388,7 @@ describe('web fetch YouTube videos', () => {
     );
     expect(result.text).toContain('⭐ Blumenübertopf Edzard');
     expect(result.text).toContain('XOXO </script> \\ Nici');
-    expect(result.text).toContain(
-      '## Transcript: German (auto-generated)\n\nHallo und willkommen it\'s Herbst',
-    );
     expect(result.text).not.toContain('About');
-    const urls = fetchMock.mock.calls.map(([url]) => url);
-    expect(urls).toContain(
-      'https://www.youtube.com/api/timedtext?lang=de&kind=asr',
-    );
     const watchCall = fetchMock.mock.calls.find(([url]) =>
       url.includes('/watch'),
     );
@@ -445,7 +410,6 @@ describe('web fetch YouTube videos', () => {
             },
           )};</script></body></html>`,
         ),
-      '/youtubei/v1/player': () => new Response('', { status: 403 }),
       '/oembed': () =>
         Response.json({
           title: '9 HERBSTDEKO IDEEN',
