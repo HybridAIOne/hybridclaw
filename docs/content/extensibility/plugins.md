@@ -309,6 +309,13 @@ Currently wired runtime surfaces:
 - channels
 - channel transports
 
+`session_end` runs for the previous session instance on explicit reset, clear,
+new-session creation, session switching, and automatic expiry. It runs before
+`session_reset` and before the manager releases the previous instance's user and
+workspace context. Gateway session deletion (including pruning and empty-chat
+cleanup) awaits `session_end` while the session history is still available.
+Plugin handler failures are logged and do not prevent reset or deletion.
+
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.

@@ -459,7 +459,7 @@ test('cleanupGatewayNoUserChatSessions preserves bootstrap autostart before its 
   const autostart = ensureGatewayBootstrapAutostart({ sessionId });
   await auxiliaryStarted;
 
-  const cleanup = cleanupGatewayNoUserChatSessions({
+  const cleanup = await cleanupGatewayNoUserChatSessions({
     channelId: 'web',
     keepSessionId: 'different-session',
   });

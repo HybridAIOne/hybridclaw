@@ -59,7 +59,7 @@ test('cleanupGatewayNoUserChatSessions preserves onboarding sessions awaiting a 
   );
   storeMessage(userSession.id, 'web-user', 'User', 'user', 'Hello', 'main');
 
-  const result = cleanupGatewayNoUserChatSessions({
+  const result = await cleanupGatewayNoUserChatSessions({
     channelId: 'web',
     keepSessionId: keepSession.id,
   });
