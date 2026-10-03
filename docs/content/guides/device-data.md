@@ -87,8 +87,12 @@ Contacts (812):
 ```
 
 The tool reads only the data of the user whose turn it is. Another person
-talking to the same agent gets nothing. Heartbeats and scheduled tasks run
-without a user, so they do not have the tool.
+talking to the same agent gets nothing. Scheduled tasks created by a verified user retain that creator and can read only
+that user's snapshots. Background reads withhold snapshots older than 24 hours
+and ask the user to open Hy to refresh them. The app refreshes when opened;
+closing it does not promise continuous phone collection. Older tasks without a
+creator and the general heartbeat remain unable to read phone data. Recreate an
+older schedule, or edit its goal from the signed-in app, to bind its owner.
 
 The tool is read-only and runs without an approval prompt.
 

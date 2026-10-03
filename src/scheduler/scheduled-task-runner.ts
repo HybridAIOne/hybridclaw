@@ -7,9 +7,14 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
-import { DEVICE_DATA_TOOL } from '../gateway/device-data.js';
+import {
+  beginDeviceDataTurn,
+  blockDeviceDataToolUnlessShared,
+} from '../gateway/device-data.js';
 import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { getSessionById } from '../memory/db.js';
+import { getJob } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
@@ -27,12 +32,18 @@ import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
 } from './model-usage.js';
+import {
+  cronPromptHead,
+  dbTaskLabel,
+  type SchedulerDispatchRequest,
+} from './scheduler.js';
 
-// A run has no user, so it cannot tell whose phone data it may read.
-const SCHEDULED_BLOCKED_TOOLS = ['cron', DEVICE_DATA_TOOL];
+// One day (engineering choice, 2026-10-03): background work must not use an old phone snapshot.
+const MAX_DEVICE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
+  taskOwner?: SchedulerDispatchRequest['taskOwner'];
   prompt: string;
   channelId: string;
   chatbotId: string;
@@ -46,6 +57,7 @@ export async function runIsolatedScheduledTask(params: {
 }): Promise<void> {
   const {
     taskId,
+    taskOwner,
     prompt: storedPrompt,
     channelId,
     chatbotId,
@@ -78,6 +90,21 @@ export async function runIsolatedScheduledTask(params: {
     sessionKey: cronSessionId,
     mainSessionKey: mainSessionKey?.trim() || cronSessionId,
   });
+  const task = getJob(taskId, { kind: 'scheduled_task' });
+  const taskSession = task ? getSessionById(task.session_id) : null;
+  const owner =
+    task?.enabled &&
+    task.channel_id === channelId &&
+    taskOwner?.userId === task.owner_user_id &&
+    taskOwner?.sessionId === task.session_id &&
+    (task.prompt === storedPrompt ||
+      storedPrompt.startsWith(
+        cronPromptHead(dbTaskLabel(task.id), task.prompt),
+      )) &&
+    taskSession?.agent_id === agentId
+      ? task.owner_user_id
+      : undefined;
+  const blockedTools = blockDeviceDataToolUnlessShared(['cron'], owner);
   const { messages, skills } = buildConversationContext({
     agentId,
     history: [],
@@ -93,7 +120,7 @@ export async function runIsolatedScheduledTask(params: {
       sessionContext,
       workspacePath,
     },
-    blockedTools: SCHEDULED_BLOCKED_TOOLS,
+    blockedTools,
   });
   messages.push({ role: 'user', content: prompt });
 
@@ -122,6 +149,11 @@ export async function runIsolatedScheduledTask(params: {
     },
   });
 
+  const endDeviceData = beginDeviceDataTurn(
+    activeSessionId,
+    owner,
+    MAX_DEVICE_AGE_MS,
+  );
   try {
     const output = await runAgent({
       sessionId: activeSessionId,
@@ -132,7 +164,7 @@ export async function runIsolatedScheduledTask(params: {
       model,
       agentId,
       channelId,
-      blockedTools: SCHEDULED_BLOCKED_TOOLS,
+      blockedTools,
       skillCatalog: buildEligibleSkillCatalog(skills),
     });
     emitToolExecutionAuditEvents({
@@ -317,5 +349,7 @@ export async function runIsolatedScheduledTask(params: {
       },
     });
     onError(error);
+  } finally {
+    endDeviceData();
   }
 }

@@ -8,6 +8,7 @@
  * NOT the store (`track-store.ts`, which owns check-ins and limits); this
  * module parses, re-arms the scheduler and formats.
  */
+
 import { parseLowerArg } from '../command-parsing.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import {
@@ -22,6 +23,7 @@ import type {
 import { chatSafeJson } from '../gateway/schedule-command.js';
 import { getSessionById } from '../memory/db.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
+import { beginTurnUser } from '../session/turn-user.js';
 import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
 import {
@@ -197,11 +199,14 @@ export function handleTrackCommand(
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
+  const endUser = beginTurnUser(session.id, req.userId);
   try {
     return runCommand(req, session);
   } catch (error) {
     if (error instanceof TrackError) return badCommand('Goals', error.message);
     throw error;
+  } finally {
+    endUser();
   }
 }
 
