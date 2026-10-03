@@ -477,6 +477,16 @@ Runtime details:
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
 
+Deferred MCP tools remain callable through `tool_catalog`. The initial index
+and `action=list` results include complete input schemas up to 2,000 characters,
+within a 24,000-character schema budget. The model can execute those tools with
+`action=call` without a separate `describe` response. Larger schemas keep the
+explicit `describe` step. Discovery does not change the request's exposed
+functions, argument validation, permissions or approvals. Routine lookups use
+available tools directly; skill discovery is for requested skills or specialized
+workflows. Tools that accept multiple identifiers should fetch independent
+items in one request within the tool's limits.
+
 MCP calls are serial barriers by default. Operators can declare trusted read
 behavior under a server's `toolBehavior` configuration:
 

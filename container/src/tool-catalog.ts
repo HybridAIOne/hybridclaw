@@ -4,6 +4,7 @@
  * instead defer the tools of connected MCP servers behind the catalog.
  * Only tools admitted by the request policy enter this catalog. Calls unwrap
  * before approval/audit; unlike tools.ts this module never executes actions.
+ * Small input schemas travel with discovery; large ones require describe.
  * Deferred arguments are schema-checked; invalid shapes return bounded feedback.
  * Unavailable actions remain rejected; guidance names the exposed schemas.
  */
@@ -20,6 +21,9 @@ const NAME = 'tool_catalog';
 // Tokenizer-aware schema budgets are deferred; native context admission still applies.
 const PAGE_SIZE = 10;
 const MAX_SCHEMA_CHARS = 24_000;
+// Engineering choice, 2026-10-03: inline small schemas to avoid a model round
+// trip per lookup; large schemas retain describe and the existing output budget.
+const MAX_INLINE_SCHEMA_CHARS = 2_000;
 // Engineering choice, 2026-09-10: two catalog corrections per request.
 // Missing fields/lookups may recover; unavailable actions stay fail-fast.
 const MAX_CATALOG_CORRECTIONS = 2;
@@ -34,7 +38,7 @@ const CATALOG_TOOL: ToolDefinition = {
   function: {
     name: NAME,
     description:
-      'Run additional permitted tools through this catalog even when their own function schemas are not directly exposed. Discover tools in steps: action=list searches short summaries with query and offset; follow a result’s next call to describe its input schema; then action=call executes that exact name with matching arguments. Use keywords for the task, not a guessed tool name. If an exact name and its parameters are already known, skip discovery. Skills are instruction packages: discover them with skills_list, not a tool named after the skill. Calls keep normal permissions and approvals.',
+      'Run additional permitted tools through this catalog even when their own function schemas are not directly exposed. action=list searches with query and offset and returns small input schemas in parameters; use action=call next with the exact name and matching arguments. Use action=describe only when the input schema is missing or unclear. Use keywords for the task, not a guessed tool name. If an exact name and its parameters are already known, skip discovery. Skills are instruction packages: discover them with skills_list, not a tool named after the skill. Calls keep normal permissions and approvals.',
     parameters: {
       type: 'object',
       properties: {
@@ -190,6 +194,7 @@ export class ToolCatalog {
     const deferred = [...this.byName.values()].filter(
       (tool) => !this.starters.has(tool.function.name),
     );
+    let schemaBudget = MAX_SCHEMA_CHARS;
     const lines = deferred.slice(0, MAX_INDEXED_TOOLS).map((tool) => {
       const parameters = tool.function.parameters;
       const required = new Set(parameters.required ?? []);
@@ -198,11 +203,19 @@ export class ToolCatalog {
         .slice(0, MAX_INDEXED_PARAMETERS)
         .map((name) => (required.has(name) ? name : `${name}?`));
       if (names.length > MAX_INDEXED_PARAMETERS) shown.push('…');
-      return `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
+      const summary = `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
+      const schema = JSON.stringify(parameters);
+      if (
+        schema.length > MAX_INLINE_SCHEMA_CHARS ||
+        schema.length > schemaBudget
+      )
+        return summary;
+      schemaBudget -= schema.length;
+      return `${summary}\n  parameters: ${schema}`;
     });
     const more = deferred.length - lines.length;
     return [
-      'Tools reachable through tool_catalog, with their parameters (? marks optional ones). When the arguments are clear, call one directly with action=call; describe it first only if a parameter is unclear.',
+      'Tools reachable through tool_catalog, with their parameters (? marks optional ones). Inline parameters are the input schema: use action=call with name and matching arguments without listing or describing first. Describe only when the schema is missing or unclear. If a tool accepts multiple identifiers, batch independent items in one call within its limits.',
       ...lines,
       more > 0 ? `…and ${more} more: find them with action=list.` : '',
     ]
@@ -372,28 +385,51 @@ export class ToolCatalog {
       }),
     );
     const page = matches.slice(offset, offset + PAGE_SIZE);
-    return {
-      output: JSON.stringify({
-        tools: page.map((tool) => ({
+    const result = {
+      tools: page.map((tool) => {
+        const parameters =
+          JSON.stringify(tool.function.parameters).length <=
+          MAX_INLINE_SCHEMA_CHARS
+            ? tool.function.parameters
+            : undefined;
+        return {
           name: tool.function.name,
           description: tool.function.description.slice(0, 160),
           required: (tool.function.parameters.required ?? []).slice(0, 16),
-          next: {
-            name: NAME,
-            arguments: { action: 'describe', name: tool.function.name },
-          },
-        })),
-        total: matches.length,
-        availableCount:
-          this.byName.size -
-          [...this.byName.keys()].filter((name) => this.starters.has(name))
-            .length,
-        hint: matches.length
-          ? 'Choose a matching tool and execute its next call to load the schema. Then use tool_catalog action=call; only supplied function names are directly callable.'
-          : 'No keyword matches. Try fewer keywords or omit query to browse the permitted tools. Skill names are not tool names; use skills_list for skill discovery.',
-        nextOffset:
-          offset + page.length < matches.length ? offset + page.length : null,
+          parameters,
+          next: parameters
+            ? undefined
+            : {
+                name: NAME,
+                arguments: { action: 'describe', name: tool.function.name },
+              },
+        };
       }),
+      total: matches.length,
+      availableCount:
+        this.byName.size -
+        [...this.byName.keys()].filter((name) => this.starters.has(name))
+          .length,
+      hint: matches.length
+        ? 'Use tool_catalog action=call with the exact name and arguments matching parameters. When parameters are absent, follow next to describe the schema. Only supplied function names are directly callable.'
+        : 'No keyword matches. Try fewer keywords or omit query to browse the permitted tools. Skill names are not tool names; use skills_list for skill discovery.',
+      nextOffset:
+        offset + page.length < matches.length ? offset + page.length : null,
+    };
+    for (
+      let index = result.tools.length - 1;
+      index >= 0 && JSON.stringify(result).length > MAX_SCHEMA_CHARS;
+      index -= 1
+    ) {
+      const entry = result.tools[index];
+      entry.parameters = undefined;
+      entry.next = {
+        name: NAME,
+        arguments: { action: 'describe', name: entry.name },
+      };
+    }
+    return {
+      output: JSON.stringify(result),
       isError: false,
     };
   }

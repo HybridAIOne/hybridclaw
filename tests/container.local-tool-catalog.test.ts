@@ -167,16 +167,17 @@ test('requires the catalog name field even when listing tools', () => {
 });
 
 
-test('ranks multiword capabilities and parameter names, with an explicit schema step', () => {
+test('ranks multiword capabilities and parameter names, with inline input schemas', () => {
   const lookup = tool('mcp__calendar_search', 'Find scheduled events.');
   lookup.function.parameters = { type: 'object', properties: { attendee_email: { type: 'string' } }, required: ['attendee_email'] };
   const catalog = new ToolCatalog([lookup, tool('mcp__files_search', 'Find files.'), tool('mcp__pdf_create', 'Create PDF files.')], []);
   const page = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'create PDF' }))!.output);
-  expect(page.tools[0]).toMatchObject({ name: 'mcp__pdf_create', next: { name: 'tool_catalog', arguments: { action: 'describe', name: 'mcp__pdf_create' } } });
+  expect(page.tools[0]).toMatchObject({ name: 'mcp__pdf_create', parameters: { type: 'object' } });
+  expect(page.tools[0].next).toBeUndefined();
   const byParameter = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'attendee email' }))!.output);
   expect(byParameter.tools[0].name).toBe(lookup.function.name);
   expect(byParameter.tools[0].required).toEqual(['attendee_email']);
-  expect(JSON.stringify(byParameter)).not.toContain('parameters');
+  expect(byParameter.tools[0].parameters).toEqual(lookup.function.parameters);
   const empty = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'absent' }))!.output);
   expect(empty).toMatchObject({ tools: [], total: 0, availableCount: 3 });
   expect(empty.hint).toContain('fewer keywords');
