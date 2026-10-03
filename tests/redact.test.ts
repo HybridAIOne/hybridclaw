@@ -247,6 +247,27 @@ test('redacts pii while preserving the GitHub noreply allowlist', () => {
   );
 });
 
+test.each([
+  'https://www.tiktok.com/@chriskroemer/video/7412345678901234564',
+  'https://example.com/track?id=4111111111111111#4111-1111-1111-1111',
+  'https://4111111111111111.example.com/',
+  'see [video](https://example.com/v/4111111111111111)',
+  'example.com/orders/0891234567890',
+  '{"url":"https:\\/\\/example.com\\/v\\/4111111111111111"}',
+])('keeps digit runs inside URLs: %s', (input) => {
+  expect(redactSecrets(input)).toBe(input);
+});
+
+test('still redacts card and phone numbers in prose next to a URL', () => {
+  expect(
+    redactSecrets(
+      'my card is 4111 1111 1111 1111, call 089/4233232, see https://example.com/a',
+    ),
+  ).toBe(
+    'my card is ***CREDIT_CARD_REDACTED***, call ***PHONE_REDACTED***, see https://example.com/a',
+  );
+});
+
 test('redacts credential secrets without masking user-visible contact details', () => {
   expect(
     redactCredentialSecrets(

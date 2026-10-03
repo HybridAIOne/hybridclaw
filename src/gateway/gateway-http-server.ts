@@ -171,7 +171,10 @@ import {
   revokePublicationsForApp,
   verifyPublicationToken,
 } from '../security/app-publications.js';
-import { redactSecretsDeep } from '../security/redact.js';
+import {
+  redactCredentialSecrets,
+  redactSecretsDeep,
+} from '../security/redact.js';
 import { createSecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import { hardenSecretRef } from '../security/secret-refs.js';
@@ -4025,9 +4028,13 @@ async function handleApiChatStream(
       const trace = traceBuilder.build(Date.now() - traceStartedAt);
       if (trace) {
         try {
-          // Tool arg/result previews and thinking text are now stored at rest;
-          // redact any secrets echoed in them before they land in SQLite.
-          setMessageActivityTrace(assistantMessageId, redactSecretsDeep(trace));
+          // Tool arg/result previews and thinking text are stored at rest;
+          // mask credentials echoed in them before they land in SQLite. The
+          // user's own contact details stay, as in the live previews.
+          setMessageActivityTrace(
+            assistantMessageId,
+            redactSecretsDeep(trace, redactCredentialSecrets),
+          );
         } catch (traceError) {
           logger.warn(
             { error: traceError, sessionId: chatRequest.sessionId },
