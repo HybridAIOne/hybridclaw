@@ -197,6 +197,10 @@ describe('admin RBAC role bundles', () => {
     );
     expect(resolveAdminRbacAction('/v1/models', 'GET')).toBe('openai.api');
     expect(resolveAdminRbacAction('/api/chat', 'POST')).toBe('chat.send');
+    expect(resolveAdminRbacAction('/api/chat/steer', 'POST')).toBe(
+      'chat.send',
+    );
+    expect(resolveAdminRbacAction('/api/chat/steer', 'GET')).toBeNull();
     expect(resolveAdminRbacAction('/api/media/upload', 'POST')).toBe(
       'chat.send',
     );

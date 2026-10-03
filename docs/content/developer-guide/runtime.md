@@ -705,6 +705,37 @@ received on stdin. Input it cannot verify is dropped, never run.
 `health-input.json` is a liveness probe only: the agent reads just the nonce to
 echo and never turns a health file into a turn, so it needs no envelope.
 
+## Mid-Turn Steering
+
+`POST /api/chat/steer` hands a note to the turn running in a session. The
+agent makes an inbox directory, `steer-<requestId>`, in the IPC directory when
+it takes a request of a user turn; the gateway delivers a note by renaming a
+finished file into it, signed with the per-worker secret like follow-up input
+(`container/shared/steer-inbox.js`). An agent image without steering makes no
+inbox, so its turns refuse every note. The agent shows waiting notes to the
+model:
+
+- after the tool call (or parallel batch) that is running: calls of the same
+  model step not yet started are answered `Not run`, and the note follows as a
+  user message, so the model re-plans with it
+- where the turn would end (a final answer, a reaction, a stall, an approval
+  request or denial): the agent renames the inbox to `steer-<requestId>.closed`
+  first and drains it. With notes it reopens the inbox, adds them as a user
+  message and calls the model again; the reply so far stays the start of the
+  reply. Without, the inbox stays closed and the turn ends.
+
+A delivery after the close fails, so the route answers `accepted: false` and
+the client sends the note as a turn of its own; one before it is drained. The
+gateway also refuses notes once the request has returned, once `/stop`
+interrupted it, under confidential redaction, and for automatic turns
+(full-auto, goals, schedules, heartbeats, fan-out). A turn waiting for approval
+has no running request, so notes go as turns; `yes <id>` answers still go
+through `/api/chat`. Notes the model was shown are stored as user messages
+between the turn's message and its reply. A note accepted just before the turn
+fails or is stopped is dropped with the turn and not stored. When model routing
+escalates, the next request starts from the turn's messages, so it is offered
+every note of the turn again.
+
 ## Agent Shutdown
 
 When the gateway stops an agent process, for example to interrupt a turn, the

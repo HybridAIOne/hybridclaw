@@ -689,6 +689,7 @@ import {
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
+import { storeTurnMessages } from './turn-storage.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -3616,6 +3617,8 @@ export function recordSuccessfulTurn(opts: {
   userMedia?: readonly MediaContextItem[];
   /** The dynamic context the user message was sent with, for replay. */
   userDynamicContext?: string | null;
+  /** Notes the user sent while the turn ran, in the order the model saw them. */
+  steerNotes?: readonly string[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
@@ -3628,96 +3631,9 @@ export function recordSuccessfulTurn(opts: {
   userMessageId: number;
   assistantMessageId: number;
 } {
-  const storedTurn =
-    opts.replaceBuiltInMemory === true
-      ? {
-          userMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: opts.userId,
-            username: opts.username,
-            role: 'user',
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          }),
-          assistantMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: 'assistant',
-            username: null,
-            role: 'assistant',
-            content: opts.resultText,
-            agentId: opts.agentId,
-            artifacts: opts.artifacts,
-            toolHistory: opts.toolHistoryForReplay,
-          }),
-        }
-      : memoryService.storeTurn({
-          sessionId: opts.sessionId,
-          user: {
-            userId: opts.userId,
-            username: opts.username,
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          },
-          assistant: {
-            userId: 'assistant',
-            username: null,
-            agentId: opts.agentId,
-            content: opts.resultText,
-            artifacts: opts.artifacts,
-            toolHistory: opts.toolHistoryForReplay,
-          },
-        });
-  if (opts.replaceBuiltInMemory !== true) {
-    try {
-      if (opts.canonicalScopeId.trim()) {
-        memoryService.appendCanonicalMessages({
-          agentId: opts.agentId,
-          userId: opts.canonicalScopeId,
-          newMessages: [
-            {
-              role: 'user',
-              content: opts.userContent,
-              sessionId: opts.sessionId,
-              channelId: opts.channelId,
-            },
-            {
-              role: 'assistant',
-              content: opts.resultText,
-              sessionId: opts.sessionId,
-              channelId: opts.channelId,
-            },
-          ],
-        });
-      }
-    } catch (err) {
-      logger.debug(
-        {
-          sessionId: opts.sessionId,
-          canonicalScopeId: opts.canonicalScopeId,
-          err,
-        },
-        'Failed to append canonical session memory',
-      );
-    }
-  }
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'user',
-    userId: opts.userId,
-    username: opts.username,
-    content: opts.userContent,
-  });
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'assistant',
-    userId: 'assistant',
-    username: null,
-    content: opts.resultText,
-    toolHistory: opts.toolHistory,
+  const storedTurn = storeTurnMessages({
+    ...opts,
+    assistantContent: opts.resultText,
   });
 
   if (opts.replaceBuiltInMemory !== true) {
@@ -3872,6 +3788,7 @@ export function recordErrorTurn(opts: {
   userContent: string;
   userMedia?: readonly MediaContextItem[];
   userDynamicContext?: string | null;
+  steerNotes?: readonly string[];
   error: string;
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
@@ -3891,92 +3808,11 @@ export function recordErrorTurn(opts: {
   const history = opts.delegationAcknowledgement?.trim()
     ? opts
     : withDelegationsNotStarted(opts);
-  const storedTurn =
-    opts.replaceBuiltInMemory === true
-      ? {
-          userMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: opts.userId,
-            username: opts.username,
-            role: 'user',
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          }),
-          assistantMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: 'assistant',
-            username: null,
-            role: 'assistant',
-            content: placeholder,
-            agentId: opts.agentId,
-            toolHistory: history.toolHistoryForReplay,
-          }),
-        }
-      : memoryService.storeTurn({
-          sessionId: opts.sessionId,
-          user: {
-            userId: opts.userId,
-            username: opts.username,
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          },
-          assistant: {
-            userId: 'assistant',
-            username: null,
-            agentId: opts.agentId,
-            content: placeholder,
-            toolHistory: history.toolHistoryForReplay,
-          },
-        });
-  if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
-    try {
-      memoryService.appendCanonicalMessages({
-        agentId: opts.agentId,
-        userId: opts.canonicalScopeId,
-        newMessages: [
-          {
-            role: 'user',
-            content: opts.userContent,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-          {
-            role: 'assistant',
-            content: placeholder,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-        ],
-      });
-    } catch (err) {
-      logger.debug(
-        {
-          sessionId: opts.sessionId,
-          canonicalScopeId: opts.canonicalScopeId,
-          err,
-        },
-        'Failed to append canonical session memory for error turn',
-      );
-    }
-  }
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'user',
-    userId: opts.userId,
-    username: opts.username,
-    content: opts.userContent,
-  });
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'assistant',
-    userId: 'assistant',
-    username: null,
-    content: placeholder,
+  const storedTurn = storeTurnMessages({
+    ...opts,
+    assistantContent: placeholder,
     toolHistory: history.toolHistory,
+    toolHistoryForReplay: history.toolHistoryForReplay,
   });
   return storedTurn;
 }

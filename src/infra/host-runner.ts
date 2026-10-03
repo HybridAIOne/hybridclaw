@@ -1137,6 +1137,11 @@ async function runHostProcessInner(
   }
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
+  params.steerInbox?.open({
+    ipcDir: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
+    requestId,
+    authSecret: entry.ipcAuthSecret,
+  });
   entry.workerSignature = workerSignature;
 
   const activity = createActivityTracker();
@@ -1203,6 +1208,8 @@ async function runHostProcessInner(
         terminalError: () => entry.terminalError,
       },
     );
+    // Before anything else can run: a note from here on is refused.
+    params.steerInbox?.close();
     const timedOut = isTimedOutAgentOutput(output);
     if (timedOut) {
       logger.warn(
@@ -1249,6 +1256,7 @@ async function runHostProcessInner(
     }
     return output;
   } finally {
+    params.steerInbox?.close();
     abortSignal?.removeEventListener('abort', onAbort);
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);

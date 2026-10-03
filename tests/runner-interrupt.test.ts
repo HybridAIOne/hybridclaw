@@ -5,6 +5,7 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 
 import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
+import { steerInboxDirName } from '../container/shared/steer-inbox.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('hybridclaw-runner-interrupt-');
@@ -74,10 +75,10 @@ const RUNNERS = [
   },
 ];
 
-test.each(RUNNERS)('$runner: a turn started right after an interrupt gets its own reply, not the stopped turn’s late reply', async ({
+async function startRunner({
   isAgentSpawn,
   createExecutor,
-}) => {
+}: (typeof RUNNERS)[number]) {
   const homeDir = makeTempDir();
   vi.stubEnv('HOME', homeDir);
 
@@ -149,6 +150,12 @@ test.each(RUNNERS)('$runner: a turn started right after an interrupt gets its ow
     'ipc',
   );
 
+  return { executor, agents, request, ipcDir };
+}
+
+test.each(RUNNERS)('$runner: a turn started right after an interrupt gets its own reply, not the stopped turn’s late reply', async (runner) => {
+  const { executor, agents, request, ipcDir } = await startRunner(runner);
+
   const controller = new AbortController();
   const interrupted = executor.exec({
     ...request,
@@ -199,4 +206,37 @@ test.each(RUNNERS)('$runner: a turn started right after an interrupt gets its ow
     result: 'fresh reply',
     toolsUsed: [],
   });
+});
+
+test.each(RUNNERS)('$runner: a running request takes steering notes in its own inbox, and none once it has replied', async (runner) => {
+  const { executor, agents, request, ipcDir } = await startRunner(runner);
+  const { SteerInbox } = await import('../src/infra/steer-inbox.js');
+  const steerInbox = new SteerInbox();
+  expect(steerInbox.deliver('before the request')).toBe(false);
+
+  const running = executor.exec({
+    ...request,
+    messages: [{ role: 'user', content: 'plan my week' }],
+    steerInbox,
+  });
+  await vi.waitFor(() => expect(agents[0]?.stdin.write).toHaveBeenCalled());
+  const requestId = String(stdinRequestId(agents[0]));
+  expect(steerInbox.deliver('before the agent took it')).toBe(false);
+  // The agent makes its inbox when it takes the request.
+  fs.mkdirSync(path.join(ipcDir, steerInboxDirName(requestId)));
+  expect(steerInbox.deliver('skip Friday')).toBe(true);
+  expect(
+    fs.readdirSync(path.join(ipcDir, steerInboxDirName(requestId))),
+  ).toHaveLength(1);
+
+  fs.writeFileSync(
+    path.join(ipcDir, ipcOutputFileName(requestId)),
+    JSON.stringify({ status: 'success', result: 'done', toolsUsed: [] }),
+  );
+  await running;
+
+  expect(steerInbox.deliver('after the reply')).toBe(false);
+  expect(
+    fs.readdirSync(ipcDir).filter((name) => name.startsWith('steer-')),
+  ).toEqual([]);
 });

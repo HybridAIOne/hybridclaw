@@ -30,6 +30,7 @@ import {
   IPC_RECONCILE_INTERVAL_MS,
   type IpcWakeup,
 } from '../../container/shared/ipc-wakeup.js';
+import { isSteerInboxEntryName } from '../../container/shared/steer-inbox.js';
 import { resolveAgentWorkspaceId } from '../agents/agent-registry.js';
 import { CONTAINER_MAX_OUTPUT_SIZE, DATA_DIR } from '../config/config.js';
 import { logger } from '../logger.js';
@@ -436,7 +437,7 @@ export function readHealthOutput(
 
 /**
  * Clean up a session's request IPC files, including replies that stopped
- * agents wrote after their request ended.
+ * agents wrote after their request ended and steering inboxes left behind.
  */
 export function cleanupIpc(sessionId: string): void {
   const dir = ipcDir(sessionId);
@@ -445,9 +446,10 @@ export function cleanupIpc(sessionId: string): void {
     if (
       file === 'input.json' ||
       file === 'history.json' ||
-      isIpcOutputFileName(file)
+      isIpcOutputFileName(file) ||
+      isSteerInboxEntryName(file)
     ) {
-      fs.rmSync(path.join(dir, file), { force: true });
+      fs.rmSync(path.join(dir, file), { force: true, recursive: true });
     }
   }
 }

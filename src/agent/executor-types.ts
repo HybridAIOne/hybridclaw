@@ -2,6 +2,7 @@ import type { ApprovalMode } from '../../container/shared/approval-mode.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
 import type { RuntimeBrowserProviderKind } from '../config/runtime-config.js';
+import type { SteerInbox } from '../infra/steer-inbox.js';
 import type { ChatMessage } from '../types/api.js';
 import type {
   AddressEnvelope,
@@ -62,6 +63,8 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
   audioTranscriptsPrepended?: boolean;
   pluginTools?: PluginRuntimeToolDefinition[];
   escalationTarget?: EscalationTarget;
+  /** Notes the user sends while this request runs; see infra/steer-inbox.ts. */
+  steerInbox?: SteerInbox;
 }
 
 export interface Executor {

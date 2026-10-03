@@ -123,6 +123,8 @@ export interface ContainerOutput {
   toolHistoryForReplay?: ChatMessage[];
   /** Results sent as previews; the full text is in their saved result files. */
   spilledToolCallIds?: string[];
+  /** Steering notes the model was shown during the turn, in order. */
+  steerNoteIds?: string[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;

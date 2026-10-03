@@ -255,6 +255,8 @@ export interface StoreTurnParams {
     media?: readonly MediaContextItem[];
     dynamicContext?: string | null;
   };
+  /** Notes the user sent while the turn ran, stored after their message. */
+  steerNotes?: readonly string[];
   assistant: {
     userId?: string;
     username?: string | null;
@@ -823,6 +825,15 @@ export class MemoryService {
       media: params.user.media,
       dynamicContext: params.user.dynamicContext,
     });
+    for (const content of params.steerNotes ?? []) {
+      this.storeMessage({
+        sessionId: params.sessionId,
+        userId: params.user.userId,
+        username: params.user.username,
+        role: 'user',
+        content,
+      });
+    }
     const assistantMessageId = this.storeMessage({
       sessionId: params.sessionId,
       userId: params.assistant.userId || 'assistant',

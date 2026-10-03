@@ -63,6 +63,7 @@ import {
   pauseActiveGoalForSession,
 } from '../goals/goal-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
+import { SteerInbox } from '../infra/steer-inbox.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
 import {
@@ -937,10 +938,14 @@ async function handleGatewayMessageInner(
       });
     }
   }
+  // The user may add to a turn they started while it runs; automatic turns
+  // (full-auto, goals, schedules, heartbeats, fan-out) take no notes.
+  const steerInbox = shouldUpdateActiveAgent ? new SteerInbox() : undefined;
   const activeGatewayRequest = registerActiveGatewayRequest({
     sessionId: req.sessionId,
     executionSessionId: req.executionSessionId,
     abortSignal: req.abortSignal,
+    steerInbox,
   });
   const resolvedRequest = resolveAgentForRequest({
     agentId: req.agentId,
@@ -2215,6 +2220,7 @@ async function handleGatewayMessageInner(
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
+        steerInbox,
       });
     let routingAttempts: ModelRoutingAttempt[] | null = null;
     const executionStartedAt = Date.now();
@@ -2334,6 +2340,7 @@ async function handleGatewayMessageInner(
         audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
         pluginTools: pluginManager?.getToolDefinitions() ?? [],
         escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
+        steerInbox,
       });
     }
     replyFetches.finish(output.toolExecutions);
@@ -2352,6 +2359,7 @@ async function handleGatewayMessageInner(
       userTurnContent,
       media,
     );
+    const steerNotes = steerInbox?.shownNotes(output.steerNoteIds) ?? [];
     const toolExecutions = output.toolExecutions || [];
     hatchingCompletion = recordBootstrapHatchingTurnResult({
       agentId,
@@ -2720,6 +2728,7 @@ async function handleGatewayMessageInner(
         userContent: storedUserContent,
         userMedia: media,
         userDynamicContext: dynamicContext,
+        steerNotes,
         error: errorMessage,
         toolHistory: output.toolHistory,
         toolHistoryForReplay: output.toolHistoryForReplay,
@@ -2921,6 +2930,7 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       userMedia: media,
       userDynamicContext: dynamicContext,
+      steerNotes,
       // A reaction alone is kept as a reply that says nothing, as a silent
       // channel reply is, so no assistant turn is ever stored empty.
       resultText: !resultText && reaction ? SILENT_REPLY_TOKEN : resultText,

@@ -235,6 +235,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { CHAT_STEER_PATH, handleChatSteerRoute } from './chat-steer-route.js';
 import { openChatStreamTurn } from './chat-stream-turns.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
@@ -10930,6 +10931,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           if (pathname === DEVICE_MESSAGE_PATH && method === 'GET') {
             if (operatorId) handleDeviceMessageRoute(res, url, operatorId);
             else sendJson(res, 404, { error: 'Message not found.' });
+            return;
+          }
+          if (pathname === CHAT_STEER_PATH && method === 'POST') {
+            await handleChatSteerRoute(req, res, operatorId);
             return;
           }
           if (pathname === CHAT_REACTION_PATH && method === 'POST') {
