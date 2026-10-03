@@ -229,6 +229,13 @@ export interface GatewayChatRequestBody {
    */
   client?: PromptClient;
   /**
+   * The HybridAI app that sent the turn, such as `hy` or `salescompanion`.
+   * Phones registered for that app (`/push register … <appId>`) get the chat's
+   * alerts, signed for that app. Without it, a `mobile` client is Hy (`hy`),
+   * and a chat from anything else rings no phone.
+   */
+  appId?: string;
+  /**
    * The client shows text written before a tool call as a passing status
    * ("Checking the page…") and keeps only the text after the last tool as the
    * reply. The model is then asked to say what it is doing before each tool

@@ -36,6 +36,7 @@ async function load(kinds = 'proactive') {
   store.bindWebNotificationSession(
     APP_CHAT,
     store.notificationOperatorId('local-operator'),
+    'hy',
   );
   const run = async (args: string[]) =>
     JSON.parse(

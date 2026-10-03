@@ -447,6 +447,7 @@ import {
 import { handleLocalClassifierAdmin } from './local-classifier-admin.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import { chatResultForClient } from './mobile-chat-result.js';
+import { chatPushApp } from './mobile-push.js';
 import {
   isMSTeamsTabViewerAllowed,
   type MSTeamsTabSsoConfig,
@@ -3478,7 +3479,11 @@ async function handleApiChat(
   );
 
   if (channelId === 'web' && operatorId)
-    trackWebNotificationSession(chatRequest.sessionId, operatorId);
+    trackWebNotificationSession(
+      chatRequest.sessionId,
+      operatorId,
+      chatPushApp(body),
+    );
   if (wantsStream) {
     await handleApiChatStream(res, chatRequest, operatorId, adminActions);
     return;
