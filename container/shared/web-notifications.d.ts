@@ -25,8 +25,9 @@ export interface MobilePushDevice {
   /** Notification kinds the app handles; nothing else is sent to it. */
   kinds: string[];
   /**
-   * The app the phone belongs to, as it names itself in a chat's `client`.
-   * Only chats from that app ring it. Absent: Hy (`mobile`).
+   * The HybridAI app the phone registered for, as its chats name it in
+   * `appId`. Only that app's chats ring it, and HybridAI signs its alerts for
+   * that app. Absent: Hy (`hy`).
    */
-  client?: string;
+  app?: string;
 }

@@ -26,9 +26,9 @@ interface OperatorState {
 interface NotificationStore {
   operators: Record<string, OperatorState>;
   sessions: Record<string, string>;
-  // The app (`client`) each session was last chatted in from, by session key.
+  // The HybridAI app each session was last chatted in from, by session key.
   // Absent in stores written before phones were matched to their app.
-  sessionClients?: Record<string, string>;
+  sessionApps?: Record<string, string>;
 }
 
 const storePath = path.join(DATA_DIR, 'web-notifications.json');
@@ -82,29 +82,31 @@ function operatorState(
 
 /**
  * The operator that first chats in a session owns it. Each chat also records
- * the app it came from (`client`, none for the browser or a script), so only
+ * the HybridAI app it came from (none for the browser or a script), so only
  * phones of that app ring for the session (issue #1781).
  */
 export function bindWebNotificationSession(
   sessionId: string,
   operatorId: string,
-  client?: string,
+  app?: string,
 ): void {
   const store = readStore();
   const key = notificationOperatorId(sessionId);
   const owner = store.sessions[key];
   if (owner && owner !== operatorId) return;
-  if (owner && store.sessionClients?.[key] === client) return;
+  if (owner && store.sessionApps?.[key] === app) return;
   store.sessions[key] = operatorId;
-  store.sessionClients ??= {};
-  if (client) store.sessionClients[key] = client;
-  else delete store.sessionClients[key];
+  store.sessionApps ??= {};
+  if (app) store.sessionApps[key] = app;
+  else delete store.sessionApps[key];
   writeStore(store);
 }
 
-// A phone registered before phones named their app is Hy's (`mobile`).
-function deviceClient(device: MobilePushDevice): string {
-  return device.client ?? 'mobile';
+/** The app a phone belongs to; one registered before phones named it is Hy's. */
+export function mobilePushDeviceApp(
+  device: Pick<MobilePushDevice, 'app'>,
+): string {
+  return device.app ?? 'hy';
 }
 
 // The phones that ring for a session: its owner's phones of the app the
@@ -115,10 +117,10 @@ function sessionDevices(
   key: string,
   state: OperatorState,
 ): MobilePushDevice[] {
-  const client = store.sessionClients?.[key];
-  if (!client) return [];
+  const app = store.sessionApps?.[key];
+  if (!app) return [];
   return Object.values(state.devices ?? {}).filter(
-    (device) => deviceClient(device) === client,
+    (device) => mobilePushDeviceApp(device) === app,
   );
 }
 
@@ -148,7 +150,7 @@ export function deleteWebNotificationSession(sessionId: string): void {
   const operatorId = store.sessions[key];
   if (!operatorId) return;
   delete store.sessions[key];
-  delete store.sessionClients?.[key];
+  delete store.sessionApps?.[key];
   const state = operatorState(store, operatorId);
   state.notifications = state.notifications.filter(
     (notification) => notification.sessionId !== sessionId,

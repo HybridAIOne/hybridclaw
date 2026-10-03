@@ -41,7 +41,7 @@ async function modules() {
   const push = await import('../src/gateway/mobile-push.js');
   const notifications = await import('../src/gateway/web-notifications.js');
   const operator = store.notificationOperatorId('local-operator');
-  store.bindWebNotificationSession('session-a', operator, 'mobile');
+  store.bindWebNotificationSession('session-a', operator, 'hy');
   return { store, push, notifications, operator };
 }
 
@@ -66,7 +66,7 @@ describe('/push command', () => {
   test('registers a phone for the operator that opened the session, and only from web chat', async () => {
     const { store, push, operator } = await modules();
     expect(await command(push, `push register ${TOKEN.toUpperCase()} production proactive,approval`)).toEqual({ registered: true, relay: true });
-    expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'], client: 'mobile' }]);
+    expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'], app: 'hy' }]);
     expect(await command(push, 'push status')).toEqual({ devices: 1, relay: true });
     expect(await command(push, `push register ${TOKEN} production`, 'discord-session')).toHaveProperty('error');
     expect(fs.statSync(`${directory}/web-notifications.json`).mode & 0o777).toBe(0o600);
@@ -77,11 +77,11 @@ describe('/push command', () => {
   test('a phone moves when another operator registers it; browsers kinds are the default', async () => {
     const { store, push, operator } = await modules();
     const other = store.notificationOperatorId('apiToken:token-b');
-    store.bindWebNotificationSession('session-b', other, 'mobile');
+    store.bindWebNotificationSession('session-b', other, 'hy');
     await command(push, `push register ${TOKEN} sandbox`);
     await command(push, `push register ${TOKEN} sandbox`, 'session-b');
     expect(store.readMobilePushDevices(operator)).toEqual([]);
-    expect(store.readMobilePushDevices(other)).toEqual([{ token: TOKEN, environment: 'sandbox', kinds: ['turn', 'reminder', 'approval'], client: 'mobile' }]);
+    expect(store.readMobilePushDevices(other)).toEqual([{ token: TOKEN, environment: 'sandbox', kinds: ['turn', 'reminder', 'approval'], app: 'hy' }]);
     // Unregistering from the first operator cannot drop the second one's phone.
     await command(push, `push unregister ${TOKEN}`);
     expect(store.readMobilePushDevices(other)).toHaveLength(1);
@@ -227,16 +227,17 @@ describe('phone delivery', () => {
     // A chat last used from the browser stops ringing; from the app again, it rings.
     store.bindWebNotificationSession('session-a', operator);
     expect(store.readSessionMobilePushDevices('session-a')).toEqual([]);
-    store.bindWebNotificationSession('session-a', operator, 'mobile');
+    store.bindWebNotificationSession('session-a', operator, 'hy');
     expect(store.readSessionMobilePushDevices('session-a')).toHaveLength(1);
     // Another operator cannot change the app of a chat it does not own.
     store.bindWebNotificationSession('session-a', store.notificationOperatorId('apiToken:token-b'));
     expect(store.readSessionMobilePushDevices('session-a')).toHaveLength(1);
   });
 
-  test('a phone registered for another app rings only for that app; older phones are Hy', async () => {
+  test('a phone registered for another app rings only for that app, signed for it; older phones are Hy', async () => {
     const { store, push, operator } = await modules();
     expect(await command(push, `push register ${OTHER_TOKEN} production proactive salescompanion`)).toHaveProperty('registered', true);
+    expect(calls('/v1/push/devices')[0].body).toEqual({ token: OTHER_TOKEN, environment: 'production', app: 'salescompanion' });
     expect(await command(push, `push register ${TOKEN} production proactive Bad!`)).toHaveProperty('error');
     // Stored before phones named their app.
     const file = `${directory}/web-notifications.json`;
@@ -245,8 +246,32 @@ describe('phone delivery', () => {
     fs.writeFileSync(file, JSON.stringify(saved));
     expect(store.readSessionMobilePushDevices('session-a').map((device) => device.token)).toEqual([TOKEN]);
     store.bindWebNotificationSession('session-c', operator, 'salescompanion');
-    expect(store.readSessionMobilePushDevices('session-c').map((device) => device.token)).toEqual([OTHER_TOKEN]);
+    expect(await push.notifySessionPhones('session-c', { kind: 'proactive', title: 'x' })).toEqual({ devices: 1, sent: 1 });
+    expect(relayed().body).toMatchObject({ token: OTHER_TOKEN, app: 'salescompanion' });
+    expect(await push.notifySessionPhones('session-a', { kind: 'proactive', title: 'x' })).toEqual({ devices: 1, sent: 1 });
+    expect(relayed(1).body).toMatchObject({ token: TOKEN });
+    // Hy is the relay's default; relays that predate other apps refuse the field.
+    expect(relayed(1).body).not.toHaveProperty('app');
     expect(await command(push, 'push status')).toEqual({ devices: 2, relay: true });
+  });
+
+  test('an app HybridAI does not sign for is refused and not kept', async () => {
+    const { store, push, operator } = await modules();
+    relay.mockResolvedValue(new Response('{"status":"unknown_app"}', { status: 400 }));
+    expect(await command(push, `push register ${TOKEN} production turn nosuchapp`)).toEqual({
+      registered: false,
+      reason: 'unknown_app',
+      error: 'HybridAI does not send alerts for this app.',
+    });
+    expect(store.readMobilePushDevices(operator)).toEqual([]);
+  });
+
+  test('a chat names its app with appId; the phone app without one is Hy', async () => {
+    const { push } = await modules();
+    expect(push.chatPushApp({ appId: 'salescompanion', client: 'mobile' })).toBe('salescompanion');
+    expect(push.chatPushApp({ client: 'mobile' })).toBe('hy');
+    expect(push.chatPushApp({})).toBeUndefined();
+    expect(push.chatPushApp({ appId: 'Not An App' })).toBeUndefined();
   });
 
   test('a phone HybridAI does not know for this account is bound once and the alert retried once', async () => {
@@ -320,7 +345,7 @@ describe('binding phones at HybridAI', () => {
   test('the phone stays bound while another operator here still holds it', async () => {
     const { store, push } = await modules();
     const other = store.notificationOperatorId('apiToken:token-b');
-    store.bindWebNotificationSession('session-b', other, 'mobile');
+    store.bindWebNotificationSession('session-b', other, 'hy');
     await command(push, `push register ${TOKEN} sandbox`, 'session-b');
     await command(push, `push unregister ${TOKEN}`);
     expect(calls('/v1/push/devices').map((call) => call.method)).toEqual(['POST']);

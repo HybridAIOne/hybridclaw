@@ -52,7 +52,7 @@ A phone app registers itself by sending a command in web chat. The phone
 belongs to the operator who opened that conversation, like a browser:
 
 ```
-/push register <APNs token in hex> <sandbox|production> [kind,kind] [client]
+/push register <APNs token in hex> <sandbox|production> [kind,kind] [app]
 /push unregister <APNs token in hex>
 /push status
 ```
@@ -66,11 +66,14 @@ or the reply itself for a task added with `--reply-only` as well. Each operator 
 phones; registering a phone another operator holds moves it.
 
 A phone rings only for conversations its own app chats in. Each web chat
-request records the app it came from, the `client` field of `/api/chat`
-(`mobile` for the Hy phone app, none for the browser or a script), and
-a phone registers for one app with `[client]`, `mobile` when left out. A reply,
+request records the HybridAI app it came from: the `appId` field of
+`/api/chat`, such as `hy` or `salescompanion`, or `hy` for a request with
+`client: "mobile"` and no `appId`. The browser and scripts send neither. A
+phone registers for one app with `[app]`, `hy` when left out. A reply,
 reminder or alert in a conversation last used from the browser, a script or
 another app does not ring the phone, even when the same operator sent it.
+HybridAI signs each alert for the phone's app and refuses to register a phone
+for an app it does not sign for (`"reason": "unknown_app"`).
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply
@@ -93,8 +96,8 @@ read back carries `source`, `schedule:<id>` for a reply a task posted.
 
 Apple's signing key is not on the gateway. The gateway hands each alert to
 HybridAI (`POST /v1/push` on `hybridai.baseUrl`), authenticated with the
-configured HybridAI key; HybridAI signs it for the HybridClaw app and forwards
-it to APNs. Without a HybridAI key, phones get nothing, and `/push status`
+configured HybridAI key; HybridAI signs it for the app the phone registered
+for (`app` in the request) and forwards it to APNs. Without a HybridAI key, phones get nothing, and `/push status`
 says `"relay": false`. When APNs reports a phone gone, the gateway forgets it.
 Tokens are stored with the browser subscriptions and are never logged.
 
