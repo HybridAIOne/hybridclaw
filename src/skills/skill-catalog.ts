@@ -1,15 +1,17 @@
-import type { SessionSkillCatalogEntry } from '../types/container.js';
-import type { Skill } from './skills.js';
-
 /**
- * Project the session's eligible skills onto the routing identity the model
- * needs. The system prompt carries name/category/description/location only, so
- * declared credential ids are surfaced here as the `skills_list` recovery path.
+ * The session catalog carries admitted routing metadata and complete mini-cards.
+ * Unlike skill eligibility, this projection grants nothing; ordinary bodies
+ * and credentials still require their existing access paths.
  */
+import type { SessionSkillCatalogEntry } from '../types/container.js';
+import { loadMiniSkillInstructions } from './mini-skills.js';
+import type { Skill } from './skills.js';
 export function buildEligibleSkillCatalog(
   skills: readonly Skill[],
 ): SessionSkillCatalogEntry[] {
-  return skills.map(({ name, description, category, location, manifest }) => {
+  return skills.map((skill) => {
+    const { name, description, category, location, manifest } = skill;
+    const instructions = loadMiniSkillInstructions(skill);
     const requiredCredentials = (manifest?.requiredCredentials ?? []).map(
       (credential) => credential.id,
     );
@@ -18,6 +20,7 @@ export function buildEligibleSkillCatalog(
       description,
       category,
       location,
+      ...(instructions ? { instructions } : {}),
       ...(requiredCredentials.length > 0 ? { requiredCredentials } : {}),
     };
   });

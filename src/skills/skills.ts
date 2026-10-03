@@ -104,6 +104,7 @@ interface SkillCandidate {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
+  mini?: boolean;
   requires: SkillRequirements;
   metadata: {
     hybridclaw: {
@@ -986,6 +987,7 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
             false,
           ),
           always,
+          mini: parseBool(meta.mini, false),
           requires,
           metadata: {
             hybridclaw: metadataHybridClaw,

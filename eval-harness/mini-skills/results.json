@@ -1,0 +1,315 @@
+{
+  "date": "2026-10-03",
+  "runs": [
+    {
+      "variant": "baseline",
+      "run": 1,
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 34272,
+      "tools": [
+        {
+          "name": "hybridai__get_current_time",
+          "ms": 56,
+          "error": false
+        },
+        {
+          "name": "tool_catalog",
+          "ms": 4,
+          "error": false
+        },
+        {
+          "name": "hybridai__web_search",
+          "ms": 6212,
+          "error": false
+        },
+        {
+          "name": "web_fetch",
+          "ms": 490,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5548,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 3169,
+          "error": false
+        }
+      ],
+      "modelCalls": 7,
+      "promptTokens": 222044,
+      "completionTokens": 524,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified."
+    },
+    {
+      "variant": "baseline",
+      "run": 2,
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 104207,
+      "tools": [
+        {
+          "name": "hybridai__get_current_time",
+          "ms": 179,
+          "error": false
+        },
+        {
+          "name": "tool_catalog",
+          "ms": 5,
+          "error": false
+        },
+        {
+          "name": "skills_list",
+          "ms": 0,
+          "error": true
+        },
+        {
+          "name": "tool_catalog",
+          "ms": 1,
+          "error": false
+        },
+        {
+          "name": "web_search",
+          "ms": 224,
+          "error": true
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5483,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 646,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 862,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 839,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 648,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 901,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 864,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 914,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 907,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 884,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 836,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 772,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 759,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 752,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 882,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 756,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 593,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 798,
+          "error": false
+        },
+        {
+          "name": "browser_vision",
+          "ms": 2709,
+          "error": false
+        },
+        {
+          "name": "browser_screenshot",
+          "ms": 241,
+          "error": false
+        },
+        {
+          "name": "browser_vision",
+          "ms": 3627,
+          "error": false
+        },
+        {
+          "name": "browser_close",
+          "ms": 363,
+          "error": false
+        }
+      ],
+      "modelCalls": 28,
+      "promptTokens": 1035390,
+      "completionTokens": 746,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified."
+    },
+    {
+      "variant": "normal",
+      "run": 1,
+      "cardSha256": "c78f7ad752432f8fe2a6914b99b1fd532247189b5e4f8243d1b6af20ed15c847",
+      "promptSha256": "4e9956ec89a8daf5877010cc27c6f9eb2ecca8fad81e6b1b2916ca90cfed4a7a",
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 23098,
+      "tools": [
+        {
+          "name": "skills_list",
+          "ms": 3,
+          "error": false
+        },
+        {
+          "name": "read",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "hybridai__get_current_time",
+          "ms": 69,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 6318,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 879,
+          "error": false
+        }
+      ],
+      "modelCalls": 6,
+      "promptTokens": 179812,
+      "completionTokens": 285,
+      "verifiedJourneys": false,
+      "assessment": "Observed DB access-error 751; honest inability to verify trains."
+    },
+    {
+      "variant": "normal",
+      "run": 2,
+      "cardSha256": "c78f7ad752432f8fe2a6914b99b1fd532247189b5e4f8243d1b6af20ed15c847",
+      "promptSha256": "4e9956ec89a8daf5877010cc27c6f9eb2ecca8fad81e6b1b2916ca90cfed4a7a",
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 16417,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 5,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 6249,
+          "error": false
+        }
+      ],
+      "modelCalls": 3,
+      "promptTokens": 88758,
+      "completionTokens": 204,
+      "verifiedJourneys": false,
+      "assessment": "Observed DB access-error 751; honest inability to verify trains."
+    },
+    {
+      "variant": "mini",
+      "run": 1,
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 15055,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 6007,
+          "error": false
+        }
+      ],
+      "modelCalls": 2,
+      "promptTokens": 59146,
+      "completionTokens": 175,
+      "verifiedJourneys": false,
+      "assessment": "Observed DB access-error 751; honest inability to verify trains."
+    },
+    {
+      "variant": "mini",
+      "run": 2,
+      "prompt": "Suche mal zugverbindungen München - Köln für morgen vormittag",
+      "model": "hybridai/gpt-6-luna",
+      "browserProvider": "local",
+      "status": "success",
+      "totalMs": 17935,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 5902,
+          "error": false
+        }
+      ],
+      "modelCalls": 2,
+      "promptTokens": 59144,
+      "completionTokens": 162,
+      "verifiedJourneys": false,
+      "assessment": "Observed DB access-error 751; honest inability to verify trains."
+    }
+  ]
+}
