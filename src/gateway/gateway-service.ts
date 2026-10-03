@@ -675,6 +675,7 @@ import {
   buildGatewayProviderHealth,
   getGatewayAdminProviderStatus,
 } from './provider-status.js';
+import { handleReceiptsCommand } from './receipts-command.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   ResponseRatingNotFoundError,
@@ -12926,6 +12927,9 @@ export async function handleGatewayCommand(
 
       case 'name':
         return handleNameCommand(req, resolveSessionAgentId(session));
+
+      case 'receipts':
+        return handleReceiptsCommand(req, session);
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));

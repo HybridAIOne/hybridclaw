@@ -104,6 +104,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'track',
   'name',
   'timezone',
+  'receipts',
   'channel',
   'ralph',
   'goal',
@@ -676,6 +677,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'timezone':
       return ['timezone', ...parts.slice(1)];
 
+    case 'receipts':
+      return ['receipts', ...parts.slice(1)];
+
     // Sent by companion apps, so it stays out of menus and help.
     case 'device-data':
       return ['device-data', ...parts.slice(1)];
@@ -772,6 +776,14 @@ function buildSlashCommandCatalogDefinitions(
       name: 'timezone',
       description:
         'Your time zone for schedules and dates: show, set <zone>, clear',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps list them with `--json`.
+      name: 'receipts',
+      description:
+        'What the agent did outside its sandbox for you, and who allowed it',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },
