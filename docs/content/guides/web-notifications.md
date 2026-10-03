@@ -73,7 +73,9 @@ phone registers for one app with `[app]`, `hy` when left out. A reply,
 reminder or alert in a conversation last used from the browser, a script or
 another app does not ring the phone, even when the same operator sent it.
 HybridAI signs each alert for the phone's app and refuses to register a phone
-for an app it does not sign for (`"reason": "unknown_app"`).
+for an app it does not sign for (`"reason": "unknown_app"`). A registration
+answer names the phone's `app`; a runtime that does not answer with it rings
+the phone for every app's chats.
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply

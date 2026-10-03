@@ -449,7 +449,13 @@ export async function runPushCommand(
     } catch (error) {
       return reply({ error: (error as Error).message });
     }
-    return reply({ registered: true, relay: readHybridAIApiKey() !== null });
+    // `app` tells an app that this runtime keeps phones per app; an older one
+    // would ring it for every app's chats.
+    return reply({
+      registered: true,
+      relay: readHybridAIApiKey() !== null,
+      app,
+    });
   }
   return reply({
     error:

@@ -65,7 +65,7 @@ function relayed(call = 0) {
 describe('/push command', () => {
   test('registers a phone for the operator that opened the session, and only from web chat', async () => {
     const { store, push, operator } = await modules();
-    expect(await command(push, `push register ${TOKEN.toUpperCase()} production proactive,approval`)).toEqual({ registered: true, relay: true });
+    expect(await command(push, `push register ${TOKEN.toUpperCase()} production proactive,approval`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'], app: 'hy' }]);
     expect(await command(push, 'push status')).toEqual({ devices: 1, relay: true });
     expect(await command(push, `push register ${TOKEN} production`, 'discord-session')).toHaveProperty('error');
@@ -236,7 +236,7 @@ describe('phone delivery', () => {
 
   test('a phone registered for another app rings only for that app, signed for it; older phones are Hy', async () => {
     const { store, push, operator } = await modules();
-    expect(await command(push, `push register ${OTHER_TOKEN} production proactive salescompanion`)).toHaveProperty('registered', true);
+    expect(await command(push, `push register ${OTHER_TOKEN} production proactive salescompanion`)).toEqual({ registered: true, relay: true, app: 'salescompanion' });
     expect(calls('/v1/push/devices')[0].body).toEqual({ token: OTHER_TOKEN, environment: 'production', app: 'salescompanion' });
     expect(await command(push, `push register ${TOKEN} production proactive Bad!`)).toHaveProperty('error');
     // Stored before phones named their app.
@@ -305,7 +305,7 @@ describe('phone delivery', () => {
 describe('binding phones at HybridAI', () => {
   test('register binds the phone to the account first; unregister releases it', async () => {
     const { store, push, operator } = await modules();
-    expect(await command(push, `push register ${TOKEN} sandbox`)).toEqual({ registered: true, relay: true });
+    expect(await command(push, `push register ${TOKEN} sandbox`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(calls('/v1/push/devices')).toEqual([{
       url: 'https://hybridai.example/v1/push/devices',
       method: 'POST',
@@ -333,12 +333,12 @@ describe('binding phones at HybridAI', () => {
   test('HybridAI unreachable: the phone is kept, and releasing it is best effort', async () => {
     const { store, push, operator } = await modules();
     relay.mockRejectedValue(new Error('offline'));
-    expect(await command(push, `push register ${TOKEN} production`)).toEqual({ registered: true, relay: true });
+    expect(await command(push, `push register ${TOKEN} production`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(store.readMobilePushDevices(operator)).toHaveLength(1);
     expect(await command(push, `push unregister ${TOKEN}`)).toEqual({ registered: false });
     expect(store.readMobilePushDevices(operator)).toEqual([]);
     relay.mockResolvedValue(new Response('bad gateway', { status: 502 }));
-    expect(await command(push, `push register ${TOKEN} production`)).toEqual({ registered: true, relay: true });
+    expect(await command(push, `push register ${TOKEN} production`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(JSON.stringify(mocks.warn.mock.calls)).not.toContain(TOKEN);
   });
 
@@ -354,7 +354,7 @@ describe('binding phones at HybridAI', () => {
   test('nothing reaches HybridAI in A2A local mode', async () => {
     const { store, push, operator } = await modules();
     mocks.localMode.value = true;
-    expect(await command(push, `push register ${TOKEN} production proactive`)).toEqual({ registered: true, relay: true });
+    expect(await command(push, `push register ${TOKEN} production proactive`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(await push.notifySessionPhones('session-a', { kind: 'proactive', title: 'x' })).toEqual({ devices: 1, sent: 0 });
     await command(push, `push unregister ${TOKEN}`);
     expect(store.readMobilePushDevices(operator)).toEqual([]);
