@@ -4643,7 +4643,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_fetch',
       description:
-        'Fetch a URL via plain HTTP GET and extract readable content (HTML to markdown/text). No JavaScript execution, no clicks, no form interaction. Use for static read-only retrieval: articles, docs, wikis, READMEs, API JSON/text endpoints, and direct files/PDFs. Avoid for SPAs (React/Vue/Angular/Next client routes), auth/login-gated pages, dashboards/web apps, bot/challenge flows, or content loaded after render via XHR/fetch. Cost: typically ~10-100x cheaper/faster than browser tools. Default to web_fetch for read-only retrieval, then escalate to browser_navigate when output is empty/boilerplate, JavaScript-required, SPA shell-only, or bot-blocked.',
+        'Fetch a URL via plain HTTP GET and extract readable content (HTML to markdown/text). No JavaScript execution, no clicks, no form interaction. Use for static read-only retrieval: articles, docs, wikis, READMEs, API JSON/text endpoints, and direct files/PDFs. Avoid for SPAs (React/Vue/Angular/Next client routes), auth/login-gated pages, dashboards/web apps, bot/challenge flows, or content loaded after render via XHR/fetch. Cost: typically ~10-100x cheaper/faster than browser tools. Default to web_fetch for read-only retrieval, then escalate to browser_navigate when output is empty/boilerplate, JavaScript-required, SPA shell-only, or bot-blocked. YouTube video links return title, channel, description, and the transcript when available.',
       parameters: {
         type: 'object',
         properties: {
