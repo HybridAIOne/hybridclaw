@@ -1161,6 +1161,8 @@ async function processRequestInner(
       ? (ToolCatalog.deferring(
           availableTools,
           deferredTools,
+          // Reviewed reads require matching live/requested trust. Retain this
+          // fail-closed check even when reconnecting changes the next toolset.
           (name) =>
             mcpClientManager?.getToolBehavior(name)?.parallelSafe === true,
         ) ?? undefined)

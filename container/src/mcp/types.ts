@@ -1,6 +1,7 @@
 /**
  * Discovered MCP metadata stays separate from operator scheduling declarations.
- * Approval consumes kind/annotations; only concurrency consumes parallelSafe.
+ * Approval consumes kind/annotations; parallelSafe also identifies reviewed
+ * reads eligible for direct schemas, without granting execution permission.
  */
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';

@@ -85,6 +85,17 @@ function indexSummary(description: string): string {
     : sentence;
 }
 
+function directorySummary(tool: ToolDefinition): string {
+  const parameters = tool.function.parameters;
+  const required = new Set(parameters.required ?? []);
+  const names = Object.keys(parameters.properties ?? {});
+  const shown = names
+    .slice(0, MAX_INDEXED_PARAMETERS)
+    .map((name) => (required.has(name) ? name : `${name}?`));
+  if (names.length > MAX_INDEXED_PARAMETERS) shown.push('…');
+  return `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
+}
+
 class CatalogArgumentError extends Error {}
 
 export class ToolCatalog {
@@ -109,7 +120,6 @@ export class ToolCatalog {
   ): ToolCatalog | null {
     const names = availableTools.map((tool) => tool.function.name);
     if (!names.some((name) => deferredTools.has(name))) return null;
-    let budget = MAX_SCHEMA_CHARS;
     const starters = new Set(
       availableTools
         .filter(
@@ -119,8 +129,14 @@ export class ToolCatalog {
         )
         .map((tool) => tool.function.name),
     );
-    // Engineering choice, 2026-10-03: spend the existing directory budget on
-    // complete small connector definitions first, avoiding catalog round trips.
+    // Reserve all deferred names before spending on complete definitions.
+    // If names alone overflow, keep discovery rather than starving the index.
+    let budget =
+      MAX_SCHEMA_CHARS -
+      availableTools
+        .filter((tool) => !starters.has(tool.function.name))
+        .reduce((size, tool) => size + directorySummary(tool).length + 1, 0);
+    let directSize = 0;
     for (const tool of availableTools
       .filter(
         (tool) =>
@@ -133,9 +149,11 @@ export class ToolCatalog {
           a.function.name.localeCompare(b.function.name),
       )) {
       const size = JSON.stringify(tool).length;
-      if (size > MAX_INLINE_SCHEMA_CHARS || size > budget) continue;
+      const reserved = directorySummary(tool).length + 1;
+      if (size > MAX_INLINE_SCHEMA_CHARS || size - reserved > budget) continue;
       starters.add(tool.function.name);
-      budget -= size;
+      budget -= size - reserved;
+      directSize += size;
     }
     const catalog = new ToolCatalog(
       availableTools,
@@ -144,7 +162,7 @@ export class ToolCatalog {
       'Additional tools, including connected MCP servers, not exposed as direct functions',
     );
     catalog.indexDeferred = true;
-    catalog.indexBudget = budget;
+    catalog.indexBudget = MAX_SCHEMA_CHARS - directSize;
     return catalog;
   }
 
@@ -224,19 +242,12 @@ export class ToolCatalog {
     let budget = this.indexBudget;
     const entries: { summary: string; schema: string; inline: boolean }[] = [];
     for (const tool of deferred) {
-      const parameters = tool.function.parameters;
-      const required = new Set(parameters.required ?? []);
-      const names = Object.keys(parameters.properties ?? {});
-      const shown = names
-        .slice(0, MAX_INDEXED_PARAMETERS)
-        .map((name) => (required.has(name) ? name : `${name}?`));
-      if (names.length > MAX_INDEXED_PARAMETERS) shown.push('…');
-      const summary = `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
+      const summary = directorySummary(tool);
       if (summary.length + 1 > budget) break;
       budget -= summary.length + 1;
       entries.push({
         summary,
-        schema: JSON.stringify(parameters),
+        schema: JSON.stringify(tool.function.parameters),
         inline: false,
       });
     }
