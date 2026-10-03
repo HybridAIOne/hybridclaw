@@ -682,6 +682,7 @@ import {
   submitResponseRating,
 } from './response-ratings.js';
 import { handleScheduleCommand } from './schedule-command.js';
+import { canSeeSession } from './scheduled-task-access.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
@@ -12879,6 +12880,17 @@ export async function handleGatewayCommand(
             'Usage: `audit [sessionId] | audit last | audit turn <n> | audit run <runId>`',
           );
         }
+        const noAuditEvents = plainCommand(
+          `No structured audit events for session \`${targetSessionId}\`.`,
+        );
+        // Another chat's audit holds its tool arguments and results. Answer
+        // as if it were empty so a peer cannot probe which sessions exist.
+        if (
+          !isLocalOperator(req, 'admin.audit.read') &&
+          !canSeeSession(targetSessionId, session)
+        ) {
+          return noAuditEvents;
+        }
         if (!parsedAudit.recentOnly && parsedAudit.selector) {
           const trace = formatAuditTurnTrace({
             sessionId: targetSessionId,
@@ -12892,11 +12904,7 @@ export async function handleGatewayCommand(
         }
 
         const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
-        if (rows.length === 0) {
-          return plainCommand(
-            `No structured audit events for session \`${targetSessionId}\`.`,
-          );
-        }
+        if (rows.length === 0) return noAuditEvents;
         const lines = rows.map((row) => {
           return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
         });
