@@ -6,6 +6,31 @@ sidebar_position: 3
 
 # Runtime Internals
 
+## Channel Target and Lifecycle Dispatch
+
+`src/channels/channel-descriptors.ts` collects each channel's descriptor. Its
+matcher classifies concrete destinations for session resets, proactive delivery,
+scheduled delivery descriptions, and admin statistics. Kind names and aliases
+used by skill configuration are resolved separately by `channel-registry.ts`;
+a kind such as `signal` is not a delivery destination.
+
+The same table drives gateway channel startup, config refresh, plugin availability
+refresh, and shutdown. Channel gateway handlers and senders live beside their
+transport. Descriptors load those handlers on demand so classifying a destination
+does not load an optional SDK. Voice keeps its serialized refresh and drain
+handling in the gateway.
+
+Proactive delivery validates the target before queuing outside active hours.
+Signal phone, UUID, and group targets are supported. Teams and Voice targets can
+be classified for session resets and statistics, but have no proactive sender in
+this table. Only `tui` uses the local pull queue; unsupported destinations fail
+instead of falling through to that queue. Sender failures remain failures and
+never create a local delivery row.
+
+Admin statistics returns `channelKind` for each destination, or `null` when the
+gateway cannot classify it. The console groups these rows by the supplied kind
+and displays unknown destinations individually.
+
 ## Container Runtime Image
 
 HybridClaw runtime commands (`gateway`, `tui`, `onboarding`) use a local Docker

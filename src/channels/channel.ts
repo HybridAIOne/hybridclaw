@@ -16,6 +16,8 @@ export type ChannelKind =
   | 'voice'
   | 'whatsapp';
 
+export type ChannelTargetKind = ChannelKind | 'web' | 'cli';
+
 export const SKILL_CONFIG_CHANNEL_KINDS = [
   'discord',
   'discord_webhook',

@@ -1,14 +1,4 @@
-import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
-import { isEmailAddress } from '../channels/email/allowlist.js';
-import { isIMessageHandle } from '../channels/imessage/handle.js';
-import { isLineChannelId } from '../channels/line/target.js';
-import { isSignalChannelId } from '../channels/signal/target.js';
-import { isSlackChannelTarget } from '../channels/slack/target.js';
-import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
-import { isTelegramChannelId } from '../channels/telegram/target.js';
-import { isThreemaChannelId } from '../channels/threema/target.js';
-import { isVoiceChannelId } from '../channels/voice/channel-id.js';
-import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
 export type SessionResetMode = 'daily' | 'idle' | 'both' | 'none';
@@ -33,33 +23,10 @@ export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   idleMinutes: 1440,
 });
 
-const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
-const LOCAL_SESSION_RESET_CHANNEL_KINDS = new Set([
-  'heartbeat',
-  'tui',
-  'web',
-  'cli',
-]);
-
 export function resolveSessionResetChannelKind(
   channelId?: string | null,
 ): string | undefined {
-  const normalized = typeof channelId === 'string' ? channelId.trim() : '';
-  if (!normalized) return undefined;
-  if (LOCAL_SESSION_RESET_CHANNEL_KINDS.has(normalized)) return normalized;
-  if (isWhatsAppJid(normalized)) return 'whatsapp';
-  if (isLineChannelId(normalized)) return 'line';
-  if (isVoiceChannelId(normalized)) return 'voice';
-  if (isIMessageHandle(normalized)) return 'imessage';
-  if (isSignalChannelId(normalized)) return 'signal';
-  if (isDiscordWebhookChannelTarget(normalized)) return 'discord_webhook';
-  if (isSlackWebhookChannelTarget(normalized)) return 'slack_webhook';
-  if (isSlackChannelTarget(normalized)) return 'slack';
-  if (isTelegramChannelId(normalized)) return 'telegram';
-  if (isThreemaChannelId(normalized)) return 'threema';
-  if (isEmailAddress(normalized)) return 'email';
-  if (DISCORD_CHANNEL_ID_RE.test(normalized)) return 'discord';
-  return undefined;
+  return resolveChannelTargetKind(channelId);
 }
 
 export function normalizeSessionResetMode(

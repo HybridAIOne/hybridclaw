@@ -1,23 +1,13 @@
-import { isDiscordWebhookChannelTarget } from '../channels/discord-webhook/target.js';
+import { getChannelDescriptorForTarget } from '../channels/channel-descriptors.js';
 import { isEmailAddress as isNormalizedEmailAddress } from '../channels/email/allowlist.js';
-import { isIMessageHandle } from '../channels/imessage/handle.js';
-import { isLineChannelId } from '../channels/line/target.js';
-import { isSlackChannelTarget } from '../channels/slack/target.js';
-import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
-import { isTelegramChannelId } from '../channels/telegram/target.js';
-import { isThreemaChannelId } from '../channels/threema/target.js';
-import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { QueuedProactiveMessage } from '../memory/db.js';
 
-const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
+export { isDiscordChannelId } from '../channels/discord/descriptor.js';
+
 const LOCAL_PROACTIVE_PULL_CHANNEL_IDS = new Set(['tui']);
 
 export function isLocalProactivePullChannelId(channelId: string): boolean {
   return LOCAL_PROACTIVE_PULL_CHANNEL_IDS.has(channelId.trim());
-}
-
-export function isDiscordChannelId(channelId: string): boolean {
-  return DISCORD_CHANNEL_ID_RE.test(channelId);
 }
 
 export function isEmailAddress(channelId: string): boolean {
@@ -25,19 +15,10 @@ export function isEmailAddress(channelId: string): boolean {
 }
 
 export function isSupportedProactiveChannelId(channelId: string): boolean {
-  const trimmed = channelId.trim();
-  if (!trimmed) return false;
-  if (isDiscordChannelId(trimmed)) return true;
-  if (isWhatsAppJid(trimmed)) return true;
-  if (isLineChannelId(trimmed)) return true;
-  if (isIMessageHandle(trimmed)) return true;
-  if (isDiscordWebhookChannelTarget(trimmed)) return true;
-  if (isSlackWebhookChannelTarget(trimmed)) return true;
-  if (isSlackChannelTarget(trimmed)) return true;
-  if (isTelegramChannelId(trimmed)) return true;
-  if (isThreemaChannelId(trimmed)) return true;
-  if (isEmailAddress(trimmed)) return true;
-  return isLocalProactivePullChannelId(trimmed);
+  return (
+    isLocalProactivePullChannelId(channelId) ||
+    (getChannelDescriptorForTarget(channelId)?.supportsProactive ?? false)
+  );
 }
 
 export function hasQueuedProactiveDeliveryPath(
