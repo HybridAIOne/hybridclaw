@@ -2821,7 +2821,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 39,
+      defaultValue: 40,
     },
     {
       path: 'voice.allowFrom',
