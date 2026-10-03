@@ -5,6 +5,9 @@ Calendar, Reminders and Health snapshot uploads from the phone already emit
 changes when their content differs; uploading identical content does not wake
 Hy. Periodic checks remain the fallback, including during quiet hours.
 
+Replies retain the original policy’s source, so Hy’s chat attention marker and
+phone notification preferences apply to early checks too.
+
 An event queues a one-shot copy of an enabled, owned `/schedule` task with
 `--reply-only --alert proactive` and a cron expression. It debounces changes
 for 15 seconds, coalesces a pending burst, and allows at most one extra check

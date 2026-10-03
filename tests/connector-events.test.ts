@@ -39,7 +39,7 @@ test('an event wakes the existing scheduler before the next periodic check', asy
   expect(queued?.prompt).not.toContain('event-1');
   await vi.advanceTimersByTimeAsync(15_100);
   expect(runner).toHaveBeenCalledOnce();
-  expect(runner.mock.calls[0][0]).toMatchObject({ taskId: result.taskId, replyOnly: true, taskOwner: { userId: 'alice', sessionId: 'app-alice' } });
+  expect(runner.mock.calls[0][0]).toMatchObject({ taskId: result.taskId, resultSourceTaskId: parent, replyOnly: true, taskOwner: { userId: 'alice', sessionId: 'app-alice' } });
   expect(jobs.getJob(result.taskId!, { kind: 'scheduled_task' })).toBeNull();
   expect(jobs.getJob(parent, { kind: 'scheduled_task' })?.enabled).toBe(1);
 });

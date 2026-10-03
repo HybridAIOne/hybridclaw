@@ -63,6 +63,8 @@ export interface SchedulerDispatchRequest {
   taskId?: number;
   /** Ownership captured before async dispatch; never supplied by a model. */
   taskOwner?: { userId: string; sessionId: string };
+  /** Early checks are attributed to their original policy in chat and push. */
+  resultSourceTaskId?: number;
   jobId?: string;
   agentId?: string;
   sessionId: string;
@@ -724,6 +726,9 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   await taskRunner({
     source: 'scheduled-task',
     taskId: task.id,
+    ...(task.event_parent_id
+      ? { resultSourceTaskId: task.event_parent_id }
+      : {}),
     ...(task.owner_user_id
       ? {
           taskOwner: { userId: task.owner_user_id, sessionId: task.session_id },
