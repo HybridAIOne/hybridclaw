@@ -3749,9 +3749,13 @@ async function executeToolInternal(
       const header = result.title ? `# ${result.title}\n\n` : '';
       const meta = `[${result.extractor}] ${result.finalUrl} (${result.status}, ${result.tookMs}ms)`;
       const lines = [meta];
-      if (result.escalationHint) {
+      if (result.escalationHint === 'bot_blocked') {
         lines.push(
-          `Escalation hint: ${result.escalationHint}. Next retrieval: ${JSON.stringify({ name: 'browser_navigate', arguments: { url: result.finalUrl } })}.`,
+          'Escalation hint: bot_blocked (access denied or a challenge; browser rendering may not resolve it).',
+        );
+      } else if (result.escalationHint) {
+        lines.push(
+          `Escalation hint: ${result.escalationHint}. Next retrieval: ${JSON.stringify({ name: 'browser_navigate', arguments: { url: args.url } })}.`,
         );
       }
       if (result.warning) {

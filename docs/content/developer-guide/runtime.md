@@ -513,15 +513,23 @@ Runtime details:
 
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools
-are exposed directly, smallest first. Review uses the same live/configured
+are exposed directly, smallest first, after reserving space for deferred names.
+The direct limit measures the whole definition; the index limit below measures
+only the input schema. Review uses the same live/configured
 trust and annotation checks as concurrent reads. Other connector tools and
 bulky direct definitions use the catalog. The direct connector definitions and
-remaining index share a 24,000-character budget. The index reserves names before
-including complete input schemas up to 2,000 characters. `action=list` includes small schemas within its
-24,000-character schema budget and requires no `name` argument. The model can execute those tools with
+remaining index share a 24,000-character budget; non-connector direct tools are
+outside that budget. If names alone overflow, the directory reports the omitted
+count and leaves discovery available. The index includes complete input schemas
+up to 2,000 characters with its remaining space. `action=list` uses a separate
+24,000-character schema budget and requires no `name` argument. The model can
+execute those tools with
 `action=call` without a separate `describe` response. Larger schemas keep the
 explicit `describe` step. Discovery does not change the request's exposed
-functions, argument validation, permissions or approvals. Routine lookups use
+functions, argument validation, permissions or approvals. Reconnects and trust
+config changes can change exposure on the next request, invalidating cached
+tool prefixes; a failed replacement never grants the old connection new trust.
+Routine lookups use
 available tools directly; skill discovery is for requested skills or specialized
 workflows. Tools that accept multiple identifiers should fetch independent
 items in one request within the tool's limits.

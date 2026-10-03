@@ -101,6 +101,35 @@ describe('input schemas supplied with catalog discovery', () => {
     expect(ToolCatalog.deferring([small, bulky], new Set([remote.function.name]), () => false)).toBeNull();
   });
 
+  test('reserves every deferred name before promoting reviewed read definitions', () => {
+    const reads = Array.from({ length: 40 }, (_, i) => tool(`records__read_${i}`, { ...parameters, description: 'x'.repeat(1200) }));
+    const mutations = Array.from({ length: 200 }, (_, i) => tool(`records__mutate_${i}`, parameters));
+    const all = [...reads, ...mutations];
+    const reviewed = new Set(reads.map(entry => entry.function.name));
+    const catalog = ToolCatalog.deferring(all, new Set(all.map(entry => entry.function.name)), name => reviewed.has(name))!;
+    const exposed = catalog.tools.filter(entry => entry.function.name !== 'tool_catalog');
+    const prompt = catalog.promptGuidance();
+    const deferred = all.filter(entry => !exposed.includes(entry));
+    expect(exposed.length).toBeGreaterThan(0);
+    for (const entry of deferred) expect(prompt).toContain(`- ${entry.function.name}(`);
+    expect(prompt).not.toMatch(/…and \d+ more/);
+    const directory = prompt.split('\n').filter(line => line.startsWith('- ') || line.startsWith('  parameters: ')).join('\n');
+    expect(exposed.reduce((size, entry) => size + JSON.stringify(entry).length, 0) + directory.length).toBeLessThanOrEqual(24_000);
+  });
+
+  test.each([0, 24_000])('reports the exact omitted name count with a %i-character index budget', (budget) => {
+    const targets = Array.from({ length: 1000 }, (_, i) => tool(`records__lookup_${i}`, parameters));
+    const catalog = ToolCatalog.deferring(targets, new Set(targets.map(entry => entry.function.name)), () => true)!;
+    const internals = catalog as unknown as { indexBudget: number };
+    internals.indexBudget = budget;
+    const prompt = catalog.promptGuidance();
+    const shown = prompt.split('\n').filter(line => line.startsWith('- ')).length;
+    expect(shown).toBeLessThan(targets.length);
+    expect(Number(/…and (\d+) more/.exec(prompt)![1])).toBe(targets.length - shown);
+    if (budget === 0) expect(shown).toBe(0);
+    expect(catalog.tools.map(entry => entry.function.name)).toEqual(['tool_catalog']);
+  });
+
   test('exposes only reviewed small reads directly and shares their directory budget', () => {
     const targets = Array.from({ length: 40 }, (_, i) => tool(`records__read_${i}`, { ...parameters, description: 'x'.repeat(1200) }));
     const mutation = tool('records__mutate', parameters);

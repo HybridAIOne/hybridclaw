@@ -46,6 +46,30 @@ function makeHandle(serverName: string, toolName: string): McpClientHandle {
 }
 
 describe('McpClientManager tool namespacing', () => {
+  test('reconnect changes future exposure while keeping the current request stable', () => {
+    const manager = new McpClientManager();
+    const internals = manager as unknown as ManagerInternals;
+    const handle = makeHandle('mail', 'lookup');
+    handle.tools[0].annotations = { readOnlyHint: true };
+    handle.config.toolBehavior = { trustAnnotations: true };
+    internals.configs.set('mail', handle.config);
+    internals.clients.set('mail', handle);
+    internals.rebuildToolIndex();
+    const definitions = manager.getAllToolDefinitions();
+    const deferred = new Set(['mail__lookup']);
+    const catalog = () => ToolCatalog.deferring(definitions, deferred, name => manager.getToolBehavior(name)?.parallelSafe === true)!;
+    const current = catalog();
+    const offered = JSON.stringify(current.tools);
+    expect(current.tools.map(tool => tool.function.name)).toEqual(['mail__lookup']);
+    handle.healthy = false;
+    internals.rebuildToolIndex();
+    expect(catalog().tools.map(tool => tool.function.name)).toEqual(['tool_catalog']);
+    expect(JSON.stringify(current.tools)).toBe(offered);
+    handle.healthy = true;
+    internals.rebuildToolIndex();
+    expect(catalog().tools).toEqual(current.tools);
+  });
+
   test('rejects malformed IPC declarations before connecting or changing config', async () => {
     const manager = new McpClientManager();
     const internals = manager as unknown as ManagerInternals;
