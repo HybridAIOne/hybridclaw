@@ -20,6 +20,7 @@ import type {
 } from '../agents/team-structure.js';
 import type {
   ChannelKind,
+  ChannelTargetKind,
   SkillConfigChannelKind,
 } from '../channels/channel.js';
 import type { DiscordWebhookSendResult } from '../channels/discord-webhook/delivery.js';
@@ -850,6 +851,7 @@ export interface GatewayAdminStatisticsTrendDay {
 
 export interface GatewayAdminStatisticsChannelRow {
   channelId: string;
+  channelKind: ChannelTargetKind | null;
   sessionCount: number;
   userMessages: number;
   assistantMessages: number;

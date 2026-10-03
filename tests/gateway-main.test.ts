@@ -776,6 +776,7 @@ async function importFreshGatewayMain(options?: {
       );
     }),
     isSupportedProactiveChannelId: vi.fn(() => true),
+    isLocalProactivePullChannelId: vi.fn((id: string) => id.trim() === 'tui'),
     resolveHeartbeatDeliveryChannelId: vi.fn(() => '123456789012345678'),
     resolveLastUsedDeliverableChannelId: vi.fn(() => '123456789012345678'),
     shouldDropQueuedProactiveMessage: vi.fn(() => false),
@@ -792,7 +793,8 @@ async function importFreshGatewayMain(options?: {
   }));
 
   await import('../src/gateway/gateway.ts');
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  const bootstrapDeadline = Date.now() + 10_000;
+  while (Date.now() < bootstrapDeadline) {
     await settle();
     if (
       options?.skipBootstrapHandlerCheck ||
@@ -1495,16 +1497,7 @@ describe('gateway bootstrap', () => {
     expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.initWhatsApp).toHaveBeenCalledTimes(1);
     expect(state.whatsappMessageHandler).not.toBeNull();
-    expectInfoLog(
-      state,
-      'Config changed, restarting WhatsApp integration',
-      expect.objectContaining({
-        dmPolicy: 'pairing',
-        groupPolicy: 'disabled',
-        allowFromCount: 0,
-        groupAllowFromCount: 0,
-      }),
-    );
+    expectInfoLog(state, 'Config changed, restarting channel integration', { channel: 'whatsapp' });
   });
 
   test('fails last-channel scheduled jobs when no deliverable channel exists', async () => {
@@ -2076,14 +2069,7 @@ describe('gateway bootstrap', () => {
     expect(state.initMSTeams).toHaveBeenCalledTimes(1);
     expect(state.teamsMessageHandler).toEqual(expect.any(Function));
     expect(state.teamsCommandHandler).toEqual(expect.any(Function));
-    expectInfoLog(
-      state,
-      'Config changed, refreshing Microsoft Teams integration',
-      {
-        enabled: true,
-        webhookPath: '/api/msteams/messages',
-      },
-    );
+    expectInfoLog(state, 'Config changed, restarting channel integration', { channel: 'msteams' });
   });
 
   test('formats command replies based on gateway command result kind', async () => {
@@ -3413,15 +3399,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
     expect(state.initEmail).toHaveBeenCalledTimes(2);
-    expectInfoLog(
-      state,
-      'Config changed, restarting email integration',
-      expect.objectContaining({
-        address: 'bot@example.com',
-        smtpHost: 'smtp.example.com',
-        smtpSecure: true,
-      }),
-    );
+    expectInfoLog(state, 'Config changed, restarting channel integration', { channel: 'email' });
   });
 
   test('does not restart Telegram integration when Telegram config values are unchanged', async () => {
@@ -3485,17 +3463,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
     expect(state.initTelegram).toHaveBeenCalledTimes(2);
-    expectInfoLog(
-      state,
-      'Config changed, restarting Telegram integration',
-      expect.objectContaining({
-        enabled: true,
-        dmPolicy: 'allowlist',
-        groupPolicy: 'disabled',
-        pollIntervalMs: 1_500,
-        requireMention: false,
-      }),
-    );
+    expectInfoLog(state, 'Config changed, restarting channel integration', { channel: 'telegram' });
   });
 
   test('does not restart Slack integration when Slack allowlists only change order', async () => {
@@ -3553,17 +3521,7 @@ describe('gateway bootstrap', () => {
 
     expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
     expect(state.initSlack).toHaveBeenCalledTimes(2);
-    expectInfoLog(
-      state,
-      'Config changed, restarting Slack integration',
-      expect.objectContaining({
-        enabled: true,
-        dmPolicy: 'allowlist',
-        groupPolicy: 'allowlist',
-        requireMention: true,
-        replyStyle: 'top-level',
-      }),
-    );
+    expectInfoLog(state, 'Config changed, restarting channel integration', { channel: 'slack' });
   });
 
   test('SIGTERM shutdown drains in-flight turns before stopping executors and channels', async () => {
