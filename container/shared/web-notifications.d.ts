@@ -24,4 +24,9 @@ export interface MobilePushDevice {
   environment: 'sandbox' | 'production';
   /** Notification kinds the app handles; nothing else is sent to it. */
   kinds: string[];
+  /**
+   * The app the phone belongs to, as it names itself in a chat's `client`.
+   * Only chats from that app ring it. Absent: Hy (`mobile`).
+   */
+  client?: string;
 }

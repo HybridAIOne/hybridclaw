@@ -3477,7 +3477,11 @@ async function handleApiChat(
   );
 
   if (channelId === 'web' && operatorId)
-    trackWebNotificationSession(chatRequest.sessionId, operatorId);
+    trackWebNotificationSession(
+      chatRequest.sessionId,
+      operatorId,
+      chatRequest.client,
+    );
   if (wantsStream) {
     await handleApiChatStream(res, chatRequest, operatorId, adminActions);
     return;

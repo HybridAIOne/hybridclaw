@@ -18,6 +18,7 @@ test('gateway session deletion removes notification ownership and unread alerts 
   const retained = getOrCreateSession('notification-retain', null, 'web', 'main');
   const operator = store.notificationOperatorId('user-a');
   for (const sessionId of [session.id, retained.id]) {
+    store.bindWebNotificationSession(sessionId, operator, 'mobile');
     store.recordWebNotification({ id: sessionId, sessionId, kind: 'turn', agentId: 'main', title: 'Finished', createdAt: 1 }, operator);
   }
   storeMessage(session.id, 'user-a', null, 'user', 'test');
@@ -29,4 +30,5 @@ test('gateway session deletion removes notification ownership and unread alerts 
   expect(deleteGatewayAdminSession(session.id).deleted).toBe(false);
   const persisted = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web-notifications.json'), 'utf8'));
   expect(persisted.sessions).toEqual({ [store.notificationOperatorId(retained.id)]: operator });
+  expect(persisted.sessionClients).toEqual({ [store.notificationOperatorId(retained.id)]: 'mobile' });
 });

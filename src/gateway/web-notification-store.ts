@@ -26,6 +26,9 @@ interface OperatorState {
 interface NotificationStore {
   operators: Record<string, OperatorState>;
   sessions: Record<string, string>;
+  // The app (`client`) each session was last chatted in from, by session key.
+  // Absent in stores written before phones were matched to their app.
+  sessionClients?: Record<string, string>;
 }
 
 const storePath = path.join(DATA_DIR, 'web-notifications.json');
@@ -77,15 +80,57 @@ function operatorState(
   return store.operators[operatorId];
 }
 
+/**
+ * The operator that first chats in a session owns it. Each chat also records
+ * the app it came from (`client`, none for the browser or a script), so only
+ * phones of that app ring for the session (issue #1781).
+ */
 export function bindWebNotificationSession(
   sessionId: string,
   operatorId: string,
+  client?: string,
 ): void {
   const store = readStore();
   const key = notificationOperatorId(sessionId);
-  if (store.sessions[key]) return;
+  const owner = store.sessions[key];
+  if (owner && owner !== operatorId) return;
+  if (owner && store.sessionClients?.[key] === client) return;
   store.sessions[key] = operatorId;
+  store.sessionClients ??= {};
+  if (client) store.sessionClients[key] = client;
+  else delete store.sessionClients[key];
   writeStore(store);
+}
+
+// A phone registered before phones named their app is Hy's (`mobile`).
+function deviceClient(device: MobilePushDevice): string {
+  return device.client ?? 'mobile';
+}
+
+// The phones that ring for a session: its owner's phones of the app the
+// session was last chatted in from. None for a chat no phone app opened, such
+// as one from the browser, a script or another HybridAI app.
+function sessionDevices(
+  store: NotificationStore,
+  key: string,
+  state: OperatorState,
+): MobilePushDevice[] {
+  const client = store.sessionClients?.[key];
+  if (!client) return [];
+  return Object.values(state.devices ?? {}).filter(
+    (device) => deviceClient(device) === client,
+  );
+}
+
+/** The phones that ring for `sessionId`; none for a session no one owns. */
+export function readSessionMobilePushDevices(
+  sessionId: string,
+): MobilePushDevice[] {
+  const store = readStore();
+  const key = notificationOperatorId(sessionId);
+  const operatorId = store.sessions[key];
+  if (!operatorId) return [];
+  return sessionDevices(store, key, operatorState(store, operatorId));
 }
 
 // The operator that first chatted in a session owns it, or null for other
@@ -103,6 +148,7 @@ export function deleteWebNotificationSession(sessionId: string): void {
   const operatorId = store.sessions[key];
   if (!operatorId) return;
   delete store.sessions[key];
+  delete store.sessionClients?.[key];
   const state = operatorState(store, operatorId);
   state.notifications = state.notifications.filter(
     (notification) => notification.sessionId !== sessionId,
@@ -230,7 +276,7 @@ export function recordWebNotification(
       notifications: state.notifications,
     },
     subscriptions: Object.values(state.subscriptions),
-    devices: Object.values(state.devices ?? {}),
+    devices: sessionDevices(store, key, state),
   };
 }
 

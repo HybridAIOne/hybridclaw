@@ -45,9 +45,10 @@ const titles: Record<WebNotificationKind, string> = {
 export function trackWebNotificationSession(
   sessionId: string,
   operatorId: string,
+  client?: string,
 ): boolean {
   try {
-    bindWebNotificationSession(sessionId, operatorId);
+    bindWebNotificationSession(sessionId, operatorId, client);
     return true;
   } catch {
     logger.warn('Could not bind web notifications to the conversation');

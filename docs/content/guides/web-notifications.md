@@ -52,7 +52,7 @@ A phone app registers itself by sending a command in web chat. The phone
 belongs to the operator who opened that conversation, like a browser:
 
 ```
-/push register <APNs token in hex> <sandbox|production> [kind,kind]
+/push register <APNs token in hex> <sandbox|production> [kind,kind] [client]
 /push unregister <APNs token in hex>
 /push status
 ```
@@ -64,6 +64,13 @@ gets those from plugins that send them, or from tasks added with
 `/schedule add --alert <kind>`, whose alert shows the first item a run lists,
 or the reply itself for a task added with `--reply-only` as well. Each operator can register up to 16
 phones; registering a phone another operator holds moves it.
+
+A phone rings only for conversations its own app chats in. Each web chat
+request records the app it came from, the `client` field of `/api/chat`
+(`mobile` for the Hy phone app, none for the browser or a script), and
+a phone registers for one app with `[client]`, `mobile` when left out. A reply,
+reminder or alert in a conversation last used from the browser, a script or
+another app does not ring the phone, even when the same operator sent it.
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply

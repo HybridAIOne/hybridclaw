@@ -41,7 +41,7 @@ async function modules() {
   const push = await import('../src/gateway/mobile-push.js');
   const notifications = await import('../src/gateway/web-notifications.js');
   const operator = store.notificationOperatorId('local-operator');
-  store.bindWebNotificationSession('session-a', operator);
+  store.bindWebNotificationSession('session-a', operator, 'mobile');
   return { store, push, notifications, operator };
 }
 
@@ -66,7 +66,7 @@ describe('/push command', () => {
   test('registers a phone for the operator that opened the session, and only from web chat', async () => {
     const { store, push, operator } = await modules();
     expect(await command(push, `push register ${TOKEN.toUpperCase()} production proactive,approval`)).toEqual({ registered: true, relay: true });
-    expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'] }]);
+    expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'], client: 'mobile' }]);
     expect(await command(push, 'push status')).toEqual({ devices: 1, relay: true });
     expect(await command(push, `push register ${TOKEN} production`, 'discord-session')).toHaveProperty('error');
     expect(fs.statSync(`${directory}/web-notifications.json`).mode & 0o777).toBe(0o600);
@@ -77,11 +77,11 @@ describe('/push command', () => {
   test('a phone moves when another operator registers it; browsers kinds are the default', async () => {
     const { store, push, operator } = await modules();
     const other = store.notificationOperatorId('apiToken:token-b');
-    store.bindWebNotificationSession('session-b', other);
+    store.bindWebNotificationSession('session-b', other, 'mobile');
     await command(push, `push register ${TOKEN} sandbox`);
     await command(push, `push register ${TOKEN} sandbox`, 'session-b');
     expect(store.readMobilePushDevices(operator)).toEqual([]);
-    expect(store.readMobilePushDevices(other)).toEqual([{ token: TOKEN, environment: 'sandbox', kinds: ['turn', 'reminder', 'approval'] }]);
+    expect(store.readMobilePushDevices(other)).toEqual([{ token: TOKEN, environment: 'sandbox', kinds: ['turn', 'reminder', 'approval'], client: 'mobile' }]);
     // Unregistering from the first operator cannot drop the second one's phone.
     await command(push, `push unregister ${TOKEN}`);
     expect(store.readMobilePushDevices(other)).toHaveLength(1);
@@ -210,6 +210,45 @@ describe('phone delivery', () => {
     expect(calls()).toHaveLength(0);
   });
 
+  test('a phone rings only for chats its own app opened (#1781)', async () => {
+    const { store, push, notifications, operator } = await modules();
+    await command(push, `push register ${TOKEN} production turn,reminder,proactive`);
+    // Same account, another app or a script: no client, so no Hy alert.
+    store.bindWebNotificationSession('sales-companion', operator);
+    const turn = (sessionId: string, id: number) =>
+      notifications.notifyWebChatResult(operator, { sessionId, channelId: 'web', guildId: null, userId: 'u', username: null, content: 'hi' }, { status: 'success', result: 'reply', messageRole: 'assistant', toolsUsed: [], assistantMessageId: id });
+    turn('sales-companion', 1);
+    expect(await push.notifySessionPhones('sales-companion', { kind: 'proactive', title: 'x' })).toEqual({ devices: 0, sent: 0 });
+    expect(store.recordWebNotification({ id: 'r1', sessionId: 'sales-companion', kind: 'reminder', agentId: null, title: 'x', createdAt: 1 })?.devices).toEqual([]);
+    turn('session-a', 2);
+    await vi.waitFor(() => expect(calls()).toHaveLength(1));
+    expect(relayed().body.payload.sessionId).toBe('session-a');
+
+    // A chat last used from the browser stops ringing; from the app again, it rings.
+    store.bindWebNotificationSession('session-a', operator);
+    expect(store.readSessionMobilePushDevices('session-a')).toEqual([]);
+    store.bindWebNotificationSession('session-a', operator, 'mobile');
+    expect(store.readSessionMobilePushDevices('session-a')).toHaveLength(1);
+    // Another operator cannot change the app of a chat it does not own.
+    store.bindWebNotificationSession('session-a', store.notificationOperatorId('apiToken:token-b'));
+    expect(store.readSessionMobilePushDevices('session-a')).toHaveLength(1);
+  });
+
+  test('a phone registered for another app rings only for that app; older phones are Hy', async () => {
+    const { store, push, operator } = await modules();
+    expect(await command(push, `push register ${OTHER_TOKEN} production proactive salescompanion`)).toHaveProperty('registered', true);
+    expect(await command(push, `push register ${TOKEN} production proactive Bad!`)).toHaveProperty('error');
+    // Stored before phones named their app.
+    const file = `${directory}/web-notifications.json`;
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    saved.operators[operator].devices[store.notificationOperatorId(TOKEN)] = { token: TOKEN, environment: 'production', kinds: ['proactive'] };
+    fs.writeFileSync(file, JSON.stringify(saved));
+    expect(store.readSessionMobilePushDevices('session-a').map((device) => device.token)).toEqual([TOKEN]);
+    store.bindWebNotificationSession('session-c', operator, 'salescompanion');
+    expect(store.readSessionMobilePushDevices('session-c').map((device) => device.token)).toEqual([OTHER_TOKEN]);
+    expect(await command(push, 'push status')).toEqual({ devices: 2, relay: true });
+  });
+
   test('a phone HybridAI does not know for this account is bound once and the alert retried once', async () => {
     const { store, push, operator } = await modules();
     // Registered while HybridAI was unreachable.
@@ -281,7 +320,7 @@ describe('binding phones at HybridAI', () => {
   test('the phone stays bound while another operator here still holds it', async () => {
     const { store, push } = await modules();
     const other = store.notificationOperatorId('apiToken:token-b');
-    store.bindWebNotificationSession('session-b', other);
+    store.bindWebNotificationSession('session-b', other, 'mobile');
     await command(push, `push register ${TOKEN} sandbox`, 'session-b');
     await command(push, `push unregister ${TOKEN}`);
     expect(calls('/v1/push/devices').map((call) => call.method)).toEqual(['POST']);

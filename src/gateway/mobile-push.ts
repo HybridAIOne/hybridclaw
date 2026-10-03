@@ -25,6 +25,7 @@ import {
   deleteMobilePushDevice,
   mobilePushDeviceHeld,
   readMobilePushDevices,
+  readSessionMobilePushDevices,
   saveMobilePushDevice,
   webNotificationSessionOperator,
 } from './web-notification-store.js';
@@ -197,16 +198,17 @@ export async function sendMobilePush(
   return result;
 }
 
-/** Alerts the phones of whoever opened `sessionId` in web chat. */
+/**
+ * Alerts the phones of whoever opened `sessionId` in web chat, of the app the
+ * chat was last used from.
+ */
 export async function notifySessionPhones(
   sessionId: string,
   message: MobilePushMessage,
 ): Promise<MobilePushResult> {
   if (!KIND_PATTERN.test(message.kind))
     throw new Error('Push kind must be a short lowercase identifier.');
-  const operatorId = webNotificationSessionOperator(sessionId);
-  if (!operatorId) return { devices: 0, sent: 0 };
-  return sendMobilePush(readMobilePushDevices(operatorId), message);
+  return sendMobilePush(readSessionMobilePushDevices(sessionId), message);
 }
 
 /**
@@ -342,10 +344,12 @@ function reply(value: Record<string, unknown>): string {
 }
 
 /**
- * `/push register <token> <sandbox|production> [kind,kind]`,
+ * `/push register <token> <sandbox|production> [kind,kind] [client]`,
  * `/push unregister <token>`, `/push status`. Answers one line of JSON for
  * the app that sends it. Phones belong to the operator the web session was
- * opened by, so the command works from web chat only.
+ * opened by, so the command works from web chat only. `client` is the app the
+ * phone belongs to, as its chats name it; only chats from that app ring the
+ * phone. It defaults to Hy's, `mobile`.
  */
 export async function runPushCommand(
   args: string[],
@@ -383,6 +387,9 @@ export async function runPushCommand(
     const kinds = args[4] ? args[4].split(',') : DEFAULT_KINDS;
     if (kinds.length > 8 || !kinds.every((kind) => KIND_PATTERN.test(kind)))
       return reply({ error: 'Expected up to 8 comma-separated kinds.' });
+    const client = (args[5] || 'mobile').toLowerCase();
+    if (!KIND_PATTERN.test(client))
+      return reply({ error: 'Expected the app as one lowercase word.' });
     // Unreachable or unconfigured: kept anyway, bound on its first alert.
     const apiKey = relayKey();
     if (apiKey && (await bind(apiKey, { token, environment })) === 'taken') {
@@ -399,6 +406,7 @@ export async function runPushCommand(
         token,
         environment,
         kinds: [...new Set(kinds)],
+        client,
       });
     } catch (error) {
       return reply({ error: (error as Error).message });
@@ -407,6 +415,6 @@ export async function runPushCommand(
   }
   return reply({
     error:
-      'Usage: /push register <token> <sandbox|production> [kinds] | unregister <token> | status',
+      'Usage: /push register <token> <sandbox|production> [kinds] [client] | unregister <token> | status',
   });
 }
