@@ -431,9 +431,9 @@ because they change the host dependency state.
 HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list
-- `skills.channelDisabled.<channel>` blocks a skill in one channel. Current
-  channel keys include `discord`, `msteams`, `signal`, `slack`, `telegram`,
-  `voice`, `whatsapp`, `email`, and `imessage`.
+- `skills.channelDisabled.<channel>` blocks a skill in one transport channel,
+  including Threema (`threema`) and iMessage (`imessage`). TUI uses the global
+  disabled list; `heartbeat` and `scheduler` are not channel configuration scopes.
 
 Operator surfaces:
 
@@ -557,6 +557,8 @@ Lifecycle commands update `skills.installed`, write audit events, and store
 package snapshots in the existing runtime config revision database as `skill`
 assets. `manifest.supported_channels` is enforced during skill loading so a
 skill is not advertised in unsupported channel contexts.
+Without an explicit channel restriction, skills support all non-system channel
+kinds, including Threema and TUI.
 
 See [How to Ship a Business Skill](../guides/skills/business-skills.md) for the
 operator-facing packaging contract.

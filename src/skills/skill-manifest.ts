@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import YAML from 'yaml';
 
-import type { ChannelKind } from '../channels/channel.js';
+import {
+  type ChannelKind,
+  NON_SYSTEM_CHANNEL_KINDS,
+} from '../channels/channel.js';
 import { normalizeChannelKind } from '../channels/channel-registry.js';
 import { parseSecretInput } from '../security/secret-refs.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -63,21 +66,8 @@ export interface SkillManifestParseOptions {
   requireVersion?: boolean;
 }
 
-export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
-  'discord',
-  'discord_webhook',
-  'email',
-  'imessage',
-  'line',
-  'msteams',
-  'signal',
-  'slack',
-  'slack_webhook',
-  'telegram',
-  'tui',
-  'voice',
-  'whatsapp',
-];
+export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] =
+  NON_SYSTEM_CHANNEL_KINDS;
 
 const SEMVERISH_RE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$/;
