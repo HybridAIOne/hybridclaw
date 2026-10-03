@@ -62,7 +62,7 @@ describe('HybridAI connectors MCP auto registration', () => {
           Authorization: 'Bearer hai-test-secret',
         },
         enabled: true,
-        toolBehavior: { overrides: { web_search: 'read-only' } },
+        toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only' } },
       },
     });
   });
@@ -109,7 +109,7 @@ describe('HybridAI connectors MCP auto registration', () => {
         'X-Trace': 'test',
       },
       enabled: true,
-      toolBehavior: { overrides: { web_search: 'read-only' } },
+      toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only' } },
     });
   });
 
@@ -124,7 +124,7 @@ describe('HybridAI connectors MCP auto registration', () => {
             url: 'https://hybridai.one/api/v1/connectors/mcp',
             toolBehavior: {
               trustAnnotations: true,
-              overrides: { web_search: 'mutation', list_connectors: 'read-only' },
+              overrides: { web_search: 'mutation', dm__searchProducts: 'mutation', list_connectors: 'read-only' },
             },
           },
         },
@@ -132,8 +132,21 @@ describe('HybridAI connectors MCP auto registration', () => {
       ).hybridai?.toolBehavior,
     ).toEqual({
       trustAnnotations: true,
-      overrides: { web_search: 'mutation', list_connectors: 'read-only' },
+      overrides: { web_search: 'mutation', dm__searchProducts: 'mutation', dm__getProductDetails: 'read-only', list_connectors: 'read-only' },
     });
+  });
+
+  test('admits only reviewed reads and retains conflicting annotation barriers', async () => {
+    const { withAutoHybridAIConnectorsMcpServer } = await importHelper();
+    const { isParallelSafeMcpTool } = await import('../container/src/mcp/tool-concurrency.ts');
+    const server = withAutoHybridAIConnectorsMcpServer({}, { apiKey: 'test-key' }).hybridai;
+    expect(server.toolBehavior?.trustAnnotations).not.toBe(true);
+    for (const name of Object.keys(server.toolBehavior!.overrides!)) {
+      expect(isParallelSafeMcpTool(server, name, { readOnlyHint: true })).toBe(true);
+      expect(isParallelSafeMcpTool(server, name, { readOnlyHint: false })).toBe(false);
+      expect(isParallelSafeMcpTool(server, name, { destructiveHint: true })).toBe(false);
+    }
+    expect(isParallelSafeMcpTool(server, 'unknown__lookup', { readOnlyHint: true })).toBe(false);
   });
 
   test('can remap local gateway URLs for Docker runtime', async () => {
