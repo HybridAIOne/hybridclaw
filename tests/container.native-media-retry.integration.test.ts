@@ -218,7 +218,7 @@ async function startWorker(reply: (messages: ChatMessage[]) => ModelReply) {
     mediaRequests: () =>
       requests.filter((request) => !isWarmUp(request.messages)),
     /** Tool-start progress lines, the ones the gateway parses. */
-    toolStarts: () => stderr.match(/^\[tool\] read: /gm)?.length ?? 0,
+    toolStarts: () => stderr.match(/^\[tool\] read(?: \[[^\]]*\])*: /gm)?.length ?? 0,
     runMediaTurn: async (site: RequestSite): Promise<ContainerOutput> => {
       if (site === 'first') {
         child.stdin?.write(
