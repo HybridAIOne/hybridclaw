@@ -406,6 +406,7 @@ describe('McpClientManager deferred loading', () => {
       const catalog = ToolCatalog.deferring(
         tools,
         new Set(manager.getDeferLoadingToolNames(tools)),
+        (name) => manager.getToolBehavior(name)?.parallelSafe === true,
       );
       return {
         tools: JSON.stringify(catalog?.tools),

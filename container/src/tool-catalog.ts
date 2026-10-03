@@ -1,6 +1,6 @@
 /**
  * Stable request schemas and bounded discovery for admitted tools only.
- * Local requests choose starters; remote requests defer MCP and bulky schemas.
+ * Local requests choose starters; remote requests defer bulky schemas.
  * Small schemas travel with discovery; large ones require describe. Deferred
  * calls are validated and unwrap before approval/audit; unlike tools.ts this
  * module never executes actions or grants permissions.
@@ -98,35 +98,58 @@ export class ToolCatalog {
   >();
 
   /**
-   * Defer the named tools and bulky schemas when discovery is needed.
+   * Expose small connector schemas directly; defer overflow and bulky tools.
    * Returns null when none of the named tools is available, preserving the
    * plain tool array for requests without deferred connectors.
    */
   static deferring(
     availableTools: ToolDefinition[],
     deferredTools: ReadonlySet<string>,
+    isReviewedRead: (name: string) => boolean,
   ): ToolCatalog | null {
     const names = availableTools.map((tool) => tool.function.name);
     if (!names.some((name) => deferredTools.has(name))) return null;
+    let budget = MAX_SCHEMA_CHARS;
+    const starters = new Set(
+      availableTools
+        .filter(
+          (tool) =>
+            !deferredTools.has(tool.function.name) &&
+            JSON.stringify(tool).length <= MAX_INLINE_SCHEMA_CHARS,
+        )
+        .map((tool) => tool.function.name),
+    );
+    // Engineering choice, 2026-10-03: spend the existing directory budget on
+    // complete small connector definitions first, avoiding catalog round trips.
+    for (const tool of availableTools
+      .filter(
+        (tool) =>
+          deferredTools.has(tool.function.name) &&
+          isReviewedRead(tool.function.name),
+      )
+      .sort(
+        (a, b) =>
+          JSON.stringify(a).length - JSON.stringify(b).length ||
+          a.function.name.localeCompare(b.function.name),
+      )) {
+      const size = JSON.stringify(tool).length;
+      if (size > MAX_INLINE_SCHEMA_CHARS || size > budget) continue;
+      starters.add(tool.function.name);
+      budget -= size;
+    }
     const catalog = new ToolCatalog(
       availableTools,
-      new Set(
-        availableTools
-          .filter(
-            (tool) =>
-              !deferredTools.has(tool.function.name) &&
-              JSON.stringify(tool).length <= MAX_INLINE_SCHEMA_CHARS,
-          )
-          .map((tool) => tool.function.name),
-      ),
+      starters,
       false,
       'Additional tools, including connected MCP servers, not exposed as direct functions',
     );
     catalog.indexDeferred = true;
+    catalog.indexBudget = budget;
     return catalog;
   }
 
   private indexDeferred = false;
+  private indexBudget = MAX_SCHEMA_CHARS;
 
   constructor(
     availableTools: ToolDefinition[],
@@ -198,7 +221,7 @@ export class ToolCatalog {
     );
     // Reserve names before schemas, so large early schemas cannot hide later
     // tools. Spend the remaining text budget on complete, smallest schemas.
-    let budget = MAX_SCHEMA_CHARS;
+    let budget = this.indexBudget;
     const entries: { summary: string; schema: string; inline: boolean }[] = [];
     for (const tool of deferred) {
       const parameters = tool.function.parameters;

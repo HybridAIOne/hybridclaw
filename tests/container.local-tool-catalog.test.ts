@@ -221,7 +221,7 @@ describe('deferred MCP tools behind the catalog', () => {
   const deferred = new Set(mcp.map((entry) => entry.function.name));
 
   test('keeps every non-MCP tool exposed and routes MCP tools through tool_catalog', () => {
-    const catalog = ToolCatalog.deferring([...builtins, ...mcp], deferred)!;
+    const catalog = ToolCatalog.deferring([...builtins, ...mcp], deferred, () => false)!;
     expect(catalog.tools.map((entry) => entry.function.name)).toEqual(['bash', 'read', 'skills_list', 'tool_catalog']);
     const listed = JSON.parse(catalog.discoveryResult(catalogCall({ action: 'list', query: 'crm contacts' }))!.output);
     expect(listed.tools.map((entry: { name: string }) => entry.name)).toEqual(['crm__search', 'crm__create_note']);
@@ -243,12 +243,12 @@ describe('deferred MCP tools behind the catalog', () => {
         parameters: { type: 'object', properties: { query: { type: 'string' }, store_id: { type: 'string' } }, required: ['query'] },
       },
     };
-    const prompt = ToolCatalog.deferring([...builtins, search, ...mcp], new Set([search.function.name, ...deferred]))!.promptGuidance();
+    const prompt = ToolCatalog.deferring([...builtins, search, ...mcp], new Set([search.function.name, ...deferred]), () => false)!.promptGuidance();
     expect(prompt).toContain("- hybridai__dm__search_products(query, store_id?): Searches dm's range with prices.");
     expect(prompt).toContain('- crm__create_note(): crm__create_note');
     expect(prompt).not.toContain('- bash(');
     const many = Array.from({ length: 45 }, (_, i) => tool(`crm__tool_${i}`));
-    const cappedCatalog = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)))!;
+    const cappedCatalog = ToolCatalog.deferring(many, new Set(many.map((entry) => entry.function.name)), () => false)!;
     const capped = cappedCatalog.promptGuidance();
     expect(capped).toContain('- crm__tool_39(');
     expect(capped).toContain('- crm__tool_44(');
@@ -261,12 +261,12 @@ describe('deferred MCP tools behind the catalog', () => {
     expect(new ToolCatalog(builtins, ['read']).promptGuidance()).not.toContain('with their parameters');
   });
   test('is not created when the request holds no deferred tool', () => {
-    expect(ToolCatalog.deferring(builtins, deferred)).toBeNull();
-    expect(ToolCatalog.deferring([], deferred)).toBeNull();
+    expect(ToolCatalog.deferring(builtins, deferred, () => false)).toBeNull();
+    expect(ToolCatalog.deferring([], deferred, () => false)).toBeNull();
   });
   test('is not capped at nine starters and names MCP servers in its guidance', () => {
     const many = Array.from({ length: 30 }, (_, i) => tool(`builtin_${i}`));
-    const catalog = ToolCatalog.deferring([...many, ...mcp], deferred)!;
+    const catalog = ToolCatalog.deferring([...many, ...mcp], deferred, () => false)!;
     expect(catalog.tools).toHaveLength(31);
     const prompt = catalog.promptGuidance();
     expect(prompt).toContain('## Tool call boundary');
