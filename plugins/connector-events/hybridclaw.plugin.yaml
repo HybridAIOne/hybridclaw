@@ -1,0 +1,38 @@
+id: connector-events
+name: Connector Events
+version: 0.1.0
+kind: channel
+description: Queues owned proactive checks when a trusted connector relay reports changes.
+entrypoint: src/index.js
+credentials:
+  - CONNECTOR_EVENTS_TOKEN
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    bindings:
+      type: array
+      default: []
+      maxItems: 64
+      items:
+        type: object
+        additionalProperties: false
+        required: [id, source, userId, taskId]
+        properties:
+          id:
+            type: string
+            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+          source:
+            type: string
+            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+          userId:
+            type: string
+            minLength: 1
+            maxLength: 200
+          taskId:
+            type: integer
+            minimum: 1
+configUiHints:
+  bindings:
+    label: Connector Bindings
+    help: 'Trusted relay binding IDs mapped to a source, verified user ID and existing proactive task ID. The event body cannot choose a user or prompt.'

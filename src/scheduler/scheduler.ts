@@ -32,6 +32,7 @@ import {
 import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
+import { isConnectorEventCurrent } from './connector-events.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
@@ -713,7 +714,7 @@ function arm(): void {
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
   // A reminder of a todo that is already done has nothing to say.
-  if (isTodoReminderSettled(task.id)) return;
+  if (isTodoReminderSettled(task.id) || !isConnectorEventCurrent(task)) return;
   const prompt = wrapCronPrompt(
     dbTaskLabel(task.id),
     task.prompt,

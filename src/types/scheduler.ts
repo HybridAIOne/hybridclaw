@@ -22,4 +22,6 @@ export interface ScheduledTask {
   reply_only?: boolean;
   /** Verified creator, retained across edits; never selected by model tool arguments. */
   owner_user_id?: string | null;
+  /** Original proactive policy; queued changes are cancelled if it changes. */
+  event_parent_id?: number | null;
 }
