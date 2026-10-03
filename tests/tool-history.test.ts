@@ -2,11 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import {
-  TOOL_HISTORY_RESULT_MAX_CHARS,
-  toolResultForHistory,
-  validateToolHistory,
-} from '../container/shared/tool-history.js';
+import { toolResultForTransport, validateToolHistory } from '../container/shared/tool-history.js';
 import { TurnToolHistory } from '../container/src/turn-tool-history.js';
 import {
   expandStoredMessage,
@@ -24,7 +20,7 @@ function call(id: string) {
 }
 
 describe('persistent tool history', () => {
-  test('saves full results while sending and replaying the bounded content shown initially', () => {
+  test('preserves complete results for model input, storage and replay', () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
     const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
@@ -38,11 +34,7 @@ describe('persistent tool history', () => {
       tool_call_id: 'a',
     };
     const visible = recorder.recordResult(full);
-    expect(String(visible.content).length).toBeLessThanOrEqual(
-      TOOL_HISTORY_RESULT_MAX_CHARS,
-    );
-    expect(visible.content).toContain('.tool-results/session-a/a.txt');
-    expect(visible.content).not.toContain('.session-transcripts/');
+    expect(visible).toEqual(full);
     expect(
       fs.readFileSync(path.join(workspace, '.tool-results/session-a/a.txt'), 'utf8'),
     ).toBe(full.content);
@@ -64,13 +56,12 @@ describe('persistent tool history', () => {
       session_id: 'session-a',
       tool_history_json: JSON.stringify([saved[0], full]),
     });
-    expect(replayOfFull[1].content).not.toContain('.tool-results/');
-    expect(replayOfFull[1].content).toContain('.session-transcripts/');
-    expect(toolResultForHistory(visible, 'session-a')).toEqual(visible);
+    expect(replayOfFull[1]).toEqual(full);
+    expect(toolResultForTransport(full)).toEqual(full);
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
-  test('a saved result leaves the worker only as its preview, named for restore', () => {
+  test('a saved result crosses IPC as a file reference named for restore', () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-results-'));
     const recorder = new TurnToolHistory('session-a', workspace);
     recorder.recordAssistant({
@@ -96,7 +87,7 @@ describe('persistent tool history', () => {
       durationMs: 1,
     });
 
-    const output = recorder.withSpilledPreviews({
+    const output = recorder.withSpilledReferences({
       status: 'success',
       result: 'Done',
       toolsUsed: ['read'],
@@ -108,21 +99,20 @@ describe('persistent tool history', () => {
 
     expect(output.spilledToolCallIds).toEqual(['big']);
     expect(output.toolExecutions?.map((entry) => entry.result)).toEqual([
-      visible.content,
+      toolResultForTransport(visible, '.tool-results/session-a/big.txt').content,
       'Inventory count: 42',
     ]);
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
-  test('falls back to the transcript reference without a writable workspace', () => {
+  test('preserves full model evidence without a writable workspace', () => {
     const recorder = new TurnToolHistory('session-a');
     const visible = recorder.recordResult({
       role: 'tool',
       content: 'x'.repeat(50_000),
       tool_call_id: 'a',
     });
-    expect(visible.content).not.toContain('.tool-results/');
-    expect(visible.content).toContain('.session-transcripts/session-a.jsonl');
+    expect(visible.content).toBe('x'.repeat(50_000));
   });
 
   test('completes interrupted batches without claiming unexecuted calls succeeded', () => {

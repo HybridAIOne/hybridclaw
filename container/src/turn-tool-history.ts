@@ -3,27 +3,31 @@
  * Unlike loop detection, it retains ordered model messages for later replay;
  * unexecuted calls receive explicit terminal results, never fabricated success,
  * and calls a signal cut off are marked "outcome unknown", never "not run".
- * A result saved to a file leaves the worker only as its preview: the gateway
- * reads the full text back from that file, so no reply grows with result size.
+ * Models see complete results. Large text crosses IPC as a file reference,
+ * restored by the gateway for storage and replay without a per-result cap.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  TOOL_HISTORY_RESULT_MAX_CHARS,
   TOOL_RESULTS_DIR,
   toolResultFilePath,
-  toolResultForHistory,
+  toolResultForTransport,
   validateToolHistory,
 } from '../shared/tool-history.js';
 import type { ChatMessage, ContainerOutput } from './types.js';
 
+// Engineering choice, 2026-10-03: spill above 16k for IPC, never model context.
+const TOOL_RESULT_SPILL_THRESHOLD_CHARS = 16_000;
 const TOOL_RESULT_FILE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class TurnToolHistory {
   private readonly messages: ChatMessage[] = [];
   private readonly replayMessages: ChatMessage[] = [];
-  /** Preview per tool call whose full result was saved to a file. */
-  private readonly savedPreviews = new Map<string, string>();
+  /** Full text and its IPC reference for results saved to a file. */
+  private readonly savedResults = new Map<
+    string,
+    { full: string; reference: string }
+  >();
   private activeHistory: ChatMessage[] | undefined;
   private prunedStaleResults = false;
 
@@ -45,31 +49,54 @@ export class TurnToolHistory {
 
   recordResult(message: ChatMessage): ChatMessage {
     const savedPath = this.saveFullResult(message);
-    const visible = toolResultForHistory(message, this.sessionId, savedPath);
+    const visible = toolResultForTransport(message, savedPath);
     if (savedPath && message.tool_call_id) {
-      this.savedPreviews.set(message.tool_call_id, String(visible.content));
+      this.savedResults.set(message.tool_call_id, {
+        full: String(message.content),
+        reference: String(visible.content),
+      });
     }
-    this.messages.push(structuredClone(savedPath ? visible : message));
-    this.replayMessages.push(visible);
-    return visible;
+    this.messages.push(structuredClone(message));
+    this.replayMessages.push(message);
+    return message;
   }
 
-  /** Sends saved results as previews and names them for the gateway to restore. */
-  withSpilledPreviews(output: ContainerOutput): ContainerOutput {
-    if (!this.savedPreviews.size) return output;
+  /** Send file references across IPC; leave context compaction edits intact. */
+  withSpilledReferences(output: ContainerOutput): ContainerOutput {
+    if (!this.savedResults.size) return output;
+    const transportHistory = (history: ChatMessage[] | undefined) =>
+      history?.map((message) => {
+        const saved =
+          message.role === 'tool' && message.tool_call_id
+            ? this.savedResults.get(message.tool_call_id)
+            : undefined;
+        return saved && message.content === saved.full
+          ? { ...message, content: saved.reference }
+          : message;
+      });
     return {
       ...output,
+      ...(output.toolHistory
+        ? { toolHistory: transportHistory(output.toolHistory) }
+        : {}),
+      ...(output.toolHistoryForReplay
+        ? {
+            toolHistoryForReplay: transportHistory(output.toolHistoryForReplay),
+          }
+        : {}),
       ...(output.toolExecutions
         ? {
             toolExecutions: output.toolExecutions.map((execution) => {
-              const preview =
+              const reference =
                 execution.toolCallId &&
-                this.savedPreviews.get(execution.toolCallId);
-              return preview ? { ...execution, result: preview } : execution;
+                this.savedResults.get(execution.toolCallId)?.reference;
+              return reference
+                ? { ...execution, result: reference }
+                : execution;
             }),
           }
         : {}),
-      spilledToolCallIds: [...this.savedPreviews.keys()],
+      spilledToolCallIds: [...this.savedResults.keys()],
     };
   }
 
@@ -77,7 +104,7 @@ export class TurnToolHistory {
     if (
       !this.workspaceRoot ||
       typeof message.content !== 'string' ||
-      message.content.length <= TOOL_HISTORY_RESULT_MAX_CHARS
+      message.content.length <= TOOL_RESULT_SPILL_THRESHOLD_CHARS
     )
       return undefined;
     const relative = toolResultFilePath(this.sessionId, message.tool_call_id);

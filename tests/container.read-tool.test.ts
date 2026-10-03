@@ -3,11 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import {
-  TOOL_HISTORY_RESULT_MAX_CHARS,
-  toolResultForHistory,
-} from '../container/shared/tool-history.js';
-
 describe.sequential('container read tool paths', () => {
   let cloudRoot = '';
 
@@ -127,7 +122,7 @@ describe.sequential('container read tool paths', () => {
     expect(result).toContain('Path escapes workspace');
   });
 
-  test('a page fits the live-history cap, so its continuation offset is exact', async () => {
+  test('file pagination returns an exact continuation offset', async () => {
     const { executeTool } = await loadCloudReadRuntime();
     const workspaceRoot = path.join(
       cloudRoot,
@@ -149,12 +144,6 @@ describe.sequential('container read tool paths', () => {
 
     const page = await executeTool('read', JSON.stringify({ path: 'big.log' }));
 
-    expect(page.length).toBeLessThanOrEqual(TOOL_HISTORY_RESULT_MAX_CHARS);
-    const inHistory = toolResultForHistory(
-      { role: 'tool', tool_call_id: 'call_read', content: page },
-      'session-a',
-    );
-    expect(inHistory.content).toBe(page);
     const nextOffset = Number(page.match(/offset=(\d+)/)?.[1]);
     expect(nextOffset).toBeGreaterThan(1);
     expect(page).toContain(`${lines[nextOffset - 2]}\n`);

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { toolResultFilePath } from '../container/shared/tool-history.js';
+import { toolResultFilePath, toolResultForTransport } from '../container/shared/tool-history.js';
 import { restoreSpilledToolResults } from '../src/agent/spilled-tool-results.js';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../src/config/config.js';
 import type { ContainerOutput } from '../src/types/container.js';
@@ -27,7 +27,7 @@ function save(base: string, toolCallId: string, text: string): void {
 }
 
 function spilledOutput(ids: string[]): ContainerOutput {
-  const preview = (id: string) => `preview of ${id}`;
+  const preview = (id: string) => toolResultForTransport({ role: 'tool', content: '' }, toolResultFilePath('session-a', id)).content;
   return {
     status: 'success',
     result: 'Done',
@@ -74,7 +74,7 @@ function restore(output: ContainerOutput): ContainerOutput {
   });
 }
 
-test('restores saved results for the transcript and audit, not for replay', () => {
+test('restores saved results for transcript, audit and model replay', () => {
   save(workspace, 'call-a', 'full result a');
   const output = spilledOutput(['call-a']);
 
@@ -85,7 +85,7 @@ test('restores saved results for the transcript and audit, not for replay', () =
     'small',
   ]);
   expect(restored.toolHistory?.[1].content).toBe('full result a');
-  expect(restored.toolHistoryForReplay).toEqual(output.toolHistoryForReplay);
+  expect(restored.toolHistoryForReplay?.[0].content).toBe('full result a');
 });
 
 test('keeps the preview when a link leads out of the workspace', () => {
@@ -96,7 +96,7 @@ test('keeps the preview when a link leads out of the workspace', () => {
     path.join(workspace, '.tool-results'),
   );
   expect(restore(spilledOutput(['call-dir'])).toolHistory?.[1].content).toBe(
-    'preview of call-dir',
+    toolResultForTransport({ role: 'tool', content: '' }, toolResultFilePath('session-a', 'call-dir')).content,
   );
 
   fs.rmSync(path.join(workspace, '.tool-results'));
@@ -107,7 +107,7 @@ test('keeps the preview when a link leads out of the workspace', () => {
     path.join(workspace, toolResultFilePath('session-a', 'call-file')),
   );
   expect(restore(spilledOutput(['call-file'])).toolHistory?.[1].content).toBe(
-    'preview of call-file',
+    toolResultForTransport({ role: 'tool', content: '' }, toolResultFilePath('session-a', 'call-file')).content,
   );
 });
 
@@ -120,8 +120,15 @@ test('keeps previews past the per-turn output limit and for missing files', () =
   );
 
   expect(restored.toolHistory?.slice(1).map((entry) => entry.content)).toEqual([
-    'preview of call-big',
-    'preview of call-missing',
+    toolResultForTransport({ role: 'tool', content: '' }, toolResultFilePath('session-a', 'call-big')).content,
+    toolResultForTransport({ role: 'tool', content: '' }, toolResultFilePath('session-a', 'call-missing')).content,
     'full small result',
   ]);
 });
+
+ test('preserves whole-context compaction when restoring replay', () => {
+  save(workspace, 'call-a', 'full result a');
+  const output = spilledOutput(['call-a']);
+  output.toolHistoryForReplay![0].content = '[Historical result compacted]';
+  expect(restore(output).toolHistoryForReplay).toEqual(output.toolHistoryForReplay);
+ });

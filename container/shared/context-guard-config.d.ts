@@ -1,6 +1,5 @@
 export interface ContextGuardConfigShape {
   enabled: boolean;
-  perResultShare: number;
   compactionRatio: number;
   overflowRatio: number;
   maxRetries: number;

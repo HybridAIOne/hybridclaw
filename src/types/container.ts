@@ -121,7 +121,7 @@ export interface ContainerOutput {
   toolExecutions?: ToolExecution[];
   toolHistory?: ChatMessage[];
   toolHistoryForReplay?: ChatMessage[];
-  /** Results sent as previews; the full text is in their saved result files. */
+  /** Results sent as file references; model input retains the complete text. */
   spilledToolCallIds?: string[];
   /** Steering notes the model was shown during the turn, in order. */
   steerNoteIds?: string[];

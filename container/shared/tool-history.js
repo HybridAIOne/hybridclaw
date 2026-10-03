@@ -5,10 +5,6 @@
  */
 import { validateVisualAttachments } from './visual-snapshots.js';
 
-// Preserve ordinary reads while leaving room in the default 24k history budget.
-// 16k (Codex, 2026-09-10); retention configuration deferred until needed.
-export const TOOL_HISTORY_RESULT_MAX_CHARS = 16_000;
-
 export const TOOL_RESULTS_DIR = '.tool-results';
 
 function safeName(value, fallback) {
@@ -27,33 +23,12 @@ export function toolResultFilePath(sessionId, toolCallId) {
   return `${TOOL_RESULTS_DIR}/${safeName(sessionId, 'session')}/${safeName(toolCallId, 'call')}.txt`;
 }
 
-export function toolResultForHistory(message, sessionId, resultPath) {
-  if (
-    message.role !== 'tool' ||
-    typeof message.content !== 'string' ||
-    message.content.length <= TOOL_HISTORY_RESULT_MAX_CHARS
-  )
-    return message;
-  const transcript = `.session-transcripts/${sessionTranscriptFilename(sessionId)}`;
-  let marker = resultPath
-    ? `\n\n[Tool result truncated. Full result saved to ${resultPath}; read it with offset/limit or grep it.]\n\n`
-    : `\n\n[Tool result truncated. Full result is retained after this turn in ${transcript}, tool_call_id=${JSON.stringify(message.tool_call_id)}. Use read or session_search to retrieve it.]\n\n`;
-  if (marker.length >= TOOL_HISTORY_RESULT_MAX_CHARS) {
-    marker =
-      '\n\n[Tool result truncated. Use session_search with include_current=true to retrieve the full result after this turn.]\n\n';
-  }
-  const remaining = Math.max(0, TOOL_HISTORY_RESULT_MAX_CHARS - marker.length);
-  const head = Math.floor(remaining * 0.8);
+/** File references bound IPC only; model and replay messages retain full text. */
+export function toolResultForTransport(message, resultPath) {
+  if (message.role !== 'tool' || !resultPath) return message;
   return {
     ...message,
-    content:
-      message.content.slice(0, head).replace(/[\uD800-\uDBFF]$/, '') +
-      marker +
-      (remaining > head
-        ? message.content
-            .slice(-(remaining - head))
-            .replace(/^[\uDC00-\uDFFF]/, '')
-        : ''),
+    content: `[Full tool result saved to ${resultPath}.]`,
   };
 }
 

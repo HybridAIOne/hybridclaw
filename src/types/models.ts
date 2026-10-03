@@ -46,7 +46,6 @@ export type TaskModelPolicies = {
 
 export interface ContextGuardConfig {
   enabled: boolean;
-  perResultShare: number;
   compactionRatio: number;
   overflowRatio: number;
   maxRetries: number;

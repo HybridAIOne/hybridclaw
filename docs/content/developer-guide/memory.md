@@ -156,21 +156,18 @@ the exchange on its owning message preserves pairs during pagination, session
 forks, deletion, and compaction. Existing rows without tool history remain
 ordinary chat messages; audit events are not used to reconstruct them.
 
-Individual results are capped at 16,000 characters before entering model
-context. A larger result is written in full to
-`.tool-results/<session>/<tool_call_id>.txt` in the workspace at the moment it
-is truncated, and the visible head/tail carries that path, so the model can
-`read` (with `offset`/`limit`) or `grep` the rest in the same turn. Session
-directories older than seven days are pruned. The worker's reply to the
-gateway carries such a result only as that head/tail and names it in
-`spilledToolCallIds`, so reply size does not grow with result size. The
-gateway reads the full text back from the file (a regular file reached without
-links, at most `container.maxOutputBytes` per turn; beyond that the head/tail
-stays) for the audit trail and the agent's
-`.session-transcripts/<session>.jsonl` file, which is written when the turn
-finishes. Replay retains any additional context-guard pruning, while the
-transcript retains full results. `session_search` searches tool names,
-arguments, results, and call IDs and returns a transcript path for further
+The model receives complete individual tool results. Results above the IPC spill
+threshold are written in full to
+`.tool-results/<session>/<tool_call_id>.txt` in the workspace and cross IPC as
+file references named in `spilledToolCallIds`. This threshold does not truncate
+model input or replay. Session directories older than seven days are pruned.
+The gateway restores full text for replay, audit and transcripts from regular
+files reached without links, within `container.maxOutputBytes` per turn;
+unreadable or oversized transport data remains an explicit file reference.
+Whole-context compaction can still remove historical evidence when the combined
+conversation exceeds its budget, and those edits remain preserved in replay.
+The transcript retains the original results. `session_search` searches tool
+names, arguments, results, and call IDs and returns a transcript path for further
 reading. Use `include_current: true` to search the current session.
 
 Approval pauses and errors retain explicit outcomes. A requested call that
