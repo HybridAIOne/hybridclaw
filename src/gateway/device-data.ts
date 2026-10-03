@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
+import { logger } from '../logger.js';
+import { queuePhoneSourceChange } from '../scheduler/connector-events.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 
 export const DEVICE_DATA_TOOL = 'device_data';
@@ -112,6 +114,7 @@ export function writeDeviceSources(
   // The time the phone last sent a block, changed or not: it says how fresh
   // the phone's own reading is.
   const updatedAt = now().toISOString();
+  let changed = false;
   for (const [source, value] of Object.entries(sources)) {
     if (!SOURCE_ID.test(source)) {
       throw new DeviceDataError(`Invalid source id: ${source.slice(0, 40)}`);
@@ -128,6 +131,11 @@ export function writeDeviceSources(
     if (Buffer.byteLength(value) > deviceSourceLimit(source)) {
       throw new DeviceDataError(`Source \`${source}\` is too large.`);
     }
+    if (
+      ['calendar', 'reminders', 'health'].includes(source) &&
+      kept.get(source)?.text !== value
+    )
+      changed = true;
     kept.set(source, { text: value, updatedAt });
   }
   if (kept.size > MAX_DEVICE_SOURCES) {
@@ -138,6 +146,16 @@ export function writeDeviceSources(
   if (kept.size === 0) users.delete(id);
   else users.set(id, Object.fromEntries(kept));
   save(users);
+  if (changed) {
+    try {
+      queuePhoneSourceChange(id);
+    } catch (err) {
+      logger.warn(
+        { err },
+        'Could not queue a phone-source check; periodic checks remain active',
+      );
+    }
+  }
   return [...kept.keys()].sort();
 }
 

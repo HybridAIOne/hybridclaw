@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-connector-events",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Trusted connector change relay for Hy proactive policies",
+  "engines": {
+    "node": "22.x"
+  }
+}

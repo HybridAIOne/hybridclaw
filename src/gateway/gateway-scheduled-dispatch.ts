@@ -39,7 +39,7 @@ export async function runScheduledTask(
 ): Promise<void> {
   const sourceLabel =
     request.source === 'scheduled-task'
-      ? `schedule:${request.taskId ?? 'unknown'}`
+      ? `schedule:${request.resultSourceTaskId ?? request.taskId ?? 'unknown'}`
       : `schedule-job:${request.jobId ?? 'unknown'}`;
   const resolvedDeliveryChannelId =
     request.delivery.kind === 'channel'

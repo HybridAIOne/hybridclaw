@@ -33,6 +33,7 @@ export interface CreateJobInput {
   alert?: string;
   replyOnly?: boolean;
   ownerUserId?: string;
+  eventParentId?: number;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -161,11 +162,13 @@ function addOptionsOf(rawAction: string): {
   alert?: string;
   replyOnly?: true;
   ownerUserId?: string;
+  eventParentId?: number;
 } {
   const action = parseJobJson<{
     alert?: unknown;
     replyOnly?: unknown;
     ownerUserId?: unknown;
+    eventParentId?: unknown;
   } | null>(rawAction, null);
   return {
     ...(typeof action?.alert === 'string' && action.alert
@@ -175,6 +178,11 @@ function addOptionsOf(rawAction: string): {
     action.ownerUserId.trim() &&
     action.ownerUserId.trim().length <= 200
       ? { ownerUserId: action.ownerUserId.trim() }
+      : {}),
+    ...(typeof action?.eventParentId === 'number' &&
+    Number.isSafeInteger(action.eventParentId) &&
+    action.eventParentId > 0
+      ? { eventParentId: action.eventParentId }
       : {}),
     ...(action?.replyOnly === true ? { replyOnly: true as const } : {}),
   };
@@ -213,6 +221,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     alert: addOptionsOf(row.action).alert ?? null,
     reply_only: addOptionsOf(row.action).replyOnly ?? false,
     owner_user_id: addOptionsOf(row.action).ownerUserId ?? null,
+    event_parent_id: addOptionsOf(row.action).eventParentId ?? null,
   };
 }
 
@@ -338,6 +347,9 @@ export function createJob(input: CreateJobInput): number {
           ...(input.alert ? { alert: input.alert } : {}),
           ...(input.replyOnly ? { replyOnly: true } : {}),
           ...(ownerUserId ? { ownerUserId } : {}),
+          ...(input.eventParentId
+            ? { eventParentId: input.eventParentId }
+            : {}),
         }),
         JSON.stringify({
           kind: 'channel',

@@ -50,3 +50,11 @@ test('other transports retain their delivery policy and missing destinations fai
   expect(mocks.deliverWeb).not.toHaveBeenCalled();
   await expect(runScheduledTask({ ...request(), delivery: { kind: 'last-channel' } }, deps)).rejects.toThrow('No delivery channel');
 });
+
+test('connector checks retain their parent policy in chat and push attribution', async () => {
+  const taskOwner = { userId: 'alice', sessionId: 'session-a' };
+  await runScheduledTask({ ...request(), taskId: 9, resultSourceTaskId: 1, replyOnly: true, taskOwner }, dependencies());
+  expect(mocks.deliverWeb).toHaveBeenCalledWith('session-a', 'Reminder', 'schedule:1', [], { sessionId: 'session-a', id: 42 });
+  expect(mocks.run.mock.calls[0][3]).toBe(9);
+  expect(mocks.run.mock.calls[0][9]).toEqual(taskOwner);
+});

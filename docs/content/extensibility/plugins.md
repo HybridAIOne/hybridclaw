@@ -28,6 +28,7 @@ hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
+hybridclaw plugin install ./plugins/connector-events
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -63,6 +64,11 @@ Vonage Voice is also bundled as an install-on-demand plugin. Its webhook
 runtime, credentials, and outbound calling command stay outside the built-in
 Twilio voice channel. Its optional realtime mode reuses the core realtime
 voice engine through the plugin API rather than its own model credentials.
+
+The optional [Connector Events plugin](../guides/connector-events.md) accepts
+authenticated change notifications from a trusted cloud relay and queues an
+existing owned proactive policy. Phone snapshot changes use the same scheduler
+path directly.
 
 The reinstall command:
 

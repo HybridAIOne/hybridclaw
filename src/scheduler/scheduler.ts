@@ -32,6 +32,7 @@ import {
 import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
+import { isConnectorEventCurrent } from './connector-events.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
@@ -62,6 +63,8 @@ export interface SchedulerDispatchRequest {
   taskId?: number;
   /** Ownership captured before async dispatch; never supplied by a model. */
   taskOwner?: { userId: string; sessionId: string };
+  /** Early checks are attributed to their original policy in chat and push. */
+  resultSourceTaskId?: number;
   jobId?: string;
   agentId?: string;
   sessionId: string;
@@ -713,7 +716,7 @@ function arm(): void {
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
   // A reminder of a todo that is already done has nothing to say.
-  if (isTodoReminderSettled(task.id)) return;
+  if (isTodoReminderSettled(task.id) || !isConnectorEventCurrent(task)) return;
   const prompt = wrapCronPrompt(
     dbTaskLabel(task.id),
     task.prompt,
@@ -723,6 +726,9 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   await taskRunner({
     source: 'scheduled-task',
     taskId: task.id,
+    ...(task.event_parent_id
+      ? { resultSourceTaskId: task.event_parent_id }
+      : {}),
     ...(task.owner_user_id
       ? {
           taskOwner: { userId: task.owner_user_id, sessionId: task.session_id },

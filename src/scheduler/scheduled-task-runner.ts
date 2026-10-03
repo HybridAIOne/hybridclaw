@@ -28,6 +28,7 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { isConnectorEventCurrent } from './connector-events.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
@@ -91,6 +92,7 @@ export async function runIsolatedScheduledTask(params: {
     mainSessionKey: mainSessionKey?.trim() || cronSessionId,
   });
   const task = getJob(taskId, { kind: 'scheduled_task' });
+  if (task?.event_parent_id && !isConnectorEventCurrent(task)) return;
   const taskSession = task ? getSessionById(task.session_id) : null;
   const owner =
     task?.enabled &&
