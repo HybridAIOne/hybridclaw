@@ -141,6 +141,7 @@ import {
 } from './tool-parallelism.js';
 import {
   formatLineSafeToolProgressText,
+  formatToolCallIdLabel,
   formatToolCallStartProgressText,
 } from './tool-progress-log.js';
 import {
@@ -621,23 +622,25 @@ interface CompletedToolCallExecution {
 let toolCallsStarted = 0;
 
 function logToolCallStart(
-  toolName: string,
-  argsJson: string,
+  call: ToolCall,
   approval: ToolApprovalEvaluation,
 ): void {
   toolCallsStarted += 1;
   console.error(
-    `[tool] ${formatToolNameForLog(toolName)}: ${formatToolCallStartProgressText(
-      toolName,
-      argsJson,
+    `[tool] ${formatToolNameForLog(call)}: ${formatToolCallStartProgressText(
+      call.function.name,
+      call.function.arguments,
       approval,
     )}`,
   );
 }
 
-function formatToolNameForLog(toolName: string): string {
-  if (!toolName.startsWith('browser_')) return toolName;
-  return `${toolName} [browser=${getBrowserProviderLogLabel()}]`;
+function formatToolNameForLog(call: ToolCall): string {
+  const toolName = call.function.name;
+  const browserLabel = toolName.startsWith('browser_')
+    ? ` [browser=${getBrowserProviderLogLabel()}]`
+    : '';
+  return `${toolName}${browserLabel}${formatToolCallIdLabel(call.id)}`;
 }
 
 function appendCompletedToolCall(params: {
@@ -768,7 +771,7 @@ async function executePreparedToolCall(
 
   console.error(
     `[tool] ${formatToolNameForLog(
-      toolName,
+      call,
     )} result (${toolDuration}ms): ${formatLineSafeToolProgressText(result)}`,
   );
 
@@ -1351,11 +1354,7 @@ async function processRequestInner(
         arguments: approvedToolCall.argsJson,
       },
     };
-    logToolCallStart(
-      approvedToolCall.toolName,
-      approvedToolCall.argsJson,
-      approval,
-    );
+    logToolCallStart(approvedCall, approval);
     const approvedMessage: ChatMessage = {
       role: 'assistant',
       content: null,
@@ -1931,11 +1930,7 @@ async function processRequestInner(
             cachedApprovals.set(candidate.id, candidateApproval);
             break;
           }
-          logToolCallStart(
-            candidate.function.name,
-            candidate.function.arguments,
-            candidateApproval,
-          );
+          logToolCallStart(candidate, candidateApproval);
           preparedBatch.push({
             call: candidate,
             approval: candidateApproval,
@@ -2023,7 +2018,7 @@ async function processRequestInner(
           toolName,
           argsJson: call.function.arguments,
         }));
-      logToolCallStart(toolName, call.function.arguments, approval);
+      logToolCallStart(call, approval);
 
       if (approval.decision === 'required' || approval.decision === 'denied') {
         // A note the user sent meanwhile comes before asking them, or ending.

@@ -142,6 +142,8 @@ export interface BrowserFrame {
 export interface ToolProgressEvent {
   sessionId: string;
   toolName: string;
+  /** The model's id for this call; pairs a finish with its start. */
+  toolCallId?: string;
   phase: 'start' | 'finish';
   preview?: string;
   durationMs?: number;

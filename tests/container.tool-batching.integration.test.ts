@@ -16,7 +16,7 @@ function toolTimeline(stderr: string): string[] {
   return stderr.split('\n').flatMap((line) => {
     const batch = /^\[tool\] running (\d+) tool calls concurrently/.exec(line);
     if (batch) return [`batch of ${batch[1]}`];
-    const start = /^\[tool\] (\w+): /.exec(line);
+    const start = /^\[tool\] (\w+)(?: \[[^\]]*\])*: /.exec(line);
     return start ? [start[1]] : [];
   });
 }

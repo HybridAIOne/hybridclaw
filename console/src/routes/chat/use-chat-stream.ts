@@ -357,19 +357,22 @@ export function useChatStream(
           req.trace.push({
             kind: 'tool',
             toolName: event.toolName,
+            toolCallId: event.toolCallId,
             status: 'running',
             argsPreview: event.preview || undefined,
           });
         } else {
-          // Match the most recent running call of this tool — parallel tools
-          // can finish out of order.
+          // Match the running call with this call id — parallel same-name
+          // tools finish out of order. A gateway without call ids sends none
+          // on either phase: then the most recent running call of this tool.
           let started: TraceToolStep | undefined;
           for (let i = req.trace.length - 1; i >= 0; i--) {
             const step = req.trace[i];
             if (
               step?.kind === 'tool' &&
               step.status === 'running' &&
-              step.toolName === event.toolName
+              step.toolName === event.toolName &&
+              step.toolCallId === event.toolCallId
             ) {
               started = step;
               break;

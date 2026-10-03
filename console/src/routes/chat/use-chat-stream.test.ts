@@ -1080,6 +1080,83 @@ describe('useChatStream', () => {
     expect(roles.indexOf('trace')).toBeLessThan(roles.indexOf('assistant'));
   });
 
+  it('pairs parallel same-name tool results with their calls by call id', async () => {
+    const harness = makeHarness();
+
+    requestChatStreamMock.mockImplementation(
+      async (
+        _url: string,
+        params: {
+          callbacks: {
+            onTextDelta: (delta: string) => void;
+            onToolEvent?: (event: ChatStreamToolEvent) => void;
+          };
+        },
+      ): Promise<ChatStreamResult> => {
+        const tool = (
+          phase: 'start' | 'finish',
+          toolCallId: string,
+          preview: string,
+          durationMs?: number,
+        ) =>
+          params.callbacks.onToolEvent?.({
+            type: 'tool',
+            toolName: 'web_search',
+            toolCallId,
+            phase,
+            preview,
+            durationMs,
+          });
+        tool('start', 'call_a', 'site:a.example');
+        tool('start', 'call_b', 'site:b.example');
+        // The first call finishes first: pairing by name alone would put its
+        // result on the most recent running call, call_b.
+        tool('finish', 'call_a', 'a results', 801);
+        tool('finish', 'call_b', 'b results', 4700);
+        params.callbacks.onTextDelta('Answer');
+        return {
+          status: 'ok',
+          sessionId: SESSION_ID,
+          result: 'Answer',
+          messageRole: 'assistant',
+        };
+      },
+    );
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    const trace = harness.messages.find((msg) => msg.role === 'trace');
+    expect(trace).toMatchObject({
+      steps: [
+        {
+          argsPreview: 'site:a.example',
+          resultPreview: 'a results',
+          durationMs: 801,
+        },
+        {
+          argsPreview: 'site:b.example',
+          resultPreview: 'b results',
+          durationMs: 4700,
+        },
+      ],
+    });
+  });
+
   it('keeps the thinking dots during trace-only updates until answer text streams', async () => {
     const harness = makeHarness();
     let resolveStream!: (value: ChatStreamResult) => void;
