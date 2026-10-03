@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+## [0.35.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.2) - 2026-10-04
+
+### Added
+
+- **Mini-skill cards**: Short workflows can publish their complete instructions
+  inline or through skill discovery, avoiding a separate file read. Includes a
+  compact Bahn journey-search card. Empty or oversized cards retain the ordinary
+  skill-read path, and existing eligibility and tool permissions still apply.
+- **Prepared goal check-ins**: Scheduled goals can prepare one useful draft,
+  brief, research result, or plan before checking in. Each run uses the current
+  goal status and next unfinished step; sending, publishing, spending, booking,
+  and changes to connected services remain subject to user decisions and
+  existing approvals.
+- **Connector-triggered checks**: Changed Calendar, Reminders, and Health uploads
+  can queue an earlier run of an existing proactive policy. The bundled optional
+  `connector-events` plugin accepts authenticated cloud relay events with
+  operator-configured user and task bindings. Pending work and duplicate
+  suppression persist in SQLite, with debounce, rate limits, and quiet hours.
+
+### Changed
+
+- **Contextual reactions**: Hy is guided to acknowledge ordinary chat messages,
+  including greetings, questions, and requests, with one contextual emoji
+  alongside its substantive reply on clients supporting reactions.
+- **Fresh phone data for scheduled work**: Schedules created by verified users
+  retain their creator and can read that user's shared phone snapshots. Background
+  reads withhold snapshots older than 24 hours or with invalid or future dates
+  and ask the user to open Hy to refresh them.
+
+### Fixed
+
+- **Scheduled phone-data isolation**: Execution verifies the dispatched owner,
+  stored task, originating session, and agent. Overlapping turns with different
+  users fail closed; grants are released on success or failure, ownership
+  survives edits, and disconnecting a source revokes access on the next read.
+- **Early-check delivery and cancellation**: Connector-triggered replies retain
+  their parent policy's app attention markers and notification preferences.
+  Pausing, deleting, or editing the policy cancels queued work, and failed checks
+  allow later events to queue again.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for mini-skill cards and revised
+  reaction guidance.
+- Older ownerless schedules cannot read phone data. Recreate them from a
+  signed-in turn, or edit the associated goal from the signed-in app to bind its
+  owner. Phone snapshots refresh through the app's existing uploads; continuous
+  background collection is not provided.
+- Cloud connector events require installing and enabling `connector-events`, a
+  dedicated relay credential, configured bindings, and a trusted relay that
+  validates provider notifications. Provider subscriptions are not created
+  automatically; periodic checks remain the fallback.
+
 ## [0.35.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.1) - 2026-10-03
 
 ### Added

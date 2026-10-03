@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.35.1',
+  version: '0.35.2',
   highlights: [
-    'Saved checklists you can tick off',
-    'Coaching from on-device movement analysis',
-    'YouTube descriptions and fresher connectors',
-    'Complete context through compaction',
+    'Goals prepare work before checking in',
+    'Proactive checks on connector changes',
+    'Fresh phone data for scheduled work',
+    'Mini-skill cards and contextual reactions',
   ],
 } as const;
 
