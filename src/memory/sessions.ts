@@ -867,6 +867,22 @@ export function listSessionInstancesForKey(
   );
 }
 
+/**
+ * The ids of every session of `agentId` on `channelId`, earlier instances of
+ * a chat (from idle or daily resets) included.
+ */
+export function listSessionIdsForAgentChannel(
+  agentId: string,
+  channelId: string,
+): string[] {
+  return queryAll<{ id: string }, [string, string]>(
+    getSessionDatabase(),
+    'SELECT id FROM sessions WHERE agent_id = ? AND channel_id = ?',
+    agentId,
+    channelId,
+  ).map((row) => row.id);
+}
+
 export function switchCurrentSessionInstance(params: {
   sessionKey: string;
   targetSessionId: string;

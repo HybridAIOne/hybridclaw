@@ -10,6 +10,7 @@ export {
   getStructuredAuditAfterId,
   getStructuredAuditForSession,
   getWeeklyAgentAnomalyRollups,
+  listActionAuditEntries,
   listStructuredAuditEntries,
   listStructuredAuditSessionIdsByPrefix,
   logAudit,

@@ -13,11 +13,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
-import {
-  buildSessionKey,
-  isLegacySessionKey,
-  migrateLegacySessionKey,
-} from '../session/session-key.js';
+import { scheduledRunSessionKey } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
@@ -60,14 +56,7 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
-  const rawSessionKey = sessionKey?.trim()
-    ? sessionKey.trim()
-    : buildSessionKey(agentId, 'scheduler', 'cron', String(taskId));
-  const cronSessionId = isLegacySessionKey(rawSessionKey)
-    ? migrateLegacySessionKey(rawSessionKey, {
-        agent_id: agentId,
-      })
-    : rawSessionKey;
+  const cronSessionId = scheduledRunSessionKey(agentId, taskId, sessionKey);
   const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
   const startedAt = Date.now();

@@ -125,6 +125,29 @@ function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
   return out;
 }
 
+const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipients', 'toRecipients'];
+
+// The domains a tool call writes to, as "@aa.com": the audit redacts the
+// addresses themselves, and a receipt still says where a mail went.
+function recipientDomains(args: Record<string, unknown>): string[] {
+  const domains = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(
+        /[^\s@<>,;"']+@([a-z0-9.-]+\.[a-z]{2,})/gi,
+      )) {
+        domains.add(`@${match[1].toLowerCase()}`);
+      }
+    } else if (Array.isArray(value)) {
+      value.forEach(visit);
+    } else if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).forEach(visit);
+    }
+  };
+  for (const key of RECIPIENT_KEYS) visit(args[key]);
+  return [...domains].slice(0, 10);
+}
+
 export function emitToolExecutionAuditEvents(input: {
   sessionId: string;
   runId: string;
@@ -155,6 +178,7 @@ export function emitToolExecutionAuditEvents(input: {
       execution.name,
       argumentsObject,
     );
+    const recipients = recipientDomains(argumentsObject);
     const anomaly = execution.anomaly
       ? {
           score: execution.anomaly.score,
@@ -184,6 +208,7 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         arguments: auditArguments,
+        ...(recipients.length > 0 ? { recipientDomains: recipients } : {}),
         anomaly,
       },
     });
