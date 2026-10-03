@@ -1,6 +1,31 @@
 import { expect, test } from 'vitest';
 
-import { parseSkillManifestFromMarkdown } from '../src/skills/skill-manifest.js';
+import { CHANNEL_KINDS } from '../src/channels/channel.js';
+import {
+  isSkillSupportedOnChannel,
+  parseSkillManifestFromMarkdown,
+} from '../src/skills/skill-manifest.js';
+
+test.each(CHANNEL_KINDS)('default skill channel support for %s', (kind) => {
+  const manifest = parseSkillManifestFromMarkdown('Use the skill.', {
+    name: 'default-skill',
+  });
+
+  expect(isSkillSupportedOnChannel(manifest, kind)).toBe(
+    kind !== 'heartbeat' && kind !== 'scheduler',
+  );
+});
+
+test.each(['threema', 'imessage'])('preserves an explicit %s restriction', (kind) => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---\nname: restricted-skill\nsupported_channels: [${kind}]\n---\nUse the skill.\n`,
+    { name: 'restricted-skill' },
+  );
+
+  expect(manifest.supportedChannels).toEqual([kind]);
+  expect(isSkillSupportedOnChannel(manifest, kind)).toBe(true);
+  expect(isSkillSupportedOnChannel(manifest, 'slack')).toBe(false);
+});
 
 test('parses manifest fields using the documented source priority', () => {
   const manifest = parseSkillManifestFromMarkdown(
