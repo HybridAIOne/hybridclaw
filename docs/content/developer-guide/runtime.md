@@ -511,18 +511,30 @@ Runtime details:
   path, including JSON-preserving handling for `/mcp add <name> <json>`.
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
+- A turn that starts over a minute after a server's last tool listing lists
+  its tools again first (5 s limit), so tools a server adds without a config
+  change, such as HybridAI catalog tools, reach a warm worker. A server that
+  fails to answer keeps its previous tools.
 
 Deferred MCP tools remain callable through `tool_catalog`. When connectors are
 deferred, complete definitions up to 2,000 characters for reviewed read tools
-are exposed directly, smallest first. Review uses the same live/configured
+are exposed directly, smallest first, after reserving space for deferred names.
+The direct limit measures the whole definition; the index limit below measures
+only the input schema. Review uses the same live/configured
 trust and annotation checks as concurrent reads. Other connector tools and
 bulky direct definitions use the catalog. The direct connector definitions and
-remaining index share a 24,000-character budget. The index reserves names before
-including complete input schemas up to 2,000 characters. `action=list` includes small schemas within its
-24,000-character schema budget and requires no `name` argument. The model can execute those tools with
+remaining index share a 24,000-character budget; non-connector direct tools are
+outside that budget. If names alone overflow, the directory reports the omitted
+count and leaves discovery available. The index includes complete input schemas
+up to 2,000 characters with its remaining space. `action=list` uses a separate
+24,000-character schema budget and requires no `name` argument. The model can
+execute those tools with
 `action=call` without a separate `describe` response. Larger schemas keep the
 explicit `describe` step. Discovery does not change the request's exposed
-functions, argument validation, permissions or approvals. Routine lookups use
+functions, argument validation, permissions or approvals. Reconnects and trust
+config changes can change exposure on the next request, invalidating cached
+tool prefixes; a failed replacement never grants the old connection new trust.
+Routine lookups use
 available tools directly; skill discovery is for requested skills or specialized
 workflows. Tools that accept multiple identifiers should fetch independent
 items in one request within the tool's limits.
@@ -583,13 +595,27 @@ The model receives complete tool results, and stored exchanges replay complete
 results. Large results cross IPC as file references, restored by the gateway;
 this transport threshold does not shorten model input. Whole-context compaction
 and model context-window recovery still apply to the combined conversation.
-In-loop compaction sends every selected message intact to the compression model,
-including tool calls, results, and structured content. It archives the original
+The context guard measures pressure without rewriting tool results. In-loop
+compaction sends every selected message intact to the compression model,
+including tool calls, results, structured content, and the schemas needed to
+interpret historical tool calls. Summarization never executes those tools. It archives the original
 region in the persistent session state dir and includes that file's path in the
 replacement summary. Replacement must reduce the estimated token count,
-including its label and archive reference. Failed or empty summaries, archive
-write failures, and summaries that do not shrink the region leave history
-unchanged; there is no heuristic fallback or character-based transcript cutoff.
+including its label and archive reference, before any archive is written.
+Failed, empty, or length-truncated summaries, archive write failures, and
+summaries that do not shrink the region leave history unchanged; there is no
+heuristic fallback or character-based transcript cutoff. Each rejected attempt
+logs a distinct reason without logging response text or error payloads.
+
+The compression model needs enough context for the complete selected region,
+its historical tool schemas, and the summary output budget. It falls back to
+the active model when no compression override is configured. For long tasks,
+configure `auxiliaryModels.compression` with sufficient capacity; a larger
+window than the active model helps recover even when that model overflows.
+An input rejected as too large reports `summary_context_overflow` and ends the
+turn without replacing history. Archives contain conversation and tool data
+that the agent can read; private file permissions protect against other host
+users, and workspace reset removes them.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. There is no replacement per-result limit.
 

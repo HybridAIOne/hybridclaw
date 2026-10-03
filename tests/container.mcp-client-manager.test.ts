@@ -41,11 +41,36 @@ function makeHandle(serverName: string, toolName: string): McpClientHandle {
         kind: 'other',
       },
     ],
+    listedAt: Date.now(),
     healthy: true,
   };
 }
 
 describe('McpClientManager tool namespacing', () => {
+  test('reconnect changes future exposure while keeping the current request stable', () => {
+    const manager = new McpClientManager();
+    const internals = manager as unknown as ManagerInternals;
+    const handle = makeHandle('mail', 'lookup');
+    handle.tools[0].annotations = { readOnlyHint: true };
+    handle.config.toolBehavior = { trustAnnotations: true };
+    internals.configs.set('mail', handle.config);
+    internals.clients.set('mail', handle);
+    internals.rebuildToolIndex();
+    const definitions = manager.getAllToolDefinitions();
+    const deferred = new Set(['mail__lookup']);
+    const catalog = () => ToolCatalog.deferring(definitions, deferred, name => manager.getToolBehavior(name)?.parallelSafe === true)!;
+    const current = catalog();
+    const offered = JSON.stringify(current.tools);
+    expect(current.tools.map(tool => tool.function.name)).toEqual(['mail__lookup']);
+    handle.healthy = false;
+    internals.rebuildToolIndex();
+    expect(catalog().tools.map(tool => tool.function.name)).toEqual(['tool_catalog']);
+    expect(JSON.stringify(current.tools)).toBe(offered);
+    handle.healthy = true;
+    internals.rebuildToolIndex();
+    expect(catalog().tools).toEqual(current.tools);
+  });
+
   test('rejects malformed IPC declarations before connecting or changing config', async () => {
     const manager = new McpClientManager();
     const internals = manager as unknown as ManagerInternals;
@@ -179,6 +204,52 @@ function managerWith(handle: McpClientHandle): ManagerInternals {
   manager.rebuildToolIndex();
   return manager;
 }
+
+describe('McpClientManager tool relisting', () => {
+  const sdkTool = (name: string) => ({
+    name,
+    inputSchema: { type: 'object' as const },
+  });
+
+  test('lists a server again once its tools are a minute old', async () => {
+    const listTools = vi.fn().mockResolvedValue({
+      tools: [sdkTool('lookup'), sdkTool('search_items')],
+    });
+    const stale = makeHandle('hybridai', 'lookup');
+    stale.client = { listTools } as never;
+    stale.listedAt = Date.now() - 60_000;
+    const fresh = makeHandle('mail', 'send');
+    const freshList = vi.fn();
+    fresh.client = { listTools: freshList } as never;
+    const manager = managerWith(stale);
+    manager.configs.set('mail', makeConfig('node'));
+    manager.clients.set('mail', fresh);
+    manager.rebuildToolIndex();
+
+    await (manager as unknown as McpClientManager).relistStaleTools();
+
+    expect(manager.isKnownTool('hybridai__search_items')).toBe(true);
+    expect(stale.listedAt).toBeGreaterThan(Date.now() - 1_000);
+    expect(freshList).not.toHaveBeenCalled();
+  });
+
+  test('keeps the tools a server had when listing fails, until the next interval', async () => {
+    const listTools = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const handle = makeHandle('hybridai', 'lookup');
+    handle.client = { listTools } as never;
+    handle.listedAt = Date.now() - 60_000;
+    const manager = managerWith(handle);
+    const relist = () =>
+      (manager as unknown as McpClientManager).relistStaleTools();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await relist();
+    await relist();
+
+    expect(manager.isKnownTool('hybridai__lookup')).toBe(true);
+    expect(listTools).toHaveBeenCalledOnce();
+  });
+});
 
 describe('McpClientManager call timeout', () => {
   test('passes its tool-call timeout instead of the SDK default', async () => {

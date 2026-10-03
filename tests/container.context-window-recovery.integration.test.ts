@@ -34,7 +34,7 @@ const CONTEXT_LENGTH_REJECTION: Reply = {
   },
 };
 const BIG_FILE = Array.from(
-  { length: 200 },
+  { length: 80 },
   (_, line) => `line ${line} ${'x'.repeat(90)}`,
 ).join('\n');
 
@@ -86,9 +86,13 @@ async function startModelServer(
       messages: ChatMessage[];
       tools?: unknown[];
     };
-    // Only the agent loop sends tool schemas; compaction summaries do not.
+    // Compression appends a user instruction after the selected region.
     let reply: Reply;
-    if (body.tools?.length) {
+    if (
+      !String(body.messages.at(-1)?.content).startsWith(
+        'Summarize the preceding conversation region',
+      )
+    ) {
       loopRequests.push(body.messages);
       reply = replyToLoop(loopRequests.length - 1);
     } else {
@@ -183,12 +187,9 @@ describe('provider context-length rejections in the tool loop', () => {
       const [rejected, retried, afterTool] = server.loopRequests;
       expect(retried.length).toBeLessThan(rejected.length);
       expect(retried.at(-1)).toEqual(rejected.at(-1));
-      // At the advertised 128k window this result would pass whole; the
-      // budget lowered by the rejection still bounds it.
+      // Evidence stays intact when it fits the corrected context budget.
       const toolResult = afterTool.find((message) => message.role === 'tool');
-      expect(String(toolResult?.content).length).toBeLessThan(
-        BIG_FILE.length / 2,
-      );
+      expect(String(toolResult?.content)).toContain(BIG_FILE);
     } finally {
       await server.close();
     }
@@ -234,6 +235,63 @@ describe('provider context-length rejections in the tool loop', () => {
         fs.readFileSync(path.join(workspace, archivePath), 'utf8'),
       );
       expect(archived.messages).toEqual(messages.slice(4, 32));
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
+  test('archives complete tool evidence after the real context guard triggers', async () => {
+    const messages: ChatMessage[] = Array.from({ length: 40 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `Message ${index}: ${'x'.repeat(3_000)}`,
+    }));
+    messages[6] = {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'historical_read',
+          type: 'function',
+          function: { name: 'read', arguments: '{"path":"example.txt"}' },
+        },
+      ],
+    };
+    messages[7] = {
+      role: 'tool',
+      tool_call_id: 'historical_read',
+      content: `Pending decision in tool evidence: ${'y'.repeat(40_000)}`,
+    };
+    const server = await startModelServer(() => completion('done'));
+    try {
+      const output = await runTurn(server, {
+        messages,
+        contextWindow: 24_000,
+        taskModels: {
+          compression: {
+            provider: 'hybridai',
+            model: 'compression-model',
+            baseUrl: server.baseUrl,
+            apiKey: 'test-key',
+            chatbotId: 'test-bot',
+            contextWindow: 128_000,
+          },
+        },
+      });
+      expect(output).toMatchObject({ status: 'success', result: 'done' });
+      expect(server.summaryInputs).toHaveLength(1);
+      expect(server.summaryInputs[0].slice(0, -1)).toEqual(
+        messages.slice(4, 32),
+      );
+      const summary = server.loopRequests[0].find((message) =>
+        String(message.content).startsWith('[In-loop compaction summary]'),
+      );
+      const archivePath = String(summary?.content).split(
+        'Original messages: ',
+      )[1];
+      expect(
+        JSON.parse(fs.readFileSync(path.join(workspace, archivePath), 'utf8'))
+          .messages,
+      ).toEqual(messages.slice(4, 32));
     } finally {
       await server.close();
     }

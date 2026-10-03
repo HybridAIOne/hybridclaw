@@ -11,17 +11,42 @@ fresh histories in one worker to distinguish connection startup from warm turns.
 Use the gateway's streamed `/api/chat` tool events for an end-to-end comparison.
 Do not restart the gateway or change its configured model for these checks.
 
-After building the checkout, run `node eval-harness/tool-latency/benchmark.mjs 3`
+After building the checkout, run
+`node eval-harness/tool-latency/benchmark.mjs 10 > results.jsonl`
 against the authenticated local gateway. It reads the stored API token in memory,
 runs both prompts serially with fresh sessions and prints JSON lines containing
-total latency, tool timings and the answer for manual correctness assessment.
+total latency, model response count, tool counts/timings, prompt tokens and the
+answer for manual correctness assessment. Ten runs per prompt is the default;
+one to 100 runs may be requested. Initial summaries include p50/p90 for all
+answers but leave pass rate unset until correctness has been reviewed.
 Set `BENCH_AGENT_ID` to choose the agent. `GATEWAY_URL`, `GATEWAY_API_TOKEN` and
 `BENCH_MODEL` are optional overrides. Record `hybridclaw gateway status` before
 each comparison so results are associated with the actual running build.
 
+Review every sample against the retrieved evidence and set its `correct` field
+to `true` or `false` in the saved JSON lines. For protein, check the highest
+grams **per bar**, including unit conversions and the ordering of all compared
+candidates; merely mentioning 27 g is insufficient. For promotions, require a
+source-backed overview of the current relevant offers, with their applicable
+dates and conditions. A refusal, a product list, or an unsupported partial
+answer fails. These are human verdicts; the harness does not pretend that text
+matching establishes factual correctness or current coverage.
+
+Run `node eval-harness/tool-latency/report.mjs results.jsonl` after grading.
+It reports all-run p50/p90, correct-answer latency and the fraction of **all**
+runs that are correct and below ten seconds. It exits nonzero for missing
+verdicts, failures or fewer than ten samples per prompt/worker-state group.
+Incorrect fast runs remain in the denominator and in all-run latency statistics.
+
+Fresh sessions do not prove cold worker state. By default runs are labeled
+`unknown`. Set `BENCH_WORKER_STATE=cold` or `warm` only when runtime logs verify
+the state for every measured turn; reports keep these groups separate. The
+harness does not evict workers or restart the gateway to create cold runs.
+
 Record wall time, model response count and duration, individual tool durations,
 overlap, prompt tokens and answer correctness. Audit events flushed at turn end
-are not reliable tool start timestamps. A fast wrong answer fails the benchmark.
+are not reliable tool start timestamps. A fast wrong answer cannot pass the
+graded report; an ungraded answer has no pass verdict.
 File references in worker output are IPC transport; inspect the saved result or
 restore it on the gateway before measuring result size or checking evidence.
 
@@ -62,6 +87,10 @@ three model responses, but only two returned a consistent correct ranking.
 The equivalent promotions runs took 5.7–29.9 seconds; only the 29.9-second run
 retrieved the official page and answered the question. Fast refusals and
 unsupported rankings do not count as performance improvements.
+These small samples describe individual observations, not a reliable latency
+distribution: protein correctness was two of three runs and promotions
+completeness was one of three. The 29.9-second success cannot stand in for all
+promotions runs.
 
 A subsequent repeat through the live merged gateway returned the correct
 protein answer in 9.8 seconds. Its promotions answer took 6.3 seconds but
