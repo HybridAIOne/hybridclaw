@@ -1,9 +1,12 @@
 /**
- * Cron task access follows the originating session, except among web chats
- * owned by the same agent. Messaging-channel sessions stay isolated so one
- * peer cannot list or change another peer's schedules.
+ * Which sessions a chat may see: its own (across resets of the same chat),
+ * and among web chats every chat of the same agent. Messaging-channel
+ * sessions stay isolated so one peer cannot list or change another peer's
+ * schedules or read another peer's audit trail. Cron task access follows the
+ * session the task was created in.
  *
- * NOT the admin scheduler, which deliberately operates across all jobs.
+ * NOT the admin scheduler or admin audit, which deliberately operate across
+ * all sessions for the local operator.
  */
 import { getSessionById } from '../memory/db.js';
 import { getAllJobs } from '../memory/jobs.js';
@@ -12,27 +15,36 @@ import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 
 /**
- * Whether `requester` is the chat that created the task. A chat keeps its
- * session key when an idle or daily reset gives it a new session id, and the
- * task stays with the id it was created under.
+ * Whether `sessionId` is an instance of the `requester` chat. A chat keeps its
+ * session key when an idle or daily reset gives it a new session id, and what
+ * it did stays with the id it was done under.
  */
+function isSameChat(sessionId: string, requester: Session): boolean {
+  if (sessionId === resolveSessionIdCompat(requester.id)) return true;
+  const key = getSessionById(sessionId)?.session_key;
+  return Boolean(key) && key === requester.session_key;
+}
+
+export function canSeeSession(sessionId: string, requester: Session): boolean {
+  if (isSameChat(sessionId, requester)) return true;
+  if (requester.channel_id !== 'web' || !requester.agent_id) return false;
+  const owner = getSessionById(sessionId);
+  return owner?.channel_id === 'web' && owner.agent_id === requester.agent_id;
+}
+
+/** Whether `requester` is the chat that created the task. */
 export function isCreatingChat(
   task: ScheduledTask,
   requester: Session,
 ): boolean {
-  if (task.session_id === resolveSessionIdCompat(requester.id)) return true;
-  const key = getSessionById(task.session_id)?.session_key;
-  return Boolean(key) && key === requester.session_key;
+  return isSameChat(task.session_id, requester);
 }
 
 export function canManageScheduledTask(
   task: ScheduledTask,
   requester: Session,
 ): boolean {
-  if (isCreatingChat(task, requester)) return true;
-  if (requester.channel_id !== 'web' || !requester.agent_id) return false;
-  const owner = getSessionById(task.session_id);
-  return owner?.channel_id === 'web' && owner.agent_id === requester.agent_id;
+  return canSeeSession(task.session_id, requester);
 }
 
 /**
