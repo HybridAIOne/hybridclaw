@@ -2,6 +2,7 @@ import type { McpServerConfig } from '../../../container/shared/mcp-server-confi
 import type { ReasoningEffort } from '../../../container/shared/reasoning-effort.js';
 import type {
   GatewayAdminAgentMarkdownFileResponse,
+  GatewayAdminStatisticsChannelRow,
   GatewayStatus as RuntimeGatewayStatus,
 } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
@@ -414,13 +415,7 @@ export interface AdminStatisticsTrendDay {
   costUsd: number;
 }
 
-export interface AdminStatisticsChannelRow {
-  channelId: string;
-  sessionCount: number;
-  userMessages: number;
-  assistantMessages: number;
-  totalMessages: number;
-}
+export type AdminStatisticsChannelRow = GatewayAdminStatisticsChannelRow;
 
 export interface AdminStatisticsResponse {
   rangeDays: number;

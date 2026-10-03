@@ -391,7 +391,7 @@ test('audit command selects a turn by session id and stable turn index', async (
   const result = await handleGatewayCommand({
     sessionId: 'current-session',
     guildId: null,
-    channelId: 'channel-turn-select',
+    channelId: 'tui',
     args: ['audit', 'session-turn-select', '--turn', '1'],
   });
 
@@ -405,7 +405,7 @@ test('audit command selects a turn by session id and stable turn index', async (
   const latestResult = await handleGatewayCommand({
     sessionId: 'current-session',
     guildId: null,
-    channelId: 'channel-turn-select',
+    channelId: 'tui',
     args: ['audit', 'session-turn-select', '--last'],
   });
 
@@ -419,7 +419,7 @@ test('audit command selects a turn by session id and stable turn index', async (
   const runFlagResult = await handleGatewayCommand({
     sessionId: 'current-session',
     guildId: null,
-    channelId: 'channel-turn-select',
+    channelId: 'tui',
     args: ['audit', 'session-turn-select', '--run', 'turn_select_2'],
   });
 

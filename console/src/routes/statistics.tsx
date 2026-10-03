@@ -441,7 +441,10 @@ function compactDestination(value: string): string {
   return `${value.slice(0, 24)}…${value.slice(-12)}`;
 }
 
-function formatChannelGroup(channelId: string): {
+function formatChannelGroup({
+  channelId,
+  channelKind,
+}: AdminStatisticsChannelRow): {
   key: string;
   label: string;
   title?: string;
@@ -450,13 +453,22 @@ function formatChannelGroup(channelId: string): {
   if (!normalized || normalized === '(unknown)') {
     return { key: 'unknown', label: 'Unknown' };
   }
-  if (normalized === 'web') return { key: 'web', label: 'Web' };
-  if (normalized === 'tui') return { key: 'tui', label: 'TUI' };
-  if (normalized.startsWith('19:') || normalized.startsWith('a:')) {
-    return { key: 'msteams', label: 'Microsoft Teams' };
-  }
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-    return { key: 'email', label: 'Email' };
+  if (channelKind) {
+    const labels: Record<string, string> = {
+      msteams: 'Microsoft Teams',
+      imessage: 'iMessage',
+      whatsapp: 'WhatsApp',
+      tui: 'TUI',
+      line: 'LINE',
+      cli: 'CLI',
+    };
+    const label =
+      labels[channelKind] ??
+      channelKind
+        .split('_')
+        .map((word) => word[0].toUpperCase() + word.slice(1))
+        .join(' ');
+    return { key: channelKind, label };
   }
   return {
     key: `raw:${normalized}`,
@@ -477,7 +489,7 @@ function groupChannelRows(
 ): GroupedChannelRow[] {
   const grouped = new Map<string, GroupedChannelRow>();
   for (const channel of channels) {
-    const display = formatChannelGroup(channel.channelId);
+    const display = formatChannelGroup(channel);
     const current = grouped.get(display.key);
     if (current) {
       current.sessionCount += channel.sessionCount;

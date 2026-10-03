@@ -31,6 +31,7 @@ vi.mock('../api/client', () => ({
       channels: [
         {
           channelId: teamsThreadId,
+          channelKind: 'msteams',
           sessionCount: 2,
           userMessages: 3,
           assistantMessages: 3,
@@ -38,6 +39,23 @@ vi.mock('../api/client', () => ({
         },
         {
           channelId: teamsChatId,
+          channelKind: 'msteams',
+          sessionCount: 1,
+          userMessages: 1,
+          assistantMessages: 1,
+          totalMessages: 2,
+        },
+        {
+          channelId: 'signal:+14155551212',
+          channelKind: 'signal',
+          sessionCount: 1,
+          userMessages: 1,
+          assistantMessages: 1,
+          totalMessages: 2,
+        },
+        {
+          channelId: '19:unclassified',
+          channelKind: null,
           sessionCount: 1,
           userMessages: 1,
           assistantMessages: 1,
@@ -45,6 +63,7 @@ vi.mock('../api/client', () => ({
         },
         {
           channelId: 'web',
+          channelKind: 'web',
           sessionCount: 1,
           userMessages: 1,
           assistantMessages: 1,
@@ -65,6 +84,9 @@ describe('StatisticsPage', () => {
     expect(await screen.findByText('Microsoft Teams')).toBeTruthy();
     expect(screen.getByText('2 destinations')).toBeTruthy();
     expect(screen.getByText('Web')).toBeTruthy();
+    expect(screen.getByText('Signal')).toBeTruthy();
+    expect(screen.getByText('19:unclassified')).toBeTruthy();
+    expect(screen.queryByText('signal:+14155551212')).toBeNull();
     expect(screen.queryByText(teamsThreadId)).toBeNull();
     expect(screen.queryByText(teamsChatId)).toBeNull();
   });

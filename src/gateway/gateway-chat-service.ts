@@ -44,6 +44,7 @@ import {
   makeAuditRunId,
   recordAuditEvent,
 } from '../audit/audit-events.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
   getChannel,
   getChannelByContextId,
@@ -112,7 +113,6 @@ import {
 import { recordRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import { buildSessionContext } from '../session/session-context.js';
-import { resolveSessionResetChannelKind } from '../session/session-reset.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
@@ -732,8 +732,8 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     !fanoutSource &&
     !isGoalContinuationSource(source) &&
-    resolveSessionResetChannelKind(req.channelId) !== 'scheduler' &&
-    resolveSessionResetChannelKind(req.channelId) !== 'heartbeat';
+    resolveChannelTargetKind(req.channelId) !== 'scheduler' &&
+    resolveChannelTargetKind(req.channelId) !== 'heartbeat';
   const addressed = resolveAgentAddressing({
     content: req.content,
     currentAgentId: session.agent_id || req.agentId || DEFAULT_AGENT_ID,
@@ -962,7 +962,7 @@ async function handleGatewayMessageInner(
   let model = resolvedModel;
   let chatbotId = resolvedChatbotId;
   const channelType =
-    resolveChannelType(req) || resolveSessionResetChannelKind(req.channelId);
+    resolveChannelType(req) || resolveChannelTargetKind(req.channelId);
   const channel =
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||

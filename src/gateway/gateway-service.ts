@@ -1,4 +1,3 @@
-import { deleteWebNotificationSession } from './web-notification-store.js';
 /**
  * Gateway application service — authoritative host operations shared by transports.
  *
@@ -103,6 +102,7 @@ import {
   listEdges,
 } from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { emailAdminMailboxLoader } from '../channels/channel-runtime-loaders.js';
@@ -260,7 +260,6 @@ import {
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
-  deleteSessionData,
   getAllSessions,
   getFullAutoSessionCount,
   getLatestAssistantMessageId,
@@ -279,20 +278,15 @@ import {
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
-  getStatisticsTotals,
   getStructuredAuditForSession,
   getUsageTotals,
-  listMessageTrendByDay,
   listSemanticMemoriesForSession,
   listSessionInstancesForKey,
-  listSessionTrendByDay,
-  listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByAgentRollups,
   listUsageByModel,
   listUsageBySession,
-  listUsageDailyBreakdown,
   recordRequestLog,
   resolveTurnSessionId,
   sessionHasUserMessages,
@@ -405,7 +399,6 @@ import {
 import {
   evaluateSessionExpiry,
   resolveResetPolicy,
-  resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
@@ -548,6 +541,7 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
+import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
@@ -617,9 +611,7 @@ import {
   type GatewayAdminSkillPackageFilesResponse,
   type GatewayAdminSkillsResponse,
   type GatewayAdminSlackWebhookTargetRequest,
-  type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
-  type GatewayAdminStatisticsTrendDay,
   type GatewayAdminSuspendedSession,
   type GatewayAdminTeamStructureResponse,
   type GatewayAdminTeamStructureRevision,
@@ -676,12 +668,14 @@ import {
   buildGatewayProviderHealth,
   getGatewayAdminProviderStatus,
 } from './provider-status.js';
+import { handleReceiptsCommand } from './receipts-command.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
   ResponseRatingNotFoundError,
   submitResponseRating,
 } from './response-ratings.js';
 import { handleScheduleCommand } from './schedule-command.js';
+import { canSeeSession } from './scheduled-task-access.js';
 import {
   describeSessionShowMode,
   isSessionShowMode,
@@ -690,6 +684,8 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
 import { storeTurnMessages } from './turn-storage.js';
+
+export { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -1302,7 +1298,7 @@ export function resolveChannelType(
   ) {
     return source;
   }
-  const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
+  const inferredChannelType = resolveChannelTargetKind(req.channelId);
   if (
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
@@ -1321,7 +1317,7 @@ export function resolveSessionAutoResetPolicy(
   client?: GatewayChatRequest['client'],
 ): SessionResetPolicy {
   const policy = resolveResetPolicy({
-    channelKind: resolveSessionResetChannelKind(channelId),
+    channelKind: resolveChannelTargetKind(channelId),
     config: getRuntimeConfig(),
   });
   // The phone app shows every chat as one continuous thread and has no way to
@@ -4773,163 +4769,6 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   };
 }
 
-const STATISTICS_MIN_DAYS = 1;
-const STATISTICS_MAX_DAYS = 90;
-const STATISTICS_DEFAULT_DAYS = 30;
-
-function normalizeStatisticsDays(raw: number | string | undefined): number {
-  const parsed =
-    typeof raw === 'number'
-      ? raw
-      : typeof raw === 'string' && raw.trim()
-        ? Number.parseInt(raw, 10)
-        : STATISTICS_DEFAULT_DAYS;
-  if (!Number.isFinite(parsed)) {
-    return STATISTICS_DEFAULT_DAYS;
-  }
-  return Math.max(
-    STATISTICS_MIN_DAYS,
-    Math.min(STATISTICS_MAX_DAYS, Math.floor(parsed)),
-  );
-}
-
-function toIsoDate(daysOffsetFromToday: number): string {
-  const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
-  now.setUTCDate(now.getUTCDate() + daysOffsetFromToday);
-  return now.toISOString().slice(0, 10);
-}
-
-export function getGatewayAdminStatistics(params?: {
-  days?: number | string;
-}): GatewayAdminStatisticsResponse {
-  const days = normalizeStatisticsDays(params?.days);
-  const startDate = toIsoDate(-(days - 1));
-  const endDate = toIsoDate(0);
-
-  const messageTrend = listMessageTrendByDay({ days });
-  const sessionTrend = listSessionTrendByDay({ days });
-  const usageTrend = listUsageDailyBreakdown({ days });
-  const channelRows = listStatsByChannel({ days });
-  const totals = getStatisticsTotals({ days });
-
-  const trendByDay = new Map<string, GatewayAdminStatisticsTrendDay>();
-  // Seed every UTC calendar day in [startDate, endDate] with zeros so the
-  // response always covers `rangeDays` contiguous days, even when no
-  // activity was recorded.
-  for (let offset = 0; offset < days; offset += 1) {
-    const date = toIsoDate(-(days - 1 - offset));
-    trendByDay.set(date, {
-      date,
-      newSessions: 0,
-      activeSessions: 0,
-      userMessages: 0,
-      assistantMessages: 0,
-      totalMessages: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      totalTokens: 0,
-      callCount: 0,
-      toolCalls: 0,
-      costUsd: 0,
-    });
-  }
-
-  // SQLite may emit timestamps from the rolling-window helpers that fall
-  // just before startDate (when a query window is wider than the response
-  // window). Drop those; they're outside the documented range.
-  const upsertDay = (
-    day: string,
-    apply: (target: GatewayAdminStatisticsTrendDay) => void,
-  ): void => {
-    if (!day || day < startDate || day > endDate) return;
-    const target = trendByDay.get(day);
-    if (target) apply(target);
-  };
-
-  for (const row of messageTrend) {
-    upsertDay(row.day, (day) => {
-      day.userMessages = row.user_messages;
-      day.assistantMessages = row.assistant_messages;
-      day.totalMessages = row.total_messages;
-    });
-  }
-  for (const row of sessionTrend) {
-    upsertDay(row.day, (day) => {
-      day.newSessions = row.new_sessions;
-      day.activeSessions = row.active_sessions;
-    });
-  }
-  for (const row of usageTrend) {
-    upsertDay(row.day, (day) => {
-      day.inputTokens = row.total_input_tokens;
-      day.outputTokens = row.total_output_tokens;
-      day.cacheReadTokens = row.total_cache_read_tokens;
-      day.cacheWriteTokens = row.total_cache_write_tokens;
-      day.totalTokens = row.total_tokens;
-      day.callCount = row.call_count;
-      day.toolCalls = row.total_tool_calls;
-      day.costUsd = row.total_cost_usd;
-    });
-  }
-
-  const trend = Array.from(trendByDay.values()).sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-  );
-
-  const usageTotals = trend.reduce(
-    (acc, day) => {
-      acc.totalInputTokens += day.inputTokens;
-      acc.totalOutputTokens += day.outputTokens;
-      acc.totalCacheReadTokens += day.cacheReadTokens;
-      acc.totalCacheWriteTokens += day.cacheWriteTokens;
-      acc.totalTokens += day.totalTokens;
-      acc.totalCostUsd += day.costUsd;
-      acc.callCount += day.callCount;
-      acc.totalToolCalls += day.toolCalls;
-      return acc;
-    },
-    {
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCacheReadTokens: 0,
-      totalCacheWriteTokens: 0,
-      totalTokens: 0,
-      totalCostUsd: 0,
-      callCount: 0,
-      totalToolCalls: 0,
-    },
-  );
-
-  const channels: GatewayAdminStatisticsChannelRow[] = channelRows.map(
-    (row) => ({
-      channelId: row.channel_id || '(unknown)',
-      sessionCount: row.session_count,
-      userMessages: row.user_messages,
-      assistantMessages: row.assistant_messages,
-      totalMessages: row.total_messages,
-    }),
-  );
-
-  return {
-    rangeDays: days,
-    startDate,
-    endDate,
-    totals: {
-      newSessions: totals.new_sessions,
-      activeSessions: totals.active_sessions,
-      totalMessages: totals.total_messages,
-      userMessages: totals.user_messages,
-      assistantMessages: totals.assistant_messages,
-      ...usageTotals,
-    },
-    trend,
-    channels,
-  };
-}
-
 export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   return {
     agents: listAgents().map((agent) => {
@@ -5693,32 +5532,6 @@ export async function deleteGatewayAdminEmailMessage(params: {
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
   const { deleteLiveAdminEmailMessage } = await emailAdminMailboxLoader.load();
   return deleteLiveAdminEmailMessage(config, password, params);
-}
-
-export function deleteGatewayAdminSession(
-  sessionId: string,
-  options?: {
-    onlyWithoutUserMessages?: boolean;
-  },
-): GatewayAdminDeleteSessionResult {
-  if (options?.onlyWithoutUserMessages && sessionHasUserMessages(sessionId)) {
-    return {
-      deleted: false,
-      sessionId,
-      skippedReason: 'has_user_messages',
-      deletedMessages: 0,
-      deletedTasks: 0,
-      deletedSemanticMemories: 0,
-      deletedUsageEvents: 0,
-      deletedAuditEntries: 0,
-      deletedStructuredAuditEntries: 0,
-      deletedApprovalEntries: 0,
-    };
-  }
-  interruptGatewaySessionExecution(sessionId);
-  const result = deleteSessionData(sessionId);
-  deleteWebNotificationSession(sessionId);
-  return result;
 }
 
 export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
@@ -9361,10 +9174,10 @@ function isProtectedNoUserChatCleanupSession(session: Session): boolean {
   );
 }
 
-export function cleanupGatewayNoUserChatSessions(params: {
+export async function cleanupGatewayNoUserChatSessions(params: {
   channelId?: string | null;
   keepSessionId?: string | null;
-}): GatewayNoUserChatSessionCleanupResult {
+}): Promise<GatewayNoUserChatSessionCleanupResult> {
   const channelId = String(params.channelId || 'web').trim() || 'web';
   const keepSessionId = String(params.keepSessionId || '').trim();
   const keptSessionId = keepSessionId
@@ -9385,7 +9198,7 @@ export function cleanupGatewayNoUserChatSessions(params: {
     }
     if (isProtectedNoUserChatCleanupSession(session)) continue;
     if (sessionHasUserMessages(session.id)) continue;
-    const result = deleteGatewayAdminSession(session.id, {
+    const result = await deleteGatewayAdminSession(session.id, {
       onlyWithoutUserMessages: true,
     });
     if (result.deleted) deletedSessionIds.push(result.sessionId);
@@ -12579,7 +12392,7 @@ export async function handleGatewayCommand(
           let deletedApprovalEntries = 0;
 
           for (const { session: targetSession } of plan.candidates) {
-            const result = deleteGatewayAdminSession(targetSession.id);
+            const result = await deleteGatewayAdminSession(targetSession.id);
             if (!result.deleted) continue;
             deleted += 1;
             deletedMessages += result.deletedMessages;
@@ -12903,6 +12716,17 @@ export async function handleGatewayCommand(
             'Usage: `audit [sessionId] | audit last | audit turn <n> | audit run <runId>`',
           );
         }
+        const noAuditEvents = plainCommand(
+          `No structured audit events for session \`${targetSessionId}\`.`,
+        );
+        // Another chat's audit holds its tool arguments and results. Answer
+        // as if it were empty so a peer cannot probe which sessions exist.
+        if (
+          !isLocalOperator(req, 'admin.audit.read') &&
+          !canSeeSession(targetSessionId, session)
+        ) {
+          return noAuditEvents;
+        }
         if (!parsedAudit.recentOnly && parsedAudit.selector) {
           const trace = formatAuditTurnTrace({
             sessionId: targetSessionId,
@@ -12916,11 +12740,7 @@ export async function handleGatewayCommand(
         }
 
         const rows = getRecentStructuredAuditForSession(targetSessionId, 20);
-        if (rows.length === 0) {
-          return plainCommand(
-            `No structured audit events for session \`${targetSessionId}\`.`,
-          );
-        }
+        if (rows.length === 0) return noAuditEvents;
         const lines = rows.map((row) => {
           return `#${row.seq} ${row.event_type} ${row.timestamp} ${summarizeAuditPayload(row.payload)}`;
         });
@@ -12952,6 +12772,9 @@ export async function handleGatewayCommand(
       case 'name':
         return handleNameCommand(req, resolveSessionAgentId(session));
 
+      case 'receipts':
+        return handleReceiptsCommand(req, session);
+
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));
 
@@ -12977,3 +12800,5 @@ export async function handleGatewayCommand(
 
   return attachCommandSessionIdentity(result);
 }
+
+export { getGatewayAdminStatistics } from './gateway-statistics-service.js';

@@ -1,3 +1,8 @@
+/**
+ * Live channel registrations overlay the descriptor classifier's default info.
+ * Kind spellings resolve locally; concrete target facts come from descriptors.
+ * This registry does not start transports or choose proactive delivery policy.
+ */
 import {
   type ChannelInfo,
   type ChannelKind,
@@ -19,19 +24,7 @@ import {
   VOICE_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
 } from './channel.js';
-import { isDiscordWebhookChannelTarget } from './discord-webhook/target.js';
-import { isEmailAddress } from './email/allowlist.js';
-import { isIMessageHandle } from './imessage/handle.js';
-import { isLineChannelId } from './line/target.js';
-import { isSignalChannelId } from './signal/target.js';
-import { isSlackChannelTarget } from './slack/target.js';
-import { isSlackWebhookChannelTarget } from './slack-webhook/target.js';
-import { isTelegramChannelId } from './telegram/target.js';
-import { isThreemaChannelId } from './threema/target.js';
-import { isVoiceChannelId } from './voice/channel-id.js';
-import { isWhatsAppJid } from './whatsapp/phone.js';
-
-const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
+import { getChannelDescriptorForTarget } from './channel-descriptors.js';
 
 const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   discord: DISCORD_CAPABILITIES,
@@ -69,8 +62,6 @@ const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
   'slack-webhook': 'slack_webhook',
 };
 
-const channels = new Map<ChannelKind, ChannelInfo>();
-
 export function normalizeChannelValue(
   value?: string | null,
 ): string | undefined {
@@ -107,6 +98,8 @@ export function normalizeSkillConfigChannelKind(
   return channelKind;
 }
 
+const channels = new Map<ChannelKind, ChannelInfo>();
+
 function buildDefaultChannelInfo(kind: ChannelKind): ChannelInfo {
   return {
     kind,
@@ -120,26 +113,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   if (!normalized) return undefined;
   const explicitKind = normalizeChannelKind(normalized);
   if (explicitKind) return explicitKind;
-  if (
-    normalized.startsWith('19:') ||
-    normalized.startsWith('teams:') ||
-    normalized.includes('@thread.')
-  ) {
-    return 'msteams';
-  }
-  if (isWhatsAppJid(normalized)) return 'whatsapp';
-  if (isLineChannelId(normalized)) return 'line';
-  if (isVoiceChannelId(normalized)) return 'voice';
-  if (isIMessageHandle(normalized)) return 'imessage';
-  if (isSignalChannelId(normalized)) return 'signal';
-  if (isDiscordWebhookChannelTarget(normalized)) return 'discord_webhook';
-  if (isSlackWebhookChannelTarget(normalized)) return 'slack_webhook';
-  if (isSlackChannelTarget(normalized)) return 'slack';
-  if (isTelegramChannelId(normalized)) return 'telegram';
-  if (isThreemaChannelId(normalized)) return 'threema';
-  if (isEmailAddress(normalized)) return 'email';
-  if (DISCORD_SNOWFLAKE_RE.test(normalized)) return 'discord';
-  return undefined;
+  return getChannelDescriptorForTarget(normalized)?.kind;
 }
 
 export function registerChannel(info: ChannelInfo): void {

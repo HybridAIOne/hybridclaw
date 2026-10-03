@@ -713,6 +713,27 @@ spelling, replacing the whole line. Companion apps send the phone's zone with
 `schedule`, `null` when there is no valid zone. Scheduled tasks that already
 exist keep the zone they were created with.
 
+### Receipts
+
+```text
+/receipts [--limit <n>]
+```
+
+What the agent did outside its sandbox for you: mails it sent, events it
+made, orders it placed and other red-tier actions, and who let each through
+(you for this one, an earlier yes for the session, agent or everything, full
+autonomy, or the policy without asking). It reads the structured audit, so
+runs of scheduled tasks are included. A chat sees its own receipts; a web chat
+also those of the agent's other web chats and of the scheduled tasks it may
+manage. Actions still waiting for an answer, denied or blocked are not
+receipts. Companion apps list them with `--json`, which answers
+`{"version": 1, "receipts": […]}` in the same escaping as `schedule`: each
+with `id`, `at`, `session`, `task`, `tool`, `service`, `action`, `to`,
+`subject`, `title`, `when`, `url`, `allowed` (`you`, `earlier`, `full` or
+`policy`), `ok` and `error`. `to` holds the recipients' domains ("@aa.com"),
+which the audit keeps next to arguments whose addresses it redacts. Never a
+mail's body.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

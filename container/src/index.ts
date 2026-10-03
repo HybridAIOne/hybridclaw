@@ -39,6 +39,11 @@ import {
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  cloneTaskModelPolicies,
+  setModelContext,
+  setTaskModelPolicies,
+} from './model-context.js';
+import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isContextWindowExceededError,
@@ -152,12 +157,10 @@ import {
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
-  setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
   setScheduleSideEffectsEnabled,
   setSessionContext,
-  setTaskModelPolicies,
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
@@ -228,23 +231,6 @@ let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
 
-function cloneTaskModels(
-  taskModels: ContainerInput['taskModels'],
-): ContainerInput['taskModels'] | undefined {
-  const cloned: NonNullable<ContainerInput['taskModels']> = {};
-  for (const key of TASK_MODEL_KEYS) {
-    const taskModel = taskModels?.[key];
-    if (!taskModel) continue;
-    cloned[key] = {
-      ...taskModel,
-      requestHeaders: taskModel.requestHeaders
-        ? { ...taskModel.requestHeaders }
-        : undefined,
-    };
-  }
-  return Object.keys(cloned).length > 0 ? cloned : undefined;
-}
-
 function normalizeTaskModelBaseUrl(baseUrl: string | undefined): string {
   return String(baseUrl || '')
     .trim()
@@ -294,7 +280,7 @@ function resolveTaskModelsForRequest(
     storedTaskModels = undefined;
     return undefined;
   }
-  storedTaskModels = cloneTaskModels(merged);
+  storedTaskModels = cloneTaskModelPolicies(merged);
   return merged;
 }
 
@@ -2345,18 +2331,21 @@ async function main(): Promise<void> {
     firstInput.browserAllowPrivateNetwork,
   );
   setWebSearchConfig(firstInput.webSearch);
-  setModelContext(
-    firstInput.provider,
-    firstInput.providerMethod,
-    firstInput.baseUrl,
-    storedApiKey,
-    firstInput.model,
-    firstInput.chatbotId,
-    firstRequestHeaders,
-    firstInput.maxTokens,
-    firstInput.modelBehavior,
-    firstInput.debugModelResponses === true,
-  );
+  setModelContext({
+    provider: firstInput.provider,
+    providerMethod: firstInput.providerMethod,
+    baseUrl: firstInput.baseUrl,
+    apiKey: storedApiKey,
+    model: firstInput.model,
+    chatbotId: firstInput.chatbotId,
+    requestHeaders: firstRequestHeaders,
+    maxTokens: firstInput.maxTokens,
+    modelBehavior: firstInput.modelBehavior,
+    debugModelResponses: firstInput.debugModelResponses === true,
+    isLocal: firstInput.isLocal,
+    contextWindow: firstInput.contextWindow,
+    thinkingFormat: firstInput.thinkingFormat,
+  });
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(
     firstInput.media,
@@ -2510,18 +2499,21 @@ async function main(): Promise<void> {
       input.browserAllowPrivateNetwork,
     );
     setWebSearchConfig(input.webSearch);
-    setModelContext(
-      input.provider,
-      input.providerMethod,
-      input.baseUrl,
+    setModelContext({
+      provider: input.provider,
+      providerMethod: input.providerMethod,
+      baseUrl: input.baseUrl,
       apiKey,
-      input.model,
-      input.chatbotId,
+      model: input.model,
+      chatbotId: input.chatbotId,
       requestHeaders,
-      input.maxTokens,
-      input.modelBehavior,
-      input.debugModelResponses === true,
-    );
+      maxTokens: input.maxTokens,
+      modelBehavior: input.modelBehavior,
+      debugModelResponses: input.debugModelResponses === true,
+      isLocal: input.isLocal,
+      contextWindow: input.contextWindow,
+      thinkingFormat: input.thinkingFormat,
+    });
     setTaskModelPolicies(taskModels);
     setMediaContext(
       input.media,

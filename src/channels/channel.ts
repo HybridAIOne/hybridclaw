@@ -1,35 +1,39 @@
-export type ChannelKind =
-  | 'discord'
-  | 'discord_webhook'
-  | 'email'
-  | 'heartbeat'
-  | 'imessage'
-  | 'line'
-  | 'msteams'
-  | 'scheduler'
-  | 'signal'
-  | 'slack'
-  | 'slack_webhook'
-  | 'telegram'
-  | 'threema'
-  | 'tui'
-  | 'voice'
-  | 'whatsapp';
-
-export const SKILL_CONFIG_CHANNEL_KINDS = [
+/**
+ * Channel kinds are defined once; skill support and configuration derive from them.
+ * Unlike channel-registry.ts, this module defines kinds and capability presets,
+ * without registering transports or inferring channel targets.
+ */
+export const CHANNEL_KINDS = [
   'discord',
   'discord_webhook',
   'email',
+  'heartbeat',
+  'imessage',
   'line',
   'msteams',
+  'scheduler',
   'signal',
   'slack',
   'slack_webhook',
   'telegram',
   'threema',
+  'tui',
   'voice',
   'whatsapp',
-] as const satisfies readonly ChannelKind[];
+] as const;
+
+export type ChannelKind = (typeof CHANNEL_KINDS)[number];
+
+export type ChannelTargetKind = ChannelKind | 'web' | 'cli';
+
+export const NON_SYSTEM_CHANNEL_KINDS = CHANNEL_KINDS.filter(
+  (kind) => kind !== 'heartbeat' && kind !== 'scheduler',
+);
+
+// TUI uses the global skill configuration scope.
+export const SKILL_CONFIG_CHANNEL_KINDS = NON_SYSTEM_CHANNEL_KINDS.filter(
+  (kind) => kind !== 'tui',
+);
 
 export type SkillConfigChannelKind =
   (typeof SKILL_CONFIG_CHANNEL_KINDS)[number];

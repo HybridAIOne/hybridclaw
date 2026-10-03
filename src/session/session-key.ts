@@ -138,3 +138,20 @@ export function inspectSessionKeyMigration(
   // explicit `migrated` flag to distinguish this no-op from a real rewrite.
   return { key: normalized, migrated: false };
 }
+
+/**
+ * The session a task's run is stored under when it has none of its own: its
+ * run key (`cron:<id>` for a `--reply-only` task) in canonical form.
+ */
+export function scheduledRunSessionKey(
+  agentId: string,
+  taskId: number,
+  sessionKey?: string,
+): string {
+  const raw = sessionKey?.trim()
+    ? sessionKey.trim()
+    : buildSessionKey(agentId, 'scheduler', 'cron', String(taskId));
+  return isLegacySessionKey(raw)
+    ? migrateLegacySessionKey(raw, { agent_id: agentId })
+    : raw;
+}

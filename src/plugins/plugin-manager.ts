@@ -2,6 +2,7 @@
  * Owns plugin registration and dispatch for one gateway lifecycle.
  * Live routing reads return copies of current policy; registration snapshots
  * remain separate and this manager does not decide which tier executes.
+ * Session reset ends the previous instance before transferring its context.
  */
 
 import fs from 'node:fs';
@@ -2372,6 +2373,13 @@ export class PluginManager {
       this.sessionWorkspaceRoots.get(context.previousSessionId) || null;
     const previousUserId =
       this.sessionUserIds.get(context.previousSessionId) || null;
+    await this.notifySessionEnd({
+      sessionId: context.previousSessionId,
+      userId: previousUserId || context.userId,
+      agentId: context.agentId,
+      channelId: context.channelId,
+      workspacePath: previousWorkspaceRoot || undefined,
+    });
     if (previousWorkspaceRoot) {
       this.sessionWorkspaceRoots.set(context.sessionId, previousWorkspaceRoot);
     }
@@ -2380,8 +2388,6 @@ export class PluginManager {
     } else {
       this.rememberSessionUserId(context.sessionId, context.userId);
     }
-    this.sessionWorkspaceRoots.delete(context.previousSessionId);
-    this.sessionUserIds.delete(context.previousSessionId);
     for (const entry of this.getOrderedMemoryLayerEntries()) {
       if (!entry.layer.onSessionReset) continue;
       try {

@@ -641,6 +641,69 @@ export function searchStructuredAudit(
   );
 }
 
+const ACTED_DECISIONS = [
+  'approved_once',
+  'approved_session',
+  'approved_agent',
+  'approved_all',
+  'approved_fullauto',
+  'promoted',
+];
+
+/**
+ * The tool calls in these sessions that ran with an outside effect, newest
+ * first and at most `limit`: a red-tier call (one that sends, posts, pays or
+ * cannot be undone) or one an approval let through, and not one that still
+ * waits for an answer or was denied. Each comes as its `tool.call`,
+ * `autonomy.decision`, `escalation.decision` and `tool.result` rows, newest
+ * first; the caller groups them by `toolCallId`.
+ */
+export function listActionAuditEntries(
+  sessionIds: readonly string[],
+  limit = 30,
+): StructuredAuditEntry[] {
+  const ids = Array.from(
+    new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean)),
+  );
+  if (ids.length === 0) return [];
+  const bounded = Math.max(1, Math.min(100, Math.trunc(limit || 30)));
+  const placeholders = ids.map(() => '?').join(', ');
+  const acted = ACTED_DECISIONS.map(() => '?').join(', ');
+  const columns = STRUCTURED_AUDIT_SELECT_COLUMNS.split(', ')
+    .map((column) => `e.${column}`)
+    .join(', ');
+  return queryHydratedAuditEntries<Array<string | number>>(
+    getAuditDatabase(),
+    `WITH actions AS (
+       SELECT session_id, run_id, json_extract(payload, '$.toolCallId') AS call_id
+       FROM audit_events
+       WHERE session_id IN (${placeholders})
+         AND event_type = 'autonomy.decision'
+         AND COALESCE(json_extract(payload, '$.approvalDecision'), 'auto')
+           NOT IN ('required', 'denied')
+         AND (
+           json_extract(payload, '$.approvalTier') = 'red'
+           OR json_extract(payload, '$.approvalBaseTier') = 'red'
+           OR json_extract(payload, '$.approvalDecision') IN (${acted})
+         )
+       ORDER BY id DESC
+       LIMIT ?
+     )
+     SELECT ${columns}
+     FROM audit_events e
+     JOIN actions a
+       ON e.session_id = a.session_id
+      AND e.run_id = a.run_id
+      AND json_extract(e.payload, '$.toolCallId') = a.call_id
+     WHERE e.event_type IN
+       ('tool.call', 'autonomy.decision', 'escalation.decision', 'tool.result')
+     ORDER BY e.id DESC`,
+    ...ids,
+    ...ACTED_DECISIONS,
+    bounded,
+  );
+}
+
 export function getRecentApprovals(
   limit = 20,
   deniedOnly = false,

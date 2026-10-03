@@ -9,12 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CronExpressionParser } from 'cron-parser';
 import { SYSTEM_CAPABILITIES } from '../channels/channel.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import { registerChannel } from '../channels/channel-registry.js';
-import { isEmailAddress } from '../channels/email/allowlist.js';
-import { isIMessageHandle } from '../channels/imessage/handle.js';
-import { isLineChannelId } from '../channels/line/target.js';
-import { isTelegramChannelId } from '../channels/telegram/target.js';
-import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import { DATA_DIR } from '../config/config.js';
 import {
   DEFAULT_ONE_SHOT_MAX_RETRIES,
@@ -46,7 +42,6 @@ const SCHEDULER_STATE_VERSION = 1;
 const SCHEDULER_STATE_PATH = path.join(DATA_DIR, 'scheduler-jobs-state.json');
 const SQLITE_SECOND_PRECISION_TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const DEFAULT_SCHEDULER_TIME_ZONE = 'UTC';
-const DISCORD_CHANNEL_ID_RE = /^\d{16,22}$/;
 
 type CronWeekdayNumbering = 'crontab' | 'monday-zero-based';
 
@@ -140,14 +135,17 @@ function describeScheduledDeliveryTarget(
 ): string {
   const trimmed = channelId?.trim();
   if (!trimmed) return 'the current session';
-  if (isEmailAddress(trimmed)) return `email to ${trimmed}`;
-  if (DISCORD_CHANNEL_ID_RE.test(trimmed)) return `Discord channel ${trimmed}`;
-  if (isTelegramChannelId(trimmed)) return `Telegram target ${trimmed}`;
-  if (isIMessageHandle(trimmed)) return `iMessage target ${trimmed}`;
-  if (isWhatsAppJid(trimmed)) return `WhatsApp chat ${trimmed}`;
-  if (isLineChannelId(trimmed)) return `LINE Keep Memo ${trimmed}`;
-  if (trimmed === 'tui') return 'the local TUI inbox';
-  return `channel ${trimmed}`;
+  const kind = resolveChannelTargetKind(trimmed);
+  const descriptions: Partial<Record<NonNullable<typeof kind>, string>> = {
+    email: `email to ${trimmed}`,
+    discord: `Discord channel ${trimmed}`,
+    telegram: `Telegram target ${trimmed}`,
+    imessage: `iMessage target ${trimmed}`,
+    whatsapp: `WhatsApp chat ${trimmed}`,
+    line: `LINE Keep Memo ${trimmed}`,
+    tui: 'the local TUI inbox',
+  };
+  return (kind ? descriptions[kind] : undefined) ?? `channel ${trimmed}`;
 }
 
 /**
