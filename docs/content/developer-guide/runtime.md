@@ -176,6 +176,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
 | Previously attached media paths authorized for read | Gateway conversation metadata, passed on every input | Rebuilt; original cache files can still expire |
 | PDF page snapshots | Workspace `.visual-snapshots/`, content-addressed JSON | Retained; tool history references reconstruct native PDF or images after restart |
+| Original in-loop compaction messages | Session state dir `in-loop-compactions/` | Kept; replacement summaries carry the file path |
 | Background processes, `/tmp` files | Worker | Lost |
 | IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
@@ -580,6 +581,13 @@ The model receives complete tool results, and stored exchanges replay complete
 results. Large results cross IPC as file references, restored by the gateway;
 this transport threshold does not shorten model input. Whole-context compaction
 and model context-window recovery still apply to the combined conversation.
+In-loop compaction sends every selected message intact to the compression model,
+including tool calls, results, and structured content. It archives the original
+region in the persistent session state dir and includes that file's path in the
+replacement summary. Replacement must reduce the estimated token count,
+including its label and archive reference. Failed or empty summaries, archive
+write failures, and summaries that do not shrink the region leave history
+unchanged; there is no heuristic fallback or character-based transcript cutoff.
 The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
 remove it from custom configuration. There is no replacement per-result limit.
 

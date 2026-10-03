@@ -1,33 +1,21 @@
-import { truncateHeadTailText } from './text-truncation.js';
-import { normalizeContentText } from './token-usage.js';
+/**
+ * Replaces a complete, tool-safe region only with a smaller model summary.
+ * Every selected message reaches the summarizer intact and is archived before
+ * replacement. Unlike gateway session compaction, this changes only loop input;
+ * failed or empty summaries never authorize a lossy heuristic replacement.
+ */
+import { estimateMessageTokens } from './token-usage.js';
 import type { ChatMessage } from './types.js';
 
 const PROTECT_HEAD_MESSAGES = 4;
 const PROTECT_TAIL_MESSAGES = 8;
 const SUMMARY_LABEL = '[In-loop compaction summary]';
-const SUMMARY_TRUNCATED_MARKER = '\n\n...[truncated]';
 
 export interface InLoopCompactionResult {
   history: ChatMessage[];
   changed: boolean;
   compactedMessages: number;
-  summarySource: 'llm' | 'heuristic' | 'none';
-}
-
-function truncateInline(text: string, maxChars = 240): string {
-  const compact = text.replace(/\s+/g, ' ').trim();
-  if (compact.length <= maxChars) return compact;
-  return `${compact.slice(0, maxChars - 3)}...`;
-}
-
-function truncateForPrompt(text: string, maxChars: number): string {
-  return truncateHeadTailText({
-    text,
-    maxChars,
-    marker: SUMMARY_TRUNCATED_MARKER,
-    headRatio: 0.75,
-    tailRatio: 0.15,
-  });
+  summarySource: 'llm' | 'none';
 }
 
 function countLeadingSystemMessages(history: ChatMessage[]): number {
@@ -87,33 +75,15 @@ function findSafeBoundaryAtOrBefore(safe: boolean[], target: number): number {
   return 0;
 }
 
-function normalizeSummary(summary: string, maxChars: number): string {
+function normalizeSummary(summary: string): string {
   let normalized = summary.trim();
   if (normalized.startsWith('```')) {
     normalized = normalized
       .replace(/^```[a-z0-9_-]*\s*/i, '')
       .replace(/```$/i, '')
       .trim();
-  }
-  if (normalized.length > maxChars) {
-    const available = maxChars - SUMMARY_TRUNCATED_MARKER.length;
-    normalized =
-      available > 0
-        ? `${normalized.slice(0, available)}${SUMMARY_TRUNCATED_MARKER}`
-        : normalized.slice(0, maxChars);
   }
   return normalized.trim();
-}
-
-function hasSummaryContent(summary: string): boolean {
-  let normalized = summary.trim();
-  if (normalized.startsWith('```')) {
-    normalized = normalized
-      .replace(/^```[a-z0-9_-]*\s*/i, '')
-      .replace(/```$/i, '')
-      .trim();
-  }
-  return normalized.length > 0;
 }
 
 function buildCompactionRegion(history: ChatMessage[]): {
@@ -166,74 +136,16 @@ function buildCompactionRegion(history: ChatMessage[]): {
   };
 }
 
-function formatMessagesForPrompt(
-  messages: ChatMessage[],
-  maxChars: number,
-): string {
-  const lines: string[] = [];
-  let usedChars = 0;
-  for (const message of messages) {
-    const content = normalizeContentText(message.content).trim() || '(empty)';
-    const entry = [
-      '---',
-      `role=${message.role}`,
-      truncateForPrompt(content, 2_000),
-    ].join('\n');
-    if (usedChars + entry.length + 2 > maxChars) break;
-    lines.push(entry);
-    usedChars += entry.length + 2;
-  }
-  return lines.join('\n\n');
-}
-
-function buildHeuristicSummary(messages: ChatMessage[]): string {
-  const counts = new Map<ChatMessage['role'], number>();
-  for (const message of messages) {
-    counts.set(message.role, (counts.get(message.role) || 0) + 1);
-  }
-  const roleCounts = Array.from(counts.entries())
-    .map(([role, count]) => `${role}: ${count}`)
-    .join(', ');
-  const highlights = messages
-    .slice(-6)
-    .map(
-      (message) =>
-        `- ${message.role}: ${truncateInline(normalizeContentText(message.content), 280)}`,
-    )
-    .join('\n');
-
+function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
   return [
-    'Compacted earlier conversation to stay within the active model context window.',
-    `Compacted messages: ${messages.length}.`,
-    roleCounts ? `Roles in compacted region: ${roleCounts}.` : '',
-    highlights ? `Most recent compacted highlights:\n${highlights}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-function buildSummaryPromptMessages(params: {
-  compacted: ChatMessage[];
-  maxTranscriptChars: number;
-}): ChatMessage[] {
-  return [
-    {
-      role: 'system',
-      content: [
-        'You are compacting earlier turns from an active tool-using agent loop.',
-        'Summarize the conversation region so the agent can continue working without losing state.',
-        'Preserve the user goal, active plan, tool outputs that still matter, file paths, commands, URLs, errors, decisions, and unresolved follow-ups.',
-        'Drop filler and repetitive detail.',
-        'Return plain markdown only.',
-      ].join('\n'),
-    },
+    ...compacted,
     {
       role: 'user',
       content: [
-        'Compacted conversation region:',
-        formatMessagesForPrompt(params.compacted, params.maxTranscriptChars),
-        '',
-        'Write a concise summary that can replace these messages in history.',
+        'Summarize the preceding conversation region so the agent can continue working without losing state.',
+        'Preserve the user goal, active plan, tool outputs that still matter, file paths, commands, URLs, errors, decisions, and unresolved follow-ups.',
+        'Drop filler and repetitive detail.',
+        'Return a concise plain markdown summary only. Do not execute tools or continue the task.',
       ].join('\n'),
     },
   ];
@@ -243,64 +155,65 @@ export async function compactInLoop(params: {
   history: ChatMessage[];
   contextWindowTokens?: number;
   summarize: (messages: ChatMessage[], maxTokens: number) => Promise<string>;
+  archive: (messages: ChatMessage[]) => string;
 }): Promise<InLoopCompactionResult> {
   const region = buildCompactionRegion(params.history);
-  if (region.middle.length === 0) {
-    return {
-      history: params.history,
-      changed: false,
-      compactedMessages: 0,
-      summarySource: 'none',
-    };
-  }
+  const unchanged: InLoopCompactionResult = {
+    history: params.history,
+    changed: false,
+    compactedMessages: 0,
+    summarySource: 'none',
+  };
+  if (region.middle.length === 0) return unchanged;
 
   const contextWindowTokens = Math.max(
     1_024,
     Math.floor(params.contextWindowTokens || 128_000),
-  );
-  const maxTranscriptChars = Math.max(
-    6_000,
-    Math.min(32_000, Math.floor(contextWindowTokens * 1.5)),
-  );
-  const maxSummaryChars = Math.max(
-    1_200,
-    Math.min(6_000, Math.floor(contextWindowTokens * 0.08)),
   );
   const maxSummaryTokens = Math.max(
     256,
     Math.min(1_024, Math.floor(contextWindowTokens * 0.08)),
   );
 
-  let summarySource: InLoopCompactionResult['summarySource'] = 'llm';
+  // Keep the archive independent of any provider-side message normalization.
+  const originals = structuredClone(region.middle);
   let summary: string;
   try {
-    summary = await params.summarize(
-      buildSummaryPromptMessages({
-        compacted: region.middle,
-        maxTranscriptChars,
-      }),
-      maxSummaryTokens,
+    summary = normalizeSummary(
+      await params.summarize(
+        buildSummaryPromptMessages(structuredClone(originals)),
+        maxSummaryTokens,
+      ),
     );
   } catch {
-    summarySource = 'heuristic';
-    summary = buildHeuristicSummary(region.middle);
+    return unchanged;
   }
+  if (!summary) return unchanged;
 
-  let activeSummary = summary;
-  if (!hasSummaryContent(activeSummary)) {
-    summarySource = 'heuristic';
-    activeSummary = buildHeuristicSummary(region.middle);
-  }
-  const finalSummary = normalizeSummary(activeSummary, maxSummaryChars);
   const summaryMessage: ChatMessage = {
     role: 'assistant',
-    content: `${SUMMARY_LABEL}\n${finalSummary}`,
+    content: `${SUMMARY_LABEL}\n${summary}`,
   };
+  const originalTokens = estimateMessageTokens(originals);
+  if (estimateMessageTokens([summaryMessage]) >= originalTokens) {
+    return unchanged;
+  }
+
+  let archivePath: string;
+  try {
+    archivePath = params.archive(originals);
+  } catch {
+    return unchanged;
+  }
+  summaryMessage.content += `\n\nOriginal messages: ${archivePath}`;
+  if (estimateMessageTokens([summaryMessage]) >= originalTokens) {
+    return unchanged;
+  }
 
   return {
     history: [...region.prefix, summaryMessage, ...region.suffix],
     changed: true,
     compactedMessages: region.middle.length,
-    summarySource,
+    summarySource: 'llm',
   };
 }

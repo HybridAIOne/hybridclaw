@@ -17,6 +17,7 @@ interface ModelServer {
   /** Messages of each agent-loop request, in order. */
   loopRequests: ChatMessage[][];
   summaryRequests: number;
+  summaryInputs: ChatMessage[][];
   close: () => Promise<void>;
 }
 
@@ -72,9 +73,12 @@ function completion(
 
 async function startModelServer(
   replyToLoop: (index: number) => Reply,
+  replyToSummary: (messages: ChatMessage[]) => Reply = () =>
+    completion('Earlier turns summarized.'),
 ): Promise<ModelServer> {
   const loopRequests: ChatMessage[][] = [];
   let summaryRequests = 0;
+  const summaryInputs: ChatMessage[][] = [];
   const server = http.createServer(async (req, res) => {
     let text = '';
     for await (const chunk of req) text += String(chunk);
@@ -89,7 +93,8 @@ async function startModelServer(
       reply = replyToLoop(loopRequests.length - 1);
     } else {
       summaryRequests += 1;
-      reply = completion('Earlier turns summarized.');
+      summaryInputs.push(body.messages);
+      reply = replyToSummary(body.messages);
     }
     res.writeHead(reply.status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(reply.body));
@@ -102,6 +107,7 @@ async function startModelServer(
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     loopRequests,
+    summaryInputs,
     get summaryRequests() {
       return summaryRequests;
     },
@@ -188,6 +194,79 @@ describe('provider context-length rejections in the tool loop', () => {
     }
   }, 30_000);
 
+  test('preserves a late pending decision through the worker IPC flow and retains originals after exit', async () => {
+    const decision =
+      'Pending decision: confirm the migration before deployment.';
+    const messages: ChatMessage[] = Array.from({ length: 40 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `Message ${index}: ${'x'.repeat(3_000)}`,
+    }));
+    messages[25].content = `${'x'.repeat(2_500)}${decision}${'y'.repeat(500)}`;
+    const server = await startModelServer(
+      () => completion('done'),
+      (input) => {
+        const suppliedDecision = input.some((message) =>
+          String(message.content).includes(decision),
+        );
+        return completion(suppliedDecision ? decision : 'Decision lost');
+      },
+    );
+    try {
+      const output = await runTurn(server, { messages, contextWindow: 24_000 });
+
+      expect(output).toMatchObject({ status: 'success', result: 'done' });
+      expect(server.summaryInputs).toHaveLength(1);
+      expect(server.summaryInputs[0].slice(0, -1)).toEqual(
+        messages.slice(4, 32),
+      );
+      expect(server.loopRequests).toHaveLength(1);
+      const summary = server.loopRequests[0].find((message) =>
+        String(message.content).startsWith('[In-loop compaction summary]'),
+      );
+      expect(summary?.content).toContain(decision);
+      const archivePath = String(summary?.content).split(
+        'Original messages: ',
+      )[1];
+      expect(archivePath).toMatch(
+        /^\.hybridclaw-runtime\/sessions\/[a-f0-9]{32}\/in-loop-compactions\/.*\.json$/,
+      );
+      const archived = JSON.parse(
+        fs.readFileSync(path.join(workspace, archivePath), 'utf8'),
+      );
+      expect(archived.messages).toEqual(messages.slice(4, 32));
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
+  test.each([
+    { name: 'rejects the complete input', reply: CONTEXT_LENGTH_REJECTION },
+    { name: 'returns empty content', reply: completion('') },
+    {
+      name: 'returns a summary larger than the region',
+      reply: completion('x'.repeat(40_000)),
+    },
+  ])(
+    'stops without a lossy replacement when the summarizer $name',
+    async ({ reply }) => {
+      const server = await startModelServer(
+        () => completion('should not run'),
+        () => reply,
+      );
+      try {
+        const output = await runTurn(server, { contextWindow: 6_000 });
+
+        expect(output.status).toBe('error');
+        expect(output.error).toContain('Context window exhausted');
+        expect(server.summaryRequests).toBe(1);
+        expect(server.loopRequests).toHaveLength(0);
+      } finally {
+        await server.close();
+      }
+    },
+    30_000,
+  );
+
   test('returns the provider error once the retry budget is spent', async () => {
     const server = await startModelServer(() => CONTEXT_LENGTH_REJECTION);
     try {
@@ -232,17 +311,21 @@ describe('provider context-length rejections in the tool loop', () => {
       overrides: {},
       error: "Invalid value for 'temperature'.",
     },
-  ])('fails without retrying when $name', async ({ reply, overrides, error }) => {
-    const server = await startModelServer(() => reply);
-    try {
-      const output = await runTurn(server, overrides);
+  ])(
+    'fails without retrying when $name',
+    async ({ reply, overrides, error }) => {
+      const server = await startModelServer(() => reply);
+      try {
+        const output = await runTurn(server, overrides);
 
-      expect(output.status).toBe('error');
-      expect(output.error).toContain(error);
-      expect(server.loopRequests).toHaveLength(1);
-      expect(server.summaryRequests).toBe(0);
-    } finally {
-      await server.close();
-    }
-  }, 30_000);
+        expect(output.status).toBe('error');
+        expect(output.error).toContain(error);
+        expect(server.loopRequests).toHaveLength(1);
+        expect(server.summaryRequests).toBe(0);
+      } finally {
+        await server.close();
+      }
+    },
+    30_000,
+  );
 });

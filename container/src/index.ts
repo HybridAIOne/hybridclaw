@@ -30,6 +30,7 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
+import { archiveInLoopCompaction } from './in-loop-compaction-archive.js';
 import {
   setIpcAuthSecret,
   waitForInput,
@@ -1399,6 +1400,8 @@ async function processRequestInner(
           ? await compactInLoop({
               history,
               contextWindowTokens: guardContextWindow,
+              archive: (messages) =>
+                archiveInLoopCompaction(sessionId, messages),
               summarize: async (summaryMessages, summaryMaxTokens) => {
                 await haltIfShuttingDown();
                 tokenUsage.modelCalls += 1;
