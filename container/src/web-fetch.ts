@@ -11,7 +11,6 @@ import { isPrivateNetworkAddress } from '../shared/private-network.js';
 import { decodeEntities, stripTags } from './search-utils.js';
 import {
   type FetchText,
-  type FetchTextRequest,
   readYouTubeVideo,
   youtubeVideoId,
 } from './web-fetch-youtube.js';
@@ -377,19 +376,17 @@ async function fetchWithRedirects(
   maxRedirects: number,
   signal: AbortSignal,
   userAgent: string,
-  request: Omit<FetchTextRequest, 'signal'> = {},
+  headers: Record<string, string> = {},
 ): Promise<{ response: Response; finalUrl: string }> {
   let currentUrl = (await assertFetchUrl(url)).toString();
   for (let i = 0; i <= maxRedirects; i++) {
     const res = await fetch(currentUrl, {
-      method: request.method,
-      body: request.body,
       redirect: 'manual',
       headers: {
         Accept: 'text/markdown, text/html;q=0.9, */*;q=0.1',
         'User-Agent': userAgent,
         'Accept-Language': 'en-US,en;q=0.9',
-        ...request.headers,
+        ...headers,
       },
       signal,
     });
@@ -627,27 +624,22 @@ export async function webFetch(params: {
 
     const videoId = youtubeVideoId(params.url);
     if (videoId) {
-      const fetchText: FetchText = async (url, request = {}) => {
-        const signal = request.signal ?? controller.signal;
+      const fetchText: FetchText = async (url, headers) => {
         const { response } = await fetchWithRedirects(
           url,
           MAX_REDIRECTS,
-          signal,
+          controller.signal,
           BROWSER_USER_AGENT,
-          request,
+          headers,
         );
         const body = await readResponseText(
           response,
           MAX_RESPONSE_BYTES,
-          signal,
+          controller.signal,
         );
         return { status: response.status, text: body.text };
       };
-      const video = await readYouTubeVideo(
-        videoId,
-        fetchText,
-        controller.signal,
-      );
+      const video = await readYouTubeVideo(videoId, fetchText);
       const truncated = video.text.length > maxChars;
       const text = truncated ? video.text.slice(0, maxChars) : video.text;
       const result: WebFetchResult = {
