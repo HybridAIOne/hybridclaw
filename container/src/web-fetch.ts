@@ -9,6 +9,12 @@ import { lookup } from 'node:dns/promises';
 import net from 'node:net';
 import { isPrivateNetworkAddress } from '../shared/private-network.js';
 import { decodeEntities, stripTags } from './search-utils.js';
+import {
+  type FetchText,
+  type FetchTextRequest,
+  readYouTubeVideo,
+  youtubeVideoId,
+} from './web-fetch-youtube.js';
 
 const DEFAULT_MAX_CHARS = 50_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -371,15 +377,19 @@ async function fetchWithRedirects(
   maxRedirects: number,
   signal: AbortSignal,
   userAgent: string,
+  request: Omit<FetchTextRequest, 'signal'> = {},
 ): Promise<{ response: Response; finalUrl: string }> {
   let currentUrl = (await assertFetchUrl(url)).toString();
   for (let i = 0; i <= maxRedirects; i++) {
     const res = await fetch(currentUrl, {
+      method: request.method,
+      body: request.body,
       redirect: 'manual',
       headers: {
         Accept: 'text/markdown, text/html;q=0.9, */*;q=0.1',
         'User-Agent': userAgent,
         'Accept-Language': 'en-US,en;q=0.9',
+        ...request.headers,
       },
       signal,
     });
@@ -614,6 +624,50 @@ export async function webFetch(params: {
         controller.signal,
         userAgent,
       );
+
+    const videoId = youtubeVideoId(params.url);
+    if (videoId) {
+      const fetchText: FetchText = async (url, request = {}) => {
+        const signal = request.signal ?? controller.signal;
+        const { response } = await fetchWithRedirects(
+          url,
+          MAX_REDIRECTS,
+          signal,
+          BROWSER_USER_AGENT,
+          request,
+        );
+        const body = await readResponseText(
+          response,
+          MAX_RESPONSE_BYTES,
+          signal,
+        );
+        return { status: response.status, text: body.text };
+      };
+      const video = await readYouTubeVideo(
+        videoId,
+        fetchText,
+        controller.signal,
+      );
+      const truncated = video.text.length > maxChars;
+      const text = truncated ? video.text.slice(0, maxChars) : video.text;
+      const result: WebFetchResult = {
+        url: params.url,
+        finalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        status: 200,
+        contentType: 'text/markdown',
+        title: video.title,
+        extractMode,
+        extractor: video.extractor,
+        truncated,
+        length: text.length,
+        fetchedAt: new Date().toISOString(),
+        tookMs: Date.now() - start,
+        text,
+        escalationHint: video.browserMayHelp ? 'empty_extraction' : undefined,
+      };
+      writeCache(cacheKey, result);
+      return result;
+    }
 
     let { response: res, finalUrl } = await doFetch(BROWSER_USER_AGENT);
     if (isCloudflareChallenge(res)) {

@@ -589,6 +589,13 @@ navigation; another search does not render it. Protection scripts alone do not
 establish bot blocking. HTTP 403/429 or visible challenge text still yields
 `bot_blocked`; private-network and redirect guards remain enforced.
 
+YouTube video links (`watch`, `youtu.be`, `shorts`, `live`, `embed`) skip
+readability, which only finds the page footer: `web_fetch` reads title,
+channel, date, duration, views and description from the watch page's player
+JSON, and adds a transcript when the Android player client lists captions.
+When the page is walled, it returns oEmbed title and channel and says the
+description could not be read.
+
 ## Audit Trail Internals
 
 HybridClaw records forensic audit events by default:

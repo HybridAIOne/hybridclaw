@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
@@ -333,5 +334,140 @@ describe('web fetch escalation and pagination', () => {
     const { webFetch } = await import('../../container/src/web-fetch.js');
     const result = await webFetch({ url: 'https://93.184.216.34/exhibition' });
     expect(result.nextPageUrl).toBe(expected);
+  });
+});
+
+describe('web fetch YouTube videos', () => {
+  const htmlResponse = (html: string) =>
+    new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  const watchHtml = readFileSync(
+    new URL('../fixtures/youtube-watch.html', import.meta.url),
+    'utf8',
+  );
+  const androidPlayer = {
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [
+          {
+            baseUrl: 'https://www.youtube.com/api/timedtext?lang=en&fmt=srv3',
+            languageCode: 'en',
+            name: { runs: [{ text: 'English' }] },
+          },
+          {
+            baseUrl:
+              'https://www.youtube.com/api/timedtext?lang=de&kind=asr&fmt=srv3',
+            languageCode: 'de',
+            kind: 'asr',
+            name: { runs: [{ text: 'German (auto-generated)' }] },
+          },
+        ],
+        audioTracks: [{ audioTrackId: 'de-DE.4' }],
+        defaultAudioTrackIndex: 0,
+      },
+    },
+  };
+
+  function stubYouTube(routes: Record<string, () => Response>) {
+    vi.doMock('node:dns/promises', () => ({
+      lookup: async () => [{ address: '142.250.185.78', family: 4 }],
+    }));
+    const fetchMock = vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      return routes[path]?.() ?? new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it.each([
+    ['https://www.youtube.com/watch?v=wh24zJAg9lU&t=30s', 'wh24zJAg9lU'],
+    ['https://m.youtube.com/watch?v=wh24zJAg9lU', 'wh24zJAg9lU'],
+    ['https://youtu.be/aHASh13dcMA?si=x', 'aHASh13dcMA'],
+    ['https://www.youtube.com/shorts/KCfRRypk-dE', 'KCfRRypk-dE'],
+    ['https://youtube.com/live/KCfRRypk-dE', 'KCfRRypk-dE'],
+    ['https://www.youtube.com/@niciathome', undefined],
+    ['https://www.youtube.com.example.com/watch?v=wh24zJAg9lU', undefined],
+  ])('recognises %s', async (url, expected) => {
+    const { youtubeVideoId } = await import(
+      '../../container/src/web-fetch-youtube.js'
+    );
+    expect(youtubeVideoId(url)).toBe(expected);
+  });
+
+  it('returns the description and transcript from the player JSON', async () => {
+    const fetchMock = stubYouTube({
+      '/watch': () => htmlResponse(watchHtml),
+      '/youtubei/v1/player': () => Response.json(androidPlayer),
+      '/api/timedtext': () =>
+        new Response(
+          '<transcript><text start="1">Hallo und willkommen</text><text start="2">it&amp;#39;s Herbst</text></transcript>',
+        ),
+    });
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const result = await webFetch({ url: 'https://youtu.be/wh24zJAg9lU' });
+
+    expect(result).toMatchObject({
+      extractor: 'youtube',
+      title: '9 HERBSTDEKO IDEEN, die jeder nachmachen kann!',
+      escalationHint: undefined,
+    });
+    expect(result.text).toContain(
+      'Channel: NICI AT HOME (https://www.youtube.com/@niciathome)\nPublished: 2026-09-13\nDuration: 24:48\nViews: 47,385',
+    );
+    expect(result.text).toContain('⭐ Blumenübertopf Edzard');
+    expect(result.text).toContain('XOXO </script> \\ Nici');
+    expect(result.text).toContain(
+      '## Transcript: German (auto-generated)\n\nHallo und willkommen it\'s Herbst',
+    );
+    expect(result.text).not.toContain('About');
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+    expect(urls).toContain(
+      'https://www.youtube.com/api/timedtext?lang=de&kind=asr',
+    );
+    const watchCall = fetchMock.mock.calls.find(([url]) =>
+      url.includes('/watch'),
+    );
+    expect(watchCall?.[1]).toMatchObject({
+      headers: expect.objectContaining({ Cookie: 'SOCS=CAI' }),
+    });
+  });
+
+  it('falls back to oEmbed when YouTube walls the page', async () => {
+    stubYouTube({
+      '/watch': () =>
+        htmlResponse(
+          `<html><head><title> - YouTube</title></head><body><script>var ytInitialPlayerResponse = ${JSON.stringify(
+            {
+              playabilityStatus: {
+                status: 'LOGIN_REQUIRED',
+                reason: 'Sign in to confirm you’re not a bot',
+              },
+            },
+          )};</script></body></html>`,
+        ),
+      '/youtubei/v1/player': () => new Response('', { status: 403 }),
+      '/oembed': () =>
+        Response.json({
+          title: '9 HERBSTDEKO IDEEN',
+          author_name: 'NICI AT HOME',
+          author_url: 'https://www.youtube.com/@niciathome',
+        }),
+    });
+    const { webFetch } = await import('../../container/src/web-fetch.js');
+    const result = await webFetch({
+      url: 'https://www.youtube.com/watch?v=wh24zJAg9lU',
+    });
+
+    expect(result).toMatchObject({
+      extractor: 'youtube-oembed',
+      title: '9 HERBSTDEKO IDEEN',
+      escalationHint: undefined,
+    });
+    expect(result.text).toContain(
+      'Channel: NICI AT HOME (https://www.youtube.com/@niciathome)',
+    );
+    expect(result.text).toContain(
+      'could not be read (YouTube: "Sign in to confirm you’re not a bot")',
+    );
   });
 });
