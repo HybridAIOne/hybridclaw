@@ -151,6 +151,21 @@ describe('after loadSkills synced the catalog into the workspace', () => {
     ).toContain(`name: ${skillName}`);
   });
 
+  test('does not promote a synced copy of an imported skill', async () => {
+    const { skills, workspaceDir, managedDir } = await syncedWorkspace();
+    const copyDir = path.join(workspaceDir, 'skills', 'imported');
+    writeSkillMd(copyDir, 'imported');
+    fs.writeFileSync(
+      path.join(copyDir, '.import-source.json'),
+      JSON.stringify({ kind: 'local' }),
+      'utf-8',
+    );
+
+    skills.promoteWorkspaceSkills(workspaceDir);
+
+    expect(fs.existsSync(path.join(managedDir, 'imported'))).toBe(false);
+  });
+
   test('does not re-promote a synced copy whose source left the catalog', async () => {
     const { skills, bundledDir, workspaceDir, managedDir } =
       await syncedWorkspace();

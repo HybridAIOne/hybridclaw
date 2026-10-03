@@ -693,6 +693,55 @@ Edit body.
     expect(skillsMod.loadSkills('silent')).toEqual([]);
   });
 
+  // https://github.com/HybridAIOne/hybridclaw/issues/1682
+  it("loadSkills prunes an allowlisted agent's only skill once it is uninstalled", async () => {
+    const extraDir = path.join(tmpDir, 'solo-skills');
+    const sourceDir = writeSkill(
+      extraDir,
+      'solo-skill',
+      `---
+name: solo-skill
+description: The only skill the solo agent may use
+---
+
+Solo body.
+`,
+    );
+    fs.writeFileSync(
+      path.join(sourceDir, '.import-source.json'),
+      JSON.stringify({ kind: 'local' }),
+      'utf-8',
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+      draft.skills.disabled = [];
+      draft.agents.list = [
+        { id: 'main', name: 'Main Agent' },
+        { id: 'solo', name: 'Solo Agent', skills: ['solo-skill'] },
+      ];
+    });
+
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const workspaceDir = agentWorkspaceDir('solo');
+    const syncedDir = path.join(workspaceDir, 'skills', 'solo-skill');
+    expect(skillsMod.loadSkills('solo').map((skill) => skill.name)).toEqual([
+      'solo-skill',
+    ]);
+    expect(fs.existsSync(path.join(syncedDir, 'SKILL.md'))).toBe(true);
+
+    fs.rmSync(sourceDir, { recursive: true });
+    skillsMod.promoteWorkspaceSkills(workspaceDir);
+    expect(skillsMod.loadSkills('solo')).toEqual([]);
+    skillsMod.promoteWorkspaceSkills(workspaceDir);
+
+    expect(fs.existsSync(syncedDir)).toBe(false);
+    expect(
+      skillsMod.loadSkillCatalog().some((skill) => skill.name === 'solo-skill'),
+    ).toBe(false);
+  });
+
   const denySapForMain = [
     '    - id: deny-sap-for-main',
     '      when:',

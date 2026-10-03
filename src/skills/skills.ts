@@ -1226,6 +1226,14 @@ function pruneStaleSyncedSkills(
     desiredByRoot.get(resolvedRoot)?.add(resolvedTarget);
   }
 
+  // Always prune workspace/skills, even when no eligible skill syncs there:
+  // a stale copy left behind would otherwise be promoted back into the
+  // managed skills dir after the next turn.
+  const workspaceSkillsRoot = path.resolve(path.join(workspaceDir, 'skills'));
+  if (!desiredByRoot.has(workspaceSkillsRoot)) {
+    desiredByRoot.set(workspaceSkillsRoot, new Set());
+  }
+
   // Clean up legacy synced skills left behind from older releases that used a
   // hidden .synced-skills root.
   desiredByRoot.set(
@@ -1742,9 +1750,12 @@ export function promoteWorkspaceSkills(workspaceDir: string): void {
       .readdirSync(workspaceSkillsDir, { withFileTypes: true })
       .filter((entry) => {
         const skillDir = path.join(workspaceSkillsDir, entry.name);
+        // An import marker means a synced copy of an imported skill, never
+        // one the agent wrote.
         return (
           entry.isDirectory() &&
           fs.existsSync(path.join(skillDir, 'SKILL.md')) &&
+          !fs.existsSync(path.join(skillDir, IMPORT_SOURCE_MARKER)) &&
           !isResolvedWorkspaceSkillUnchanged(workspaceDir, skillDir)
         );
       });

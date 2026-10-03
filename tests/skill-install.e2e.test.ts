@@ -702,9 +702,7 @@ describe.skipIf(!DOCKER_E2E)(
         await expectRemoved('e2e-solo', SOLO_AGENT);
       });
 
-      // The turn above left the agent's synced copy behind, and promoted it
-      // back into the managed skills dir.
-      test.fails('stays removed', () => expectRemoved('e2e-solo', SOLO_AGENT));
+      test('stays removed', () => expectRemoved('e2e-solo', SOLO_AGENT));
     });
 
     // https://github.com/HybridAIOne/hybridclaw/issues/1661: admin agent
