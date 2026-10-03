@@ -65,4 +65,25 @@ describe("buildMediaPromptContext URL fallback hint", () => {
     ]);
     expect(context).not.toContain("UnavailableMedia");
   });
+
+  test("tells the model how to coach from a phone's movement analysis", () => {
+    const item = (filename: string, mimeType: string) => ({
+      path: `/uploaded-media-cache/2026-10-03/${filename}`,
+      url: `/api/media/${filename}`,
+      originalUrl: `/api/media/${filename}`,
+      mimeType,
+      sizeBytes: 10,
+      filename,
+    });
+    const movement = buildMediaPromptContext([
+      item("IMG_0042.movement.json", "application/json"),
+      item("IMG_0042.movement.jpg", "image/jpeg"),
+    ]);
+    expect(movement).toContain("movement analysis the user's phone made");
+    expect(movement).toContain("Never claim you watched the video");
+    expect(movement).toContain("how to film it next time");
+
+    const other = buildMediaPromptContext([item("data.json", "application/json")]);
+    expect(other).not.toContain("movement analysis");
+  });
 });

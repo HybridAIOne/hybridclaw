@@ -249,6 +249,7 @@ import {
 } from '../mcp/server-config.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
+import { movementMediaLines } from '../media/movement-media.js';
 import {
   type CloudMemoryContextFile,
   loadCloudMemoryContextFiles,
@@ -2459,6 +2460,7 @@ export function buildMediaPromptContext(media: MediaContextItem[]): string {
           'MediaUrls are channel-internal references and cannot be fetched by tools; if a local path fails, report that to the user instead of retrying with a URL.',
         ]),
     'Use `browser_vision` only for questions about the active browser tab/page.',
+    ...movementMediaLines(media),
     '',
     '',
   ].join('\n');
