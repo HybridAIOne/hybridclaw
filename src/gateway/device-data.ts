@@ -4,7 +4,8 @@
  * carry it.
  * The app replaces it with `/device-data` (`device-data-command.ts`); the agent
  * reads it with the `device_data` tool, and only on a turn of the user who
- * sent it: another person talking to the same agent must not read it.
+ * sent it, including schedules bound to that user: another person talking to
+ * the same agent must not read it.
  *
  * One text block per source, keyed by user id, in one JSON file under the data
  * directory. Read from disk on every call: it is a few kilobytes, or a few
@@ -14,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config/config.js';
+import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 
 export const DEVICE_DATA_TOOL = 'device_data';
 // Limits are engineering choices (2026-09-30): a week of calendar is about
@@ -159,24 +161,13 @@ export function blockDeviceDataToolUnlessShared(
   return [...(blockedTools ?? []), DEVICE_DATA_TOOL];
 }
 
-// Whose turn is running in a session. The agent's tool call names only its
-// session, and a session runs one turn at a time.
-const turnUsers = new Map<string, string>();
-
-/**
- * Marks a turn of `userId` as running in `sessionId`, the id the agent runs
- * under, until the returned function is called.
- */
+/** Bind only the verified owner; scheduled reads also require fresh snapshots. */
 export function beginDeviceDataTurn(
   sessionId: string,
   userId: string | null | undefined,
+  maxDeviceAgeMs?: number,
 ): () => void {
-  const id = validUserId(userId);
-  if (!id) return () => {};
-  turnUsers.set(sessionId, id);
-  return () => {
-    if (turnUsers.get(sessionId) === id) turnUsers.delete(sessionId);
-  };
+  return beginTurnUser(sessionId, validUserId(userId), maxDeviceAgeMs);
 }
 
 // Case and accents do not count: "muller" finds "Müller".
@@ -221,7 +212,8 @@ export function renderDeviceDataForSession(
   wanted: string | null,
   query: string | null = null,
 ): string {
-  const userId = turnUsers.get(sessionId);
+  const owner = currentTurnUser(sessionId);
+  const userId = owner?.userId;
   const sources = userId ? readDeviceSources(userId) : {};
   const ids = Object.keys(sources)
     .filter((id) => !wanted || id === wanted)
@@ -239,9 +231,19 @@ export function renderDeviceDataForSession(
     ...(words.length > 0
       ? [`Only entries that contain: ${words.join(' ')}`]
       : []),
-    ...ids.map(
-      (id) =>
-        `[${id}, updated ${sources[id].updatedAt}]\n${renderSource(sources[id].text, words)}`,
-    ),
+    ...ids.map((id) => {
+      const source = sources[id];
+      const timestamp = Date.parse(source.updatedAt);
+      const now = Date.now();
+      const stale =
+        owner?.maxDeviceAgeMs !== undefined &&
+        (!Number.isFinite(timestamp) ||
+          now - timestamp > owner.maxDeviceAgeMs ||
+          timestamp > now);
+      const text = stale
+        ? 'This snapshot is stale. Ask the user to open Hy to refresh it before relying on it; its entries are withheld.'
+        : renderSource(source.text, words);
+      return `[${id}, updated ${source.updatedAt}]\n${text}`;
+    }),
   ].join('\n\n');
 }
