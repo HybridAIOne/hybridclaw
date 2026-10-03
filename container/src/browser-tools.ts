@@ -20,12 +20,8 @@ import {
   recordBrowserSnapshotRefs,
   resetBrowserPage,
 } from './browser-checkout.js';
-import type { ModelBehavior } from './model-behavior.js';
+import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
-import {
-  type RuntimeProvider,
-  resolveRuntimeProviderContext,
-} from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -34,11 +30,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import {
-  TASK_MODEL_KEYS,
-  type TaskModelPolicies,
-  type ToolDefinition,
-} from './types.js';
+import type { ToolDefinition } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -183,19 +175,6 @@ type ClickTarget = {
   y?: number;
   button?: 'left' | 'right' | 'middle';
 };
-type BrowserModelContext = {
-  provider: RuntimeProvider;
-  providerMethod?: string;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  chatbotId: string;
-  requestHeaders: Record<string, string>;
-  maxTokens?: number;
-  modelBehavior?: ModelBehavior;
-  debugModelResponses?: boolean;
-};
-
 type BrowserRunner = {
   cmd: string;
   prefixArgs: string[];
@@ -209,11 +188,6 @@ type BrowserSession = {
   headed: boolean;
   createdAt: number;
   lastUsedAt: number;
-};
-
-type BrowserVisionContext = BrowserModelContext & {
-  isLocal?: boolean;
-  contextWindow?: number;
 };
 
 type DownloadSnapshot = {
@@ -231,15 +205,6 @@ type NativeDownloadObserver = {
 
 const activeSessions = new Map<string, BrowserSession>();
 let cachedRunner: BrowserRunner | null | undefined;
-let currentBrowserModelContext: BrowserModelContext = {
-  provider: 'hybridai',
-  baseUrl: '',
-  apiKey: '',
-  model: '',
-  chatbotId: '',
-  requestHeaders: {},
-};
-let currentBrowserTaskModels: TaskModelPolicies | undefined;
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayBrowserProvider = '';
@@ -266,62 +231,6 @@ export function setBrowserGatewayContext(
   if (typeof allowPrivateNetwork === 'boolean') {
     browserAllowPrivateNetwork = allowPrivateNetwork;
   }
-}
-
-function cloneTaskModelPolicies(
-  taskModels?: TaskModelPolicies,
-): TaskModelPolicies | undefined {
-  const cloned: TaskModelPolicies = {};
-  for (const key of TASK_MODEL_KEYS) {
-    const taskModel = taskModels?.[key];
-    if (!taskModel) continue;
-    cloned[key] = {
-      ...taskModel,
-      requestHeaders: taskModel.requestHeaders
-        ? { ...taskModel.requestHeaders }
-        : undefined,
-    };
-  }
-  return Object.keys(cloned).length > 0 ? cloned : undefined;
-}
-
-export function setBrowserModelContext(
-  provider: RuntimeProvider | undefined,
-  providerMethod: string | undefined,
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  chatbotId: string,
-  requestHeaders?: Record<string, string>,
-  maxTokens?: number,
-  modelBehavior?: ModelBehavior,
-  debugModelResponses = false,
-): void {
-  currentBrowserModelContext = {
-    provider: resolveRuntimeProviderContext(provider, model),
-    providerMethod,
-    baseUrl: String(baseUrl || '')
-      .trim()
-      .replace(/\/+$/, ''),
-    apiKey: String(apiKey || '').trim(),
-    model: String(model || '').trim(),
-    chatbotId: String(chatbotId || '').trim(),
-    requestHeaders: { ...(requestHeaders || {}) },
-    maxTokens:
-      typeof maxTokens === 'number' &&
-      Number.isFinite(maxTokens) &&
-      maxTokens > 0
-        ? Math.floor(maxTokens)
-        : undefined,
-    modelBehavior,
-    debugModelResponses,
-  };
-}
-
-export function setBrowserTaskModelPolicies(
-  taskModels?: TaskModelPolicies,
-): void {
-  currentBrowserTaskModels = cloneTaskModelPolicies(taskModels);
 }
 
 function normalizeSessionKey(sessionId: string): string {
@@ -2166,13 +2075,10 @@ async function callVisionModel(
   question: string,
   imageBase64: string,
 ): Promise<{ model: string; analysis: string }> {
-  const fallbackContext: BrowserVisionContext = {
-    ...currentBrowserModelContext,
-  };
+  const runtimeContext = captureAuxiliaryRuntimeContext();
   const vision = await callAuxiliaryModel({
     task: 'vision',
-    taskModels: currentBrowserTaskModels,
-    fallbackContext,
+    ...runtimeContext,
     question,
     imageDataUrl: `data:image/png;base64,${imageBase64}`,
     toolName: 'browser_vision',
