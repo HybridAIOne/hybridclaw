@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+## [0.35.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.0) - 2026-10-03
+
+### Added
+
+- **Mid-turn steering**: Phone apps and other clients can send a note to a
+  running turn with `POST /api/chat/steer`. The agent sees it at the next step,
+  replans with the new information, and stores consumed notes in chat history.
+- **Action receipts**: `/receipts` lists completed tool calls with outside
+  effects, including scheduled runs, and shows who allowed each action and
+  whether it succeeded. `--json` supports companion apps; results follow the
+  requesting chat's access scope and omit mail bodies and full addresses.
+
+### Changed
+
+- **Faster connector lookups**: Deferred tools include complete small schemas,
+  reducing discovery round trips. Reviewed dm product searches and detail
+  reads can overlap, while operator overrides and approval barriers remain.
+- **Complete tool evidence**: Answers and replay receive full individual tool
+  results. Large results cross IPC through file references; whole-context
+  compaction and context-window recovery still apply.
+- **Smaller stable prompts**: Compact skill catalogs and fewer duplicated
+  instructions reduce prompt overhead without changing tools mid-turn.
+
+### Fixed
+
+- **Phone alerts stay with their app**: Replies, reminders, and approvals ring
+  phones registered for the app that opened the chat. Browser chats, scripts,
+  and other apps on the account do not ring the Hy app's phones.
+- **Audit access**: `/audit <sessionId>` only reveals sessions the requester
+  may see. The local operator retains full access.
+- **Channel delivery and resets**: Proactive delivery supports Signal targets,
+  Teams resets use the correct channel classification, and unsupported
+  destinations fail explicitly. Console statistics use the same channel
+  classification as the gateway.
+- **Auxiliary model requests**: Vision and text tools preserve routed provider,
+  model, and thinking settings, including Claude CLI and local models.
+- **Session-end hooks**: Memory plugins receive notifications when sessions
+  reset, expire, switch, or are deleted, allowing buffered writes to finish
+  and per-session state to be released.
+- **Skill availability**: Threema chats load skills, iMessage supports
+  per-channel skill disabling, and uninstalled skills stay removed when they
+  were the last entry in an agent's allowlist.
+- **Browser escalation**: JavaScript app shells request browser rendering
+  instead of being mistaken for bot challenges solely because they load
+  protection scripts. HTTP errors and visible challenge text remain checked.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for steering, tool discovery,
+  and full-result IPC changes. Older agent images cannot accept steering notes.
+- Remove `sessionCompaction.inLoopGuard.perResultShare` from custom
+  configuration. Individual result limits have been removed; there is no
+  replacement setting.
+- Mobile clients should send their HybridAI app id in `/api/chat` as `appId`
+  and register phones with `/push register <token> <sandbox|production>
+  [kinds] [app]`. Chats with `client: "mobile"` default to `hy`; browser and script chats
+  have no app unless explicitly supplied. Custom apps need HybridAI relay
+  support for their app id.
+
 ## [0.34.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.34.6) - 2026-10-03
 
 ### Changed

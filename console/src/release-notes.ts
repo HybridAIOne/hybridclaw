@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.34.6',
+  version: '0.35.0',
   highlights: [
-    'Faster mobile replies and web searches',
-    'Shorter app replies with pictures and links',
-    'Safer images and link previews',
-    'Smaller prompts for large MCP servers',
+    'Add notes while the agent is working',
+    'Receipts for actions outside the sandbox',
+    'Phone alerts stay with their app',
+    'Faster lookups with complete tool results',
   ],
 } as const;
 
