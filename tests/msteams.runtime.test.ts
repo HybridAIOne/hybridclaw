@@ -36,6 +36,7 @@ const loggerInfoMock = vi.fn();
 const loggerWarnMock = vi.fn();
 const cloudAdapters: Array<{ onTurnError?: unknown }> = [];
 let msteamsAppPassword = 'teams-secret';
+let msteamsEnabled = true;
 let msteamsTenantId = 'teams-tenant-id';
 
 function makeRequest(body: unknown): IncomingMessage {
@@ -157,7 +158,9 @@ async function importRuntime() {
     get MSTEAMS_APP_PASSWORD() {
       return msteamsAppPassword;
     },
-    MSTEAMS_ENABLED: true,
+    get MSTEAMS_ENABLED() {
+      return msteamsEnabled;
+    },
     get MSTEAMS_TENANT_ID() {
       return msteamsTenantId;
     },
@@ -269,12 +272,29 @@ afterEach(() => {
   channelPolicyMock.mockReset().mockReturnValue({ allowed: true, replyStyle: 'thread', requireMention: false, tools: [] });
   buildSessionIdMock.mockReset().mockReturnValue('teams:dm:user');
   msteamsAppPassword = 'teams-secret';
+  msteamsEnabled = true;
   msteamsTenantId = 'teams-tenant-id';
   vi.restoreAllMocks();
   vi.resetModules();
 });
 
 describe('Microsoft Teams runtime webhook adapter', () => {
+  test('rejects webhook traffic after an initialized channel is disabled', async () => {
+    const runtime = await importRuntime();
+    runtime.initMSTeams(vi.fn(async () => {}), vi.fn(async () => {}));
+    expect(cloudAdapters).toHaveLength(1);
+
+    processMock.mockResolvedValue(undefined);
+    await runtime.handleMSTeamsWebhook(makeRequest({ type: 'message', text: 'hello' }), makeResponse());
+    expect(processMock).toHaveBeenCalledOnce();
+    processMock.mockClear();
+
+    msteamsEnabled = false;
+    const response = makeResponse();
+    await runtime.handleMSTeamsWebhook(makeRequest({ type: 'message', text: 'hello' }), response);
+    expect(response.statusCode).toBe(422);
+    expect(processMock).not.toHaveBeenCalled();
+  });
   test.each(['message', 'command'])('routes an allowed %s to the selected agent', async (kind) => {
     resolveUserAgentMock.mockReturnValue('sales');
     if (kind === 'command') parseCommandMock.mockReturnValue({ isCommand: true, command: 'status', args: [] });

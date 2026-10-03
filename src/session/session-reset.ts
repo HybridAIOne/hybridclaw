@@ -1,4 +1,3 @@
-import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 
 export type SessionResetMode = 'daily' | 'idle' | 'both' | 'none';
@@ -22,12 +21,6 @@ export const DEFAULT_RESET_POLICY: SessionResetPolicy = Object.freeze({
   atHour: 4,
   idleMinutes: 1440,
 });
-
-export function resolveSessionResetChannelKind(
-  channelId?: string | null,
-): string | undefined {
-  return resolveChannelTargetKind(channelId);
-}
 
 export function normalizeSessionResetMode(
   value: unknown,

@@ -22,19 +22,23 @@ import { enqueueProactiveMessage } from '../memory/db.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import {
   isLocalProactivePullChannelId,
-  isSupportedProactiveChannelId,
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 export const MAX_QUEUED_PROACTIVE_MESSAGES = 100;
 
-export async function deliverProactiveMessage(
+async function dispatchProactiveMessage(
   channelId: string,
   text: string,
   source: string,
-  artifacts?: ArtifactMetadata[],
+  artifacts: ArtifactMetadata[] | undefined,
+  applyPolicy: boolean,
 ): Promise<ProactiveDeliveryOutcome> {
   channelId = channelId.trim();
-  if (!isSupportedProactiveChannelId(channelId)) {
+  const descriptor = getChannelDescriptorForTarget(channelId);
+  if (
+    !isLocalProactivePullChannelId(channelId) &&
+    (!descriptor?.supportsProactive || !descriptor.sendProactive)
+  ) {
     return {
       status: 'failed',
       reason: `No proactive delivery path for channel "${channelId}"`,
@@ -47,12 +51,12 @@ export async function deliverProactiveMessage(
     );
     return { status: 'suppressed', reason: 'A2A local mode' };
   }
-  if (shouldSuppressProactiveMessage({ source, text })) {
+  if (applyPolicy && shouldSuppressProactiveMessage({ source, text })) {
     logger.debug({ source, channelId }, 'Proactive message suppressed');
     return { status: 'suppressed', reason: 'Heartbeat OK' };
   }
 
-  if (!isWithinActiveHours()) {
+  if (applyPolicy && !isWithinActiveHours()) {
     if (PROACTIVE_QUEUE_OUTSIDE_HOURS) {
       const { queued, dropped } = enqueueProactiveMessage(
         channelId,
@@ -86,26 +90,6 @@ export async function deliverProactiveMessage(
     return { status: 'suppressed', reason: 'Outside active hours' };
   }
 
-  return sendProactiveMessageNow(channelId, text, source, artifacts);
-}
-
-export async function sendProactiveMessageNow(
-  channelId: string,
-  text: string,
-  source: string,
-  artifacts?: ArtifactMetadata[],
-): Promise<ProactiveDeliveryOutcome> {
-  channelId = channelId.trim();
-  if (!isSupportedProactiveChannelId(channelId)) {
-    return {
-      status: 'failed',
-      reason: `No proactive delivery path for channel "${channelId}"`,
-    };
-  }
-  if (isA2ALocalModeEnabled(getConfigSnapshot()) && channelId !== 'tui') {
-    return { status: 'suppressed', reason: 'A2A local mode' };
-  }
-  const descriptor = getChannelDescriptorForTarget(channelId);
   if (descriptor?.supportsProactive && descriptor.sendProactive) {
     try {
       const outcome = await descriptor.sendProactive(
@@ -127,12 +111,6 @@ export async function sendProactiveMessageNow(
       );
       return proactiveDeliveryFailed(error);
     }
-  }
-  if (!isLocalProactivePullChannelId(channelId)) {
-    return {
-      status: 'failed',
-      reason: `No proactive delivery path for channel "${channelId}"`,
-    };
   }
   const { queued, dropped } = enqueueProactiveMessage(
     channelId,
@@ -156,4 +134,22 @@ export async function sendProactiveMessageNow(
       'Queued proactive local delivery does not persist attachments; only text was queued',
     );
   return { status: 'queued' };
+}
+
+export function deliverProactiveMessage(
+  channelId: string,
+  text: string,
+  source: string,
+  artifacts?: ArtifactMetadata[],
+): Promise<ProactiveDeliveryOutcome> {
+  return dispatchProactiveMessage(channelId, text, source, artifacts, true);
+}
+
+export function sendProactiveMessageNow(
+  channelId: string,
+  text: string,
+  source: string,
+  artifacts?: ArtifactMetadata[],
+): Promise<ProactiveDeliveryOutcome> {
+  return dispatchProactiveMessage(channelId, text, source, artifacts, false);
 }

@@ -61,6 +61,20 @@ describe('proactive dispatch boundary', () => {
     expect(state.sendSignal).not.toHaveBeenCalled();
   });
 
+  test('immediate sends bypass quiet hours and heartbeat suppression', async () => {
+    state.activeHours = false;
+    expect(await sendProactiveMessageNow('signal:+14155551212', 'HEARTBEAT_OK', 'heartbeat')).toEqual({ status: 'delivered' });
+    expect(state.sendSignal).toHaveBeenCalledOnce();
+    expect(state.enqueue).not.toHaveBeenCalled();
+  });
+
+  test('policy delivery suppresses heartbeat acknowledgements after validating the target', async () => {
+    expect(await deliverProactiveMessage('signal:+14155551212', 'HEARTBEAT_OK', 'heartbeat')).toMatchObject({ status: 'suppressed' });
+    expect(await deliverProactiveMessage('unknown', 'HEARTBEAT_OK', 'heartbeat')).toMatchObject({ status: 'failed' });
+    expect(state.sendSignal).not.toHaveBeenCalled();
+    expect(state.enqueue).not.toHaveBeenCalled();
+  });
+
   test('reports missing Signal configuration without falling back to a local queue', async () => {
     state.config.signal.enabled = false;
     expect(await deliverProactiveMessage('signal:+14155551212', 'hello', 'delegate')).toMatchObject({ status: 'failed', reason: expect.any(String) });

@@ -1,11 +1,11 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, test, vi } from 'vitest';
+import { resolveChannelTargetKind } from '../src/channels/channel-descriptors.js';
 import {
   DEFAULT_RESET_POLICY,
   isSessionExpired,
   resolveResetPolicy,
-  resolveSessionResetChannelKind,
 } from '../src/session/session-reset.ts';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -198,30 +198,30 @@ test('resolveResetPolicy returns the default constant when config is missing', (
   expect(resolveResetPolicy()).toBe(DEFAULT_RESET_POLICY);
 });
 
-test('resolveSessionResetChannelKind infers real channel kinds from channel ids', () => {
-  expect(resolveSessionResetChannelKind('heartbeat')).toBe('heartbeat');
-  expect(resolveSessionResetChannelKind(' heartbeat ')).toBe('heartbeat');
-  expect(resolveSessionResetChannelKind('123456789012345678')).toBe('discord');
-  expect(resolveSessionResetChannelKind('491234567890@s.whatsapp.net')).toBe(
+test('resolveChannelTargetKind infers real channel kinds from channel ids', () => {
+  expect(resolveChannelTargetKind('heartbeat')).toBe('heartbeat');
+  expect(resolveChannelTargetKind(' heartbeat ')).toBe('heartbeat');
+  expect(resolveChannelTargetKind('123456789012345678')).toBe('discord');
+  expect(resolveChannelTargetKind('491234567890@s.whatsapp.net')).toBe(
     'whatsapp',
   );
   expect(
-    resolveSessionResetChannelKind('telegram:-1001234567890:topic:42'),
+    resolveChannelTargetKind('telegram:-1001234567890:topic:42'),
   ).toBe('telegram');
-  expect(resolveSessionResetChannelKind('peer@example.com')).toBe('email');
-  expect(resolveSessionResetChannelKind('imessage:peer@example.com')).toBe(
+  expect(resolveChannelTargetKind('peer@example.com')).toBe('email');
+  expect(resolveChannelTargetKind('imessage:peer@example.com')).toBe(
     'imessage',
   );
-  expect(resolveSessionResetChannelKind('voice:CA1234567890abcdef')).toBe(
+  expect(resolveChannelTargetKind('voice:CA1234567890abcdef')).toBe(
     'voice',
   );
-  expect(resolveSessionResetChannelKind('tui')).toBe('tui');
-  expect(resolveSessionResetChannelKind('web')).toBe('web');
-  expect(resolveSessionResetChannelKind('cli')).toBe('cli');
+  expect(resolveChannelTargetKind('tui')).toBe('tui');
+  expect(resolveChannelTargetKind('web')).toBe('web');
+  expect(resolveChannelTargetKind('cli')).toBe('cli');
   expect(
-    resolveSessionResetChannelKind('not-a-known-channel-kind'),
+    resolveChannelTargetKind('not-a-known-channel-kind'),
   ).toBeUndefined();
-  expect(resolveSessionResetChannelKind(undefined)).toBeUndefined();
+  expect(resolveChannelTargetKind(undefined)).toBeUndefined();
 });
 
 test('resolveResetPolicy returns channel overrides when configured', async () => {
@@ -252,7 +252,7 @@ test('resolveResetPolicy returns channel overrides when configured', async () =>
   });
   expect(
     resolveResetPolicy({
-      channelKind: resolveSessionResetChannelKind('123456789012345678'),
+      channelKind: resolveChannelTargetKind('123456789012345678'),
       config,
     }),
   ).toEqual({

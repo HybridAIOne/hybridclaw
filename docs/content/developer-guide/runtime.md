@@ -22,8 +22,9 @@ handling in the gateway.
 
 Proactive delivery validates the target before queuing outside active hours.
 Signal phone, UUID, and group targets are supported. Teams and Voice targets can
-be classified for session resets and statistics, but have no proactive sender in
-this table. Only `tui` uses the local pull queue; unsupported destinations fail
+be classified for session resets and statistics, but their descriptors declare
+`supportsProactive: false`, so proactive sends are rejected. Only `tui` uses the
+local pull queue; unsupported destinations fail
 instead of falling through to that queue. Sender failures remain failures and
 never create a local delivery row.
 

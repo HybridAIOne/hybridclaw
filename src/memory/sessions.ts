@@ -6,6 +6,7 @@ import {
 } from '../../container/shared/approval-mode.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
@@ -33,7 +34,6 @@ import {
 } from '../session/session-preview.js';
 import {
   evaluateSessionExpiry,
-  resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
@@ -289,7 +289,7 @@ function deriveSessionKeyFromContext(params: {
   channelId: string;
   agentId: string;
 }): string {
-  const channelKind = resolveSessionResetChannelKind(params.channelId);
+  const channelKind = resolveChannelTargetKind(params.channelId);
   if (channelKind === 'heartbeat') {
     return buildSessionKey(params.agentId, 'heartbeat', 'system', 'default');
   }

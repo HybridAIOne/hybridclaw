@@ -102,6 +102,7 @@ import {
   listEdges,
 } from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
+import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
 import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { emailAdminMailboxLoader } from '../channels/channel-runtime-loaders.js';
@@ -398,7 +399,6 @@ import {
 import {
   evaluateSessionExpiry,
   resolveResetPolicy,
-  resolveSessionResetChannelKind,
   type SessionExpiryEvaluation,
   type SessionResetPolicy,
 } from '../session/session-reset.js';
@@ -1296,7 +1296,7 @@ export function resolveChannelType(
   ) {
     return source;
   }
-  const inferredChannelType = resolveSessionResetChannelKind(req.channelId);
+  const inferredChannelType = resolveChannelTargetKind(req.channelId);
   if (
     inferredChannelType === 'discord' ||
     inferredChannelType === 'imessage' ||
@@ -1315,7 +1315,7 @@ export function resolveSessionAutoResetPolicy(
   client?: GatewayChatRequest['client'],
 ): SessionResetPolicy {
   const policy = resolveResetPolicy({
-    channelKind: resolveSessionResetChannelKind(channelId),
+    channelKind: resolveChannelTargetKind(channelId),
     config: getRuntimeConfig(),
   });
   // The phone app shows every chat as one continuous thread and has no way to

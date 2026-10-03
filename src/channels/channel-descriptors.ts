@@ -76,7 +76,7 @@ export function resolveChannelTargetKind(
 export function getChannelDescriptor(
   kind: ChannelKind,
 ): ChannelDescriptor | undefined {
-  return Object.values(CHANNEL_DESCRIPTORS).find(
-    (descriptor) => descriptor.kind === kind,
-  );
+  return Object.hasOwn(CHANNEL_DESCRIPTORS, kind)
+    ? CHANNEL_DESCRIPTORS[kind as ExternalChannelKind]
+    : undefined;
 }

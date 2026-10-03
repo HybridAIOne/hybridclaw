@@ -3,6 +3,7 @@
  * Unlike the runtime, this descriptor stays cheap to import and never starts
  * a channel merely because a caller classifies a target.
  */
+import { isDeepStrictEqual } from 'node:util';
 import type { ChannelDescriptor } from '../channel-descriptor.js';
 
 function isMSTeamsTarget(target: string): boolean {
@@ -10,7 +11,7 @@ function isMSTeamsTarget(target: string): boolean {
     target.startsWith('19:') ||
     target.startsWith('a:') ||
     target.startsWith('teams:') ||
-    target.includes('@thread.')
+    /^[^:@]+@thread\.(?:v2|tacv2)(?:;messageid=\d+)?$/.test(target)
   );
 }
 
@@ -20,8 +21,7 @@ export const descriptor = {
   supportsProactive: false,
 
   start: async () => (await import('./gateway.js')).startMSTeamsIntegration(),
-  // Teams shares the gateway HTTP server; ingress policy blocks it in local mode.
+  // Shared HTTP ingress checks enabled config per request and local-mode policy.
   stop: async () => undefined,
-  configChanged: (next, prev) =>
-    JSON.stringify(next.msteams) !== JSON.stringify(prev.msteams),
+  configChanged: (next, prev) => !isDeepStrictEqual(next.msteams, prev.msteams),
 } satisfies ChannelDescriptor;
