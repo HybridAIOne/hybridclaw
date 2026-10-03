@@ -16,6 +16,7 @@ import { buildSessionContext } from '../session/session-context.js';
 import { scheduledRunSessionKey } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
+import { trackedTaskPrompt } from '../tracking/track-store.js';
 import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import {
@@ -45,7 +46,7 @@ export async function runIsolatedScheduledTask(params: {
 }): Promise<void> {
   const {
     taskId,
-    prompt,
+    prompt: storedPrompt,
     channelId,
     chatbotId,
     model,
@@ -56,6 +57,7 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
+  const prompt = trackedTaskPrompt(taskId, storedPrompt);
   const cronSessionId = scheduledRunSessionKey(agentId, taskId, sessionKey);
   const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
