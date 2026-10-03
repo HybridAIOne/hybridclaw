@@ -300,6 +300,7 @@ async function syncMcpConfig(
     );
   }
   await mcpConfigWatcher?.applyConfig(nextServers);
+  await mcpClientManager?.relistStaleTools();
 }
 
 async function shutdownMcp(): Promise<void> {

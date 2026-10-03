@@ -52,6 +52,8 @@ export interface McpClientHandle {
   /** Swapped in place when the gateway rotates the token; none for stdio. */
   headers?: LiveHeaders;
   tools: McpToolDefinition[];
+  /** When `tools` was last listed from the server (epoch ms). */
+  listedAt: number;
   healthy: boolean;
   lastError?: string;
 }
