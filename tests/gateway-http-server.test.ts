@@ -2992,6 +2992,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/tracking/track-command.js', () => ({
     runTrackToolAction: vi.fn(),
   }));
+  vi.doMock('../src/scheduler/connector-events.js', () => ({
+    queuePhoneSourceChange: vi.fn(),
+  }));
 
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
@@ -3214,6 +3217,7 @@ useCleanMocks({
     '../src/gateway/media-upload-quota.ts',
     '../src/plugins/plugin-manager.js',
     '../src/gateway/gateway-restart.js',
+    '../src/scheduler/connector-events.js',
     '../src/auth/google-auth.js',
   ],
   suspendedSessions: [],
