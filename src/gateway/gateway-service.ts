@@ -1,4 +1,3 @@
-import { deleteWebNotificationSession } from './web-notification-store.js';
 /**
  * Gateway application service — authoritative host operations shared by transports.
  *
@@ -260,7 +259,6 @@ import {
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
-  deleteSessionData,
   getAllSessions,
   getFullAutoSessionCount,
   getLatestAssistantMessageId,
@@ -543,6 +541,7 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
+import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
@@ -682,6 +681,9 @@ import {
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
+import { storeTurnMessages } from './turn-storage.js';
+
+export { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -3609,6 +3611,8 @@ export function recordSuccessfulTurn(opts: {
   userMedia?: readonly MediaContextItem[];
   /** The dynamic context the user message was sent with, for replay. */
   userDynamicContext?: string | null;
+  /** Notes the user sent while the turn ran, in the order the model saw them. */
+  steerNotes?: readonly string[];
   resultText: string;
   artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
@@ -3621,96 +3625,9 @@ export function recordSuccessfulTurn(opts: {
   userMessageId: number;
   assistantMessageId: number;
 } {
-  const storedTurn =
-    opts.replaceBuiltInMemory === true
-      ? {
-          userMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: opts.userId,
-            username: opts.username,
-            role: 'user',
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          }),
-          assistantMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: 'assistant',
-            username: null,
-            role: 'assistant',
-            content: opts.resultText,
-            agentId: opts.agentId,
-            artifacts: opts.artifacts,
-            toolHistory: opts.toolHistoryForReplay,
-          }),
-        }
-      : memoryService.storeTurn({
-          sessionId: opts.sessionId,
-          user: {
-            userId: opts.userId,
-            username: opts.username,
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          },
-          assistant: {
-            userId: 'assistant',
-            username: null,
-            agentId: opts.agentId,
-            content: opts.resultText,
-            artifacts: opts.artifacts,
-            toolHistory: opts.toolHistoryForReplay,
-          },
-        });
-  if (opts.replaceBuiltInMemory !== true) {
-    try {
-      if (opts.canonicalScopeId.trim()) {
-        memoryService.appendCanonicalMessages({
-          agentId: opts.agentId,
-          userId: opts.canonicalScopeId,
-          newMessages: [
-            {
-              role: 'user',
-              content: opts.userContent,
-              sessionId: opts.sessionId,
-              channelId: opts.channelId,
-            },
-            {
-              role: 'assistant',
-              content: opts.resultText,
-              sessionId: opts.sessionId,
-              channelId: opts.channelId,
-            },
-          ],
-        });
-      }
-    } catch (err) {
-      logger.debug(
-        {
-          sessionId: opts.sessionId,
-          canonicalScopeId: opts.canonicalScopeId,
-          err,
-        },
-        'Failed to append canonical session memory',
-      );
-    }
-  }
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'user',
-    userId: opts.userId,
-    username: opts.username,
-    content: opts.userContent,
-  });
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'assistant',
-    userId: 'assistant',
-    username: null,
-    content: opts.resultText,
-    toolHistory: opts.toolHistory,
+  const storedTurn = storeTurnMessages({
+    ...opts,
+    assistantContent: opts.resultText,
   });
 
   if (opts.replaceBuiltInMemory !== true) {
@@ -3865,6 +3782,7 @@ export function recordErrorTurn(opts: {
   userContent: string;
   userMedia?: readonly MediaContextItem[];
   userDynamicContext?: string | null;
+  steerNotes?: readonly string[];
   error: string;
   tools: ErrorTurnToolRecord[];
   toolHistory?: ChatMessage[];
@@ -3884,92 +3802,11 @@ export function recordErrorTurn(opts: {
   const history = opts.delegationAcknowledgement?.trim()
     ? opts
     : withDelegationsNotStarted(opts);
-  const storedTurn =
-    opts.replaceBuiltInMemory === true
-      ? {
-          userMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: opts.userId,
-            username: opts.username,
-            role: 'user',
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          }),
-          assistantMessageId: memoryService.storeMessage({
-            sessionId: opts.sessionId,
-            userId: 'assistant',
-            username: null,
-            role: 'assistant',
-            content: placeholder,
-            agentId: opts.agentId,
-            toolHistory: history.toolHistoryForReplay,
-          }),
-        }
-      : memoryService.storeTurn({
-          sessionId: opts.sessionId,
-          user: {
-            userId: opts.userId,
-            username: opts.username,
-            content: opts.userContent,
-            media: opts.userMedia,
-            dynamicContext: opts.userDynamicContext,
-          },
-          assistant: {
-            userId: 'assistant',
-            username: null,
-            agentId: opts.agentId,
-            content: placeholder,
-            toolHistory: history.toolHistoryForReplay,
-          },
-        });
-  if (opts.replaceBuiltInMemory !== true && opts.canonicalScopeId.trim()) {
-    try {
-      memoryService.appendCanonicalMessages({
-        agentId: opts.agentId,
-        userId: opts.canonicalScopeId,
-        newMessages: [
-          {
-            role: 'user',
-            content: opts.userContent,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-          {
-            role: 'assistant',
-            content: placeholder,
-            sessionId: opts.sessionId,
-            channelId: opts.channelId,
-          },
-        ],
-      });
-    } catch (err) {
-      logger.debug(
-        {
-          sessionId: opts.sessionId,
-          canonicalScopeId: opts.canonicalScopeId,
-          err,
-        },
-        'Failed to append canonical session memory for error turn',
-      );
-    }
-  }
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'user',
-    userId: opts.userId,
-    username: opts.username,
-    content: opts.userContent,
-  });
-  appendSessionTranscript(opts.agentId, {
-    sessionId: opts.sessionId,
-    channelId: opts.channelId,
-    role: 'assistant',
-    userId: 'assistant',
-    username: null,
-    content: placeholder,
+  const storedTurn = storeTurnMessages({
+    ...opts,
+    assistantContent: placeholder,
     toolHistory: history.toolHistory,
+    toolHistoryForReplay: history.toolHistoryForReplay,
   });
   return storedTurn;
 }
@@ -5693,32 +5530,6 @@ export async function deleteGatewayAdminEmailMessage(params: {
     assertGatewayAdminEmailMailboxConfigured(runtimeConfig);
   const { deleteLiveAdminEmailMessage } = await emailAdminMailboxLoader.load();
   return deleteLiveAdminEmailMessage(config, password, params);
-}
-
-export function deleteGatewayAdminSession(
-  sessionId: string,
-  options?: {
-    onlyWithoutUserMessages?: boolean;
-  },
-): GatewayAdminDeleteSessionResult {
-  if (options?.onlyWithoutUserMessages && sessionHasUserMessages(sessionId)) {
-    return {
-      deleted: false,
-      sessionId,
-      skippedReason: 'has_user_messages',
-      deletedMessages: 0,
-      deletedTasks: 0,
-      deletedSemanticMemories: 0,
-      deletedUsageEvents: 0,
-      deletedAuditEntries: 0,
-      deletedStructuredAuditEntries: 0,
-      deletedApprovalEntries: 0,
-    };
-  }
-  interruptGatewaySessionExecution(sessionId);
-  const result = deleteSessionData(sessionId);
-  deleteWebNotificationSession(sessionId);
-  return result;
 }
 
 export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
@@ -9361,10 +9172,10 @@ function isProtectedNoUserChatCleanupSession(session: Session): boolean {
   );
 }
 
-export function cleanupGatewayNoUserChatSessions(params: {
+export async function cleanupGatewayNoUserChatSessions(params: {
   channelId?: string | null;
   keepSessionId?: string | null;
-}): GatewayNoUserChatSessionCleanupResult {
+}): Promise<GatewayNoUserChatSessionCleanupResult> {
   const channelId = String(params.channelId || 'web').trim() || 'web';
   const keepSessionId = String(params.keepSessionId || '').trim();
   const keptSessionId = keepSessionId
@@ -9385,7 +9196,7 @@ export function cleanupGatewayNoUserChatSessions(params: {
     }
     if (isProtectedNoUserChatCleanupSession(session)) continue;
     if (sessionHasUserMessages(session.id)) continue;
-    const result = deleteGatewayAdminSession(session.id, {
+    const result = await deleteGatewayAdminSession(session.id, {
       onlyWithoutUserMessages: true,
     });
     if (result.deleted) deletedSessionIds.push(result.sessionId);
@@ -12579,7 +12390,7 @@ export async function handleGatewayCommand(
           let deletedApprovalEntries = 0;
 
           for (const { session: targetSession } of plan.candidates) {
-            const result = deleteGatewayAdminSession(targetSession.id);
+            const result = await deleteGatewayAdminSession(targetSession.id);
             if (!result.deleted) continue;
             deleted += 1;
             deletedMessages += result.deletedMessages;

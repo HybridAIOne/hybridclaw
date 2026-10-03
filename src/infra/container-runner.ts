@@ -1346,6 +1346,11 @@ async function runContainerInner(
   }
   cleanupIpc(entry.ipcSessionId);
   ensureSessionDirs(entry.ipcSessionId);
+  params.steerInbox?.open({
+    ipcDir: getSessionPaths(entry.ipcSessionId, agentId).ipcPath,
+    requestId,
+    authSecret: entry.ipcAuthSecret,
+  });
   const mlxRelay =
     modelRuntime.provider === 'mlx'
       ? startMlxRelay({
@@ -1419,6 +1424,8 @@ async function runContainerInner(
         terminalError: () => entry.terminalError,
       },
     );
+    // Before anything else can run: a note from here on is refused.
+    params.steerInbox?.close();
     const timedOut = isTimedOutAgentOutput(output);
     if (timedOut) {
       logger.warn(
@@ -1477,6 +1484,7 @@ async function runContainerInner(
 
     return output;
   } finally {
+    params.steerInbox?.close();
     mlxRelay?.stop();
     abortSignal?.removeEventListener('abort', onAbort);
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {

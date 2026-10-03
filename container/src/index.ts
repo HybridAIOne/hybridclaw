@@ -39,6 +39,11 @@ import {
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
+  cloneTaskModelPolicies,
+  setModelContext,
+  setTaskModelPolicies,
+} from './model-context.js';
+import {
   canReplayModelRequestAfterStreamError,
   formatModelErrorForLog,
   isContextWindowExceededError,
@@ -81,6 +86,13 @@ import {
   shouldRetryEmptyVisibleCompletion,
 } from './stalled-turns.js';
 import { createLineReader, readFirstInput } from './stdin.js';
+import {
+  beginSteerInbox,
+  finishSteerInbox,
+  joinSteeredReply,
+  steerAfterToolCalls,
+  steerBeforeFinishing,
+} from './steer-inbox.js';
 import {
   collapseSystemMessages,
   mergeSystemMessage,
@@ -145,12 +157,10 @@ import {
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
-  setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
   setScheduleSideEffectsEnabled,
   setSessionContext,
-  setTaskModelPolicies,
   setWebSearchConfig,
   TOOL_DEFINITIONS,
 } from './tools.js';
@@ -221,23 +231,6 @@ let inFlightInput: ContainerInput | null = null;
 /** Tool exchanges of the running model turn, flushed on SIGTERM/SIGINT. */
 let activeTurnToolHistory: TurnToolHistory | null = null;
 
-function cloneTaskModels(
-  taskModels: ContainerInput['taskModels'],
-): ContainerInput['taskModels'] | undefined {
-  const cloned: NonNullable<ContainerInput['taskModels']> = {};
-  for (const key of TASK_MODEL_KEYS) {
-    const taskModel = taskModels?.[key];
-    if (!taskModel) continue;
-    cloned[key] = {
-      ...taskModel,
-      requestHeaders: taskModel.requestHeaders
-        ? { ...taskModel.requestHeaders }
-        : undefined,
-    };
-  }
-  return Object.keys(cloned).length > 0 ? cloned : undefined;
-}
-
 function normalizeTaskModelBaseUrl(baseUrl: string | undefined): string {
   return String(baseUrl || '')
     .trim()
@@ -287,7 +280,7 @@ function resolveTaskModelsForRequest(
     storedTaskModels = undefined;
     return undefined;
   }
-  storedTaskModels = cloneTaskModels(merged);
+  storedTaskModels = cloneTaskModelPolicies(merged);
   return merged;
 }
 
@@ -347,6 +340,8 @@ async function replyToRequest(
 ): Promise<void> {
   await haltIfShuttingDown();
   output.sideEffects = getPendingSideEffects();
+  const steerNoteIds = finishSteerInbox();
+  if (steerNoteIds.length > 0) output.steerNoteIds = steerNoteIds;
   writeOutput(output, input.requestId);
   inFlightInput = null;
 }
@@ -355,6 +350,8 @@ function writeInterruptedShutdownOutput(reason: NodeJS.Signals): void {
   const input = inFlightInput;
   if (!input) return;
   inFlightInput = null;
+  // A stopped turn takes no more notes; those it had are dropped with it.
+  finishSteerInbox();
   try {
     writeOutput(
       buildInterruptedShutdownOutput(
@@ -1215,6 +1212,8 @@ async function processRequestInner(
   let emptyVisibleCompletionRetries = 0;
   let invalidToolCallRetries = 0;
   let latestFinalAssistantText: string | null = null;
+  // The reply written before a steering note, kept as the reply's start.
+  let steeredReplyPrefix = '';
   let compactionRetries = 0;
   // Drops below any estimate the provider rejects as too long.
   let guardContextWindow = contextWindow;
@@ -1235,6 +1234,19 @@ async function processRequestInner(
     tools,
   });
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const recordToolResult = (message: ChatMessage) =>
+    turnToolHistory.recordResult(message);
+  // Where the turn would end: notes the user sent meanwhile go to the model,
+  // which answers them in the same turn. A user message is progress.
+  const continueForSteer = (replySoFar: string | null): boolean => {
+    if (!steerBeforeFinishing(history)) return false;
+    if (replySoFar?.trim() && streamTextDeltas && !ralphEnabled) {
+      emitStreamDelta('\n\n');
+    }
+    steeredReplyPrefix = joinSteeredReply(steeredReplyPrefix, replySoFar) || '';
+    stalledTurns = 0;
+    return true;
+  };
 
   const resolveToolApproval = createToolApprovalResolver({
     latestUserPrompt: effectiveUserPrompt,
@@ -1368,7 +1380,7 @@ async function processRequestInner(
     });
   }
 
-  while (stalledTurns < maxStalledTurns) {
+  while (stalledTurns < maxStalledTurns || continueForSteer(null)) {
     const guardResult = applyContextGuard({
       history,
       contextWindowTokens: guardContextWindow,
@@ -1776,6 +1788,7 @@ async function processRequestInner(
     if (toolCalls.length === 0) {
       if (ralphEnabled) {
         if (assistantSegment.kind === 'final') {
+          if (continueForSteer(assistantSegment.text)) continue;
           collectRequestedArtifacts({
             artifacts,
             artifactPaths,
@@ -1783,8 +1796,11 @@ async function processRequestInner(
             finalText: assistantSegment.text,
             toolExecutions,
           });
-          latestFinalAssistantText = assistantSegment.text;
-          textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
+          latestFinalAssistantText = joinSteeredReply(
+            steeredReplyPrefix,
+            assistantSegment.text,
+          );
+          textDeltaForwarder.emitFinalFallback(assistantSegment.text);
           const completed: ContainerOutput = {
             status: 'success',
             result: latestFinalAssistantText,
@@ -1832,6 +1848,7 @@ async function processRequestInner(
           toolCalls: 0,
           successfulToolCalls: 0,
         });
+        if (continueForSteer(null)) continue;
         break;
       }
 
@@ -1862,9 +1879,13 @@ async function processRequestInner(
         console.error('[model] retrying empty final response after tool use');
         continue;
       }
+      if (continueForSteer(assistantSegment.text)) continue;
 
-      latestFinalAssistantText = assistantSegment.text;
-      textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
+      latestFinalAssistantText = joinSteeredReply(
+        steeredReplyPrefix,
+        assistantSegment.text,
+      );
+      textDeltaForwarder.emitFinalFallback(assistantSegment.text);
       const completed: ContainerOutput = {
         status: 'success',
         result: latestFinalAssistantText,
@@ -1885,6 +1906,8 @@ async function processRequestInner(
     }
 
     let successfulToolCallsThisTurn = 0;
+    // A steering note cut the batch short; the model re-plans with it.
+    let steered = false;
     const cachedApprovals = new Map<string, ToolApprovalEvaluation>();
     for (let callIndex = 0; callIndex < toolCalls.length; ) {
       const call = toolCalls[callIndex];
@@ -1986,6 +2009,12 @@ async function processRequestInner(
             });
           }
           callIndex += preparedBatch.length;
+          steered = steerAfterToolCalls({
+            history,
+            unrunCalls: toolCalls.slice(callIndex),
+            recordResult: recordToolResult,
+          });
+          if (steered) break;
           continue;
         }
       }
@@ -1999,6 +2028,16 @@ async function processRequestInner(
         }));
       logToolCallStart(toolName, call.function.arguments, approval);
 
+      if (approval.decision === 'required' || approval.decision === 'denied') {
+        // A note the user sent meanwhile comes before asking them, or ending.
+        steered = steerAfterToolCalls({
+          history,
+          unrunCalls: toolCalls.slice(callIndex),
+          recordResult: recordToolResult,
+          closeIfEmpty: true,
+        });
+        if (steered) break;
+      }
       if (approval.decision === 'required') {
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         const pendingApproval = buildPendingApproval(
@@ -2084,6 +2123,16 @@ async function processRequestInner(
         artifactPaths,
       });
       callIndex += 1;
+      steered = steerAfterToolCalls({
+        history,
+        unrunCalls: toolCalls.slice(callIndex),
+        recordResult: recordToolResult,
+      });
+      if (steered) break;
+    }
+    if (steered) {
+      stalledTurns = 0;
+      continue;
     }
     stalledTurns = advanceStalledTurnCount({
       current: stalledTurns,
@@ -2098,10 +2147,14 @@ async function processRequestInner(
       executedNow.length === toolCalls.length &&
       executedNow.every(
         (execution) => execution.name === REACT_TOOL_NAME && !execution.isError,
-      )
+      ) &&
+      !continueForSteer(assistantSegment.text)
     ) {
-      latestFinalAssistantText = assistantSegment.text;
-      textDeltaForwarder.emitFinalFallback(latestFinalAssistantText);
+      latestFinalAssistantText = joinSteeredReply(
+        steeredReplyPrefix,
+        assistantSegment.text,
+      );
+      textDeltaForwarder.emitFinalFallback(assistantSegment.text);
       const reacted: ContainerOutput = {
         status: 'success',
         result: latestFinalAssistantText,
@@ -2121,6 +2174,10 @@ async function processRequestInner(
     }
   }
 
+  latestFinalAssistantText = joinSteeredReply(
+    steeredReplyPrefix,
+    latestFinalAssistantText,
+  );
   collectRequestedArtifacts({
     artifacts,
     artifactPaths,
@@ -2230,6 +2287,7 @@ async function main(): Promise<void> {
   );
   await haltIfShuttingDown();
   inFlightInput = firstInput;
+  beginSteerInbox(firstInput.requestId);
   // The stdin payload is the one input not on a tool-writable path; the secret
   // it carries authenticates every later input.json.
   setIpcAuthSecret(firstInput.ipcAuthSecret || '');
@@ -2273,18 +2331,21 @@ async function main(): Promise<void> {
     firstInput.browserAllowPrivateNetwork,
   );
   setWebSearchConfig(firstInput.webSearch);
-  setModelContext(
-    firstInput.provider,
-    firstInput.providerMethod,
-    firstInput.baseUrl,
-    storedApiKey,
-    firstInput.model,
-    firstInput.chatbotId,
-    firstRequestHeaders,
-    firstInput.maxTokens,
-    firstInput.modelBehavior,
-    firstInput.debugModelResponses === true,
-  );
+  setModelContext({
+    provider: firstInput.provider,
+    providerMethod: firstInput.providerMethod,
+    baseUrl: firstInput.baseUrl,
+    apiKey: storedApiKey,
+    model: firstInput.model,
+    chatbotId: firstInput.chatbotId,
+    requestHeaders: firstRequestHeaders,
+    maxTokens: firstInput.maxTokens,
+    modelBehavior: firstInput.modelBehavior,
+    debugModelResponses: firstInput.debugModelResponses === true,
+    isLocal: firstInput.isLocal,
+    contextWindow: firstInput.contextWindow,
+    thinkingFormat: firstInput.thinkingFormat,
+  });
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(
     firstInput.media,
@@ -2389,6 +2450,7 @@ async function main(): Promise<void> {
     }
 
     inFlightInput = input;
+    beginSteerInbox(input.requestId);
     applyRuntimeEnv(input.runtimeEnv);
 
     // Use stored apiKey — IPC file no longer contains it
@@ -2437,18 +2499,21 @@ async function main(): Promise<void> {
       input.browserAllowPrivateNetwork,
     );
     setWebSearchConfig(input.webSearch);
-    setModelContext(
-      input.provider,
-      input.providerMethod,
-      input.baseUrl,
+    setModelContext({
+      provider: input.provider,
+      providerMethod: input.providerMethod,
+      baseUrl: input.baseUrl,
       apiKey,
-      input.model,
-      input.chatbotId,
+      model: input.model,
+      chatbotId: input.chatbotId,
       requestHeaders,
-      input.maxTokens,
-      input.modelBehavior,
-      input.debugModelResponses === true,
-    );
+      maxTokens: input.maxTokens,
+      modelBehavior: input.modelBehavior,
+      debugModelResponses: input.debugModelResponses === true,
+      isLocal: input.isLocal,
+      contextWindow: input.contextWindow,
+      thinkingFormat: input.thinkingFormat,
+    });
     setTaskModelPolicies(taskModels);
     setMediaContext(
       input.media,

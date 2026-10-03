@@ -80,7 +80,10 @@ test('normalizeSkillConfigChannelKind accepts supported scopes and the teams ali
   }
 
   expect(normalizeSkillConfigChannelKind('teams')).toBe('msteams');
+  expect(normalizeSkillConfigChannelKind('imessage')).toBe('imessage');
+  expect(normalizeSkillConfigChannelKind('threema')).toBe('threema');
   expect(normalizeSkillConfigChannelKind('tui')).toBeUndefined();
+  expect(normalizeSkillConfigChannelKind('heartbeat')).toBeUndefined();
   expect(normalizeSkillConfigChannelKind('scheduler')).toBeUndefined();
 });
 

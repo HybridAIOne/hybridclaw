@@ -1,8 +1,10 @@
 import { stopSessionExecution } from '../agent/executor.js';
+import type { SteerInbox } from '../infra/steer-inbox.js';
 
 interface ActiveGatewayRequest {
   controller: AbortController;
   executionSessionId: string;
+  steerInbox?: SteerInbox;
   detachExternalAbort?: () => void;
 }
 
@@ -28,6 +30,7 @@ export function registerActiveGatewayRequest(params: {
   sessionId: string;
   abortSignal?: AbortSignal;
   executionSessionId?: string;
+  steerInbox?: SteerInbox;
 }): {
   signal: AbortSignal;
   release: () => void;
@@ -36,6 +39,7 @@ export function registerActiveGatewayRequest(params: {
   const entry: ActiveGatewayRequest = {
     controller,
     executionSessionId: params.executionSessionId || params.sessionId,
+    steerInbox: params.steerInbox,
   };
   const externalSignal = params.abortSignal;
   if (externalSignal) {
@@ -74,6 +78,21 @@ export function abortActiveGatewayRequests(sessionId: string): number {
     entry.controller.abort(new Error('Interrupted by user.'));
   }
   return entries.length;
+}
+
+/**
+ * Hands `content` to the turn running in the session. True only when its
+ * agent will show it to the model; a stopped turn is no longer registered.
+ */
+export function steerGatewaySession(
+  sessionId: string,
+  content: string,
+): boolean {
+  for (const entry of activeGatewayRequestsBySession.get(sessionId) ?? []) {
+    if (entry.controller.signal.aborted) continue;
+    if (entry.steerInbox?.deliver(content)) return true;
+  }
+  return false;
 }
 
 export function interruptGatewaySessionExecution(sessionId: string): boolean {

@@ -309,6 +309,13 @@ Currently wired runtime surfaces:
 - channels
 - channel transports
 
+`session_end` runs for the previous session instance on explicit reset, clear,
+new-session creation, session switching, and automatic expiry. It runs before
+`session_reset` and before the manager releases the previous instance's user and
+workspace context. Gateway session deletion (including pruning and empty-chat
+cleanup) awaits `session_end` while the session history is still available.
+Plugin handler failures are logged and do not prevent reset or deletion.
+
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
@@ -318,7 +325,8 @@ plugin tools, and plugin commands.
 `api.notifyPhones({ sessionId, kind, title, body, badge, data })` alerts the
 phones registered by whoever opened `sessionId` in web chat, for example the
 session an app sends the plugin's command from. Only phones that registered
-`kind` with `/push register` get it. `title` and `body` show on the lock
+`kind` with `/push register` get it, and only those of the HybridAI app the
+session was last chatted in from. `title` and `body` show on the lock
 screen; `data` holds flat keys delivered next to `aps` for the app to route
 by. The result counts the phones that take `kind` (`devices`) and those the
 alert reached APNs for (`sent`). The gateway does not deduplicate plugin

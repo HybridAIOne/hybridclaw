@@ -45,6 +45,7 @@ async function load() {
   store.bindWebNotificationSession(
     MAIN_CHAT,
     store.notificationOperatorId('local-operator'),
+    'hy',
   );
   const run = async (args: string[]) =>
     JSON.parse(

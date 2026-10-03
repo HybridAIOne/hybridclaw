@@ -18,7 +18,7 @@ test('/push registers a phone for the web chat operator through the gateway', as
   db.initDatabase({ quiet: true });
   const operator = store.notificationOperatorId('local-operator');
   // What /api/chat does for a web chat before any command runs.
-  store.bindWebNotificationSession('proactive-feed', operator);
+  store.bindWebNotificationSession('proactive-feed', operator, 'hy');
   const request = {
     sessionId: 'proactive-feed',
     guildId: null,
@@ -34,7 +34,7 @@ test('/push registers a phone for the web chat operator through the gateway', as
   expect(registered.kind).toBe('plain');
   expect(JSON.parse(registered.text)).toMatchObject({ registered: true });
   expect(store.readMobilePushDevices(operator)).toEqual([
-    { token: TOKEN, environment: 'production', kinds: ['proactive'] },
+    { token: TOKEN, environment: 'production', kinds: ['proactive'], app: 'hy' },
   ]);
 
   const elsewhere = await handleGatewayCommand({
@@ -65,7 +65,7 @@ test('/push register answers a phone bound to another account with taken', async
   const store = await import('../src/gateway/web-notification-store.ts');
   db.initDatabase({ quiet: true });
   const operator = store.notificationOperatorId('local-operator');
-  store.bindWebNotificationSession('proactive-feed', operator);
+  store.bindWebNotificationSession('proactive-feed', operator, 'hy');
   const request = {
     sessionId: 'proactive-feed',
     guildId: null,

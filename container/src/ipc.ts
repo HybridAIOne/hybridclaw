@@ -28,6 +28,7 @@ import {
   IPC_RECONCILE_INTERVAL_MS,
 } from '../shared/ipc-wakeup.js';
 import { writeMemoryFileAtomic } from '../shared/memory-file.js';
+import { decodeSteerNote, type SteerNote } from '../shared/steer-inbox.js';
 import { IPC_DIR } from './runtime-paths.js';
 import { isShuttingDown } from './shutdown-latch.js';
 import type { ContainerInput, ContainerOutput } from './types.js';
@@ -42,6 +43,14 @@ let ipcAuthSecret = '';
 /** Record the secret received on stdin so follow-up inputs can be verified. */
 export function setIpcAuthSecret(secret: string): void {
   ipcAuthSecret = secret || '';
+}
+
+/** A steering note, verified with the same secret as follow-up inputs. */
+export function decodeSteerNoteFile(
+  requestId: string,
+  raw: string,
+): SteerNote | null {
+  return decodeSteerNote(ipcAuthSecret, requestId, raw);
 }
 
 function readInputFile(inputPath: string): ContainerInput | null {

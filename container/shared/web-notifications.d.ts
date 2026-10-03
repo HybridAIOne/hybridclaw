@@ -24,4 +24,10 @@ export interface MobilePushDevice {
   environment: 'sandbox' | 'production';
   /** Notification kinds the app handles; nothing else is sent to it. */
   kinds: string[];
+  /**
+   * The HybridAI app the phone registered for, as its chats name it in
+   * `appId`. Only that app's chats ring it, and HybridAI signs its alerts for
+   * that app. Absent: Hy (`hy`).
+   */
+  app?: string;
 }

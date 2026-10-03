@@ -207,6 +207,9 @@ async function runAgentInner(
     channelId,
     media,
     blockedTools,
+    // Notes reach the worker as written; with confidential redaction on they
+    // could carry what `dehydrate` keeps from it, so they go as their own turns.
+    steerInbox: confidential.enabled ? undefined : params.steerInbox,
     onTextDelta: confidentialLeakMiddleware
       ? undefined
       : confidential.wrapDelta(params.onTextDelta, 'agent.text_delta'),

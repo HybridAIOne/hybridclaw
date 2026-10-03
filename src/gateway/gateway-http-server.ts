@@ -235,6 +235,7 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
+import { CHAT_STEER_PATH, handleChatSteerRoute } from './chat-steer-route.js';
 import { openChatStreamTurn } from './chat-stream-turns.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
@@ -446,6 +447,7 @@ import {
 import { handleLocalClassifierAdmin } from './local-classifier-admin.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import { chatResultForClient } from './mobile-chat-result.js';
+import { chatPushApp } from './mobile-push.js';
 import {
   isMSTeamsTabViewerAllowed,
   type MSTeamsTabSsoConfig,
@@ -3477,7 +3479,11 @@ async function handleApiChat(
   );
 
   if (channelId === 'web' && operatorId)
-    trackWebNotificationSession(chatRequest.sessionId, operatorId);
+    trackWebNotificationSession(
+      chatRequest.sessionId,
+      operatorId,
+      chatPushApp(body),
+    );
   if (wantsStream) {
     await handleApiChatStream(res, chatRequest, operatorId, adminActions);
     return;
@@ -4416,11 +4422,14 @@ function handleApiChatRecent(
   });
 }
 
-function handleApiChatCleanup(res: ServerResponse, url: URL): void {
+async function handleApiChatCleanup(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   sendJson(
     res,
     200,
-    cleanupGatewayNoUserChatSessions({
+    await cleanupGatewayNoUserChatSessions({
       channelId: url.searchParams.get('channelId') || 'web',
       keepSessionId: url.searchParams.get('keepSessionId'),
     }),
@@ -5776,7 +5785,10 @@ function handleApiAdminSessions(res: ServerResponse): void {
   sendJson(res, 200, { sessions: getGatewayAdminSessions() });
 }
 
-function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
+async function handleApiAdminSessionDelete(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   const sessionId = (url.searchParams.get('sessionId') || '').trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -5785,7 +5797,7 @@ function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
-    deleteGatewayAdminSession(sessionId, {
+    await deleteGatewayAdminSession(sessionId, {
       onlyWithoutUserMessages: url.searchParams.get('ifNoUserMessages') === '1',
     }),
   );
@@ -10932,6 +10944,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             else sendJson(res, 404, { error: 'Message not found.' });
             return;
           }
+          if (pathname === CHAT_STEER_PATH && method === 'POST') {
+            await handleChatSteerRoute(req, res, operatorId);
+            return;
+          }
           if (pathname === CHAT_REACTION_PATH && method === 'POST') {
             if (operatorId) {
               await handleChatReactionRoute(
@@ -11304,7 +11320,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {
-            handleApiAdminSessionDelete(res, url);
+            await handleApiAdminSessionDelete(res, url);
             return;
           }
           if (
@@ -11661,7 +11677,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat/cleanup' && method === 'POST') {
-            handleApiChatCleanup(res, url);
+            await handleApiChatCleanup(res, url);
             return;
           }
           if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
