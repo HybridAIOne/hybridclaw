@@ -1,11 +1,10 @@
 /**
- * Skill catalog for the system prompt: names, descriptions and where to read
- * each SKILL.md, held under maxSkillsPromptChars by shortening descriptions
- * before leaving skills out. `always` skills are inlined in full instead.
- * The catalog is a routing hint only; skills_list stays the complete
- * directory, and this module never decides which skills are eligible.
+ * Skill prompts preserve routing identity under a bounded catalog budget.
+ * Complete always/mini bodies load inline; omitted cards stay discoverable.
+ * Eligibility belongs to the scanner, not this prompt renderer.
  */
 import { logger } from '../logger.js';
+import { loadMiniSkillInstructions } from './mini-skills.js';
 import { loadSkillBody, type Skill } from './skills.js';
 
 const MAX_SKILLS_PROMPT_CHARS = 30_000;
@@ -115,19 +114,30 @@ export function buildSkillsPrompt(
   const demotedAlways: Skill[] = [];
 
   let alwaysChars = 0;
-  for (const skill of promptCandidates.filter(
-    (candidate) => candidate.always,
-  )) {
-    const body = loadSkillBody(skill, Number.MAX_SAFE_INTEGER);
+  for (const skill of promptCandidates
+    .filter((candidate) => candidate.always || candidate.mini)
+    .sort((left, right) => Number(right.always) - Number(left.always))) {
+    const miniBody = loadMiniSkillInstructions(skill);
+    const body =
+      miniBody ??
+      (skill.always
+        ? loadSkillBody(skill, Number.MAX_SAFE_INTEGER)
+        : undefined);
     if (!body) {
       demotedAlways.push(skill);
       continue;
     }
-    const block = [
-      `<skill_always name="${escapeXml(skill.name)}" path="${escapeXml(skill.location)}">`,
-      body,
-      '</skill_always>',
-    ];
+    const block = miniBody
+      ? [
+          `<mini_skill name="${escapeXml(skill.name)}" instructions_loaded="true">`,
+          escapeXml(miniBody),
+          '</mini_skill>',
+        ]
+      : [
+          `<skill_always name="${escapeXml(skill.name)}" path="${escapeXml(skill.location)}">`,
+          body,
+          '</skill_always>',
+        ];
     const serialized = block.join('\n');
     if (alwaysChars + serialized.length > MAX_ALWAYS_CHARS) {
       demotedAlways.push(skill);
@@ -141,7 +151,7 @@ export function buildSkillsPrompt(
   if (demotedAlways.length > 0) {
     const demotedNames = demotedAlways.map((skill) => skill.name).join(', ');
     lines.push(
-      `⚠️ maxAlwaysChars=${MAX_ALWAYS_CHARS} exceeded; demoted to summary: ${demotedNames}`,
+      `⚠️ Inline skill budget=${MAX_ALWAYS_CHARS} exceeded or body unavailable; demoted to summary: ${demotedNames}`,
       '',
     );
   }
@@ -266,6 +276,7 @@ export function buildSkillsSection(
   return [
     '## Skills (mandatory)',
     format.scanRule,
+    '- Mini-skills marked instructions_loaded="true" are complete: follow them with ordinary permitted tools, without reading SKILL.md again.',
     '- A skill is instruction text, not a directly callable tool/function. Do not try to invoke a skill by name.',
     format.namedRule,
     format.readRule,

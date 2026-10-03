@@ -61,9 +61,11 @@ Skill roots include:
 HybridClaw uses progressive disclosure for model-visible skills. The system
 prompt starts with compact metadata and a workspace-readable `SKILL.md`
 location; the model reads the full skill only after routing the request.
+Skills with `mini: true` instead offer their complete short body inline or
+through discovery, avoiding a separate file read.
 
-The prompt entry carries `name`, `category`, `description`, and `location`
-only. Manifest details are deliberately excluded because they do not inform
+Ordinary prompt entries carry `name`, `category`, `description`, and `location`.
+Manifest details are deliberately excluded because they do not inform
 routing: `supported_channels` is already a hard filter (a skill unsupported on
 the active channel never reaches the prompt), `id` duplicates `name`, and
 `version` and `capabilities` matter only once the skill is loaded. Declared
@@ -94,10 +96,44 @@ actual SKILL.md contents. The `next` call uses `read` directly when exposed, or
 `tool_catalog` when read is deferred; it is null if reading is unavailable.
 File access still passes through the normal read tool's policy and sandbox.
 
+### Mini-skills
+
+Set `mini: true` on a normal `SKILL.md` to make a dense instruction card. Keep
+the whole body within 1,000 characters: URLs, tool names, the essential UI
+steps, and an evidence check. For example:
+
+```markdown
+---
+name: route
+description: Journey search at the operator's website.
+mini: true
+---
+
+browser_navigate https://example.com/search; skip web_search.
+Fresh refs: fill origin+dest; click date/time→set→search; never type into buttons.
+Verify route+date on results; report dep/arr+changes; no booking.
+```
+
+Eligible cards are embedded as `<mini_skill instructions_loaded="true">` in
+the existing 10,000-character inline skill budget. Cards omitted from that
+budget remain available through `skills_list`. Both keyword search and exact
+selection return the complete `instructions`, `instructionsLoaded: true`,
+and `next: null`; the model can proceed with ordinary permitted tools.
+Search pages include at most 10,000 characters of instruction bodies; omitted
+bodies can be retrieved by exact name. Empty or oversized bodies use ordinary
+metadata and file reads, never partially loaded instructions.
+
+Mini-skills use the existing trust scan, agent/channel eligibility, disabled
+skill filters, and runtime approvals. They grant no tools, credentials, or
+permissions. `disable-model-invocation` prevents automatic body disclosure;
+compact metadata prompts still retrieve complete cards through discovery.
+The bundled `bahn` card demonstrates abbreviated URL and UI guidance without
+station IDs, dates, or stale browser refs.
+
 ## Frontmatter Contract
 
 - required: `name`, `description`
-- optional: `user-invocable`, `disable-model-invocation`, `always`,
+- optional: `user-invocable`, `disable-model-invocation`, `always`, `mini`,
   `requires.*`, `metadata.hybridclaw.*`
 - `metadata.hybridclaw.category` groups `skill list`, TUI, and admin catalog
   views under one normalized label

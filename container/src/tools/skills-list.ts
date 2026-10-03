@@ -1,21 +1,26 @@
 /**
- * Skill discovery exposes eligible metadata in stages, then proposes a read.
+ * Skill discovery returns complete mini-cards or metadata with a proposed read.
  * Unlike the file tool it never opens files or grants read access. Its next
  * call uses the current request's exposed functions and permission snapshot.
  */
+
+import { isMiniSkillInstructions } from '../../shared/skill-catalog.js';
 import { searchCatalog } from '../catalog-search.js';
 import type { SessionSkillCatalogEntry, ToolDefinition } from '../types.js';
 
 let eligibleSkills: SessionSkillCatalogEntry[] = [];
 let availableNames = new Set<string>();
 let exposedNames = new Set<string>();
+// Engineering choice, 2026-10-03: at most ten maximum-size cards per page;
+// larger catalogs retain exact-name discovery instead of truncated instructions.
+const MAX_PAGE_INSTRUCTION_CHARS = 10_000;
 
 export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
   function: {
     name: 'skills_list',
     description:
-      'Discover eligible skills in steps: search short summaries with query/category, then supply an exact name for details and the next call to read its SKILL.md. Skills are instructions, not executable tools. Follow the returned read call before using a skill. Empty arguments browse summaries; offset retrieves another page.',
+      'Find eligible skills by query/category or exact name. Mini-skills return complete instructions with instructionsLoaded=true: follow directly, no file read. Other skills return metadata and a next call to load SKILL.md. Skills are guidance, not callable functions or permissions. Empty arguments browse; offset paginates.',
     parameters: {
       type: 'object',
       properties: {
@@ -27,7 +32,7 @@ export const SKILLS_LIST_TOOL_DEFINITION: ToolDefinition = {
         name: {
           type: 'string',
           description:
-            'Exact skill name to get details and its next read call; omit while searching.',
+            'Exact name for a complete mini-card or full-skill metadata; omit while searching.',
         },
         offset: {
           type: 'integer',
@@ -86,9 +91,18 @@ export function runSkillsList(args: Record<string, unknown>): string {
       throw new Error(
         'Skill is not eligible in this request. Search skills_list for an exact name.',
       );
+    if (isMiniSkillInstructions(skill.instructions)) {
+      return JSON.stringify({
+        skill,
+        instructionsLoaded: true,
+        next: null,
+        hint: 'Complete mini-skill instructions loaded. Use ordinary permitted tools directly; no SKILL.md read needed.',
+      });
+    }
+    const { instructions: _instructions, ...metadata } = skill;
     const next = nextCall('read', { path: skill.location });
     return JSON.stringify({
-      skill,
+      skill: metadata,
       instructionsLoaded: false,
       next,
       hint: next
@@ -121,13 +135,22 @@ export function runSkillsList(args: Record<string, unknown>): string {
     ...new Set(eligibleSkills.map((skill) => skill.category)),
   ].sort();
   const page = matches.slice(offset, offset + limit);
+  let instructionChars = 0;
   return JSON.stringify({
-    skills: page.map(({ name, description, category }) => ({
-      name,
-      description: description.slice(0, 160),
-      category,
-      next: nextCall('skills_list', { name }),
-    })),
+    skills: page.map(({ name, description, category, instructions }) => {
+      const includeInstructions =
+        isMiniSkillInstructions(instructions) &&
+        instructionChars + instructions.length <= MAX_PAGE_INSTRUCTION_CHARS;
+      if (includeInstructions) instructionChars += instructions.length;
+      return {
+        name,
+        description: description.slice(0, 160),
+        category,
+        ...(includeInstructions
+          ? { instructions, instructionsLoaded: true, next: null }
+          : { next: nextCall('skills_list', { name }) }),
+      };
+    }),
     categories,
     matchCount: matches.length,
     eligibleCount: eligibleSkills.length,
@@ -135,7 +158,7 @@ export function runSkillsList(args: Record<string, unknown>): string {
     nextOffset:
       offset + page.length < matches.length ? offset + page.length : null,
     hint: matches.length
-      ? 'Choose the relevant skill and execute its next call for details and the SKILL.md read step. Search results contain no instructions.'
+      ? 'Follow complete mini-cards marked instructionsLoaded=true directly. Other results contain no instructions: execute next for details and the SKILL.md read step.'
       : 'No keyword matches. Try a shorter query, browse a category, or omit query to browse the eligible catalog.',
   });
 }

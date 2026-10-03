@@ -302,14 +302,18 @@ function buildSelectedSkillsPrompt(context: PromptHookContext): string {
   const prompt =
     context.skillPromptMode === 'compact'
       ? buildSkillsPrompt(
-          selection.skills.map((skill) => ({ ...skill, always: false })),
+          selection.skills.map((skill) => ({
+            ...skill,
+            always: false,
+            mini: false,
+          })),
           'lines',
         )
       : buildSkillsSection(selection.skills, 'lines');
   const directoryAvailable = isToolOffered(context, 'skills_list');
   const directory =
     selection.discovery && directoryAvailable
-      ? 'Additional skills: skills are instruction packages, not executable tools. Use skills_list to search the full eligible skill directory when a relevant skill is absent above. Call skills_list directly when exposed, or through tool_catalog when that catalog is exposed. For a complete skill inventory, call skills_list instead of extrapolating from the starred skills. Search summaries first, select an exact skill name for details, then execute the returned next call to read its SKILL.md before following the instructions. Search results are metadata only.'
+      ? 'Additional skills: instructions, not executable tools. Search skills_list for relevant skills absent above, directly or through tool_catalog. Mini-cards with instructionsLoaded=true are complete: follow directly, no file read. Other results are metadata: execute next to load SKILL.md. Use skills_list for a complete inventory.'
       : '';
   return [prompt, directory].filter(Boolean).join('\n\n');
 }
