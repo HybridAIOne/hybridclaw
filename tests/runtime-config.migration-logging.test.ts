@@ -135,12 +135,17 @@ describe('runtime config migration logging', () => {
     expect(stored.local.backends.ollama.enabled).toBe(false);
   });
 
-  it.each(['gpt-5.4-mini', 'hybridai/gpt-5.4-mini'])(
+  it.each([
+    ['gpt-5.4-mini', 36],
+    ['hybridai/gpt-5.4-mini', 36],
+    ['gpt-5.6-luna', 39],
+    ['hybridai/gpt-5.6-luna', 39],
+  ])(
     'migrates the previous HybridAI default %s to Luna',
-    async (previousDefault) => {
+    async (previousDefault, version) => {
       const homeDir = makeTempHome();
       writeRuntimeConfig(homeDir, (config) => {
-        config.version = 36;
+        config.version = version;
         config.hybridai.defaultModel = previousDefault;
       });
 
@@ -159,6 +164,20 @@ describe('runtime config migration logging', () => {
       expect(stored.version).toBe(runtimeConfig.CONFIG_VERSION);
     },
   );
+
+  it('keeps GPT-5.6 Luna when a current config picks it', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.version = 40;
+      config.hybridai.defaultModel = 'gpt-5.6-luna';
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfig().hybridai.defaultModel).toBe(
+      'gpt-5.6-luna',
+    );
+  });
 
   it('preserves a custom HybridAI default during the Luna migration', async () => {
     const homeDir = makeTempHome();

@@ -176,15 +176,25 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 39;
+export const CONFIG_VERSION = 40;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
-const HYBRIDAI_LUNA_DEFAULT_CONFIG_VERSION = 37;
-const LEGACY_HYBRIDAI_DEFAULT_MODELS = new Set([
-  'gpt-5.4-mini',
-  'hybridai/gpt-5.4-mini',
-]);
+// Former HybridAI defaults, each moved to the current default once by
+// configs older than the schema version that retired it.
+const LEGACY_HYBRIDAI_DEFAULT_MODELS: ReadonlyArray<{
+  beforeVersion: number;
+  models: ReadonlySet<string>;
+}> = [
+  {
+    beforeVersion: 37,
+    models: new Set(['gpt-5.4-mini', 'hybridai/gpt-5.4-mini']),
+  },
+  {
+    beforeVersion: 40,
+    models: new Set(['gpt-5.6-luna', 'hybridai/gpt-5.6-luna']),
+  },
+];
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
 const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
   'This is a live phone call. Produce plain spoken text only.',
@@ -7626,12 +7636,13 @@ function normalizeRuntimeConfig(
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultModel,
     { allowEmpty: false },
   );
-  const hybridDefaultModel =
-    (sourceVersion === null ||
-      sourceVersion < HYBRIDAI_LUNA_DEFAULT_CONFIG_VERSION) &&
-    LEGACY_HYBRIDAI_DEFAULT_MODELS.has(normalizedHybridDefaultModel)
-      ? DEFAULT_HYBRIDAI_MODEL
-      : normalizedHybridDefaultModel;
+  const hybridDefaultModel = LEGACY_HYBRIDAI_DEFAULT_MODELS.some(
+    ({ beforeVersion, models }) =>
+      (sourceVersion === null || sourceVersion < beforeVersion) &&
+      models.has(normalizedHybridDefaultModel),
+  )
+    ? DEFAULT_HYBRIDAI_MODEL
+    : normalizedHybridDefaultModel;
   const hybridOnboardingModel = normalizeString(
     rawHybridAi.onboardingModel,
     DEFAULT_RUNTIME_CONFIG.hybridai.onboardingModel,
