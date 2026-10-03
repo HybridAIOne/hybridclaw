@@ -18,14 +18,18 @@ function reply(content: string | null, calls: ReturnType<typeof call>[]) {
 const react = (emoji: string) => call('call_react', 'react', { emoji });
 
 describe('a reaction ends the turn without another model call', () => {
-  test('the text written with the reaction is the reply', async () => {
+  test.each([
+    ['Hello!', '👋'],
+    ['The answer is 42.', '💡'],
+    ['Congratulations on the new job!', '🎉'],
+  ])('a reaction accompanies the reply: %s', async (text, emoji) => {
     const { requests, output } = await runContainerAgent(
-      [reply('Congratulations on the new job!', [react('🎉')])],
+      [reply(text, [react(emoji)])],
       { localToolMode: 'full' },
     );
     expect(requests).toHaveLength(1);
     expect(output.status).toBe('success');
-    expect(output.result).toBe('Congratulations on the new job!');
+    expect(output.result).toBe(text);
     expect(output.toolExecutions).toMatchObject([
       { name: 'react', isError: false },
     ]);
