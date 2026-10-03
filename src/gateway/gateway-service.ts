@@ -1,4 +1,3 @@
-import { deleteWebNotificationSession } from './web-notification-store.js';
 /**
  * Gateway application service — authoritative host operations shared by transports.
  *
@@ -260,7 +259,6 @@ import {
   countStructuredAuditEntries,
   createFreshSessionInstance,
   deleteMemoryValue,
-  deleteSessionData,
   getAllSessions,
   getFullAutoSessionCount,
   getLatestAssistantMessageId,
@@ -548,6 +546,7 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
+import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
@@ -689,6 +688,8 @@ import {
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
+
+export { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 
 export {
   getGatewayAdminTunnelConfig,
@@ -5859,32 +5860,6 @@ export async function deleteGatewayAdminEmailMessage(params: {
   return deleteLiveAdminEmailMessage(config, password, params);
 }
 
-export function deleteGatewayAdminSession(
-  sessionId: string,
-  options?: {
-    onlyWithoutUserMessages?: boolean;
-  },
-): GatewayAdminDeleteSessionResult {
-  if (options?.onlyWithoutUserMessages && sessionHasUserMessages(sessionId)) {
-    return {
-      deleted: false,
-      sessionId,
-      skippedReason: 'has_user_messages',
-      deletedMessages: 0,
-      deletedTasks: 0,
-      deletedSemanticMemories: 0,
-      deletedUsageEvents: 0,
-      deletedAuditEntries: 0,
-      deletedStructuredAuditEntries: 0,
-      deletedApprovalEntries: 0,
-    };
-  }
-  interruptGatewaySessionExecution(sessionId);
-  const result = deleteSessionData(sessionId);
-  deleteWebNotificationSession(sessionId);
-  return result;
-}
-
 export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
   const runtimeConfig = getRuntimeConfig();
   const channels: GatewayAdminChannelsResponse['channels'] = [];
@@ -9525,10 +9500,10 @@ function isProtectedNoUserChatCleanupSession(session: Session): boolean {
   );
 }
 
-export function cleanupGatewayNoUserChatSessions(params: {
+export async function cleanupGatewayNoUserChatSessions(params: {
   channelId?: string | null;
   keepSessionId?: string | null;
-}): GatewayNoUserChatSessionCleanupResult {
+}): Promise<GatewayNoUserChatSessionCleanupResult> {
   const channelId = String(params.channelId || 'web').trim() || 'web';
   const keepSessionId = String(params.keepSessionId || '').trim();
   const keptSessionId = keepSessionId
@@ -9549,7 +9524,7 @@ export function cleanupGatewayNoUserChatSessions(params: {
     }
     if (isProtectedNoUserChatCleanupSession(session)) continue;
     if (sessionHasUserMessages(session.id)) continue;
-    const result = deleteGatewayAdminSession(session.id, {
+    const result = await deleteGatewayAdminSession(session.id, {
       onlyWithoutUserMessages: true,
     });
     if (result.deleted) deletedSessionIds.push(result.sessionId);
@@ -12743,7 +12718,7 @@ export async function handleGatewayCommand(
           let deletedApprovalEntries = 0;
 
           for (const { session: targetSession } of plan.candidates) {
-            const result = deleteGatewayAdminSession(targetSession.id);
+            const result = await deleteGatewayAdminSession(targetSession.id);
             if (!result.deleted) continue;
             deleted += 1;
             deletedMessages += result.deletedMessages;

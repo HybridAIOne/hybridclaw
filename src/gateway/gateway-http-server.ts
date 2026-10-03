@@ -4416,11 +4416,14 @@ function handleApiChatRecent(
   });
 }
 
-function handleApiChatCleanup(res: ServerResponse, url: URL): void {
+async function handleApiChatCleanup(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   sendJson(
     res,
     200,
-    cleanupGatewayNoUserChatSessions({
+    await cleanupGatewayNoUserChatSessions({
       channelId: url.searchParams.get('channelId') || 'web',
       keepSessionId: url.searchParams.get('keepSessionId'),
     }),
@@ -5776,7 +5779,10 @@ function handleApiAdminSessions(res: ServerResponse): void {
   sendJson(res, 200, { sessions: getGatewayAdminSessions() });
 }
 
-function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
+async function handleApiAdminSessionDelete(
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
   const sessionId = (url.searchParams.get('sessionId') || '').trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
@@ -5785,7 +5791,7 @@ function handleApiAdminSessionDelete(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
-    deleteGatewayAdminSession(sessionId, {
+    await deleteGatewayAdminSession(sessionId, {
       onlyWithoutUserMessages: url.searchParams.get('ifNoUserMessages') === '1',
     }),
   );
@@ -11304,7 +11310,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'DELETE') {
-            handleApiAdminSessionDelete(res, url);
+            await handleApiAdminSessionDelete(res, url);
             return;
           }
           if (
@@ -11661,7 +11667,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/chat/cleanup' && method === 'POST') {
-            handleApiChatCleanup(res, url);
+            await handleApiChatCleanup(res, url);
             return;
           }
           if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
