@@ -1,3 +1,8 @@
+/**
+ * Auto-added HybridAI broker config declares only reviewed read contracts.
+ * Exact operator overrides win; unlike MCP annotations, these defaults do not
+ * trust every proxied connector or grant execution/approval permission.
+ */
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,
@@ -11,7 +16,14 @@ export const HYBRIDAI_CONNECTORS_MCP_PATH = '/api/v1/connectors/mcp';
 // Owner call, 2026-10-02: the platform's own web search only reads, so a batch
 // of searches overlaps. HybridClaw declares it as the operator of this
 // auto-added server; an operator's own `toolBehavior` entries win.
-const PLATFORM_READ_ONLY_TOOLS = { web_search: 'read-only' } as const;
+// Owner request, 2026-10-03: independent reads should overlap. The reviewed
+// dm product search/details contracts only fetch public catalog data; trusting
+// all broker-proxied annotations remains deliberately disabled.
+const PLATFORM_READ_ONLY_TOOLS = {
+  web_search: 'read-only',
+  dm__searchProducts: 'read-only',
+  dm__getProductDetails: 'read-only',
+} as const;
 
 interface HybridAIConnectorsMcpOptions {
   apiKey?: string;

@@ -361,10 +361,11 @@ test('a file reference reaches the outbound request but never the recorded call'
   }
 }, 60_000);
 
-test('a large tool result crosses IPC once, as a preview the gateway restores', async () => {
+test('a large tool result crosses IPC once, as a reference while the model and replay retain full content', async () => {
   // Two full copies of a 6 MB result used to exceed the 10 MB output limit.
   const session = memory.getOrCreateSession('large-result', null, 'test-channel');
   const body = 'row,value\n'.repeat(600_000);
+  let observedModelResult: unknown;
   const server = http.createServer(async (req, res) => {
     let text = '';
     for await (const chunk of req) text += String(chunk);
@@ -374,7 +375,9 @@ test('a large tool result crosses IPC once, as a preview the gateway restores', 
       return;
     }
     const messages = JSON.parse(text).messages as ChatMessage[];
-    const answered = messages.some((message) => message.role === 'tool');
+    const toolResult = messages.find((message) => message.role === 'tool');
+    observedModelResult = toolResult?.content;
+    const answered = Boolean(toolResult);
     res.end(
       JSON.stringify({
         choices: [
@@ -416,6 +419,7 @@ test('a large tool result crosses IPC once, as a preview the gateway restores', 
         gatewayBaseUrl: baseUrl,
         gatewayApiToken: 'test-token',
         approvalMode: 'full',
+        contextGuard: { enabled: false },
       },
     );
 
@@ -435,9 +439,10 @@ test('a large tool result crosses IPC once, as a preview the gateway restores', 
       'utf8',
     );
     expect(JSON.parse(saved).body === body).toBe(true);
+    expect(observedModelResult === saved).toBe(true);
     expect(restored.toolExecutions?.[0].result === saved).toBe(true);
     expect(restored.toolHistory?.[1].content === saved).toBe(true);
-    expect(restored.toolHistoryForReplay).toEqual(output.toolHistoryForReplay);
+    expect(restored.toolHistoryForReplay?.[1].content === saved).toBe(true);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

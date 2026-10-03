@@ -511,6 +511,19 @@ Runtime details:
 - Container startup merges discovered MCP tools into the active tool list as
   namespaced functions (`server__tool`) alongside built-in tools.
 
+Deferred MCP tools remain callable through `tool_catalog`. When connectors are
+deferred, direct function definitions larger than 2,000 characters also use
+the catalog. The initial index reserves tool names before including complete
+input schemas up to 2,000 characters, within a 24,000-character entry budget;
+small schemas get priority. `action=list` includes small schemas within its
+24,000-character schema budget and requires no `name` argument. The model can execute those tools with
+`action=call` without a separate `describe` response. Larger schemas keep the
+explicit `describe` step. Discovery does not change the request's exposed
+functions, argument validation, permissions or approvals. Routine lookups use
+available tools directly; skill discovery is for requested skills or specialized
+workflows. Tools that accept multiple identifiers should fetch independent
+items in one request within the tool's limits.
+
 MCP calls are serial barriers by default. Operators can declare trusted read
 behavior under a server's `toolBehavior` configuration:
 
@@ -537,8 +550,10 @@ descriptions, idempotency hints and non-destructive hints never establish read
 safety. A `readOnlyHint: false` or `destructiveHint: true` always keeps a tool
 serial, including when an override claims otherwise.
 
-The auto-added `hybridai` connectors server declares the platform's
-`web_search` as `read-only`, so a batch of searches overlaps. Entries under
+The auto-added `hybridai` connectors server declares the reviewed
+`web_search`, `dm__searchProducts`, and `dm__getProductDetails` contracts as
+`read-only`, so independent searches and product lookups can overlap. This
+does not trust annotations from other broker-proxied tools. Entries under
 `mcpServers.hybridai.toolBehavior` are kept, and their overrides win.
 
 Trusted reads share the existing limit of eight calls per batch with built-in
@@ -554,6 +569,25 @@ the live connection and the requested config must admit overlap, so a failed
 replacement cannot broaden the old connection's trust, and revocation takes
 effect even if reconnect fails. Discovery and config are rebuilt after worker
 replacement; no session-only trust decision is retained.
+
+Skill routing metadata uses a one-line catalog with its 30,000-character entry
+budget. Default bundled paths are stated once; custom paths remain explicit.
+Descriptions shorten before names are omitted, and `skills_list` retains the
+complete directory. Always-on skill bodies keep their separate 10,000-character
+budget. System prompt and tool schemas stay stable throughout a request.
+
+The model receives complete tool results, and stored exchanges replay complete
+results. Large results cross IPC as file references, restored by the gateway;
+this transport threshold does not shorten model input. Whole-context compaction
+and model context-window recovery still apply to the combined conversation.
+The former `sessionCompaction.inLoopGuard.perResultShare` setting is removed;
+remove it from custom configuration. There is no replacement per-result limit.
+
+`web_fetch` escalation hints describe extraction limits, not necessarily access
+denials. A JavaScript app shell should be retried at the same URL using browser
+navigation; another search does not render it. Protection scripts alone do not
+establish bot blocking. HTTP 403/429 or visible challenge text still yields
+`bot_blocked`; private-network and redirect guards remain enforced.
 
 ## Audit Trail Internals
 

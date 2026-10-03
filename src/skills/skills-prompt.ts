@@ -13,7 +13,7 @@ const MAX_ALWAYS_CHARS = 10_000;
 
 /**
  * `xml` is the default catalog. `lines` is about half its size, one
- * `- name: description` line per skill, for clients that need a short prompt.
+ * `- name [category]: description` line per skill, for clients that need a short prompt.
  */
 export type SkillListFormatName = 'xml' | 'lines';
 
@@ -74,7 +74,7 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
       '- If exactly one skill clearly applies: read its SKILL.md at `<location>` with `read`, then follow it.',
   },
   lines: {
-    open: 'Available skills:',
+    open: 'Available skills (default location: skills/<name>/SKILL.md):',
     close: '',
     escape: flattenLine,
     render: (skill, description) => {
@@ -83,13 +83,13 @@ const SKILL_LIST_FORMATS: Record<SkillListFormatName, SkillListFormat> = {
         skill.location === `skills/${skill.name}/SKILL.md`
           ? ''
           : ` (${flattenLine(skill.location)})`;
-      return `- ${flattenLine(skill.name)}${path}${description ? `: ${description}` : ''}`;
+      return `- ${flattenLine(skill.name)} [${flattenLine(skill.category)}]${path}${description ? `: ${description}` : ''}`;
     },
     descriptionChars: ': '.length,
     notice: (compactedDescriptions, omittedSkills) =>
       `(${compactedDescriptions} descriptions shortened and ${omittedSkills} skills left out to fit the prompt. Use skills_list to search the complete eligible catalog.)`,
     scanRule:
-      'Before replying: scan the skill list below. Each line is `- name: description`.',
+      'Before replying: scan the skill list below. Each line is `- name [category]: description`.',
     namedRule:
       '- If the user explicitly names a listed skill, treat that skill as selected.',
     readRule:

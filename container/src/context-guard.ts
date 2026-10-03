@@ -1,20 +1,19 @@
+/**
+ * Whole-context pressure compacts historical results and triggers recovery.
+ * Individual tool results have no preview cap; unlike IPC spilling, this guard
+ * only changes evidence when the combined context exceeds its budget.
+ */
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
 } from '../shared/context-guard-config.js';
-import { truncateHeadTailText } from './text-truncation.js';
 import {
   estimateChatMessageTokens,
   estimateMessageTokens,
-  estimateToolResultTokens,
-  normalizeContentText,
-  TOOL_RESULT_CHARS_PER_TOKEN,
   type TokenEstimateCache,
 } from './token-usage.js';
 import type { ChatMessage, ContextGuardConfig } from './types.js';
 
-const TOOL_RESULT_TRUNCATED_MARKER =
-  '\n\n...[tool result truncated by context guard]...\n\n';
 export const COMPACTED_TOOL_RESULT_PLACEHOLDER =
   '[Historical tool result compacted to preserve context budget.]';
 const compactedToolMessages = new WeakSet<ChatMessage>();
@@ -22,7 +21,6 @@ const compactedToolMessages = new WeakSet<ChatMessage>();
 export interface ContextGuardResult {
   totalTokensAfter: number;
   overflowBudgetTokens: number;
-  truncatedToolResults: number;
   compactedToolResults: number;
   tier3Triggered: boolean;
 }
@@ -39,20 +37,6 @@ function isToolMessage(message: ChatMessage): boolean {
 
 function isCompactedToolMessage(message: ChatMessage): boolean {
   return compactedToolMessages.has(message);
-}
-
-function truncateToolResultText(content: string, maxTokens: number): string {
-  const maxChars = Math.max(
-    TOOL_RESULT_TRUNCATED_MARKER.length + 16,
-    Math.floor(maxTokens * TOOL_RESULT_CHARS_PER_TOKEN),
-  );
-  return truncateHeadTailText({
-    text: content,
-    maxChars,
-    marker: TOOL_RESULT_TRUNCATED_MARKER,
-    headRatio: 0.7,
-    tailRatio: 0.2,
-  });
 }
 
 function updateMessageContent(
@@ -79,10 +63,6 @@ export function applyContextGuard(params: {
     1_024,
     Math.floor(params.contextWindowTokens || 128_000),
   );
-  const perResultLimitTokens = Math.max(
-    1,
-    Math.floor(contextWindowTokens * config.perResultShare),
-  );
   const compactionBudgetTokens = Math.max(
     1,
     Math.floor(contextWindowTokens * config.compactionRatio),
@@ -96,7 +76,6 @@ export function applyContextGuard(params: {
     return {
       totalTokensAfter: 0,
       overflowBudgetTokens,
-      truncatedToolResults: 0,
       compactedToolResults: 0,
       tier3Triggered: false,
     };
@@ -110,20 +89,7 @@ export function applyContextGuard(params: {
     promptOverheadTokens > 0 ? contextWindowTokens : overflowBudgetTokens;
   let totalTokens =
     estimateMessageTokens(params.history, params.cache) + promptOverheadTokens;
-  let truncatedToolResults = 0;
   let compactedToolResults = 0;
-
-  for (const message of params.history) {
-    if (!isToolMessage(message)) continue;
-    const content = normalizeContentText(message.content);
-    if (!content) continue;
-    if (estimateToolResultTokens(content) <= perResultLimitTokens) continue;
-
-    const truncated = truncateToolResultText(content, perResultLimitTokens);
-    if (truncated === content) continue;
-    totalTokens += updateMessageContent(message, truncated, params.cache);
-    truncatedToolResults += 1;
-  }
 
   if (totalTokens > compactionBudgetTokens) {
     for (const message of params.history) {
@@ -143,7 +109,6 @@ export function applyContextGuard(params: {
   return {
     totalTokensAfter: totalTokens,
     overflowBudgetTokens,
-    truncatedToolResults,
     compactedToolResults,
     tier3Triggered: totalTokens > tier3BudgetTokens,
   };

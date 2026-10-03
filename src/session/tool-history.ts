@@ -5,10 +5,7 @@
  * A user message expands with the dynamic context it was sent with, so replay
  * reproduces the earlier request byte for byte.
  */
-import {
-  toolResultForHistory,
-  validateToolHistory,
-} from '../../container/shared/tool-history.js';
+import { validateToolHistory } from '../../container/shared/tool-history.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ChatMessage } from '../types/api.js';
 
@@ -70,10 +67,7 @@ export function expandStoredMessage(message: {
     return [{ role: 'user', content: message.dynamic_context }, finalMessage];
   if (message.role !== 'assistant' || !message.tool_history_json)
     return [finalMessage];
-  const history = validateToolHistory(JSON.parse(message.tool_history_json));
-  const replay = history.map((entry) =>
-    toolResultForHistory(entry, message.session_id || 'session'),
-  );
+  const replay = validateToolHistory(JSON.parse(message.tool_history_json));
   // A reply written together with the turn's last tool calls, as with a
   // reaction, is in the replay already; repeating it would say it twice.
   const lastCall = [...replay]

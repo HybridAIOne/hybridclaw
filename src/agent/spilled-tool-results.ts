@@ -1,19 +1,15 @@
 /**
- * Restores tool results a worker sent as previews. A result the worker saved
- * to `.tool-results/` crosses IPC once, as the preview the model saw; this
- * puts the full text back into `toolHistory` and `toolExecutions` for the
- * transcript, the audit trail and result parsers. `toolHistoryForReplay`
- * keeps the preview on purpose.
- *
- * The worker can write the workspace, so the path is derived from the session
- * and tool call id and must reach a regular file without links. Restored text
- * per turn is bounded by the worker output limit; past it, or on any read
- * failure, a result stays its preview (which names the saved file) instead of
- * failing the turn.
+ * File-backed IPC restores complete results for audit, storage and replay.
+ * Unlike context compaction, this decodes references without changing evidence.
+ * Worker-controlled paths must be derived and link-free; restoration retains
+ * explicit references on read failure or aggregate transport-budget overflow.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { toolResultFilePath } from '../../container/shared/tool-history.js';
+import {
+  toolResultFilePath,
+  toolResultForTransport,
+} from '../../container/shared/tool-history.js';
 import { CONTAINER_MAX_OUTPUT_SIZE } from '../config/config.js';
 import { logger } from '../logger.js';
 import type { ContainerOutput } from '../types/container.js';
@@ -44,7 +40,7 @@ export function restoreSpilledToolResults(
         restored: restored.size,
         limit: CONTAINER_MAX_OUTPUT_SIZE,
       },
-      'Kept tool result previews: saved result unreadable or over the output limit',
+      'Kept tool result references: saved result unreadable or over the output limit',
     );
   }
   return {
@@ -69,6 +65,24 @@ export function restoreSpilledToolResults(
             return text === undefined
               ? execution
               : { ...execution, result: text };
+          }),
+        }
+      : {}),
+    ...(output.toolHistoryForReplay
+      ? {
+          toolHistoryForReplay: output.toolHistoryForReplay.map((message) => {
+            const id = message.tool_call_id;
+            const text =
+              message.role === 'tool' && id ? restored.get(id) : undefined;
+            const reference = id
+              ? toolResultForTransport(
+                  message,
+                  toolResultFilePath(params.sessionId, id),
+                ).content
+              : undefined;
+            return text !== undefined && message.content === reference
+              ? { ...message, content: text }
+              : message;
           }),
         }
       : {}),

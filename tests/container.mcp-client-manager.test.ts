@@ -417,7 +417,9 @@ describe('McpClientManager deferred loading', () => {
       (entry) => entry.function.name,
     );
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
-    expect(names).toContain('connectors__tool_00');
+    expect(names).not.toContain('connectors__tool_00');
+    expect(names).toContain('bash');
+    expect(exposed[0].guidance).toContain('- connectors__tool_00(query?)');
     expect(names).not.toContain('invoice__tool_00');
     expect(exposed[0].guidance).toContain('- invoice__tool_07(query?)');
   });

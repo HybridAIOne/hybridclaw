@@ -2320,12 +2320,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 0.9,
     },
     {
-      path: 'sessionCompaction.inLoopGuard.perResultShare',
-      section: 'sessionCompaction',
-      kind: 'number',
-      defaultValue: 0.5,
-    },
-    {
       path: 'sessionCompaction.keepRecent',
       section: 'sessionCompaction',
       kind: 'number',

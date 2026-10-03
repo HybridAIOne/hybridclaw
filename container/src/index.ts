@@ -1075,7 +1075,7 @@ async function processRequest(
     : output.error || 'The turn ended before this call could execute.';
   const toolHistory = turnToolHistory.finish(reason);
   return toolHistory.length
-    ? turnToolHistory.withSpilledPreviews({
+    ? turnToolHistory.withSpilledReferences({
         ...output,
         toolHistory,
         toolHistoryForReplay: turnToolHistory.finish(reason, true),
@@ -1388,12 +1388,9 @@ async function processRequestInner(
       config: contextGuard,
       cache: tokenEstimateCache,
     });
-    if (
-      guardResult.truncatedToolResults > 0 ||
-      guardResult.compactedToolResults > 0
-    ) {
+    if (guardResult.compactedToolResults > 0) {
       console.error(
-        `[context] guard adjusted history truncated=${guardResult.truncatedToolResults} compacted=${guardResult.compactedToolResults} totalTokens=${guardResult.totalTokensAfter}/${guardResult.overflowBudgetTokens}`,
+        `[context] guard adjusted history compacted=${guardResult.compactedToolResults} totalTokens=${guardResult.totalTokensAfter}/${guardResult.overflowBudgetTokens}`,
       );
     }
     if (guardResult.tier3Triggered) {

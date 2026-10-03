@@ -28,7 +28,7 @@ function buildHistory(): ChatMessage[] {
 }
 
 describe('applyContextGuard', () => {
-  test('truncates oversized tool results and compacts old ones first', () => {
+  test('compacts oldest results only when combined context exceeds its budget', () => {
     const history = buildHistory();
     const result = applyContextGuard({
       history,
@@ -36,10 +36,17 @@ describe('applyContextGuard', () => {
       cache: createTokenEstimateCache(),
     });
 
-    expect(result.truncatedToolResults).toBeGreaterThan(0);
     expect(result.compactedToolResults).toBeGreaterThan(0);
     expect(result.tier3Triggered).toBe(false);
     expect(history[3]?.content).toBe(COMPACTED_TOOL_RESULT_PLACEHOLDER);
+  });
+
+  test('preserves an oversized individual result when the full context fits', () => {
+    const content = 'evidence-middle'.repeat(12_000);
+    const history: ChatMessage[] = [{ role: 'tool', content, tool_call_id: 'a' }];
+    const result = applyContextGuard({ history, contextWindowTokens: 128_000 });
+    expect(history[0].content).toBe(content);
+    expect(result.compactedToolResults).toBe(0);
   });
 
   test('triggers tier 3 when non-tool history still overflows the budget', () => {

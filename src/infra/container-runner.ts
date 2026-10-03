@@ -46,7 +46,6 @@ import {
   CONTEXT_GUARD_ENABLED,
   CONTEXT_GUARD_MAX_RETRIES,
   CONTEXT_GUARD_OVERFLOW_RATIO,
-  CONTEXT_GUARD_PER_RESULT_SHARE,
   DATA_DIR,
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GUILDS,
@@ -1271,7 +1270,6 @@ async function runContainerInner(
     runtimeEnv: storedRuntimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
-      perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
       compactionRatio: CONTEXT_GUARD_COMPACTION_RATIO,
       overflowRatio: CONTEXT_GUARD_OVERFLOW_RATIO,
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,

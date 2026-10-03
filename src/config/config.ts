@@ -747,8 +747,6 @@ export let PRE_COMPACTION_MEMORY_FLUSH_ENABLED = true;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES = 80;
 export let PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS = 24_000;
 export let CONTEXT_GUARD_ENABLED = CONTEXT_GUARD_DEFAULTS.enabled;
-export let CONTEXT_GUARD_PER_RESULT_SHARE =
-  CONTEXT_GUARD_DEFAULTS.perResultShare;
 export let CONTEXT_GUARD_COMPACTION_RATIO =
   CONTEXT_GUARD_DEFAULTS.compactionRatio;
 export let CONTEXT_GUARD_OVERFLOW_RATIO = CONTEXT_GUARD_DEFAULTS.overflowRatio;
@@ -1227,7 +1225,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     CONTEXT_GUARD_DEFAULTS,
   );
   CONTEXT_GUARD_ENABLED = normalizedContextGuard.enabled;
-  CONTEXT_GUARD_PER_RESULT_SHARE = normalizedContextGuard.perResultShare;
   CONTEXT_GUARD_COMPACTION_RATIO = normalizedContextGuard.compactionRatio;
   CONTEXT_GUARD_OVERFLOW_RATIO = normalizedContextGuard.overflowRatio;
   CONTEXT_GUARD_MAX_RETRIES = normalizedContextGuard.maxRetries;

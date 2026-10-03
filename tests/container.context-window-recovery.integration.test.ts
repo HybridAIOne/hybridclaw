@@ -210,7 +210,6 @@ describe('provider context-length rejections in the tool loop', () => {
       overrides: {
         contextGuard: {
           enabled: false,
-          perResultShare: 0.5,
           compactionRatio: 0.75,
           overflowRatio: 0.9,
           maxRetries: 3,

@@ -21,7 +21,6 @@ import {
   isMSTeamsSessionId,
   looksLikeMSTeamsConversationId,
 } from '../shared/msteams-session-ids.js';
-import { TOOL_HISTORY_RESULT_MAX_CHARS } from '../shared/tool-history.js';
 import {
   currentDateStampInTimezone,
   isValidTimezone,
@@ -2106,7 +2105,8 @@ const READ_MAX_LINES = 2000;
 // A page must fit the live-history cap with room for its trailer: a longer
 // result loses its middle there while "Use offset=N to continue" survives, so
 // the model would skip lines it never saw. Bytes bound the character count.
-const READ_MAX_BYTES = TOOL_HISTORY_RESULT_MAX_CHARS - 1_024;
+// File pagination budget, independent of model-visible tool results.
+const READ_MAX_BYTES = 14_976;
 type ReadTruncationResult = {
   content: string;
   truncated: boolean;

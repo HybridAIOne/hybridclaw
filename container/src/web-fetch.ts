@@ -1,10 +1,8 @@
 /**
- * web-fetch tool — fetch a URL and extract readable content.
- *
- * Ported from OpenClaw's web-fetch but stripped down:
- * - No Firecrawl fallback
- * - No external-content wrapping
- * - No config system — sensible hardcoded defaults
+ * Fetch public URLs within one timeout and the existing SSRF boundary.
+ * Extraction hints distinguish visible access challenges from pages needing
+ * browser rendering; loading a protection script is not proof of blocking.
+ * Unlike browser navigation, this tool never executes page JavaScript.
  */
 
 import { lookup } from 'node:dns/promises';
@@ -508,12 +506,15 @@ function detectEscalationHint(params: {
   extractedText: string;
 }): WebFetchEscalationHint | undefined {
   const normalizedBody = normalizeForDetection(params.body);
+  const visibleBody = normalizeForDetection(
+    decodeEntities(stripTags(removeRawHtmlElements(params.body))),
+  );
   const normalizedExtracted = normalizeForDetection(params.extractedText);
   if (
     params.status === 403 ||
     params.status === 429 ||
     (normalizedExtracted.length < BOT_BLOCKED_MAX_TEXT_CHARS &&
-      includesAny(normalizedBody, BOT_BLOCKED_PATTERNS))
+      includesAny(visibleBody, BOT_BLOCKED_PATTERNS))
   ) {
     return 'bot_blocked';
   }

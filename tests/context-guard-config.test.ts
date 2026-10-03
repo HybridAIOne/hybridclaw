@@ -10,14 +10,12 @@ describe('normalizeContextGuardConfig', () => {
     expect(
       normalizeContextGuardConfig({
         enabled: false,
-        perResultShare: 0.01,
         compactionRatio: 2,
         overflowRatio: 0.1,
         maxRetries: 99,
       }),
     ).toEqual({
       enabled: false,
-      perResultShare: 0.1,
       compactionRatio: 0.98,
       overflowRatio: 0.98,
       maxRetries: 10,
