@@ -12919,7 +12919,7 @@ describe('gateway HTTP server', () => {
         request.onToolProgress?.({
           toolName: 'message',
           phase: 'finish',
-          preview: 'ok',
+          preview: 'sent to user_a@example.com',
           durationMs: 200,
         });
         request.onTextDelta?.('Final answer.');
@@ -12978,7 +12978,7 @@ describe('gateway HTTP server', () => {
             toolName: 'message',
             status: 'done',
             argsPreview: 'run message send',
-            resultPreview: 'ok',
+            resultPreview: 'sent to user_a@example.com',
             durationMs: 200,
           },
         ],
