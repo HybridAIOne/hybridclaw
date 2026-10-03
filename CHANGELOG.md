@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+## [0.35.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.1) - 2026-10-03
+
+### Added
+
+- **Saved mobile checklists**: Lists to tick off or keep are written as complete
+  Markdown task files. `POST /api/artifact/checklist` saves each tick in the
+  workspace file and rejects stale item selections rather than changing the
+  wrong item.
+- **Movement coaching**: Hy uses the app's on-device movement measurements and
+  key-moment picture to offer repetition, range, tempo, and form cues, while
+  explaining camera limits. The recorded video stays on the phone.
+
+### Changed
+
+- **YouTube reads**: `web_fetch` extracts video titles, channels, dates,
+  durations, views, and full descriptions from watch pages. If the page cannot
+  be read, the fallback identifies the title and channel and states what is
+  missing. Video transcripts are not fetched.
+- **Direct connector reads**: Small reviewed read-only MCP schemas can be
+  exposed without a discovery round trip. Deferred tool names retain their
+  discovery budget, and access and approval checks remain in place.
+- **Source honesty**: Replies disclose unread sources before conclusions and
+  distinguish website rendering needs from access challenges.
+
+### Fixed
+
+- **Complete compaction context**: In-loop compaction supplies every selected
+  message and full tool evidence to the compression model, preserves originals
+  in session archives, and accepts only complete summaries that reduce the
+  framed context size. Truncated replies and archive failures leave history
+  intact, with clearer recovery diagnostics.
+- **Fresh connector catalogs**: At turn start, MCP servers whose tools were
+  last listed at least a minute ago are refreshed. Failed refreshes keep the
+  previous catalog and wait until the next interval before retrying.
+- **Parallel activity traces**: Tool call ids pair results and durations with
+  the correct call in live and saved web chat traces when the same tool runs
+  concurrently.
+- **Readable links and contact details**: Numeric URL ids are preserved rather
+  than mistaken for card or phone numbers. Saved user-facing activity traces
+  retain contact details while continuing to mask credentials; audit, logs,
+  and exports retain their contact-detail redaction.
+- **HybridAI default migration**: Configurations below schema v40 with the
+  former `gpt-5.6-luna` default move once to `gpt-6-luna`. Other model defaults,
+  agent-specific models, and per-chat model choices are preserved.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together for compaction, connector
+  discovery, and tool-call trace fixes.
+- A deliberate `gpt-5.6-luna` global default in a pre-v40 configuration also
+  moves once to `gpt-6-luna`. Re-select it after the configuration upgrade to
+  keep using it; a per-chat `/model` choice remains unchanged.
+- Compaction archives contain conversation and tool data in the session state
+  directory and survive worker replacement. The compression model needs enough
+  input capacity for the selected history, tool schemas, and output budget;
+  overflow preserves history rather than applying a lossy fallback.
+
 ## [0.35.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.0) - 2026-10-03
 
 ### Added

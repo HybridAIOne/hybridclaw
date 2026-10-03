@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.35.0',
+  version: '0.35.1',
   highlights: [
-    'Add notes while the agent is working',
-    'Receipts for actions outside the sandbox',
-    'Phone alerts stay with their app',
-    'Faster lookups with complete tool results',
+    'Saved checklists you can tick off',
+    'Coaching from on-device movement analysis',
+    'YouTube descriptions and fresher connectors',
+    'Complete context through compaction',
   ],
 } as const;
 
