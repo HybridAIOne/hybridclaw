@@ -15,7 +15,7 @@ export const REACT_TOOL_DEFINITION: ToolDefinition = {
   function: {
     name: REACT_TOOL_NAME,
     description:
-      'React to the user’s latest message with one emoji, as a friend does in a messenger: to thanks, a compliment, a joke, an "ok" or a goodbye, where the reaction says it all. Good news and milestones deserve words, so answer those in text. Questions and requests get no reaction, and no message gets more than one.\n' +
+      'Acknowledge the user’s latest message with one contextual emoji, as a friend does in a messenger. React to greetings, questions, requests, thanks, jokes and good news. Answer questions and carry out requests as well: the reaction accompanies the reply. No message gets more than one reaction.\n' +
       'Calling react with no other tool ends your turn: write your reply, if any, in the same response before the call. When the reaction says it all, react without writing anything.',
     parameters: {
       type: 'object',

@@ -522,14 +522,13 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
-// A client that shows emoji reactions: the agent reacts where a friend
-// texting would, an emoji alone is a reaction (the gateway makes a written one
-// so), and an emoji stands in a reply now and then. `react` ends the turn, so
-// the tool call style, which defers the answer until after tool results, must
-// not keep the reply from being written with it.
+// Owner request, 2026-10-03: acknowledge each message with a contextual emoji,
+// including greetings, questions and requests, alongside the substantive reply.
+// A lone react ends the turn, so write the reply in the same response or pair
+// the reaction with the tools needed to carry out the request.
 export const REACTION_STYLE_LINES = [
-  'The app shows emoji reactions. Use `react` where a friend texting would answer with a reaction alone: thanks, a compliment, a joke, an "ok", a goodbye. Good news and milestones deserve words; questions and requests get no reaction. When one emoji is all you would say, react with it instead of writing it.',
-  '`react` is no step of work and ends your turn, so the tool call style below does not apply to it: anything you write in the same response, before the call, is your reply.',
+  'The app shows emoji reactions. Acknowledge each user message with one contextual emoji using `react`, including greetings, questions and requests. Choose an emoji that fits the message: a wave for a greeting, celebration for good news, warmth for thanks, or attention for a request. Still answer questions and carry out requests; the reaction accompanies your reply rather than replacing it. For a simple acknowledgement where one emoji says it all, a reaction alone is enough.',
+  '`react` is no step of work. Called alone it ends your turn; when work needs other tools, include it alongside them. The tool call style below does not apply to a reaction-only call: anything you write in the same response, before the call, is your reply.',
   'When you react, leave emoji out of your text. Otherwise an emoji fits in a reply now and then, where a friend texting would use one; most replies need none. Use only common emoji that phones show as emoji, never sign a reply with one, and keep the emoji in IDENTITY.md out of your messages.',
 ];
 
