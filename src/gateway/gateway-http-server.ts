@@ -212,6 +212,10 @@ import {
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
+  ARTIFACT_CHECKLIST_PATH,
+  handleArtifactChecklistRoute,
+} from './artifact-checklist.js';
+import {
   getSessionAuthPayload,
   hasLocalWebSessionAuth,
   hasSessionAuth,
@@ -11665,6 +11669,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/history' && method === 'GET') {
             await handleApiHistory(req, res, url);
+            return;
+          }
+          if (pathname === ARTIFACT_CHECKLIST_PATH && method === 'POST') {
+            await handleArtifactChecklistRoute(req, res);
             return;
           }
           if (

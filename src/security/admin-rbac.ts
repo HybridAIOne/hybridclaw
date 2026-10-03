@@ -456,6 +456,14 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/artifact' && method === 'GET') {
     return 'artifacts.read';
   }
+  // 2026-10-03 (product owner): a client that may open the lists replies link
+  // to may also tick their items. The route flips only a `[ ]`/`[x]` mark in
+  // an agent-workspace `.md` file and answers with the file, which it may
+  // read anyway; phone tokens already carry `artifacts.read`, so ticking
+  // works without pairing again. A separate write action was deferred.
+  if (pathname === '/api/artifact/checklist' && method === 'POST') {
+    return 'artifacts.read';
+  }
   if (pathname === '/api/chat/voice/token' && method === 'POST') {
     return 'voice.session';
   }

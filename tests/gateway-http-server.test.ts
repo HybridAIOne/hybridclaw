@@ -4576,6 +4576,50 @@ describe('gateway HTTP server', () => {
     }
   });
 
+  test('lets a token that reads artifacts tick a checklist item in the file', async () => {
+    const dataDir = makeTempDataDir();
+    const listPath = path.join(dataDir, 'agents', 'main', 'workspace', 'lists', 'einkauf.md');
+    fs.mkdirSync(path.dirname(listPath), { recursive: true });
+    fs.writeFileSync(listPath, '- [ ] Moos\r\n- [ ] Kerzen\r\n', { mode: 0o640 });
+    const outsidePath = path.join(dataDir, 'uploaded-media-cache', 'list.md');
+    fs.mkdirSync(path.dirname(outsidePath), { recursive: true });
+    fs.writeFileSync(outsidePath, '- [ ] Moos\n');
+    const state = await importFreshHealth({
+      dataDir,
+      webApiToken: 'web-token',
+      apiTokens: {
+        hck_phone: { id: 'phone', label: 'Device: phone', claims: { actions: ['chat.send', 'artifacts.read'] } },
+        hck_chat_only: { id: 'chat', label: 'chat', claims: { actions: ['chat.send'] } },
+      },
+    });
+    const tick = async (token: string, body: Record<string, unknown>) => {
+      const req = makeRequest({ method: 'POST', url: '/api/artifact/checklist',
+        noAuth: !token,
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        remoteAddress: '203.0.113.10',
+        body,
+      });
+      const res = makeResponse();
+      state.handler(req as never, res as never);
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res;
+    };
+    const body = { path: listPath, item: 1, title: 'Kerzen', done: true };
+    expect((await tick('', body)).statusCode).toBe(401);
+    expect((await tick('hck_chat_only', body)).statusCode).toBe(403);
+    expect((await tick('hck_phone', { ...body, path: outsidePath, item: 0, title: 'Moos' })).statusCode).toBe(404);
+
+    const res = await tick('hck_phone', body);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ content: '- [ ] Moos\r\n- [x] Kerzen\r\n' });
+    expect(fs.readFileSync(listPath, 'utf8')).toBe('- [ ] Moos\r\n- [x] Kerzen\r\n');
+    expect(fs.statSync(listPath).mode & 0o777).toBe(0o640);
+
+    const stale = await tick('hck_phone', { ...body, title: 'Moos' });
+    expect(stale.statusCode).toBe(409);
+    expect(JSON.parse(stale.body).content).toBe('- [ ] Moos\r\n- [x] Kerzen\r\n');
+  });
+
   test('returns Teams user mapping validation errors and rejects unsupported methods', async () => {
     const state = await importFreshHealth({ webApiToken: 'web-token' });
     const admin = await import('../src/gateway/msteams-users.js');
