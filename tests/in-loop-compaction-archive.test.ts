@@ -17,9 +17,9 @@ beforeEach(() => {
   runtime.workspace = makeTempDir('hc-compaction-archive-');
 });
 
-describe('archiveInLoopCompaction', () => {
+describe('createInLoopCompactionArchive', () => {
   test('keeps complete structured messages in separate private, persistent files', async () => {
-    const { archiveInLoopCompaction } = await import(
+    const { createInLoopCompactionArchive } = await import(
       '../container/src/in-loop-compaction-archive.js'
     );
     const messages: ChatMessage[] = [
@@ -42,8 +42,12 @@ describe('archiveInLoopCompaction', () => {
         is_error: true,
       },
     ];
-    const first = archiveInLoopCompaction('../user_a/session', messages);
-    const second = archiveInLoopCompaction('../user_a/session', messages);
+    const firstArchive = createInLoopCompactionArchive('../user_a/session');
+    const secondArchive = createInLoopCompactionArchive('../user_a/session');
+    firstArchive.write(messages);
+    secondArchive.write(messages);
+    const first = firstArchive.path;
+    const second = secondArchive.path;
 
     expect(first).not.toBe(second);
     expect(first).toMatch(
@@ -61,7 +65,7 @@ describe('archiveInLoopCompaction', () => {
     const reloaded = await import(
       '../container/src/in-loop-compaction-archive.js'
     );
-    reloaded.archiveInLoopCompaction('../user_a/session', []);
+    reloaded.createInLoopCompactionArchive('../user_a/session').write([]);
     expect(
       JSON.parse(fs.readFileSync(path.join(runtime.workspace, first), 'utf8'))
         .messages,
@@ -73,10 +77,47 @@ describe('archiveInLoopCompaction', () => {
       path.join(runtime.workspace, '.hybridclaw-runtime'),
       'blocked',
     );
-    const { archiveInLoopCompaction } = await import(
+    const { createInLoopCompactionArchive } = await import(
       '../container/src/in-loop-compaction-archive.js'
     );
 
-    expect(() => archiveInLoopCompaction('session_a', [])).toThrow();
+    expect(() =>
+      createInLoopCompactionArchive('session_a').write([]),
+    ).toThrow();
+  });
+  test('does not create a file when archive framing makes a replacement too large', async () => {
+    const { createInLoopCompactionArchive } = await import(
+      '../container/src/in-loop-compaction-archive.js'
+    );
+    const { compactInLoop } = await import(
+      '../container/src/in-loop-compaction.js'
+    );
+    const archive = createInLoopCompactionArchive('session_a');
+    const history: ChatMessage[] = Array.from({ length: 13 }, () => ({
+      role: 'assistant',
+      content: 'Original '.repeat(10),
+    }));
+    const result = await compactInLoop({
+      history,
+      archive,
+      summarize: async () => ({
+        id: 'test',
+        model: 'test-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'Summary' },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+    });
+    expect(result.changed).toBe(false);
+    expect(result.history).toBe(history);
+    expect(fs.existsSync(path.join(runtime.workspace, archive.path))).toBe(
+      false,
+    );
+    expect(
+      fs.existsSync(path.join(runtime.workspace, '.hybridclaw-runtime')),
+    ).toBe(false);
   });
 });

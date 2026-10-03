@@ -338,7 +338,12 @@ function adaptCodexResponse(
             ? { openai_response_items: responseItems }
             : {}),
         },
-        finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+        finish_reason:
+          record.status === 'incomplete'
+            ? 'length'
+            : toolCalls.length > 0
+              ? 'tool_calls'
+              : 'stop',
       },
     ],
     ...(usage ? { usage } : {}),

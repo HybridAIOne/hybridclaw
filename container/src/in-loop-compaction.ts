@@ -4,8 +4,11 @@
  * replacement. Unlike gateway session compaction, this changes only loop input;
  * failed or empty summaries never authorize a lossy heuristic replacement.
  */
+import { extractResponseTextContent } from '../shared/response-text.js';
+import type { InLoopCompactionArchive } from './in-loop-compaction-archive.js';
+import { isContextWindowExceededError } from './model-retry.js';
 import { estimateMessageTokens } from './token-usage.js';
-import type { ChatMessage } from './types.js';
+import type { ChatCompletionResponse, ChatMessage } from './types.js';
 
 const PROTECT_HEAD_MESSAGES = 4;
 const PROTECT_TAIL_MESSAGES = 8;
@@ -154,17 +157,23 @@ function buildSummaryPromptMessages(compacted: ChatMessage[]): ChatMessage[] {
 export async function compactInLoop(params: {
   history: ChatMessage[];
   contextWindowTokens?: number;
-  summarize: (messages: ChatMessage[], maxTokens: number) => Promise<string>;
-  archive: (messages: ChatMessage[]) => string;
+  summarize: (
+    messages: ChatMessage[],
+    maxTokens: number,
+  ) => Promise<ChatCompletionResponse>;
+  archive: InLoopCompactionArchive;
 }): Promise<InLoopCompactionResult> {
   const region = buildCompactionRegion(params.history);
-  const unchanged: InLoopCompactionResult = {
-    history: params.history,
-    changed: false,
-    compactedMessages: 0,
-    summarySource: 'none',
+  const unchanged = (reason: string): InLoopCompactionResult => {
+    console.error(`[context] in-loop compaction skipped reason=${reason}`);
+    return {
+      history: params.history,
+      changed: false,
+      compactedMessages: 0,
+      summarySource: 'none',
+    };
   };
-  if (region.middle.length === 0) return unchanged;
+  if (region.middle.length === 0) return unchanged('no_region');
 
   const contextWindowTokens = Math.max(
     1_024,
@@ -176,38 +185,49 @@ export async function compactInLoop(params: {
   );
 
   // Keep the archive independent of any provider-side message normalization.
-  const originals = structuredClone(region.middle);
-  let summary: string;
+  let originals: ChatMessage[];
   try {
-    summary = normalizeSummary(
-      await params.summarize(
-        buildSummaryPromptMessages(structuredClone(originals)),
-        maxSummaryTokens,
-      ),
-    );
+    originals = structuredClone(region.middle);
   } catch {
-    return unchanged;
+    return unchanged('snapshot_failed');
   }
-  if (!summary) return unchanged;
+  let response: ChatCompletionResponse;
+  try {
+    const messages = buildSummaryPromptMessages(structuredClone(originals));
+    console.error(
+      `[context] in-loop summarizer inputTokens=${estimateMessageTokens(messages)} maxOutputTokens=${maxSummaryTokens}`,
+    );
+    response = await params.summarize(messages, maxSummaryTokens);
+  } catch (error) {
+    return unchanged(
+      isContextWindowExceededError(error)
+        ? 'summary_context_overflow'
+        : 'summarizer_failed',
+    );
+  }
+  const choice = response.choices[0];
+  if (choice?.finish_reason === 'length') return unchanged('summary_truncated');
+  if (choice?.message.tool_calls?.length)
+    return unchanged('summary_tool_calls');
+  const summary = normalizeSummary(
+    extractResponseTextContent(choice?.message.content),
+  );
+  if (!summary) return unchanged('empty_summary');
 
   const summaryMessage: ChatMessage = {
     role: 'assistant',
-    content: `${SUMMARY_LABEL}\n${summary}`,
+    content: `${SUMMARY_LABEL}\n${summary}\n\nOriginal messages: ${params.archive.path}`,
   };
-  const originalTokens = estimateMessageTokens(originals);
-  if (estimateMessageTokens([summaryMessage]) >= originalTokens) {
-    return unchanged;
+  if (
+    estimateMessageTokens([summaryMessage]) >= estimateMessageTokens(originals)
+  ) {
+    return unchanged('no_shrink');
   }
 
-  let archivePath: string;
   try {
-    archivePath = params.archive(originals);
+    params.archive.write(originals);
   } catch {
-    return unchanged;
-  }
-  summaryMessage.content += `\n\nOriginal messages: ${archivePath}`;
-  if (estimateMessageTokens([summaryMessage]) >= originalTokens) {
-    return unchanged;
+    return unchanged('archive_failed');
   }
 
   return {

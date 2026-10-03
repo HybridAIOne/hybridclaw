@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
+import { applyContextGuard } from '../container/src/context-guard.js';
 import {
-  applyContextGuard,
-  COMPACTED_TOOL_RESULT_PLACEHOLDER,
-} from '../container/src/context-guard.js';
-import { createTokenEstimateCache } from '../container/src/token-usage.js';
+  createTokenEstimateCache,
+  estimateMessageTokens,
+} from '../container/src/token-usage.js';
 import type { ChatMessage } from '../container/src/types.js';
 
 function buildHistory(): ChatMessage[] {
@@ -28,25 +28,28 @@ function buildHistory(): ChatMessage[] {
 }
 
 describe('applyContextGuard', () => {
-  test('compacts oldest results only when combined context exceeds its budget', () => {
+  test('triggers compaction without rewriting tool results or their cached estimates', () => {
     const history = buildHistory();
+    const original = structuredClone(history);
+    const cache = createTokenEstimateCache();
+    const before = estimateMessageTokens(history, cache);
     const result = applyContextGuard({
       history,
       contextWindowTokens: 1_024,
-      cache: createTokenEstimateCache(),
+      cache,
     });
-
-    expect(result.compactedToolResults).toBeGreaterThan(0);
-    expect(result.tier3Triggered).toBe(false);
-    expect(history[3]?.content).toBe(COMPACTED_TOOL_RESULT_PLACEHOLDER);
+    expect(result.tier3Triggered).toBe(true);
+    expect(history).toEqual(original);
+    expect(estimateMessageTokens(history, cache)).toBe(before);
   });
 
   test('preserves an oversized individual result when the full context fits', () => {
     const content = 'evidence-middle'.repeat(12_000);
-    const history: ChatMessage[] = [{ role: 'tool', content, tool_call_id: 'a' }];
+    const history: ChatMessage[] = [
+      { role: 'tool', content, tool_call_id: 'a' },
+    ];
     const result = applyContextGuard({ history, contextWindowTokens: 128_000 });
     expect(history[0].content).toBe(content);
-    expect(result.compactedToolResults).toBe(0);
   });
 
   test('triggers tier 3 when non-tool history still overflows the budget', () => {
@@ -61,7 +64,6 @@ describe('applyContextGuard', () => {
       cache: createTokenEstimateCache(),
     });
 
-    expect(result.compactedToolResults).toBe(0);
     expect(result.tier3Triggered).toBe(true);
   });
 
@@ -100,33 +102,16 @@ describe('applyContextGuard', () => {
     expect(result.tier3Triggered).toBe(false);
   });
 
-  test('does not treat matching placeholder tool output as already compacted', () => {
-    const history: ChatMessage[] = [
-      { role: 'system', content: 'System prompt' },
-      { role: 'user', content: 'U'.repeat(1_800) },
-      { role: 'assistant', content: 'A'.repeat(600) },
-      {
-        role: 'tool',
-        content: COMPACTED_TOOL_RESULT_PLACEHOLDER,
-        tool_call_id: 'call_1',
-      },
-      { role: 'assistant', content: 'B'.repeat(600) },
-      {
-        role: 'tool',
-        content: 'C'.repeat(1_000),
-        tool_call_id: 'call_2',
-      },
-      { role: 'assistant', content: 'Done.' },
-    ];
-
-    const result = applyContextGuard({
+  test('preserves history when pressure triggers compaction repeatedly', () => {
+    const history = buildHistory();
+    const original = structuredClone(history);
+    const params = {
       history,
       contextWindowTokens: 1_024,
       cache: createTokenEstimateCache(),
-    });
-
-    expect(result.compactedToolResults).toBe(2);
-    expect(history[3]?.content).toBe(COMPACTED_TOOL_RESULT_PLACEHOLDER);
-    expect(history[5]?.content).toBe(COMPACTED_TOOL_RESULT_PLACEHOLDER);
+    };
+    expect(applyContextGuard(params).tier3Triggered).toBe(true);
+    expect(applyContextGuard(params).tier3Triggered).toBe(true);
+    expect(history).toEqual(original);
   });
 });

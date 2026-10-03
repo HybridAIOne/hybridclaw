@@ -10,18 +10,26 @@ import { WORKSPACE_ROOT } from './runtime-paths.js';
 import { ensureSessionStateDir, sessionStatePath } from './session-state.js';
 import type { ChatMessage } from './types.js';
 
-export function archiveInLoopCompaction(
+export interface InLoopCompactionArchive {
+  path: string;
+  write: (messages: ChatMessage[]) => void;
+}
+
+export function createInLoopCompactionArchive(
   sessionId: string,
-  messages: ChatMessage[],
-): string {
+): InLoopCompactionArchive {
   const filePath = sessionStatePath(
     sessionId,
     `in-loop-compactions/${randomUUID()}.json`,
   );
-  ensureSessionStateDir(filePath);
-  fs.writeFileSync(filePath, JSON.stringify({ version: 1, messages }), {
-    mode: 0o600,
-    flag: 'wx',
-  });
-  return path.relative(WORKSPACE_ROOT, filePath).replaceAll(path.sep, '/');
+  return {
+    path: path.relative(WORKSPACE_ROOT, filePath).replaceAll(path.sep, '/'),
+    write: (messages) => {
+      ensureSessionStateDir(filePath);
+      fs.writeFileSync(filePath, JSON.stringify({ version: 1, messages }), {
+        mode: 0o600,
+        flag: 'wx',
+      });
+    },
+  };
 }

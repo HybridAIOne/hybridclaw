@@ -1,8 +1,28 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { compactInLoop } from '../container/src/in-loop-compaction.js';
+import { useCleanMocks } from './test-utils.js';
 import { estimateMessageTokens } from '../container/src/token-usage.js';
-import type { ChatMessage, ToolCall } from '../container/src/types.js';
+import type {
+  ChatCompletionResponse,
+  ChatMessage,
+  ToolCall,
+} from '../container/src/types.js';
+
+useCleanMocks({ restoreAllMocks: true });
+
+function completion(
+  content: string,
+  finishReason = 'stop',
+): ChatCompletionResponse {
+  return {
+    id: 'test',
+    model: 'test-model',
+    choices: [
+      { message: { role: 'assistant', content }, finish_reason: finishReason },
+    ],
+  };
+}
 
 function toolCall(id: string): ToolCall {
   return {
@@ -47,9 +67,11 @@ describe('compactInLoop', () => {
     const result = await compactInLoop({
       history,
       contextWindowTokens: 128_000,
-      archive: () => 'archive.json',
+      archive: { path: 'archive.json', write: () => {} },
       summarize: async () =>
-        '## Goals\nKeep going.\n\n## Next\nUse the latest tool state.',
+        completion(
+          '## Goals\nKeep going.\n\n## Next\nUse the latest tool state.',
+        ),
     });
 
     expect(result.changed).toBe(true);
@@ -68,8 +90,8 @@ describe('compactInLoop', () => {
     const history = buildHistory();
     const result = await compactInLoop({
       history,
-      archive: () => 'archive.json',
-      summarize: async () => 'Summary',
+      archive: { path: 'archive.json', write: () => {} },
+      summarize: async () => completion('Summary'),
     });
 
     const summaryIndex = result.history.findIndex((message) =>
@@ -101,8 +123,8 @@ describe('compactInLoop', () => {
 
     const result = await compactInLoop({
       history,
-      archive: () => 'archive.json',
-      summarize: async () => 'Summary',
+      archive: { path: 'archive.json', write: () => {} },
+      summarize: async () => completion('Summary'),
     });
 
     const summaryIndex = result.history.findIndex((message) =>
@@ -157,10 +179,14 @@ describe('compactInLoop', () => {
           String(message.content).includes(pendingDecision),
         ),
       ).toBe(true);
-      return pendingDecision;
+      return completion(pendingDecision);
     });
 
-    const result = await compactInLoop({ history, summarize, archive });
+    const result = await compactInLoop({
+      history,
+      summarize,
+      archive: { path: 'archive.json', write: archive },
+    });
 
     expect(result.compactedMessages).toBe(28);
     expect(summarize).toHaveBeenCalledOnce();
@@ -176,31 +202,81 @@ describe('compactInLoop', () => {
   test.each([
     {
       name: 'fails',
+      reason: 'summarizer_failed',
       summarize: async () => {
         throw new Error('boom');
       },
     },
-    { name: 'is empty', summarize: async () => '' },
-    { name: 'is whitespace', summarize: async () => '  \n  ' },
+    {
+      name: 'is empty',
+      reason: 'empty_summary',
+      summarize: async () => completion(''),
+    },
+    {
+      name: 'is whitespace',
+      reason: 'empty_summary',
+      summarize: async () => completion('  \n  '),
+    },
     {
       name: 'is an empty code fence',
-      summarize: async () => '\x60\x60\x60md\n\x60\x60\x60',
+      reason: 'empty_summary',
+      summarize: async () => completion('\x60\x60\x60md\n\x60\x60\x60'),
     },
-    { name: 'grows the region', summarize: async () => 'x'.repeat(7_000) },
-  ])('preserves history when summarization $name', async ({ summarize }) => {
-    const history = buildHistory();
-    const archive = vi.fn(() => 'archive.json');
-    const result = await compactInLoop({ history, summarize, archive });
+    {
+      name: 'grows the region',
+      reason: 'no_shrink',
+      summarize: async () => completion('x'.repeat(7_000)),
+    },
+    {
+      name: 'requests a tool',
+      reason: 'summary_tool_calls',
+      summarize: async () => {
+        const response = completion('Summary', 'tool_calls');
+        response.choices[0].message.tool_calls = [toolCall('call_unexecuted')];
+        return response;
+      },
+    },
+    {
+      name: 'is cut short',
+      reason: 'summary_truncated',
+      summarize: async () => completion('Pending decision: ', 'length'),
+    },
+    {
+      name: 'exceeds context',
+      reason: 'summary_context_overflow',
+      summarize: async () => {
+        throw new Error('maximum context length exceeded: sensitive payload');
+      },
+    },
+    ,
+  ])(
+    'preserves history when summarization $name',
+    async ({ summarize, reason }) => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const history = buildHistory();
+      const archive = vi.fn(() => 'archive.json');
+      const result = await compactInLoop({
+        history,
+        summarize,
+        archive: { path: 'archive.json', write: archive },
+      });
 
-    expect(result).toEqual({
-      history,
-      changed: false,
-      compactedMessages: 0,
-      summarySource: 'none',
-    });
-    expect(result.history).toBe(history);
-    expect(archive).not.toHaveBeenCalled();
-  });
+      expect(result).toEqual({
+        history,
+        changed: false,
+        compactedMessages: 0,
+        summarySource: 'none',
+      });
+      expect(result.history).toBe(history);
+      expect(archive).not.toHaveBeenCalled();
+      expect(log).toHaveBeenLastCalledWith(
+        `[context] in-loop compaction skipped reason=${reason}`,
+      );
+      expect(log.mock.calls.flat().join(' ')).not.toContain(
+        'sensitive payload',
+      );
+    },
+  );
 
   test('counts summary framing and archive references in the shrink check', async () => {
     const summary = 'Summary';
@@ -209,11 +285,13 @@ describe('compactInLoop', () => {
       role: 'assistant',
       content,
     }));
+    const archive = vi.fn();
     const result = await compactInLoop({
       history,
-      summarize: async () => summary,
-      archive: () => 'archive.json',
+      summarize: async () => completion(summary),
+      archive: { path: 'archive.json', write: archive },
     });
+    expect(archive).not.toHaveBeenCalled();
 
     expect(result.changed).toBe(false);
     expect(result.history).toBe(history);
@@ -221,16 +299,23 @@ describe('compactInLoop', () => {
 
   test('does not replace messages when archiving fails', async () => {
     const history = buildHistory();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     const result = await compactInLoop({
       history,
-      summarize: async () => 'Summary',
-      archive: () => {
-        throw new Error('disk full');
+      summarize: async () => completion('Summary'),
+      archive: {
+        path: 'archive.json',
+        write: () => {
+          throw new Error('disk full');
+        },
       },
     });
 
     expect(result.changed).toBe(false);
     expect(result.history).toBe(history);
+    expect(log).toHaveBeenLastCalledWith(
+      '[context] in-loop compaction skipped reason=archive_failed',
+    );
   });
 
   test('keeps original messages independent of summarizer mutations', async () => {
@@ -239,10 +324,10 @@ describe('compactInLoop', () => {
     const archive = vi.fn(() => 'archive.json');
     const result = await compactInLoop({
       history,
-      archive,
+      archive: { path: 'archive.json', write: archive },
       summarize: async (messages) => {
         messages[0].content = 'Provider rewrite';
-        return '\x60\x60\x60md\nSummary\n\x60\x60\x60';
+        return completion('\x60\x60\x60md\nSummary\n\x60\x60\x60');
       },
     });
 
@@ -258,13 +343,39 @@ describe('compactInLoop', () => {
       { role: 'system', content: 'System prompt' },
       { role: 'user', content: 'User request' },
     ];
-    const summarize = vi.fn(async () => 'Summary');
+    const summarize = vi.fn(async () => completion('Summary'));
     const archive = vi.fn(() => 'archive.json');
-    const result = await compactInLoop({ history, summarize, archive });
+    const result = await compactInLoop({
+      history,
+      summarize,
+      archive: { path: 'archive.json', write: archive },
+    });
 
     expect(result.changed).toBe(false);
     expect(result.history).toBe(history);
     expect(summarize).not.toHaveBeenCalled();
     expect(archive).not.toHaveBeenCalled();
+  });
+  test('preserves history when a snapshot cannot be cloned', async () => {
+    const history = buildHistory();
+    Object.defineProperty(history[6], 'nonCloneable', {
+      enumerable: true,
+      value: () => {},
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const summarize = vi.fn(async () => completion('Summary'));
+    const archive = vi.fn();
+    const result = await compactInLoop({
+      history,
+      summarize,
+      archive: { path: 'archive.json', write: archive },
+    });
+    expect(result.history).toBe(history);
+    expect(result.changed).toBe(false);
+    expect(summarize).not.toHaveBeenCalled();
+    expect(archive).not.toHaveBeenCalled();
+    expect(log).toHaveBeenLastCalledWith(
+      '[context] in-loop compaction skipped reason=snapshot_failed',
+    );
   });
 });

@@ -189,7 +189,8 @@ export async function callAuxiliaryModel(
     const content = extractResponseTextContent(
       response.choices[0]?.message?.content,
     );
-    if (!content) {
+    // Compaction owns rejection diagnostics and needs the original finish reason.
+    if (!content && params.task !== 'compression') {
       throw new Error(`${toolName} returned empty content`);
     }
     return {
