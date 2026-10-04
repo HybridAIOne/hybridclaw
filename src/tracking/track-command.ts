@@ -39,6 +39,7 @@ import {
   parseEvery,
   parseKind,
   removeTracked,
+  resultTracked,
   type TrackActor,
   TrackError,
   type Tracked,
@@ -130,7 +131,19 @@ function runCommand(
       );
     }
     if (items.length === 0) return plainCommand('No goals.');
-    return infoCommand('Goals', items.map(describeTracked).join('\n'));
+    return infoCommand(
+      'Goals',
+      items
+        .map((item) =>
+          [
+            describeTracked(item),
+            ...(item.results?.length
+              ? [`Saved results: ${JSON.stringify(item.results)}`]
+              : []),
+          ].join('\n'),
+        )
+        .join('\n'),
+    );
   }
 
   if (sub === 'add') {
@@ -240,7 +253,16 @@ const TOOL_ACTIONS: Record<
     const items = listTracked(session);
     return items.length === 0
       ? 'The user has no goals or tracked items.'
-      : items.map(describeTracked).join('\n');
+      : items
+          .map((item) =>
+            [
+              describeTracked(item),
+              ...(item.results?.length
+                ? [`Saved results: ${JSON.stringify(item.results)}`]
+                : []),
+            ].join('\n'),
+          )
+          .join('\n');
   },
   add: (session, body) => {
     let item = armed(addTracked(session, toolFields(body), AGENT));
@@ -252,6 +274,15 @@ const TOOL_ACTIONS: Record<
     `Updated ${describeTracked(armed(editTracked(session, id, toolFields(body))))}`,
   status: (session, body, id) =>
     `Noted ${describeTracked(noteTracked(session, id, optionalString(body.status) ?? '', AGENT))}`,
+  result: (session, body, id) => {
+    const item = resultTracked(session, id, {
+      title: optionalString(body.title) ?? '',
+      summary: optionalString(body.summary) ?? '',
+      path: optionalString(body.path) ?? '',
+    });
+    const result = item.results?.at(-1);
+    return `Saved result on goal #${item.id}: ${JSON.stringify(result)}. Link to the saved path in your reply.`;
+  },
   add_step: (session, body, id) =>
     `Updated ${describeTracked(addStep(session, id, optionalString(body.step) ?? ''))}`,
   step_done: (session, body, id) =>
