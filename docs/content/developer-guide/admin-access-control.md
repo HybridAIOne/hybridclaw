@@ -227,17 +227,34 @@ Reviewers should verify:
 
 ## Developer system files
 
-`GET /api/system/files?path=<relative>&offset=<number>` browses the runtime home
-(`HYBRIDCLAW_DATA_DIR`, or `~/.hybridclaw`). It returns `{path, entries, nextOffset}`,
-with up to 500 folder-first entries per page, including hidden files. Each entry
-has `name`, relative `path`, `kind` (`directory`, `file`, `symlink`, `other`) and
-nullable `size` in bytes. `download=true` returns a regular file as raw bytes,
-limited to 25 MB. The API is read-only, disables caching and refuses traversal,
-symlinks and special files.
+`GET /api/system/files?agentId=<id>&path=<relative>&offset=<number>` browses the
+registered agent's home (workspace), resolved through its configured workspace
+mapping. Omitting `agentId` selects `main`; unknown or archived agents fail closed.
+The response is `{scope: "agent-home", agentId, path, entries, nextOffset}` with up
+to 500 folder-first entries per page. Filtering happens before pagination.
+`download=true` returns regular file bytes, limited to 25 MB, with the header
+`X-HybridClaw-File-Scope: agent-home`. Paths are relative to the agent home.
 
-The separate `system_files.read` action permits reading configuration and stored
-credentials as well as agent files. It is granted to newly minted owner phone
-tokens and full administrators, not chat-only paired devices or viewer roles.
-Existing owner tokens keep their original permissions; replace them to receive
-the new capability. Grant scoped tokens this action explicitly only when the
-caller should be allowed to read every file under the runtime home.
+Both listings and direct downloads exclude hidden paths, credentials/tokens/
+passwords, keys and certificates, scratch/editor/backup files, caches,
+dependencies and build output. Supported document, media and text/source types
+are allowed; archives, databases, executables and unknown formats are excluded.
+Symlinks and special files cannot be listed or opened. Every path component is
+checked, so a direct request cannot enter an excluded folder. The API is
+read-only, disables caching and rejects absolute paths and traversal.
+
+The separate `system_files.read` action is granted to owner phone tokens and
+full administrators, not chat-only paired devices or viewer roles. The action
+allows browsing registered agents on that instance; it is not a per-agent ACL.
+Existing tokens keep their original permissions; replace them to receive this
+capability. Root access to runtime configuration and credentials is not provided.
+
+Migration: phone clients must send the runtime agent ID and use home-relative
+paths. Updated iOS clients require the scope marker and reject older, unscoped
+runtimes rather than exposing runtime-root files. Deploy both changes together.
+
+Boundary notes: extension/name filtering is not a content secret scanner;
+credentials embedded in ordinary documents are not detected. Supported office
+and media files are intentionally retained even though their encoding is binary.
+Keep sensitive data out of working documents. Tests cover traversal, links,
+excluded ancestors, direct downloads, custom homes and filtered pagination.
