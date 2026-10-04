@@ -65,12 +65,9 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import {
-  normalizeEscalationTarget,
-  type PendingApproval,
-  type ToolProgressEvent,
-} from '../types/execution.js';
+import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
+import { parseApprovalProgress } from './approval-progress.js';
 import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
   type BrowserFrameSink,
@@ -135,8 +132,6 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
-
-const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
   model: string;
@@ -386,45 +381,6 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       { sessionId: entry.sessionId, err },
       'Tool progress callback failed',
     );
-  }
-}
-
-function parseApprovalProgress(line: string): PendingApproval | null {
-  const match = line.match(APPROVAL_RE);
-  if (!match) return null;
-  try {
-    const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
-      escalationTarget?: unknown;
-    };
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      typeof parsed.approvalId !== 'string' ||
-      typeof parsed.prompt !== 'string' ||
-      typeof parsed.intent !== 'string' ||
-      typeof parsed.reason !== 'string'
-    ) {
-      return null;
-    }
-    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
-    return {
-      approvalId: parsed.approvalId,
-      prompt: redactCredentialSecrets(parsed.prompt),
-      intent: redactCredentialSecrets(parsed.intent),
-      reason: redactCredentialSecrets(parsed.reason),
-      allowSession: parsed.allowSession === true,
-      allowAgent: parsed.allowAgent === true,
-      allowAll: parsed.allowAll === true,
-      expiresAt:
-        typeof parsed.expiresAt === 'number' &&
-        Number.isFinite(parsed.expiresAt)
-          ? parsed.expiresAt
-          : null,
-      ...(escalationTarget ? { escalationTarget } : {}),
-    };
-  } catch {
-    return null;
   }
 }
 

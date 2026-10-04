@@ -1321,6 +1321,7 @@ async function processRequestInner(
         approval,
         prompt,
         approvedToolCall.toolName,
+        approvedToolCall.argsJson,
       );
       return {
         status: 'success',
@@ -2024,6 +2025,7 @@ async function processRequestInner(
           approval,
           prompt,
           toolName,
+          call.function.arguments,
         );
         emitApprovalProgress(pendingApproval);
         toolExecutions.push(
