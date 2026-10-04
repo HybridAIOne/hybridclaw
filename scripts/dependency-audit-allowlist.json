@@ -1,1 +1,6 @@
-{}
+{
+  "GHSA-ch52-4w7c-c8xp": {
+    "expires": "2026-11-03",
+    "reason": "Reviewed 2026-10-04: http-cache-semantics is development-only, through electron-builder's @electron/get download tooling. Got's HTTP cache is disabled by default and our desktop configuration does not enable a shared user cache. The maintainer disputes this report at https://github.com/kornelski/http-cache-semantics/issues/56#issuecomment-5975759591; upstream advisory review is pending at https://github.com/github/advisory-database/issues/10139. Re-review by expiry; production advisories remain blocked."
+  }
+}
