@@ -41,6 +41,7 @@ import {
   loadStaticBootstrapFiles,
   resolveUserTimezoneFromContextFiles,
 } from '../workspace.js';
+import { buildProactivePreferencesContext } from './proactive-preferences.js';
 import {
   buildRetrievedContextPrompt,
   buildSessionSummaryPrompt,
@@ -154,6 +155,7 @@ export function buildDynamicContextMessage(
   }
 
   if (agentId) {
+    dynamicSections.push(buildProactivePreferencesContext(agentId));
     const contextFiles = loadStaticBootstrapFiles(agentId);
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
     lines.push(

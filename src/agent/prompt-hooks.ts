@@ -38,6 +38,7 @@ import {
   buildSkillsSection,
 } from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
+import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
 import {
@@ -57,6 +58,7 @@ import {
   SOURCE_FOLDER_LINES,
   WEB_CHAT_ARTIFACT_LINES,
 } from './mobile-prompt.js';
+import { PROACTIVE_PREFERENCES_GUIDANCE } from './proactive-preferences.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -326,6 +328,7 @@ function buildBootstrapSystemBlocks(context: PromptHookContext): {
   const contextFiles = loadStaticBootstrapFiles(context.agentId, {
     omitChannelGuidance: isMobileClient(context),
   }).filter((file) => {
+    if (file.name === PROACTIVE_PREFERENCES_FILE) return false;
     const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
     return part ? isBootstrapPartSelected(part, context) : true;
   });
@@ -681,6 +684,7 @@ function buildProactivityHook(context: PromptHookContext): string {
   const lines = [
     '## Proactive Behavior',
     'Act proactively when it improves outcomes, but stay aligned with user intent and safety constraints.',
+    PROACTIVE_PREFERENCES_GUIDANCE,
     'Capture durable memory proactively using the `memory` tool when you learn stable preferences, constraints, recurring workflows, or decisions.',
     'When relevant historical context is likely missing, proactively run `session_search` before asking the user to repeat information.',
     '',

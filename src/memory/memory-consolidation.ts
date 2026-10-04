@@ -2,8 +2,8 @@
  * Consolidation owns durable MEMORY.md updates, unlike daily-note tool writes.
  * File transactions serialize cooperating writers; model results are committed only
  * if their input snapshot is still current. Persisted fingerprints skip unchanged
- * cleanup across restarts. Non-managed text is preserved; external editors do
- * not take this lock.
+ * cleanup across restarts. Committed changes are recorded in dreams/ journals.
+ * Non-managed text is preserved; external editors do not take this lock.
  */
 
 import { createHash } from 'node:crypto';
@@ -32,6 +32,7 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { appendDreamJournal } from './dream-journal.js';
 import type { MemoryBackend } from './memory-service.js';
 
 export interface MemoryConsolidationConfig {
@@ -759,6 +760,14 @@ export class MemoryConsolidationEngine {
           fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
           writeMemoryFileAtomic(memoryPath, next);
           workspacesUpdated += 1;
+          appendDreamJournal({
+            workspaceDir,
+            timezone: resolveWorkspaceTimezone(workspaceDir),
+            before: existing,
+            after: next,
+            sourceDates: entries.map((entry) => entry.date),
+            method: 'deterministic',
+          });
         } finally {
           release();
         }
@@ -841,6 +850,7 @@ export class MemoryConsolidationEngine {
           );
         }
 
+        const cleanupMethod = next ? 'model' : 'fallback';
         if (!next) {
           next = buildMemoryContent({ existing, entries });
           fallbacksUsed += 1;
@@ -863,6 +873,14 @@ export class MemoryConsolidationEngine {
           if (next !== existing) {
             writeMemoryFileAtomic(memoryPath, next);
             workspacesUpdated += 1;
+            appendDreamJournal({
+              workspaceDir,
+              timezone: resolveWorkspaceTimezone(workspaceDir),
+              before: existing,
+              after: next,
+              sourceDates: entries.map((entry) => entry.date),
+              method: cleanupMethod,
+            });
           }
           writeCleanupFingerprint(
             statePath,
