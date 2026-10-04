@@ -29,6 +29,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'chat.history',
   'artifacts.read',
   'system_files.read',
+  'system_files.write',
   'voice.session',
   'sign_ins.manage',
   'status.read',
@@ -458,8 +459,10 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
   }
-  if (pathname === SYSTEM_FILES_PATH && method === 'GET') {
-    return 'system_files.read';
+  if (pathname === SYSTEM_FILES_PATH) {
+    if (method === 'GET') return 'system_files.read';
+    if (method === 'PUT' || method === 'POST') return 'system_files.write';
+    return null;
   }
   if (pathname === '/api/artifact' && method === 'GET') {
     return 'artifacts.read';

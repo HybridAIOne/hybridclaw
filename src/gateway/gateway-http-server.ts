@@ -10948,7 +10948,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             isOwnerDeviceToken(authContext.payload),
           );
           if (pathname === SYSTEM_FILES_PATH) {
-            handleSystemFilesRoute(res, method, url);
+            await handleSystemFilesRoute(req, res, method, url);
             return;
           }
           if (pathname.startsWith('/api/push/')) {
