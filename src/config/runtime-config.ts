@@ -569,19 +569,6 @@ export interface RuntimeDiscordPresenceConfig {
   activityType: DiscordPresenceActivityType;
 }
 
-export interface RuntimeDiscordLifecycleReactionsConfig {
-  enabled: boolean;
-  removeOnComplete: boolean;
-  phases: {
-    queued: string;
-    thinking: string;
-    toolUse: string;
-    streaming: string;
-    done: string;
-    error: string;
-  };
-}
-
 export interface RuntimeDiscordChannelConfig {
   mode: DiscordChannelMode;
   replyStyle?: DiscordReplyStyle;
@@ -1189,7 +1176,6 @@ export interface RuntimeConfig {
     humanDelay: RuntimeDiscordHumanDelayConfig;
     typingMode: DiscordTypingMode;
     presence: RuntimeDiscordPresenceConfig;
-    lifecycleReactions: RuntimeDiscordLifecycleReactionsConfig;
     ackReaction: string;
     ackReactionScope: DiscordAckReactionScope;
     removeAckAfterReply: boolean;
@@ -1719,18 +1705,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       degradedText: 'Thinking slowly...',
       exhaustedText: 'Taking a break',
       activityType: 'watching',
-    },
-    lifecycleReactions: {
-      enabled: true,
-      removeOnComplete: true,
-      phases: {
-        queued: '⏳',
-        thinking: '🤔',
-        toolUse: '⚙️',
-        streaming: '✍️',
-        done: '✅',
-        error: '❌',
-      },
     },
     ackReaction: '👀',
     ackReactionScope: 'group-mentions',
@@ -4783,43 +4757,6 @@ function normalizeDiscordPresenceConfig(
       raw.activityType,
       fallback.activityType,
     ),
-  };
-}
-
-function normalizeDiscordLifecycleReactionsConfig(
-  value: unknown,
-  fallback: RuntimeDiscordLifecycleReactionsConfig,
-): RuntimeDiscordLifecycleReactionsConfig {
-  const raw = isRecord(value) ? value : {};
-  const rawPhases = isRecord(raw.phases) ? raw.phases : {};
-  return {
-    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
-    removeOnComplete: normalizeBoolean(
-      raw.removeOnComplete,
-      fallback.removeOnComplete,
-    ),
-    phases: {
-      queued: normalizeString(rawPhases.queued, fallback.phases.queued, {
-        allowEmpty: false,
-      }),
-      thinking: normalizeString(rawPhases.thinking, fallback.phases.thinking, {
-        allowEmpty: false,
-      }),
-      toolUse: normalizeString(rawPhases.toolUse, fallback.phases.toolUse, {
-        allowEmpty: false,
-      }),
-      streaming: normalizeString(
-        rawPhases.streaming,
-        fallback.phases.streaming,
-        { allowEmpty: false },
-      ),
-      done: normalizeString(rawPhases.done, fallback.phases.done, {
-        allowEmpty: false,
-      }),
-      error: normalizeString(rawPhases.error, fallback.phases.error, {
-        allowEmpty: false,
-      }),
-    },
   };
 }
 
@@ -8079,10 +8016,6 @@ function normalizeRuntimeConfig(
       presence: normalizeDiscordPresenceConfig(
         rawDiscord.presence,
         DEFAULT_RUNTIME_CONFIG.discord.presence,
-      ),
-      lifecycleReactions: normalizeDiscordLifecycleReactionsConfig(
-        rawDiscord.lifecycleReactions,
-        DEFAULT_RUNTIME_CONFIG.discord.lifecycleReactions,
       ),
       ackReaction: normalizeString(
         rawDiscord.ackReaction,

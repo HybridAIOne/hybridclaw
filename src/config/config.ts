@@ -341,19 +341,6 @@ export let DISCORD_SELF_PRESENCE: RuntimeConfig['discord']['presence'] = {
   exhaustedText: 'Taking a break',
   activityType: 'watching',
 };
-export let DISCORD_LIFECYCLE_REACTIONS: RuntimeConfig['discord']['lifecycleReactions'] =
-  {
-    enabled: true,
-    removeOnComplete: true,
-    phases: {
-      queued: '⏳',
-      thinking: '🤔',
-      toolUse: '⚙️',
-      streaming: '✍️',
-      done: '✅',
-      error: '❌',
-    },
-  };
 export let DISCORD_ACK_REACTION = '👀';
 export let DISCORD_ACK_REACTION_SCOPE: RuntimeConfig['discord']['ackReactionScope'] =
   'group-mentions';
@@ -886,9 +873,6 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   DISCORD_HUMAN_DELAY = structuredClone(config.discord.humanDelay);
   DISCORD_TYPING_MODE = config.discord.typingMode;
   DISCORD_SELF_PRESENCE = structuredClone(config.discord.presence);
-  DISCORD_LIFECYCLE_REACTIONS = structuredClone(
-    config.discord.lifecycleReactions,
-  );
   DISCORD_ACK_REACTION = config.discord.ackReaction;
   DISCORD_ACK_REACTION_SCOPE = config.discord.ackReactionScope;
   DISCORD_REMOVE_ACK_AFTER_REPLY = config.discord.removeAckAfterReply;
