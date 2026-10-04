@@ -8,10 +8,7 @@
  */
 
 import path from 'node:path';
-import {
-  REACT_TOOL_NAME,
-  readSingleEmoji,
-} from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '../../container/shared/reactions.js';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -76,7 +73,6 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
-  setMessageReaction,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -163,7 +159,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
-import { turnReaction } from './chat-reactions.js';
+import { withTurnReaction } from './chat-reactions.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -176,6 +172,7 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
+import { chooseEarlyReaction } from './early-reaction.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -637,6 +634,7 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  let earlyReaction: string | null = null;
   // Tool progress arrives over IPC from the agent process, outside this
   // turn's async context; keep the turn span so tool spans nest under it.
   const turnTraceContext = captureActiveContext();
@@ -722,7 +720,7 @@ async function handleGatewayMessageInner(
   const attachSessionIdentity = (
     result: GatewayChatResult,
   ): GatewayChatResult => ({
-    ...result,
+    ...withTurnReaction(result, req.sessionId, earlyReaction),
     sessionId: req.sessionId,
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
@@ -1720,6 +1718,17 @@ async function handleGatewayMessageInner(
     req.sessionId,
     HISTORY_FETCH_LIMIT,
   );
+  const earlyReactionPending = chooseEarlyReaction({
+    agentId,
+    content: userTurnContent,
+    maximumZone: getModelCatalogMetadata(model).zone,
+    enabled: Boolean(req.reactions),
+    abortSignal: activeGatewayRequest.signal,
+    onReaction: (emoji) => {
+      earlyReaction = emoji;
+      req.onReaction?.(emoji);
+    },
+  });
   const historyTruncated = fetchedHistory.length >= HISTORY_FETCH_LIMIT;
   const history = fetchedHistory.filter(
     (message) => !isSilentReply(message.content),
@@ -1852,11 +1861,7 @@ async function handleGatewayMessageInner(
   // 2026-10-02): a per-turn block changes the tool list and system prompt at
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
-  let blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
-  // Only a client that shows reactions gets the tool to make them.
-  if (!req.reactions) {
-    blockedTools = [...(blockedTools ?? []), REACT_TOOL_NAME];
-  }
+  const blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,
@@ -2066,6 +2071,7 @@ async function handleGatewayMessageInner(
     role: 'user',
     content: agentUserContent,
   });
+  await earlyReactionPending;
   const requestMessages = isGatewayRequestLoggingEnabled()
     ? messages.slice()
     : null;
@@ -2791,6 +2797,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
       };
       captureGatewayChatResultError({
@@ -2815,20 +2822,18 @@ async function handleGatewayMessageInner(
     // A reaction can be the whole answer, as in a messenger. Where reactions
     // show, a reply that is one emoji alone is that reaction, so the model
     // need not choose between writing an emoji and reacting with it.
-    const toolReaction = turnReaction(toolExecutions);
     const loneEmoji =
       req.reactions &&
-      !toolReaction &&
       !delegationAcknowledgement &&
       !sideEffectNotice &&
       !output.artifacts?.length &&
       !output.pendingApproval
         ? readSingleEmoji(output.result)
         : '';
-    const reaction = toolReaction || loneEmoji || null;
-    const agentResultText =
-      (loneEmoji ? '' : output.result) ||
-      (reaction ? '' : buildEmptyAgentResponseFallback(output.artifacts));
+    const reaction = loneEmoji || earlyReaction;
+    const agentResultText = loneEmoji
+      ? ''
+      : output.result || buildEmptyAgentResponseFallback(output.artifacts);
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2943,14 +2948,6 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
-    if (reaction) {
-      setMessageReaction({
-        sessionId: req.sessionId,
-        messageId: storedTurn.userMessageId,
-        role: 'user',
-        emoji: reaction,
-      });
-    }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -3109,7 +3106,10 @@ async function handleGatewayMessageInner(
       },
     });
     recordPendingHatchingTerminalAudit();
-    let storedErrorTurn: { assistantMessageId: number } | null = null;
+    let storedErrorTurn: {
+      userMessageId: number;
+      assistantMessageId: number;
+    } | null = null;
     if (!turnPersisted) {
       try {
         storedErrorTurn = recordErrorTurn({
@@ -3191,7 +3191,10 @@ async function handleGatewayMessageInner(
       toolExecutions: undefined,
       error: errorMsg,
       ...(storedErrorTurn
-        ? { assistantMessageId: storedErrorTurn.assistantMessageId }
+        ? {
+            userMessageId: storedErrorTurn.userMessageId,
+            assistantMessageId: storedErrorTurn.assistantMessageId,
+          }
         : {}),
     });
     captureGatewayChatResultError({

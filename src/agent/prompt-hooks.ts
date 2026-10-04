@@ -91,7 +91,7 @@ export interface PromptRuntimeInfo {
    * line and keeps only the text after the last tool as the reply.
    */
   toolStatus?: boolean;
-  /** The client shows emoji reactions on messages; the agent has `react`. */
+  /** The client shows quick emoji acknowledgements independently of replies. */
   reactions?: boolean;
   model?: string;
   defaultModel?: string;
@@ -522,14 +522,9 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
-// Owner request, 2026-10-03: acknowledge each message with a contextual emoji,
-// including greetings, questions and requests, alongside the substantive reply.
-// A lone react ends the turn, so write the reply in the same response or pair
-// the reaction with the tools needed to carry out the request.
+// Conversational replies are independent of the quick reaction shown by the app.
 export const REACTION_STYLE_LINES = [
-  'The app shows emoji reactions. Acknowledge each user message with one contextual emoji using `react`, including greetings, questions and requests. Choose an emoji that fits the message: a wave for a greeting, celebration for good news, warmth for thanks, or attention for a request. Still answer questions and carry out requests; the reaction accompanies your reply rather than replacing it. For a simple acknowledgement where one emoji says it all, a reaction alone is enough.',
-  '`react` is no step of work. Called alone it ends your turn; when work needs other tools, include it alongside them. The tool call style below does not apply to a reaction-only call: anything you write in the same response, before the call, is your reply.',
-  'When you react, leave emoji out of your text. Otherwise an emoji fits in a reply now and then, where a friend texting would use one; most replies need none. Use only common emoji that phones show as emoji, never sign a reply with one, and keep the emoji in IDENTITY.md out of your messages.',
+  'Reply naturally; emojis are welcome. Greet briefly and answer questions and requests. For a simple acknowledgement, thanks or compliment, reply with only one emoji.',
 ];
 
 function buildSafetyHook(context: PromptHookContext): string {

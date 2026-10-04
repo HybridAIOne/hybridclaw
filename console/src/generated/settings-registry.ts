@@ -249,6 +249,24 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'auto',
     },
     {
+      path: 'auxiliaryModels.chat_reaction.maxTokens',
+      section: 'auxiliaryModels',
+      kind: 'number',
+      defaultValue: 16,
+    },
+    {
+      path: 'auxiliaryModels.chat_reaction.model',
+      section: 'auxiliaryModels',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
+      path: 'auxiliaryModels.chat_reaction.provider',
+      section: 'auxiliaryModels',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
       path: 'auxiliaryModels.compression.maxTokens',
       section: 'auxiliaryModels',
       kind: 'number',
