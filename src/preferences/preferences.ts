@@ -35,11 +35,11 @@ function owner(userId: string | null | undefined): string {
   return userId;
 }
 function file(userId: string): string {
-  return path.join(
-    DATA_DIR,
-    'preferences',
-    `${createHash('sha256').update(owner(userId)).digest('hex')}.json`,
-  );
+  // lgtm[js/insufficient-password-hash] This is a stable filename for an already
+  // authenticated user, never a password/token verifier. SHA-256 keeps identity
+  // text and path separators out of filenames; authorization happens upstream.
+  const filename = createHash('sha256').update(owner(userId)).digest('hex');
+  return path.join(DATA_DIR, 'preferences', `${filename}.json`);
 }
 export function readPreferences(userId: string): PreferenceEvent[] {
   try {
