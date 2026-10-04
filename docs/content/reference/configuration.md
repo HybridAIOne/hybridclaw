@@ -55,6 +55,27 @@ Set `HYBRIDCLAW_DATA_DIR` to an absolute path when you want to relocate the
 entire runtime home, including config, credentials, SQLite data, browser
 profiles, and agent workspaces.
 
+## Seeding Config At Gateway Start
+
+Container hosts can pass deployment settings in `HYBRIDCLAW_CONFIG_SEED`
+instead of running CLI commands against a booted gateway. The gateway applies
+the seed to `config.json` at start, before it loads plugins:
+
+```json
+{
+  "set": { "deployment.mode": "cloud", "deployment.public_url": "https://agent.example.com" },
+  "disabledTools": ["web_search"],
+  "disabledSkills": ["search.web"],
+  "plugins": ["/app/plugins/media-tools"]
+}
+```
+
+Each key behaves like its CLI command: `set` like `config set`,
+`disabledTools` like `tool disable`, `disabledSkills` like `skill disable`, and
+`plugins` like `plugin reinstall --yes`. Entries that already hold are skipped,
+and other disabled tools and skills are kept. An invalid seed, an unknown
+config key, or an unknown tool stops the gateway from starting.
+
 ## Config Revision History
 
 HybridClaw records runtime config snapshots whenever `config.json` changes

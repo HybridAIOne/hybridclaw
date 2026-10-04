@@ -56,6 +56,7 @@ import {
   onRuntimeSecretsRefresh,
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
+import { applyConfigSeedFromEnv } from '../config/config-seed.js';
 import {
   type RuntimeConfig,
   startRuntimeConfigWatcher,
@@ -655,6 +656,7 @@ async function main(): Promise<void> {
   await initSentry();
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  await applyConfigSeedFromEnv();
   startRuntimeConfigWatcher();
   ensureA2AInstanceKeypair();
   logger.info(

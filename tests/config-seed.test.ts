@@ -1,0 +1,138 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useCleanMocks, useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('hybridclaw-config-seed-');
+useCleanMocks({ resetModules: true, unstubAllEnvs: true });
+
+let dataDir: string;
+
+beforeEach(() => {
+  dataDir = makeTempDir();
+  vi.stubEnv('HOME', dataDir);
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', dataDir);
+  vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+});
+
+async function importSeed() {
+  vi.resetModules();
+  const seed = await import('../src/config/config-seed.js');
+  const runtimeConfig = await import('../src/config/runtime-config.js');
+  return { ...seed, ...runtimeConfig };
+}
+
+function writeDemoPlugin(): string {
+  const sourceDir = path.join(makeTempDir(), 'demo-plugin');
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceDir, 'hybridclaw.plugin.yaml'),
+    'id: demo-plugin\nname: Demo Plugin\nversion: 1.0.0\nkind: tool\n',
+  );
+  fs.writeFileSync(path.join(sourceDir, 'index.js'), 'export default {};\n');
+  return sourceDir;
+}
+
+const CLOUD_SEED = {
+  set: {
+    'deployment.mode': 'cloud',
+    'deployment.public_url': 'https://agent.example.com',
+  },
+  disabledTools: ['web_search'],
+  disabledSkills: ['search.web'],
+};
+
+describe('config seed', () => {
+  it.each([
+    ['invalid JSON', '{'],
+    ['a non-object', '[]'],
+    ['an unknown key', '{"enable": {}}'],
+    ['a non-object set', '{"set": []}'],
+    ['a non-array name list', '{"disabledTools": "web_search"}'],
+    ['an empty name', '{"plugins": [""]}'],
+  ])('rejects %s', async (_label, raw) => {
+    const { parseConfigSeed } = await importSeed();
+    expect(() => parseConfigSeed(raw)).toThrow(/HYBRIDCLAW_CONFIG_SEED/);
+  });
+
+  it('applies config keys, tool and skill disables, and plugins', async () => {
+    const pluginSource = writeDemoPlugin();
+    const {
+      applyConfigSeed,
+      getRuntimeConfig,
+      getRuntimeDisabledToolNames,
+      getRuntimeSkillScopeDisabledNames,
+    } = await importSeed();
+
+    await applyConfigSeed({ ...CLOUD_SEED, plugins: [pluginSource] });
+
+    const config = getRuntimeConfig();
+    expect(config.deployment).toMatchObject({
+      mode: 'cloud',
+      public_url: 'https://agent.example.com',
+    });
+    expect(getRuntimeDisabledToolNames(config)).toContain('web_search');
+    expect(getRuntimeSkillScopeDisabledNames(config)).toContain('search.web');
+    expect(
+      fs.existsSync(
+        path.join(dataDir, 'plugins', 'demo-plugin', 'hybridclaw.plugin.yaml'),
+      ),
+    ).toBe(true);
+  });
+
+  it('writes nothing when the config already matches and keeps user choices', async () => {
+    const {
+      applyConfigSeed,
+      getRuntimeConfig,
+      getRuntimeDisabledToolNames,
+      runtimeConfigPath,
+      setRuntimeToolEnabled,
+      updateRuntimeConfig,
+    } = await importSeed();
+    const seed = { ...CLOUD_SEED, plugins: [] };
+    await applyConfigSeed(seed);
+    updateRuntimeConfig((draft) => {
+      setRuntimeToolEnabled(draft, 'browser_navigate', false);
+    });
+    const before = fs.readFileSync(runtimeConfigPath(), 'utf-8');
+
+    await applyConfigSeed(seed);
+
+    expect(fs.readFileSync(runtimeConfigPath(), 'utf-8')).toBe(before);
+    expect(getRuntimeDisabledToolNames(getRuntimeConfig())).toEqual(
+      new Set(['browser_navigate', 'web_search']),
+    );
+  });
+
+  const NO_OP_SEED = {
+    set: { 'deployment.mode': 'cloud' },
+    disabledTools: [],
+    disabledSkills: [],
+    plugins: [],
+  };
+
+  it.each([
+    [
+      'an unknown config key',
+      { ...NO_OP_SEED, set: { ...NO_OP_SEED.set, 'deployment.nope': true } },
+    ],
+    ['an unknown tool', { ...NO_OP_SEED, disabledTools: ['no_such_tool'] }],
+  ])('fails on %s before writing anything', async (_label, seed) => {
+    const { applyConfigSeed, getRuntimeConfig } = await importSeed();
+    const before = JSON.stringify(getRuntimeConfig());
+
+    await expect(applyConfigSeed(seed)).rejects.toThrow();
+    expect(JSON.stringify(getRuntimeConfig())).toBe(before);
+  });
+
+  it('reads the seed from the environment', async () => {
+    vi.stubEnv('HYBRIDCLAW_CONFIG_SEED', JSON.stringify(CLOUD_SEED));
+    const { applyConfigSeedFromEnv, getRuntimeConfig } = await importSeed();
+
+    await applyConfigSeedFromEnv();
+
+    expect(getRuntimeConfig().deployment.mode).toBe('cloud');
+  });
+});
