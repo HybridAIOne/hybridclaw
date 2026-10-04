@@ -640,6 +640,8 @@ async function startLoopbackHttpServer(): Promise<{
   };
 }
 
+let flushGatewayAudit: (() => Promise<void>) | undefined;
+
 async function importFreshHealth(options?: {
   docsDir?: string;
   dataDir?: string;
@@ -673,6 +675,7 @@ async function importFreshHealth(options?: {
     usedBytes: number;
   };
 }) {
+  await flushGatewayAudit?.();
   vi.resetModules();
 
   if (options?.authSecret === undefined) {
@@ -3000,6 +3003,9 @@ async function importFreshHealth(options?: {
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
   );
+  flushGatewayAudit = (
+    await import('../src/audit/audit-trail.js')
+  ).flushAuditTrail;
   const httpServer = gatewayHttpServer.startGatewayHttpServer();
 
   if (!handler || !listenArgs) {
@@ -3178,7 +3184,10 @@ async function importFreshHealth(options?: {
 
 useCleanMocks({
   restoreAllMocks: true,
-  cleanup: () => {
+  cleanup: async () => {
+    // Finish audit writes before resetting modules or removing their data home.
+    await flushGatewayAudit?.();
+    flushGatewayAudit = undefined;
     if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
       delete process.env.HYBRIDCLAW_AUTH_SECRET;
     } else {
