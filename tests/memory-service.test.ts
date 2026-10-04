@@ -2448,6 +2448,22 @@ describe.sequential('schema migrations', () => {
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy.exec(`
+      CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        cron_expr TEXT NOT NULL,
+        run_at TEXT,
+        every_ms INTEGER,
+        prompt TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        last_run TEXT,
+        last_status TEXT,
+        consecutive_errors INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
     legacy
       .prepare(
         `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
@@ -2470,7 +2486,7 @@ describe.sequential('schema migrations', () => {
       .prepare('SELECT session_id FROM messages LIMIT 1')
       .get() as { session_id: string };
     const migratedTask = inspect
-      .prepare('SELECT session_id FROM tasks LIMIT 1')
+      .prepare("SELECT session_id FROM jobs WHERE kind = 'scheduled_task'")
       .get() as { session_id: string };
     inspect.close();
 

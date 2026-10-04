@@ -6,13 +6,11 @@ import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import { runtimeConfigRevisionStorePath } from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
-import type { ScheduledTask } from '../types/scheduler.js';
 import {
   type InitDatabaseOptions,
   runMigrations,
-  tableExists,
 } from './schema/migrations.js';
-import { queryAll, queryOne } from './sqlite.js';
+import { queryOne } from './sqlite.js';
 
 let db: Database.Database;
 let databaseInitialized = false;
@@ -23,7 +21,6 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = openDatabaseWithWalRecovery(dbPath);
   runMigrations(db, opts);
-  migrateLegacyTasksToJobsTable();
   ensureDefaultSchedulerJobs();
   databaseInitialized = true;
   if (!quiet) logger.info({ path: dbPath }, 'Database initialized');
@@ -308,64 +305,4 @@ function ensureDefaultSchedulerJobs(): void {
     if (schedulerJobExists(job.id)) continue;
     upsertDefaultSchedulerJob(job);
   }
-}
-
-function migrateLegacyTasksToJobsTable(): void {
-  if (!tableExists(db, 'tasks')) return;
-  const legacyTasks = queryAll<ScheduledTask>(
-    db,
-    'SELECT * FROM tasks ORDER BY id ASC',
-  );
-  if (legacyTasks.length === 0) return;
-
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO jobs
-      (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery,
-       enabled, last_run, last_status, consecutive_errors, sort_order, created_at, updated_at)
-     VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
-  );
-  const transaction = db.transaction((tasks: ScheduledTask[]) => {
-    for (const task of tasks) {
-      const schedule: RuntimeSchedulerJob['schedule'] = task.run_at
-        ? { kind: 'at', at: task.run_at, everyMs: null, expr: null, tz: '' }
-        : task.every_ms
-          ? {
-              kind: 'every',
-              at: null,
-              everyMs: task.every_ms,
-              expr: null,
-              tz: '',
-            }
-          : {
-              kind: 'cron',
-              at: null,
-              everyMs: null,
-              expr: task.cron_expr || '',
-              tz: '',
-            };
-      insert.run(
-        `task:${task.id}`,
-        task.id,
-        task.session_id,
-        task.channel_id,
-        JSON.stringify(schedule),
-        JSON.stringify({ kind: 'agent_turn', message: task.prompt }),
-        JSON.stringify({
-          kind: 'channel',
-          channel: 'session',
-          to: task.channel_id,
-          webhookUrl: '',
-        }),
-        task.enabled,
-        task.last_run,
-        task.last_status === 'success' || task.last_status === 'error'
-          ? task.last_status
-          : null,
-        Math.max(0, Math.floor(task.consecutive_errors || 0)),
-        0,
-        task.created_at,
-      );
-    }
-  });
-  transaction(legacyTasks);
 }

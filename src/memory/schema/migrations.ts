@@ -25,7 +25,7 @@ import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 import { createWorkSchema } from '../../work/work-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 70;
+export const DATABASE_SCHEMA_VERSION = 71;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -65,6 +65,21 @@ type CanonicalSessionRow = {
   message_count: number;
   created_at: string;
   updated_at: string;
+};
+
+type LegacyTaskRow = {
+  id: number;
+  session_id: string;
+  channel_id: string;
+  cron_expr: string;
+  run_at: string | null;
+  every_ms: number | null;
+  prompt: string;
+  enabled: number;
+  last_run: string | null;
+  last_status: string | null;
+  consecutive_errors: number | null;
+  created_at: string;
 };
 
 type MemoryKvRow = {
@@ -2777,6 +2792,55 @@ function migrateV34(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_jobs_board_status
       ON jobs(board_status);
   `);
+  const legacyTasks = tableExists(database, 'tasks')
+    ? queryAll<LegacyTaskRow>(database, 'SELECT * FROM tasks ORDER BY id ASC')
+    : [];
+  const insert = database.prepare(
+    `INSERT OR IGNORE INTO jobs
+      (id, kind, legacy_task_id, session_id, channel_id, schedule, action, delivery,
+       enabled, last_run, last_status, consecutive_errors, sort_order, created_at, updated_at)
+     VALUES (?, 'scheduled_task', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+  );
+  for (const task of legacyTasks) {
+    const schedule = task.run_at
+      ? { kind: 'at', at: task.run_at, everyMs: null, expr: null, tz: '' }
+      : task.every_ms
+        ? {
+            kind: 'every',
+            at: null,
+            everyMs: task.every_ms,
+            expr: null,
+            tz: '',
+          }
+        : {
+            kind: 'cron',
+            at: null,
+            everyMs: null,
+            expr: task.cron_expr,
+            tz: '',
+          };
+    insert.run(
+      `task:${task.id}`,
+      task.id,
+      task.session_id,
+      task.channel_id,
+      JSON.stringify(schedule),
+      JSON.stringify({ kind: 'agent_turn', message: task.prompt }),
+      JSON.stringify({
+        kind: 'channel',
+        channel: 'session',
+        to: task.channel_id,
+        webhookUrl: '',
+      }),
+      task.enabled,
+      task.last_run,
+      task.last_status === 'success' || task.last_status === 'error'
+        ? task.last_status
+        : null,
+      Math.max(0, Math.floor(task.consecutive_errors || 0)),
+      task.created_at,
+    );
+  }
   recordMigration(database, 34, 'Persist scheduler jobs in SQLite');
 }
 
@@ -3919,6 +3983,11 @@ export function runMigrations(
       70,
       'Persist work evidence and delivery receipts',
     );
+  }
+  if (currentVersion < 71) {
+    // Its rows were copied into jobs at v34; kept, they came back after delete.
+    database.exec('DROP TABLE IF EXISTS tasks');
+    recordMigration(database, 71, 'Drop the legacy tasks table');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

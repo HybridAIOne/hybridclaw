@@ -352,7 +352,6 @@ function deleteEphemeralEvalSessionData(
       'request_log',
       'semantic_memories',
       'skill_observations',
-      'tasks',
       'usage_events',
     ].map((tableName) =>
       db.prepare(`DELETE FROM ${tableName} WHERE session_id = ?`),
