@@ -21,6 +21,7 @@ const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
 export interface ProactiveMessagePayload {
+  workId?: string;
   storedMessage?: { sessionId: string; id: number };
   channelId?: string;
   text: string;

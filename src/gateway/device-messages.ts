@@ -5,8 +5,10 @@
  * answer; any other caller sees the same 404 as a missing message.
  * NOT `/api/history`: no user turns, traces, session keys or paging.
  */
+
 import type { ServerResponse } from 'node:http';
 import { getSessionAssistantMessage } from '../memory/db.js';
+import { workForMessage } from '../work/work-store.js';
 import { sendJson } from './gateway-http-utils.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 
@@ -34,6 +36,7 @@ export function handleDeviceMessageRoute(
     return;
   }
   sendJson(res, 200, {
+    work: workForMessage(sessionId, message.id),
     id: message.id,
     sessionId: message.session_id,
     agentId: message.agent_id ?? null,

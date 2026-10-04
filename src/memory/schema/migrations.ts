@@ -22,9 +22,10 @@ import {
   parseSessionKey,
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
+import { createWorkSchema } from '../../work/work-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 69;
+export const DATABASE_SCHEMA_VERSION = 70;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3909,6 +3910,14 @@ export function runMigrations(
       database,
       69,
       'Maintain durable semantic memory lexical indexes',
+    );
+  }
+  if (currentVersion < 70) {
+    createWorkSchema(database);
+    recordMigration(
+      database,
+      70,
+      'Persist work evidence and delivery receipts',
     );
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
