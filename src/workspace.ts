@@ -10,6 +10,7 @@ import {
   readDailyMemoryFile,
   truncateDailyMemoryText,
 } from '../container/shared/daily-memory.js';
+import { readTextFileHeadTail } from '../container/shared/read-text-file.js';
 import { escapeRegExp } from '../container/shared/regex.js';
 import {
   currentDateStampInTimezone,
@@ -998,7 +999,13 @@ export function loadStaticBootstrapFiles(
     if (!fs.existsSync(filePath)) continue;
 
     try {
-      let content = fs.readFileSync(filePath, 'utf-8').trim();
+      // Sample enough UTF-8 bytes at each end for the existing character cap.
+      const raw =
+        filename === 'MEMORY.md'
+          ? readTextFileHeadTail(filePath, WORKSPACE_CONTEXT_FILE_MAX_CHARS * 8)
+          : fs.readFileSync(filePath, 'utf-8');
+      if (raw === null) throw new Error('Failed to read memory file');
+      let content = raw.trim();
       if (!shouldLoadBootstrapContextFile({ name: filename, content })) {
         continue;
       }

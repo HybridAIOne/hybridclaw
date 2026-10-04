@@ -117,6 +117,9 @@ Important properties:
 
 - it is prompt-time context, not a database row
 - it is meant to stay curated and relatively stable
+- prompt loading reads at most 160,000 bytes, retaining the beginning and end,
+  then applies the 20,000-character bootstrap limit; oversized files do not
+  cause full-file allocation or reads
 - normal `memory` tool writes should not append to it directly
 - `/dream` and the scheduled consolidation pass rewrite it from older daily
   notes
@@ -133,7 +136,8 @@ Important properties:
 - the `memory` tool appends here
 - the pre-compaction memory flush writes here before older history is
   summarized away
-- today's note is injected in full into the per-turn dynamic context block
+- today's note enters the per-turn dynamic context block within a
+  24,000-character cap, with bounded reads retaining both ends of oversized files
 - up to seven prior daily notes are also loaded newest first within the shared
   12,000-character history budget; a note larger than the remaining budget keeps
   its beginning and tail with a visible middle-truncation marker
