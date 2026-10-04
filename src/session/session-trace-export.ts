@@ -901,7 +901,8 @@ function readTurnDynamicContext(summary: TurnRowSummary): string | null {
   const agentStart = summary.agentStart;
   if (!agentStart) return null;
   const agentStartPayload = parseJsonObject(agentStart.payload);
-  return readString(agentStartPayload, 'dynamicContext') || null;
+  const content = agentStartPayload.dynamicContext;
+  return typeof content === 'string' && content.trim() ? content : null;
 }
 
 function buildUserTraceStep(
