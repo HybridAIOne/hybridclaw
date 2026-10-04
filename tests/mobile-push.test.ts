@@ -99,6 +99,38 @@ describe('/push command', () => {
     expect(store.readMobilePushDevices(operator)).toEqual([]);
   });
 
+  test('preserves Firebase token case through registration, delivery and unregister', async () => {
+    const { store, push, operator } = await modules();
+    const token = `ExampleToken:${'A_b-9'.repeat(25)}`;
+    expect(await command(push, `push register ${token} production reminder hy android`)).toMatchObject({ registered: true, platform: 'android' });
+    expect(store.readMobilePushDevices(operator)[0]).toMatchObject({ token, platform: 'android' });
+    expect(calls('/v1/push/devices')[0].body).toMatchObject({ token, platform: 'android' });
+    await push.notifySessionPhones('session-a', { kind: 'reminder', title: 'Hy', body: 'Reminder' });
+    expect(relayed().body).toMatchObject({ token, platform: 'android' });
+    expect(await command(push, `push unregister ${token} android`)).toEqual({ registered: false });
+    expect(store.readMobilePushDevices(operator)).toEqual([]);
+    expect(calls('/v1/push/devices').at(-1)?.body).toEqual({ token, platform: 'android' });
+  });
+
+  test('Android registration rejects unsupported environments and apps before binding', async () => {
+    const { push } = await modules();
+    const token = `ExampleToken:${'Ab9'.repeat(40)}`;
+    expect(await command(push, `push register ${token} sandbox reminder hy android`)).toHaveProperty('error');
+    expect(await command(push, `push register ${token} production reminder salescompanion android`)).toHaveProperty('error');
+    expect(await command(push, `push register ${token} production reminder hy unknown`)).toHaveProperty('error');
+    expect(calls('/v1/push/devices')).toEqual([]);
+  });
+
+  test('a rejected registration cannot erase another operator’s local phone', async () => {
+    const { store, push, operator } = await modules();
+    await command(push, `push register ${TOKEN} production`);
+    const other = store.notificationOperatorId('apiToken:other');
+    store.bindWebNotificationSession('session-b', other, 'hy');
+    relay.mockImplementation(async () => new Response(JSON.stringify({ status: 'taken' })));
+    expect(await command(push, `push register ${TOKEN} production`, 'session-b')).toHaveProperty('registered', false);
+    expect(store.readMobilePushDevices(operator)).toHaveLength(1);
+  });
+
   test('bounds phones per operator at 16', async () => {
     const { push } = await modules();
     for (let index = 0; index < 16; index += 1)
