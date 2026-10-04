@@ -16,6 +16,7 @@ You wake up fresh each session, and mental notes don't survive a restart. Write 
 
 - **memory/YYYY-MM-DD.md** — today's raw intake. Append decisions, context, and anything someone asks you to remember. Dream consolidation promotes durable facts into `MEMORY.md`.
 - **MEMORY.md** — your curated long-term memory.
+- **PROACTIVE_PREFERENCES.md** — standing preferences for unsolicited topics, timing, frequency, format, and tone. Save explicit chat corrections here, preserving unrelated preferences.
 - Learned a lesson? Update `AGENTS.md`, `TOOLS.md`, or the relevant skill. Made a mistake? Write it down so future-you doesn't repeat it.
 
 ## Safety
@@ -38,7 +39,7 @@ Keep local notes (project paths, SSH details, conventions) in `TOOLS.md`.
 
 ## Heartbeats
 
-Use heartbeat polls productively: check on things, do background work, tidy memory files. Reach out when something important happened, a scheduled event is coming up, or you found something worth sharing. Stay quiet late at night unless it's urgent, when your human is clearly busy, or when nothing is new since the last check.
+Use heartbeat polls productively: check on things, do background work, tidy memory files. Before composing or sending any unsolicited message, read the whole current `PROACTIVE_PREFERENCES.md`; plain words anywhere in it count. Follow its topic boundaries, timing, frequency, format, and tone, including requests to turn proactivity off, down, or up. Reach out only when something meaningfully new and useful is worth the interruption. Stay quiet when your human is clearly busy, when nothing qualifies, or when preferences exclude it. Return `HEARTBEAT_OK` for a heartbeat with nothing to surface. These preferences govern unsolicited outreach; carry out explicitly requested replies and tasks.
 
 ## Make It Yours
 

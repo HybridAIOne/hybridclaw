@@ -5,7 +5,10 @@ import { expect, test, vi } from 'vitest';
 
 import { isDynamicContextMessageText } from '../container/shared/dynamic-context.js';
 import type { ChatMessage } from '../src/types/api.js';
-import type { ContainerOutput, ExecutorRequest } from '../src/types/container.js';
+import type {
+  ContainerOutput,
+  ExecutorRequest,
+} from '../src/types/container.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 // Providers that cache only at the end of each request (the HybridAI relay,
@@ -131,6 +134,39 @@ test('a tool turn replays its exchange right after the request that made it', as
   expect(requests[1].slice(0, lastCallOfFirstTurn.length)).toEqual(
     lastCallOfFirstTurn,
   );
+});
+
+test('preference edits refresh the new turn while preserving earlier preference snapshots', async () => {
+  await setupSession();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  const { PROACTIVE_PREFERENCES_FILE } = await import(
+    '../src/workspace-templates.js'
+  );
+  const preferencesPath = path.join(
+    agentWorkspaceDir('main'),
+    PROACTIVE_PREFERENCES_FILE,
+  );
+  const firstPreferences = '# Preferences\nTell me about project deadlines.\n';
+  const secondPreferences = '# Preferences\nTurn proactive messages off.\n';
+  fs.writeFileSync(preferencesPath, firstPreferences);
+  const requests: ChatMessage[][] = [];
+  runAgentMock.mockImplementation(async (params: ExecutorRequest) => {
+    requests.push(structuredClone(params.messages));
+    return success();
+  });
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.js'
+  );
+  await handleGatewayMessage({ ...REQUEST, content: 'Hello' });
+  fs.writeFileSync(preferencesPath, secondPreferences);
+  await handleGatewayMessage({ ...REQUEST, content: 'Hello again' });
+
+  expect(requests[1].slice(0, requests[0].length)).toEqual(requests[0]);
+  const latestContext = requests[1]
+    .filter((message) => isDynamicContextMessageText(message.content))
+    .at(-1);
+  expect(latestContext?.content).toContain(secondPreferences);
+  expect(latestContext?.content).not.toContain(firstPreferences);
 });
 
 test('the stored user message keeps its text and carries the context it was sent with', async () => {
