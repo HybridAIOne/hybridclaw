@@ -25,7 +25,6 @@ import {
   DISCORD_GUILD_MEMBERS_INTENT,
   DISCORD_GUILDS,
   DISCORD_HUMAN_DELAY,
-  DISCORD_LIFECYCLE_REACTIONS,
   DISCORD_MAX_CONCURRENT_PER_CHANNEL,
   DISCORD_PREFIX,
   DISCORD_PRESENCE_INTENT,
@@ -112,11 +111,7 @@ import {
   DiscordAutoPresenceController,
   type PresenceHealthState,
 } from './presence.js';
-import {
-  addAckReaction,
-  type LifecyclePhase,
-  LifecycleReactionController,
-} from './reactions.js';
+import { addAckReaction } from './reactions.js';
 import { withDiscordRetry } from './retry.js';
 import {
   DISCORD_SEND_MEDIA_ROOT_HOST_DIR,
@@ -144,7 +139,7 @@ import {
   type DiscordToolActionRequest,
 } from './tool-actions.js';
 import { attachDiscordTransportErrorHandlers } from './transport-errors.js';
-import { createTypingController } from './typing.js';
+import { createTypingController, type LifecyclePhase } from './typing.js';
 
 export type ReplyFn = (
   content: string,
@@ -234,6 +229,8 @@ const FRIENDLY_RATE_LIMIT_MESSAGE =
 const READ_WITHOUT_REPLY_RE =
   /^(thanks|thank you|thx|ty|got it|ok|okay|cool|perfect|awesome|sounds good|roger)[!. ]*$/i;
 const READ_WITHOUT_REPLY_PROBABILITY = 0.6;
+// Only failures get a reaction: each add notifies the author (owner call, 2026-10-04).
+const DISCORD_ERROR_REACTION = '❌';
 const STARTUP_STAGGER_WINDOW_MS = 120_000;
 const STARTUP_STAGGER_MIN_DELAY_MS = 500;
 const STARTUP_STAGGER_MAX_DELAY_MS = 3_500;
@@ -1286,7 +1283,6 @@ export async function initDiscord(
     items: QueuedConversationMessage[];
     timer: ReturnType<typeof setTimeout>;
     typingController: ReturnType<typeof createTypingController>;
-    lifecycleController: LifecycleReactionController | null;
   }
   interface InFlightConversation {
     abortController: AbortController;
@@ -1875,20 +1871,8 @@ export async function initDiscord(
 
     const abortController = new AbortController();
     const typingController = pending.typingController;
-    const lifecycleController = pending.lifecycleController;
     const emitLifecyclePhase = (phase: LifecyclePhase): void => {
-      if (phase === 'queued') {
-        typingController.setPhase('received');
-      } else if (phase === 'thinking') {
-        typingController.setPhase('thinking');
-      } else if (phase === 'toolUse') {
-        typingController.setPhase('toolUse');
-      } else if (phase === 'streaming') {
-        typingController.setPhase('streaming');
-      } else {
-        typingController.setPhase('done');
-      }
-      lifecycleController?.setPhase(phase);
+      typingController.setPhase(phase === 'error' ? 'done' : phase);
     };
     const beforeReply = async (): Promise<void> => {
       emitLifecyclePhase('streaming');
@@ -2043,6 +2027,9 @@ export async function initDiscord(
         return;
       }
       emitLifecyclePhase('error');
+      await withDiscordRetry('reaction-error', () =>
+        msg.react(DISCORD_ERROR_REACTION),
+      ).catch(() => {});
       recordConversationMetric({
         durationMs: Date.now() - startedAt,
         ok: false,
@@ -2135,20 +2122,6 @@ export async function initDiscord(
     if (!existing) {
       const typingController = createTypingController(msg, behavior.typingMode);
       typingController.setPhase('received');
-      const lifecycleController =
-        client.user && DISCORD_LIFECYCLE_REACTIONS.enabled
-          ? new LifecycleReactionController({
-              message: msg,
-              withRetry: withDiscordRetry,
-              botUserId: client.user.id,
-              config: {
-                enabled: DISCORD_LIFECYCLE_REACTIONS.enabled,
-                removeOnComplete: DISCORD_LIFECYCLE_REACTIONS.removeOnComplete,
-                phases: DISCORD_LIFECYCLE_REACTIONS.phases,
-              },
-            })
-          : null;
-      lifecycleController?.setPhase('queued');
       const baseDelayMs = shouldDebounceMessage ? behavior.debounceMs : 0;
       const startupStaggerMs =
         startupConnectedAtMs > 0 &&
@@ -2180,13 +2153,11 @@ export async function initDiscord(
         items: [queued],
         timer,
         typingController,
-        lifecycleController,
       });
       return;
     }
 
     existing.typingController.setPhase('received');
-    existing.lifecycleController?.setPhase('queued');
     clearTimeout(existing.timer);
     existing.items.push(queued);
     const shouldFlushImmediately =
@@ -2232,7 +2203,6 @@ export async function initDiscord(
       if (pending.items.length === 0) {
         clearTimeout(pending.timer);
         pending.typingController.stop();
-        await pending.lifecycleController?.clear();
         pendingBatches.delete(key);
       }
       return;
@@ -2270,7 +2240,6 @@ export async function initDiscord(
       if (pending.items.length === 0) {
         clearTimeout(pending.timer);
         pending.typingController.stop();
-        await pending.lifecycleController?.clear();
         pendingBatches.delete(key);
       }
       return true;

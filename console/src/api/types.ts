@@ -617,18 +617,6 @@ export interface AdminConfig {
         | 'competing'
         | 'custom';
     };
-    lifecycleReactions: {
-      enabled: boolean;
-      removeOnComplete: boolean;
-      phases: {
-        queued: string;
-        thinking: string;
-        toolUse: string;
-        streaming: string;
-        done: string;
-        error: string;
-      };
-    };
     debounceMs: number;
     ackReaction: string;
     ackReactionScope: 'all' | 'group-mentions' | 'direct' | 'off';

@@ -17,6 +17,7 @@ export type DiscordTypingPhase =
   | 'streaming'
   | 'done';
 export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
+export type LifecyclePhase = Exclude<DiscordTypingPhase, 'received'> | 'error';
 
 export interface TypingController {
   setPhase: (phase: DiscordTypingPhase) => void;

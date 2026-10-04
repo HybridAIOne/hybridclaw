@@ -110,18 +110,6 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         exhaustedText: 'Taking a break',
         activityType: 'watching',
       },
-      lifecycleReactions: {
-        enabled: true,
-        removeOnComplete: true,
-        phases: {
-          queued: '⏳',
-          thinking: '🤔',
-          toolUse: '⚙️',
-          streaming: '✍️',
-          done: '✅',
-          error: '❌',
-        },
-      },
       debounceMs: 2500,
       ackReaction: '👀',
       ackReactionScope: 'group-mentions',

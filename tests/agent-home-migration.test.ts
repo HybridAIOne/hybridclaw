@@ -451,13 +451,6 @@ test('migrates compatible OpenClaw state into HybridClaw', async () => {
   expect(
     (
       config.discord as {
-        lifecycleReactions: { enabled: boolean };
-      }
-    ).lifecycleReactions.enabled,
-  ).toBe(true);
-  expect(
-    (
-      config.discord as {
         presence: {
           enabled: boolean;
           intervalMs: number;

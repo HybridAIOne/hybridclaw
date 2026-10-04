@@ -1304,18 +1304,6 @@ test('channels whatsapp setup preserves an existing custom ack reaction', async 
             exhaustedText: 'Taking a break',
             activityType: 'watching',
           },
-          lifecycleReactions: {
-            enabled: true,
-            removeOnComplete: true,
-            phases: {
-              queued: '⏳',
-              thinking: '🤔',
-              toolUse: '⚙️',
-              streaming: '✍️',
-              done: '✅',
-              error: '❌',
-            },
-          },
           ackReaction: '👀',
           ackReactionScope: 'group-mentions',
           removeAckAfterReply: true,
