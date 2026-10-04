@@ -1,0 +1,728 @@
+{
+  "date": "2026-10-04",
+  "scope": "One live DB task; two repeats per model/variant; routing and failure-handling smoke test.",
+  "variantOrder": ["mini", "normal", "baseline"],
+  "modelOrder": [
+    "hybridai/gpt-6-luna",
+    "hybridai/Qwen/Qwen3.6-27B-FP8",
+    "anthropic/claude-sonnet-5-5"
+  ],
+  "executionNote": "After Qwen mini repeat 2 timed out, Sonnet trials ran before the remaining Qwen variants. The harness was fixed to retain timeouts and continue.",
+  "excludedSetupProbes": "Two Luna mini probes used an obsolete browser path and are excluded.",
+  "gateway": "Configured gateway was unreachable; local browser reads and remote connector calls ran in isolated workers.",
+  "limitations": [
+    "No verified timetable retrieval in any trial.",
+    "No successful-page or blank-page fixture coverage.",
+    "Two repeats and fixed variant order do not support a robust model ranking.",
+    "Sonnet used native Anthropic; other models used HybridAI.",
+    "Timed-out Qwen mini trace did not retain tool/token metrics.",
+    "The experimental workspace contains only the tested card; retained metadata for other captured skills can cause file/discovery failures, as observed in a Sonnet baseline trial. This is not a full production-workspace replay."
+  ],
+  "runs": [
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "mini",
+      "run": 1,
+      "startedAt": "2026-10-04T09:07:29.626Z",
+      "status": "success",
+      "totalMs": 12567,
+      "modelCalls": 2,
+      "promptTokens": 59579,
+      "completionTokens": 173,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 5919,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "mini",
+      "run": 2,
+      "startedAt": "2026-10-04T09:07:42.341Z",
+      "status": "success",
+      "totalMs": 15073,
+      "modelCalls": 2,
+      "promptTokens": 59578,
+      "completionTokens": 156,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 5548,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "normal",
+      "run": 1,
+      "startedAt": "2026-10-04T09:07:58.354Z",
+      "status": "success",
+      "totalMs": 20328,
+      "modelCalls": 4,
+      "promptTokens": 118645,
+      "completionTokens": 241,
+      "tools": [
+        {
+          "name": "skills_list",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "read",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 6076,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "normal",
+      "run": 2,
+      "startedAt": "2026-10-04T09:08:18.839Z",
+      "status": "success",
+      "totalMs": 15159,
+      "modelCalls": 3,
+      "promptTokens": 89407,
+      "completionTokens": 224,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5666,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "baseline",
+      "run": 1,
+      "startedAt": "2026-10-04T09:08:34.917Z",
+      "status": "success",
+      "totalMs": 148816,
+      "modelCalls": 34,
+      "promptTokens": 1443034,
+      "completionTokens": 876,
+      "tools": [
+        {
+          "name": "tool_catalog",
+          "ms": 3,
+          "error": false
+        },
+        {
+          "name": "tool_catalog",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "hybridai__web_search",
+          "ms": 4461,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5810,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 886,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 685,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1078,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 793,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 672,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 603,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1290,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 922,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 958,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 773,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 919,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 730,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 976,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 967,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 4519,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 741,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 938,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 845,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 720,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1325,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1046,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 902,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 908,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 903,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1025,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 915,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 910,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1212,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 860,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": false,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified; see manual trace assessment in the README."
+    },
+    {
+      "model": "hybridai/gpt-6-luna",
+      "provider": "hybridai",
+      "variant": "baseline",
+      "run": 2,
+      "startedAt": "2026-10-04T09:11:03.923Z",
+      "status": "success",
+      "totalMs": 86834,
+      "modelCalls": 18,
+      "promptTokens": 642159,
+      "completionTokens": 802,
+      "tools": [
+        {
+          "name": "skills_list",
+          "ms": 3,
+          "error": false
+        },
+        {
+          "name": "hybridai__web_search",
+          "ms": 4659,
+          "error": false
+        },
+        {
+          "name": "tool_catalog",
+          "ms": 4,
+          "error": false
+        },
+        {
+          "name": "hybridai__web_search",
+          "ms": 772,
+          "error": false
+        },
+        {
+          "name": "web_search",
+          "ms": 1954,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 6751,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 940,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 894,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1022,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 937,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 760,
+          "error": false
+        },
+        {
+          "name": "browser_type",
+          "ms": 851,
+          "error": false
+        },
+        {
+          "name": "browser_press",
+          "ms": 1120,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 1480,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 4678,
+          "error": false
+        },
+        {
+          "name": "browser_snapshot",
+          "ms": 917,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 3198,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified; see manual trace assessment in the README."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "mini",
+      "run": 1,
+      "startedAt": "2026-10-04T09:12:37.357Z",
+      "status": "success",
+      "totalMs": 32370,
+      "modelCalls": 2,
+      "promptTokens": 72880,
+      "completionTokens": 1062,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 6547,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "mini",
+      "run": 1,
+      "startedAt": "2026-10-04T09:18:25.934Z",
+      "status": "success",
+      "totalMs": 15811,
+      "modelCalls": 2,
+      "promptTokens": 6,
+      "completionTokens": 548,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 5708,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "mini",
+      "run": 2,
+      "status": "timeout",
+      "totalMs": null,
+      "deadlineMs": 240000,
+      "requestedInputUrlCorrect": null,
+      "verifiedJourneys": false,
+      "assessment": "No completed answer before the four-minute deadline; tool/token metrics unknown."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "mini",
+      "run": 2,
+      "startedAt": "2026-10-04T09:18:41.895Z",
+      "status": "success",
+      "totalMs": 14864,
+      "modelCalls": 2,
+      "promptTokens": 6,
+      "completionTokens": 431,
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "ms": 6046,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "normal",
+      "run": 1,
+      "startedAt": "2026-10-04T09:18:57.682Z",
+      "status": "success",
+      "totalMs": 14781,
+      "modelCalls": 4,
+      "promptTokens": 10,
+      "completionTokens": 623,
+      "tools": [
+        {
+          "name": "skills_list",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "read",
+          "ms": 1,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5599,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "normal",
+      "run": 2,
+      "startedAt": "2026-10-04T09:19:12.625Z",
+      "status": "success",
+      "totalMs": 17305,
+      "modelCalls": 4,
+      "promptTokens": 10,
+      "completionTokens": 614,
+      "tools": [
+        {
+          "name": "skills_list",
+          "ms": 1,
+          "error": false
+        },
+        {
+          "name": "read",
+          "ms": 2,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5479,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "baseline",
+      "run": 1,
+      "startedAt": "2026-10-04T09:19:30.793Z",
+      "status": "success",
+      "totalMs": 42028,
+      "modelCalls": 6,
+      "promptTokens": 14,
+      "completionTokens": 1894,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 3,
+          "error": true
+        },
+        {
+          "name": "skills_list",
+          "ms": 1,
+          "error": true
+        },
+        {
+          "name": "http_request",
+          "ms": 1,
+          "error": true
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5783,
+          "error": false
+        },
+        {
+          "name": "web_search",
+          "ms": 1013,
+          "error": false
+        },
+        {
+          "name": "hybridai__web_search",
+          "ms": 9385,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified; see manual trace assessment in the README."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5-5",
+      "provider": "anthropic",
+      "providerMethod": "api-key",
+      "variant": "baseline",
+      "run": 2,
+      "startedAt": "2026-10-04T09:20:13.175Z",
+      "status": "success",
+      "totalMs": 35106,
+      "modelCalls": 5,
+      "promptTokens": 12,
+      "completionTokens": 1288,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 1,
+          "error": true
+        },
+        {
+          "name": "skills_list",
+          "ms": 0,
+          "error": true
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5840,
+          "error": false
+        },
+        {
+          "name": "web_fetch",
+          "ms": 10232,
+          "error": true
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Requested timetable not verified; see manual trace assessment in the README."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "normal",
+      "run": 1,
+      "startedAt": "2026-10-04T09:20:49.147Z",
+      "status": "success",
+      "totalMs": 25358,
+      "modelCalls": 3,
+      "promptTokens": 109391,
+      "completionTokens": 868,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 4,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5662,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "normal",
+      "run": 2,
+      "startedAt": "2026-10-04T09:21:14.653Z",
+      "status": "success",
+      "totalMs": 25780,
+      "modelCalls": 3,
+      "promptTokens": 109395,
+      "completionTokens": 1075,
+      "tools": [
+        {
+          "name": "read",
+          "ms": 4,
+          "error": false
+        },
+        {
+          "name": "browser_navigate",
+          "ms": 5725,
+          "error": false
+        }
+      ],
+      "requestedInputUrlCorrect": true,
+      "verifiedJourneys": false,
+      "assessment": "Correct requested search URL; observed DB access-error 751; no verified timetable or fabricated journeys."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "baseline",
+      "run": 1,
+      "startedAt": "2026-10-04T09:21:41.277Z",
+      "status": "timeout",
+      "totalMs": 240055,
+      "requestedInputUrlCorrect": null,
+      "verifiedJourneys": false,
+      "assessment": "No completed answer before the four-minute deadline; tool/token metrics unknown."
+    },
+    {
+      "model": "hybridai/Qwen/Qwen3.6-27B-FP8",
+      "provider": "hybridai",
+      "variant": "baseline",
+      "run": 2,
+      "startedAt": "2026-10-04T09:25:41.621Z",
+      "status": "timeout",
+      "totalMs": 240109,
+      "requestedInputUrlCorrect": null,
+      "verifiedJourneys": false,
+      "assessment": "No completed answer before the four-minute deadline; tool/token metrics unknown."
+    }
+  ],
+  "experiment": {
+    "skill": "bahn",
+    "checkoutCommit": "4ac4888d02650ed4c8c554ba4e47f2307840da52",
+    "cardSha256": "c78f7ad752432f8fe2a6914b99b1fd532247189b5e4f8243d1b6af20ed15c847",
+    "promptSha256": "4e9956ec89a8daf5877010cc27c6f9eb2ecca8fad81e6b1b2916ca90cfed4a7a",
+    "prompt": "Suche Zugverbindungen München Hbf nach Köln Hbf am 2026-10-05 ab 09:00, mit Abfahrt, Ankunft, Umstiegen und angezeigten Preisen. Nicht buchen.",
+    "browserProvider": "local"
+  }
+}
