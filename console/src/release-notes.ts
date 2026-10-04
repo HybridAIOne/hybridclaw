@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.36.1',
+  version: '0.36.2',
   highlights: [
-    'Deleted schedules stay deleted',
-    'Quieter Discord replies',
-    'Phone Markdown editing and reset',
-    'Mobile approval and activity details',
+    'Explicit mobile decision fallback',
+    'Optional emoji chosen by mobile clients',
+    'Chat replies keep their text',
   ],
 } as const;
 

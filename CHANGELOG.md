@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## [0.36.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.2) - 2026-10-05
+
+### Added
+
+- **Client-controlled quick decisions**: Raw, non-streaming completions for
+  `auxiliary/eval_judge` and `regular` use only submitted context and expose no
+  tools. Updated mobile clients choose when to advance from on-device inference
+  to auxiliary or regular models for portraits and idea categories.
+- **Mobile-selected reactions**: Bound clients can persist Hy's optional emoji
+  on a user message or remove it. Reactions on assistant messages remain user
+  feedback; only that feedback can create response ratings.
+
+### Changed
+
+- **Independent emoji selection**: Updated mobile clients choose emoji through
+  on-device inference followed by auxiliary inference, with no emoji as a valid
+  result. Gateway-side early reaction selection and its configuration are removed.
+
+### Fixed
+
+- **Explicit auxiliary failures**: Quick decisions return configuration or
+  inference errors instead of silently switching providers, allowing clients to
+  control fallback.
+- **Replies retain their text**: Chat execution starts without waiting for an
+  early reaction decision. Emoji-only replies remain reply text instead of being
+  converted into reactions or silent messages.
+
+### Upgrade Notes
+
+- Deploy the v0.36.2 gateway and rebuilt worker before the companion mobile
+  update. Portraits and idea categories use on-device → auxiliary → regular;
+  emoji selection ends after auxiliary. Cloud decisions require app AI consent.
+- Remove `auxiliaryModels.chat_reaction` from custom configuration and configure
+  `auxiliaryModels.eval_judge` for the mobile auxiliary step. The old early
+  reaction stream event and result field are removed; clients should save and
+  retrieve reactions through `/api/chat/reaction` and `/api/history`.
+- Requests using `model: "auxiliary/eval_judge"` must have an auxiliary model
+  configured and handle failures explicitly. Decision completions do not support
+  streaming or tool execution.
+
 ## [0.36.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.1) - 2026-10-04
 
 ### Added
