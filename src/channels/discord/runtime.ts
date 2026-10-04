@@ -1890,9 +1890,13 @@ export async function initDiscord(
       }
       lifecycleController?.setPhase(phase);
     };
+    const beforeReply = async (): Promise<void> => {
+      emitLifecyclePhase('streaming');
+      await typingController.settled();
+    };
 
     const stream = new DiscordStreamManager(msg, {
-      onFirstMessage: () => emitLifecyclePhase('streaming'),
+      beforeSend: beforeReply,
       humanDelay: behavior.humanDelay,
       resolveResponseChannel: async () => {
         const resolution = await resolveDiscordReplyChannel({
@@ -1971,7 +1975,7 @@ export async function initDiscord(
         combinedContent,
         attachmentContext.media,
         async (text, files, components) => {
-          emitLifecyclePhase('streaming');
+          await beforeReply();
           await sendChunkedReply(
             msg,
             text,
@@ -1997,6 +2001,7 @@ export async function initDiscord(
             const row = buildApprovalActionRow(approval.approvalId);
             const visibleText = getApprovalVisibleText(approval, presentation);
             const components = presentation.showButtons ? [row] : [];
+            await beforeReply();
             const sent = await withDiscordRetry('approval-notification', () =>
               msg.reply({
                 content: visibleText
@@ -2051,6 +2056,7 @@ export async function initDiscord(
       if (stream.hasSentMessages()) {
         await stream.fail(formatError('Gateway Error', detail));
       } else {
+        await typingController.settled();
         await sendChunkedReply(
           msg,
           formatError('Gateway Error', detail),

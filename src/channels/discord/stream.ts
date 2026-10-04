@@ -29,7 +29,7 @@ export interface DiscordStreamOptions {
   maxChars?: number;
   maxLines?: number;
   editIntervalMs?: number;
-  onFirstMessage?: () => void;
+  beforeSend?: () => Promise<void>;
   humanDelay?: HumanDelayConfig;
   resolveResponseChannel?: () => Promise<DiscordSendChannel | null>;
 }
@@ -48,7 +48,7 @@ export class DiscordStreamManager {
   private readonly maxChars: number;
   private readonly maxLines: number;
   private readonly editIntervalMs: number;
-  private readonly onFirstMessage?: () => void;
+  private readonly beforeSend?: () => Promise<void>;
   private readonly humanDelay?: HumanDelayConfig;
   private readonly resolveResponseChannel?: () => Promise<DiscordSendChannel | null>;
 
@@ -80,7 +80,7 @@ export class DiscordStreamManager {
       250,
       options?.editIntervalMs ?? DEFAULT_EDIT_INTERVAL_MS,
     );
-    this.onFirstMessage = options?.onFirstMessage;
+    this.beforeSend = options?.beforeSend;
     this.humanDelay = options?.humanDelay;
     this.resolveResponseChannel = options?.resolveResponseChannel;
   }
@@ -203,6 +203,7 @@ export class DiscordStreamManager {
           }
         }
         try {
+          await this.beforeSend?.();
           const sent =
             i === 0 && !this.sendFirstChunkToChannel
               ? await withDiscordRetry(
@@ -217,7 +218,6 @@ export class DiscordStreamManager {
                 );
           this.messages[i] = sent as unknown as DiscordEditMessage;
           this.sentChunks[i] = chunk;
-          this.onFirstMessage?.();
         } catch (error) {
           this.logChunkFailure(error, 'send', i, chunks.length);
         }
@@ -300,6 +300,7 @@ export class DiscordStreamManager {
     await this.prepareResponseChannel();
     const fallback = 'Attached files:';
     try {
+      await this.beforeSend?.();
       const sent =
         this.hasSentMessages() || this.sendFirstChunkToChannel
           ? await withDiscordRetry(
@@ -314,7 +315,6 @@ export class DiscordStreamManager {
             );
       this.messages.push(sent as unknown as DiscordEditMessage);
       this.sentChunks.push(fallback);
-      this.onFirstMessage?.();
     } catch (error) {
       logDiscordApiError({
         error,

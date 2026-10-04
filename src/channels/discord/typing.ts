@@ -1,3 +1,11 @@
+/**
+ * Discord typing indicator for one inbound batch.
+ *
+ * A bot message clears the bot's typing indicator in clients, but a typing
+ * request that lands after that message shows it again for ~10s. Callers
+ * await `settled()` before posting a reply so the last typing request is
+ * finished first. Discord has no call that clears typing directly.
+ */
 import type { Message as DiscordMessage } from 'discord.js';
 
 import { logDiscordApiError } from './transport-errors.js';
@@ -12,18 +20,17 @@ export type DiscordTypingMode = 'instant' | 'thinking' | 'streaming' | 'never';
 
 export interface TypingController {
   setPhase: (phase: DiscordTypingPhase) => void;
+  settled: () => Promise<void>;
   stop: () => void;
 }
 
 interface CreateTypingControllerOptions {
   keepaliveMs?: number;
   ttlMs?: number;
-  stopGraceMs?: number;
 }
 
 const DEFAULT_KEEPALIVE_MS = 8_000;
 const DEFAULT_TTL_MS = 60_000;
-const DEFAULT_STOP_GRACE_MS = 500;
 
 function isTypingActiveForPhase(
   mode: DiscordTypingMode,
@@ -43,6 +50,7 @@ export function createTypingController(
   if (mode === 'never') {
     return {
       setPhase: () => {},
+      settled: async () => {},
       stop: () => {},
     };
   }
@@ -52,23 +60,17 @@ export function createTypingController(
     Math.floor(options?.keepaliveMs ?? DEFAULT_KEEPALIVE_MS),
   );
   const ttlMs = Math.max(5_000, Math.floor(options?.ttlMs ?? DEFAULT_TTL_MS));
-  const stopGraceMs = Math.max(
-    0,
-    Math.floor(options?.stopGraceMs ?? DEFAULT_STOP_GRACE_MS),
-  );
 
   let active = false;
   let stopped = false;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   let ttlTimer: ReturnType<typeof setTimeout> | null = null;
-  let stopTimer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight: Promise<void> = Promise.resolve();
 
-  const sendTyping = async (): Promise<void> => {
+  const sendTyping = (): void => {
     if (stopped || !active) return;
     if (!('sendTyping' in message.channel)) return;
-    try {
-      await message.channel.sendTyping();
-    } catch (error) {
+    const request = message.channel.sendTyping().catch((error: unknown) => {
       logDiscordApiError({
         error,
         expectedAction: 'Typing indicator was not sent.',
@@ -76,7 +78,8 @@ export function createTypingController(
         metadata: { channelId: message.channelId },
         level: 'debug',
       });
-    }
+    });
+    inFlight = inFlight.then(() => request);
   };
 
   const clearTimers = (): void => {
@@ -88,10 +91,6 @@ export function createTypingController(
       clearTimeout(ttlTimer);
       ttlTimer = null;
     }
-    if (stopTimer) {
-      clearTimeout(stopTimer);
-      stopTimer = null;
-    }
   };
 
   const stopNow = (): void => {
@@ -99,27 +98,11 @@ export function createTypingController(
     clearTimers();
   };
 
-  const scheduleStop = (): void => {
-    if (stopped || !active) return;
-    if (stopTimer) return;
-    stopTimer = setTimeout(() => {
-      stopTimer = null;
-      stopNow();
-    }, stopGraceMs);
-  };
-
   const ensureRunning = (): void => {
-    if (stopped) return;
-    if (stopTimer) {
-      clearTimeout(stopTimer);
-      stopTimer = null;
-    }
-    if (active) return;
+    if (stopped || active) return;
     active = true;
-    void sendTyping();
-    keepaliveTimer = setInterval(() => {
-      void sendTyping();
-    }, keepaliveMs);
+    sendTyping();
+    keepaliveTimer = setInterval(sendTyping, keepaliveMs);
     ttlTimer = setTimeout(() => {
       stopNow();
     }, ttlMs);
@@ -131,9 +114,10 @@ export function createTypingController(
       if (isTypingActiveForPhase(mode, phase)) {
         ensureRunning();
       } else {
-        scheduleStop();
+        stopNow();
       }
     },
+    settled: () => inFlight,
     stop: () => {
       if (stopped) return;
       stopped = true;
