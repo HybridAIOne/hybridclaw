@@ -999,3 +999,21 @@ Inputs are capped at 10 MiB and output at 1600px; animated GIF reads cover only 
 first frame. Unsupported binary files fail instead of producing UTF-8 garbage.
 vLLM's “At most 0 image(s)” rejection is treated as unavailable vision; the
 text-only response explicitly reports that the image could not be inspected.
+
+
+### Mobile approval review facts
+
+Pending approvals may include `reviewArguments`, a JSON string containing a
+projection of the exact pending connector call. It is separate from the shortened
+`commandPreview`, allowing mobile clients to review complete email bodies and
+attachment names/paths before sending. Both IPC runners and the chat event retain
+this optional field; a proxy serving phones must forward it unchanged.
+
+The producer allowlists review fields and removes credential fields and attachment
+bytes. Reviews larger than 256 KiB are omitted as a whole, never truncated into a
+misleading partial message. Unknown or missing details remain unknown. The field
+is presentation data: approval ID binding, expiry, execution arguments and allowed
+grant scopes are unchanged. It carries message content over the existing private
+approval transport and must not be included in diagnostic logging. Attachment paths
+use the client's authenticated document reader; metadata without a path cannot
+supply an attachment-content preview.

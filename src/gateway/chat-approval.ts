@@ -42,6 +42,9 @@ export function extractGatewayChatApprovalEvent(
     approvalTier: approval.approvalTier,
     toolName: approval.toolName,
     commandPreview: approval.commandPreview,
+    ...(approval.reviewArguments
+      ? { reviewArguments: approval.reviewArguments }
+      : {}),
     summary,
     allowSession: approval.allowSession === true,
     allowAgent: approval.allowAgent === true,

@@ -11,6 +11,7 @@ import {
   type ToolApprovalEvaluation,
   TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
+import { approvalReviewArguments } from './approval-review.js';
 import { emitRuntimeEvent } from './extensions.js';
 import { haltIfShuttingDown } from './shutdown-latch.js';
 import type {
@@ -47,6 +48,7 @@ export function buildPendingApproval(
   approval: ToolApprovalEvaluation,
   prompt: string,
   toolName: string,
+  argsJson: string,
 ): PendingApproval {
   if (!approval.requestId) {
     throw new Error('Approval-required tool call is missing a request id.');
@@ -59,6 +61,7 @@ export function buildPendingApproval(
     approvalTier: approval.tier,
     toolName,
     commandPreview: approval.commandPreview,
+    reviewArguments: approvalReviewArguments(toolName, argsJson),
     allowSession: !approval.pinned,
     allowAgent: !approval.pinned,
     allowAll: !approval.pinned,
