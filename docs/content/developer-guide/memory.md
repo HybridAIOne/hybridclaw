@@ -618,3 +618,44 @@ rejected to prevent workspace entries from redirecting host appends. As with
 memory updates, the workspace lock coordinates runtime writers, not external
 editors; journal history is a separate write from the memory commit and can be
 missing after an I/O failure or a gateway crash between those writes.
+
+## Person and group memory views
+
+Open **Memory** in the console sidebar (`/admin/memory`) to inspect what Hy
+remembers for a relationship. **People** lists direct conversation audiences;
+**Groups** lists group and channel audiences, preserving thread/topic keys;
+**Sessions** lists audiences whose relationship type cannot be determined.
+Labels use stored peer IDs, not names guessed from message text. Search covers
+loaded relationships; **Load more relationships** includes older entries.
+
+The view groups current and retired session instances by agent and their stored
+`main_session_key` (falling back to `session_key`, then the instance ID). It
+shows semantic memories with confidence and source session/message IDs,
+conversation summaries, source session keys, and the existing canonical
+continuity window and summary. Memories and session sources are paginated, and
+inspection does not increase recall access counters. Deleted semantic rows are
+excluded. This view does not synthesize a profile or change memory retrieval.
+
+The audience key is distinct from semantic `scope` (a category such as `fact`
+or `episodic`). Semantic recall stays within a session instance; canonical
+continuity uses the stored audience key. Explicitly linked DM identities appear
+together only where persisted routing already joined them. Changing identity
+link configuration does not retroactively regroup stored audiences in this view.
+`MEMORY.md` and daily workspace notes are shared by an agent's sessions and are
+not private person/group stores; their contents are not attributed to a
+relationship. External memory plugins and cloud stores are not included.
+
+### Access and failure boundaries
+
+`GET /api/admin/memory/relationships` lists audiences; add `agentId` and
+`audienceKey` to inspect one. `offset`, `sessionOffset`, and `memoryOffset` are
+nonnegative integer pagination offsets. Each page contains at most 50 rows;
+responses include the next offset or `null`. Detail returns 404 for an unknown
+agent/audience pair and 400 for incomplete or malformed selectors.
+
+This is an operator inventory protected by `admin.sessions.read`, with the same
+installation-wide trust as session inspection. It is not a participant-facing
+endpoint or a grant to recall another relationship's memory. Cross-agent and
+cross-audience content must stay excluded from detail queries. No mutation
+method is supported; malformed audience keys remain unclassified rather than
+being labelled private. The existing workspace-sharing boundary still applies.
