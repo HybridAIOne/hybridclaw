@@ -109,6 +109,7 @@ export async function runIsolatedScheduledTask(params: {
   const blockedTools = blockDeviceDataToolUnlessShared(['cron'], owner);
   const { messages, skills } = buildConversationContext({
     agentId,
+    preferenceUserId: owner ?? null,
     history: [],
     currentUserContent: prompt,
     runtimeInfo: {
