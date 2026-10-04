@@ -1,24 +1,23 @@
 ---
 name: handoff-links
-description: Hand off food delivery, grocery shopping, train trips and hotel stays to Lieferando, Wolt, Uber Eats, Knuspr, Gurkerl, DB Navigator or Booking.com with a prefilled link that opens the user's app. Use when the user wants to order food, get groceries or a recipe's ingredients delivered, find a train in or from Germany, or find a place to stay; you cannot order or book in these services yourself.
+description: Hand off food delivery, grocery shopping and train trips to Lieferando, Wolt, Uber Eats, Knuspr, Gurkerl or DB Navigator with a prefilled link that opens the user's app. Use when the user wants to order food, get groceries or a recipe's ingredients delivered, or find a train in or from Germany; you cannot order or book in these services yourself.
 user-invocable: false
 metadata:
   hybridclaw:
     category: productivity
-    short_description: "Prefilled links into delivery, grocery, rail and hotel apps."
+    short_description: "Prefilled links into delivery, grocery and rail apps."
     tags:
       - food
       - delivery
       - groceries
       - train
-      - hotel
       - travel
       - links
 ---
 # Handoff Links
 
 You can't order or book for the user at Lieferando, Wolt, Uber Eats, Knuspr,
-Gurkerl, Deutsche Bahn or Booking.com. Do the searching and thinking, then hand
+Gurkerl or Deutsche Bahn. Do the searching and thinking, then hand
 the last step to the user: a link that opens their app, or the website when the
 app is missing, with the search or the shopping list already filled in. The user
 picks, pays and confirms there.
@@ -29,7 +28,7 @@ picks, pays and confirms there.
 - Do not order, book or pay on these sites with the browser. Wolt's terms
   forbid bots, and the others block automated browsers. Web search to find
   options is fine.
-- Build links only from the templates below. A restaurant or hotel page is
+- Build links only from the templates below. A restaurant page is
   fine only when a search result gave you its exact URL. Never invent a slug or
   an ID.
 - Percent-encode every value: space `%20`, `ä` `%C3%A4`, `ö` `%C3%B6`, `ü`
@@ -111,19 +110,6 @@ https://www.bahn.de/buchung/start?sts=true&so=<from>&zo=<to>&hd=<YYYY-MM-DDTHH:M
 - Leave out travellers and BahnCard. DB Navigator uses the profile saved in it.
 - The link opens DB Navigator with the connections listed. Without the app,
   bahn.de shows the same search.
-
-## Hotels: Booking.com
-
-```text
-https://www.booking.com/searchresults.de.html?ss=<place>&checkin=<YYYY-MM-DD>&checkout=<YYYY-MM-DD>&group_adults=<adults>&no_rooms=1&group_children=0
-```
-
-- `ss` is a city, a district, or a hotel's name with its city.
-- `searchresults.de.html` shows the page in German. Use
-  `searchresults.html` for English.
-- For a hotel a search result gave you, use its exact
-  `https://www.booking.com/hotel/…` URL and append the same `checkin`,
-  `checkout` and `group_adults`.
 
 ## Example
 

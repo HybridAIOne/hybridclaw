@@ -15,7 +15,7 @@ const PAGE_INFO_READ = {
 // full snapshot, then the snapshot's iframe and 2FA-field reads.
 const PAGE_SNAPSHOT_READ = [
   { command: 'wait', args: ['--load', 'networkidle'] },
-  { command: 'snapshot', args: ['-C'] },
+  { command: 'snapshot', args: ['-C', '--urls'] },
   { command: 'eval', args: [expect.any(String)] },
   { command: 'eval', args: [expect.any(String)] },
 ];
