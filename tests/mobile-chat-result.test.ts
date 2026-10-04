@@ -111,7 +111,7 @@ describe('chatResultForClient', () => {
   it.each([
     ['a reply', skillsListTurn()],
     [
-      'a reply with files and a reaction',
+      'a reply with files',
       {
         ...skillsListTurn(),
         artifacts: [
@@ -121,7 +121,6 @@ describe('chatResultForClient', () => {
             mimeType: 'application/pdf',
           },
         ],
-        reaction: '🎉',
       },
     ],
     [
@@ -144,7 +143,6 @@ describe('chatResultForClient', () => {
         'userMessageId',
         'assistantMessageId',
         'artifacts',
-        'reaction',
       ] as const;
       const slim = chatResultForClient('mobile', result);
       for (const field of read) expect(slim[field]).toEqual(result[field]);

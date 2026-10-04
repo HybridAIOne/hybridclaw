@@ -1298,7 +1298,6 @@ export interface RuntimeConfig {
     second_opinion: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
-    chat_reaction: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -2043,7 +2042,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     defaultMaxTokens: 8_192,
   },
   auxiliaryModels: {
-    chat_reaction: { provider: 'auto', model: '', maxTokens: 16 },
     vision: {
       provider: 'auto',
       model: '',

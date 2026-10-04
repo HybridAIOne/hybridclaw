@@ -567,6 +567,7 @@ async function withAuxiliaryFallbackChain(
   localLogMessage = 'Auxiliary provider resolution failed; using local model fallback',
   maxTokens?: number,
 ): Promise<AuxiliaryTextCallContext> {
+  if (params.allowFallback === false) throw primaryError;
   const localFallback = await resolveLocalFallbackContext({
     params,
     primaryError,
@@ -901,6 +902,11 @@ async function resolveTextCallContext(
     requestedMaxTokens,
   );
   if (taskOverride) return taskOverride;
+  if (params.allowFallback === false) {
+    throw new Error(
+      `${params.task} requires a configured auxiliary model when fallback is disabled.`,
+    );
+  }
 
   // 3. Auto-routed auxiliary calls prefer concrete, healthy local candidates
   // before any remote fallback/session model. The resolver only checks health

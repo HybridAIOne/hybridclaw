@@ -234,7 +234,6 @@ import {
 import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   CHAT_REACTION_PATH,
-  createLoneEmojiHold,
   handleChatReactionRoute,
 } from './chat-reactions.js';
 import {
@@ -3474,7 +3473,6 @@ async function handleApiChat(
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
-    ...(body.reactions === true ? { reactions: true } : {}),
   };
   logger.debug(
     {
@@ -3877,7 +3875,6 @@ async function handleApiChatStream(
 
   const onToolProgress = (event: ToolProgressEvent): void => {
     if (event.phase === 'start') {
-      sendText(emojiHold?.flush() ?? '');
       pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
     } else {
@@ -3906,9 +3903,6 @@ async function handleApiChatStream(
     visible: true,
     displaySurface: 'assistant_bubble' as const,
   };
-  // A reply that is one emoji alone becomes a reaction where reactions show,
-  // so it is held back until it is clearly more than that.
-  const emojiHold = chatRequest.reactions ? createLoneEmojiHold() : null;
   const sendText = (text: string): void => {
     if (!text) return;
     tail.noteTextDelta();
@@ -3922,7 +3916,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
-    sendText(emojiHold ? emojiHold.push(filteredDelta) : filteredDelta);
+    sendText(filteredDelta);
   };
   const onThinkingDelta = (delta: string): void => {
     if (!delta) return;
@@ -3966,7 +3960,6 @@ async function handleApiChatStream(
           onRoutingTrace: (trace) => sendEvent({ type: 'routing', trace }),
           onTextDelta,
           onThinkingDelta,
-          onReaction: (emoji) => sendEvent({ type: 'reaction', emoji }),
           onToolProgress,
           onApprovalProgress,
         }),
@@ -3975,12 +3968,7 @@ async function handleApiChatStream(
     result = normalizePendingApprovalReply(result);
     tail.mark('chatHandler');
     if (result.status === 'success') {
-      let bufferedDelta = streamFilter.flush();
-      if (emojiHold) {
-        bufferedDelta = emojiHold.push(bufferedDelta) + emojiHold.flush();
-        // The emoji the turn made a reaction is no reply.
-        if (result.reaction && !result.result) bufferedDelta = '';
-      }
+      const bufferedDelta = streamFilter.flush();
       if (bufferedDelta) {
         sendEvent({
           type: 'text',

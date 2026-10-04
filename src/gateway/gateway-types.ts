@@ -155,8 +155,6 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
-  /** The emoji the agent put on the user's message in this turn. */
-  reaction?: string;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -175,11 +173,6 @@ export interface GatewayChatTextDeltaEvent {
   type: 'text';
   delta: string;
   outputPresentation?: OutputPresentationMetadata;
-}
-
-export interface GatewayChatReactionEvent {
-  type: 'reaction';
-  emoji: string;
 }
 
 export interface GatewayChatThinkingDeltaEvent {
@@ -203,7 +196,6 @@ export type GatewayChatStreamEvent =
   | GatewayChatToolProgressEvent
   | GatewayChatTextDeltaEvent
   | GatewayChatThinkingDeltaEvent
-  | GatewayChatReactionEvent
   | GatewayChatApprovalEvent
   | GatewayChatStreamResultEvent;
 
@@ -251,11 +243,6 @@ export interface GatewayChatRequestBody {
    * call instead of calling tools silently.
    */
   toolStatus?: boolean;
-  /**
-   * The client shows emoji reactions on messages. A quick acknowledgement
-   * streams independently of the reply, and the result keeps its reaction.
-   */
-  reactions?: boolean;
 }
 
 export interface GatewayChatRequest {
@@ -266,7 +253,6 @@ export interface GatewayChatRequest {
   appKind?: 'web' | 'live';
   client?: GatewayChatRequestBody['client'];
   toolStatus?: GatewayChatRequestBody['toolStatus'];
-  reactions?: GatewayChatRequestBody['reactions'];
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';
@@ -307,7 +293,6 @@ export interface GatewayChatRequest {
   onRoutingTrace?: (trace: RoutingTrace) => void;
   onTextDelta?: (delta: string) => void;
   onThinkingDelta?: (delta: string) => void;
-  onReaction?: (emoji: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {

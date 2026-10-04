@@ -93,8 +93,6 @@ export interface PromptRuntimeInfo {
    * line and keeps only the text after the last tool as the reply.
    */
   toolStatus?: boolean;
-  /** The client shows quick emoji acknowledgements independently of replies. */
-  reactions?: boolean;
   model?: string;
   defaultModel?: string;
   channelType?: string;
@@ -525,11 +523,6 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
-// Conversational replies are independent of the quick reaction shown by the app.
-export const REACTION_STYLE_LINES = [
-  'Reply naturally; emojis are welcome. Greet briefly and answer questions and requests. For a simple acknowledgement, thanks or compliment, reply with only one emoji.',
-];
-
 function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
@@ -590,9 +583,6 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
-    ...(context.runtimeInfo?.reactions
-      ? ['## Reactions', ...REACTION_STYLE_LINES, '']
-      : []),
     '## Tool Call Style',
     ...(context.runtimeInfo?.toolStatus
       ? TOOL_STATUS_STYLE_LINES

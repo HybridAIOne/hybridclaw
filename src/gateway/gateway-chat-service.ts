@@ -8,7 +8,6 @@
  */
 
 import path from 'node:path';
-import { readSingleEmoji } from '../../container/shared/reactions.js';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -28,7 +27,7 @@ import {
   formatSideEffectNotice,
   processSideEffects,
 } from '../agent/side-effects.js';
-import { isSilentReply, SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
+import { isSilentReply } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
   resolveAgentEscalationTarget,
@@ -159,7 +158,6 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
-import { withTurnReaction } from './chat-reactions.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -172,7 +170,6 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
-import { chooseEarlyReaction } from './early-reaction.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -634,7 +631,6 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
-  let earlyReaction: string | null = null;
   // Tool progress arrives over IPC from the agent process, outside this
   // turn's async context; keep the turn span so tool spans nest under it.
   const turnTraceContext = captureActiveContext();
@@ -720,7 +716,7 @@ async function handleGatewayMessageInner(
   const attachSessionIdentity = (
     result: GatewayChatResult,
   ): GatewayChatResult => ({
-    ...withTurnReaction(result, req.sessionId, earlyReaction),
+    ...result,
     sessionId: req.sessionId,
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
@@ -1718,17 +1714,6 @@ async function handleGatewayMessageInner(
     req.sessionId,
     HISTORY_FETCH_LIMIT,
   );
-  const earlyReactionPending = chooseEarlyReaction({
-    agentId,
-    content: userTurnContent,
-    maximumZone: getModelCatalogMetadata(model).zone,
-    enabled: Boolean(req.reactions),
-    abortSignal: activeGatewayRequest.signal,
-    onReaction: (emoji) => {
-      earlyReaction = emoji;
-      req.onReaction?.(emoji);
-    },
-  });
   const historyTruncated = fetchedHistory.length >= HISTORY_FETCH_LIMIT;
   const history = fetchedHistory.filter(
     (message) => !isSilentReply(message.content),
@@ -1899,7 +1884,6 @@ async function handleGatewayMessageInner(
       chatbotId,
       ...(req.client ? { client: req.client } : {}),
       ...(req.toolStatus ? { toolStatus: true } : {}),
-      ...(req.reactions ? { reactions: true } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,
@@ -2071,7 +2055,6 @@ async function handleGatewayMessageInner(
     role: 'user',
     content: agentUserContent,
   });
-  await earlyReactionPending;
   const requestMessages = isGatewayRequestLoggingEnabled()
     ? messages.slice()
     : null;
@@ -2819,21 +2802,8 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
-    // A reaction can be the whole answer, as in a messenger. Where reactions
-    // show, a reply that is one emoji alone is that reaction, so the model
-    // need not choose between writing an emoji and reacting with it.
-    const loneEmoji =
-      req.reactions &&
-      !delegationAcknowledgement &&
-      !sideEffectNotice &&
-      !output.artifacts?.length &&
-      !output.pendingApproval
-        ? readSingleEmoji(output.result)
-        : '';
-    const reaction = loneEmoji || earlyReaction;
-    const agentResultText = loneEmoji
-      ? ''
-      : output.result || buildEmptyAgentResponseFallback(output.artifacts);
+    const agentResultText =
+      output.result || buildEmptyAgentResponseFallback(output.artifacts);
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2936,9 +2906,7 @@ async function handleGatewayMessageInner(
       userMedia: media,
       userDynamicContext: dynamicContext,
       steerNotes,
-      // A reaction alone is kept as a reply that says nothing, as a silent
-      // channel reply is, so no assistant turn is ever stored empty.
-      resultText: !resultText && reaction ? SILENT_REPLY_TOKEN : resultText,
+      resultText,
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
@@ -3053,7 +3021,6 @@ async function handleGatewayMessageInner(
         getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
-      ...(reaction ? { reaction } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await emitPostTurnForResult(result);

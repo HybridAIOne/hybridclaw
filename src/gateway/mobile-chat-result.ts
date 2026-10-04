@@ -1,7 +1,7 @@
 /**
  * The `result` line of a streamed `/api/chat` turn, cut to what the client
  * reads. The iOS and Android apps (`client: "mobile"`) read only the reply,
- * its status and error, the stored message ids, files and reaction; each tool
+ * its status and error, the stored message ids and files; each tool
  * call already reached them as a `tool` line.
  *
  * Wire-only: the caller has used the full result (artifact capture,
@@ -27,6 +27,5 @@ export function chatResultForClient(
     userMessageId: result.userMessageId,
     assistantMessageId: result.assistantMessageId,
     artifacts: result.artifacts,
-    reaction: result.reaction,
   };
 }
