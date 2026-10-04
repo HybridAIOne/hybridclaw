@@ -1,13 +1,9 @@
 /**
  * Emoji reactions in a one-to-one chat, stored with the message they are on.
  *
- * A quick acknowledgement is independent of the reply and stored with its
- * user message when the turn is recorded. The user reacts to the agent's
- * replies through `POST /api/chat/reaction`, which
- * runs no turn: the agent learns of it in its next turn's context. Only the
- * operator the session is bound to (first to chat in it) may react; any other
- * caller sees the same 404 as a missing message. A 👍 or 👎 is the reply's
- * rating too, as Teams reactions are.
+ * Clients choose Hy's reactions independently of chat execution and persist them
+ * on user messages. Reactions on assistant replies are user feedback; only those
+ * can become response ratings. The bound session operator owns both surfaces.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readSingleEmoji } from '../../container/shared/reactions.js';
@@ -16,70 +12,9 @@ import { setMessageReaction } from '../memory/db.js';
 import type { ResponseRatingValue } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
-import type { GatewayChatResult } from './gateway-types.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 
 export const CHAT_REACTION_PATH = '/api/chat/reaction';
-
-// What a lone emoji is made of: pictographs, skin tones, flags, joiners and
-// keycaps. The longest single emoji (a kiss with two skin tones) is 15 units.
-const EMOJI_PARTS =
-  /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f|\u20e3)*$/u;
-const LONE_EMOJI_MAX_LENGTH = 16;
-
-/**
- * Holds a streamed reply back while it could still be one emoji alone, which
- * the turn makes a reaction instead of a reply, so it never shows as a reply
- * first. Any other reply passes once its first characters are in. `flush`
- * hands back what is held and holds again, as text after a tool call is a new
- * reply.
- */
-export function createLoneEmojiHold(): {
-  push: (delta: string) => string;
-  flush: () => string;
-} {
-  let held = '';
-  let passing = false;
-  const flush = (): string => {
-    const text = held;
-    held = '';
-    passing = false;
-    return text;
-  };
-  return {
-    push(delta: string): string {
-      if (passing || !delta) return delta;
-      held += delta;
-      const text = held.trim();
-      if (text.length <= LONE_EMOJI_MAX_LENGTH && EMOJI_PARTS.test(text)) {
-        return '';
-      }
-      const passed = flush();
-      passing = true;
-      return passed;
-    },
-    flush,
-  };
-}
-
-/** Save the acknowledgement on successful and failed turns that stored a user message. */
-export function withTurnReaction(
-  result: GatewayChatResult,
-  sessionId: string,
-  early: string | null,
-): GatewayChatResult {
-  const emoji = readSingleEmoji(result.reaction || early);
-  if (!emoji) return result;
-  if (result.userMessageId) {
-    setMessageReaction({
-      sessionId,
-      messageId: result.userMessageId,
-      role: 'user',
-      emoji,
-    });
-  }
-  return { ...result, reaction: emoji };
-}
 
 // 👍 and 👎 in any skin tone.
 function ratingOf(emoji: string | null): ResponseRatingValue | null {
@@ -106,6 +41,11 @@ export async function handleChatReactionRoute(
     Number.isSafeInteger(body.messageId) && Number(body.messageId) > 0
       ? Number(body.messageId)
       : 0;
+  const role = body.role === undefined ? 'assistant' : body.role;
+  if (role !== 'user' && role !== 'assistant') {
+    sendJson(res, 400, { error: 'Expected role user or assistant.' });
+    return;
+  }
   // null takes the reaction off.
   const emoji = body.emoji === null ? null : readSingleEmoji(body.emoji);
   if (!sessionId || sessionId.length > 256 || !messageId || emoji === '') {
@@ -117,7 +57,7 @@ export async function handleChatReactionRoute(
   }
   const stored =
     webNotificationSessionOperator(sessionId) === operatorId
-      ? setMessageReaction({ sessionId, messageId, role: 'assistant', emoji })
+      ? setMessageReaction({ sessionId, messageId, role, emoji })
       : null;
   if (!stored) {
     sendJson(res, 404, { error: 'Message not found.' });
@@ -126,7 +66,7 @@ export async function handleChatReactionRoute(
   // A withdrawn 👍 clears only a rating it made, never a later explicit one.
   const added = ratingOf(emoji);
   const removed = ratingOf(stored.previous);
-  if (added || removed) {
+  if (role === 'assistant' && (added || removed)) {
     try {
       // Loaded here, as for Teams, so chat turns do not pull in rating forwarding.
       const { applyReactionRatingChanges } = await import(

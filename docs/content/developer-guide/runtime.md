@@ -455,24 +455,19 @@ Session behavior matches the routing rules above:
   only the text after the last tool as the reply (the `result` carries only
   that part). The agent is then asked to begin each tool-calling response with
   one short line such as "Checking the page…" instead of calling tools silently
-- a streaming `/api/chat` client that sends `reactions: true` shows emoji
-  reactions independently of replies. Roughly half of its messages are sampled
-  for a fast acknowledgement from `auxiliaryModels.chat_reaction`, sent as
-  `{ "type": "reaction", "emoji": "📰" }` before the main conversational model.
-  Configure that task's provider and model explicitly; an empty model skips the
-  early acknowledgement. It has a 750 ms deadline and no provider fallback.
-  The destination must stay within the reply model's zone, and confidential
-  text uses the same redaction boundary as other model inputs.
-  The main model decides its reply independently: normal replies can contain
-  emoji, and one emoji alone becomes a reaction when no words are needed.
-  The result and history keep the reaction on the user's message, including
-  failed turns that stored the message. The user's own reactions
-  (`POST /api/chat/reaction`) reach the model with the next message. A 👍 or 👎
-  is also the reply's response rating; taking it off clears only the rating
-  it made. `auxiliaryModels.chat_reaction` can point to a different decision
-  model without changing the chat protocol. Run
-  `tsx scripts/benchmark-chat-reactions.ts --reaction-model <id> --runs 3`
-  for the greeting, acknowledgement, question and request benchmark.
+- Hy clients choose emoji reactions separately from the main chat model, using
+  the phone model first and `auxiliary/eval_judge` second. No suitable emoji is
+  a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
+  it) on a message in the caller's bound session: `role: "user"` is Hy's reaction;
+  `role: "assistant"` (the default) is user feedback. Only feedback can become a
+  👍/👎 response rating. The main chat model has no `react` tool, and emoji-only
+  replies remain reply text. `/api/history` returns persisted reactions.
+- Raw, non-streaming `/v1/chat/completions` requests to `auxiliary/eval_judge`
+  use the auxiliary policy without provider fallback. `model: "regular"` uses
+  the default agent's regular model. Both use only the supplied messages and
+  expose no tools. Avatar selection and idea categorization advance explicitly
+  from the on-device model to auxiliary to regular when an answer fails validation;
+  emoji selection ends after auxiliary. Cloud decisions require the app's AI consent.
 - a streaming `/api/chat` response opens with an `accepted` line and sends a
   `ping` line after 15 s without other output, so proxies and phone read
   timeouts keep the connection open. Clients skip line types they do not know.
@@ -483,7 +478,7 @@ Session behavior matches the routing rules above:
   the rest, so the message is not answered twice
 - a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
   line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
-  `userMessageId`, `assistantMessageId`, `artifacts`, and `reaction`. Tool
+  `userMessageId`, `assistantMessageId`, and `artifacts`. Tool
   arguments and outputs, usage, prompts, and routing are left out; the `tool`
   lines already reported each call
 

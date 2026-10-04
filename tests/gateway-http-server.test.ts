@@ -5620,6 +5620,7 @@ describe('gateway HTTP server', () => {
       fallbackModel: expect.any(String),
       agentId: 'main',
       temperature: 0,
+      allowFallback: false,
     });
 
     const payload = JSON.parse(res.body);

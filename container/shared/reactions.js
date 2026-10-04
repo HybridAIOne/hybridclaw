@@ -1,6 +1,6 @@
 /**
- * One-emoji validation for quick acknowledgements, the gateway's reaction
- * route and idea icons, so
+ * Emoji reactions on chat messages: the one-emoji check shared by the
+ * gateway's reaction route and idea icons, so
  * model or client text never lands where a single emoji belongs.
  */
 
