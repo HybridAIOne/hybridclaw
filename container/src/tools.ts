@@ -89,7 +89,6 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
-import { REACT_TOOL_DEFINITION, runReactTool } from './tools/react.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -3606,11 +3605,6 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
 
-    case 'react': {
-      const { ok, text } = runReactTool(args);
-      return ok ? text : failTool(text);
-    }
-
     case 'session_search': {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
       if (!query)
@@ -4195,7 +4189,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
-  REACT_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

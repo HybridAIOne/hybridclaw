@@ -353,6 +353,11 @@ describe('config reload integration', () => {
         },
       },
       auxiliaryModels: {
+        chat_reaction: {
+          provider: 'vllm',
+          model: 'vllm/reaction-model',
+          maxTokens: '16',
+        },
         cv_narration: {
           provider: 'openrouter',
           model: 'openai/gpt-5-nano',
@@ -372,6 +377,11 @@ describe('config reload integration', () => {
       renderThrottleMs: 0,
       batchDebounceMs: 1500,
       narrationDailyBudgetUsd: 0.0025,
+    });
+    expect(cfg.auxiliaryModels.chat_reaction).toEqual({
+      provider: 'vllm',
+      model: 'vllm/reaction-model',
+      maxTokens: 16,
     });
     expect(cfg.auxiliaryModels.cv_narration).toEqual({
       provider: 'openrouter',

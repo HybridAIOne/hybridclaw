@@ -1,26 +1,22 @@
 /**
  * Emoji reactions in a one-to-one chat, stored with the message they are on.
  *
- * The agent reacts to the user's message with its `react` tool; the turn's
- * reaction is read from its tool executions and stored once the turn is. The
- * user reacts to the agent's replies through `POST /api/chat/reaction`, which
+ * A quick acknowledgement is independent of the reply and stored with its
+ * user message when the turn is recorded. The user reacts to the agent's
+ * replies through `POST /api/chat/reaction`, which
  * runs no turn: the agent learns of it in its next turn's context. Only the
  * operator the session is bound to (first to chat in it) may react; any other
  * caller sees the same 404 as a missing message. A 👍 or 👎 is the reply's
  * rating too, as Teams reactions are.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import {
-  REACT_TOOL_NAME,
-  readSingleEmoji,
-} from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '../../container/shared/reactions.js';
 import { logger } from '../logger.js';
 import { setMessageReaction } from '../memory/db.js';
-import type { ToolExecution } from '../types/execution.js';
 import type { ResponseRatingValue } from '../types/session.js';
-import { parseJsonObject } from '../utils/json-object.js';
 import { isRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import type { GatewayChatResult } from './gateway-types.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 
 export const CHAT_REACTION_PATH = '/api/chat/reaction';
@@ -66,16 +62,23 @@ export function createLoneEmojiHold(): {
   };
 }
 
-/** The emoji of the turn's last reaction that went through, if any. */
-export function turnReaction(
-  executions: readonly ToolExecution[] | undefined,
-): string | null {
-  for (const execution of [...(executions ?? [])].reverse()) {
-    if (execution.name !== REACT_TOOL_NAME || execution.isError) continue;
-    const emoji = readSingleEmoji(parseJsonObject(execution.arguments)?.emoji);
-    if (emoji) return emoji;
+/** Save the acknowledgement on successful and failed turns that stored a user message. */
+export function withTurnReaction(
+  result: GatewayChatResult,
+  sessionId: string,
+  early: string | null,
+): GatewayChatResult {
+  const emoji = readSingleEmoji(result.reaction || early);
+  if (!emoji) return result;
+  if (result.userMessageId) {
+    setMessageReaction({
+      sessionId,
+      messageId: result.userMessageId,
+      role: 'user',
+      emoji,
+    });
   }
-  return null;
+  return { ...result, reaction: emoji };
 }
 
 // 👍 and 👎 in any skin tone.

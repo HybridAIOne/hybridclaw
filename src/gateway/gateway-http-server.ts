@@ -12,7 +12,6 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import * as yazl from 'yazl';
-import { REACT_TOOL_NAME } from '../../container/shared/reactions.js';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
@@ -3873,9 +3872,6 @@ async function handleApiChatStream(
   };
 
   const onToolProgress = (event: ToolProgressEvent): void => {
-    // A reaction is no step of work: the text written with it is the reply,
-    // and the reaction itself comes with the result.
-    if (event.toolName === REACT_TOOL_NAME) return;
     if (event.phase === 'start') {
       sendText(emojiHold?.flush() ?? '');
       pushStreamedTextDraft();
@@ -3966,6 +3962,7 @@ async function handleApiChatStream(
           onRoutingTrace: (trace) => sendEvent({ type: 'routing', trace }),
           onTextDelta,
           onThinkingDelta,
+          onReaction: (emoji) => sendEvent({ type: 'reaction', emoji }),
           onToolProgress,
           onApprovalProgress,
         }),

@@ -5,9 +5,12 @@ import { expect, test, vi } from 'vitest';
 import type { ContainerOutput } from '../src/types/container.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
-const { runAgentMock } = vi.hoisted(() => ({
+const { runAgentMock, earlyReactionMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
+  earlyReactionMock: vi.fn(),
 }));
+
+vi.mock('../src/gateway/early-reaction.js', () => ({ chooseEarlyReaction: earlyReactionMock }));
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
@@ -17,30 +20,17 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-chat-reactions-',
   cleanup: () => {
     runAgentMock.mockReset();
+    earlyReactionMock.mockReset();
   },
 });
 
-function answered(result: string | null, emoji?: string): ContainerOutput {
-  return {
-    status: 'success',
-    result,
-    toolsUsed: emoji ? ['react'] : [],
-    toolExecutions: emoji
-      ? [
-          {
-            name: 'react',
-            arguments: JSON.stringify({ emoji }),
-            result: `Reacted with ${emoji}.`,
-            durationMs: 1,
-            isError: false,
-          },
-        ]
-      : [],
-  };
+function answered(result: string | null): ContainerOutput {
+  return { status: 'success', result, toolsUsed: [], toolExecutions: [] };
 }
 
 async function setup() {
   setupHome();
+  earlyReactionMock.mockResolvedValue(null);
   const db = await import('../src/memory/db.js');
   db.initDatabase({ quiet: true });
   const { handleGatewayMessage } = await import(
@@ -89,14 +79,14 @@ function fakeResponse() {
   return res;
 }
 
-test('only a client that shows reactions gets the tool and the guidance', async () => {
+test('only a client that shows reactions gets the guidance', async () => {
   const { turn, sentToModel } = await setup();
   runAgentMock.mockResolvedValue(answered('Hello.'));
 
   await turn('hi', false);
   await turn('hi');
 
-  expect(runAgentMock.mock.calls[0]?.[0].blockedTools).toContain('react');
+  expect(runAgentMock.mock.calls[0]?.[0].blockedTools ?? []).not.toContain('react');
   expect(sentToModel(0)).not.toContain('## Reactions');
   expect(runAgentMock.mock.calls[1]?.[0].blockedTools ?? []).not.toContain(
     'react',
@@ -107,8 +97,9 @@ test('only a client that shows reactions gets the tool and the guidance', async 
 test('the agent’s reaction lands on the user’s message, and alone it is the whole answer', async () => {
   const { db, turn, getGatewayHistory } = await setup();
   runAgentMock
-    .mockResolvedValueOnce(answered('Congratulations!', '🎉'))
-    .mockResolvedValueOnce(answered(null, '❤️'));
+    .mockResolvedValueOnce(answered('Congratulations!'))
+    .mockResolvedValueOnce(answered('❤️'));
+  earlyReactionMock.mockImplementationOnce(async params => { params.onReaction?.('🎉'); return '🎉'; });
 
   const first = await turn('I got the job!');
   const second = await turn('Thanks for your help');
@@ -158,8 +149,8 @@ test('where reactions show, a reply of one emoji alone is a reaction', async () 
 test('a message answered with a reaction alone reads as answered later', async () => {
   const { turn, sentToModel } = await setup();
   runAgentMock
-    .mockResolvedValueOnce(answered(null, '🎉'))
-    .mockResolvedValueOnce(answered('Any time!', '❤️'))
+    .mockResolvedValueOnce(answered('🎉'))
+    .mockResolvedValueOnce(answered('Any time!'))
     .mockResolvedValueOnce(answered('Deep sleep restores the body.'));
 
   await turn('I got the job!');
@@ -283,4 +274,51 @@ test('a 👍 or 👎 on a reply is its rating, and only a withdrawn one clears i
   });
   expect(await react('😂')).toBe('down');
   expect(await react(null)).toBe('down');
+});
+
+test('an early reaction reaches the client before thinking and never suppresses the written answer', async () => {
+  const { db } = await setup();
+  const events: string[] = [];
+  earlyReactionMock.mockImplementationOnce(async params => {
+    params.onReaction?.('📰');
+    return '📰';
+  });
+  runAgentMock.mockImplementationOnce(async input => {
+    input.onThinkingDelta?.('Checking updates');
+    input.onTextDelta?.('Here is the news.');
+    return answered('Here is the news.');
+  });
+  const { handleGatewayMessage } = await import('../src/gateway/gateway-chat-service.js');
+  const result = await handleGatewayMessage({
+    sessionId: 'web:phone', guildId: null, channelId: 'web', userId: 'user_a', username: 'web',
+    model: 'hybridai/gpt-5-mini', chatbotId: 'bot_a', content: "What's the news?", client: 'mobile', reactions: true,
+    onReaction: () => events.push('reaction'), onThinkingDelta: () => events.push('thinking'), onTextDelta: () => events.push('text'),
+  });
+  expect(events[0]).toBe('reaction');
+  expect(events).toContain('text');
+  expect(result).toMatchObject({ result: 'Here is the news.', reaction: '📰' });
+  expect(runAgentMock).toHaveBeenCalledTimes(1);
+  expect(db.getConversationHistory(String(result.sessionId), 2).find(message => message.role === 'user')?.reaction).toBe('📰');
+});
+
+test('a reaction still stays with a user message when its written reply fails', async () => {
+  const { db, turn } = await setup();
+  earlyReactionMock.mockImplementationOnce(async params => { params.onReaction?.('👀'); return '👀'; });
+  runAgentMock.mockResolvedValueOnce({ status: 'error', result: null, toolsUsed: [], error: 'offline' });
+  const result = await turn('Please research battery recycling');
+  expect(result).toMatchObject({ status: 'error', reaction: '👀' });
+  expect(db.getConversationHistory(String(result.sessionId), 2).find(message => message.role === 'user')?.reaction).toBe('👀');
+});
+
+
+test('an early emoji cannot hide an empty conversational response', async () => {
+  const { turn } = await setup();
+  earlyReactionMock.mockImplementationOnce(async params => {
+    params.onReaction?.('📰');
+    return '📰';
+  });
+  runAgentMock.mockResolvedValueOnce(answered(''));
+  const result = await turn('Irgendetwas neues?');
+  expect(result.reaction).toBe('📰');
+  expect(result.result).toBeTruthy();
 });
