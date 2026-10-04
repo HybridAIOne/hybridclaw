@@ -198,6 +198,7 @@ import type {
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
+import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
@@ -488,6 +489,7 @@ import {
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
+import { handleRelationshipMemoryRoute } from './relationship-memory-http.js';
 import {
   ResponseRatingNotFoundError,
   submitResponseRating,
@@ -11316,6 +11318,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
                 publicSample: body.publicSample,
               }),
             );
+            return;
+          }
+          if (pathname === RELATIONSHIP_MEMORY_PATH) {
+            handleRelationshipMemoryRoute(res, url, method);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {

@@ -5,6 +5,8 @@
  * The gateway denies an admin route left unmapped here to every scoped caller
  * without a `*` claim, so each new admin route needs an entry.
  */
+import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
+
 export const SYSTEM_FILES_PATH = '/api/system/files';
 
 export const ADMIN_SECRET_RBAC_ACTIONS = [
@@ -559,6 +561,9 @@ export function resolveAdminRbacAction(
     if (method === 'GET') return 'admin.models.read';
     if (method === 'PUT') return 'admin.models.write';
     return null;
+  }
+  if (pathname === RELATIONSHIP_MEMORY_PATH) {
+    return method === 'GET' ? 'admin.sessions.read' : null;
   }
   if (pathname === '/api/admin/sessions') {
     if (method === 'GET') return 'admin.sessions.read';
