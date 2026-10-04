@@ -240,8 +240,7 @@ passwords, keys and certificates, scratch/editor/backup files, caches,
 dependencies and build output. Supported document, media and text/source types
 are allowed; archives, databases, executables and unknown formats are excluded.
 Symlinks and special files cannot be listed or opened. Every path component is
-checked, so a direct request cannot enter an excluded folder. The API is
-read-only, disables caching and rejects absolute paths and traversal.
+checked, so a direct request cannot enter an excluded folder. The API disables caching and rejects absolute paths and traversal.
 
 The separate `system_files.read` action is granted to owner phone tokens and
 full administrators, not chat-only paired devices or viewer roles. The action
@@ -258,3 +257,29 @@ credentials embedded in ordinary documents are not detected. Supported office
 and media files are intentionally retained even though their encoding is binary.
 Keep sensitive data out of working documents. Tests cover traversal, links,
 excluded ancestors, direct downloads, custom homes and filtered pagination.
+
+### Markdown editing and reset
+
+`GET /api/system/files?agentId=<id>&path=<relative>&edit=true` opens a visible
+UTF-8 `.md` or `.markdown` file, up to 1 MB. It returns `{scope: "agent-home",
+agentId, path, content, revision, canReset}`. `revision` is the SHA-256 of the
+file bytes. `canReset` is true only for root bootstrap files with a shipped
+workspace template; nested or user-created Markdown files have no default.
+
+`PUT` to the same path with `{content, revision}` saves Markdown. `POST` with
+`{revision}` resets that file to the runtime's shipped template. Both require
+`system_files.write`, separately from read access. New owner phone tokens receive
+it; paired chat-only devices and viewer roles do not. Existing owner phones can
+renew their handoff token. This action does not permit creating files, editing
+other formats, or entering hidden/excluded paths.
+
+Updates compare the revision, prepare a same-directory temporary file, revalidate
+the path and revision, then atomically replace the original. A changed file
+returns 409; missing files are not recreated. Reset without a default returns
+422. Invalid text returns 415 and oversized content returns 413. The editor keeps
+unsaved text on errors and requires confirmation before discarding edits or
+resetting the stored file. This is optimistic conflict detection, not a lock
+against other processes writing the workspace.
+
+Deploy the runtime editor endpoints and write grant before the companion phone
+update. Older runtimes remain usable for browsing but cannot save or reset files.
