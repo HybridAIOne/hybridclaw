@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveInstallPath } from './infra/install-root.js';
 
+export const PROACTIVE_PREFERENCES_FILE = 'PROACTIVE_PREFERENCES.md';
+
 export const WORKSPACE_BOOTSTRAP_FILES = [
   'AGENTS.md',
   'SOUL.md',
@@ -14,6 +16,7 @@ export const WORKSPACE_BOOTSTRAP_FILES = [
   'USER.md',
   'TOOLS.md',
   'MEMORY.md',
+  PROACTIVE_PREFERENCES_FILE,
   'HEARTBEAT.md',
   'BOOTSTRAP.md',
   'OPENING.md',

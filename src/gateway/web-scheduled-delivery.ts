@@ -3,9 +3,12 @@
  * Unlike transport queues, durable history is the delivery target; push is only
  * a best-effort alert and cannot turn a stored reminder into a failed job.
  */
+
 import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import { skipWorkNotification } from '../work/work-delivery.js';
+import { updateWork } from '../work/work-store.js';
 import {
   notifyWebSession,
   type WebNotificationDelivery,
@@ -27,6 +30,7 @@ async function alertPhones(
   agentId: string,
   text: string,
   messageId: number,
+  workId?: string,
 ): Promise<void> {
   const taskId = /^schedule:(\d+)$/.exec(source)?.[1];
   const task = taskId
@@ -53,6 +57,7 @@ async function alertPhones(
         text,
         unread: unreadReminders(delivery),
         messageId,
+        workId,
       }),
       kind: alert,
     });
@@ -63,6 +68,7 @@ async function alertPhones(
       assistant,
       text,
       messageId,
+      workId,
     });
   } else if (delivery) {
     await push.sendMobilePush(
@@ -73,6 +79,7 @@ async function alertPhones(
         text,
         unread: unreadReminders(delivery),
         messageId,
+        workId,
       }),
     );
   }
@@ -90,6 +97,7 @@ export function deliverWebScheduledMessage(
   source: string,
   artifacts?: ArtifactMetadata[],
   storedMessage?: { sessionId: string; id: number },
+  workId?: string,
 ): { status: 'delivered' } {
   const session = memoryService.getSessionById(sessionId);
   if (session?.channel_id !== 'web')
@@ -107,6 +115,12 @@ export function deliverWebScheduledMessage(
           artifacts,
           source,
         });
+  if (workId)
+    updateWork(workId, (work) => {
+      work.sessionId = session.id;
+      work.messageId = messageId;
+      work.savedAt ??= new Date().toISOString();
+    });
   const delivery = notifyWebSession(
     session.id,
     'reminder',
@@ -121,8 +135,12 @@ export function deliverWebScheduledMessage(
     session.agent_id,
     text,
     messageId,
-  ).catch(() =>
-    logger.warn('Phone alert unavailable; the reply remains in chat'),
-  );
+    workId,
+  )
+    .then(() => skipWorkNotification(workId, 'not_requested'))
+    .catch(() => {
+      skipWorkNotification(workId, 'alert_unavailable');
+      logger.warn('Phone alert unavailable; the reply remains in chat');
+    });
   return { status: 'delivered' };
 }

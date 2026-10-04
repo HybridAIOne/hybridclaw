@@ -2869,6 +2869,8 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'grep' ||
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
+      (lowerTool === 'work' &&
+        ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&
         (args.action === 'list' || args.action === 'describe'))
     ) {
@@ -2877,7 +2879,10 @@ export class TrustedAgentApprovalRuntime {
         actionKey: lowerTool,
         intent: `run ${toolName}`,
         consequenceIfDenied: 'I will continue without this lookup.',
-        reason: 'this is a read-only operation',
+        reason:
+          lowerTool === 'work'
+            ? 'this only records or retrieves local work provenance'
+            : 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],

@@ -199,12 +199,14 @@ import type {
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
+import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
+import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -489,6 +491,7 @@ import {
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
+import { handleRelationshipMemoryRoute } from './relationship-memory-http.js';
 import {
   ResponseRatingNotFoundError,
   submitResponseRating,
@@ -4345,7 +4348,7 @@ async function handleApiHistory(
     agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
-    history: historyPage.history,
+    history: withWorkHistory(historyPage.sessionId, historyPage.history),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
@@ -11319,6 +11322,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             );
             return;
           }
+          if (pathname === RELATIONSHIP_MEMORY_PATH) {
+            handleRelationshipMemoryRoute(res, url, method);
+            return;
+          }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
             handleApiAdminSessions(res);
             return;
@@ -11829,6 +11836,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             sendJson(res, 200, runPreferenceTool(await readJsonBody(req)));
             return;
           }
+          if (pathname === '/api/work' && method === 'POST')
+            return await handleWorkToolRoute(req, res, hasGatewayApiAuth(req));
           if (pathname === '/api/todo' && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {

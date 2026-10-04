@@ -25,6 +25,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         items: [
           { to: '/admin/agents', label: 'Agents' },
           { to: '/admin/skills', label: 'Skills' },
+          { to: '/admin/memory', label: 'Memory' },
           { to: '/admin/automation', label: 'Jobs' },
         ],
       },
@@ -86,7 +87,7 @@ describe('SIDEBAR_NAV_GROUPS', () => {
       SIDEBAR_NAV_GROUPS.filter((group) => group.label !== 'Labs').flatMap(
         (group) => group.items,
       ),
-    ).toHaveLength(20);
+    ).toHaveLength(21);
   });
 
   it('uses network-oriented icons for network policy and Agent2Agent', () => {

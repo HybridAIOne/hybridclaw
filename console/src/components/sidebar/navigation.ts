@@ -60,6 +60,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
         icon: AgentGroup,
       },
       { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
+      { to: '/admin/memory', label: 'Memory', icon: Lightbulb },
       { to: '/admin/automation', label: 'Jobs', icon: Jobs },
     ],
   },

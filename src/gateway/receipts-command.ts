@@ -11,6 +11,7 @@
  * and its own tasks'. Companion apps list them with `--json`, answered in one
  * line that survives a chat relay (`chatSafeJson`).
  */
+
 import {
   getSessionById,
   listActionAuditEntries,
@@ -21,6 +22,7 @@ import { resolveSessionIdCompat } from '../memory/sessions.js';
 import { scheduledRunSessionKey } from '../session/session-key.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session } from '../types/session.js';
+import { readWork } from '../work/work-store.js';
 import {
   badCommand,
   infoCommand,
@@ -49,6 +51,7 @@ export type ReceiptAllowance = 'you' | 'earlier' | 'full' | 'policy';
 
 export interface Receipt {
   id: string;
+  workId: string | null;
   at: string;
   session: string;
   // The scheduled task whose run did it; null for a chat turn.
@@ -151,7 +154,10 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
   const sessions = visibleSessions(requester);
   const calls = new Map<string, Record<string, Record<string, unknown>>>();
   const order: string[] = [];
-  const meta = new Map<string, { session: string; at: string }>();
+  const meta = new Map<
+    string,
+    { session: string; at: string; runId: string }
+  >();
   for (const entry of listActionAuditEntries([...sessions.keys()], limit)) {
     const payload = payloadOf(entry);
     const id = typeof payload.toolCallId === 'string' ? payload.toolCallId : '';
@@ -160,7 +166,11 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     if (!calls.has(key)) {
       calls.set(key, {});
       order.push(key);
-      meta.set(key, { session: entry.session_id, at: entry.timestamp });
+      meta.set(key, {
+        session: entry.session_id,
+        at: entry.timestamp,
+        runId: entry.run_id,
+      });
     }
     const rows = calls.get(key);
     if (rows) rows[entry.event_type] = payload;
@@ -182,6 +192,7 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     const at = new Date(info.at);
     receipts.push({
       id: String(call.toolCallId),
+      workId: readWork(info.runId)?.id ?? null,
       at: Number.isNaN(at.getTime()) ? info.at : at.toISOString(),
       session: info.session,
       task: sessions.get(info.session) ?? null,

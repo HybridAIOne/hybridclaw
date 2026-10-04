@@ -31,6 +31,7 @@ import { ModelRoutingPage } from './routes/model-routing';
 import { ModelsPage } from './routes/models';
 import { OutputGuardPage } from './routes/output-guard';
 import { PublishedToolsPage } from './routes/published-tools';
+import { RelationshipMemoryPage } from './routes/relationship-memory';
 import { RoutingEvaluatorPage } from './routes/routing-evaluator';
 import { SkillsDetailPage } from './routes/skill-detail';
 import { SkillsPage } from './routes/skills';
@@ -605,9 +606,16 @@ const ideasRoute = createRoute({
   component: IdeasRouteComponent,
 });
 
+const relationshipMemoryRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/memory',
+  component: RelationshipMemoryPage,
+});
+
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
+    relationshipMemoryRoute,
     activityRoute,
     legacyStatisticsRoute,
     networkPolicyRoute,

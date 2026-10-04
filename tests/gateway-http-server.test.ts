@@ -741,8 +741,8 @@ async function importFreshHealth(options?: {
     mainSessionKey: null,
     branchFamilies: [],
     history: [
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'world' },
+      { id: 1, role: 'user', content: 'hello' },
+      { id: 2, role: 'assistant', content: 'world' },
     ],
   }));
   const getGatewayRecentChatSessions = vi.fn(() => [
@@ -2703,6 +2703,7 @@ async function importFreshHealth(options?: {
     getAdminMSTeamsUsers: vi.fn(() => ({ users: [], defaultAgentId: 'main' })),
     updateAdminMSTeamsUser: vi.fn(() => ({ status: 200 })),
   }));
+  vi.doMock('../src/work/work-store.js', () => ({ workForMessage: vi.fn(() => null) }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getDelegationJob,
@@ -3199,6 +3200,7 @@ useCleanMocks({
     '../src/logger.js',
     '../src/agent/conversation.js',
     '../src/memory/db.js',
+    '../src/work/work-store.js',
     '../src/memory/apps.js',
     '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
@@ -7373,8 +7375,8 @@ describe('gateway HTTP server', () => {
       mainSessionKey: undefined,
       bootstrapAutostart: null,
       history: [
-        { role: 'user', content: 'hello' },
-        { role: 'assistant', content: 'world' },
+        { id: 1, role: 'user', content: 'hello', work: null },
+        { id: 2, role: 'assistant', content: 'world', work: null },
       ],
       summary: {
         messageCount: 2,

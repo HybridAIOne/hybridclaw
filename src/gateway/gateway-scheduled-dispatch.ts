@@ -166,6 +166,7 @@ export async function runScheduledTask(
               sourceLabel,
               result.artifacts,
               result.storedMessage,
+              result.workId,
             )
           : await deliverProactiveMessage(
               resolvedDeliveryChannelId,

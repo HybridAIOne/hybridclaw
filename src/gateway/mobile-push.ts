@@ -12,6 +12,7 @@
  * Tokens are never logged or echoed: a token and the relay are enough to
  * ring that phone.
  */
+
 import type {
   MobilePushDevice,
   WebNotification,
@@ -21,6 +22,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
+import { recordWorkPush, skipWorkNotification } from '../work/work-delivery.js';
 import {
   deleteMobilePushDevice,
   mobilePushDeviceApp,
@@ -145,12 +147,16 @@ async function relay(
   device: MobilePushDevice,
   payload: Record<string, unknown>,
 ): Promise<RelayAnswer> {
-  const status = await platform(apiKey, 'POST', '/v1/push', {
-    token: device.token,
-    environment: device.environment,
-    ...relayApp(device),
-    payload,
-  });
+  const workId =
+    typeof payload.workId === 'string' ? payload.workId : undefined;
+  const status = await recordWorkPush(workId, () =>
+    platform(apiKey, 'POST', '/v1/push', {
+      token: device.token,
+      environment: device.environment,
+      ...relayApp(device),
+      payload,
+    }),
+  );
   return status === 'sent' ||
     status === 'unregistered' ||
     status === 'not_registered'
@@ -213,9 +219,17 @@ export async function sendMobilePush(
     device.kinds.includes(message.kind),
   );
   const result = { devices: targets.length, sent: 0 };
-  if (!targets.length) return result;
+  const workId =
+    typeof message.data?.workId === 'string' ? message.data.workId : undefined;
+  if (!targets.length) {
+    skipWorkNotification(workId, 'no_devices');
+    return result;
+  }
   const apiKey = relayKey();
-  if (!apiKey) return result;
+  if (!apiKey) {
+    skipWorkNotification(workId, 'relay_disabled');
+    return result;
+  }
   const payload = buildApnsPayload(message);
   await Promise.all(
     targets.map(async (device) => {
@@ -277,6 +291,7 @@ export async function alertListedItems(options: {
   assistant: string;
   text: string;
   messageId: number;
+  workId?: string;
 }): Promise<MobilePushResult> {
   const titles = listedTitles(options.text);
   if (!titles.length) return { devices: 0, sent: 0 };
@@ -291,6 +306,7 @@ export async function alertListedItems(options: {
     data: {
       sessionId: options.sessionId,
       messageId: options.messageId,
+      ...(options.workId ? { workId: options.workId } : {}),
       count: titles.length,
     },
   });
@@ -308,6 +324,7 @@ export function reminderAlert(options: {
   text: string;
   unread: number;
   messageId: number;
+  workId?: string;
 }): MobilePushMessage {
   const { notification } = options;
   const body = options.text.trim();
@@ -322,6 +339,7 @@ export function reminderAlert(options: {
       sessionId: notification.sessionId,
       ...(notification.agentId ? { agentId: notification.agentId } : {}),
       messageId: options.messageId,
+      ...(options.workId ? { workId: options.workId } : {}),
     },
   };
 }
