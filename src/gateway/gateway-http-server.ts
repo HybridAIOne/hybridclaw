@@ -204,6 +204,7 @@ import {
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
+import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -4344,7 +4345,7 @@ async function handleApiHistory(
     agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
-    history: historyPage.history,
+    history: withWorkHistory(historyPage.sessionId, historyPage.history),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
@@ -11820,6 +11821,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiBrowserTool(req, res, activeSseResponses);
             return;
           }
+          if (pathname === '/api/work' && method === 'POST')
+            return await handleWorkToolRoute(req, res, hasGatewayApiAuth(req));
           if (pathname === '/api/todo' && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {

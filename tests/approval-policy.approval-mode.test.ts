@@ -51,3 +51,8 @@ test.each([
   expect(evaluation.decision === 'required').toBe(prompts);
   expect(Boolean(evaluation.requestId)).toBe(prompts);
 });
+
+test.each(['record', 'get', 'list'])('work %s records local provenance without authorizing an external action', action => {
+  expect(evaluate('ask', 'work', { action }).decision).not.toBe('required');
+  expect(evaluate('ask', 'write', { path: '/outside/example', contents: 'x' }).decision).toBe('required');
+});

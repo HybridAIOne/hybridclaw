@@ -582,6 +582,7 @@ export async function runGatewayScheduledTask(
   }
 
   await runIsolatedScheduledTask({
+    originSessionId: session.id,
     taskId,
     taskOwner,
     prompt,

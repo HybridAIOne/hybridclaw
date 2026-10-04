@@ -100,6 +100,7 @@ import {
 } from './tools/skills-list.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
+import { runWorkTool, WORK_TOOL_DEFINITION } from './tools/work.js';
 import type {
   DelegationSideEffect,
   DelegationTaskSpec,
@@ -3587,6 +3588,14 @@ async function executeToolInternal(
       return await callGatewayDeviceData(source, query);
     }
 
+    case 'work': {
+      const { ok, text } = await runWorkTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4187,6 +4196,7 @@ const BASH_TOOL_DEFINITION: ToolDefinition = {
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
+  WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   {
