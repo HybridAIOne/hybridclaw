@@ -224,3 +224,20 @@ Reviewers should verify:
   time-bound justification.
 - Secret and policy grants are held only by security owners.
 - Review decisions link to audit events or token/session issuance records.
+
+## Developer system files
+
+`GET /api/system/files?path=<relative>&offset=<number>` browses the runtime home
+(`HYBRIDCLAW_DATA_DIR`, or `~/.hybridclaw`). It returns `{path, entries, nextOffset}`,
+with up to 500 folder-first entries per page, including hidden files. Each entry
+has `name`, relative `path`, `kind` (`directory`, `file`, `symlink`, `other`) and
+nullable `size` in bytes. `download=true` returns a regular file as raw bytes,
+limited to 25 MB. The API is read-only, disables caching and refuses traversal,
+symlinks and special files.
+
+The separate `system_files.read` action permits reading configuration and stored
+credentials as well as agent files. It is granted to newly minted owner phone
+tokens and full administrators, not chat-only paired devices or viewer roles.
+Existing owner tokens keep their original permissions; replace them to receive
+the new capability. Grant scoped tokens this action explicitly only when the
+caller should be allowed to read every file under the runtime home.
