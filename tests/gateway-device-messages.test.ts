@@ -142,6 +142,101 @@ describe('reading back a stored reply', () => {
     }
   });
 
+  test('trace pages are opt-in, ordered, bounded and owned by the session operator', async () => {
+    const { memoryService, db, phone, other, get } = await setup();
+    const id = memoryService.storeMessage({
+      sessionId: 'ios-a',
+      userId: 'user',
+      username: null,
+      role: 'assistant',
+      content: 'Done',
+    });
+    db.setMessageActivityTrace(id, {
+      steps: Array.from({ length: 23 }, (_, i) => ({
+        kind: 'tool' as const,
+        toolName: 'browser_click',
+        status: 'done' as const,
+        argsPreview: `step ${i}`,
+        resultPreview: 'x'.repeat(9000),
+        durationMs: 10,
+      })),
+      elapsedMs: 100,
+    });
+    expect(get(phone, `sessionId=ios-a&id=${id}`).body).not.toHaveProperty(
+      'activity',
+    );
+    expect(get(other, `sessionId=ios-a&id=${id}&activityOffset=0`).status).toBe(
+      404,
+    );
+    const first = get(phone, `sessionId=ios-a&id=${id}&activityOffset=0`).body
+      .activity;
+    expect(first).toMatchObject({
+      version: 1,
+      offset: 0,
+      total: 23,
+      nextOffset: 20,
+      elapsedMs: 100,
+    });
+    expect(first.steps).toHaveLength(20);
+    expect(first.steps[0]).toMatchObject({
+      index: 0,
+      status: 'recorded',
+      truncated: true,
+    });
+    expect(first.steps[0].resultPreview).toHaveLength(8000);
+    const last = get(phone, `sessionId=ios-a&id=${id}&activityOffset=20`).body
+      .activity;
+    expect(last.steps.map((s: { index: number }) => s.index)).toEqual([
+      20, 21, 22,
+    ]);
+    expect(last.nextOffset).toBeNull();
+    for (const offset of ['-1', '1.2', '01', '10000000', '']) {
+      expect(
+        get(phone, `sessionId=ios-a&id=${id}&activityOffset=${offset}`).status,
+      ).toBe(400);
+    }
+  });
+
+  test('an absent trace stays empty and credential redaction cannot be disabled for phone details', async () => {
+    const { memoryService, db, phone, get } = await setup();
+    const id = memoryService.storeMessage({
+      sessionId: 'ios-a',
+      userId: 'user',
+      username: null,
+      role: 'assistant',
+      content: 'Done',
+    });
+    expect(
+      get(phone, `sessionId=ios-a&id=${id}&activityOffset=0`).body.activity
+        .steps,
+    ).toEqual([]);
+    vi.stubEnv('HYBRIDCLAW_REDACT_SECRETS', 'false');
+    try {
+      db.setMessageActivityTrace(id, {
+        steps: [
+          { kind: 'thinking', text: 'Authorization: Bearer test-secret-value' },
+          { kind: 'draft', text: 'Checking the page.' },
+          {
+            kind: 'tool',
+            toolName: 'browser_click',
+            status: 'done',
+            argsPreview: 'https://example.com?access_token=test-secret-value',
+          },
+        ],
+      });
+      const page = get(phone, `sessionId=ios-a&id=${id}&activityOffset=0`).body
+        .activity;
+      expect(page.steps.map((s: { kind: string }) => s.kind)).toEqual([
+        'thinking',
+        'draft',
+        'tool',
+      ]);
+      expect(JSON.stringify(page)).not.toContain('test-secret-value');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test('a device token may call it with the scopes it is minted with', async () => {
     vi.resetModules();
     const rbac = await import('../src/security/admin-rbac.ts');

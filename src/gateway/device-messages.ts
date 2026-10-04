@@ -3,12 +3,13 @@
  * of its own, such as a reminder, by the message id its notification names.
  * Only the operator the session is bound to (first to chat in it) gets an
  * answer; any other caller sees the same 404 as a missing message.
- * NOT `/api/history`: no user turns, traces, session keys or paging.
+ * NOT `/api/history`: no user turns or session keys. Execution traces are opt-in, paged, and redacted.
  */
 
 import type { ServerResponse } from 'node:http';
 import { getSessionAssistantMessage } from '../memory/db.js';
 import { workForMessage } from '../work/work-store.js';
+import { readDeviceActivity } from './device-activity.js';
 import { sendJson } from './gateway-http-utils.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 
@@ -33,6 +34,23 @@ export function handleDeviceMessageRoute(
       : null;
   if (!message) {
     sendJson(res, 404, { error: 'Message not found.' });
+    return;
+  }
+  if (url.searchParams.has('activityOffset')) {
+    const rawOffset = url.searchParams.get('activityOffset') ?? '';
+    if (!/^(0|[1-9]\d{0,6})$/.test(rawOffset)) {
+      sendJson(res, 400, { error: 'Invalid activity offset.' });
+      return;
+    }
+    sendJson(res, 200, {
+      id: message.id,
+      sessionId,
+      activity: readDeviceActivity(
+        message.session_id,
+        message.id,
+        Number(rawOffset),
+      ),
+    });
     return;
   }
   sendJson(res, 200, {

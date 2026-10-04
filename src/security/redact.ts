@@ -391,8 +391,8 @@ export const SECRET_REDACTION_PATTERNS: readonly SecretRedactionPattern[] =
     },
   ]);
 
-export function redactCredentialSecrets(text: string): string {
-  if (!text || !isRedactionEnabled()) return text;
+export function redactCredentialSecrets(text: string, force = false): string {
+  if (!text || (!force && !isRedactionEnabled())) return text;
 
   let next = text;
   for (const pattern of CREDENTIAL_REDACTION_PATTERNS) {
