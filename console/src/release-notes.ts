@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.35.3',
+  version: '0.36.0',
   highlights: [
-    'Quick emoji reactions with complete replies',
-    'Startup settings for container deployments',
-    'Reactions survive failed turns',
+    'Preferences shared across chats and schedules',
+    'Saved evidence for background suggestions',
+    'Memory views for people and groups',
+    'Dream journals show memory changes',
   ],
 } as const;
 

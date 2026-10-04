@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+## [0.36.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.0) - 2026-10-04
+
+### Added
+
+- **Shared explicit preferences**: Hy retains authenticated users' preferences
+  and feedback across chat, companion apps, Ideas, and scheduled generation.
+  Each run reads the current record without replacing its schedule; reading,
+  bookmarking, and opening a discussion do not count as liking.
+- **Evidence for background suggestions**: Scheduled work saves its rationale,
+  source references, artifacts, and action receipts for later explanation.
+  Execution, chat storage, notification attempts, transport acceptance, and
+  explicit viewing have separate durable records. Failed notifications do not
+  turn completed work into failed execution.
+- **People and group memory views**: The console's Memory page shows stored
+  memories, confidence, summaries, continuity, and source IDs by person, group,
+  or session, with agent and audience boundaries visible.
+- **Dream journals**: Memory consolidation appends readable entries under each
+  agent workspace's `dreams/` directory, linking source notes and showing durable
+  memory additions and removals without an extra model call.
+- **Proactive preferences**: `PROACTIVE_PREFERENCES.md` guides unsolicited
+  messages by topic, timing, format, and tone. Missing files are seeded without
+  overwriting custom edits; explicit chat corrections can update the guidance.
+- **Owner system-file browsing**: Authorized clients can list runtime folders
+  and read files through a confined, read-only endpoint with a separate
+  `system_files.read` permission, directory pagination, and download limits.
+- **Booking hotel mini-skill**: Searches Booking.com with requested dates,
+  destination, category, stars, currency, and nightly budget, verifies rendered
+  results, and reports access or date-reset blockers instead of generic prices.
+
+### Changed
+
+- **Faster seeded startup**: Disabling skills through `HYBRIDCLAW_CONFIG_SEED`
+  scans the catalog once and validates the complete batch before writing.
+- **Browser snapshots**: Include observed link URLs and retain up to 48,000
+  characters so longer calendars and filter forms keep their controls.
+- **Expired compatibility paths removed**: Slack command registration no longer
+  removes pre-`/hc-*` names automatically. Goal tracking no longer adopts the
+  v0.34 tracking-style check-in prompt as its own schedule.
+
+### Fixed
+
+- **Faithful trace exports**: Dynamic context preserves its exact whitespace
+  and content hash, including trailing newlines in preference files.
+
+### Upgrade Notes
+
+- Update the gateway and rebuilt agent image together, before enabling the
+  companion apps' preference sync, work-evidence views, or system-file browser.
+  SQLite schema 70 adds work records; retain the runtime database. Earlier
+  results keep missing provenance rather than receiving invented explanations.
+- Existing phone tokens need an explicit `system_files.read` grant or
+  replacement for system-file browsing. The grant can expose runtime settings
+  and credential-bearing files; chat-only paired and viewer tokens do not get it.
+- Proactive preferences are model guidance; existing active-hours, delivery,
+  and approval controls still apply. Dream journals retain superseded memory:
+  deleting a fact from `MEMORY.md` does not erase its journal history.
+- For Slack apps still registered before `/hc-*`, run
+  `hybridclaw channels slack register-commands` on v0.35.x before upgrading,
+  or manually remove the old bare and `/hybridclaw-*` commands in Slack.
+- For goals still using v0.34 tracking-style check-ins, update their status on
+  v0.35.x before upgrading to migrate the schedule. After upgrading, remove the
+  old task with `/schedule remove <task-id>` before editing the goal to recreate
+  its check-in, avoiding duplicate reminders.
+
 ## [0.35.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.3) - 2026-10-04
 
 ### Added

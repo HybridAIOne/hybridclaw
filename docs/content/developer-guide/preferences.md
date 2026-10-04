@@ -60,9 +60,9 @@ task owner before the running-turn tool grant is established.
 
 ## Deployment and failure behavior
 
-Deploy this runtime change and its rebuilt worker before releasing the app
-change. There is no minimum released version number yet. Older runtimes cannot
-acknowledge the new command: the apps keep pending events, show a sync error,
+Deploy HybridClaw v0.36.0 or later and its rebuilt worker before releasing
+the companion app update. Older runtimes cannot acknowledge the new command:
+the apps keep pending events, show a sync error,
 and retry on refresh rather than generating with unsent preferences.
 
 Each app keeps an account-scoped durable outbox. It imports existing likes,

@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js 22 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.35.3 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.36.0 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord

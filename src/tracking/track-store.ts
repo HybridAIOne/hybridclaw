@@ -9,7 +9,8 @@
  * it: a check-in in which the agent looks into the item and updates its
  * status and prepares one next step for review, then writes to the user about a goal, or about a tracked item only
  * when there is news. Owners are the todo owners: all web chats of an agent
- * share one list.
+ * share one list. Only the current generated prompt establishes task ownership;
+ * independently changed or historical prompts are not adopted.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -196,10 +197,7 @@ function checkCron(item: Tracked): string {
  * id alone could name someone else's task.
  */
 function ownsCheck(item: Tracked): boolean {
-  const prompt = storedCheckPrompt(item);
-  // compat: remove after v0.36 — v0.34 gave goals the tracking check-in;
-  // owning it lets the goal's next change replace it instead of adding one.
-  return prompt === checkPrompt(item) || prompt === watchPrompt(item);
+  return storedCheckPrompt(item) === checkPrompt(item);
 }
 
 function storedCheckPrompt(item: Tracked): string | null {
