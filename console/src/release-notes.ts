@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.36.0',
+  version: '0.36.1',
   highlights: [
-    'Preferences shared across chats and schedules',
-    'Saved evidence for background suggestions',
-    'Memory views for people and groups',
-    'Dream journals show memory changes',
+    'Deleted schedules stay deleted',
+    'Quieter Discord replies',
+    'Phone Markdown editing and reset',
+    'Mobile approval and activity details',
   ],
 } as const;
 

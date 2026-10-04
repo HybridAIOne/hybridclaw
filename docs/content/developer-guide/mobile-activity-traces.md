@@ -17,8 +17,8 @@ rewrites execution evidence.
 
 ## Runtime integration
 
-The companion runtime branch is `codex/mobile-activity-traces`. Its change adds
-an opt-in query to the existing, operator-bound message endpoint:
+HybridClaw v0.36.1 adds an opt-in query to the existing, operator-bound message
+endpoint:
 
 ```
 GET /api/chat/message?sessionId=<session>&id=<assistant-message>&activityOffset=0
@@ -35,9 +35,9 @@ The response includes `id`, `sessionId`, and `activity`:
   Clipping sets `truncated`; the app labels shortened previews. Pagination
   preserves every recorded step, including identical consecutive tool calls.
 
-Deploy the runtime change before distributing the app change. No release number
-has been assigned. Older runtimes return a message without `activity`; replies
-without stored IDs, and replies with no recorded trace, show an empty state.
+Deploy v0.36.1 or later before distributing the app change. Older runtimes return
+a message without `activity`; replies without stored IDs, and replies with no
+recorded trace, show an empty state.
 Network/authentication failures show Retry, not an empty history. Both apps check
 message/session identity, protocol version, ordering, page boundaries, field
 sizes and durations. Account/persona changes invalidate in-flight responses.

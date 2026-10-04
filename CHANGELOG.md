@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+## [0.36.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.1) - 2026-10-04
+
+### Added
+
+- **Phone Markdown editing**: Authorized clients can edit existing Markdown in
+  the selected agent's home and restore shipped defaults for root bootstrap
+  files. Revision checks reject stale saves and resets.
+- **Complete mobile approval details**: Pending approvals can carry full email
+  bodies, recipients, sharing facts, and attachment metadata for review before
+  sending. Credential fields and attachment bytes are excluded; oversized review
+  payloads are omitted rather than partially shown.
+- **Mobile Activity traces**: Clients can retrieve stored thinking, progress,
+  and tool calls for a completed reply through an owner-scoped, paginated API
+  with credential redaction.
+- **Android push alerts**: Android phones can register Firebase tokens for
+  reminders, approvals, and finished replies through the existing platform relay.
+
+### Changed
+
+- **Agent-home file browsing**: Phone file access starts in the selected agent's
+  workspace and hides sensitive and internal files. Listings and downloads
+  enforce the same path exclusions and identify their agent-home scope.
+- **Quieter Discord progress**: Acknowledgement reactions and the typing
+  indicator show progress without changing status reactions at each phase.
+  Failed replies retain an error reaction.
+
+### Fixed
+
+- **Deleted schedules stay deleted**: Legacy tasks migrate once, and SQLite
+  schema 71 drops the old task table so a restart cannot resurrect deleted jobs.
+- **Discord typing after replies**: Typing requests stop and drain before a
+  reply is posted, preventing the indicator from reappearing afterward.
+- **Bounded memory loading**: Large `MEMORY.md` files read at most 160,000 bytes
+  from their beginning and end before applying the existing prompt limit.
+
+### Upgrade Notes
+
+- Deploy the v0.36.1 gateway and rebuilt worker before companion mobile updates
+  that use full approval review or Activity details. Android alerts also require
+  Firebase configuration in the platform relay and Android app.
+- File API clients must use agent-home-relative paths and send `agentId` for a
+  non-default agent. Runtime-home paths are no longer supported.
+- Markdown writes require `system_files.write`. Existing owner phones can renew
+  their handoff token; direct connections need the permission explicitly. Reset
+  is available only for root files with a shipped template.
+- Remove `discord.lifecycleReactions` from custom configuration; the setting is
+  ignored if retained. Keep the runtime database so the schema 71 migration
+  preserves current jobs and work evidence.
+
 ## [0.36.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.0) - 2026-10-04
 
 ### Added
