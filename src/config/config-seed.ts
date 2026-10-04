@@ -116,12 +116,14 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
     (name) => !disabledSkills.has(name),
   );
   if (skillsToDisable.length > 0) {
-    const { setSkillPackageEnabled } = await import(
+    const { setSkillPackagesEnabled } = await import(
       '../skills/skills-lifecycle.js'
     );
-    for (const skillName of skillsToDisable) {
-      setSkillPackageEnabled({ skillName, enabled: false, actor: SEED_ACTOR });
-    }
+    setSkillPackagesEnabled({
+      skillNames: skillsToDisable,
+      enabled: false,
+      actor: SEED_ACTOR,
+    });
   }
 
   for (const source of seed.plugins) {

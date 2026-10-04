@@ -518,6 +518,43 @@ describe('skill package lifecycle', () => {
     });
   });
 
+  test('batch enable and disable scan the skill catalog once', async () => {
+    const actual = await import('../src/skills/skills.ts');
+    const loadSkillCatalog = vi.fn(actual.loadSkillCatalog);
+    vi.doMock('../src/skills/skills.js', () => ({
+      ...actual,
+      loadSkillCatalog,
+    }));
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    const skillNames = ['search.web', 'search.news', 'image-generation'];
+
+    const results = lifecycle.setSkillPackagesEnabled({
+      skillNames,
+      enabled: false,
+      actor: 'test',
+    });
+
+    expect(loadSkillCatalog).toHaveBeenCalledTimes(1);
+    expect(results.map((result) => result.skillName)).toEqual(skillNames);
+    expect(config.getRuntimeSkillScopeDisabledNames(config.getRuntimeConfig()))
+      .toEqual(new Set(skillNames));
+  });
+
+  test('batch writes nothing when any skill name is unknown', async () => {
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+
+    expect(() =>
+      lifecycle.setSkillPackagesEnabled({
+        skillNames: ['search.web', 'no-such-skill'],
+        enabled: false,
+        actor: 'test',
+      }),
+    ).toThrow('Unknown skill package: no-such-skill');
+    expect(config.getRuntimeConfig().skills.disabled ?? []).toEqual([]);
+  });
+
   test('rollback rejects malformed snapshot file entries before restore', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillV1 = writeSkillSource({
