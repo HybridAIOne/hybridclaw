@@ -1,21 +1,26 @@
 /**
  * Phone browsing is rooted in one registered agent's workspace. Runtime state,
  * hidden/credential files and non-document binaries are excluded from both
- * listings and downloads. This is not the chat artifact delivery API.
+ * listings, downloads and Markdown edits. Revisions prevent stale saves; reset
+ * uses shipped defaults. This is not the chat artifact delivery API.
  */
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import type { ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { getAgentById } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { sendJson } from './gateway-http-utils.js';
+import { isRecord } from '../utils/type-guards.js';
+import { readWorkspaceTemplate } from '../workspace-templates.js';
+import { readJsonBody, sendJson } from './gateway-http-utils.js';
 
 export { SYSTEM_FILES_PATH } from '../security/admin-rbac.js';
 
 const PAGE_SIZE = 500;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_MARKDOWN_BYTES = 1024 * 1024;
 
 // Owner request, 2026-10-04: show working documents, not secrets, scratch files
 // or executable/runtime data. Unknown formats stay hidden; archives are excluded
@@ -219,7 +224,11 @@ export function listSystemFiles(
   };
 }
 
-export function readSystemFile(root: string, relative: string): Buffer {
+export function readSystemFile(
+  root: string,
+  relative: string,
+  limit = MAX_FILE_BYTES,
+): Buffer {
   const target = resolveFile(root, relative);
   const fd = fs.openSync(
     target,
@@ -233,9 +242,14 @@ export function readSystemFile(root: string, relative: string): Buffer {
     }
     if (!stats.isFile())
       throw new GatewayRequestError(400, 'Expected a regular file.');
-    if (stats.size > MAX_FILE_BYTES)
-      throw new GatewayRequestError(413, 'File exceeds 25 MB.');
-    const buffer = Buffer.alloc(Math.min(stats.size + 1, MAX_FILE_BYTES + 1));
+    if (stats.size > limit)
+      throw new GatewayRequestError(
+        413,
+        limit === MAX_FILE_BYTES
+          ? 'File exceeds 25 MB.'
+          : 'Markdown exceeds 1 MB.',
+      );
+    const buffer = Buffer.alloc(Math.min(stats.size + 1, limit + 1));
     let length = 0;
     while (length < buffer.length) {
       const count = fs.readSync(
@@ -256,15 +270,91 @@ export function readSystemFile(root: string, relative: string): Buffer {
   }
 }
 
-export function handleSystemFilesRoute(
+// Only existing visible Markdown files can be changed. Reset never means delete
+// or empty: files without a shipped template have no reset operation.
+export function readSystemMarkdown(root: string, relative: string) {
+  if (!['.md', '.markdown'].includes(path.extname(relative).toLowerCase())) {
+    throw new GatewayRequestError(415, 'Only Markdown files can be edited.');
+  }
+  const bytes = readSystemFile(root, relative, MAX_MARKDOWN_BYTES);
+  let content: string;
+  try {
+    content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
+  } catch {
+    throw new GatewayRequestError(415, 'Expected UTF-8 Markdown.');
+  }
+  if (content.includes('\0')) {
+    throw new GatewayRequestError(415, 'Expected text Markdown.');
+  }
+  return {
+    content,
+    revision: createHash('sha256').update(bytes).digest('hex'),
+    canReset: readWorkspaceTemplate(relative) !== null,
+  };
+}
+
+export function updateSystemMarkdown(
+  root: string,
+  relative: string,
+  revision: string,
+  content: string | null,
+) {
+  if (!/^[a-f0-9]{64}$/.test(revision)) {
+    throw new GatewayRequestError(400, 'Expected a file revision.');
+  }
+  const current = readSystemMarkdown(root, relative);
+  if (current.revision !== revision) {
+    throw new GatewayRequestError(409, 'File changed. Reload before saving.');
+  }
+  const next = content === null ? readWorkspaceTemplate(relative) : content;
+  if (next === null) {
+    throw new GatewayRequestError(422, 'This file has no default.');
+  }
+  if (
+    next.includes('\0') ||
+    Buffer.from(next, 'utf8').toString('utf8') !== next
+  ) {
+    throw new GatewayRequestError(415, 'Expected UTF-8 Markdown.');
+  }
+  if (Buffer.byteLength(next, 'utf8') > MAX_MARKDOWN_BYTES) {
+    throw new GatewayRequestError(413, 'Markdown exceeds 1 MB.');
+  }
+  const target = resolveFile(root, relative);
+  const parent = path.dirname(target);
+  const temporary = path.join(parent, `.hy-markdown-${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(temporary, next, {
+      flag: 'wx',
+      mode: fs.statSync(target).mode & 0o777,
+    });
+    // Revalidate after preparing the replacement. A deleted, moved or changed
+    // file must never be recreated or overwritten by a stale editor.
+    if (
+      resolveFile(root, relative) !== target ||
+      fs.realpathSync(parent) !== parent ||
+      readSystemMarkdown(root, relative).revision !== revision
+    ) {
+      throw new GatewayRequestError(409, 'File changed. Reload before saving.');
+    }
+    fs.renameSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+  return readSystemMarkdown(root, relative);
+}
+
+export async function handleSystemFilesRoute(
+  req: IncomingMessage,
   res: ServerResponse,
   method: string,
   url: URL,
-): void {
+): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-HybridClaw-File-Scope', 'agent-home');
-  if (method !== 'GET') {
-    res.setHeader('Allow', 'GET');
+  if (!['GET', 'PUT', 'POST'].includes(method)) {
+    res.setHeader('Allow', 'GET, PUT, POST');
     sendJson(res, 405, { error: 'Method not allowed.' });
     return;
   }
@@ -276,7 +366,37 @@ export function handleSystemFilesRoute(
     }
     const root = agentWorkspaceDir(agent.id);
     const relative = url.searchParams.get('path') ?? '';
-    if (url.searchParams.get('download') === 'true') {
+    if (method !== 'GET' || url.searchParams.get('edit') === 'true') {
+      let file: ReturnType<typeof readSystemMarkdown>;
+      if (method === 'GET') {
+        file = readSystemMarkdown(root, relative);
+      } else {
+        // JSON escaping can expand one content byte to six bytes.
+        const body = await readJsonBody(req, 6 * MAX_MARKDOWN_BYTES + 1024);
+        if (
+          !isRecord(body) ||
+          typeof body.revision !== 'string' ||
+          (method === 'PUT' && typeof body.content !== 'string')
+        ) {
+          throw new GatewayRequestError(
+            400,
+            'Expected revision and Markdown content.',
+          );
+        }
+        file = updateSystemMarkdown(
+          root,
+          relative,
+          body.revision,
+          method === 'POST' ? null : (body.content as string),
+        );
+      }
+      sendJson(res, 200, {
+        ...file,
+        path: relative,
+        scope: 'agent-home',
+        agentId: agent.id,
+      });
+    } else if (url.searchParams.get('download') === 'true') {
       const bytes = readSystemFile(root, relative);
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',

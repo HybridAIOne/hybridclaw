@@ -67,6 +67,8 @@ export const OWNER_DEVICE_TOKEN_ACTIONS = [
   // 2026-10-04 (product owner): Developer settings browse agents' home files.
   // Paired non-owner phones retain their narrower chat-only permissions.
   'system_files.read',
+  // 2026-10-04 (product owner): edit Markdown and reset shipped defaults.
+  'system_files.write',
   'chat.history',
   'openai.api',
 ] as const satisfies readonly AdminRbacAction[];
