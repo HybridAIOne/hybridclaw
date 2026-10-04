@@ -101,6 +101,79 @@ describe.sequential('memory consolidation', () => {
     vi.doUnmock('../src/providers/auxiliary.js');
   });
 
+  test.each(['model', 'fallback', 'deterministic'] as const)(
+    'journals committed %s changes once and preserves source notes',
+    async (method) => {
+      const workspaceDir = makeTempDir();
+      const dailyDir = path.join(workspaceDir, 'memory');
+      fs.mkdirSync(dailyDir);
+      fs.writeFileSync(path.join(dailyDir, '2020-01-01.md'), '- Learned fact.\n');
+      fs.writeFileSync(path.join(workspaceDir, 'MEMORY.md'), '# Memory\n\n## Facts\n- Old fact.\n');
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      if (method === 'model') {
+        vi.mocked(callAuxiliaryModel).mockResolvedValue({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Learned fact.'], decisions: [], patterns: [] }) });
+      } else if (method === 'fallback') {
+        vi.mocked(callAuxiliaryModel).mockRejectedValue(new Error('Unavailable'));
+      }
+      const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+      const run = () => method === 'deterministic' ? engine.consolidate() : engine.consolidateWithCleanup();
+      expect((await run()).workspacesUpdated).toBe(1);
+      const journalDir = path.join(workspaceDir, 'dreams');
+      const files = fs.readdirSync(journalDir);
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatch(/^\d{4}-\d{2}-\d{2}\.md$/);
+      const journalPath = path.join(journalDir, files[0]);
+      const journal = fs.readFileSync(journalPath, 'utf8');
+      expect(journal).toContain('> - Learned fact.');
+      expect(journal).toContain('../memory/2020-01-01.md');
+      expect(journal).toMatch(method === 'model' ? /Model cleanup/ : method === 'fallback' ? /Deterministic fallback/ : /Deterministic consolidation/);
+      if (method === 'model') expect(journal).toContain('> - Old fact.');
+      expect((await run()).workspacesUpdated).toBe(0);
+      expect(fs.readFileSync(journalPath, 'utf8')).toBe(journal);
+      expect(fs.readFileSync(path.join(dailyDir, '2020-01-01.md'), 'utf8')).toBe('- Learned fact.\n');
+      expect(callAuxiliaryModel).toHaveBeenCalledTimes(method === 'deterministic' ? 0 : 1);
+    },
+  );
+
+  test('does not journal a stale model rewrite', async () => {
+    const workspaceDir = makeTempDir();
+    const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+    fs.writeFileSync(memoryPath, '# Memory\n\n## Facts\n- Old fact.\n');
+    const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+    const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+    vi.mocked(callAuxiliaryModel).mockImplementation(async () => {
+      fs.appendFileSync(memoryPath, '- Concurrent fact.\n');
+      return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Stale fact.'], decisions: [], patterns: [] }) };
+    });
+    const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+    expect((await engine.consolidateWithCleanup()).workspacesUpdated).toBe(0);
+    expect(fs.existsSync(path.join(workspaceDir, 'dreams'))).toBe(false);
+    expect(fs.readFileSync(memoryPath, 'utf8')).toContain('- Concurrent fact.');
+  });
+
+  test('journal failure does not undo memory changes or stop other workspaces', async () => {
+    const workspaces = { main: makeTempDir(), other: makeTempDir() };
+    for (const workspaceDir of Object.values(workspaces)) {
+      fs.mkdirSync(path.join(workspaceDir, 'memory'));
+      fs.writeFileSync(path.join(workspaceDir, 'memory', '2020-01-01.md'), `- Fact for ${path.basename(workspaceDir)}.\n`);
+      fs.writeFileSync(path.join(workspaceDir, 'MEMORY.md'), '# Memory\n');
+    }
+    fs.writeFileSync(path.join(workspaces.main, 'dreams'), 'Blocked directory');
+    const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaces);
+    const { logger } = await import('../src/logger.js');
+    const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
+    const report = await engine.consolidateWithCleanup();
+    expect(report.workspacesUpdated).toBe(2);
+    expect(fs.readFileSync(path.join(workspaces.main, 'MEMORY.md'), 'utf8')).toContain(path.basename(workspaces.main));
+    expect(fs.existsSync(path.join(workspaces.main, '.memory-cleanup.sha256'))).toBe(true);
+    const journalDir = path.join(workspaces.other, 'dreams');
+    const journal = fs.readFileSync(path.join(journalDir, fs.readdirSync(journalDir)[0]), 'utf8');
+    expect(journal).toContain(path.basename(workspaces.other));
+    expect(journal).not.toContain(path.basename(workspaces.main));
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(expect.objectContaining({ workspaceDir: workspaces.main, journalPath: expect.any(String) }), expect.stringContaining('dream journal'));
+  });
+
   test('compiles older daily memory files into MEMORY.md and skips today', async () => {
     const workspaceDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-memory-consolidation-'),
@@ -1036,6 +1109,7 @@ describe.sequential('memory consolidation', () => {
       expect(fs.readFileSync(memoryPath, 'utf8')).toBe('# Memory\n');
       expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(expect.objectContaining({ workspaceDir }), expect.stringContaining('skipped a workspace'));
       expect(fs.existsSync(`${memoryPath}.lock`)).toBe(true);
+      expect(fs.existsSync(path.join(workspaceDir, 'dreams'))).toBe(false);
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 });

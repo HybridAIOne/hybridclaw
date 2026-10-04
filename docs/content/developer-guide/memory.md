@@ -589,3 +589,32 @@ content. Its digest gives every selected day a fair share of the remaining
 budget, so one large day is truncated at both ends rather than evicting smaller
 days; when even a shared budget is too small, the oldest days are dropped first.
 Source daily files are never rewritten by consolidation.
+
+### Dream journal
+
+When consolidation changes an agent's `MEMORY.md`, it appends a human-readable
+entry to that workspace's `dreams/YYYY-MM-DD.md`. This applies to scheduled,
+startup catch-up, and `/dream now` runs, as well as deterministic consolidation.
+The directory is created on the first memory change; no workspace reset is
+needed. The filename uses the same `USER.md` timezone as daily notes, and each
+entry has a UTC timestamp.
+
+Entries name the cleanup method (model, deterministic, or deterministic fallback),
+link the daily notes reviewed, and quote lines added to and removed from durable
+memory. Source links describe the notes considered, not a guarantee that every
+note was retained. Unchanged runs, locked files, and discarded stale rewrites
+produce no entry. Multiple changes on the same day append to the same file.
+
+Dream journals are history for human review, not current memory: they are not
+automatically injected into prompts or indexed for semantic recall. They can
+contain superseded facts removed from `MEMORY.md`; deleting a memory item does
+not erase its journal history. A journal write failure is logged and does not
+undo a successful memory update. Journal entries use the existing consolidation
+output and require no extra model call.
+
+New journal files are owner-readable/writable (`0600`). Symlinked journal
+directories, symlinked files, hard links, and non-regular file targets are
+rejected to prevent workspace entries from redirecting host appends. As with
+memory updates, the workspace lock coordinates runtime writers, not external
+editors; journal history is a separate write from the memory commit and can be
+missing after an I/O failure or a gateway crash between those writes.
