@@ -11,13 +11,18 @@ import { generateIpcAuthSecret } from '../../container/shared/ipc-input-auth.js'
 import * as cfg from '../../src/config/config.ts';
 import { withAutoHybridAIConnectorsMcpServer } from '../../src/mcp/hybridai-connectors.ts';
 import { resolveMcpServersForRuntime } from '../../src/mcp/mcp-oauth.ts';
+import { resolveModelRuntimeCredentials } from '../../src/providers/factory.ts';
 import { readStoredRuntimeSecret } from '../../src/security/runtime-secrets.ts';
+import { loadMiniSkillInstructions } from '../../src/skills/mini-skills.ts';
 import { buildEligibleSkillCatalog } from '../../src/skills/skill-catalog.ts';
 import { buildSkillsSection } from '../../src/skills/skills-prompt.ts';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const variant = process.argv[2];
 const count = Number(process.argv[3] || 2);
+const skillName = process.env.BENCH_SKILL || 'bahn';
+if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillName))
+  throw new Error('BENCH_SKILL must be a bundled skill directory name.');
 if (
   !['baseline', 'normal', 'mini'].includes(variant) ||
   !Number.isSafeInteger(count) ||
@@ -37,13 +42,10 @@ const original = fs
   .map((line) => JSON.parse(line).event)
   .find((event) => event?.type === 'agent.start');
 if (
-  original?.provider !== 'hybridai' ||
-  typeof original.systemPrompt !== 'string' ||
+  typeof original?.systemPrompt !== 'string' ||
   typeof original.dynamicContext !== 'string'
 ) {
-  throw new Error(
-    'A HybridAI agent.start with full prompt/context is required.',
-  );
+  throw new Error('An agent.start with full prompt/context is required.');
 }
 const config = cfg.getConfigSnapshot();
 const model = process.env.BENCH_MODEL || original.model;
@@ -51,44 +53,62 @@ const agentId = process.env.BENCH_AGENT_ID || config.agents.defaultAgentId;
 const browserProvider = process.env.BENCH_BROWSER || cfg.BROWSER_PROVIDER;
 if (!['local', 'mac-cua'].includes(browserProvider))
   throw new Error('Unsupported BENCH_BROWSER.');
-const apiKey = readStoredRuntimeSecret('HYBRIDAI_API_KEY');
-if (!apiKey) throw new Error('Stored HYBRIDAI_API_KEY required.');
+const runtime = await resolveModelRuntimeCredentials({
+  model,
+  agentId,
+  chatbotId: cfg.HYBRIDAI_CHATBOT_ID,
+  enableRag: false,
+});
 const servers = await resolveMcpServersForRuntime(
   withAutoHybridAIConnectorsMcpServer(cfg.MCP_SERVERS),
 );
 const browserBin =
   process.env.AGENT_BROWSER_BIN ||
-  path.join(root, 'container/node_modules/.bin/agent-browser');
-const skillPath = path.join(root, 'skills/bahn/SKILL.md');
+  path.join(root, 'node_modules/.bin/agent-browser');
+if (browserProvider === 'local' && !fs.existsSync(browserBin))
+  throw new Error(
+    'Local browser binary missing; set AGENT_BROWSER_BIN to its path.',
+  );
+const skillPath = path.join(root, 'skills', skillName, 'SKILL.md');
 const skillSource = fs.readFileSync(skillPath, 'utf8');
 const metadata = YAML.parse(skillSource.split(/^---\s*$/m)[1]);
 const skill = {
   name: metadata.name,
   description: metadata.description,
-  category: metadata.metadata.hybridclaw.category,
+  category: metadata.metadata?.hybridclaw?.category,
   mini: variant === 'mini',
   always: false,
   disableModelInvocation: false,
   filePath: skillPath,
   location: `skills/${metadata.name}/SKILL.md`,
 };
+if (metadata.name !== skillName || metadata.mini !== true)
+  throw new Error(
+    'Select a mini: true skill whose name matches its directory.',
+  );
+if (!loadMiniSkillInstructions({ ...skill, mini: true }))
+  throw new Error('The selected mini-skill body is empty or oversized.');
 const system =
   original.systemPrompt +
   (variant === 'baseline' ? '' : `\n\n${buildSkillsSection([skill], 'lines')}`);
 const skillCatalog =
   variant === 'baseline' ? [] : buildEligibleSkillCatalog([skill]);
-const prompt = 'Suche mal zugverbindungen München - Köln für morgen vormittag';
+const prompt =
+  process.env.BENCH_PROMPT ||
+  'Suche mal zugverbindungen München - Köln für morgen vormittag';
 for (let run = 1; run <= count; run++) {
   const workspace = fs.mkdtempSync(
-    path.join(os.tmpdir(), `hc-bahn-${variant}-`),
+    path.join(os.tmpdir(), `hc-${skillName}-${variant}-`),
   );
   const ipc = path.join(workspace, 'ipc');
   fs.mkdirSync(ipc);
   if (variant !== 'baseline') {
-    fs.mkdirSync(path.join(workspace, 'skills/bahn'), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(workspace, skill.location)), {
+      recursive: true,
+    });
     fs.writeFileSync(path.join(workspace, skill.location), skillSource);
   }
-  const sessionId = `bench_bahn_${variant}_${randomUUID()}`;
+  const sessionId = `bench_${skillName}_${variant}_${randomUUID()}`;
   const child = spawn(
     process.execPath,
     ['--import', 'tsx', 'container/src/index.ts'],
@@ -120,13 +140,7 @@ for (let run = 1; run <= count; run++) {
     `${JSON.stringify({
       sessionId,
       agentId,
-      apiKey,
-      provider: 'hybridai',
-      baseUrl: cfg.HYBRIDAI_BASE_URL,
-      model,
-      isLocal: false,
-      chatbotId: cfg.HYBRIDAI_CHATBOT_ID,
-      enableRag: false,
+      ...runtime,
       channelId: 'web',
       browserProvider,
       gatewayBaseUrl: process.env.GATEWAY_URL || 'http://127.0.0.1:9090',
@@ -150,20 +164,42 @@ for (let run = 1; run <= count; run++) {
     const deadline = Date.now() + 240_000;
     let output;
     while (Date.now() < deadline) {
-      if (failure) throw failure;
-      if (child.exitCode !== null)
-        throw new Error('Worker exited before writing its result.');
+      if (failure) {
+        output = { status: 'error', error: failure.message };
+        break;
+      }
       const resultPath = path.join(ipc, 'output.json');
       if (fs.existsSync(resultPath)) {
         output = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
         break;
       }
+      if (child.exitCode !== null) {
+        output = {
+          status: 'error',
+          error: 'Worker exited before writing its result.',
+        };
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (!output) throw new Error('Worker timed out; no completed answer.');
+    if (!output)
+      output = {
+        status: 'timeout',
+        error: 'Worker timed out; no completed answer.',
+      };
     const report = {
       variant,
       run,
+      skill: skillName,
+      provider: runtime.provider,
+      providerMethod: runtime.providerMethod,
+      startedAt: new Date(
+        Date.now() - (performance.now() - start),
+      ).toISOString(),
+      checkoutCommit: spawnSync('git', ['rev-parse', 'HEAD'], {
+        cwd: root,
+        encoding: 'utf8',
+      }).stdout.trim(),
       cardSha256: createHash('sha256').update(skillSource).digest('hex'),
       promptSha256: createHash('sha256')
         .update(original.systemPrompt)
@@ -183,6 +219,7 @@ for (let run = 1; run <= count; run++) {
       promptTokens: output.tokenUsage?.apiPromptTokens,
       completionTokens: output.tokenUsage?.apiCompletionTokens,
       answer: output.result,
+      error: output.error,
     };
     // Private evidence remains outside the repository; never persist worker input/secrets.
     fs.writeFileSync(

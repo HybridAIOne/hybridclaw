@@ -98,6 +98,9 @@ File access still passes through the normal read tool's policy and sandbox.
 
 ### Mini-skills
 
+For a copyable format, the DB example, and model-comparison guidance, see
+[Authoring Mini-skills](mini-skills.md).
+
 Set `mini: true` on a normal `SKILL.md` to make a dense instruction card. Keep
 the whole body within 1,000 characters: URLs, tool names, the essential UI
 steps, and an evidence check. For example:
