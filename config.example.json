@@ -497,6 +497,11 @@
     "defaultMaxTokens": 8192
   },
   "auxiliaryModels": {
+    "chat_reaction": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 16
+    },
     "vision": {
       "provider": "auto",
       "model": "",

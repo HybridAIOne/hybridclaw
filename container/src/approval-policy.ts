@@ -32,7 +32,6 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
-import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import {
   changesApprovalState,
   guardApprovalStateChange,
@@ -2881,22 +2880,6 @@ export class TrustedAgentApprovalRuntime {
         reason: 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
-        hostHints: [],
-        writeIntent: false,
-        promotableRed: false,
-        stickyYellow: false,
-      };
-    }
-
-    if (lowerTool === REACT_TOOL_NAME) {
-      return {
-        tier: 'green',
-        actionKey: lowerTool,
-        intent: 'react to the user’s message',
-        consequenceIfDenied: 'I will reply without a reaction.',
-        reason: 'a reaction only marks the user’s message in this chat',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
         hostHints: [],
         writeIntent: false,
         promotableRed: false,

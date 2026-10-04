@@ -456,19 +456,23 @@ Session behavior matches the routing rules above:
   that part). The agent is then asked to begin each tool-calling response with
   one short line such as "Checking the page…" instead of calling tools silently
 - a streaming `/api/chat` client that sends `reactions: true` shows emoji
-  reactions. The agent then gets the `react` tool, which puts one emoji on the
-  user's message. The reaction guidance asks it to acknowledge each message,
-  including greetings, questions and requests, with a contextual emoji while
-  still answering questions and carrying out requests. A response whose only
-  tool calls are `react` ends the turn
-  without another model call: its text is the reply, and a reaction alone
-  answers by itself (`result` is then empty and the stored reply is the silent
-  token). `react` sends no `tool` event; the `result` carries the emoji as
-  `reaction`, and `/api/history` returns each message's `reaction`. The user's
-  own reactions (`POST /api/chat/reaction`) reach the agent's context with
-  their next message. A 👍 or 👎 is also the reply's response rating, from the
-  `userId` sent with it, as Teams reactions are; taking it off clears only the
-  rating it made
+  reactions independently of replies. Roughly half of its messages are sampled
+  for a fast acknowledgement from `auxiliaryModels.chat_reaction`, sent as
+  `{ "type": "reaction", "emoji": "📰" }` before the main conversational model.
+  Configure that task's provider and model explicitly; an empty model skips the
+  early acknowledgement. It has a 750 ms deadline and no provider fallback.
+  The destination must stay within the reply model's zone, and confidential
+  text uses the same redaction boundary as other model inputs.
+  The main model decides its reply independently: normal replies can contain
+  emoji, and one emoji alone becomes a reaction when no words are needed.
+  The result and history keep the reaction on the user's message, including
+  failed turns that stored the message. The user's own reactions
+  (`POST /api/chat/reaction`) reach the model with the next message. A 👍 or 👎
+  is also the reply's response rating; taking it off clears only the rating
+  it made. `auxiliaryModels.chat_reaction` can point to a different decision
+  model without changing the chat protocol. Run
+  `tsx scripts/benchmark-chat-reactions.ts --reaction-model <id> --runs 3`
+  for the greeting, acknowledgement, question and request benchmark.
 - a streaming `/api/chat` response opens with an `accepted` line and sends a
   `ping` line after 15 s without other output, so proxies and phone read
   timeouts keep the connection open. Clients skip line types they do not know.
