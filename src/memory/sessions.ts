@@ -830,9 +830,6 @@ export function createFreshSessionInstance(
         previousSession.legacy_session_id || null,
       );
     getSessionDatabase()
-      .prepare('UPDATE tasks SET session_id = ? WHERE session_id = ?')
-      .run(nextSessionId, previousSession.id);
-    getSessionDatabase()
       .prepare(
         "UPDATE jobs SET session_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE kind = 'scheduled_task' AND session_id = ?",
       )
@@ -1672,15 +1669,11 @@ export function deleteSessionData(sessionId: string): {
     const deletedSemanticMemories = getSessionDatabase()
       .prepare('DELETE FROM semantic_memories WHERE session_id = ?')
       .run(value).changes;
-    const deletedLegacyTasks = getSessionDatabase()
-      .prepare('DELETE FROM tasks WHERE session_id = ?')
-      .run(value).changes;
-    const deletedScheduledTaskJobs = getSessionDatabase()
+    const deletedTasks = getSessionDatabase()
       .prepare(
         "DELETE FROM jobs WHERE kind = 'scheduled_task' AND session_id = ?",
       )
       .run(value).changes;
-    const deletedTasks = deletedLegacyTasks + deletedScheduledTaskJobs;
     const deletedAuditEntries = getSessionDatabase()
       .prepare('DELETE FROM audit_log WHERE session_id = ?')
       .run(value).changes;

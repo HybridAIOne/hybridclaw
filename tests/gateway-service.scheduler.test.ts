@@ -72,13 +72,6 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
         .get(taskId),
     ),
   ).toMatchObject({ count: 1 });
-  expect(
-    withMemoryDatabase((db) =>
-      db
-        .prepare('SELECT COUNT(*) AS count FROM tasks WHERE id = ?')
-        .get(taskId),
-    ),
-  ).toMatchObject({ count: 0 });
   expect(beforePause).toMatchObject({
     id: `task:${taskId}`,
     source: 'task',

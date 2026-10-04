@@ -2448,6 +2448,22 @@ describe.sequential('schema migrations', () => {
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run('dm:439508376087560193', 'u1', 'alice', 'user', 'hello');
+    legacy.exec(`
+      CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        cron_expr TEXT NOT NULL,
+        run_at TEXT,
+        every_ms INTEGER,
+        prompt TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        last_run TEXT,
+        last_status TEXT,
+        consecutive_errors INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+    `);
     legacy
       .prepare(
         `INSERT INTO tasks (session_id, channel_id, cron_expr, prompt)
@@ -2470,13 +2486,54 @@ describe.sequential('schema migrations', () => {
       .prepare('SELECT session_id FROM messages LIMIT 1')
       .get() as { session_id: string };
     const migratedTask = inspect
-      .prepare('SELECT session_id FROM tasks LIMIT 1')
+      .prepare("SELECT session_id FROM jobs WHERE kind = 'scheduled_task'")
       .get() as { session_id: string };
     inspect.close();
 
     expect(migratedMessage.session_id).toBe(migratedSessionId);
     expect(migratedTask.session_id).toBe(migratedSessionId);
     expect(getSessionById('dm:439508376087560193')?.id).toBe(migratedSessionId);
+  });
+
+  test('a scheduled task deleted before the legacy tasks table is dropped stays deleted', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        cron_expr TEXT NOT NULL,
+        run_at TEXT,
+        every_ms INTEGER,
+        prompt TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        last_run TEXT,
+        last_status TEXT,
+        consecutive_errors INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO tasks (session_id, channel_id, cron_expr, every_ms, prompt)
+        VALUES ('s1', 'web', '', 1800000, 'ping');
+    `);
+    legacy.pragma('user_version = 69');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const jobs = inspect
+      .prepare("SELECT id FROM jobs WHERE kind = 'scheduled_task'")
+      .all();
+    const tasksTable = inspect
+      .prepare("SELECT name FROM sqlite_master WHERE name = 'tasks'")
+      .get();
+    inspect.close();
+
+    expect(jobs).toEqual([]);
+    expect(tasksTable).toBeUndefined();
   });
 
   test('migrates existing schema v10 databases that lack legacy session ids', () => {
