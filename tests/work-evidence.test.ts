@@ -95,3 +95,21 @@ test('overlapping runs, anonymous turns and oversized evidence cannot alter prov
   expect(tool.runWorkTool(body).ok).toBe(false);
   end(); endUser();
 });
+
+test('history attaches saved work only to its assistant message in the authorized session', async () => {
+  const { store } = await setup();
+  const { withWorkHistory } = await import('../src/work/work-routes.js');
+  store.updateWork('run-1', work => { work.messageId = 42; work.savedAt = '2026-10-04T12:01:00Z'; });
+  const messages = [
+    { id: 41, role: 'user', content: 'Prepare a brief.' },
+    { id: 42, role: 'assistant', content: 'The brief is ready.' },
+    { id: 43, role: 'assistant', content: 'An older result.' },
+  ];
+  expect(withWorkHistory('chat', messages)).toEqual([
+    { ...messages[0], work: null },
+    { ...messages[1], work: store.readWork('run-1') },
+    { ...messages[2], work: null },
+  ]);
+  expect(withWorkHistory('another-chat', [messages[1]])[0].work).toBeNull();
+  expect(withWorkHistory('chat', [{ ...messages[1], role: 'user' }])[0].work).toBeNull();
+});
