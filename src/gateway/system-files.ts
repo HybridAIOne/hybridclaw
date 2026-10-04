@@ -11,7 +11,8 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { sendJson } from './gateway-http-utils.js';
 
-export const SYSTEM_FILES_PATH = '/api/system/files';
+export { SYSTEM_FILES_PATH } from '../security/admin-rbac.js';
+
 const PAGE_SIZE = 500;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 

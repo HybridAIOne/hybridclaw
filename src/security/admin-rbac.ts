@@ -5,6 +5,8 @@
  * The gateway denies an admin route left unmapped here to every scoped caller
  * without a `*` claim, so each new admin route needs an entry.
  */
+export const SYSTEM_FILES_PATH = '/api/system/files';
+
 export const ADMIN_SECRET_RBAC_ACTIONS = [
   'secret.list_metadata',
   'secret.overwrite',
@@ -454,7 +456,7 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
   }
-  if (pathname === '/api/system/files' && method === 'GET') {
+  if (pathname === SYSTEM_FILES_PATH && method === 'GET') {
     return 'system_files.read';
   }
   if (pathname === '/api/artifact' && method === 'GET') {
