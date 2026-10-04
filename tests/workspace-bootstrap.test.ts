@@ -91,6 +91,10 @@ describe('workspace bootstrap lifecycle', () => {
     const initial = workspace.ensureBootstrapFiles('agent-test');
     expect(initial.workspaceInitialized).toBe(true);
     expect(initial.workspacePath).toBe(ipc.agentWorkspaceDir('agent-test'));
+    const identityPath = path.join(initial.workspacePath, 'IDENTITY.md');
+    expect(fs.readFileSync(identityPath, 'utf8')).toMatch(/^- \*\*Name:\*\* Hy$/m);
+    const personalizedIdentity = '# Identity\n\n- **Name:** Nova\n';
+    fs.writeFileSync(identityPath, personalizedIdentity);
     const agentsPath = path.join(initial.workspacePath, 'AGENTS.md');
     const agents = fs.readFileSync(agentsPath, 'utf8');
     expect(agents).toContain('## Every Session');
@@ -99,6 +103,7 @@ describe('workspace bootstrap lifecycle', () => {
 
     const second = workspace.ensureBootstrapFiles('agent-test');
     expect(second.workspaceInitialized).toBe(false);
+    expect(fs.readFileSync(identityPath, 'utf8')).toBe(personalizedIdentity);
     expect(second.workspacePath).toBe(initial.workspacePath);
     expect(fs.readFileSync(agentsPath, 'utf8')).toBe(`${agents}\nCustom workspace instruction.\n`);
   });
@@ -280,9 +285,6 @@ describe('workspace bootstrap lifecycle', () => {
     );
     expect(bootstrapMarkdown).toContain('one question per line');
     expect(bootstrapMarkdown).toContain('Two or three questions');
-    expect(bootstrapMarkdown).toContain("what they'd like to call YOU");
-    expect(bootstrapMarkdown).toContain("don't have a fixed name yet");
-    expect(bootstrapMarkdown).toContain('including the name they chose for you');
     expect(bootstrapMarkdown).toContain('a good email for you');
     expect(bootstrapMarkdown).toContain('home automation');
     expect(bootstrapMarkdown).toContain("what they're working on right now");

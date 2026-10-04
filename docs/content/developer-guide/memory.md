@@ -111,6 +111,11 @@ paths and follow different update rules.
 ### `MEMORY.md`
 
 `MEMORY.md` is the curated long-term memory file in the agent workspace.
+Its sections hold stable facts, explicit preferences, ongoing commitments,
+decisions with their reasons, and recurring patterns. Commitments keep their
+owner and relevant deadline; completed or cancelled ones are removed during
+cleanup. Memory records commitments but does not schedule reminders or execute
+them.
 HybridClaw loads it as part of the bootstrap prompt on every normal turn.
 
 Important properties:
@@ -123,6 +128,12 @@ Important properties:
 - normal `memory` tool writes should not append to it directly
 - `/dream` and the scheduled consolidation pass rewrite it from older daily
   notes
+
+The default identity is Hy. Identity and memory templates are copied only when
+workspace files are missing; existing names and personalized text are not reset.
+Model-backed consolidation adds any missing managed memory sections while
+preserving text outside managed bullets. Incomplete model responses fall back to
+the deterministic daily digest instead of clearing omitted sections.
 
 Use `MEMORY.md` for durable, cleaned-up context that should persist across
 sessions without carrying all raw intake forever.
@@ -584,9 +595,10 @@ Consolidation selects recent source notes within a separate `24,000` character
 input budget; older source files remain on disk.
 
 Model cleanup receives the existing memory document and replaces managed bullets
-under Facts, Decisions, and Patterns (heading case is ignored). Other headings,
-free text, and fenced examples are preserved verbatim; template placeholder
-lines are dropped once a section holds bullets and a single placeholder remains
+under Facts, Preferences, Commitments, Decisions, and Patterns (heading case is
+ignored). Other headings, free text, and fenced examples are preserved verbatim;
+template placeholder lines are dropped once a section holds bullets and a single
+placeholder remains
 while it is empty. If the result exceeds the `12,000` character durable-file
 budget, deterministic consolidation is used instead of trimming operator
 content. Its digest gives every selected day a fair share of the remaining

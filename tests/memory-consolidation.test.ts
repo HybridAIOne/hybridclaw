@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,6 +38,8 @@ async function loadConsolidationModule(
       provider: 'hybridai',
       model: 'gpt-5-nano',
       content: JSON.stringify({
+        preferences: [],
+        commitments: [],
         facts: [],
         decisions: [],
         patterns: [],
@@ -55,7 +58,7 @@ function makeBackend(memoriesDecayed = 0): MemoryBackend {
 describe.sequential('memory consolidation', () => {
   const makeTempDir = useTempDir();
 
-  test.each(['memory', 'daily', 'language', 'corrupt-state'])(
+  test.each(['memory', 'daily', 'language', 'corrupt-state', 'previous-schema'])(
     'skips unchanged cleanup across engine recreation and notices %s changes',
     async (change) => {
       const workspace = makeTempDir();
@@ -68,7 +71,7 @@ describe.sequential('memory consolidation', () => {
       vi.mocked(callAuxiliaryModel).mockResolvedValue({
         provider: 'hybridai',
         model: 'gpt-5-nano',
-        content: JSON.stringify({ facts: ['Durable fact'], decisions: [], patterns: [] }),
+        content: JSON.stringify({ preferences: [], commitments: [], facts: ['Durable fact'], decisions: [], patterns: [] }),
       });
       const backend = makeBackend(3);
       const config = { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 };
@@ -81,6 +84,12 @@ describe.sequential('memory consolidation', () => {
       if (change === 'memory') fs.appendFileSync(memoryPath, '\nA new note\n');
       if (change === 'daily') fs.writeFileSync(dailyPath, 'A new daily fact');
       if (change === 'language') engine.setLanguage('de');
+      if (change === 'previous-schema') {
+        const oldFingerprint = createHash('sha256')
+          .update(JSON.stringify([fs.readFileSync(memoryPath, 'utf8'), [], 'en']))
+          .digest('hex');
+        fs.writeFileSync(path.join(workspace, '.memory-cleanup.sha256'), oldFingerprint);
+      }
       if (change === 'corrupt-state') fs.writeFileSync(path.join(workspace, '.memory-cleanup.sha256'), 'invalid');
       await engine.consolidateWithCleanup();
       expect(callAuxiliaryModel).toHaveBeenCalledTimes(2);
@@ -112,7 +121,7 @@ describe.sequential('memory consolidation', () => {
       const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
       const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
       if (method === 'model') {
-        vi.mocked(callAuxiliaryModel).mockResolvedValue({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Learned fact.'], decisions: [], patterns: [] }) });
+        vi.mocked(callAuxiliaryModel).mockResolvedValue({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], facts: ['Learned fact.'], decisions: [], patterns: [] }) });
       } else if (method === 'fallback') {
         vi.mocked(callAuxiliaryModel).mockRejectedValue(new Error('Unavailable'));
       }
@@ -144,7 +153,7 @@ describe.sequential('memory consolidation', () => {
     const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
     vi.mocked(callAuxiliaryModel).mockImplementation(async () => {
       fs.appendFileSync(memoryPath, '- Concurrent fact.\n');
-      return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Stale fact.'], decisions: [], patterns: [] }) };
+      return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], facts: ['Stale fact.'], decisions: [], patterns: [] }) };
     });
     const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
     expect((await engine.consolidateWithCleanup()).workspacesUpdated).toBe(0);
@@ -430,7 +439,7 @@ describe.sequential('memory consolidation', () => {
       const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
       vi.mocked(callAuxiliaryModel).mockImplementationOnce(async () => {
         fs.writeFileSync(memoryPath, '## Facts\n- Concurrent update.\n');
-        return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['Stale result'], decisions: [], patterns: [] }) };
+        return { provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], facts: ['Stale result'], decisions: [], patterns: [] }) };
       });
       const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 30, minConfidence: 0.1 });
       expect((await engine.consolidateWithCleanup()).workspacesUpdated).toBe(0);
@@ -491,6 +500,8 @@ describe.sequential('memory consolidation', () => {
       provider: 'hybridai',
       model: 'gpt-5-nano',
       content: JSON.stringify({
+        preferences: [],
+        commitments: [],
         facts: ['Test runner is Vitest.'],
         decisions: ['Keep changes tightly scoped.'],
         patterns: ['User prefers concise replies.'],
@@ -535,7 +546,7 @@ describe.sequential('memory consolidation', () => {
       const prose = 'Long prose ' + 'detail '.repeat(700) + 'important conclusion.';
       const daily = Array.from({ length: 12 }, (_, i) => `- Entry ${i}`).join('\n') + '\n\n' + prose + '\n\nNewest appended fact.';
       fs.writeFileSync(path.join(dailyDir, `${yesterday}.md`), daily);
-      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['New fact.'], decisions: [], patterns: [] }) });
+      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], facts: ['New fact.'], decisions: [], patterns: [] }) });
       const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
       expect((await engine.consolidateWithCleanup()).modelCleanups).toBe(1);
       const prompt = JSON.stringify(vi.mocked(callAuxiliaryModel).mock.calls[0][0].messages);
@@ -559,7 +570,7 @@ describe.sequential('memory consolidation', () => {
       const memoryPath = path.join(workspaceDir, 'MEMORY.md');
       const custom = '# Memory\n\n## Regeln\n' + 'x'.repeat(11_900) + '\n';
       fs.writeFileSync(memoryPath, custom);
-      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ facts: ['y'.repeat(280)], decisions: [], patterns: [] }) });
+      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], facts: ['y'.repeat(280)], decisions: [], patterns: [] }) });
       const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
       expect((await engine.consolidateWithCleanup()).fallbacksUsed).toBe(1);
       expect(fs.readFileSync(memoryPath, 'utf8')).toBe(custom);
@@ -592,6 +603,8 @@ describe.sequential('memory consolidation', () => {
       provider: 'hybridai',
       model: 'gpt-5-nano',
       content: JSON.stringify({
+        preferences: [],
+        commitments: [],
         facts: ['The test suite should stay deterministic.'],
         decisions: [],
         patterns: [],
@@ -1019,10 +1032,91 @@ describe.sequential('memory consolidation', () => {
     fs.mkdirSync(dailyDir, { recursive: true });
     const yesterday = currentDateStamp(new Date(Date.now() - 86400000));
     fs.writeFileSync(path.join(dailyDir, `${yesterday}.md`), '- Learned something.\n');
-    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify(sections) });
+    vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({ provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify({ preferences: [], commitments: [], ...sections }) });
     const engine = new MemoryConsolidationEngine(makeBackend(), { decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1 });
     return engine.consolidateWithCleanup();
   };
+
+  test('cleanup promotes preferences and commitments while preserving decisions and custom text', async () => {
+    const workspaceDir = makeTempDir();
+    const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+    fs.writeFileSync(memoryPath, [
+      '# Personal memory',
+      '',
+      '## Facts',
+      '- Lives near the coast.',
+      '',
+      '## Decisions',
+      '- Travel by train to reduce emissions.',
+      '',
+      '## Patterns',
+      '- Plans meals on Sundays.',
+      '',
+      '## Personal note',
+      'Keep this paragraph exactly as written.',
+      '',
+    ].join('\n'));
+    const sections = {
+      facts: ['Lives near the coast.'],
+      preferences: ['Prefers morning appointments.', 'Prefers morning appointments.'],
+      commitments: ['User will return the library books by 2026-10-12.'],
+      decisions: ['Travel by train to reduce emissions.'],
+      patterns: ['Plans meals on Sundays.'],
+    };
+    expect((await cleanupEngine(workspaceDir, sections)).modelCleanups).toBe(1);
+    const result = fs.readFileSync(memoryPath, 'utf8');
+    expect(result).toContain('## Preferences\n- Prefers morning appointments.');
+    expect(result.match(/Prefers morning appointments\./g)).toHaveLength(1);
+    expect(result).toContain('## Commitments\n- User will return the library books by 2026-10-12.');
+    expect(result).toContain('- Travel by train to reduce emissions.');
+    expect(result).toContain('- Plans meals on Sundays.');
+    expect(result).toContain('## Personal note\nKeep this paragraph exactly as written.\n');
+  });
+
+  test.each(['preferences', 'commitments'])(
+    'rejects an incomplete model response without erasing existing %s',
+    async (section) => {
+      const workspaceDir = makeTempDir();
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      const title = section[0].toUpperCase() + section.slice(1);
+      const existing = `# Memory\n\n## ${title}\n- Keep this durable item.\n`;
+      fs.writeFileSync(memoryPath, existing);
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      const sections: Record<string, string[]> = {
+        facts: ['Another fact.'], preferences: [], commitments: [], decisions: [], patterns: [],
+      };
+      delete sections[section];
+      vi.mocked(callAuxiliaryModel).mockResolvedValueOnce({
+        provider: 'hybridai', model: 'gpt-5-nano', content: JSON.stringify(sections),
+      });
+      const engine = new MemoryConsolidationEngine(makeBackend(), {
+        decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1,
+      });
+      const report = await engine.consolidateWithCleanup();
+      expect(report.modelCleanups).toBe(0);
+      expect(report.fallbacksUsed).toBe(1);
+      expect(fs.readFileSync(memoryPath, 'utf8')).toBe(existing);
+    },
+  );
+
+  test.each(['Preferences', 'Commitments'])(
+    'empty cleanup cannot erase a document containing only %s',
+    async (title) => {
+      const workspaceDir = makeTempDir();
+      const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+      const existing = `# Memory\n\n## ${title}\n- Keep this durable item.\n`;
+      fs.writeFileSync(memoryPath, existing);
+      const { MemoryConsolidationEngine } = await loadConsolidationModule(workspaceDir);
+      const engine = new MemoryConsolidationEngine(makeBackend(), {
+        decayRate: 0.1, staleAfterDays: 7, minConfidence: 0.1,
+      });
+      const report = await engine.consolidateWithCleanup();
+      expect(report.modelCleanups).toBe(0);
+      expect(report.fallbacksUsed).toBe(1);
+      expect(fs.readFileSync(memoryPath, 'utf8')).toBe(existing);
+    },
+  );
 
   test('cleanup from the default template drops placeholders under populated sections only', async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-template-'));
@@ -1032,12 +1126,17 @@ describe.sequential('memory consolidation', () => {
       fs.writeFileSync(memoryPath, template);
       expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: [], patterns: ['Prefers short replies.'] })).modelCleanups).toBe(1);
       const result = fs.readFileSync(memoryPath, 'utf8');
-      expect(result).toContain('## Facts\n- New fact.\n\n## Decisions\n\n_(Important choices');
-      expect(result).not.toContain("_(Key things you've discovered");
-      expect(result).toContain('## Patterns\n- Prefers short replies.\n\n---\n');
-      expect(result).not.toContain('_(Recurring things');
-      expect(result.match(/_\(/g)?.length).toBe(1);
-      expect(result).toContain('This is your persistent memory.');
+      const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+      const prompt = vi.mocked(callAuxiliaryModel).mock.calls[0][0].messages[0].content as string;
+      const schema = JSON.parse(prompt.split('\n').find((line) => line.startsWith('{'))!);
+      const headings = [...template.matchAll(/^## (.+)$/gm)].map((match) => match[1].toLowerCase());
+      expect(Object.keys(schema)).toEqual(headings);
+      expect(result).toContain('## Facts\n- New fact.\n\n## Preferences');
+      expect(result).not.toMatch(/## Facts\r?\n(?:\s*\r?\n)*_\(/);
+      expect(result).toContain('## Patterns\n- Prefers short replies.\n');
+      expect(result).not.toMatch(/## Patterns\r?\n(?:\s*\r?\n)*_\(/);
+      expect(result.match(/_\(/g)?.length).toBe(3);
+      expect(result.split('## Facts')[0]).toBe(template.split('## Facts')[0]);
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 
@@ -1049,10 +1148,10 @@ describe.sequential('memory consolidation', () => {
       fs.writeFileSync(memoryPath, template);
       expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: [], patterns: [] })).modelCleanups).toBe(1);
       const result = fs.readFileSync(memoryPath, 'utf8');
-      expect(result).toContain('## Facts\r\n- New fact.\r\n\r\n## Decisions\r\n\r\n_(Important choices');
-      expect(result).not.toContain("_(Key things you've discovered");
-      expect(result).toContain('## Patterns\r\n\r\n_(Recurring things');
-      expect(result.match(/_\(/g)?.length).toBe(2);
+      expect(result).toContain('## Facts\r\n- New fact.\r\n\r\n## Preferences');
+      expect(result).not.toMatch(/## Facts\r?\n(?:\s*\r?\n)*_\(/);
+      expect(result).toMatch(/## Patterns\r\n\r\n_\(/);
+      expect(result.match(/_\(/g)?.length).toBe(4);
       expect(result).not.toMatch(/[^\r]\n/);
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
@@ -1064,7 +1163,8 @@ describe.sequential('memory consolidation', () => {
       fs.writeFileSync(memoryPath, '# Memory\n\n## facts\n- Old fact.\n\n## DECISIONS\n- Old decision.\n\n## Patterns\n- Old pattern.\n');
       expect((await cleanupEngine(workspaceDir, { facts: ['New fact.'], decisions: ['New decision.'], patterns: ['New pattern.'] })).modelCleanups).toBe(1);
       const result = fs.readFileSync(memoryPath, 'utf8');
-      expect(result).toBe('# Memory\n\n## facts\n- New fact.\n\n## DECISIONS\n- New decision.\n\n## Patterns\n- New pattern.\n');
+      expect(result).toContain('# Memory\n\n## facts\n- New fact.\n\n## DECISIONS\n- New decision.\n\n## Patterns\n- New pattern.\n');
+      expect(result.match(/^## /gm)).toHaveLength(5);
     } finally { fs.rmSync(workspaceDir, { recursive: true, force: true }); }
   });
 

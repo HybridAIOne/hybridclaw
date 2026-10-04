@@ -1,19 +1,25 @@
-# MEMORY.md - Session Memory
+# MEMORY.md - Long-term Memory
 
-_Things you've learned across conversations. Update as you go._
+_Durable facts, preferences, commitments, decisions, and recurring patterns learned across conversations._
+
+Keep this concise. Record new observations in `memory/YYYY-MM-DD.md`; consolidation brings what lasts here. Leave raw daily detail in those notes. Follow the user's corrections and requests to forget, and avoid turning guesses into facts.
 
 ## Facts
 
-_(Key things you've discovered about the workspace, the user, the project.)_
+_(Stable facts about the person, their life, and their work.)_
+
+## Preferences
+
+_(What the user prefers: communication, routines, interests, and working style.)_
+
+## Commitments
+
+_(Ongoing responsibilities and promises, including who owns them and any relevant deadline. Remove completed or cancelled commitments.)_
 
 ## Decisions
 
-_(Important choices that were made. Record the "why" so you don't revisit them.)_
+_(Important choices and their reasons, so you do not revisit settled questions.)_
 
 ## Patterns
 
-_(Recurring things — how the user likes code formatted, common workflows, etc.)_
-
----
-
-This is your persistent memory. Each session, read this first. Update it when you learn something worth remembering.
+_(Recurring habits and workflows that help you be useful.)_

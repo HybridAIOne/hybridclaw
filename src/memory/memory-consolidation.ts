@@ -58,50 +58,53 @@ const DAILY_MEMORY_DIGEST_MAX_CHARS = DAILY_MEMORY_MAX_CHARS;
 const MEMORY_FILE_MAX_CHARS = 12_000;
 const MODEL_MEMORY_ITEM_MAX_CHARS = 280;
 const MODEL_MEMORY_MAX_ITEMS_PER_SECTION = 18;
-const MEMORY_SECTION_NAMES = new Set(['Facts', 'Decisions', 'Patterns']);
-const MEMORY_SECTION_PLACEHOLDERS: Record<
-  keyof CanonicalMemorySections,
-  string
-> = {
-  facts:
-    "_(Key things you've discovered about the workspace, the user, the project.)_",
-  decisions:
-    '_(Important choices that were made. Record the "why" so you don\'t revisit them.)_',
-  patterns:
-    '_(Recurring things — how the user likes code formatted, common workflows, etc.)_',
+const MEMORY_SECTIONS = {
+  facts: {
+    title: 'Facts',
+    placeholder:
+      '_(Stable facts about the person, their life, and their work.)_',
+  },
+  preferences: {
+    title: 'Preferences',
+    placeholder:
+      '_(What the user prefers: communication, routines, interests, and working style.)_',
+  },
+  commitments: {
+    title: 'Commitments',
+    placeholder:
+      '_(Ongoing responsibilities and promises, including who owns them and any relevant deadline. Remove completed or cancelled commitments.)_',
+  },
+  decisions: {
+    title: 'Decisions',
+    placeholder:
+      '_(Important choices and their reasons, so you do not revisit settled questions.)_',
+  },
+  patterns: {
+    title: 'Patterns',
+    placeholder: '_(Recurring habits and workflows that help you be useful.)_',
+  },
 };
+type CanonicalMemorySections = {
+  [Key in keyof typeof MEMORY_SECTIONS]: string[];
+};
+const MEMORY_SECTION_KEYS = Object.keys(MEMORY_SECTIONS) as Array<
+  keyof CanonicalMemorySections
+>;
+const MEMORY_SECTION_NAMES = new Set(
+  Object.values(MEMORY_SECTIONS).map((section) => section.title),
+);
 const PLACEHOLDER_LINE_RE = /^\s*_\(.*\)_\s*$/;
 const DIGEST_MIN_TRUNCATED_CHARS = 600;
-const DEFAULT_MEMORY_TEMPLATE = `# MEMORY.md - Session Memory
-
-_Things you've learned across conversations. Update as you go._
-
-## Facts
-
-_(Key things you've discovered about the workspace, the user, the project.)_
-
-## Decisions
-
-_(Important choices that were made. Record the "why" so you don't revisit them.)_
-
-## Patterns
-
-_(Recurring things — how the user likes code formatted, common workflows, etc.)_
-
----
-
-This is your persistent memory. Each session, read this first. Update it when you learn something worth remembering.
-`;
+const DEFAULT_MEMORY_TEMPLATE = `${[
+  '# MEMORY.md - Long-term Memory',
+  ...Object.values(MEMORY_SECTIONS).map(
+    ({ title, placeholder }) => `## ${title}\n\n${placeholder}`,
+  ),
+].join('\n\n')}\n`;
 
 interface DailyMemoryEntry {
   date: string;
   summary: string;
-}
-
-interface CanonicalMemorySections {
-  facts: string[];
-  decisions: string[];
-  patterns: string[];
 }
 
 type MemoryCleanupFallbackReason =
@@ -142,15 +145,20 @@ const DAILY_DIGEST_BLOCK_RE = new RegExp(
 const MEMORY_CLEANUP_SYSTEM_PROMPT = [
   'You consolidate durable assistant memory.',
   'Return strict JSON only with this shape:',
-  '{"facts":["..."],"decisions":["..."],"patterns":["..."]}',
+  JSON.stringify(
+    Object.fromEntries(MEMORY_SECTION_KEYS.map((key) => [key, ['...']])),
+  ),
   'Rules:',
   '- Merge older daily memory into durable memory when it is still relevant.',
   '- Remove duplicates, near-duplicates, outdated facts, and superseded decisions.',
   '- Prefer the newest valid statement when entries conflict.',
-  '- Keep only durable facts, durable decisions, and recurring patterns.',
+  '- Keep durable facts, explicit user preferences, ongoing commitments, decisions with their reasons, and recurring patterns.',
+  '- Keep commitment owners and relevant deadlines. Remove completed or cancelled commitments; do not turn suggestions into promises.',
+  '- Follow explicit user corrections and requests to forget; do not turn guesses into facts.',
   '- Drop transient statuses, one-off progress notes, and stale historical context.',
   '- Each item must be a short standalone bullet sentence without markdown bullet prefixes.',
-  '- Do not include dates, headings, commentary, markdown fences, or any keys besides facts, decisions, patterns.',
+  '- Include every key shown above, using an empty array when a section has no durable items.',
+  '- Do not include headings, commentary, markdown fences, or other keys. Include dates only when needed to understand a fact, decision, or commitment.',
 ].join('\n');
 
 function normalizeConsolidationLanguage(language?: string): string {
@@ -207,11 +215,9 @@ function normalizeBullet(line: string): string {
 }
 
 function emptyCanonicalMemorySections(): CanonicalMemorySections {
-  return {
-    facts: [],
-    decisions: [],
-    patterns: [],
-  };
+  return Object.fromEntries<string[]>(
+    MEMORY_SECTION_KEYS.map((key) => [key, []]),
+  ) as CanonicalMemorySections;
 }
 
 function stripCodeFence(value: string): string {
@@ -251,11 +257,12 @@ function parseCanonicalMemorySections(
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return null;
     }
-    return {
-      facts: normalizeMemoryItems(parsed.facts),
-      decisions: normalizeMemoryItems(parsed.decisions),
-      patterns: normalizeMemoryItems(parsed.patterns),
-    };
+    const sections = emptyCanonicalMemorySections();
+    for (const key of MEMORY_SECTION_KEYS) {
+      if (!Array.isArray(parsed[key])) return null;
+      sections[key] = normalizeMemoryItems(parsed[key]);
+    }
+    return sections;
   } catch {
     return null;
   }
@@ -297,8 +304,9 @@ function extractCanonicalMemorySections(
 }
 
 function countCanonicalMemoryItems(sections: CanonicalMemorySections): number {
-  return (
-    sections.facts.length + sections.decisions.length + sections.patterns.length
+  return MEMORY_SECTION_KEYS.reduce(
+    (count, key) => count + sections[key].length,
+    0,
   );
 }
 
@@ -369,7 +377,7 @@ function renderCanonicalMemoryDocument(
     const body =
       sections[key].length > 0
         ? sections[key].map((item) => `- ${item}${eol}`).join('')
-        : `${eol}${MEMORY_SECTION_PLACEHOLDERS[key]}${eol}`;
+        : `${eol}${MEMORY_SECTIONS[key].placeholder}${eol}`;
     output.push(`${eol}${eol}## ${title}${eol}${body}`);
   }
   return insertEmptySectionPlaceholders(output.join(''), sections, eol);
@@ -393,7 +401,7 @@ function insertEmptySectionPlaceholders(
     const nextHeading = after.search(/^#{1,6}[ \t]+/m);
     const body = nextHeading === -1 ? after : after.slice(0, nextHeading);
     if (body.trim()) continue;
-    result = `${result.slice(0, bodyStart)}${eol}${MEMORY_SECTION_PLACEHOLDERS[key]}${eol}${after}`;
+    result = `${result.slice(0, bodyStart)}${eol}${MEMORY_SECTIONS[key].placeholder}${eol}${after}`;
   }
   return result;
 }
@@ -685,6 +693,7 @@ function cleanupFingerprint(
   return createHash('sha256')
     .update(
       JSON.stringify([
+        MEMORY_CLEANUP_SYSTEM_PROMPT,
         memory,
         entries,
         normalizeConsolidationLanguage(language),
