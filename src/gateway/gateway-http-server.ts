@@ -503,6 +503,7 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
+import { handleSystemFilesRoute, SYSTEM_FILES_PATH } from './system-files.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -10945,6 +10946,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             authContext.tokenId,
             isOwnerDeviceToken(authContext.payload),
           );
+          if (pathname === SYSTEM_FILES_PATH) {
+            handleSystemFilesRoute(res, method, url);
+            return;
+          }
           if (pathname.startsWith('/api/push/')) {
             if (!operatorId) {
               sendJson(res, 403, {

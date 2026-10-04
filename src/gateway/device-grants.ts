@@ -64,6 +64,9 @@ export const DEVICE_TOKEN_ACTIONS = [
 // no agent turn (`openai.api`). Its chat turns could already reach that model.
 export const OWNER_DEVICE_TOKEN_ACTIONS = [
   ...DEVICE_TOKEN_ACTIONS,
+  // 2026-10-04 (product owner): Developer settings browse the runtime's files.
+  // Paired non-owner phones retain their narrower chat-only permissions.
+  'system_files.read',
   'chat.history',
   'openai.api',
 ] as const satisfies readonly AdminRbacAction[];
