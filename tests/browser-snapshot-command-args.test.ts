@@ -190,31 +190,31 @@ test.each([
   {
     label: 'interactive mode',
     args: { mode: 'interactive' },
-    expectedArgs: ['-i', '-C'],
+    expectedArgs: ['-i', '-C', '--urls'],
     expectedMode: 'interactive',
   },
   {
     label: 'interactive mode with full override',
     args: { mode: 'interactive', full: true },
-    expectedArgs: ['-i', '-C'],
+    expectedArgs: ['-i', '-C', '--urls'],
     expectedMode: 'interactive',
   },
   {
     label: 'full mode',
     args: { mode: 'full' },
-    expectedArgs: ['-C'],
+    expectedArgs: ['-C', '--urls'],
     expectedMode: 'full',
   },
   {
     label: 'default mode with full override',
     args: { full: true },
-    expectedArgs: ['-C'],
+    expectedArgs: ['-C', '--urls'],
     expectedMode: 'default',
   },
   {
     label: 'default compact mode',
     args: {},
-    expectedArgs: ['-i', '-c', '-C'],
+    expectedArgs: ['-i', '-c', '-C', '--urls'],
     expectedMode: 'default',
   },
 ])('browser_snapshot uses the expected cursor flags for $label', async ({
@@ -282,7 +282,7 @@ test('browser_snapshot can target an iframe before collecting refs', async () =>
     command: 'frame',
     args: ['iframe#payments'],
   });
-  expect(commands[1]).toEqual({ command: 'snapshot', args: ['-C'] });
+  expect(commands[1]).toEqual({ command: 'snapshot', args: ['-C', '--urls'] });
 });
 
 test('browser_screenshot returns a vision-ready artifact path', async () => {
