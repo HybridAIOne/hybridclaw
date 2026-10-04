@@ -17,11 +17,13 @@ export interface WebNotificationState {
   preferences: WebNotificationPreferences;
   notifications: WebNotification[];
 }
-/** A phone app registered for APNs alerts through the `/push` command. */
+/** A phone app registered for mobile alerts through the `/push` command. */
 export interface MobilePushDevice {
-  /** APNs device token, lowercase hex. */
+  /** APNs hex or case-sensitive Firebase registration token. */
   token: string;
   environment: 'sandbox' | 'production';
+  /** Omitted for an Apple phone. */
+  platform?: 'ios' | 'android';
   /** Notification kinds the app handles; nothing else is sent to it. */
   kinds: string[];
   /**
