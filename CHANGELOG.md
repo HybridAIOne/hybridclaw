@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## [0.35.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.3) - 2026-10-04
+
+### Added
+
+- **Startup configuration seed**: Container deployments can pass JSON in
+  `HYBRIDCLAW_CONFIG_SEED` to set runtime configuration, disable tools and skills,
+  and reinstall named plugins before the config watcher and plugin loader start.
+  Matching settings skip writes, existing disabled tools and skills are retained,
+  and malformed seeds or unknown config keys or tools stop startup.
+- **Early chat acknowledgements**: Reaction-capable clients can receive a
+  streamed `reaction` event before the conversational model starts. Configure
+  `auxiliaryModels.chat_reaction` to enable a separate, tool-free emoji model;
+  roughly half of messages are sampled, with a 750 ms deadline, validated
+  single-emoji output, confidential-input redaction, and routing-zone limits.
+
+### Changed
+
+- **Independent replies and reactions**: The conversational model always runs
+  independently of the early acknowledgement. It greets briefly, answers
+  questions and requests, and can use one emoji alone for a simple thanks or
+  compliment. An empty `chat_reaction.model` disables early acknowledgements;
+  unavailable providers, timeouts, and cancellation do not suppress the reply.
+
+### Fixed
+
+- **Questions receive answers**: Removed the agent's `react` tool and its
+  reaction-only turn termination, which could leave a question answered with
+  just an emoji. An early reaction also preserves the empty-response fallback.
+- **Reaction persistence on errors**: Early acknowledgements remain attached to
+  stored user messages on both successful and failed turns. User-authored
+  reactions, message ownership checks, and thumbs-up/down ratings are preserved.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together. The `react` agent tool has been
+  removed; custom workflows must stop calling it. Chat clients should use the
+  existing `reactions: true` capability and handle the new streamed `reaction`
+  event for early acknowledgement; the result and history still carry reactions.
+- Early acknowledgements are opt-in: set
+  `auxiliaryModels.chat_reaction.provider` and `.model` to enable them. The
+  auxiliary model cannot use tools or fall back to a broader routing destination.
+- `HYBRIDCLAW_CONFIG_SEED` is read at each gateway start. Matching config entries
+  skip writes, but listed plugins are reinstalled on each start. Supply only
+  operator-controlled settings and plugin sources; invalid seeds prevent boot.
+
 ## [0.35.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.2) - 2026-10-04
 
 ### Added

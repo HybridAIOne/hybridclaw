@@ -1,10 +1,9 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.35.2',
+  version: '0.35.3',
   highlights: [
-    'Goals prepare work before checking in',
-    'Proactive checks on connector changes',
-    'Fresh phone data for scheduled work',
-    'Mini-skill cards and contextual reactions',
+    'Quick emoji reactions with complete replies',
+    'Startup settings for container deployments',
+    'Reactions survive failed turns',
   ],
 } as const;
 
