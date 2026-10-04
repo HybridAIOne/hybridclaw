@@ -1,7 +1,9 @@
 /**
  * Conversation prompts replay persisted tool exchanges alongside their final
- * assistant message. Audit events are never promoted into prompt instructions.
+ * assistant message. Current preferences belong to the verified user (or task
+ * owner); audit events and preference text never grant execution authority.
  */
+
 import os from 'node:os';
 import { DYNAMIC_CONTEXT_MESSAGE_PREFIX } from '../../container/shared/dynamic-context.js';
 import {
@@ -15,6 +17,7 @@ import {
   getReactionOnlyAnswers,
   getUserReactionsSinceLastMessage,
 } from '../memory/db.js';
+import { renderPreferences } from '../preferences/preferences.js';
 import { resolveHistoryBudgetTokens } from '../session/context-budget.js';
 import {
   buildSessionContextPrompt,
@@ -119,6 +122,7 @@ interface DynamicContextMessageOptions {
   tracked?: string | null;
   /** The user's reactions to replies since they last wrote. */
   userReactions?: string | null;
+  preferences?: string | null;
   /** The user's messages the agent answered with a reaction alone. */
   reactionOnlyAnswers?: string | null;
   /**
@@ -148,6 +152,7 @@ export function buildDynamicContextMessage(
       options.openTodos || '',
       options.tracked || '',
       options.userReactions || '',
+      options.preferences || '',
       options.reactionOnlyAnswers || '',
       buildSessionSummaryPrompt(options.sessionSummary),
       buildRetrievedContextPrompt(options.retrievedContext),
@@ -265,6 +270,8 @@ function renderReactionOnlyAnswers(sessionId: string | undefined): string {
 
 export function buildConversationContext(params: {
   agentId: string;
+  /** Verified owner supplied by background dispatch; null forbids personalization. */
+  preferenceUserId?: string | null;
   sessionSummary?: string | null;
   retrievedContext?: string | null;
   earlierAttachments?: string | null;
@@ -373,6 +380,11 @@ export function buildConversationContext(params: {
       openTodos,
       tracked,
       userReactions,
+      preferences: renderPreferences(
+        params.preferenceUserId === undefined
+          ? runtimeInfo?.sessionContext?.source.userId
+          : params.preferenceUserId,
+      ),
       reactionOnlyAnswers,
       historyWindow,
       sessionContext: shouldRenderSessionContext(hookContext)

@@ -1,7 +1,7 @@
 /**
  * Chat ideas — five model-generated suggestions for what the agent could help
  * with next, grounded in the agent's persona files and the requesting user's
- * own recent web chats with that agent.
+ * own recent web chats with that agent and current runtime preferences.
  *
  * Suggestions are advisory text only: the web chat prefills a chosen prompt
  * into the composer and the user still sends it, so nothing here runs a tool,
@@ -18,6 +18,7 @@ import {
 } from '../agents/agent-registry.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { memoryService } from '../memory/memory-service.js';
+import { renderPreferences } from '../preferences/preferences.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { truncateHeadTailText } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
@@ -164,6 +165,7 @@ export async function generateChatIdeas(params: {
     {
       role: 'user',
       content: [
+        renderPreferences(params.userId),
         '<agent_profile>',
         profile || '(no profile files)',
         '</agent_profile>',

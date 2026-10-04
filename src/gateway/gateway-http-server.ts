@@ -146,6 +146,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { runPreferenceTool } from '../preferences/preferences.js';
 import {
   type AdminRbacAction,
   adminActionClaimList,
@@ -11825,6 +11826,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiBrowserTool(req, res, activeSseResponses);
+            return;
+          }
+          if (pathname === '/api/preferences' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, { error: 'Unauthorized' });
+              return;
+            }
+            sendJson(res, 200, runPreferenceTool(await readJsonBody(req)));
             return;
           }
           if (pathname === '/api/work' && method === 'POST')

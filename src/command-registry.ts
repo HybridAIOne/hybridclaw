@@ -104,6 +104,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'track',
   'name',
   'timezone',
+  'preferences',
   'receipts',
   'channel',
   'ralph',
@@ -673,6 +674,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'name':
       return ['name', ...parts.slice(1)];
+
+    case 'preferences':
+      return ['preferences', ...parts.slice(1)];
 
     case 'timezone':
       return ['timezone', ...parts.slice(1)];

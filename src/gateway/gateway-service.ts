@@ -326,6 +326,7 @@ import {
   removeHttpSecretRouteFromWorkspacePolicy,
   restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
+import { handlePreferencesCommand } from '../preferences/preferences-command.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { discoverCodexModels } from '../providers/codex-discovery.js';
 import {
@@ -12776,6 +12777,9 @@ export async function handleGatewayCommand(
 
       case 'receipts':
         return handleReceiptsCommand(req, session);
+
+      case 'preferences':
+        return handlePreferencesCommand(req);
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));

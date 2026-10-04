@@ -90,6 +90,10 @@ import {
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  PREFERENCES_TOOL_DEFINITION,
+  runPreferencesTool,
+} from './tools/preferences.js';
+import {
   runGlobSearch,
   runGrepSearch,
   SEARCH_TOOL_DEFINITIONS,
@@ -3605,6 +3609,15 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
 
+    case 'preferences': {
+      const { ok, text } = await runPreferencesTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
+
     case 'track': {
       const { ok, text } = await runTrackTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4199,6 +4212,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
+  PREFERENCES_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

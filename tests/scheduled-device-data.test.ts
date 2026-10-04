@@ -148,3 +148,27 @@ test('overlapping users fail closed and out-of-order cleanup leaves no old grant
   bob();
   expect(device.renderDeviceDataForSession('overlap', null)).toContain('shares nothing');
 });
+
+// Preferences must be available while the prompt is built, before the model's
+// tool-access grant begins; both automatic feed editions and Ideas use this path.
+test('scheduled generation reads the latest runtime preferences without replacing its task', async () => {
+  const { create, run } = await load();
+  const { mergePreferences } = await import('../src/preferences/preferences.js');
+  const id = create('alice');
+  mergePreferences('alice', [{ id: 'first', key: 'coverage', kind: 'instruction', text: 'More crypto', at: 1 }]);
+  mergePreferences('bob', [{ id: 'private', key: 'coverage', kind: 'instruction', text: 'Bob private preference', at: 1 }]);
+  runAgentMock.mockImplementation(async (input) => {
+    const prompt = JSON.stringify(input.messages);
+    expect(prompt).toContain('Less crypto, more cycling');
+    expect(prompt).toContain('Dismiss this idea');
+    expect(prompt).not.toContain('More crypto');
+    expect(prompt).not.toContain('Bob private preference');
+    return { status: 'success', result: 'NO_REPLY', toolExecutions: [] };
+  });
+  mergePreferences('alice', [
+    { id: 'second', key: 'coverage', kind: 'instruction', text: 'Less crypto, more cycling', at: 2 },
+    { id: 'idea', key: 'idea:test', kind: 'dismiss', text: 'Dismiss this idea', at: 2 },
+  ]);
+  await run(id);
+  expect(runAgentMock).toHaveBeenCalledOnce();
+});
