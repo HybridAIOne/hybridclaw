@@ -62,7 +62,7 @@ describe('HybridAI connectors MCP auto registration', () => {
           Authorization: 'Bearer hai-test-secret',
         },
         enabled: true,
-        toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only' } },
+        toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only', transit_routes: 'read-only' } },
       },
     });
   });
@@ -109,7 +109,7 @@ describe('HybridAI connectors MCP auto registration', () => {
         'X-Trace': 'test',
       },
       enabled: true,
-      toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only' } },
+      toolBehavior: { overrides: { web_search: 'read-only', dm__searchProducts: 'read-only', dm__getProductDetails: 'read-only', transit_routes: 'read-only' } },
     });
   });
 
@@ -132,7 +132,7 @@ describe('HybridAI connectors MCP auto registration', () => {
       ).hybridai?.toolBehavior,
     ).toEqual({
       trustAnnotations: true,
-      overrides: { web_search: 'mutation', dm__searchProducts: 'mutation', dm__getProductDetails: 'read-only', list_connectors: 'read-only' },
+      overrides: { web_search: 'mutation', dm__searchProducts: 'mutation', dm__getProductDetails: 'read-only', transit_routes: 'read-only', list_connectors: 'read-only' },
     });
   });
 

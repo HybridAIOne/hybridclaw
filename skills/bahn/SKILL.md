@@ -1,12 +1,12 @@
 ---
 name: bahn
-description: DB trains / Bahn Zugverbindungen, Fahrplan, departure/arrival.
+description: DB trains / Bahn Zugverbindungen, Fahrplan, departure/arrival; public-transport connections in Germany.
 mini: true
 metadata:
   hybridclaw:
     category: travel
 ---
 
-DB→browser_navigate https://www.bahn.de/buchung/fahrplan/suche#sts=true&so={F}&zo={T}&soid=O%3D{F}&zoid=O%3D{T}&hd={DT}&hza=D; F/T=URL-encoded stations, default Hbf; DT=requested local YYYY-MM-DDTHH:mm:ss; skip web_search.
-Read snapshot; verify route+date; dep/arr+changes+shown fares; 751/access error→stop+report, no invented schedules/booking.
-Blank→https://www.bahn.de/; fresh refs: type→click station suggestions; Hinfahrt ändern→set→Übernehmen→Suchen; browser_click via tool_catalog(action=call) if hidden; no Tab loops/button typing.
+Call hybridai__transit_routes: origin, destination (default Hbf), time=requested local ISO time with UTC offset, time_is=departure|arrival. Never browse bahn.de: DB blocks automated browsers (error 751).
+Report per route: dep/arr, changes, lines, first/last stop (may be another station in the city: say so); fares only as "ca." estimates; credit Google Maps and the operators. No invented schedules.
+End with the bahn.de link https://www.bahn.de/buchung/start?sts=true&so={F}&zo={T}&hd={YYYY-MM-DDTHH:MM:SS}&hza=D (F/T URL-encoded; hza=A for arrival) for current prices and booking; you can't book. Tool missing or failing→give the link and say why.

@@ -4,9 +4,10 @@ The reusable format, authoring checklist, and correctness rubric live in
 [Authoring Mini-skills](../../docs/content/extensibility/mini-skills.md).
 
 `mini: true` publishes a complete bounded SKILL.md body in the prompt and in
-`skills_list` search/selection results. The bundled Bahn card uses three dense
-lines: a parameterized URL, an evidence/error rule, and UI fallback advice.
-It adds no executable tool or service integration to core.
+`skills_list` search/selection results. The measurements in `results.json`
+used the earlier Bahn card from commit `478be5ed5`: a parameterized bahn.de
+URL, an evidence/error rule, and UI fallback advice. The current card routes
+to the platform's `hybridai__transit_routes` tool instead.
 
 ## Reproduce
 
