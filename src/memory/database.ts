@@ -65,11 +65,11 @@ type CheckedOpen =
   | { ok: false; database: Database.Database | null };
 
 /**
- * Open dbPath and report whether `PRAGMA quick_check` passes. On corruption
- * the (still open) connection is returned so the caller can dispose of it
- * safely; non-corruption errors are rethrown.
+ * Open dbPath and, when `verify` is set, report whether `PRAGMA quick_check`
+ * passes. On corruption the (still open) connection is returned so the caller
+ * can dispose of it safely; non-corruption errors are rethrown.
  */
-function openCheckedConnection(dbPath: string): CheckedOpen {
+function openCheckedConnection(dbPath: string, verify: boolean): CheckedOpen {
   let database: Database.Database | undefined;
   try {
     database = new Database(dbPath);
@@ -78,6 +78,7 @@ function openCheckedConnection(dbPath: string): CheckedOpen {
     // running migrations or accepting writes on this writable connection.
     database.pragma('foreign_keys = ON');
     database.pragma('busy_timeout = 5000');
+    if (!verify) return { ok: true, database };
     const rows = database.pragma('quick_check(1)') as Array<
       Record<string, unknown>
     >;
@@ -98,9 +99,10 @@ function openCheckedConnection(dbPath: string): CheckedOpen {
 }
 
 /**
- * Open the database, verifying integrity first. If the combination of main
- * file + WAL is corrupt but the main file alone is intact, quarantine the
- * -wal/-shm files and continue from the last checkpoint.
+ * Open the database, verifying integrity first when the last run left a WAL
+ * behind. If the combination of main file + WAL is corrupt but the main file
+ * alone is intact, quarantine the -wal/-shm files and continue from the last
+ * checkpoint.
  *
  * A WAL that no longer matches the database file is what a hard kill of the
  * runtime can leave behind (cached WAL writes lost while checkpointed main
@@ -113,9 +115,14 @@ function openCheckedConnection(dbPath: string): CheckedOpen {
 function openDatabaseWithWalRecovery(dbPath: string): Database.Database {
   const walPath = `${dbPath}-wal`;
   const shmPath = `${dbPath}-shm`;
-  const hadWalBeforeOpen = fs.existsSync(walPath);
+  // closeDatabase() checkpoints and removes the WAL, so a non-empty one at
+  // startup means the last run did not shut down cleanly. Only then is a stale
+  // WAL possible; skip the check otherwise, since quick_check reads the whole
+  // file and costs seconds on a large database behind slow storage.
+  const hadWalBeforeOpen =
+    fs.existsSync(walPath) && fs.statSync(walPath).size > 0;
 
-  const first = openCheckedConnection(dbPath);
+  const first = openCheckedConnection(dbPath, hadWalBeforeOpen);
   if (first.ok) return first.database;
 
   if (!hadWalBeforeOpen) {
@@ -153,7 +160,7 @@ function openDatabaseWithWalRecovery(dbPath: string): Database.Database {
     'Database failed its integrity check; retrying without the WAL in case a stale WAL was left behind by a hard kill',
   );
 
-  const second = openCheckedConnection(dbPath);
+  const second = openCheckedConnection(dbPath, true);
   if (second.ok) {
     logger.warn(
       { path: dbPath },
