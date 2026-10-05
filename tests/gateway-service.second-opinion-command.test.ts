@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 
-import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+import { cleanupGatewayRuntime, setupGatewayTest } from './helpers/gateway-test-setup.js';
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-second-opinion-',
@@ -10,12 +10,16 @@ const TEST_ACTOR = {
   username: 'tester',
 } as const;
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  vi.doUnmock('../src/providers/auxiliary.js');
-  vi.doUnmock('../src/providers/model-catalog.js');
-  vi.doUnmock('../src/commands/second-opinion-web-search.js');
+afterEach(async () => {
+  try {
+    await cleanupGatewayRuntime();
+  } finally {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    vi.doUnmock('../src/providers/auxiliary.js');
+    vi.doUnmock('../src/providers/model-catalog.js');
+    vi.doUnmock('../src/commands/second-opinion-web-search.js');
+  }
 });
 
 async function loadGatewayFixture() {

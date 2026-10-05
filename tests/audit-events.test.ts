@@ -1,14 +1,11 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+import { useTempDir } from './test-utils.js';
 
 const ORIGINAL_HOME = process.env.HOME;
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-audit-events-'));
-}
+const makeTempHome = useTempDir('hybridclaw-audit-events-');
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -18,10 +15,14 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
+afterEach(async () => {
+  try {
+    await cleanupGatewayRuntime();
+  } finally {
+    vi.restoreAllMocks();
+    vi.resetModules();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+  }
 });
 
 test('does not emit approval events for auto-approved read-only tools', async () => {

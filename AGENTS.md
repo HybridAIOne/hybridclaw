@@ -581,6 +581,14 @@ When the user says "bump release":
 
 ### Conventions
 
+- Every test-created temporary directory must be registered with a shared cleanup helper
+  and removed during teardown, including after test failures, after closing resources
+  and restoring the original working directory and environment.
+- Use `useTempDir()` or its `.track()` method for per-test fixtures;
+  the Vitest run temp root is a final safety net, not a substitute for teardown.
+- Call `cleanupGatewayRuntime()` before `vi.resetModules()` in runtime fixtures
+  so pending audit writes finish and database handles close before deletion.
+
 - Test files: `tests/*.test.ts`, `*.integration.test.ts`, `*.e2e.test.ts`,
   `*.live.test.ts`.
 - Live tests require credentials. Skip them unless your change needs them,
