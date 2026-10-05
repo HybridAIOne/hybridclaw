@@ -7,13 +7,13 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { resolveInstallRoot } from '../infra/install-root.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { expandHomePath } from '../utils/path.js';
@@ -39,11 +39,7 @@ import type {
 } from './plugin-types.js';
 
 const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
-const PACKAGE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-);
+const PACKAGE_ROOT = resolveInstallRoot();
 
 interface PluginCommand {
   command: string;

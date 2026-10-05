@@ -5,6 +5,7 @@
 
 # Build artifacts (rebuilt inside container)
 dist/
+bundle/
 container/dist/
 console/dist/
 

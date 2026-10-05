@@ -176,6 +176,7 @@
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.1",
     "@vitest/coverage-v8": "4.1.11",
+    "esbuild": "0.28.2",
     "husky": "9.1.7",
     "stemmer": "2.0.1",
     "tsx": "4.23.15",
