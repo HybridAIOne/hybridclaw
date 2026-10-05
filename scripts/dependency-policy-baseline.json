@@ -1,9 +1,9 @@
 {
   "lockfiles": {
-    "package-lock.json": "21811662fc143401516adb6e21bf310f595cc9083fae3bf7edb678dd29266bd3",
-    "npm-shrinkwrap.json": "21811662fc143401516adb6e21bf310f595cc9083fae3bf7edb678dd29266bd3",
-    "container/package-lock.json": "9c6ad256530045edef319f867b667d91f57afaa16875b2fdbb357e90e6c23781",
-    "container/npm-shrinkwrap.json": "9c6ad256530045edef319f867b667d91f57afaa16875b2fdbb357e90e6c23781",
+    "package-lock.json": "f2ab31e80b11c3f896fae66d1fba9c0da9dbee83fbf09bdfa99356da56de91f8",
+    "npm-shrinkwrap.json": "f2ab31e80b11c3f896fae66d1fba9c0da9dbee83fbf09bdfa99356da56de91f8",
+    "container/package-lock.json": "80177806833a0eb1cfa08f9cd6361997b3fb14d82dafbe83cb5649a63c4dc7da",
+    "container/npm-shrinkwrap.json": "80177806833a0eb1cfa08f9cd6361997b3fb14d82dafbe83cb5649a63c4dc7da",
     "plugins/brevo-email/package-lock.json": "11293bb72d817999d3bbd5ef4625a0ab78468bd6857ae31b44dd7c7cec4ec6a6",
     "plugins/line/package-lock.json": "7c2d0b77e804b0603e26e31123fff0d6826410a41a27200b55d32ce5d05102c6",
     "container/tools/package-lock.json": "3e83b32631665041bce0032e637805cae7184817dc40ed916357a4cd330b4d06",

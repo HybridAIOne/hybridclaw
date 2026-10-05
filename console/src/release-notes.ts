@@ -1,9 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.36.2',
+  version: '0.37.0',
   highlights: [
-    'Explicit mobile decision fallback',
-    'Optional emoji chosen by mobile clients',
-    'Chat replies keep their text',
+    'Saved results and lasting goal history',
+    'Train connection planning',
+    'Faster gateway startup',
+    'Recovery from unavailable tools',
   ],
 } as const;
 

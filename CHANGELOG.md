@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## [0.37.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.37.0) - 2026-10-05
+
+### Added
+
+- **Saved goal results**: Hy attaches prepared research, drafts and plans as
+  dated results on their goals, with a separate workspace copy that later source
+  edits cannot change. Goal check-ins request saved results after preparing work,
+  and `/track list --json` exposes them to clients.
+
+### Changed
+
+- **Durable completed goals**: Completing or reopening a goal preserves its
+  milestones, updates and saved results. Completed histories remain until explicit
+  deletion instead of expiring after 90 days. Deleting a goal removes its records;
+  saved workspace files remain.
+- **Faster gateway containers**: The gateway image starts from an esbuild bundle
+  that reduces module-loading overhead, with about two seconds saved in measured
+  gVisor runs. The npm package continues to use its compiled entrypoint.
+- **Faster clean database startup**: Startup skips the full SQLite integrity scan
+  after a clean shutdown. A leftover non-empty WAL still triggers the integrity
+  check and existing recovery flow. Main-file corruption without a WAL is detected
+  when a query reaches the damaged page.
+
+### Fixed
+
+- **Train connection planning**: The Bahn skill uses the HybridAI platform's
+  transit search and provides a bahn.de link for current prices and booking,
+  avoiding automated-browser blocks. If transit search is unavailable, it returns
+  the booking link and explains the limitation.
+- **Unavailable tool recovery**: Calls to unavailable catalog tools receive a
+  bounded correction so the model can retry useful work. Rejected batches execute
+  no tools, and valid sibling calls are identified as needing a retry.
+
 ## [0.36.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.2) - 2026-10-05
 
 ### Added
