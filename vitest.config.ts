@@ -30,6 +30,7 @@ const installE2eGlob = 'tests/**/*.install-e2e.test.ts';
 
 export default defineConfig({
   test: {
+    globalSetup: ['tests/helpers/temp-root-global-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],

@@ -1,14 +1,15 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
 
 import {
   addKnowledgeEntity,
   addKnowledgeRelation,
   appendCanonicalMessages,
   claimMemoryValue,
+  closeDatabase,
   DATABASE_SCHEMA_VERSION,
   decaySemanticMemories,
   deleteMemoryValue,
@@ -57,15 +58,16 @@ import {
 import type { SemanticMemoryEntry } from '../src/types/memory.js';
 import type { Session, StoredMessage } from '../src/types/session.js';
 
+const makeTempDir = useTempDir('hybridclaw-memory-');
+afterEach(() => closeDatabase());
+
 function createTempDbPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-memory-'));
+  const dir = makeTempDir();
   return path.join(dir, 'test.db');
 }
 
 function createTempRuntimeHome(): string {
-  const homeDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'hybridclaw-memory-config-'),
-  );
+  const homeDir = makeTempDir('hybridclaw-memory-config-');
   const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   const config = JSON.parse(
@@ -2723,9 +2725,7 @@ describe.sequential('schema migrations', () => {
 
   test('stores a collapsed main_session_key for linked DM identities', async () => {
     const originalHome = process.env.HOME;
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-memory-config-'),
-    );
+    const runtimeHome = makeTempDir('hybridclaw-memory-config-');
     process.env.HOME = runtimeHome;
     vi.resetModules();
 

@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+import { useTempDir } from './test-utils.js';
 import YAML from 'yaml';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
@@ -19,9 +21,7 @@ const ORIGINAL_MSTEAMS_APP_ID = process.env.MSTEAMS_APP_ID;
 const ORIGINAL_MSTEAMS_APP_PASSWORD = process.env.MSTEAMS_APP_PASSWORD;
 const ORIGINAL_MSTEAMS_TENANT_ID = process.env.MSTEAMS_TENANT_ID;
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-gateway-status-'));
-}
+const makeTempHome = useTempDir('hybridclaw-gateway-status-');
 
 function writeRuntimeConfig(
   homeDir: string,
@@ -76,32 +76,36 @@ function makeJwt(payload: Record<string, unknown>): string {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-  vi.doUnmock('../src/logger.js');
-  vi.doUnmock('../src/plugins/plugin-manager.js');
-  vi.doUnmock('../src/providers/openrouter-discovery.js');
-  vi.doUnmock('../src/providers/hybridai-discovery.js');
-  vi.doUnmock('../src/providers/model-catalog.js');
-  vi.doUnmock('../src/providers/local-discovery.js');
-  vi.doUnmock('../src/auth/anthropic-auth.js');
-  vi.doUnmock('../src/providers/hybridai-health.js');
-  vi.doUnmock('../src/providers/local-health.js');
-  vi.doUnmock('../src/infra/container-setup.js');
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-  process.chdir(ORIGINAL_CWD);
-  restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
-  restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
-  restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
-  restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
-  restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
-  restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
-  restoreEnvVar('MSTEAMS_APP_ID', ORIGINAL_MSTEAMS_APP_ID);
-  restoreEnvVar('MSTEAMS_APP_PASSWORD', ORIGINAL_MSTEAMS_APP_PASSWORD);
-  restoreEnvVar('MSTEAMS_TENANT_ID', ORIGINAL_MSTEAMS_TENANT_ID);
+afterEach(async () => {
+  try {
+    await cleanupGatewayRuntime();
+  } finally {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.doUnmock('../src/logger.js');
+    vi.doUnmock('../src/plugins/plugin-manager.js');
+    vi.doUnmock('../src/providers/openrouter-discovery.js');
+    vi.doUnmock('../src/providers/hybridai-discovery.js');
+    vi.doUnmock('../src/providers/model-catalog.js');
+    vi.doUnmock('../src/providers/local-discovery.js');
+    vi.doUnmock('../src/auth/anthropic-auth.js');
+    vi.doUnmock('../src/providers/hybridai-health.js');
+    vi.doUnmock('../src/providers/local-health.js');
+    vi.doUnmock('../src/infra/container-setup.js');
+    vi.resetModules();
+    restoreEnvVar('HOME', ORIGINAL_HOME);
+    process.chdir(ORIGINAL_CWD);
+    restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
+    restoreEnvVar('HYBRIDAI_API_KEY', ORIGINAL_HYBRIDAI_API_KEY);
+    restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
+    restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
+    restoreEnvVar('MISTRAL_API_KEY', ORIGINAL_MISTRAL_API_KEY);
+    restoreEnvVar('HF_TOKEN', ORIGINAL_HF_TOKEN);
+    restoreEnvVar('MSTEAMS_APP_ID', ORIGINAL_MSTEAMS_APP_ID);
+    restoreEnvVar('MSTEAMS_APP_PASSWORD', ORIGINAL_MSTEAMS_APP_PASSWORD);
+    restoreEnvVar('MSTEAMS_TENANT_ID', ORIGINAL_MSTEAMS_TENANT_ID);
+  }
 });
 
 function mockHealthProbes(options?: {

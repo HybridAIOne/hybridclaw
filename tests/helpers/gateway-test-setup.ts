@@ -1,8 +1,5 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
 import { afterEach, vi } from 'vitest';
+import { useTempDir } from '../test-utils.js';
 
 interface GatewayTestSetupOptions {
   tempHomePrefix: string;
@@ -16,6 +13,17 @@ function restoreEnvVar(name: string, value: string | undefined): void {
     return;
   }
   process.env[name] = value;
+}
+
+export async function cleanupGatewayRuntime(): Promise<void> {
+  const { flushAuditTrail } = await vi.importActual<
+    typeof import('../../src/audit/audit-trail.js')
+  >('../../src/audit/audit-trail.js');
+  await flushAuditTrail();
+  const { closeDatabase } = await vi.importActual<
+    typeof import('../../src/memory/database.js')
+  >('../../src/memory/database.js');
+  closeDatabase();
 }
 
 export function setupGatewayTest(options: GatewayTestSetupOptions): {
@@ -32,16 +40,22 @@ export function setupGatewayTest(options: GatewayTestSetupOptions): {
     trackedEnvVars.map((name) => [name, process.env[name]]),
   );
 
-  const makeTempHome = (): string =>
-    fs.mkdtempSync(path.join(os.tmpdir(), options.tempHomePrefix));
+  const makeTempHome = useTempDir(options.tempHomePrefix);
 
   afterEach(async () => {
-    await options.cleanup?.();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    vi.resetModules();
-    for (const [name, value] of originalEnv) {
-      restoreEnvVar(name, value);
+    try {
+      await options.cleanup?.();
+    } finally {
+      try {
+        await cleanupGatewayRuntime();
+      } finally {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        vi.resetModules();
+        for (const [name, value] of originalEnv) {
+          restoreEnvVar(name, value);
+        }
+      }
     }
   });
 
