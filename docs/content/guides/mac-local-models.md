@@ -157,10 +157,13 @@ References to tool names in other instructions are workflow examples, not an
 expanded callable set. A description returns the `tool_catalog` invocation
 schema with the target's parameters nested under `arguments`. Every catalog
 call includes `name`; a general listing uses an empty string. Missing tool
-descriptions, required call fields, or arguments that violate the selected
-tool schema return corrective feedback to the model,
-with up to two corrections per request. A malformed call batch executes no
-actions, including any valid starter calls in that batch. Calls that try to execute unavailable tools still stop the request.
+descriptions, required call fields, arguments that violate the selected
+tool schema, or calls to tools that are not available in the request return
+corrective feedback to the model, with up to two corrections per request.
+A rejected call batch executes no actions, including any valid starter calls
+in that batch; the rejected call gets the error and its siblings are marked
+for retry. Once the corrections are spent, the next invalid call stops the
+request.
 Catalog guidance is supplied once before the agent loop. Successful actions
 append only their normal tool exchange, without repeated instruction messages;
 earlier messages and schemas stay intact. The skill directory tool is named
