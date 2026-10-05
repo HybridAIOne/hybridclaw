@@ -675,7 +675,13 @@ test('ContainerExecutor injects gateway runtime env into docker launch', async (
   expect(runArgs).toContain(
     'HYBRIDCLAW_GATEWAY_URL=http://host.docker.internal:9090',
   );
-  expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN=gateway-secret');
+  const { deriveAgentRuntimeToken } = await import(
+    '../src/security/agent-runtime-token.js'
+  );
+  expect(runArgs).toContain(
+    `HYBRIDCLAW_GATEWAY_TOKEN=${deriveAgentRuntimeToken('gateway-secret')}`,
+  );
+  expect(runArgs?.join('\n')).not.toContain('gateway-secret');
   expect(runArgs).toContain(`TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
 });
 

@@ -565,8 +565,13 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
   const spawnEnv = spawn.mock.calls[0]?.[2]?.env as
     | NodeJS.ProcessEnv
     | undefined;
+  const { deriveAgentRuntimeToken } = await import(
+    '../src/security/agent-runtime-token.js'
+  );
   expect(spawnEnv?.HYBRIDCLAW_AGENT_SANDBOX_MODE).toBe('host');
-  expect(spawnEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe('gateway-secret');
+  expect(spawnEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe(deriveAgentRuntimeToken('gateway-secret'));
+  expect(Object.values(spawnEnv ?? {})).not.toContain('gateway-secret');
+  expect(String(proc.stdin.write.mock.calls)).not.toContain('gateway-secret');
   expect(spawnEnv?.HYBRIDCLAW_TEST_VISIBLE).toBe('visible');
   expect(spawnEnv?.OPENAI_API_KEY).toBeUndefined();
   expect(spawnEnv?.ANTHROPIC_API_KEY).toBeUndefined();

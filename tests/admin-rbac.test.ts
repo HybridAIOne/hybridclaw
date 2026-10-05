@@ -222,8 +222,10 @@ describe('admin RBAC role bundles', () => {
       resolveAdminRbacAction('/api/sign-ins/hybridai.one', 'DELETE'),
     ).toBe('sign_ins.manage');
     expect(resolveAdminRbacAction('/api/sign-ins/hybridai.one', 'GET')).toBeNull();
-    // The agent's lookup takes the gateway token only.
-    expect(resolveAdminRbacAction('/api/browser/sign-in', 'POST')).toBeNull();
+    // The agent's lookup is a runtime route, not a sign-in management one.
+    expect(resolveAdminRbacAction('/api/browser/sign-in', 'POST')).toBe(
+      'agent.runtime',
+    );
     // Unmapped on purpose: scoped API tokens must not read chat history and
     // spend model calls through the ideas page.
     expect(resolveAdminRbacAction('/api/chat/ideas', 'GET')).toBeNull();

@@ -50,7 +50,6 @@ import {
   DISCORD_FREE_RESPONSE_CHANNELS,
   DISCORD_GUILDS,
   DISCORD_SEND_ALLOWED_CHANNEL_IDS,
-  GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
@@ -78,6 +77,7 @@ import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
+import { resolveAgentRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactCredentialSecrets } from '../security/redact.js';
@@ -818,7 +818,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${GATEWAY_API_TOKEN || ''}`,
+    `HYBRIDCLAW_GATEWAY_TOKEN=${resolveAgentRuntimeToken()}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -1190,7 +1190,7 @@ async function runContainerInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
-    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    gatewayApiToken: resolveAgentRuntimeToken(),
     browserProvider: params.browserProvider || BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,

@@ -35,7 +35,6 @@ import {
   CONTEXT_GUARD_ENABLED,
   CONTEXT_GUARD_MAX_RETRIES,
   CONTEXT_GUARD_OVERFLOW_RATIO,
-  GATEWAY_API_TOKEN,
   GATEWAY_CLIENT_BASE_URL,
   HYBRIDAI_BASE_URL,
   HYBRIDAI_MODEL,
@@ -62,6 +61,7 @@ import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
+import { resolveAgentRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
@@ -192,7 +192,7 @@ function resolveHostAgentBrowserBinary(): string | undefined {
 function buildHostGatewayRuntimeEnv(): Record<string, string> {
   return {
     HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
-    HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
+    HYBRIDCLAW_GATEWAY_TOKEN: resolveAgentRuntimeToken(),
   };
 }
 
@@ -985,7 +985,7 @@ async function runHostProcessInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-    gatewayApiToken: GATEWAY_API_TOKEN || undefined,
+    gatewayApiToken: resolveAgentRuntimeToken(),
     browserProvider: params.browserProvider || BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
