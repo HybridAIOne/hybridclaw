@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CLOUD_DISABLED_SKILLS } from '../src/config/cloud-defaults.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('hybridclaw-config-seed-');
@@ -135,4 +136,36 @@ describe('config seed', () => {
 
     expect(getRuntimeConfig().deployment.mode).toBe('cloud');
   });
+});
+it('excludes host and LAN skills from cloud catalogs while retaining cloud APIs', async () => {
+  const {
+    applyConfigSeed,
+    getRuntimeConfig,
+    getRuntimeSkillScopeDisabledNames,
+  } = await importSeed();
+  await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
+  const disabled = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
+  for (const name of CLOUD_DISABLED_SKILLS) expect(disabled).toContain(name);
+  for (const name of ['hue', 'shelly', 'fronius', 'microsoft-365', 'pdf']) {
+    expect(disabled).not.toContain(name);
+  }
+  const { loadSkills } = await import('../src/skills/skills.js');
+  const names = loadSkills('main').map((skill) => skill.name);
+  for (const name of CLOUD_DISABLED_SKILLS) expect(names).not.toContain(name);
+});
+
+it('leaves local deployment skill choices intact', async () => {
+  const {
+    applyConfigSeed,
+    getRuntimeConfig,
+    getRuntimeSkillScopeDisabledNames,
+  } = await importSeed();
+  await applyConfigSeed({
+    set: { 'deployment.mode': 'local' },
+    disabledTools: [],
+    disabledSkills: [],
+    plugins: [],
+  });
+  const disabled = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
+  for (const name of CLOUD_DISABLED_SKILLS) expect(disabled).not.toContain(name);
 });
