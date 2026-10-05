@@ -11199,9 +11199,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname.startsWith('/api/admin/agents/')
           ) {
             if (
-              await (
+              pathname.endsWith('/reset') &&
+              (await (
                 await import('./agent-reset-route.js')
-              ).handleAgentResetRoute(req, res, pathname)
+              ).handleAgentResetRoute(req, res, pathname))
             )
               return;
             await handleApiAdminAgents(req, res, url);
