@@ -1,8 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { readStoredRuntimeEnv } from '../config/runtime-env.js';
+import { resolveInstallPath } from '../infra/install-root.js';
 import { redactSecretsDeep } from '../security/redact.js';
 import { isExpectedTransportError } from '../utils/transport-errors.js';
 
@@ -58,14 +57,7 @@ function defaultSentryRelease(): string {
   const envVersion = String(process.env.npm_package_version || '').trim();
   const packageVersion =
     envVersion ||
-    readPackageVersion(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        '..',
-        '..',
-        'package.json',
-      ),
-    ) ||
+    readPackageVersion(resolveInstallPath('package.json')) ||
     '0.0.0';
   resolvedRelease = `hybridclaw@${packageVersion}`;
   return resolvedRelease;
