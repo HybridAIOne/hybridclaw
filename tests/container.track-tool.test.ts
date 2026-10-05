@@ -61,3 +61,13 @@ test('without a gateway the tool fails instead of guessing', async () => {
     await runTrackTool({ action: 'list' }, { ...gateway, baseUrl: '' }),
   ).toMatchObject({ ok: false });
 });
+
+
+test('prepared result arguments are forwarded on the verified tool session', async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: 'Saved result on goal #1' })));
+  vi.stubGlobal('fetch', fetchMock);
+  const args = { action: 'result', id: 1, title: 'Training plan', summary: 'Three runs', path: 'goals/plan.md' };
+  expect(await runTrackTool(args, gateway)).toEqual({ ok: true, text: 'Saved result on goal #1' });
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(JSON.parse(String(init.body))).toEqual({ ...args, sessionId: gateway.sessionId });
+});
