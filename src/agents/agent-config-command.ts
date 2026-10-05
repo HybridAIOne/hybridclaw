@@ -44,6 +44,7 @@ const TOP_LEVEL_MARKDOWN_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
 export interface ApplyAgentConfigJsonOptions {
   activate?: boolean;
+  replace?: boolean;
 }
 
 export interface ApplyAgentConfigJsonResult {
@@ -534,7 +535,9 @@ export async function applyAgentConfigJson(
     resolveMarkdownInput(payload),
   );
 
-  const existing = getStoredAgentConfig(id) ?? getAgentById(id) ?? { id };
+  const existing = options.replace
+    ? { id }
+    : (getStoredAgentConfig(id) ?? getAgentById(id) ?? { id });
   const nextAgent = applyAgentConfigFieldUpdates(existing, configInput);
   ensureBootstrapFiles(nextAgent.id);
   const workspacePath = path.resolve(agentWorkspaceDir(nextAgent.id));
@@ -564,4 +567,26 @@ export async function applyAgentConfigJson(
     markdownFiles,
     runtimeConfigChanged,
   };
+}
+
+export function validateAgentDefaultJson(rawJson: string): string {
+  const payload = parseAgentConfigJson(rawJson);
+  const input = resolveAgentConfigInput(payload);
+  const id = normalizeRequiredStringField('id', input.id);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
+    throw new Error('Invalid agent id.');
+  }
+  const agent = applyAgentConfigFieldUpdates({ id }, input);
+  if (agent.workspace || agent.extends || agent.imageAsset) {
+    throw new Error(
+      'Reset defaults require an independent workspace and no image asset.',
+    );
+  }
+  const markdown = Object.fromEntries(
+    normalizeMarkdownEntries(resolveMarkdownInput(payload)).map((entry) => [
+      entry.fileName,
+      entry.content,
+    ]),
+  );
+  return JSON.stringify({ agent, markdown });
 }

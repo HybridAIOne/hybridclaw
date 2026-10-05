@@ -57,6 +57,17 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${GATEWAY_API_TOKEN}` };
 }
 
+export async function gatewayResetAgent(
+  agentId: string,
+  deleteHistory = true,
+): Promise<{ agentId: string; deletedSessions: number }> {
+  return requestJson(`/api/admin/agents/${encodeURIComponent(agentId)}/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ confirmation: 'RESET AGENT', deleteHistory }),
+  });
+}
+
 async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {

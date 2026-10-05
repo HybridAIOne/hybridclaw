@@ -38,6 +38,8 @@ The package contains no credentials, live project data, or active schedules.
 ```bash
 hybridclaw agent list
 hybridclaw agent config <json|--json <json>> [--activate]
+hybridclaw agent defaults <json>
+hybridclaw agent reset <agent-id> [--yes] [--keep-history]
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -94,6 +96,31 @@ hybridclaw agent export main --plugins all
 # Bundle only a named plugin subset
 hybridclaw agent export main --plugins some --plugin demo-plugin --plugin qmd-memory
 ```
+
+## Restoring Provisioned Defaults
+
+Provisioners can register a reset definition separately from the live workspace:
+
+```bash
+hybridclaw agent defaults '{"id":"hy","displayName":"Hy","model":"gpt-6-luna","markdown":{"IDENTITY.md":"# Hy\n"}}'
+hybridclaw agent reset hy
+```
+
+Reset deletes the chosen agent's files, conversations (including earlier session
+instances), memory and scheduled tasks, then recreates its workspace from the
+runtime's current templates and the provisioned definition. It restores agent
+settings and activates that agent. Other agents and instance credentials remain.
+Use `--keep-history` to retain conversations, memory stored in the database and
+tasks, or `--yes` to bypass the terminal confirmation. The gateway must be running
+and the agent idle; a failed gateway request never triggers offline deletion.
+
+Definitions are stored in `data/agent-defaults/`, outside agent workspaces, and
+can be refreshed by the provisioner. They use the config JSON shape below but
+require an independent managed workspace and do not support `workspace`,
+`extends` or `imageAsset`. Reset refuses the main agent and shared or symlinked
+agent directories. The HTTP equivalent is an admin-only
+`POST /api/admin/agents/<id>/reset` with `{"confirmation":"RESET AGENT"}`;
+it requires `admin.agents.delete` permission.
 
 ## Configuring Agents From JSON
 

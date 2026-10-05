@@ -39,6 +39,7 @@ export interface UninstallAgentResult {
 
 export interface UninstallAgentOptions {
   existingAgent?: AgentConfig | null;
+  keepRegistration?: boolean;
 }
 
 export function uninstallAgent(
@@ -105,9 +106,10 @@ export function uninstallAgent(
   if (agentRootExists) {
     fs.rmSync(agentRootPath, { recursive: true, force: true });
   }
-  const removedRegistration = existingAgent
-    ? deleteRegisteredAgent(normalizedAgentId)
-    : false;
+  const removedRegistration =
+    existingAgent && !options.keepRegistration
+      ? deleteRegisteredAgent(normalizedAgentId)
+      : false;
   if (hasSkillsExtraDir) {
     updateRuntimeConfig((draft) => {
       draft.skills.extraDirs = draft.skills.extraDirs.filter(

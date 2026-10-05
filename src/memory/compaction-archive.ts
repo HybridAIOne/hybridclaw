@@ -34,6 +34,13 @@ function resolveArchiveRoot(baseDir?: string): string {
   return candidate || DEFAULT_ARCHIVE_ROOT;
 }
 
+export function deleteArchives(sessionId: string): void {
+  fs.rmSync(path.join(DEFAULT_ARCHIVE_ROOT, safeFilePart(sessionId)), {
+    recursive: true,
+    force: true,
+  });
+}
+
 export function archiveTranscript(params: {
   sessionId: string;
   messages: StoredMessage[];
