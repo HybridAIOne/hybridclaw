@@ -12,6 +12,7 @@ function mockRuntimeSecrets(
   readStoredRuntimeSecret: (name: string) => string | null,
 ): void {
   vi.doMock('../src/security/runtime-secrets.js', () => ({
+    RUNTIME_MASTER_KEY_ENV: 'HYBRIDCLAW_MASTER_KEY',
     isRuntimeSecretName: (value: string) =>
       /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
     loadRuntimeSecrets: vi.fn(),

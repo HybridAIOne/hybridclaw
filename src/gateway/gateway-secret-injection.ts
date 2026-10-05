@@ -6,6 +6,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { browserSignInHostProblem } from '../security/browser-sign-ins.js';
 import {
   isRuntimeSecretName,
+  RUNTIME_MASTER_KEY_ENV,
   readStoredRuntimeSecret,
 } from '../security/runtime-secrets.js';
 import type { SecretSinkKind } from '../security/secret-handles.js';
@@ -31,6 +32,16 @@ type ApiSecretInjectBody = {
   selector?: unknown;
 };
 
+// Credentials that authenticate to this gateway or unlock its secret store.
+// Resolving one into any sink would hand an agent the operator's access, so
+// no workspace policy rule can allow it.
+const GATEWAY_CREDENTIAL_SECRET_NAMES: ReadonlySet<string> = new Set([
+  'GATEWAY_API_TOKEN',
+  'HYBRIDCLAW_AUTH_SECRET',
+  RUNTIME_MASTER_KEY_ENV,
+  'WEB_API_TOKEN',
+]);
+
 export function resolveSecretAgentId(params: {
   sessionId?: string;
   agentId?: string;
@@ -51,6 +62,12 @@ export function assertSecretResolveAllowed(params: {
   host?: string;
   selector?: string;
 }): void {
+  if (GATEWAY_CREDENTIAL_SECRET_NAMES.has(params.secretId.trim())) {
+    throw new GatewayRequestError(
+      403,
+      `Stored secret ${params.secretId} is a gateway credential and is never resolved into a ${params.sinkKind} sink.`,
+    );
+  }
   const value = readStoredRuntimeSecret(params.secretId);
   if (!value) {
     throw new GatewayRequestError(

@@ -427,7 +427,9 @@ each time it injects a stored secret into an `http_request` call or a browser
 field. The default is allow: a stored secret resolves unless a deny rule
 matches, or the workspace policy sets `secret.default: deny` and no allow rule
 matches. The seeded workspace policy has no `secret` section, so new workspaces
-resolve every stored secret.
+resolve every stored secret. The gateway's own credentials (`WEB_API_TOKEN`,
+`GATEWAY_API_TOKEN`, `HYBRIDCLAW_AUTH_SECRET`, `HYBRIDCLAW_MASTER_KEY`) never
+resolve into any sink, and no rule can allow them.
 
 To limit which agents, skills, hosts, and fields can use stored secrets, set
 `secret.default: deny` and allow each use. `secret route add` appends an allow
