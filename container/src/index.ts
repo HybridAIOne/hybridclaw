@@ -125,7 +125,7 @@ import {
   validateStructuredToolCalls,
   withReplaySafeArguments,
 } from './tool-call-validation.js';
-import { ToolCatalog } from './tool-catalog.js';
+import { CATALOG_SIBLING_NOT_EXECUTED, ToolCatalog } from './tool-catalog.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
   detectToolCallLoop,
@@ -1573,9 +1573,15 @@ async function processRequestInner(
     const malformedToolCallError = validateStructuredToolCalls(toolCalls);
     let invalidToolCallError = malformedToolCallError;
     let catalogCorrection: string | null = null;
+    let rejectedCallId: string | null = null;
     if (!invalidToolCallError && toolCatalog) {
       try {
-        toolCalls = toolCalls.map((call) => toolCatalog.resolveCall(call));
+        const resolved: ToolCall[] = [];
+        for (const call of toolCalls) {
+          rejectedCallId = call.id;
+          resolved.push(toolCatalog.resolveCall(call));
+        }
+        toolCalls = resolved;
       } catch (error) {
         invalidToolCallError =
           error instanceof Error ? error.message : 'Invalid local tool call.';
@@ -1620,18 +1626,24 @@ async function processRequestInner(
       turnToolHistory.recordAssistant(rejectedMessage);
       history.push(rejectedMessage);
       for (const call of toolCalls) {
+        // Catalog feedback names the rejected call by its id, not by echoing
+        // the requested tool name, so the model knows which sibling to retry.
+        const content =
+          catalogCorrection && call.id !== rejectedCallId
+            ? CATALOG_SIBLING_NOT_EXECUTED
+            : correction;
         history.push(
           turnToolHistory.recordResult({
             role: 'tool',
             tool_call_id: call.id,
-            content: correction,
+            content,
           }),
         );
         toolsUsed.push(call.function.name);
         toolExecutions.push({
           name: call.function.name,
           arguments: call.function.arguments,
-          result: correction,
+          result: content,
           durationMs: 0,
           isError: true,
           blocked: true,
