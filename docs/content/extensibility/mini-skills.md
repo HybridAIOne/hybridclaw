@@ -80,17 +80,18 @@ The source of truth is [`skills/bahn/SKILL.md`](https://github.com/HybridAIOne/h
 Its description covers DB, Bahn, train connections, timetables, departure,
 and arrival. The three body lines have distinct jobs:
 
-1. Navigate directly to the journey-search URL. Encode requested origin and
-   destination, default to Hbf, and construct the requested local timestamp.
-2. Inspect the snapshot and verify route and date before reporting departures,
-   arrivals, changes, and shown fares. Stop on observed access-error 751.
-3. If the page is blank, use the homepage with fresh refs, select station
-   suggestions, apply the outbound date, and submit Search. Discover a deferred
-   click through the existing tool catalog instead of trying keyboard loops.
+1. Route to the tool that can answer: the HybridAI platform's
+   `hybridai__transit_routes`, with origin, destination, the requested local
+   time and its UTC offset. Rule out the path that fails: bahn.de blocks
+   automated browsers with error 751.
+2. Say what to report from the result and how: departures, arrivals,
+   changes, lines, a start station other than the requested one, fares only
+   as estimates, and the credits the data source requires.
+3. End with the handoff: a prefilled bahn.de link for current prices and
+   booking, which is also the answer when the tool is missing or fails.
 
-The card forbids invented timetables and booking. A route/date in the URL is
-only intended input; the returned page must confirm it. Its URLs were tested
-during the original experiment and still require rechecking when DB changes.
+The card forbids invented timetables and booking. An earlier version drove
+bahn.de in the browser; it is the card measured in the experiment below.
 
 ## Create a card for another site
 
@@ -157,8 +158,8 @@ Token counts use each provider's accounting and tokenizer; compare costs only
 with verified provider prices. Keep full prompts, outputs, and credentials
 outside Git; commit sanitized metrics and evidence assessments.
 
-The original 2026-10-03 GPT-6 Luna experiment reduced the final Bahn mini-card
-to one tool call and 15.1/17.9 seconds. All variants returned **zero verified
+The original 2026-10-03 GPT-6 Luna experiment, with the earlier browser
+version of the card (commit `478be5ed5`), reduced it to one tool call and 15.1/17.9 seconds. All variants returned **zero verified
 journeys**; the final card encountered DB error 751. Those runs demonstrate
 faster routing to an observed failure, not successful timetable retrieval or
 proof that the compressed format generalizes to other models/sites. See the
