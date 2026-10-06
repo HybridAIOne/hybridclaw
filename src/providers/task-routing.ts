@@ -4,14 +4,15 @@
  * settings cannot enable, disable or redirect that classifier.
  */
 import {
+  DEFAULT_RUNTIME_CONFIG,
   getRuntimeConfig,
   type RuntimeAuxiliaryModelPolicyConfig,
   type RuntimeAuxiliaryProviderSelection,
+  type RuntimeConfig,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   TASK_MODEL_KEYS,
-  type TaskModelKey,
   type TaskModelPolicies,
   type TaskModelPolicy,
 } from '../types/models.js';
@@ -32,8 +33,7 @@ import {
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
 export type AuxiliaryTask =
-  | TaskModelKey
-  | 'cv_narration'
+  | keyof RuntimeConfig['auxiliaryModels']
   | 'routing_classifier';
 
 type RuntimeProvider = RuntimeProviderId;
@@ -42,7 +42,9 @@ type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
 >;
 
-const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS, 'cv_narration'];
+const AUXILIARY_TASKS = Object.keys(
+  DEFAULT_RUNTIME_CONFIG.auxiliaryModels,
+) as AuxiliaryTask[];
 
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {

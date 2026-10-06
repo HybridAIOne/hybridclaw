@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.deliverWeb.mockReturnValue({ status: 'delivered' });
   mocks.run.mockImplementation(async (_session, _channel, _prompt, _task, onResult) => {
-    await onResult({ text: 'Reminder', artifacts: [], storedMessage: { sessionId: 'session-a', id: 42 } });
+    await onResult({ workId: 'work-1', text: 'Reminder', artifacts: [], storedMessage: { sessionId: 'session-a', id: 42 } });
   });
 });
 
@@ -26,7 +26,7 @@ function dependencies() {
 test('web scheduled turns reuse the persisted message instead of entering the undeliverable queue', async () => {
   const deps = dependencies();
   await runScheduledTask(request(), deps);
-  expect(mocks.deliverWeb).toHaveBeenCalledWith('session-a', 'Reminder', 'schedule:1', [], { sessionId: 'session-a', id: 42 });
+  expect(mocks.deliverWeb).toHaveBeenCalledWith('session-a', 'Reminder', 'schedule:1', [], { sessionId: 'session-a', id: 42 }, 'work-1');
   expect(deps.deliverProactiveMessage).not.toHaveBeenCalled();
 });
 
@@ -54,7 +54,7 @@ test('other transports retain their delivery policy and missing destinations fai
 test('connector checks retain their parent policy in chat and push attribution', async () => {
   const taskOwner = { userId: 'alice', sessionId: 'session-a' };
   await runScheduledTask({ ...request(), taskId: 9, resultSourceTaskId: 1, replyOnly: true, taskOwner }, dependencies());
-  expect(mocks.deliverWeb).toHaveBeenCalledWith('session-a', 'Reminder', 'schedule:1', [], { sessionId: 'session-a', id: 42 });
+  expect(mocks.deliverWeb).toHaveBeenCalledWith('session-a', 'Reminder', 'schedule:1', [], { sessionId: 'session-a', id: 42 }, 'work-1');
   expect(mocks.run.mock.calls[0][3]).toBe(9);
   expect(mocks.run.mock.calls[0][9]).toEqual(taskOwner);
 });

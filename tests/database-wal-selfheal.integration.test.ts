@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 let tmpDir: string;
@@ -136,6 +137,20 @@ describe('database WAL self-heal', () => {
 
     closeDatabase();
     expect(fs.existsSync(`${dbPath}-wal`)).toBe(false);
+  });
+
+  it('skips the integrity scan after a clean shutdown', () => {
+    const dbPath = freshDbPath('clean-boot');
+    initDatabase({ dbPath, quiet: true });
+    closeDatabase();
+
+    const pragma = vi.spyOn(Database.prototype, 'pragma');
+    try {
+      initDatabase({ dbPath, quiet: true });
+      expect(pragma).not.toHaveBeenCalledWith('quick_check(1)');
+    } finally {
+      pragma.mockRestore();
+    }
   });
 
   it('quarantines a stale WAL and boots from the intact main file', () => {

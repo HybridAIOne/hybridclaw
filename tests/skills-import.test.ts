@@ -104,6 +104,22 @@ describe('skill import', () => {
   const originalHome = process.env.HOME;
   const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 
+  // Packaged skill content comes from the temp root; the agent package
+  // manifests that skill eligibility reads stay those of this checkout.
+  function mockPackagedSkillRoot(root: string): void {
+    vi.doMock('../src/infra/install-root.js', async (importOriginal) => {
+      const actual =
+        await importOriginal<typeof import('../src/infra/install-root.js')>();
+      return {
+        ...actual,
+        resolveInstallPath: (...segments: string[]) =>
+          segments[0] === 'container'
+            ? actual.resolveInstallPath(...segments)
+            : root,
+      };
+    });
+  }
+
   function createPackagedSkillRoot(skillName: string): string {
     const tempPackagedRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-packaged-community-'),
@@ -150,9 +166,7 @@ description: Test packaged skill.
   test('imports a packaged community skill with an explicit official source', async () => {
     const skillName = 'test-community-skill';
     const tempPackagedRoot = createPackagedSkillRoot(skillName);
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
 
     const { importSkill } = await import('../src/skills/skills-import.ts');
     const { loadSkillCatalog } = await import('../src/skills/skills.ts');
@@ -1078,9 +1092,7 @@ description: Docs helper.
   test('allows force to override a caution verdict during import', async () => {
     const skillName = 'test-community-skill';
     const tempPackagedRoot = createPackagedSkillRoot(skillName);
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
     vi.doMock('../src/skills/skills-guard.js', () => ({
       guardSkillDirectory: () => ({
         allowed: false,
@@ -1123,9 +1135,7 @@ description: Docs helper.
   test('includes scanner findings when a caution verdict blocks import', async () => {
     const skillName = 'test-community-skill';
     const tempPackagedRoot = createPackagedSkillRoot(skillName);
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
     vi.doMock('../src/skills/skills-guard.js', () => ({
       guardSkillDirectory: () => ({
         allowed: false,
@@ -1169,9 +1179,7 @@ description: Docs helper.
   test('does not allow force to override a dangerous verdict during import', async () => {
     const skillName = 'test-community-skill';
     const tempPackagedRoot = createPackagedSkillRoot(skillName);
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
     vi.doMock('../src/skills/skills-guard.js', () => ({
       guardSkillDirectory: () => ({
         allowed: false,
@@ -1219,9 +1227,7 @@ Dangerous verdicts cannot be overridden with --force. To install anyway, re-run 
     fs.writeFileSync(symlinkTarget, 'outside');
     fs.symlinkSync(symlinkTarget, path.join(skillDir, 'linked.txt'));
 
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
 
     const { importSkill } = await import('../src/skills/skills-import.ts');
 
@@ -1487,9 +1493,7 @@ description: Has a symlink.
       path.join(tempPackagedRoot, skillName, '.import-source.json'),
       JSON.stringify({ kind: 'local' }),
     );
-    vi.doMock('../src/infra/install-root.js', () => ({
-      resolveInstallPath: () => tempPackagedRoot,
-    }));
+    mockPackagedSkillRoot(tempPackagedRoot);
 
     const { importSkill } = await import('../src/skills/skills-import.ts');
 

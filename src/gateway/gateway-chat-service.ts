@@ -8,10 +8,6 @@
  */
 
 import path from 'node:path';
-import {
-  REACT_TOOL_NAME,
-  readSingleEmoji,
-} from '../../container/shared/reactions.js';
 import { createA2AEnvelope } from '../a2a/envelope.js';
 import {
   isA2ALocalModeEnabled,
@@ -31,7 +27,7 @@ import {
   formatSideEffectNotice,
   processSideEffects,
 } from '../agent/side-effects.js';
-import { isSilentReply, SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
+import { isSilentReply } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
   resolveAgentEscalationTarget,
@@ -76,7 +72,6 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
-  setMessageReaction,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -163,7 +158,6 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
-import { turnReaction } from './chat-reactions.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
 import {
@@ -1852,11 +1846,7 @@ async function handleGatewayMessageInner(
   // 2026-10-02): a per-turn block changes the tool list and system prompt at
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
-  let blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
-  // Only a client that shows reactions gets the tool to make them.
-  if (!req.reactions) {
-    blockedTools = [...(blockedTools ?? []), REACT_TOOL_NAME];
-  }
+  const blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,
@@ -1894,7 +1884,6 @@ async function handleGatewayMessageInner(
       chatbotId,
       ...(req.client ? { client: req.client } : {}),
       ...(req.toolStatus ? { toolStatus: true } : {}),
-      ...(req.reactions ? { reactions: true } : {}),
       model,
       defaultModel: HYBRIDAI_MODEL,
       channel,
@@ -2791,6 +2780,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
       };
       captureGatewayChatResultError({
@@ -2812,23 +2802,8 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
-    // A reaction can be the whole answer, as in a messenger. Where reactions
-    // show, a reply that is one emoji alone is that reaction, so the model
-    // need not choose between writing an emoji and reacting with it.
-    const toolReaction = turnReaction(toolExecutions);
-    const loneEmoji =
-      req.reactions &&
-      !toolReaction &&
-      !delegationAcknowledgement &&
-      !sideEffectNotice &&
-      !output.artifacts?.length &&
-      !output.pendingApproval
-        ? readSingleEmoji(output.result)
-        : '';
-    const reaction = toolReaction || loneEmoji || null;
     const agentResultText =
-      (loneEmoji ? '' : output.result) ||
-      (reaction ? '' : buildEmptyAgentResponseFallback(output.artifacts));
+      output.result || buildEmptyAgentResponseFallback(output.artifacts);
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2931,9 +2906,7 @@ async function handleGatewayMessageInner(
       userMedia: media,
       userDynamicContext: dynamicContext,
       steerNotes,
-      // A reaction alone is kept as a reply that says nothing, as a silent
-      // channel reply is, so no assistant turn is ever stored empty.
-      resultText: !resultText && reaction ? SILENT_REPLY_TOKEN : resultText,
+      resultText,
       artifacts: output.artifacts,
       toolHistory: output.toolHistory,
       toolHistoryForReplay: output.toolHistoryForReplay,
@@ -2943,14 +2916,6 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
-    if (reaction) {
-      setMessageReaction({
-        sessionId: req.sessionId,
-        messageId: storedTurn.userMessageId,
-        role: 'user',
-        emoji: reaction,
-      });
-    }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -3056,7 +3021,6 @@ async function handleGatewayMessageInner(
         getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
-      ...(reaction ? { reaction } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await emitPostTurnForResult(result);
@@ -3109,7 +3073,10 @@ async function handleGatewayMessageInner(
       },
     });
     recordPendingHatchingTerminalAudit();
-    let storedErrorTurn: { assistantMessageId: number } | null = null;
+    let storedErrorTurn: {
+      userMessageId: number;
+      assistantMessageId: number;
+    } | null = null;
     if (!turnPersisted) {
       try {
         storedErrorTurn = recordErrorTurn({
@@ -3191,7 +3158,10 @@ async function handleGatewayMessageInner(
       toolExecutions: undefined,
       error: errorMsg,
       ...(storedErrorTurn
-        ? { assistantMessageId: storedErrorTurn.assistantMessageId }
+        ? {
+            userMessageId: storedErrorTurn.userMessageId,
+            assistantMessageId: storedErrorTurn.assistantMessageId,
+          }
         : {}),
     });
     captureGatewayChatResultError({

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
 
 import { runPolicyCommand } from '../src/commands/policy-command.js';
 import { handlePolicyCommand } from '../src/policy/policy-cli.js';
@@ -17,9 +17,7 @@ import {
 
 const originalCwd = process.cwd();
 
-function makeWorkspace(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-policy-cli-'));
-}
+const makeWorkspace = useTempDir('hybridclaw-policy-cli-');
 
 afterEach(() => {
   process.chdir(originalCwd);

@@ -46,7 +46,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Communication',
-    tools: ['message', 'react'],
+    tools: ['message'],
   },
   {
     label: 'Scheduling',
@@ -58,7 +58,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Memory',
-    tools: ['memory', 'session_search'],
+    tools: ['memory', 'session_search', 'work'],
   },
   {
     label: 'Skills',

@@ -38,3 +38,30 @@ test('mini frontmatter uses existing discovery, channel and disabled-skill eligi
     buildEligibleSkillCatalog(runtime.skills.loadSkills('main', 'web')),
   ).toEqual([]);
 });
+
+test('bundled Booking workflow reaches the mobile prompt and worker catalog inline', async () => {
+  const runtime = await loadIsolatedSkillsRuntime(makeTempDir());
+  const file = path.join(runtime.bundledDir, 'booking', 'SKILL.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.copyFileSync(new URL('../skills/booking/SKILL.md', import.meta.url), file);
+  const loaded = runtime.skills.loadSkills('main', 'web');
+  const { buildEligibleSkillCatalog } = await import(
+    '../src/skills/skill-catalog.js'
+  );
+  const { buildSystemPromptFromHooks } = await import(
+    '../src/agent/prompt-hooks.js'
+  );
+  const catalog = JSON.parse(JSON.stringify(buildEligibleSkillCatalog(loaded)));
+  expect(catalog).toHaveLength(1);
+  expect(catalog[0].name).toBe('booking');
+  expect(catalog[0].instructions).toContain('Booking→browser_navigate');
+  const prompt = buildSystemPromptFromHooks({
+    agentId: 'main',
+    skills: loaded,
+    runtimeInfo: { client: 'mobile', channelType: 'web' },
+  });
+  expect(prompt).toContain(
+    '<mini_skill name="booking" instructions_loaded="true">',
+  );
+  expect(prompt).toContain('Keep -1.');
+});

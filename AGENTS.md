@@ -21,7 +21,7 @@ HybridClaw is a personal AI assistant bot for Discord, powered by HybridAI.
 Enterprise-grade Node.js 22 application with gateway service, TUI client, and
 Docker-sandboxed container runtime.
 
-**Version:** 0.35.2 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
+**Version:** 0.37.0 &ensp;|&ensp; **Package:** `@hybridaione/hybridclaw`
 &ensp;|&ensp; **License:** see `LICENSE`
 
 Architecture: gateway (core runtime, SQLite persistence, REST API, Discord
@@ -580,6 +580,14 @@ When the user says "bump release":
 | Security surfaces   | Include boundary and failure-mode tests                     |
 
 ### Conventions
+
+- Every test-created temporary directory must be registered with a shared cleanup helper
+  and removed during teardown, including after test failures, after closing resources
+  and restoring the original working directory and environment.
+- Use `useTempDir()` or its `.track()` method for per-test fixtures;
+  the Vitest run temp root is a final safety net, not a substitute for teardown.
+- Call `cleanupGatewayRuntime()` before `vi.resetModules()` in runtime fixtures
+  so pending audit writes finish and database handles close before deletion.
 
 - Test files: `tests/*.test.ts`, `*.integration.test.ts`, `*.e2e.test.ts`,
   `*.live.test.ts`.

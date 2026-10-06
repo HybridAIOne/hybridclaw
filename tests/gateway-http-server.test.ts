@@ -640,6 +640,8 @@ async function startLoopbackHttpServer(): Promise<{
   };
 }
 
+let flushGatewayAudit: (() => Promise<void>) | undefined;
+
 async function importFreshHealth(options?: {
   docsDir?: string;
   dataDir?: string;
@@ -673,6 +675,7 @@ async function importFreshHealth(options?: {
     usedBytes: number;
   };
 }) {
+  await flushGatewayAudit?.();
   vi.resetModules();
 
   if (options?.authSecret === undefined) {
@@ -741,8 +744,8 @@ async function importFreshHealth(options?: {
     mainSessionKey: null,
     branchFamilies: [],
     history: [
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'world' },
+      { id: 1, role: 'user', content: 'hello' },
+      { id: 2, role: 'assistant', content: 'world' },
     ],
   }));
   const getGatewayRecentChatSessions = vi.fn(() => [
@@ -2703,6 +2706,7 @@ async function importFreshHealth(options?: {
     getAdminMSTeamsUsers: vi.fn(() => ({ users: [], defaultAgentId: 'main' })),
     updateAdminMSTeamsUser: vi.fn(() => ({ status: 200 })),
   }));
+  vi.doMock('../src/work/work-store.js', () => ({ workForMessage: vi.fn(() => null) }));
   vi.doMock('../src/memory/db.js', () => ({
     claimQueuedProactiveMessages,
     getDelegationJob,
@@ -2999,6 +3003,9 @@ async function importFreshHealth(options?: {
   const gatewayHttpServer = await import(
     '../src/gateway/gateway-http-server.js'
   );
+  flushGatewayAudit = (
+    await import('../src/audit/audit-trail.js')
+  ).flushAuditTrail;
   const httpServer = gatewayHttpServer.startGatewayHttpServer();
 
   if (!handler || !listenArgs) {
@@ -3177,7 +3184,10 @@ async function importFreshHealth(options?: {
 
 useCleanMocks({
   restoreAllMocks: true,
-  cleanup: () => {
+  cleanup: async () => {
+    // Finish audit writes before resetting modules or removing their data home.
+    await flushGatewayAudit?.();
+    flushGatewayAudit = undefined;
     if (ORIGINAL_HYBRIDCLAW_AUTH_SECRET === undefined) {
       delete process.env.HYBRIDCLAW_AUTH_SECRET;
     } else {
@@ -3199,6 +3209,7 @@ useCleanMocks({
     '../src/logger.js',
     '../src/agent/conversation.js',
     '../src/memory/db.js',
+    '../src/work/work-store.js',
     '../src/memory/apps.js',
     '../src/agent/agent.js',
     '../src/gateway/gateway-service.js',
@@ -5609,6 +5620,7 @@ describe('gateway HTTP server', () => {
       fallbackModel: expect.any(String),
       agentId: 'main',
       temperature: 0,
+      allowFallback: false,
     });
 
     const payload = JSON.parse(res.body);
@@ -7373,8 +7385,8 @@ describe('gateway HTTP server', () => {
       mainSessionKey: undefined,
       bootstrapAutostart: null,
       history: [
-        { role: 'user', content: 'hello' },
-        { role: 'assistant', content: 'world' },
+        { id: 1, role: 'user', content: 'hello', work: null },
+        { id: 2, role: 'assistant', content: 'world', work: null },
       ],
       summary: {
         messageCount: 2,

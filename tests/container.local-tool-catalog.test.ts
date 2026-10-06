@@ -144,7 +144,7 @@ test('describes the exact catalog invocation without exposing another function',
 });
 
 
-test('only malformed catalog call fields can receive bounded correction', () => {
+test('only malformed catalog call fields and unavailable call targets can receive bounded correction', () => {
   const catalog = new ToolCatalog(available, ['skills_list']);
   for (const args of [{ action: 'call', arguments: { path: 'notes.txt' } }, { action: 'call', name: 'read' }]) {
     try { catalog.resolveCall(catalogCall(args)); throw new Error('Expected validation failure'); }
@@ -154,8 +154,17 @@ test('only malformed catalog call fields can receive bounded correction', () => 
   catch (error) { expect(catalog.recoverArgumentError(error)).toBeNull(); }
   expect(catalog.recoverArgumentError(new Error('sensitive-placeholder'))).toBeNull();
   const restricted = new ToolCatalog([tool('skills_list')], []);
-  try { restricted.resolveCall(catalogCall({ action: 'call', name: 'read', arguments: {} })); }
-  catch (error) { expect(restricted.recoverArgumentError(error)).toBeNull(); }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { restricted.resolveCall(catalogCall({ action: 'call', name: 'sensitive-placeholder', arguments: {} })); throw new Error('Expected unavailable target'); }
+    catch (error) {
+      expect(String(error)).toContain('not available');
+      const correction = restricted.recoverArgumentError(error);
+      if (attempt < 2) {
+        expect(correction?.output).toContain('its connector may be disconnected');
+        expect(correction?.output).not.toContain('sensitive-placeholder');
+      } else expect(correction).toBeNull();
+    }
+  }
 });
 
 

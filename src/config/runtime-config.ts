@@ -569,19 +569,6 @@ export interface RuntimeDiscordPresenceConfig {
   activityType: DiscordPresenceActivityType;
 }
 
-export interface RuntimeDiscordLifecycleReactionsConfig {
-  enabled: boolean;
-  removeOnComplete: boolean;
-  phases: {
-    queued: string;
-    thinking: string;
-    toolUse: string;
-    streaming: string;
-    done: string;
-    error: string;
-  };
-}
-
 export interface RuntimeDiscordChannelConfig {
   mode: DiscordChannelMode;
   replyStyle?: DiscordReplyStyle;
@@ -1189,7 +1176,6 @@ export interface RuntimeConfig {
     humanDelay: RuntimeDiscordHumanDelayConfig;
     typingMode: DiscordTypingMode;
     presence: RuntimeDiscordPresenceConfig;
-    lifecycleReactions: RuntimeDiscordLifecycleReactionsConfig;
     ackReaction: string;
     ackReactionScope: DiscordAckReactionScope;
     removeAckAfterReply: boolean;
@@ -1718,18 +1704,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       degradedText: 'Thinking slowly...',
       exhaustedText: 'Taking a break',
       activityType: 'watching',
-    },
-    lifecycleReactions: {
-      enabled: true,
-      removeOnComplete: true,
-      phases: {
-        queued: '⏳',
-        thinking: '🤔',
-        toolUse: '⚙️',
-        streaming: '✍️',
-        done: '✅',
-        error: '❌',
-      },
     },
     ackReaction: '👀',
     ackReactionScope: 'group-mentions',
@@ -4784,43 +4758,6 @@ function normalizeDiscordPresenceConfig(
   };
 }
 
-function normalizeDiscordLifecycleReactionsConfig(
-  value: unknown,
-  fallback: RuntimeDiscordLifecycleReactionsConfig,
-): RuntimeDiscordLifecycleReactionsConfig {
-  const raw = isRecord(value) ? value : {};
-  const rawPhases = isRecord(raw.phases) ? raw.phases : {};
-  return {
-    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
-    removeOnComplete: normalizeBoolean(
-      raw.removeOnComplete,
-      fallback.removeOnComplete,
-    ),
-    phases: {
-      queued: normalizeString(rawPhases.queued, fallback.phases.queued, {
-        allowEmpty: false,
-      }),
-      thinking: normalizeString(rawPhases.thinking, fallback.phases.thinking, {
-        allowEmpty: false,
-      }),
-      toolUse: normalizeString(rawPhases.toolUse, fallback.phases.toolUse, {
-        allowEmpty: false,
-      }),
-      streaming: normalizeString(
-        rawPhases.streaming,
-        fallback.phases.streaming,
-        { allowEmpty: false },
-      ),
-      done: normalizeString(rawPhases.done, fallback.phases.done, {
-        allowEmpty: false,
-      }),
-      error: normalizeString(rawPhases.error, fallback.phases.error, {
-        allowEmpty: false,
-      }),
-    },
-  };
-}
-
 function normalizeDiscordChannelConfig(
   value: unknown,
   fallback: RuntimeDiscordChannelConfig,
@@ -7394,53 +7331,6 @@ function normalizeRuntimeConfig(
   const rawAuxiliaryModels = isRecord(raw.auxiliaryModels)
     ? raw.auxiliaryModels
     : {};
-  const rawVisionAuxiliaryModel = isRecord(rawAuxiliaryModels.vision)
-    ? rawAuxiliaryModels.vision
-    : {};
-  const rawCompressionAuxiliaryModel = isRecord(rawAuxiliaryModels.compression)
-    ? rawAuxiliaryModels.compression
-    : {};
-  const rawWebExtractAuxiliaryModel = isRecord(rawAuxiliaryModels.web_extract)
-    ? rawAuxiliaryModels.web_extract
-    : {};
-  const rawSessionSearchAuxiliaryModel = isRecord(
-    rawAuxiliaryModels.session_search,
-  )
-    ? rawAuxiliaryModels.session_search
-    : {};
-  const rawSkillsHubAuxiliaryModel = isRecord(rawAuxiliaryModels.skills_hub)
-    ? rawAuxiliaryModels.skills_hub
-    : {};
-  const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
-    ? rawAuxiliaryModels.eval_judge
-    : {};
-  const rawGoalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.goal_judge)
-    ? rawAuxiliaryModels.goal_judge
-    : {};
-  const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
-    ? rawAuxiliaryModels.mcp
-    : {};
-  const rawFlushMemoriesAuxiliaryModel = isRecord(
-    rawAuxiliaryModels.flush_memories,
-  )
-    ? rawAuxiliaryModels.flush_memories
-    : {};
-  const rawBtwAuxiliaryModel = isRecord(rawAuxiliaryModels.btw)
-    ? rawAuxiliaryModels.btw
-    : {};
-  const rawSecondOpinionAuxiliaryModel = isRecord(
-    rawAuxiliaryModels.second_opinion,
-  )
-    ? rawAuxiliaryModels.second_opinion
-    : {};
-  const rawSessionTitleAuxiliaryModel = isRecord(
-    rawAuxiliaryModels.session_title,
-  )
-    ? rawAuxiliaryModels.session_title
-    : {};
-  const rawCvNarrationAuxiliaryModel = isRecord(rawAuxiliaryModels.cv_narration)
-    ? rawAuxiliaryModels.cv_narration
-    : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
     ? rawLocalBackends.ollama
@@ -8125,10 +8015,6 @@ function normalizeRuntimeConfig(
         rawDiscord.presence,
         DEFAULT_RUNTIME_CONFIG.discord.presence,
       ),
-      lifecycleReactions: normalizeDiscordLifecycleReactionsConfig(
-        rawDiscord.lifecycleReactions,
-        DEFAULT_RUNTIME_CONFIG.discord.lifecycleReactions,
-      ),
       ackReaction: normalizeString(
         rawDiscord.ackReaction,
         DEFAULT_RUNTIME_CONFIG.discord.ackReaction,
@@ -8510,216 +8396,31 @@ function normalizeRuntimeConfig(
         { min: 64, max: 1_000_000 },
       ),
     },
-    auxiliaryModels: {
-      vision: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawVisionAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.provider,
-        ),
-        model: normalizeString(
-          rawVisionAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawVisionAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.vision.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      compression: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawCompressionAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.provider,
-        ),
-        model: normalizeString(
-          rawCompressionAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawCompressionAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.compression.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      web_extract: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawWebExtractAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.provider,
-        ),
-        model: normalizeString(
-          rawWebExtractAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawWebExtractAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.web_extract.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      session_search: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawSessionSearchAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.provider,
-        ),
-        model: normalizeString(
-          rawSessionSearchAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawSessionSearchAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_search.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      skills_hub: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawSkillsHubAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.provider,
-        ),
-        model: normalizeString(
-          rawSkillsHubAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawSkillsHubAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      eval_judge: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawEvalJudgeAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.provider,
-        ),
-        model: normalizeString(
-          rawEvalJudgeAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawEvalJudgeAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      goal_judge: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawGoalJudgeAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.provider,
-        ),
-        model: normalizeString(
-          rawGoalJudgeAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawGoalJudgeAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      mcp: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawMcpAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.provider,
-        ),
-        model: normalizeString(
-          rawMcpAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawMcpAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.mcp.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      flush_memories: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawFlushMemoriesAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.provider,
-        ),
-        model: normalizeString(
-          rawFlushMemoriesAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawFlushMemoriesAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      btw: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawBtwAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.provider,
-        ),
-        model: normalizeString(
-          rawBtwAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawBtwAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.btw.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      second_opinion: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawSecondOpinionAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.provider,
-        ),
-        model: normalizeString(
-          rawSecondOpinionAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawSecondOpinionAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.second_opinion.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      session_title: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawSessionTitleAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.provider,
-        ),
-        model: normalizeString(
-          rawSessionTitleAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawSessionTitleAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-      cv_narration: {
-        provider: normalizeAuxiliaryProviderSelection(
-          rawCvNarrationAuxiliaryModel.provider,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.provider,
-        ),
-        model: normalizeString(
-          rawCvNarrationAuxiliaryModel.model,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.model,
-          { allowEmpty: true },
-        ),
-        maxTokens: normalizeInteger(
-          rawCvNarrationAuxiliaryModel.maxTokens,
-          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.maxTokens,
-          { min: 0, max: 1_000_000 },
-        ),
-      },
-    },
+    auxiliaryModels: Object.fromEntries(
+      Object.entries(DEFAULT_RUNTIME_CONFIG.auxiliaryModels).map(
+        ([task, defaults]) => {
+          const rawPolicy =
+            rawAuxiliaryModels[task as keyof RuntimeConfig['auxiliaryModels']];
+          const value = isRecord(rawPolicy) ? rawPolicy : {};
+          return [
+            task,
+            {
+              provider: normalizeAuxiliaryProviderSelection(
+                value.provider,
+                defaults.provider,
+              ),
+              model: normalizeString(value.model, defaults.model, {
+                allowEmpty: true,
+              }),
+              maxTokens: normalizeInteger(value.maxTokens, defaults.maxTokens, {
+                min: 0,
+                max: 1_000_000,
+              }),
+            },
+          ];
+        },
+      ),
+    ) as RuntimeConfig['auxiliaryModels'],
     container: {
       sandboxMode: normalizeContainerSandboxMode(
         rawContainer.sandboxMode,

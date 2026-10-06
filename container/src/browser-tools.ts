@@ -40,7 +40,8 @@ const BROWSER_DOWNLOAD_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'downloads');
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_DOWNLOAD_TIMEOUT_MS = 120_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
-const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
+// Long calendars and filter forms can put their submit button beyond 12k.
+const BROWSER_MAX_SNAPSHOT_CHARS = 48_000;
 const TWO_FACTOR_SCREENSHOT_MAX_BYTES = 12 * 1024 * 1024;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
 const BROWSER_TMP_HOME = path.join(BROWSER_RUNTIME_ROOT, 'home');
@@ -66,7 +67,7 @@ export const BROWSER_CACHE_DIRS: readonly string[] = [
   BROWSER_PROFILE_ROOT,
 ];
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
-const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
+const SNAPSHOT_FLAGS = ['-C', '--urls'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
   'blocked',
@@ -1328,9 +1329,9 @@ function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
 }
 
 function buildSnapshotCommandArgs(mode: SnapshotMode, full: boolean): string[] {
-  if (mode === 'interactive') return ['-i', ...SNAPSHOT_CURSOR_FLAGS];
-  if (mode === 'full' || full) return [...SNAPSHOT_CURSOR_FLAGS];
-  return ['-i', '-c', ...SNAPSHOT_CURSOR_FLAGS];
+  if (mode === 'interactive') return ['-i', ...SNAPSHOT_FLAGS];
+  if (mode === 'full' || full) return [...SNAPSHOT_FLAGS];
+  return ['-i', '-c', ...SNAPSHOT_FLAGS];
 }
 
 function buildElementClickResultScript(extraFields = ''): string {

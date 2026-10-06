@@ -155,8 +155,6 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
-  /** The emoji the agent put on the user's message in this turn. */
-  reaction?: string;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -245,11 +243,6 @@ export interface GatewayChatRequestBody {
    * call instead of calling tools silently.
    */
   toolStatus?: boolean;
-  /**
-   * The client shows emoji reactions on messages. The agent then gets the
-   * `react` tool, and the turn's `result` carries its reaction.
-   */
-  reactions?: boolean;
 }
 
 export interface GatewayChatRequest {
@@ -260,7 +253,6 @@ export interface GatewayChatRequest {
   appKind?: 'web' | 'live';
   client?: GatewayChatRequestBody['client'];
   toolStatus?: GatewayChatRequestBody['toolStatus'];
-  reactions?: GatewayChatRequestBody['reactions'];
   sessionId: GatewayChatRequestBody['sessionId'];
   executionSessionId?: string;
   executorModeOverride?: 'host' | 'container';

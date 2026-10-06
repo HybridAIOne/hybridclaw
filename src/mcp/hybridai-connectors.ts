@@ -19,10 +19,13 @@ export const HYBRIDAI_CONNECTORS_MCP_PATH = '/api/v1/connectors/mcp';
 // Owner request, 2026-10-03: independent reads should overlap. The reviewed
 // dm product search/details contracts only fetch public catalog data; trusting
 // all broker-proxied annotations remains deliberately disabled.
+// Owner request, 2026-10-05: transit_routes only plans trips on public
+// timetables; the platform bills each search, but nothing is booked.
 const PLATFORM_READ_ONLY_TOOLS = {
   web_search: 'read-only',
   dm__searchProducts: 'read-only',
   dm__getProductDetails: 'read-only',
+  transit_routes: 'read-only',
 } as const;
 
 interface HybridAIConnectorsMcpOptions {

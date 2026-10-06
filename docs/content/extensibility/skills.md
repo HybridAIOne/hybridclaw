@@ -98,6 +98,9 @@ File access still passes through the normal read tool's policy and sandbox.
 
 ### Mini-skills
 
+For a copyable format, the DB example, and model-comparison guidance, see
+[Authoring Mini-skills](mini-skills.md).
+
 Set `mini: true` on a normal `SKILL.md` to make a dense instruction card. Keep
 the whole body within 1,000 characters: URLs, tool names, the essential UI
 steps, and an evidence check. For example:
@@ -127,8 +130,8 @@ Mini-skills use the existing trust scan, agent/channel eligibility, disabled
 skill filters, and runtime approvals. They grant no tools, credentials, or
 permissions. `disable-model-invocation` prevents automatic body disclosure;
 compact metadata prompts still retrieve complete cards through discovery.
-The bundled `bahn` card demonstrates abbreviated URL and UI guidance without
-station IDs, dates, or stale browser refs.
+The bundled `bahn` card demonstrates routing to one platform tool, the
+report rules, and a prefilled handoff link in three short lines.
 
 ## Frontmatter Contract
 

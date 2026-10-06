@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.35.2',
+  version: '0.37.0',
   highlights: [
-    'Goals prepare work before checking in',
-    'Proactive checks on connector changes',
-    'Fresh phone data for scheduled work',
-    'Mini-skill cards and contextual reactions',
+    'Saved results and lasting goal history',
+    'Train connection planning',
+    'Faster gateway startup',
+    'Recovery from unavailable tools',
   ],
 } as const;
 

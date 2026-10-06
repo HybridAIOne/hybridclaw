@@ -1,10 +1,8 @@
 /**
- * Emoji reactions on chat messages: the agent's `react` tool and the one-emoji
- * check that the tool, the gateway's reaction route and idea icons apply, so
+ * Emoji reactions on chat messages: the one-emoji check shared by the
+ * gateway's reaction route and idea icons, so
  * model or client text never lands where a single emoji belongs.
  */
-
-export const REACT_TOOL_NAME = 'react';
 
 // ZWJ sequences, skin tones and flags count as one emoji.
 const SINGLE_EMOJI_PATTERN =

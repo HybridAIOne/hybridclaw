@@ -137,4 +137,30 @@ describe('DiscordStreamManager', () => {
     expect(reply).not.toHaveBeenCalled();
     expect(sourceSend).not.toHaveBeenCalled();
   });
+
+  test('awaits beforeSend before posting each new message', async () => {
+    const { stream, chunkMessage } = await importFreshStream();
+    chunkMessage.mockReturnValue(['first', 'second']);
+
+    const order: string[] = [];
+    const beforeSend = vi.fn(async () => {
+      order.push('beforeSend');
+    });
+    const reply = vi.fn(async () => {
+      order.push('reply');
+      return makeSentMessage();
+    });
+    const send = vi.fn(async () => {
+      order.push('send');
+      return makeSentMessage();
+    });
+    const manager = new stream.DiscordStreamManager(
+      { reply, channel: { send } } as never,
+      { beforeSend },
+    );
+
+    await manager.finalize('ignored');
+
+    expect(order).toEqual(['beforeSend', 'reply', 'beforeSend', 'send']);
+  });
 });

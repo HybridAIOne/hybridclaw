@@ -117,6 +117,9 @@ Important properties:
 
 - it is prompt-time context, not a database row
 - it is meant to stay curated and relatively stable
+- prompt loading reads at most 160,000 bytes, retaining the beginning and end,
+  then applies the 20,000-character bootstrap limit; oversized files do not
+  cause full-file allocation or reads
 - normal `memory` tool writes should not append to it directly
 - `/dream` and the scheduled consolidation pass rewrite it from older daily
   notes
@@ -133,7 +136,8 @@ Important properties:
 - the `memory` tool appends here
 - the pre-compaction memory flush writes here before older history is
   summarized away
-- today's note is injected in full into the per-turn dynamic context block
+- today's note enters the per-turn dynamic context block within a
+  24,000-character cap, with bounded reads retaining both ends of oversized files
 - up to seven prior daily notes are also loaded newest first within the shared
   12,000-character history budget; a note larger than the remaining budget keeps
   its beginning and tail with a visible middle-truncation marker
@@ -589,3 +593,73 @@ content. Its digest gives every selected day a fair share of the remaining
 budget, so one large day is truncated at both ends rather than evicting smaller
 days; when even a shared budget is too small, the oldest days are dropped first.
 Source daily files are never rewritten by consolidation.
+
+### Dream journal
+
+When consolidation changes an agent's `MEMORY.md`, it appends a human-readable
+entry to that workspace's `dreams/YYYY-MM-DD.md`. This applies to scheduled,
+startup catch-up, and `/dream now` runs, as well as deterministic consolidation.
+The directory is created on the first memory change; no workspace reset is
+needed. The filename uses the same `USER.md` timezone as daily notes, and each
+entry has a UTC timestamp.
+
+Entries name the cleanup method (model, deterministic, or deterministic fallback),
+link the daily notes reviewed, and quote lines added to and removed from durable
+memory. Source links describe the notes considered, not a guarantee that every
+note was retained. Unchanged runs, locked files, and discarded stale rewrites
+produce no entry. Multiple changes on the same day append to the same file.
+
+Dream journals are history for human review, not current memory: they are not
+automatically injected into prompts or indexed for semantic recall. They can
+contain superseded facts removed from `MEMORY.md`; deleting a memory item does
+not erase its journal history. A journal write failure is logged and does not
+undo a successful memory update. Journal entries use the existing consolidation
+output and require no extra model call.
+
+New journal files are owner-readable/writable (`0600`). Symlinked journal
+directories, symlinked files, hard links, and non-regular file targets are
+rejected to prevent workspace entries from redirecting host appends. As with
+memory updates, the workspace lock coordinates runtime writers, not external
+editors; journal history is a separate write from the memory commit and can be
+missing after an I/O failure or a gateway crash between those writes.
+
+## Person and group memory views
+
+Open **Memory** in the console sidebar (`/admin/memory`) to inspect what Hy
+remembers for a relationship. **People** lists direct conversation audiences;
+**Groups** lists group and channel audiences, preserving thread/topic keys;
+**Sessions** lists audiences whose relationship type cannot be determined.
+Labels use stored peer IDs, not names guessed from message text. Search covers
+loaded relationships; **Load more relationships** includes older entries.
+
+The view groups current and retired session instances by agent and their stored
+`main_session_key` (falling back to `session_key`, then the instance ID). It
+shows semantic memories with confidence and source session/message IDs,
+conversation summaries, source session keys, and the existing canonical
+continuity window and summary. Memories and session sources are paginated, and
+inspection does not increase recall access counters. Deleted semantic rows are
+excluded. This view does not synthesize a profile or change memory retrieval.
+
+The audience key is distinct from semantic `scope` (a category such as `fact`
+or `episodic`). Semantic recall stays within a session instance; canonical
+continuity uses the stored audience key. Explicitly linked DM identities appear
+together only where persisted routing already joined them. Changing identity
+link configuration does not retroactively regroup stored audiences in this view.
+`MEMORY.md` and daily workspace notes are shared by an agent's sessions and are
+not private person/group stores; their contents are not attributed to a
+relationship. External memory plugins and cloud stores are not included.
+
+### Access and failure boundaries
+
+`GET /api/admin/memory/relationships` lists audiences; add `agentId` and
+`audienceKey` to inspect one. `offset`, `sessionOffset`, and `memoryOffset` are
+nonnegative integer pagination offsets. Each page contains at most 50 rows;
+responses include the next offset or `null`. Detail returns 404 for an unknown
+agent/audience pair and 400 for incomplete or malformed selectors.
+
+This is an operator inventory protected by `admin.sessions.read`, with the same
+installation-wide trust as session inspection. It is not a participant-facing
+endpoint or a grant to recall another relationship's memory. Cross-agent and
+cross-audience content must stay excluded from detail queries. No mutation
+method is supported; malformed audience keys remain unclassified rather than
+being labelled private. The existing workspace-sharing boundary still applies.

@@ -32,7 +32,6 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
-import { REACT_TOOL_NAME } from '../shared/reactions.js';
 import {
   changesApprovalState,
   guardApprovalStateChange,
@@ -2870,6 +2869,8 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'grep' ||
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
+      (lowerTool === 'work' &&
+        ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&
         (args.action === 'list' || args.action === 'describe'))
     ) {
@@ -2878,25 +2879,12 @@ export class TrustedAgentApprovalRuntime {
         actionKey: lowerTool,
         intent: `run ${toolName}`,
         consequenceIfDenied: 'I will continue without this lookup.',
-        reason: 'this is a read-only operation',
+        reason:
+          lowerTool === 'work'
+            ? 'this only records or retrieves local work provenance'
+            : 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
-        hostHints: [],
-        writeIntent: false,
-        promotableRed: false,
-        stickyYellow: false,
-      };
-    }
-
-    if (lowerTool === REACT_TOOL_NAME) {
-      return {
-        tier: 'green',
-        actionKey: lowerTool,
-        intent: 'react to the user’s message',
-        consequenceIfDenied: 'I will reply without a reaction.',
-        reason: 'a reaction only marks the user’s message in this chat',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
         hostHints: [],
         writeIntent: false,
         promotableRed: false,

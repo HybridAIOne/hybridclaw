@@ -383,6 +383,8 @@ export interface PendingApproval {
   approvalTier?: 'green' | 'yellow' | 'red';
   toolName?: string;
   commandPreview?: string;
+  /** Complete allowlisted review facts; never credentials or attachment bytes. */
+  reviewArguments?: string;
   allowSession: boolean;
   allowAgent: boolean;
   allowAll: boolean;

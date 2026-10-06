@@ -254,6 +254,8 @@ describe('device authorization grants', () => {
           'artifacts.read',
           'voice.session',
           'sign_ins.manage',
+          'system_files.read',
+          'system_files.write',
           'chat.history',
           'openai.api',
         ],

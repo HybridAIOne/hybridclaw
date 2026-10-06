@@ -2,6 +2,237 @@
 
 ## Unreleased
 
+## [0.37.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.37.0) - 2026-10-05
+
+### Added
+
+- **Saved goal results**: Hy attaches prepared research, drafts and plans as
+  dated results on their goals, with a separate workspace copy that later source
+  edits cannot change. Goal check-ins request saved results after preparing work,
+  and `/track list --json` exposes them to clients.
+
+### Changed
+
+- **Durable completed goals**: Completing or reopening a goal preserves its
+  milestones, updates and saved results. Completed histories remain until explicit
+  deletion instead of expiring after 90 days. Deleting a goal removes its records;
+  saved workspace files remain.
+- **Faster gateway containers**: The gateway image starts from an esbuild bundle
+  that reduces module-loading overhead, with about two seconds saved in measured
+  gVisor runs. The npm package continues to use its compiled entrypoint.
+- **Faster clean database startup**: Startup skips the full SQLite integrity scan
+  after a clean shutdown. A leftover non-empty WAL still triggers the integrity
+  check and existing recovery flow. Main-file corruption without a WAL is detected
+  when a query reaches the damaged page.
+
+### Fixed
+
+- **Train connection planning**: The Bahn skill uses the HybridAI platform's
+  transit search and provides a bahn.de link for current prices and booking,
+  avoiding automated-browser blocks. If transit search is unavailable, it returns
+  the booking link and explains the limitation.
+- **Unavailable tool recovery**: Calls to unavailable catalog tools receive a
+  bounded correction so the model can retry useful work. Rejected batches execute
+  no tools, and valid sibling calls are identified as needing a retry.
+
+## [0.36.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.2) - 2026-10-05
+
+### Added
+
+- **Client-controlled quick decisions**: Raw, non-streaming completions for
+  `auxiliary/eval_judge` and `regular` use only submitted context and expose no
+  tools. Updated mobile clients choose when to advance from on-device inference
+  to auxiliary or regular models for portraits and idea categories.
+- **Mobile-selected reactions**: Bound clients can persist Hy's optional emoji
+  on a user message or remove it. Reactions on assistant messages remain user
+  feedback; only that feedback can create response ratings.
+
+### Changed
+
+- **Independent emoji selection**: Updated mobile clients choose emoji through
+  on-device inference followed by auxiliary inference, with no emoji as a valid
+  result. Gateway-side early reaction selection and its configuration are removed.
+
+### Fixed
+
+- **Explicit auxiliary failures**: Quick decisions return configuration or
+  inference errors instead of silently switching providers, allowing clients to
+  control fallback.
+- **Replies retain their text**: Chat execution starts without waiting for an
+  early reaction decision. Emoji-only replies remain reply text instead of being
+  converted into reactions or silent messages.
+
+### Upgrade Notes
+
+- Deploy the v0.36.2 gateway and rebuilt worker before the companion mobile
+  update. Portraits and idea categories use on-device → auxiliary → regular;
+  emoji selection ends after auxiliary. Cloud decisions require app AI consent.
+- Remove `auxiliaryModels.chat_reaction` from custom configuration and configure
+  `auxiliaryModels.eval_judge` for the mobile auxiliary step. The old early
+  reaction stream event and result field are removed; clients should save and
+  retrieve reactions through `/api/chat/reaction` and `/api/history`.
+- Requests using `model: "auxiliary/eval_judge"` must have an auxiliary model
+  configured and handle failures explicitly. Decision completions do not support
+  streaming or tool execution.
+
+## [0.36.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.1) - 2026-10-04
+
+### Added
+
+- **Phone Markdown editing**: Authorized clients can edit existing Markdown in
+  the selected agent's home and restore shipped defaults for root bootstrap
+  files. Revision checks reject stale saves and resets.
+- **Complete mobile approval details**: Pending approvals can carry full email
+  bodies, recipients, sharing facts, and attachment metadata for review before
+  sending. Credential fields and attachment bytes are excluded; oversized review
+  payloads are omitted rather than partially shown.
+- **Mobile Activity traces**: Clients can retrieve stored thinking, progress,
+  and tool calls for a completed reply through an owner-scoped, paginated API
+  with credential redaction.
+- **Android push alerts**: Android phones can register Firebase tokens for
+  reminders, approvals, and finished replies through the existing platform relay.
+
+### Changed
+
+- **Agent-home file browsing**: Phone file access starts in the selected agent's
+  workspace and hides sensitive and internal files. Listings and downloads
+  enforce the same path exclusions and identify their agent-home scope.
+- **Quieter Discord progress**: Acknowledgement reactions and the typing
+  indicator show progress without changing status reactions at each phase.
+  Failed replies retain an error reaction.
+
+### Fixed
+
+- **Deleted schedules stay deleted**: Legacy tasks migrate once, and SQLite
+  schema 71 drops the old task table so a restart cannot resurrect deleted jobs.
+- **Discord typing after replies**: Typing requests stop and drain before a
+  reply is posted, preventing the indicator from reappearing afterward.
+- **Bounded memory loading**: Large `MEMORY.md` files read at most 160,000 bytes
+  from their beginning and end before applying the existing prompt limit.
+
+### Upgrade Notes
+
+- Deploy the v0.36.1 gateway and rebuilt worker before companion mobile updates
+  that use full approval review or Activity details. Android alerts also require
+  Firebase configuration in the platform relay and Android app.
+- File API clients must use agent-home-relative paths and send `agentId` for a
+  non-default agent. Runtime-home paths are no longer supported.
+- Markdown writes require `system_files.write`. Existing owner phones can renew
+  their handoff token; direct connections need the permission explicitly. Reset
+  is available only for root files with a shipped template.
+- Remove `discord.lifecycleReactions` from custom configuration; the setting is
+  ignored if retained. Keep the runtime database so the schema 71 migration
+  preserves current jobs and work evidence.
+
+## [0.36.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.36.0) - 2026-10-04
+
+### Added
+
+- **Shared explicit preferences**: Hy retains authenticated users' preferences
+  and feedback across chat, companion apps, Ideas, and scheduled generation.
+  Each run reads the current record without replacing its schedule; reading,
+  bookmarking, and opening a discussion do not count as liking.
+- **Evidence for background suggestions**: Scheduled work saves its rationale,
+  source references, artifacts, and action receipts for later explanation.
+  Execution, chat storage, notification attempts, transport acceptance, and
+  explicit viewing have separate durable records. Failed notifications do not
+  turn completed work into failed execution.
+- **People and group memory views**: The console's Memory page shows stored
+  memories, confidence, summaries, continuity, and source IDs by person, group,
+  or session, with agent and audience boundaries visible.
+- **Dream journals**: Memory consolidation appends readable entries under each
+  agent workspace's `dreams/` directory, linking source notes and showing durable
+  memory additions and removals without an extra model call.
+- **Proactive preferences**: `PROACTIVE_PREFERENCES.md` guides unsolicited
+  messages by topic, timing, format, and tone. Missing files are seeded without
+  overwriting custom edits; explicit chat corrections can update the guidance.
+- **Owner system-file browsing**: Authorized clients can list runtime folders
+  and read files through a confined, read-only endpoint with a separate
+  `system_files.read` permission, directory pagination, and download limits.
+- **Booking hotel mini-skill**: Searches Booking.com with requested dates,
+  destination, category, stars, currency, and nightly budget, verifies rendered
+  results, and reports access or date-reset blockers instead of generic prices.
+
+### Changed
+
+- **Faster seeded startup**: Disabling skills through `HYBRIDCLAW_CONFIG_SEED`
+  scans the catalog once and validates the complete batch before writing.
+- **Browser snapshots**: Include observed link URLs and retain up to 48,000
+  characters so longer calendars and filter forms keep their controls.
+- **Expired compatibility paths removed**: Slack command registration no longer
+  removes pre-`/hc-*` names automatically. Goal tracking no longer adopts the
+  v0.34 tracking-style check-in prompt as its own schedule.
+
+### Fixed
+
+- **Faithful trace exports**: Dynamic context preserves its exact whitespace
+  and content hash, including trailing newlines in preference files.
+
+### Upgrade Notes
+
+- Update the gateway and rebuilt agent image together, before enabling the
+  companion apps' preference sync, work-evidence views, or system-file browser.
+  SQLite schema 70 adds work records; retain the runtime database. Earlier
+  results keep missing provenance rather than receiving invented explanations.
+- Existing phone tokens need an explicit `system_files.read` grant or
+  replacement for system-file browsing. The grant can expose runtime settings
+  and credential-bearing files; chat-only paired and viewer tokens do not get it.
+- Proactive preferences are model guidance; existing active-hours, delivery,
+  and approval controls still apply. Dream journals retain superseded memory:
+  deleting a fact from `MEMORY.md` does not erase its journal history.
+- For Slack apps still registered before `/hc-*`, run
+  `hybridclaw channels slack register-commands` on v0.35.x before upgrading,
+  or manually remove the old bare and `/hybridclaw-*` commands in Slack.
+- For goals still using v0.34 tracking-style check-ins, update their status on
+  v0.35.x before upgrading to migrate the schedule. After upgrading, remove the
+  old task with `/schedule remove <task-id>` before editing the goal to recreate
+  its check-in, avoiding duplicate reminders.
+
+## [0.35.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.3) - 2026-10-04
+
+### Added
+
+- **Startup configuration seed**: Container deployments can pass JSON in
+  `HYBRIDCLAW_CONFIG_SEED` to set runtime configuration, disable tools and skills,
+  and reinstall named plugins before the config watcher and plugin loader start.
+  Matching settings skip writes, existing disabled tools and skills are retained,
+  and malformed seeds or unknown config keys or tools stop startup.
+- **Early chat acknowledgements**: Reaction-capable clients can receive a
+  streamed `reaction` event before the conversational model starts. Configure
+  `auxiliaryModels.chat_reaction` to enable a separate, tool-free emoji model;
+  roughly half of messages are sampled, with a 750 ms deadline, validated
+  single-emoji output, confidential-input redaction, and routing-zone limits.
+
+### Changed
+
+- **Independent replies and reactions**: The conversational model always runs
+  independently of the early acknowledgement. It greets briefly, answers
+  questions and requests, and can use one emoji alone for a simple thanks or
+  compliment. An empty `chat_reaction.model` disables early acknowledgements;
+  unavailable providers, timeouts, and cancellation do not suppress the reply.
+
+### Fixed
+
+- **Questions receive answers**: Removed the agent's `react` tool and its
+  reaction-only turn termination, which could leave a question answered with
+  just an emoji. An early reaction also preserves the empty-response fallback.
+- **Reaction persistence on errors**: Early acknowledgements remain attached to
+  stored user messages on both successful and failed turns. User-authored
+  reactions, message ownership checks, and thumbs-up/down ratings are preserved.
+
+### Upgrade Notes
+
+- Update the gateway and agent image together. The `react` agent tool has been
+  removed; custom workflows must stop calling it. Chat clients should use the
+  existing `reactions: true` capability and handle the new streamed `reaction`
+  event for early acknowledgement; the result and history still carry reactions.
+- Early acknowledgements are opt-in: set
+  `auxiliaryModels.chat_reaction.provider` and `.model` to enable them. The
+  auxiliary model cannot use tools or fall back to a broader routing destination.
+- `HYBRIDCLAW_CONFIG_SEED` is read at each gateway start. Matching config entries
+  skip writes, but listed plugins are reinstalled on each start. Supply only
+  operator-controlled settings and plugin sources; invalid seeds prevent boot.
+
 ## [0.35.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.35.2) - 2026-10-04
 
 ### Added

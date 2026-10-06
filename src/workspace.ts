@@ -1,7 +1,8 @@
 /**
  * Workspace bootstrap files — loads SOUL.md, IDENTITY.md, USER.md,
- * TOOLS.md, MEMORY.md, customized HEARTBEAT.md from the agent workspace
- * and injects them into the system prompt (like OpenClaw).
+ * TOOLS.md, MEMORY.md, customized HEARTBEAT.md from the agent workspace.
+ * Proactive preferences are seeded here but rendered into per-turn context,
+ * keeping preference edits out of the cached system prompt.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +10,7 @@ import {
   readDailyMemoryFile,
   truncateDailyMemoryText,
 } from '../container/shared/daily-memory.js';
+import { readTextFileHeadTail } from '../container/shared/read-text-file.js';
 import { escapeRegExp } from '../container/shared/regex.js';
 import {
   currentDateStampInTimezone,
@@ -79,7 +81,7 @@ audit:
   log_denials: true
 `;
 
-const MAX_FILE_CHARS = 20_000;
+export const WORKSPACE_CONTEXT_FILE_MAX_CHARS = 20_000;
 
 /**
  * Directory (inside the agent container image) where runtime node_modules
@@ -997,7 +999,13 @@ export function loadStaticBootstrapFiles(
     if (!fs.existsSync(filePath)) continue;
 
     try {
-      let content = fs.readFileSync(filePath, 'utf-8').trim();
+      // Sample enough UTF-8 bytes at each end for the existing character cap.
+      const raw =
+        filename === 'MEMORY.md'
+          ? readTextFileHeadTail(filePath, WORKSPACE_CONTEXT_FILE_MAX_CHARS * 8)
+          : fs.readFileSync(filePath, 'utf-8');
+      if (raw === null) throw new Error('Failed to read memory file');
+      let content = raw.trim();
       if (!shouldLoadBootstrapContextFile({ name: filename, content })) {
         continue;
       }
@@ -1010,8 +1018,11 @@ export function loadStaticBootstrapFiles(
       });
       if (!content) continue;
 
-      if (content.length > MAX_FILE_CHARS) {
-        content = truncateHeadTailText(content, MAX_FILE_CHARS);
+      if (content.length > WORKSPACE_CONTEXT_FILE_MAX_CHARS) {
+        content = truncateHeadTailText(
+          content,
+          WORKSPACE_CONTEXT_FILE_MAX_CHARS,
+        );
       }
 
       files.push({ name: filename, content });

@@ -3,6 +3,7 @@
  * dispatch. Bodies select a browser or event, never an operator. These routes
  * do not grant access to chat history or approve pending actions.
  */
+
 import { ECDH } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
@@ -11,6 +12,7 @@ import type {
   WebPushSubscription,
 } from '../../container/shared/web-notifications.js';
 import { isRecord } from '../utils/type-guards.js';
+import { markWorkSeen } from '../work/work-delivery.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 import {
   acknowledgeWebNotifications,
@@ -102,7 +104,17 @@ export async function handleWebNotificationRoute(
     return;
   }
   try {
-    if (pathname === '/api/push/subscriptions' && method === 'POST') {
+    if (pathname === '/api/push/seen' && method === 'POST') {
+      const body = await readJsonBody(req);
+      if (
+        !isRecord(body) ||
+        !Array.isArray(body.ids) ||
+        body.ids.length > 100 ||
+        !body.ids.every((id) => typeof id === 'string' && id.length <= 200)
+      )
+        throw new Error('Expected work ids.');
+      for (const id of body.ids) markWorkSeen(id, operatorId);
+    } else if (pathname === '/api/push/subscriptions' && method === 'POST') {
       const subscription = await validateWebPushSubscription(
         await readJsonBody(req),
       );

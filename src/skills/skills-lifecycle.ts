@@ -436,10 +436,11 @@ function recordSkillLifecycleAudit(params: {
 
 function findCatalogSkillByNameOrId(
   nameOrId: string,
+  catalog: SkillCatalogEntry[] = loadSkillCatalog(),
 ): SkillCatalogEntry | null {
   const normalized = nameOrId.trim().toLowerCase();
   return (
-    loadSkillCatalog().find(
+    catalog.find(
       (skill) =>
         skill.name.toLowerCase() === normalized ||
         skill.manifest.id.toLowerCase() === normalized,
@@ -478,7 +479,10 @@ function assertInstalledSkillForUpgrade(manifest: SkillManifest): void {
   }
 }
 
-function resolveSkillPackageTarget(nameOrId: string): {
+function resolveSkillPackageTarget(
+  nameOrId: string,
+  catalog?: SkillCatalogEntry[],
+): {
   name: string;
   skillDir: string;
   manifestPath: string;
@@ -486,7 +490,7 @@ function resolveSkillPackageTarget(nameOrId: string): {
   source: SkillCatalogEntry['source'] | 'installed';
   installed: RuntimeInstalledSkillManifest | null;
 } {
-  const catalogSkill = findCatalogSkillByNameOrId(nameOrId);
+  const catalogSkill = findCatalogSkillByNameOrId(nameOrId, catalog);
   if (catalogSkill) {
     const installed = catalogSkill.manifest
       ? findInstalledSkillByManifest(catalogSkill.manifest)
@@ -644,53 +648,79 @@ export function setSkillPackageEnabled(params: {
   channelKind?: SkillConfigChannelKind;
   actor?: string;
 }): SkillPackageStatusResult {
-  const target = resolveSkillPackageTarget(params.skillName);
-  const action = params.enabled ? 'enable' : 'disable';
-  if (
-    !params.channelKind &&
-    target.source === 'community' &&
-    !target.installed
-  ) {
-    throw new Error(
-      `Cannot ${action} skill package "${target.name}" because it does not have an installed package record.`,
-    );
-  }
-  const meta = buildLifecycleMeta({
-    action,
-    actor: params.actor,
-    source: target.manifestPath,
+  const { skillName, ...rest } = params;
+  const [result] = setSkillPackagesEnabled({
+    ...rest,
+    skillNames: [skillName],
   });
-  updateRuntimeConfig((draft) => {
-    draft.skills.installed ??= [];
-    setRuntimeSkillScopeEnabled(
-      draft,
-      target.name,
-      params.enabled,
-      params.channelKind,
-    );
-    const installed = draft.skills.installed.find(
-      (entry) => entry.id === target.manifest?.id || entry.name === target.name,
-    );
-    if (installed && !params.channelKind) {
-      installed.status = params.enabled ? 'enabled' : 'disabled';
-      installed.updatedAt = new Date().toISOString();
-    }
-  }, meta);
-  recordSkillLifecycleAudit({
-    action,
-    manifest: target.manifest,
-    skillName: target.name,
-    skillDir: target.skillDir,
-    source: target.manifestPath,
-    actor: params.actor,
-  });
+  return result;
+}
 
-  return {
-    action,
-    skillName: target.name,
-    scope: params.channelKind || 'global',
-    manifest: target.manifest,
-  };
+/**
+ * Batch form of `setSkillPackageEnabled`: one catalog scan for all names (a
+ * scan reads every skill directory, hundreds of ms on a slow filesystem), and
+ * every name is resolved before anything is written.
+ */
+export function setSkillPackagesEnabled(params: {
+  skillNames: string[];
+  enabled: boolean;
+  channelKind?: SkillConfigChannelKind;
+  actor?: string;
+}): SkillPackageStatusResult[] {
+  const action = params.enabled ? 'enable' : 'disable';
+  const catalog = loadSkillCatalog();
+  const targets = params.skillNames.map((name) =>
+    resolveSkillPackageTarget(name, catalog),
+  );
+  for (const target of targets) {
+    if (
+      !params.channelKind &&
+      target.source === 'community' &&
+      !target.installed
+    ) {
+      throw new Error(
+        `Cannot ${action} skill package "${target.name}" because it does not have an installed package record.`,
+      );
+    }
+  }
+  return targets.map((target) => {
+    const meta = buildLifecycleMeta({
+      action,
+      actor: params.actor,
+      source: target.manifestPath,
+    });
+    updateRuntimeConfig((draft) => {
+      draft.skills.installed ??= [];
+      setRuntimeSkillScopeEnabled(
+        draft,
+        target.name,
+        params.enabled,
+        params.channelKind,
+      );
+      const installed = draft.skills.installed.find(
+        (entry) =>
+          entry.id === target.manifest?.id || entry.name === target.name,
+      );
+      if (installed && !params.channelKind) {
+        installed.status = params.enabled ? 'enabled' : 'disabled';
+        installed.updatedAt = new Date().toISOString();
+      }
+    }, meta);
+    recordSkillLifecycleAudit({
+      action,
+      manifest: target.manifest,
+      skillName: target.name,
+      skillDir: target.skillDir,
+      source: target.manifestPath,
+      actor: params.actor,
+    });
+    return {
+      action,
+      skillName: target.name,
+      scope: params.channelKind || 'global',
+      manifest: target.manifest,
+    };
+  });
 }
 
 export function uninstallSkillPackage(

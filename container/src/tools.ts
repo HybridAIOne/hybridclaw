@@ -89,7 +89,10 @@ import {
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
-import { REACT_TOOL_DEFINITION, runReactTool } from './tools/react.js';
+import {
+  PREFERENCES_TOOL_DEFINITION,
+  runPreferencesTool,
+} from './tools/preferences.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -101,6 +104,7 @@ import {
 } from './tools/skills-list.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
+import { runWorkTool, WORK_TOOL_DEFINITION } from './tools/work.js';
 import type {
   DelegationSideEffect,
   DelegationTaskSpec,
@@ -3588,8 +3592,25 @@ async function executeToolInternal(
       return await callGatewayDeviceData(source, query);
     }
 
+    case 'work': {
+      const { ok, text } = await runWorkTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
+
+    case 'preferences': {
+      const { ok, text } = await runPreferencesTool(args, {
         baseUrl: gatewayBaseUrl,
         apiToken: gatewayApiToken,
         sessionId: currentSessionId,
@@ -3603,11 +3624,6 @@ async function executeToolInternal(
         apiToken: gatewayApiToken,
         sessionId: currentSessionId,
       });
-      return ok ? text : failTool(text);
-    }
-
-    case 'react': {
-      const { ok, text } = runReactTool(args);
       return ok ? text : failTool(text);
     }
 
@@ -4193,9 +4209,10 @@ const BASH_TOOL_DEFINITION: ToolDefinition = {
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
+  WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
-  REACT_TOOL_DEFINITION,
+  PREFERENCES_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

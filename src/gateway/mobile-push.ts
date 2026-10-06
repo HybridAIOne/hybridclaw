@@ -12,6 +12,7 @@
  * Tokens are never logged or echoed: a token and the relay are enough to
  * ring that phone.
  */
+
 import type {
   MobilePushDevice,
   WebNotification,
@@ -21,6 +22,7 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
+import { recordWorkPush, skipWorkNotification } from '../work/work-delivery.js';
 import {
   deleteMobilePushDevice,
   mobilePushDeviceApp,
@@ -54,6 +56,7 @@ export interface MobilePushResult {
   sent: number;
 }
 
+const FCM_TOKEN_PATTERN = /^[A-Za-z0-9:_-]{32,4096}$/;
 const TOKEN_PATTERN = /^[0-9a-f]{64,200}$/;
 const KIND_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_KINDS = ['turn', 'reminder', 'approval'];
@@ -135,9 +138,15 @@ async function platform(
  * The app HybridAI signs the phone's alerts for. Left out for Hy, its
  * default, so relays that predate other apps still take Hy's alerts.
  */
-function relayApp(device: Pick<MobilePushDevice, 'app'>): { app?: string } {
+function relayApp(device: Pick<MobilePushDevice, 'app' | 'platform'>): {
+  app?: string;
+  platform?: 'android';
+} {
   const app = mobilePushDeviceApp(device);
-  return app === 'hy' ? {} : { app };
+  return {
+    ...(app === 'hy' ? {} : { app }),
+    ...(device.platform === 'android' ? { platform: 'android' } : {}),
+  };
 }
 
 async function relay(
@@ -145,12 +154,16 @@ async function relay(
   device: MobilePushDevice,
   payload: Record<string, unknown>,
 ): Promise<RelayAnswer> {
-  const status = await platform(apiKey, 'POST', '/v1/push', {
-    token: device.token,
-    environment: device.environment,
-    ...relayApp(device),
-    payload,
-  });
+  const workId =
+    typeof payload.workId === 'string' ? payload.workId : undefined;
+  const status = await recordWorkPush(workId, () =>
+    platform(apiKey, 'POST', '/v1/push', {
+      token: device.token,
+      environment: device.environment,
+      ...relayApp(device),
+      payload,
+    }),
+  );
   return status === 'sent' ||
     status === 'unregistered' ||
     status === 'not_registered'
@@ -161,7 +174,7 @@ async function relay(
 /** Binds a phone to the account of the gateway's HybridAI key. */
 async function bind(
   apiKey: string,
-  device: Pick<MobilePushDevice, 'token' | 'environment' | 'app'>,
+  device: Pick<MobilePushDevice, 'token' | 'environment' | 'app' | 'platform'>,
 ): Promise<BindAnswer> {
   try {
     const status = await platform(apiKey, 'POST', '/v1/push/devices', {
@@ -198,7 +211,8 @@ async function deliver(
     else if (bound === 'taken' || bound === 'unknown_app')
       outcome = 'unregistered';
   }
-  if (outcome === 'unregistered') deleteMobilePushDevice(device.token);
+  if (outcome === 'unregistered')
+    deleteMobilePushDevice(device.token, undefined, device.platform);
   else if (outcome !== 'sent')
     logger.warn('Phone push was refused by the relay');
   return outcome === 'sent';
@@ -213,9 +227,17 @@ export async function sendMobilePush(
     device.kinds.includes(message.kind),
   );
   const result = { devices: targets.length, sent: 0 };
-  if (!targets.length) return result;
+  const workId =
+    typeof message.data?.workId === 'string' ? message.data.workId : undefined;
+  if (!targets.length) {
+    skipWorkNotification(workId, 'no_devices');
+    return result;
+  }
   const apiKey = relayKey();
-  if (!apiKey) return result;
+  if (!apiKey) {
+    skipWorkNotification(workId, 'relay_disabled');
+    return result;
+  }
   const payload = buildApnsPayload(message);
   await Promise.all(
     targets.map(async (device) => {
@@ -277,6 +299,7 @@ export async function alertListedItems(options: {
   assistant: string;
   text: string;
   messageId: number;
+  workId?: string;
 }): Promise<MobilePushResult> {
   const titles = listedTitles(options.text);
   if (!titles.length) return { devices: 0, sent: 0 };
@@ -291,6 +314,7 @@ export async function alertListedItems(options: {
     data: {
       sessionId: options.sessionId,
       messageId: options.messageId,
+      ...(options.workId ? { workId: options.workId } : {}),
       count: titles.length,
     },
   });
@@ -308,6 +332,7 @@ export function reminderAlert(options: {
   text: string;
   unread: number;
   messageId: number;
+  workId?: string;
 }): MobilePushMessage {
   const { notification } = options;
   const body = options.text.trim();
@@ -322,6 +347,7 @@ export function reminderAlert(options: {
       sessionId: notification.sessionId,
       ...(notification.agentId ? { agentId: notification.agentId } : {}),
       messageId: options.messageId,
+      ...(options.workId ? { workId: options.workId } : {}),
     },
   };
 }
@@ -375,8 +401,8 @@ function reply(value: Record<string, unknown>): string {
 }
 
 /**
- * `/push register <token> <sandbox|production> [kind,kind] [app]`,
- * `/push unregister <token>`, `/push status`. Answers one line of JSON for
+ * `/push register <token> <sandbox|production> [kind,kind] [app] [ios|android]`,
+ * `/push unregister <token> [ios|android]`, `/push status`. Answers one line of JSON for
  * the app that sends it. Phones belong to the operator the web session was
  * opened by, so the command works from web chat only. `app` is the HybridAI
  * app the phone belongs to, as its chats name it in `appId`: only that app's
@@ -391,45 +417,63 @@ export async function runPushCommand(
   if (!operatorId)
     return reply({ error: 'Phones can be registered from web chat only.' });
   const sub = (args[1] || '').toLowerCase();
-  const token = (args[2] || '').toLowerCase();
+  const phonePlatform = (sub === 'register' ? args[6] : args[3]) || 'ios';
+  const token =
+    phonePlatform === 'android' ? args[2] || '' : (args[2] || '').toLowerCase();
   if (sub === 'status')
     return reply({
       devices: readMobilePushDevices(operatorId).length,
       relay: readHybridAIApiKey() !== null,
     });
+  if (phonePlatform !== 'ios' && phonePlatform !== 'android')
+    return reply({ error: 'Platform must be ios or android.' });
   if (
     (sub === 'register' || sub === 'unregister') &&
-    !TOKEN_PATTERN.test(token)
+    !(phonePlatform === 'android' ? FCM_TOKEN_PATTERN : TOKEN_PATTERN).test(
+      token,
+    )
   )
-    return reply({ error: 'Expected an APNs device token in hex.' });
+    return reply({ error: 'Expected a valid phone token.' });
   if (sub === 'unregister') {
-    deleteMobilePushDevice(token, operatorId);
+    deleteMobilePushDevice(token, operatorId, phonePlatform);
     // Best effort, and only once no operator here holds the phone any more.
     const apiKey = relayKey();
-    if (apiKey && !mobilePushDeviceHeld(token))
-      await platform(apiKey, 'DELETE', '/v1/push/devices', { token }).catch(
-        () => logger.warn('Could not release the phone at HybridAI'),
-      );
+    if (apiKey && !mobilePushDeviceHeld(token, phonePlatform))
+      await platform(apiKey, 'DELETE', '/v1/push/devices', {
+        token,
+        ...(phonePlatform === 'android' ? { platform: phonePlatform } : {}),
+      }).catch(() => logger.warn('Could not release the phone at HybridAI'));
     return reply({ registered: false });
   }
   if (sub === 'register') {
     const environment = args[3];
     if (environment !== 'sandbox' && environment !== 'production')
       return reply({ error: 'Environment must be sandbox or production.' });
+    if (phonePlatform === 'android' && environment !== 'production')
+      return reply({ error: 'Android uses the production environment.' });
     const kinds = args[4] ? args[4].split(',') : DEFAULT_KINDS;
     if (kinds.length > 8 || !kinds.every((kind) => KIND_PATTERN.test(kind)))
       return reply({ error: 'Expected up to 8 comma-separated kinds.' });
     const app = (args[5] || 'hy').toLowerCase();
     if (!KIND_PATTERN.test(app))
       return reply({ error: 'Expected the app as one lowercase word.' });
+    if (phonePlatform === 'android' && app !== 'hy')
+      return reply({ error: 'Android alerts are supported for Hy only.' });
+    const address: Pick<
+      MobilePushDevice,
+      'token' | 'environment' | 'app' | 'platform'
+    > = {
+      token,
+      environment,
+      app,
+      ...(phonePlatform === 'android' ? { platform: 'android' as const } : {}),
+    };
     // Unreachable or unconfigured: kept anyway, bound on its first alert.
     const apiKey = relayKey();
-    const bound = apiKey
-      ? await bind(apiKey, { token, environment, app })
-      : null;
+    const bound = apiKey ? await bind(apiKey, address) : null;
     if (bound === 'taken' || bound === 'unknown_app') {
       // No alert could reach it from here.
-      deleteMobilePushDevice(token);
+      deleteMobilePushDevice(token, operatorId, phonePlatform);
       return reply({
         registered: false,
         reason: bound,
@@ -441,10 +485,8 @@ export async function runPushCommand(
     }
     try {
       saveMobilePushDevice(operatorId, {
-        token,
-        environment,
+        ...address,
         kinds: [...new Set(kinds)],
-        app,
       });
     } catch (error) {
       return reply({ error: (error as Error).message });
@@ -453,12 +495,13 @@ export async function runPushCommand(
     // would ring it for every app's chats.
     return reply({
       registered: true,
+      ...(phonePlatform === 'android' ? { platform: phonePlatform } : {}),
       relay: readHybridAIApiKey() !== null,
       app,
     });
   }
   return reply({
     error:
-      'Usage: /push register <token> <sandbox|production> [kinds] [app] | unregister <token> | status',
+      'Usage: /push register <token> <sandbox|production> [kinds] [app] [ios|android] | unregister <token> [ios|android] | status',
   });
 }

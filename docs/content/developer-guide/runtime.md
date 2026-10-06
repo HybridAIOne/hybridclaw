@@ -455,20 +455,19 @@ Session behavior matches the routing rules above:
   only the text after the last tool as the reply (the `result` carries only
   that part). The agent is then asked to begin each tool-calling response with
   one short line such as "Checking the page…" instead of calling tools silently
-- a streaming `/api/chat` client that sends `reactions: true` shows emoji
-  reactions. The agent then gets the `react` tool, which puts one emoji on the
-  user's message. The reaction guidance asks it to acknowledge each message,
-  including greetings, questions and requests, with a contextual emoji while
-  still answering questions and carrying out requests. A response whose only
-  tool calls are `react` ends the turn
-  without another model call: its text is the reply, and a reaction alone
-  answers by itself (`result` is then empty and the stored reply is the silent
-  token). `react` sends no `tool` event; the `result` carries the emoji as
-  `reaction`, and `/api/history` returns each message's `reaction`. The user's
-  own reactions (`POST /api/chat/reaction`) reach the agent's context with
-  their next message. A 👍 or 👎 is also the reply's response rating, from the
-  `userId` sent with it, as Teams reactions are; taking it off clears only the
-  rating it made
+- Hy clients choose emoji reactions separately from the main chat model, using
+  the phone model first and `auxiliary/eval_judge` second. No suitable emoji is
+  a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
+  it) on a message in the caller's bound session: `role: "user"` is Hy's reaction;
+  `role: "assistant"` (the default) is user feedback. Only feedback can become a
+  👍/👎 response rating. The main chat model has no `react` tool, and emoji-only
+  replies remain reply text. `/api/history` returns persisted reactions.
+- Raw, non-streaming `/v1/chat/completions` requests to `auxiliary/eval_judge`
+  use the auxiliary policy without provider fallback. `model: "regular"` uses
+  the default agent's regular model. Both use only the supplied messages and
+  expose no tools. Avatar selection and idea categorization advance explicitly
+  from the on-device model to auxiliary to regular when an answer fails validation;
+  emoji selection ends after auxiliary. Cloud decisions require the app's AI consent.
 - a streaming `/api/chat` response opens with an `accepted` line and sends a
   `ping` line after 15 s without other output, so proxies and phone read
   timeouts keep the connection open. Clients skip line types they do not know.
@@ -479,7 +478,7 @@ Session behavior matches the routing rules above:
   the rest, so the message is not answered twice
 - a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
   line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
-  `userMessageId`, `assistantMessageId`, `artifacts`, and `reaction`. Tool
+  `userMessageId`, `assistantMessageId`, and `artifacts`. Tool
   arguments and outputs, usage, prompts, and routing are left out; the `tool`
   lines already reported each call
 
@@ -995,3 +994,21 @@ Inputs are capped at 10 MiB and output at 1600px; animated GIF reads cover only 
 first frame. Unsupported binary files fail instead of producing UTF-8 garbage.
 vLLM's “At most 0 image(s)” rejection is treated as unavailable vision; the
 text-only response explicitly reports that the image could not be inspected.
+
+
+### Mobile approval review facts
+
+Pending approvals may include `reviewArguments`, a JSON string containing a
+projection of the exact pending connector call. It is separate from the shortened
+`commandPreview`, allowing mobile clients to review complete email bodies and
+attachment names/paths before sending. Both IPC runners and the chat event retain
+this optional field; a proxy serving phones must forward it unchanged.
+
+The producer allowlists review fields and removes credential fields and attachment
+bytes. Reviews larger than 256 KiB are omitted as a whole, never truncated into a
+misleading partial message. Unknown or missing details remain unknown. The field
+is presentation data: approval ID binding, expiry, execution arguments and allowed
+grant scopes are unchanged. It carries message content over the existing private
+approval transport and must not be included in diagnostic logging. Attachment paths
+use the client's authenticated document reader; metadata without a path cannot
+supply an attachment-content preview.

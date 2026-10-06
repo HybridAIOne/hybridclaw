@@ -28,6 +28,8 @@ import {
   enqueueTokenUsage,
   readCacheTokenUsage,
 } from '../usage/token-usage-buffer.js';
+import { startWork, updateWork } from '../work/work-store.js';
+import { beginWork, workPrompt } from '../work/work-tool.js';
 import { isConnectorEventCurrent } from './connector-events.js';
 import {
   buildModelUsageAuditStats,
@@ -44,6 +46,7 @@ const MAX_DEVICE_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function runIsolatedScheduledTask(params: {
   taskId: number;
+  originSessionId?: string;
   taskOwner?: SchedulerDispatchRequest['taskOwner'];
   prompt: string;
   channelId: string;
@@ -70,7 +73,7 @@ export async function runIsolatedScheduledTask(params: {
     onResult,
     onError,
   } = params;
-  const prompt = trackedTaskPrompt(taskId, storedPrompt);
+  const prompt = workPrompt(trackedTaskPrompt(taskId, storedPrompt));
   const cronSessionId = scheduledRunSessionKey(agentId, taskId, sessionKey);
   const activeSessionId = String(sessionId || '').trim() || cronSessionId;
   const runId = makeAuditRunId('cron');
@@ -106,9 +109,18 @@ export async function runIsolatedScheduledTask(params: {
     taskSession?.agent_id === agentId
       ? task.owner_user_id
       : undefined;
+  startWork({
+    id: runId,
+    agentId,
+    owner: owner ?? null,
+    sessionId: params.originSessionId ?? sessionId ?? activeSessionId,
+    runSessionId: activeSessionId,
+    taskId: taskId > 0 ? taskId : null,
+  });
   const blockedTools = blockDeviceDataToolUnlessShared(['cron'], owner);
   const { messages, skills } = buildConversationContext({
     agentId,
+    preferenceUserId: owner ?? null,
     history: [],
     currentUserContent: prompt,
     runtimeInfo: {
@@ -156,6 +168,7 @@ export async function runIsolatedScheduledTask(params: {
     owner,
     MAX_DEVICE_AGE_MS,
   );
+  const endWork = beginWork(activeSessionId, runId);
   try {
     const output = await runAgent({
       sessionId: activeSessionId,
@@ -173,6 +186,19 @@ export async function runIsolatedScheduledTask(params: {
       sessionId: activeSessionId,
       runId,
       toolExecutions: output.toolExecutions || [],
+    });
+    updateWork(runId, (work) => {
+      work.actions = (output.toolExecutions ?? []).flatMap((tool, index) =>
+        tool.blocked
+          ? []
+          : [
+              {
+                toolCallId: `${runId}:tool:${index + 1}`,
+                tool: tool.name,
+                ok: tool.isError !== true,
+              },
+            ],
+      );
     });
     const usage = buildModelUsageAuditStats({
       messages,
@@ -214,6 +240,10 @@ export async function runIsolatedScheduledTask(params: {
     }
 
     if (output.status === 'success' && output.result) {
+      updateWork(runId, (work) => {
+        work.completedAt = new Date().toISOString();
+        work.artifacts = (output.artifacts ?? []).map((item) => item.path);
+      });
       const storedTurn = memoryService.storeTurn({
         sessionId: activeSessionId,
         user: {
@@ -248,6 +278,7 @@ export async function runIsolatedScheduledTask(params: {
       if (!isSilentReply(output.result)) {
         await onResult({
           text: output.result,
+          workId: runId,
           storedMessage: {
             sessionId: activeSessionId,
             id: storedTurn.assistantMessageId,
@@ -280,6 +311,9 @@ export async function runIsolatedScheduledTask(params: {
       });
       return;
     }
+    updateWork(runId, (work) => {
+      work.failedAt = new Date().toISOString();
+    });
     const message = output.error || 'Scheduled task returned no result.';
     recordAuditEvent({
       sessionId: activeSessionId,
@@ -316,6 +350,9 @@ export async function runIsolatedScheduledTask(params: {
     });
     onError(message);
   } catch (error) {
+    updateWork(runId, (work) => {
+      if (!work.completedAt) work.failedAt = new Date().toISOString();
+    });
     const message = error instanceof Error ? error.message : String(error);
     recordAuditEvent({
       sessionId: activeSessionId,
@@ -353,5 +390,6 @@ export async function runIsolatedScheduledTask(params: {
     onError(error);
   } finally {
     endDeviceData();
+    endWork();
   }
 }

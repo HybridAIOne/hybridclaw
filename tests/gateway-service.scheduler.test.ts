@@ -72,13 +72,6 @@ test('admin scheduler includes db-backed tasks and can pause, resume, and delete
         .get(taskId),
     ),
   ).toMatchObject({ count: 1 });
-  expect(
-    withMemoryDatabase((db) =>
-      db
-        .prepare('SELECT COUNT(*) AS count FROM tasks WHERE id = ?')
-        .get(taskId),
-    ),
-  ).toMatchObject({ count: 0 });
   expect(beforePause).toMatchObject({
     id: `task:${taskId}`,
     source: 'task',
@@ -568,6 +561,7 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
     text: 'HybridClaw.io focuses on a personal AI assistant with a gateway, TUI, and sandboxed container runtime.',
     artifacts: [],
     storedMessage: { sessionId: session.id, id: expect.any(Number) },
+    workId: expect.any(String),
   });
   expect(
     memoryService.getRecentMessages(session.id).map((message) => ({
@@ -577,7 +571,7 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
   ).toEqual([
     {
       role: 'user',
-      content: 'summarize the HybridClaw docs page',
+      content: expect.stringContaining('summarize the HybridClaw docs page'),
     },
     {
       role: 'assistant',

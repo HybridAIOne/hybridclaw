@@ -8,8 +8,8 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { resolveInstallPath } from '../infra/install-root.js';
 import {
   detectMacHardware,
   estimateMacModelCacheBytes,
@@ -31,9 +31,7 @@ export interface MlxInstallation {
   memoryLimitBytes: number;
   cacheBytes: number;
 }
-export const MLX_COMPONENT = fileURLToPath(
-  new URL('../../inference/mlx/', import.meta.url),
-);
+export const MLX_COMPONENT = resolveInstallPath('inference', 'mlx');
 export function mlxHome(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, 'inference', 'mlx');
 }

@@ -30,8 +30,11 @@ export async function readRequestBody(
   return chunks.length > 0 ? Buffer.concat(chunks) : Buffer.alloc(0);
 }
 
-export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const rawBuffer = await readRequestBody(req, MAX_REQUEST_BYTES);
+export async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes = MAX_REQUEST_BYTES,
+): Promise<unknown> {
+  const rawBuffer = await readRequestBody(req, maxBytes);
   if (rawBuffer.length === 0) return {};
   const raw = rawBuffer.toString('utf-8');
   if (!raw.trim()) return {};

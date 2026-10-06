@@ -1,3 +1,8 @@
+/**
+ * Slack manifests own only canonical /hc-* commands and preserve other names.
+ * Unlike the Slack runtime handlers, this builds registration data; it does
+ * not migrate historical command names or execute commands.
+ */
 import {
   buildCanonicalSlashCommandDefinitions,
   type CanonicalSlashCommandDefinition,
@@ -34,16 +39,6 @@ function normalizeCanonicalCommandName(value: string): string {
 
 function buildSlackManifestCommandName(commandName: string): string {
   return `/${SLACK_NATIVE_COMMAND_PREFIX}${normalizeCanonicalCommandName(commandName)}`;
-}
-
-// compat: remove after v0.36 — names registered before `/hc-*`: bare
-// `/status` (manifest default up to v0.12.3) and the short-lived
-// `/hybridclaw-status`. The gateway no longer listens on them;
-// `channels slack register-commands` strips them from the app manifest so
-// re-running it migrates an old Slack app.
-function buildSlackReplacedCommandNames(commandName: string): string[] {
-  const normalized = normalizeCanonicalCommandName(commandName);
-  return [`/${normalized}`, `/hybridclaw-${normalized}`];
 }
 
 function buildSlackManifestSlashCommand(
@@ -101,13 +96,6 @@ const SLACK_NATIVE_SLASH_COMMAND_SET = new Set(
   SLACK_NATIVE_SLASH_COMMAND_NAMES,
 );
 
-const SLACK_REPLACED_MANIFEST_COMMAND_NAMES = new Set(
-  buildCanonicalSlashCommandDefinitions([])
-    .flatMap((definition) => buildSlackReplacedCommandNames(definition.name))
-    .map(normalizeManifestCommandName)
-    .filter(Boolean),
-);
-
 export function buildSlackSlashCommandDefinitions(): SlackManifestSlashCommand[] {
   return SLACK_NATIVE_SLASH_COMMAND_DEFINITIONS.map((definition) => ({
     ...definition,
@@ -155,11 +143,7 @@ export function mergeSlackSlashCommandsIntoManifest(
   );
   const preservedSlashCommands = existingSlashCommands.filter((entry) => {
     const commandName = normalizeManifestCommandName(entry.command);
-    return (
-      commandName &&
-      !hybridClawCommands.has(commandName) &&
-      !SLACK_REPLACED_MANIFEST_COMMAND_NAMES.has(commandName)
-    );
+    return commandName && !hybridClawCommands.has(commandName);
   });
 
   return {

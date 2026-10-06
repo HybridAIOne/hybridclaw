@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { CATALOG_SIBLING_NOT_EXECUTED } from '../container/src/tool-catalog.js';
 import type { ChatMessage, ContainerInput } from '../container/src/types.js';
 import { useContainerAgentHarness } from './helpers/container-agent.js';
 
@@ -13,7 +14,7 @@ function catalog(action: string, name?: string, args?: Record<string, unknown>):
 }
 
 describe('local catalog through real agent IPC and model HTTP', () => {
-  test('reduces 115 schemas to ten and preserves stable schemas and original call history', async () => {
+  test('reduces a large catalog to ten and preserves stable schemas and original call history', async () => {
     const pluginTools = Array.from({ length: 70 }, (_, i) => ({ name: `plugin_${i}`, description: 'synthetic plugin', parameters: { type: 'object' as const, properties: {}, required: [] } }));
     const { requests, output, followup } = await harness([
       catalog('list'), catalog('describe', 'read'), catalog('call', 'read', { path: 'notes.txt' }),
@@ -26,7 +27,9 @@ describe('local catalog through real agent IPC and model HTTP', () => {
       expect(request.messages.filter((message) => message.role === 'system')).toEqual(system);
     }
     for (const request of requests) { expect(request.tools).toHaveLength(10); expect(request.tools).toEqual(requests[0].tools); }
-    expect(JSON.parse(String(requests[1].messages.at(-1)?.content)).total).toBe(106);
+    const hiddenCount = JSON.parse(String(requests[1].messages.at(-1)?.content)).total;
+    expect(hiddenCount).toBeGreaterThan(pluginTools.length);
+    const fullCount = hiddenCount + requests[0].tools.filter((t) => t.function.name !== 'tool_catalog').length;
     expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'read', arguments: '{"path":"notes.txt"}', isError: false, approvalTier: 'green' });
     expect(requests[3].messages.filter((message) => String(message.content).includes('## Tool call boundary'))).toHaveLength(1);
     expect(requests[3].messages.some((message) => String(message.content).includes('Runtime tool reminder:'))).toBe(false);
@@ -43,17 +46,24 @@ describe('local catalog through real agent IPC and model HTTP', () => {
     expect(requests.at(-1)?.messages[0].content).toContain('Directly exposed functions in this request are memory and tool_catalog.');
     expect(requests.at(-1)?.messages[0].content).toContain('their own schemas do not need to be directly exposed');
     await followup({ localToolMode: 'full' });
-    expect(requests.at(-1)?.tools).toHaveLength(115);
+    expect(requests.at(-1)?.tools).toHaveLength(fullCount);
     expect(requests.at(-1)?.tools.some((t) => t.function.name === 'tool_catalog')).toBe(false);
+    expect(requests.at(-1)?.tools.some((t) => t.function.name === 'react')).toBe(false);
     expect(requests.at(-1)?.messages[0].content).not.toContain('## Tool call boundary');
     expect(requests.at(-1)?.messages.some((m) => String(m.content).includes('Runtime tool reminder:'))).toBe(false);
     await followup({ localToolMode: 'starred', localStarterTools: [] });
     expect(requests.at(-1)?.tools.map((t) => t.function.name)).toEqual(['tool_catalog']);
     await followup({ isLocal: false });
-    expect(requests.at(-1)?.tools).toHaveLength(115);
+    expect(requests.at(-1)?.tools).toHaveLength(fullCount);
   });
-  test.each(['starred', 'full'] as const)('denies a catalog target removed by the request block list in %s mode', async (localToolMode) => {
-    const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { localToolMode, blockedTools: ['read'] });
+  test('denies a catalog target removed by the request block list with bounded feedback', async () => {
+    const { output, requests } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { blockedTools: ['read'] });
+    expect(output.status).toBe('success');
+    expect(output.toolExecutions).toEqual([expect.objectContaining({ name: 'tool_catalog', blocked: true, isError: true })]);
+    expect(requests[1].messages.at(-1)?.content).toContain('not available in this request');
+  });
+  test('denies a catalog call in full mode, where no catalog is exposed', async () => {
+    const { output } = await harness([catalog('call', 'read', { path: 'notes.txt' })], { localToolMode: 'full', blockedTools: ['read'] });
     expect(output.status).toBe('error'); expect(output.error).toContain('not available');
     expect(output.toolExecutions).toEqual([]);
   });
@@ -104,11 +114,11 @@ test('stops repeated missing descriptions and still rejects unavailable actions'
   expect(output.toolExecutions).toHaveLength(2);
   expect(output.toolExecutions?.every((entry) => entry.isError)).toBe(true);
   const blocked = await harness([
-    catalog('describe', 'read'), catalog('call', 'read', { path: 'notes.txt' }),
+    catalog('describe', 'read'), catalog('call', 'read', { path: 'notes.txt' }), catalog('call', 'read', { path: 'notes.txt' }),
   ], { localStarterTools: ['skills_list'], blockedTools: ['read'] });
   expect(blocked.output.status).toBe('error');
-  expect(blocked.output.toolExecutions).toHaveLength(1);
-  expect(blocked.output.toolExecutions?.[0]).toMatchObject({ name: 'tool_catalog', isError: true });
+  expect(blocked.output.toolExecutions).toHaveLength(2);
+  expect(blocked.output.toolExecutions?.every((entry) => entry.name === 'tool_catalog' && entry.isError)).toBe(true);
   expect(blocked.output.error).toContain('not available');
 });
 
@@ -187,8 +197,33 @@ test('rejects wrong underlying arguments before a valid sibling write and recove
   expect(output.status).toBe('success');
   expect(fs.existsSync(path.join(dir, 'must-not-exist.txt'))).toBe(false);
   expect(output.toolExecutions?.slice(0, 2).every((tool) => tool.blocked && tool.isError)).toBe(true);
-  expect(requests[1].messages.slice(-2).every((message) => String(message.content).includes('Arguments do not match'))).toBe(true);
+  expect(requests[1].messages.slice(-2).map((message) => [message.tool_call_id, message.content])).toEqual([
+    ['valid-write', CATALOG_SIBLING_NOT_EXECUTED],
+    ['call_call', expect.stringContaining('Arguments do not match')],
+  ]);
   expect(output.toolExecutions?.at(-1)).toMatchObject({ name: 'bash', isError: false, approvalTier: 'green' });
+});
+
+test('recovers a parallel batch whose catalog target is unavailable, e.g. a disconnected MCP server', async () => {
+  const valid = catalog('call', 'write', { path: 'retried.txt', contents: 'retried' });
+  const unavailable = catalog('call', 'tracker__search_issues', { query: 'is:unresolved' });
+  const { output, dir, requests } = await harness([
+    { role: 'assistant', content: null, tool_calls: [
+      ...(valid.tool_calls as Array<Record<string, unknown>>).map((call) => ({ ...call, id: 'valid-write' })),
+      ...(unavailable.tool_calls as Array<Record<string, unknown>>).map((call) => ({ ...call, id: 'unavailable-call' })),
+    ] },
+    catalog('call', 'write', { path: 'retried.txt', contents: 'retried' }),
+  ], { localStarterTools: ['skills_list'] });
+  expect(output.status).toBe('success');
+  expect(requests[1].messages.slice(-2).map((message) => [message.tool_call_id, message.content])).toEqual([
+    ['valid-write', CATALOG_SIBLING_NOT_EXECUTED],
+    ['unavailable-call', expect.stringContaining('its connector may be disconnected')],
+  ]);
+  expect(requests[1].messages.slice(-2).some((message) => String(message.content).includes('tracker__'))).toBe(false);
+  expect(output.toolExecutions?.map((entry) => [entry.name, entry.blocked ?? false])).toEqual([
+    ['tool_catalog', true], ['tool_catalog', true], ['write', false],
+  ]);
+  expect(fs.readFileSync(path.join(dir, 'retried.txt'), 'utf8')).toBe('retried');
 });
 
 

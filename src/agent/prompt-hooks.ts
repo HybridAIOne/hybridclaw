@@ -38,6 +38,7 @@ import {
   buildSkillsSection,
 } from '../skills/skills-prompt.js';
 import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
+import { PROACTIVE_PREFERENCES_FILE } from '../workspace-templates.js';
 import { selectLocalPromptSkills } from './local-skill-config.js';
 import { resolveLocalToolMode } from './local-tool-config.js';
 import {
@@ -57,6 +58,7 @@ import {
   SOURCE_FOLDER_LINES,
   WEB_CHAT_ARTIFACT_LINES,
 } from './mobile-prompt.js';
+import { PROACTIVE_PREFERENCES_GUIDANCE } from './proactive-preferences.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -91,8 +93,6 @@ export interface PromptRuntimeInfo {
    * line and keeps only the text after the last tool as the reply.
    */
   toolStatus?: boolean;
-  /** The client shows emoji reactions on messages; the agent has `react`. */
-  reactions?: boolean;
   model?: string;
   defaultModel?: string;
   channelType?: string;
@@ -326,6 +326,7 @@ function buildBootstrapSystemBlocks(context: PromptHookContext): {
   const contextFiles = loadStaticBootstrapFiles(context.agentId, {
     omitChannelGuidance: isMobileClient(context),
   }).filter((file) => {
+    if (file.name === PROACTIVE_PREFERENCES_FILE) return false;
     const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
     return part ? isBootstrapPartSelected(part, context) : true;
   });
@@ -522,16 +523,6 @@ export const SILENT_TOOL_CALL_STYLE_LINES = [
   'Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions, or when the user explicitly asks.',
 ];
 
-// Owner request, 2026-10-03: acknowledge each message with a contextual emoji,
-// including greetings, questions and requests, alongside the substantive reply.
-// A lone react ends the turn, so write the reply in the same response or pair
-// the reaction with the tools needed to carry out the request.
-export const REACTION_STYLE_LINES = [
-  'The app shows emoji reactions. Acknowledge each user message with one contextual emoji using `react`, including greetings, questions and requests. Choose an emoji that fits the message: a wave for a greeting, celebration for good news, warmth for thanks, or attention for a request. Still answer questions and carry out requests; the reaction accompanies your reply rather than replacing it. For a simple acknowledgement where one emoji says it all, a reaction alone is enough.',
-  '`react` is no step of work. Called alone it ends your turn; when work needs other tools, include it alongside them. The tool call style below does not apply to a reaction-only call: anything you write in the same response, before the call, is your reply.',
-  'When you react, leave emoji out of your text. Otherwise an emoji fits in a reply now and then, where a friend texting would use one; most replies need none. Use only common emoji that phones show as emoji, never sign a reply with one, and keep the emoji in IDENTITY.md out of your messages.',
-];
-
 function buildSafetyHook(context: PromptHookContext): string {
   const runtime = getRuntimeConfig();
   const accepted = isSecurityTrustAccepted(runtime);
@@ -592,9 +583,6 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Reply in the language the user writes in.',
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
-    ...(context.runtimeInfo?.reactions
-      ? ['## Reactions', ...REACTION_STYLE_LINES, '']
-      : []),
     '## Tool Call Style',
     ...(context.runtimeInfo?.toolStatus
       ? TOOL_STATUS_STYLE_LINES
@@ -686,6 +674,7 @@ function buildProactivityHook(context: PromptHookContext): string {
   const lines = [
     '## Proactive Behavior',
     'Act proactively when it improves outcomes, but stay aligned with user intent and safety constraints.',
+    PROACTIVE_PREFERENCES_GUIDANCE,
     'Capture durable memory proactively using the `memory` tool when you learn stable preferences, constraints, recurring workflows, or decisions.',
     'When relevant historical context is likely missing, proactively run `session_search` before asking the user to repeat information.',
     '',

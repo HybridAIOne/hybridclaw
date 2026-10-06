@@ -12,7 +12,6 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import * as yazl from 'yazl';
-import { REACT_TOOL_NAME } from '../../container/shared/reactions.js';
 import { isReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { EXTRACT_TWO_FACTOR_PAGE_STATE_FUNCTION_SOURCE } from '../../container/shared/two-factor-detection.js';
@@ -147,6 +146,7 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
+import { runPreferenceTool } from '../preferences/preferences.js';
 import {
   type AdminRbacAction,
   adminActionClaimList,
@@ -199,12 +199,14 @@ import type {
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
+import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
+import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -232,7 +234,6 @@ import {
 import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   CHAT_REACTION_PATH,
-  createLoneEmojiHold,
   handleChatReactionRoute,
 } from './chat-reactions.js';
 import {
@@ -489,6 +490,7 @@ import {
   shouldSuppressProactiveMessage,
 } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
+import { handleRelationshipMemoryRoute } from './relationship-memory-http.js';
 import {
   ResponseRatingNotFoundError,
   submitResponseRating,
@@ -503,6 +505,7 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
+import { handleSystemFilesRoute, SYSTEM_FILES_PATH } from './system-files.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -3470,7 +3473,6 @@ async function handleApiChat(
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
-    ...(body.reactions === true ? { reactions: true } : {}),
   };
   logger.debug(
     {
@@ -3872,11 +3874,7 @@ async function handleApiChatStream(
   };
 
   const onToolProgress = (event: ToolProgressEvent): void => {
-    // A reaction is no step of work: the text written with it is the reply,
-    // and the reaction itself comes with the result.
-    if (event.toolName === REACT_TOOL_NAME) return;
     if (event.phase === 'start') {
-      sendText(emojiHold?.flush() ?? '');
       pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
     } else {
@@ -3905,9 +3903,6 @@ async function handleApiChatStream(
     visible: true,
     displaySurface: 'assistant_bubble' as const,
   };
-  // A reply that is one emoji alone becomes a reaction where reactions show,
-  // so it is held back until it is clearly more than that.
-  const emojiHold = chatRequest.reactions ? createLoneEmojiHold() : null;
   const sendText = (text: string): void => {
     if (!text) return;
     tail.noteTextDelta();
@@ -3921,7 +3916,7 @@ async function handleApiChatStream(
   const onTextDelta = (delta: string): void => {
     const filteredDelta = streamFilter.push(delta);
     if (!filteredDelta) return;
-    sendText(emojiHold ? emojiHold.push(filteredDelta) : filteredDelta);
+    sendText(filteredDelta);
   };
   const onThinkingDelta = (delta: string): void => {
     if (!delta) return;
@@ -3973,12 +3968,7 @@ async function handleApiChatStream(
     result = normalizePendingApprovalReply(result);
     tail.mark('chatHandler');
     if (result.status === 'success') {
-      let bufferedDelta = streamFilter.flush();
-      if (emojiHold) {
-        bufferedDelta = emojiHold.push(bufferedDelta) + emojiHold.flush();
-        // The emoji the turn made a reaction is no reply.
-        if (result.reaction && !result.result) bufferedDelta = '';
-      }
+      const bufferedDelta = streamFilter.flush();
       if (bufferedDelta) {
         sendEvent({
           type: 'text',
@@ -4346,7 +4336,7 @@ async function handleApiHistory(
     agentId: historyPage.agentId || undefined,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
-    history: historyPage.history,
+    history: withWorkHistory(historyPage.sessionId, historyPage.history),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
@@ -10945,6 +10935,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             authContext.tokenId,
             isOwnerDeviceToken(authContext.payload),
           );
+          if (pathname === SYSTEM_FILES_PATH) {
+            await handleSystemFilesRoute(req, res, method, url);
+            return;
+          }
           if (pathname.startsWith('/api/push/')) {
             if (!operatorId) {
               sendJson(res, 403, {
@@ -11321,6 +11315,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
                 publicSample: body.publicSample,
               }),
             );
+            return;
+          }
+          if (pathname === RELATIONSHIP_MEMORY_PATH) {
+            handleRelationshipMemoryRoute(res, url, method);
             return;
           }
           if (pathname === '/api/admin/sessions' && method === 'GET') {
@@ -11825,6 +11823,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiBrowserTool(req, res, activeSseResponses);
             return;
           }
+          if (pathname === '/api/preferences' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, { error: 'Unauthorized' });
+              return;
+            }
+            sendJson(res, 200, runPreferenceTool(await readJsonBody(req)));
+            return;
+          }
+          if (pathname === '/api/work' && method === 'POST')
+            return await handleWorkToolRoute(req, res, hasGatewayApiAuth(req));
           if (pathname === '/api/todo' && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {

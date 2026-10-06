@@ -23,7 +23,8 @@ const MAX_SCHEMA_CHARS = 24_000;
 // Large input schemas retain describe and the existing output budget.
 const MAX_INLINE_SCHEMA_CHARS = 2_000;
 // Engineering choice, 2026-09-10: two catalog corrections per request.
-// Missing fields/lookups may recover; unavailable actions stay fail-fast.
+// Missing fields, lookups and unavailable call targets may recover; nothing in
+// a rejected batch executes, and the request fails once the budget is spent.
 const MAX_CATALOG_CORRECTIONS = 2;
 const MAX_INDEXED_PARAMETERS = 8;
 const MAX_INDEX_SUMMARY_CHARS = 100;
@@ -96,7 +97,13 @@ function directorySummary(tool: ToolDefinition): string {
   return `- ${tool.function.name}(${shown.join(', ')}): ${indexSummary(tool.function.description)}`;
 }
 
+/** Result for valid calls that shared a batch with a rejected catalog call. */
+export const CATALOG_SIBLING_NOT_EXECUTED =
+  'Error: Not executed because another call in this batch was rejected. No tool in this batch was executed. Retry this call if it is still needed.';
+
 class CatalogArgumentError extends Error {}
+/** A call target outside this request, e.g. its MCP server failed to connect. */
+class CatalogUnavailableError extends CatalogArgumentError {}
 
 export class ToolCatalog {
   readonly tools: ToolDefinition[];
@@ -317,7 +324,11 @@ export class ToolCatalog {
       throw new CatalogArgumentError(
         'Tool catalog call requires a top-level name containing the exact tool name. Put the file path inside arguments.path, not name.',
       );
-    const tool = this.requireTool(args.name);
+    const tool = this.byName.get(args.name);
+    if (!tool)
+      throw new CatalogUnavailableError(
+        'Tool is not available in this request. Use tool_catalog to discover permitted tools.',
+      );
     if (
       !args.arguments ||
       typeof args.arguments !== 'object' ||
@@ -361,8 +372,12 @@ export class ToolCatalog {
     )
       return null;
     this.corrections += 1;
+    const next =
+      error instanceof CatalogUnavailableError
+        ? 'Do not call that tool again in this request; its connector may be disconnected. Retry the other calls from this batch without it.'
+        : 'Correct the tool_catalog arguments and retry. describe requires name; call requires name and arguments matching the tool schema.';
     return {
-      output: `Error: ${error.message} No tool in this batch was executed. Correct the tool_catalog arguments and retry. describe requires name; call requires name and arguments matching the tool schema.`,
+      output: `Error: ${error.message} No tool in this batch was executed. ${next}`,
       isError: true,
     };
   }

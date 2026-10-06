@@ -217,7 +217,9 @@ export function saveMobilePushDevice(
   device: MobilePushDevice,
 ): void {
   const store = readStore();
-  const id = notificationOperatorId(device.token);
+  const id = notificationOperatorId(
+    device.platform === 'android' ? `android:${device.token}` : device.token,
+  );
   // One phone belongs to one operator, as a browser endpoint does.
   for (const state of Object.values(store.operators))
     delete state.devices?.[id];
@@ -231,8 +233,13 @@ export function saveMobilePushDevice(
 }
 
 /** Whether any operator still has this phone registered. */
-export function mobilePushDeviceHeld(token: string): boolean {
-  const id = notificationOperatorId(token);
+export function mobilePushDeviceHeld(
+  token: string,
+  platform: MobilePushDevice['platform'] = 'ios',
+): boolean {
+  const id = notificationOperatorId(
+    platform === 'android' ? `android:${token}` : token,
+  );
   return Object.values(readStore().operators).some(
     (state) => state.devices?.[id] !== undefined,
   );
@@ -242,9 +249,12 @@ export function mobilePushDeviceHeld(token: string): boolean {
 export function deleteMobilePushDevice(
   token: string,
   operatorId?: string,
+  platform: MobilePushDevice['platform'] = 'ios',
 ): void {
   const store = readStore();
-  const id = notificationOperatorId(token);
+  const id = notificationOperatorId(
+    platform === 'android' ? `android:${token}` : token,
+  );
   const states = operatorId
     ? [operatorState(store, operatorId)]
     : Object.values(store.operators);

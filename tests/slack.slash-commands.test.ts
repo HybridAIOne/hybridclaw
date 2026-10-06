@@ -71,12 +71,12 @@ test('mergeSlackSlashCommandsIntoManifest preserves unrelated commands', () => {
     merged.features?.slash_commands?.some(
       (command) => command.command === '/status',
     ),
-  ).toBe(false);
+  ).toBe(true);
   expect(
     merged.features?.slash_commands?.some(
       (command) => command.command === '/hybridclaw-status',
     ),
-  ).toBe(false);
+  ).toBe(true);
 });
 
 test('renderSlackSlashCommandManifest renders yaml with commands scope', () => {
