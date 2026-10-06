@@ -432,11 +432,12 @@ export function createEmailRuntime() {
     ensureRuntimeActive();
     const transport = await ensureTransport(state);
     const { account, threadTracker } = state;
+    const threadContext = threadTracker.get(params.to);
     const result = await sendEmail({
       ...params,
       transport,
       selfAddress: account.address,
-      threadContext: threadTracker.get(params.to),
+      threadContext,
     });
     await appendSentCopiesToImap(
       account.config,
@@ -453,7 +454,12 @@ export function createEmailRuntime() {
         'Failed to append sent email copy to IMAP Sent folder',
       );
     });
-    if (result.threadContext) {
+    // An inbound mail from this peer may have moved the thread while SMTP and
+    // the Sent append were in flight; replies must stay on that newer thread.
+    if (
+      result.threadContext &&
+      threadTracker.get(params.to) === threadContext
+    ) {
       threadTracker.remember(params.to, result.threadContext);
     }
   };
