@@ -913,9 +913,18 @@ async function handleOpenAICompatibleStreamingToolChat(
 export async function handleOpenAICompatibleChatCompletions(
   req: IncomingMessage,
   res: ServerResponse,
+  options: { decisionModelsOnly?: boolean } = {},
 ): Promise<void> {
   try {
     const input = await readOpenAICompatibleChatRequest(req);
+    if (
+      options.decisionModelsOnly &&
+      (!isDecisionModel(input.model) || input.evalProfile)
+    ) {
+      throw new OpenAICompatibleRequestError(403, 'Forbidden.', {
+        type: 'authentication_error',
+      });
+    }
     const prepared = prepareOpenAICompatibleRequest(input);
     const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
     const usesDecisionModel = isDecisionModel(prepared.model);

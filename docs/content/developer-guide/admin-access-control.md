@@ -20,6 +20,22 @@ can create them from `hybridclaw token create` or `/admin/credentials?tab=api-to
 shows the token value only once, stores a salted verifier, and keeps later
 lists metadata-only.
 
+Agent runtimes (host workers, agent containers, and the shells and skill
+helpers they start) never receive `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`. They
+get `HYBRIDCLAW_GATEWAY_TOKEN`, an HMAC-SHA256 of `GATEWAY_API_TOKEN`. Every
+process that can authenticate as the operator derives the same value, nothing
+extra is stored, the runtime cannot recover `GATEWAY_API_TOKEN` from it, and
+rotating `GATEWAY_API_TOKEN` rotates it. It holds only the `agent.runtime`
+action, which maps to the `POST` routes agent tools call back into (the
+`AGENT_RUNTIME_ROUTES` list in `admin-rbac.ts`) plus tool-less decision
+completions on `POST /v1/chat/completions`. Admin routes, agent turns over
+`/v1`, and every other route answer `403`. A skill helper that needs an
+operator route, such as `warehouse-sql schedule-refresh` on
+`/api/admin/scheduler`, needs an explicit operator-issued token. The routes
+that resolve stored secrets (`http/request`, `secret/inject`, browser fills)
+refuse the gateway's own credentials whatever the workspace secret policy
+says, so the runtime cannot recover an operator token through them.
+
 A device such as the HybridClaw phone app can get its own token without
 anyone typing a secret into it, using the OAuth device authorization grant
 shape (RFC 8628):

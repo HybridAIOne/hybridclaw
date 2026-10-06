@@ -153,7 +153,12 @@ import {
   collectAdminActionClaims,
   isAdminActionAllowed,
   resolveAdminRbacAction,
+  resolveOpenAICompatibleAccess,
 } from '../security/admin-rbac.js';
+import {
+  AGENT_RUNTIME_TOKEN_CLAIMS,
+  deriveAgentRuntimeToken,
+} from '../security/agent-runtime-token.js';
 import {
   createApiToken,
   isApiTokenString,
@@ -2400,6 +2405,12 @@ function resolveAuthContext(
   const hasWebBearer = hasBearerToken(authHeader, WEB_API_TOKEN);
   const hasGatewayBearer = hasBearerToken(authHeader, GATEWAY_API_TOKEN);
   const hasMasterBearer = hasWebBearer || hasGatewayBearer;
+  if (
+    opts?.allowApiTokens !== false &&
+    hasBearerToken(authHeader, deriveAgentRuntimeToken(GATEWAY_API_TOKEN))
+  ) {
+    return { kind: 'apiToken', payload: { ...AGENT_RUNTIME_TOKEN_CLAIMS } };
+  }
   if (opts?.allowApiTokens !== false && bearer && isApiTokenString(bearer)) {
     const verified = verifyApiToken(bearer);
     if (verified) {
@@ -2437,7 +2448,10 @@ function resolveAuthContext(
 
 function hasGatewayApiAuth(req: IncomingMessage): boolean {
   const authHeader = req.headers.authorization || '';
-  return hasBearerToken(authHeader, GATEWAY_API_TOKEN);
+  return (
+    hasBearerToken(authHeader, GATEWAY_API_TOKEN) ||
+    hasBearerToken(authHeader, deriveAgentRuntimeToken(GATEWAY_API_TOKEN))
+  );
 }
 
 function hasApiTokenValue(token: string): boolean {
@@ -11936,10 +11950,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         });
         return;
       }
-      if (
-        authContext.payload !== null &&
-        !isAdminActionAllowed(authContext.payload, 'openai.api')
-      ) {
+      const openAIAccess = resolveOpenAICompatibleAccess(
+        authContext.payload,
+        pathname,
+        method,
+      );
+      if (openAIAccess === 'denied') {
         sendJson(res, 403, {
           error: {
             message: 'Forbidden.',
@@ -11957,7 +11973,9 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           return;
         }
         if (pathname === '/v1/chat/completions' && method === 'POST') {
-          await handleOpenAICompatibleChatCompletions(req, res);
+          await handleOpenAICompatibleChatCompletions(req, res, {
+            decisionModelsOnly: openAIAccess === 'decision',
+          });
           return;
         }
         if (method === 'GET' && pathname.startsWith('/v1/chat/completions/')) {

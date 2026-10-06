@@ -5,6 +5,7 @@
  * The gateway denies an admin route left unmapped here to every scoped caller
  * without a `*` claim, so each new admin route needs an entry.
  */
+import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 
 export const SYSTEM_FILES_PATH = '/api/system/files';
@@ -25,6 +26,7 @@ export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
   ...ADMIN_TOKEN_RBAC_ACTIONS,
   'openai.api',
+  'agent.runtime',
   'chat.send',
   'chat.history',
   'artifacts.read',
@@ -115,6 +117,28 @@ export const ADMIN_RBAC_ACTIONS = [
 ] as const;
 
 export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
+
+// The routes agent tools call back into (all POST). The agent runtime's own
+// credential claims only `agent.runtime`, so this list is everything a
+// worker, task container, or skill script can reach on the gateway.
+const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
+  '/api/browser/sign-in',
+  '/api/browser/tool',
+  '/api/delegate',
+  '/api/device-data',
+  '/api/discord/action',
+  '/api/http/request',
+  '/api/interactive-escalations',
+  '/api/message/action',
+  '/api/plugin/tool',
+  '/api/preferences',
+  '/api/scheduler/task',
+  '/api/secret/inject',
+  '/api/todo',
+  '/api/track',
+  '/api/work',
+  SHELL_RUNTIME_ENV_PATH,
+]);
 
 const ADMIN_READ_ACTIONS = [
   'admin.overview.read',
@@ -387,6 +411,27 @@ export function isAdminActionAllowed(
   return claims.has(action) === true || hasWildcardClaim(claims, action);
 }
 
+/**
+ * Agent turns on the OpenAI-compatible surface need `openai.api`. The agent
+ * runtime reaches only tool-less decision completions, which skill helpers use
+ * to have a model review their output without starting another agent turn.
+ */
+export function resolveOpenAICompatibleAccess(
+  payload: Record<string, unknown> | null,
+  pathname: string,
+  method: string,
+): 'full' | 'decision' | 'denied' {
+  if (isAdminActionAllowed(payload, 'openai.api')) return 'full';
+  if (
+    pathname === '/v1/chat/completions' &&
+    method.toUpperCase() === 'POST' &&
+    isAdminActionAllowed(payload, 'agent.runtime')
+  ) {
+    return 'decision';
+  }
+  return 'denied';
+}
+
 function actionForReadWriteDelete(
   method: string,
   readAction: AdminRbacAction,
@@ -432,6 +477,9 @@ export function resolveAdminRbacAction(
   if (pathname.startsWith('/api/admin/devices/')) return 'admin.tokens.create';
   if (pathname.startsWith('/v1/')) {
     return 'openai.api';
+  }
+  if (method === 'POST' && AGENT_RUNTIME_ROUTES.has(pathname)) {
+    return 'agent.runtime';
   }
   if (pathname.startsWith('/api/push/')) return 'chat.send';
   if (pathname === '/api/chat' && method === 'POST') {
