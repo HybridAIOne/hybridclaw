@@ -6,6 +6,8 @@ import {
   type RealtimeBridgeOptions,
   type RealtimeBridgeState,
   resolvePhoneRealtimeConfig,
+  voiceLanguageCode,
+  voiceLanguageName,
 } from '../src/channels/voice/realtime-bridge.js';
 
 const REALTIME_CONFIG = {
@@ -829,3 +831,24 @@ test('instructions forbid inventing a result before the consult returns', () => 
   expect(text).toContain('never guess, summarize, or invent one');
   expect(text).toContain('not a new request');
 });
+
+test('buildRealtimeInstructions pins a supported language and ignores others', () => {
+  const english = buildRealtimeInstructions(REALTIME_CONFIG, CALLER, 'web', 'en');
+  expect(english).toContain('Speak English for the entire conversation');
+  expect(
+    buildRealtimeInstructions(REALTIME_CONFIG, CALLER, 'web', 'de-DE'),
+  ).toContain('Speak German for the entire conversation');
+  for (const unpinned of [undefined, '', 'xx', 'ru-RU', 'constructor', 'toString']) {
+    expect(
+      buildRealtimeInstructions(REALTIME_CONFIG, CALLER, 'web', unpinned),
+    ).not.toContain('for the entire conversation');
+  }
+});
+
+test('inherited object keys are not languages', () => {
+  for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    expect(voiceLanguageCode(key)).toBeNull();
+    expect(voiceLanguageName(key)).toBeNull();
+  }
+});
+

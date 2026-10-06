@@ -107,6 +107,8 @@ export interface OpenAIRealtimeClientOptions {
   instructions: string;
   tools: RealtimeFunctionTool[];
   turnDetection?: RealtimeTurnDetection;
+  /** ISO 639-1 code the transcription expects; unset lets it detect. */
+  transcriptionLanguage?: string;
   callbacks: OpenAIRealtimeCallbacks;
   socketFactory?: RealtimeSocketFactory;
 }
@@ -150,7 +152,12 @@ export class OpenAIRealtimeClient {
           audio: {
             input: {
               format: options.audioFormat,
-              transcription: { model: 'gpt-4o-mini-transcribe' },
+              transcription: {
+                model: 'gpt-4o-mini-transcribe',
+                ...(options.transcriptionLanguage
+                  ? { language: options.transcriptionLanguage }
+                  : {}),
+              },
               turn_detection: this.turnDetectionPayload(),
             },
             output: {

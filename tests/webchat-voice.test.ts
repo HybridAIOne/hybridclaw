@@ -195,6 +195,38 @@ test('start frame opens a PCM16 web realtime session and acks with ready', async
   expect(String(ready.sessionId)).toMatch(/^agent:main:channel:web:chat:dm:peer:/);
 });
 
+test('a language in the start frame pins speech and transcription', async () => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', language: 'en' });
+  realtime.open();
+
+  const [sessionUpdate] = realtime.sentOfType('session.update');
+  const session = sessionUpdate.session as Record<string, unknown>;
+  const audio = session.audio as {
+    input: { transcription: Record<string, unknown> };
+  };
+  expect(String(session.instructions)).toContain(
+    'Speak English for the entire conversation',
+  );
+  expect(audio.input.transcription.language).toBe('en');
+});
+
+test('an unsupported language leaves the voice unpinned', async () => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', language: 'klingon' });
+  realtime.open();
+
+  const [sessionUpdate] = realtime.sentOfType('session.update');
+  const session = sessionUpdate.session as Record<string, unknown>;
+  const audio = session.audio as {
+    input: { transcription: Record<string, unknown> };
+  };
+  expect(String(session.instructions)).not.toContain('for the entire conversation');
+  expect(audio.input.transcription.language).toBeUndefined();
+});
+
 test('a valid canonical sessionId from the client is kept for consults', async () => {
   const { browser, realtime } = await createConnection();
   const sessionId = 'agent:main:channel:web:chat:dm:peer:abc123';

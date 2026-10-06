@@ -31,6 +31,7 @@ import type { RealtimeSocketFactory } from '../channels/voice/openai-realtime.js
 import {
   type RealtimeBridgeState,
   RealtimeCallBridge,
+  voiceLanguageCode,
 } from '../channels/voice/realtime-bridge.js';
 import {
   isRealtimeCredentialConfigured,
@@ -115,6 +116,7 @@ interface ClientFrame {
   sessionId?: unknown;
   agentId?: unknown;
   client?: unknown;
+  language?: unknown;
 }
 
 function sendFrame(ws: WebSocket, frame: Record<string, unknown>): void {
@@ -235,6 +237,9 @@ export class WebchatVoiceConnection {
     // A call from the phone app continues one of its chats, which must not
     // reset under it any more than when the app writes there.
     const client = frame.client === 'mobile' ? frame.client : undefined;
+    // The language the user set for the AI (an app's setting); anything we
+    // cannot pin is ignored and the voice keeps guessing as before.
+    const language = voiceLanguageCode(frame.language) ?? undefined;
     const userId = this.identity.userId || sessionId;
     const username = this.identity.username || 'web';
     this.bridge = new RealtimeCallBridge({
@@ -306,6 +311,7 @@ export class WebchatVoiceConnection {
         }
       },
       socketFactory: this.socketFactory,
+      ...(language ? { language } : {}),
     });
     sendFrame(this.ws, { type: 'ready', sessionId });
     logger.info(

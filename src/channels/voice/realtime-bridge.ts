@@ -112,6 +112,40 @@ export interface RealtimeBridgeOptions {
   onError: (message: string) => void;
   onClosed: () => void;
   socketFactory?: RealtimeSocketFactory;
+  /**
+   * The language the voice speaks and transcribes (ISO 639-1, see
+   * `voiceLanguageName`). Unset leaves it to the model, which then guesses
+   * from what it hears and can drift into another language.
+   */
+  language?: string;
+}
+
+/**
+ * Languages a voice session can be pinned to, by ISO 639-1 code. A Map, not
+ * an object literal: lookups must not find inherited keys like `constructor`.
+ */
+const VOICE_LANGUAGES = new Map<string, string>([
+  ['de', 'German'],
+  ['en', 'English'],
+  ['es', 'Spanish'],
+  ['fr', 'French'],
+  ['it', 'Italian'],
+  ['nl', 'Dutch'],
+  ['pl', 'Polish'],
+  ['pt', 'Portuguese'],
+]);
+
+/** The ISO 639-1 code of a supported language (`de`, `en-US` → `en`), or null. */
+export function voiceLanguageCode(code: unknown): string | null {
+  if (typeof code !== 'string') return null;
+  const base = code.trim().toLowerCase().split(/[-_]/)[0];
+  return VOICE_LANGUAGES.has(base) ? base : null;
+}
+
+/** The English name of a supported language code, or null. */
+export function voiceLanguageName(code: unknown): string | null {
+  const base = voiceLanguageCode(code);
+  return base ? (VOICE_LANGUAGES.get(base) ?? null) : null;
 }
 
 /**
@@ -138,6 +172,7 @@ export function buildRealtimeInstructions(
   config: RuntimeSpeechRealtimeConfig,
   caller: RealtimeCallerInfo,
   surface: RealtimeSurface = 'phone',
+  language?: string,
 ): string {
   const setting =
     surface === 'phone'
@@ -150,6 +185,12 @@ export function buildRealtimeInstructions(
     `Handle greetings and small talk yourself. For anything that needs the assistant's knowledge, memory, files, or tools — or any action such as sending messages or managing tasks — first tell the ${person} you are checking, then call the ${CONSULT_AGENT_TOOL_NAME} tool with the ${person}'s request. Relay its reply faithfully in a natural spoken style.`,
     `Until the ${CONSULT_AGENT_TOOL_NAME} tool has returned you have no result: never guess, summarize, or invent one. A short acknowledgement from the ${person} ("mhm", "okay") is not a new request.`,
   ];
+  const languageName = voiceLanguageName(language);
+  if (languageName) {
+    sections.push(
+      `Speak ${languageName} for the entire conversation, including the greeting and anything the ${CONSULT_AGENT_TOOL_NAME} tool returns, and keep to it even if the ${person} is hard to understand or switches language.`,
+    );
+  }
   const callerDetails = [
     caller.callerName ? `name ${caller.callerName}` : '',
     caller.from ? `calling from ${caller.from}` : '',
@@ -222,6 +263,7 @@ export class RealtimeCallBridge {
 
   constructor(options: RealtimeBridgeOptions) {
     this.options = options;
+    const languageCode = voiceLanguageCode(options.language);
     this.client = new OpenAIRealtimeClient({
       url: options.connection.url,
       apiKey: options.connection.apiKey,
@@ -233,7 +275,9 @@ export class RealtimeCallBridge {
         options.config,
         options.caller,
         options.surface,
+        options.language,
       ),
+      ...(languageCode ? { transcriptionLanguage: languageCode } : {}),
       tools: [
         {
           name: CONSULT_AGENT_TOOL_NAME,
@@ -254,8 +298,11 @@ export class RealtimeCallBridge {
       ],
       callbacks: {
         onReady: () => {
+          const languageName = voiceLanguageName(options.language);
           this.client.createResponse(
-            `Greet the caller by saying: "${options.config.greeting}"`,
+            languageName
+              ? `Greet the caller in ${languageName}, saying this in ${languageName}: "${options.config.greeting}"`
+              : `Greet the caller by saying: "${options.config.greeting}"`,
           );
         },
         onAudioDelta: (base64Audio) => {
