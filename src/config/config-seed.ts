@@ -14,6 +14,7 @@ import { listKnownToolNames } from '../agent/tool-summary.js';
 import { logger } from '../logger.js';
 import { reinstallPlugin } from '../plugins/plugin-install.js';
 import { isRecord } from '../utils/type-guards.js';
+import { CLOUD_DISABLED_SKILLS } from './cloud-defaults.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
@@ -112,9 +113,11 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
   }
 
   const disabledSkills = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
-  const skillsToDisable = seed.disabledSkills.filter(
-    (name) => !disabledSkills.has(name),
-  );
+  const cloudSkills =
+    getRuntimeConfig().deployment.mode === 'cloud' ? CLOUD_DISABLED_SKILLS : [];
+  const skillsToDisable = [
+    ...new Set([...seed.disabledSkills, ...cloudSkills]),
+  ].filter((name) => !disabledSkills.has(name));
   if (skillsToDisable.length > 0) {
     const { setSkillPackagesEnabled } = await import(
       '../skills/skills-lifecycle.js'

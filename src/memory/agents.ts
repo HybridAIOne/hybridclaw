@@ -1,3 +1,8 @@
+/**
+ * Agent persistence keeps registry changes and team revision writes together.
+ * Unlike the in-memory registry, these writes contend with CLI/gateway peers;
+ * reserve write locks before reading state instead of upgrading a read snapshot.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
@@ -779,7 +784,7 @@ export function upsertAgentWithTeamRevision(params: {
       syncAttachedTeamRevisionState(params.finalAgents, params.meta);
       return stored;
     });
-    return upsert();
+    return upsert.immediate();
   });
 }
 
@@ -797,7 +802,7 @@ export function upsertAgentsWithTeamRevision(params: {
       syncAttachedTeamRevisionState(params.finalAgents, params.meta);
       return listAgents();
     });
-    return upsert();
+    return upsert.immediate();
   });
 }
 
@@ -872,7 +877,7 @@ export function replaceAgentOrgChart(
     }
   });
   if (revisionMeta) {
-    withRuntimeRevisionDatabaseAttached(() => updateOrgChart());
+    withRuntimeRevisionDatabaseAttached(() => updateOrgChart.immediate());
   } else {
     updateOrgChart();
   }
@@ -905,6 +910,6 @@ export function deleteAgentWithTeamRevision(params: {
       }
       return deleted;
     });
-    return deleteWithRevision();
+    return deleteWithRevision.immediate();
   });
 }

@@ -2,6 +2,9 @@
 name: gws
 description: Use the gws CLI for Google Calendar, Gmail, Drive, Sheets, Docs, Tasks, and cross-service Workspace workflows.
 user-invocable: true
+requires:
+  bins:
+    - gws
 metadata:
   hybridclaw:
     category: productivity

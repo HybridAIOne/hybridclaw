@@ -872,6 +872,8 @@ Commands:
   hybridclaw agent list
   hybridclaw agent create <id> [--name <name>] [--model <model>] [--workspace <path-or-id>] [--activate]
   hybridclaw agent config <json|--json <json>> [--activate]
+  hybridclaw agent defaults <json>
+  hybridclaw agent reset <agent-id> [--yes] [--keep-history]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]

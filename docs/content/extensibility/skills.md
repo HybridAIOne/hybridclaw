@@ -467,6 +467,13 @@ because they change the host dependency state.
 
 ## Availability Controls
 
+Cloud deployments configured through `HYBRIDCLAW_CONFIG_SEED` disable host-only
+skills by default: 1Password, macOS Calendar/Music/Passwords, Obsidian, BYD
+Battery-Box and Homematic HCU. These need an operator desktop, vault or LAN.
+Skills with cloud API support (including Hue, Shelly and Fronius) remain
+available. Core file, shell and browser tools operate inside the cloud sandbox.
+Local deployment choices are preserved.
+
 HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list

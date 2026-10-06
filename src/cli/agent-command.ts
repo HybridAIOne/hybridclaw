@@ -126,6 +126,11 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
   await ensureAgentPackagingRuntime();
 
   const sub = normalized[0].toLowerCase();
+  if (sub === 'reset' || sub === 'defaults') {
+    return (await import('./agent-reset-command.js')).handleAgentResetCommand(
+      normalized,
+    );
+  }
   if (sub === 'list') {
     if (normalized.length !== 1) {
       printAgentUsage();
