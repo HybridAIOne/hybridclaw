@@ -120,29 +120,32 @@ export interface RealtimeBridgeOptions {
   language?: string;
 }
 
-/** Languages a voice session can be pinned to, by ISO 639-1 code. */
-const VOICE_LANGUAGES: Record<string, string> = {
-  de: 'German',
-  en: 'English',
-  es: 'Spanish',
-  fr: 'French',
-  it: 'Italian',
-  nl: 'Dutch',
-  pl: 'Polish',
-  pt: 'Portuguese',
-};
+/**
+ * Languages a voice session can be pinned to, by ISO 639-1 code. A Map, not
+ * an object literal: lookups must not find inherited keys like `constructor`.
+ */
+const VOICE_LANGUAGES = new Map<string, string>([
+  ['de', 'German'],
+  ['en', 'English'],
+  ['es', 'Spanish'],
+  ['fr', 'French'],
+  ['it', 'Italian'],
+  ['nl', 'Dutch'],
+  ['pl', 'Polish'],
+  ['pt', 'Portuguese'],
+]);
 
 /** The ISO 639-1 code of a supported language (`de`, `en-US` → `en`), or null. */
 export function voiceLanguageCode(code: unknown): string | null {
   if (typeof code !== 'string') return null;
   const base = code.trim().toLowerCase().split(/[-_]/)[0];
-  return base in VOICE_LANGUAGES ? base : null;
+  return VOICE_LANGUAGES.has(base) ? base : null;
 }
 
 /** The English name of a supported language code, or null. */
 export function voiceLanguageName(code: unknown): string | null {
   const base = voiceLanguageCode(code);
-  return base ? VOICE_LANGUAGES[base] : null;
+  return base ? (VOICE_LANGUAGES.get(base) ?? null) : null;
 }
 
 /**
