@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+## [0.38.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.38.0) - 2026-10-06
+
+### Added
+
+- **Provisioned agent reset**: `hybridclaw agent defaults <json>` saves a
+  canonical definition outside the agent workspace. `hybridclaw agent reset
+  <agent-id>` restores it with current runtime templates after confirmation,
+  deleting that agent's files, conversations, memory and scheduled tasks.
+  `--keep-history` retains database history and tasks. Reset requires a running
+  gateway and an idle agent, refuses main/shared/symlinked workspaces, and leaves
+  other agents and instance credentials intact.
+- **Voice language selection**: Web and app voice clients can send a language
+  in the session start frame to keep greetings, replies and transcription in
+  German, English, Spanish, French, Italian, Dutch, Polish or Portuguese. Region
+  suffixes are accepted; missing or unsupported languages retain automatic
+  detection.
+
+### Changed
+
+- **Cloud skill defaults**: Configuration-seeded cloud deployments disable
+  skills requiring an operator desktop, local vault or home network. Cloud API
+  skills and sandbox file, shell and browser tools remain available. Local
+  deployment settings are preserved.
+- **Scoped worker credentials**: Agent runtimes and skill helpers receive a
+  derived gateway credential limited to agent callback routes and tool-less
+  decision completions. Admin routes and other operator surfaces reject it;
+  rotating the gateway credential also rotates the runtime credential.
+
+### Fixed
+
+- **Gateway credential protection**: Stored-secret injection rejects gateway
+  API/web tokens, the auth secret and master key before reading the secret
+  store, regardless of workspace policy. HTTP placeholders, bearer references,
+  secret headers and browser fills cannot expose these credentials.
+- **Concurrent agent updates**: Agent and team revision writes reserve SQLite
+  write locks before reading state, avoiding read-to-write conflicts between
+  CLI and gateway processes.
+- **Reset route loading**: Ordinary agent requests avoid loading reset-specific
+  dependencies; the reset handler loads only for reset requests.
+
+### Upgrade Notes
+
+- Skill helpers using `HYBRIDCLAW_GATEWAY_TOKEN` for admin or other operator
+  routes must use an explicitly issued operator token. This includes
+  `warehouse-sql schedule-refresh`, which calls `/api/admin/scheduler`.
+- Outbound auth rules that inject `GATEWAY_API_TOKEN`, `WEB_API_TOKEN`,
+  `HYBRIDCLAW_AUTH_SECRET` or `HYBRIDCLAW_MASTER_KEY` receive `403`; use dedicated
+  service credentials instead. Container isolation remains the security
+  boundary; host mode still runs tools as the gateway's user.
+- Cloud seeds apply host-only skill exclusions on each boot. Deployments
+  intentionally exposing those services must re-enable their skills after
+  seeding.
+
 ## [0.37.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.37.0) - 2026-10-05
 
 ### Added

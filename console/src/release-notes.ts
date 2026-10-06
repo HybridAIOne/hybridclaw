@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.37.0',
+  version: '0.38.0',
   highlights: [
-    'Saved results and lasting goal history',
-    'Train connection planning',
-    'Faster gateway startup',
-    'Recovery from unavailable tools',
+    'Reset agents to provisioned defaults',
+    'Voice sessions keep your language',
+    'Scoped worker credentials',
+    'Cloud-ready skill defaults',
   ],
 } as const;
 
