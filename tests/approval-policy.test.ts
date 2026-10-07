@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { performance } from 'node:perf_hooks';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
@@ -18,13 +17,11 @@ import {
   type ToolCallContextHelpers,
   TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
-import {
-  BehaviorAnomalyReranker,
-  buildBehaviorTuple,
-} from '../container/src/behavior-anomaly.js';
+import { buildBehaviorTuple } from '../container/src/behavior-anomaly.js';
 import { classifyMcpTool } from '../container/src/mcp/tool-classifier.js';
 import type { StakesScore } from '../container/src/stakes-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';
+import { writeBehaviorTrajectoryStore } from './helpers/behavior-trajectory-store.js';
 
 function userMessage(text: string): ChatMessage {
   return { role: 'user', content: text };
@@ -42,52 +39,7 @@ function writeTempPolicy(raw: string): string {
   return policyPath;
 }
 
-function writeBehaviorTrajectoryStore(params: {
-  storeDir: string;
-  agentId: string;
-  count: number;
-  tools?: Array<{ name: string; args: Record<string, unknown> }>;
-}): void {
-  const date = '2026-05-01';
-  const dir = path.join(params.storeDir, date);
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `${params.agentId}.jsonl`);
-  const tools = params.tools || [
-    { name: 'read', args: { path: '/workspace/docs/readme.md' } },
-  ];
-  const lines = Array.from({ length: params.count }, (_, index) =>
-    JSON.stringify({
-      schema_version: 2,
-      captured_at: `2026-05-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
-      agent_id: params.agentId,
-      outcome: 'success',
-      tools_used: tools.map((tool) => ({
-        name: tool.name,
-        duration_ms: 1,
-        is_error: false,
-        blocked: false,
-        approval_tier: 'green',
-        approval_decision: 'auto',
-        arguments: {
-          content: JSON.stringify(tool.args),
-          truncated: false,
-          source: 'full',
-        },
-        result: {
-          content: 'ok',
-          truncated: false,
-          source: 'full',
-        },
-      })),
-    }),
-  );
-  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
-}
-
-// 80 approved read/glob trajectories captured at 10:xx UTC; score calls at
-// ANOMALY_BASELINE_NOW so they share the baseline's hour bucket.
-const ANOMALY_BASELINE_NOW = new Date('2026-05-01T10:15:00.000Z');
-
+// 80 approved read/glob trajectories; other calls score as unusual.
 function stubBehaviorAnomalyBaseline(): void {
   const storeDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-anomaly-baseline-'),
@@ -507,134 +459,7 @@ approval:
     expect(observed).toEqual(['after_stakes']);
   });
 
-  test('behavior anomaly reranker abstains during cold start', () => {
-    const storeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-anomaly-cold-'),
-    );
-    writeBehaviorTrajectoryStore({
-      storeDir,
-      agentId: 'lena',
-      count: 3,
-    });
-    const reranker = new BehaviorAnomalyReranker({
-      storeDir,
-      agentId: 'lena',
-      minTrajectories: 50,
-      cacheTtlMs: 0,
-    });
-
-    const score = reranker.score({
-      toolName: 'read',
-      args: { path: '/workspace/docs/readme.md' },
-      now: new Date('2026-05-01T10:15:00.000Z'),
-    });
-
-    expect(score.status).toBe('abstained');
-    expect(score.reason).toContain('3/50 approved trajectories available');
-  });
-
-  test('behavior anomaly reranker cached scoring stays under 5ms per call', () => {
-    const storeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-anomaly-perf-'),
-    );
-    writeBehaviorTrajectoryStore({
-      storeDir,
-      agentId: 'lena',
-      count: 80,
-    });
-    const reranker = new BehaviorAnomalyReranker({
-      storeDir,
-      agentId: 'lena',
-      minTrajectories: 50,
-    });
-    const input = {
-      toolName: 'read',
-      args: { path: '/workspace/docs/readme.md' },
-      now: new Date('2026-05-01T10:15:00.000Z'),
-    };
-
-    reranker.score(input);
-    const startedAt = performance.now();
-    for (let index = 0; index < 100; index += 1) {
-      reranker.score(input);
-    }
-    const avgMs = (performance.now() - startedAt) / 100;
-
-    expect(avgMs).toBeLessThan(5);
-  });
-
-  test('behavior anomaly reranker reloads when cache expires and store changes', () => {
-    const storeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-anomaly-reload-'),
-    );
-    writeBehaviorTrajectoryStore({
-      storeDir,
-      agentId: 'lena',
-      count: 3,
-    });
-    const reranker = new BehaviorAnomalyReranker({
-      storeDir,
-      agentId: 'lena',
-      minTrajectories: 50,
-      cacheTtlMs: 0,
-    });
-    const input = {
-      toolName: 'read',
-      args: { path: '/workspace/docs/readme.md' },
-      now: new Date('2026-05-01T10:15:00.000Z'),
-    };
-
-    expect(reranker.score(input).trajectoryCount).toBe(3);
-
-    writeBehaviorTrajectoryStore({
-      storeDir,
-      agentId: 'lena',
-      count: 80,
-    });
-
-    expect(reranker.score(input).trajectoryCount).toBe(80);
-  });
-
-  test('behavior anomaly reranker applies F11 anomalous verdict on replay', () => {
-    const storeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'hybridclaw-anomaly-f11-'),
-    );
-    writeBehaviorTrajectoryStore({
-      storeDir,
-      agentId: 'lena',
-      count: 80,
-    });
-    const reranker = new BehaviorAnomalyReranker({
-      storeDir,
-      agentId: 'lena',
-      minTrajectories: 50,
-      epsilon: 1,
-    });
-    const input = {
-      toolName: 'read',
-      args: { path: '/workspace/docs/readme.md' },
-      now: new Date('2026-05-01T10:15:00.000Z'),
-    };
-
-    const borderline = reranker.score(input);
-    expect(borderline.status).toBe('borderline');
-    reranker.recordTraceJudgeResult(borderline.tuple, {
-      verdict: 'anomalous',
-      score: 0.82,
-      reason: 'unusual for this agent',
-    });
-    const replay = reranker.score(input);
-
-    expect(replay.status).toBe('scored');
-    expect(replay.score).toBeGreaterThan(replay.threshold || 0);
-    expect(replay.traceJudge).toEqual({
-      verdict: 'anomalous',
-      score: 0.82,
-      reason: 'unusual for this agent',
-    });
-  });
-
-  test('behavior anomaly reranker does not elevate calls identical to approved history', () => {
+  test('behavior anomaly reranker does not elevate calls identical to approved history at any hour', () => {
     const storeDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-anomaly-identical-'),
     );
@@ -654,7 +479,8 @@ approval:
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
-    const now = new Date('2026-05-01T10:15:00.000Z');
+    // The trajectories were captured at 10:xx UTC; replay twelve hours later.
+    const now = new Date('2026-05-01T22:15:00.000Z');
 
     const evaluations = tools.map((tool) => {
       const evaluation = runtime.evaluateToolCall({
@@ -673,7 +499,6 @@ approval:
         tuple: buildBehaviorTuple({
           toolName: tool.name,
           args: tool.args,
-          at: now,
         }),
       });
       expect(evaluation.anomaly?.score).toBeLessThanOrEqual(
@@ -688,19 +513,6 @@ approval:
     const bash = evaluations.at(-1)?.evaluation.anomaly;
     expect(bash?.status).toBe('scored');
     expect(bash?.score).toBeLessThan(bash?.threshold ?? -1);
-  });
-
-  test('behavior anomaly tuple uses UTC hour buckets', () => {
-    const at = new Date('2026-05-01T10:15:00.000Z');
-    vi.spyOn(at, 'getHours').mockReturnValue(23);
-
-    const tuple = buildBehaviorTuple({
-      toolName: 'read',
-      args: { path: '/workspace/docs/readme.md' },
-      at,
-    });
-
-    expect(tuple).toContain('h08-11');
   });
 
   test('anomaly reranker elevates an unusual green call by one tier before autonomy override', () => {
@@ -742,7 +554,6 @@ approval:
       toolName: 'memory',
       argsJson: JSON.stringify({ action: 'append', content: 'note' }),
       latestUserPrompt: 'Remember this note',
-      now: ANOMALY_BASELINE_NOW,
     };
 
     const pending = runtime.evaluateToolCall(call);
@@ -789,7 +600,6 @@ approval:
       toolName: 'grep',
       argsJson: JSON.stringify({ pattern: 'TODO' }),
       latestUserPrompt: 'Find the TODOs',
-      now: ANOMALY_BASELINE_NOW,
     });
 
     expect(evaluation).toMatchObject({
@@ -811,7 +621,6 @@ approval:
       toolName: 'memory',
       argsJson: JSON.stringify({ action: 'append', content: 'note' }),
       latestUserPrompt: 'Remember this note',
-      now: ANOMALY_BASELINE_NOW,
     };
     const fullAuto = createIsolatedApprovalRuntime('anomaly-full-auto');
     fullAuto.setApprovalMode({ mode: 'full' });

@@ -1,3 +1,12 @@
+/**
+ * Behavior anomaly reranker — how unusual a tool call is for this agent,
+ * measured against its own approved skill-run trajectories (read-only store).
+ *
+ * A tuple comes from the tool name and arguments only, so a live call and its
+ * recorded twin always share one; no clock, policy, or classifier facts enter
+ * it. The score can only raise a tier through `anomaly_reranker` in
+ * approval-policy.ts; this module decides no tier and abstains without history.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -23,13 +32,6 @@ export interface BehaviorAnomalyScore {
 export interface BehaviorAnomalyInput {
   toolName: string;
   args: Record<string, unknown>;
-  now?: Date;
-}
-
-interface BehaviorTupleInput {
-  toolName: string;
-  args: Record<string, unknown>;
-  at: Date;
 }
 
 interface TrajectoryToolUse {
@@ -41,14 +43,22 @@ interface TrajectoryToolUse {
 }
 
 interface TrajectoryRecord {
-  captured_at?: unknown;
+  agent_id?: unknown;
   tools_used?: unknown;
-  outcome?: unknown;
+}
+
+interface TrajectoryFile {
+  path: string;
+  signature: string;
+}
+
+interface CachedTrajectoryFile {
+  signature: string;
+  sequences: string[][];
 }
 
 interface AgentBehaviorModel {
   loadedAtMs: number;
-  signature: string;
   trajectoryCount: number;
   totalTuples: number;
   tupleCounts: Map<string, number>;
@@ -116,12 +126,6 @@ function parsePositiveNumber(raw: unknown, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-function hourBucket(date: Date): string {
-  const hour = Number.isFinite(date.getTime()) ? date.getUTCHours() : 0;
-  const start = Math.floor(hour / 4) * 4;
-  return `h${String(start).padStart(2, '0')}-${String(start + 3).padStart(2, '0')}`;
-}
-
 function parseJsonObject(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     return raw as Record<string, unknown>;
@@ -169,7 +173,7 @@ function classifyPathTarget(rawPath: string): string {
   return value.includes('/') ? 'path' : 'named';
 }
 
-function classifyTarget(input: BehaviorTupleInput): string {
+function classifyTarget(input: BehaviorAnomalyInput): string {
   const toolName = input.toolName.trim().toLowerCase();
   const args = input.args;
   const url = firstStringField(args, ['url', 'uri', 'href']);
@@ -198,35 +202,30 @@ function classifyTarget(input: BehaviorTupleInput): string {
   return 'unknown';
 }
 
-function classifyAction(input: BehaviorTupleInput): string {
-  const toolName = input.toolName.trim().toLowerCase();
-  const command = firstStringField(input.args, ['command', 'cmd']);
+// Only argument-derived classes: a class that follows from the tool name alone
+// repeats the tool field and never splits a tuple.
+function classifyAction(args: Record<string, unknown>): string {
+  const command = firstStringField(args, ['command', 'cmd']);
+  if (!command) return 'call';
   if (/\b(?:npm|pnpm|yarn|pip|uv)\s+(?:install|add)\b/i.test(command)) {
     return 'install';
   }
   if (/\b(?:rm|unlink|delete)\b/i.test(command)) return 'delete';
   if (/\bgit\b/i.test(command)) return 'git';
-  if (
-    toolName === 'http_request' ||
-    /\b(?:curl|wget|ssh|scp)\b/i.test(command)
-  ) {
-    return 'network';
-  }
-  if (toolName === 'message') return 'message';
-  if (/^(write|edit|bash)$/i.test(toolName)) return 'write';
-  if (/^(read|glob|grep|list|ls)$/i.test(toolName)) return 'read';
-  return normalizeToken(toolName) || 'unknown';
+  if (/\b(?:curl|wget|ssh|scp)\b/i.test(command)) return 'network';
+  return 'command';
 }
 
 // Training replays raw trajectory tool uses, so live scoring must derive the
 // tuple from the same tool name + args. Approval-classifier facts (action keys,
 // path/host hints) depend on the loaded policy and session state; mixing them
 // in makes calls miss their own history and shift across policy reloads.
-export function buildBehaviorTuple(input: BehaviorTupleInput): string {
+// No time-of-day field (owner call, 2026-10-03): a 4-hour UTC bucket made a
+// familiar call look novel, and elevated it, whenever it ran in a new window.
+export function buildBehaviorTuple(input: BehaviorAnomalyInput): string {
   return [
-    classifyAction(input),
+    classifyAction(input.args),
     classifyTarget(input),
-    hourBucket(input.at),
     normalizeToken(input.toolName) || 'tool',
   ].join(FIELD_SEPARATOR);
 }
@@ -328,117 +327,73 @@ function readTrajectoryRecords(filePath: string): TrajectoryRecord[] {
   }
 }
 
-function trajectoryFileBelongsToAgent(
-  filePath: string,
+// The writer names each day's file after the agent (`skillRunTrajectoryFilePath`
+// in src/skills/skill-run-trajectories.ts), so other agents' files are never
+// opened. The signature lets a reload re-read only the files that changed.
+function listAgentTrajectoryFiles(
+  storeDir: string,
   agentId: string,
-): boolean {
-  try {
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(8192);
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-      const firstLine = buffer
-        .toString('utf-8', 0, bytesRead)
-        .split(/\r?\n/, 1)[0]
-        ?.trim();
-      if (!firstLine) return false;
-      const parsed = JSON.parse(firstLine) as { agent_id?: unknown };
-      return String(parsed.agent_id || '').trim() === agentId;
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return false;
-  }
-}
-
-function listAgentTrajectoryFiles(storeDir: string, agentId: string): string[] {
-  const directName = `${safeFilePart(agentId)}.jsonl`;
-  const out = new Set<string>();
+): TrajectoryFile[] {
+  const fileName = `${safeFilePart(agentId)}.jsonl`;
+  const out: TrajectoryFile[] = [];
   try {
     for (const dateEntry of fs.readdirSync(storeDir, { withFileTypes: true })) {
       if (!dateEntry.isDirectory()) continue;
-      const dateDir = path.join(storeDir, dateEntry.name);
-      const directCandidate = path.join(dateDir, directName);
-      if (fs.existsSync(directCandidate)) out.add(directCandidate);
-      for (const fileEntry of fs.readdirSync(dateDir, {
-        withFileTypes: true,
-      })) {
-        if (!fileEntry.isFile() || !fileEntry.name.endsWith('.jsonl')) {
-          continue;
-        }
-        const candidate = path.join(dateDir, fileEntry.name);
-        if (out.has(candidate)) continue;
-        if (trajectoryFileBelongsToAgent(candidate, agentId)) {
-          out.add(candidate);
-        }
+      const filePath = path.join(storeDir, dateEntry.name, fileName);
+      try {
+        const stat = fs.statSync(filePath);
+        out.push({ path: filePath, signature: `${stat.mtimeMs}:${stat.size}` });
+      } catch {
+        // No trajectories for this agent on that day.
       }
     }
   } catch {
     return [];
   }
-  return [...out].sort();
+  return out;
 }
 
-function filesSignature(files: string[]): string {
-  return files
-    .map((file) => {
-      try {
-        const stat = fs.statSync(file);
-        return `${file}:${stat.mtimeMs}:${stat.size}`;
-      } catch {
-        return `${file}:missing`;
-      }
-    })
-    .join('\n');
+function readAgentSequences(filePath: string, agentId: string): string[][] {
+  const sequences: string[][] = [];
+  for (const record of readTrajectoryRecords(filePath)) {
+    // Distinct agent ids can share a sanitized file name.
+    if (String(record.agent_id || '').trim() !== agentId) continue;
+    const sequence = normalizeTrajectoryToolUses(record)
+      .filter(isApprovedToolUse)
+      .map((tool) =>
+        buildBehaviorTuple({
+          toolName: String(tool.name || 'tool'),
+          args: parseJsonObject(tool.arguments?.content),
+        }),
+      );
+    if (sequence.length > 0) sequences.push(sequence);
+  }
+  return sequences;
 }
 
-function buildModelFromFiles(files: string[]): AgentBehaviorModel {
+function buildModel(sequences: string[][]): AgentBehaviorModel {
   const model: AgentBehaviorModel = {
     loadedAtMs: Date.now(),
-    signature: filesSignature(files),
-    trajectoryCount: 0,
+    trajectoryCount: sequences.length,
     totalTuples: 0,
     tupleCounts: new Map(),
     contextCounts: new Map(),
     transitionCounts: new Map(),
     threshold: null,
   };
-  const trainingSequences: string[][] = [];
 
-  for (const file of files) {
-    for (const record of readTrajectoryRecords(file)) {
-      const tools =
-        normalizeTrajectoryToolUses(record).filter(isApprovedToolUse);
-      if (tools.length === 0) continue;
-      const at =
-        typeof record.captured_at === 'string'
-          ? new Date(record.captured_at)
-          : new Date();
-      const sequence = tools
-        .map((tool) =>
-          buildBehaviorTuple({
-            toolName: String(tool.name || 'tool'),
-            args: parseJsonObject(tool.arguments?.content),
-            at,
-          }),
-        )
-        .filter(Boolean);
-      if (sequence.length === 0) continue;
-      model.trajectoryCount += 1;
-      trainingSequences.push(sequence);
-      const previous: string[] = [];
-      for (const tuple of sequence) {
-        addCount(model.tupleCounts, tuple);
-        model.totalTuples += 1;
-        incrementTransition(model, previous, tuple);
-        previous.push(tuple);
-      }
+  for (const sequence of sequences) {
+    const previous: string[] = [];
+    for (const tuple of sequence) {
+      addCount(model.tupleCounts, tuple);
+      model.totalTuples += 1;
+      incrementTransition(model, previous, tuple);
+      previous.push(tuple);
     }
   }
 
   const trainingScores: number[] = [];
-  for (const sequence of trainingSequences) {
+  for (const sequence of sequences) {
     const previous: string[] = [];
     for (const tuple of sequence) {
       trainingScores.push(scoreTupleWithModel(model, previous, tuple));
@@ -456,6 +411,7 @@ export class BehaviorAnomalyReranker {
   private readonly epsilon: number;
   private readonly cacheTtlMs: number;
   private model: AgentBehaviorModel | null = null;
+  private files = new Map<string, CachedTrajectoryFile>();
   private recentTuples: string[] = [];
   private traceJudgeResults = new Map<
     string,
@@ -497,10 +453,7 @@ export class BehaviorAnomalyReranker {
   }
 
   score(input: BehaviorAnomalyInput): BehaviorAnomalyScore {
-    const tuple = buildBehaviorTuple({
-      ...input,
-      at: input.now || new Date(),
-    });
+    const tuple = buildBehaviorTuple(input);
     const model = this.getModel();
     if (!model || !this.storeDir) {
       return {
@@ -586,14 +539,6 @@ export class BehaviorAnomalyReranker {
     };
   }
 
-  recordApproved(input: BehaviorAnomalyInput): void {
-    const tuple = buildBehaviorTuple({
-      ...input,
-      at: input.now || new Date(),
-    });
-    this.recordApprovedTuple(tuple);
-  }
-
   recordApprovedTuple(tuple: string): void {
     this.recentTuples.push(tuple);
     if (this.recentTuples.length > 32) {
@@ -624,14 +569,31 @@ export class BehaviorAnomalyReranker {
       return existing;
     }
 
-    const files = listAgentTrajectoryFiles(this.storeDir, this.agentId);
-    const signature = filesSignature(files);
-    if (existing?.signature === signature) {
+    // Past days' files never change, so a reload re-reads only today's file.
+    const files = new Map<string, CachedTrajectoryFile>();
+    let changed = false;
+    for (const file of listAgentTrajectoryFiles(this.storeDir, this.agentId)) {
+      const cached = this.files.get(file.path);
+      if (cached?.signature === file.signature) {
+        files.set(file.path, cached);
+        continue;
+      }
+      changed = true;
+      files.set(file.path, {
+        signature: file.signature,
+        sequences: readAgentSequences(file.path, this.agentId),
+      });
+    }
+    changed ||= files.size !== this.files.size;
+    this.files = files;
+    if (existing && !changed) {
       existing.loadedAtMs = nowMs;
       return existing;
     }
 
-    this.model = buildModelFromFiles(files);
+    this.model = buildModel(
+      [...files.values()].flatMap((file) => file.sequences),
+    );
     return this.model;
   }
 }

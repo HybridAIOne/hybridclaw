@@ -49,12 +49,22 @@ allowlisted actions/fingerprints retain their existing storage.
 
 `anomaly_reranker` is a CPU-only v1 model. It reads scrubbed R10.1 trajectory
 JSONL files for the current agent and trains an order-2 Markov chain plus a
-frequency baseline over `(action_class, target_class, hour_bucket, tool)`
-tuples. Tuples come from the tool name and arguments only, never from
-approval-classifier output, so live calls are scored on the same facts the
-trajectories recorded and stay stable across policy reloads. The model
-abstains until the agent has at least 50 approved trajectories. The adaptive
-threshold is the agent's p99 training score.
+frequency baseline over `(action_class, target_class, tool)` tuples. Tuples
+come from the tool name and arguments only, never from approval-classifier
+output, so live calls are scored on the same facts the trajectories recorded
+and stay stable across policy reloads. `action_class` is derived from a
+command argument (`install`, `delete`, `git`, `network`, or `command`) and is
+`call` for tools without one; a class implied by the tool name alone would only
+repeat the `tool` field. The tuple has no time-of-day field (owner call,
+2026-10-03): a 4-hour UTC bucket made a familiar call score as novel, and
+raised its tier, whenever it ran in a window the history had not covered.
+
+The model abstains until the agent has at least 50 approved trajectories. The
+adaptive threshold is the agent's p99 training score. Trajectories exist only
+for skill runs of agents listed in `adaptiveSkills.trajectoryCapture.enabledAgentIds`,
+so with the default empty list the reranker always abstains. It opens only the
+agent's own `<date>/<agent>.jsonl` files, checks them at most once a minute,
+and re-parses only the files whose size or mtime changed.
 
 Live calls are scored after `stakes` and before `autonomy_override`. Scores
 above threshold elevate one tier (`green` to `yellow`, `yellow` to `red`). A

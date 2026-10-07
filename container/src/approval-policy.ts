@@ -1782,7 +1782,6 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     const anomaly = context.helpers.scoreBehaviorAnomaly({
       toolName: context.params.toolName,
       args: context.args,
-      now: context.params.now,
     });
     context.anomaly = anomaly;
     if (
