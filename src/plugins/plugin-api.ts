@@ -19,7 +19,10 @@ import type { EmbeddingProviderRegistration } from '../memory/embeddings.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
 import { registerLocalClassifier } from '../routing/local-classifiers.js';
-import { queueConnectorChange } from '../scheduler/connector-events.js';
+import {
+  queueConnectorChange,
+  queueConnectorSourceChange,
+} from '../scheduler/connector-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
 import type { McpServerConfig } from '../types/models.js';
@@ -282,6 +285,7 @@ export function createPluginApi(params: {
       }
     },
     queueConnectorChange,
+    queueConnectorSourceChange,
     notifyPhones(notification: PluginPhoneNotification) {
       const { sessionId, ...message } = notification;
       return notifySessionPhones(String(sessionId || '').trim(), message);

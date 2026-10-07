@@ -76,6 +76,12 @@ Each key behaves like its CLI command: `set` like `config set`,
 and other disabled tools and skills are kept. An invalid seed, an unknown
 config key, or an unknown tool stops the gateway from starting.
 
+`pluginConfig` optionally maps installed plugin IDs to configuration objects.
+It merges the supplied top-level settings after installation and before plugins
+load, preserving other settings and unrelated plugins. A plugin supplied in
+`plugins` can be configured in the same seed. An unknown plugin ID is rejected.
+Credentials belong in the secret store or process environment, not the seed.
+
 ## Config Revision History
 
 HybridClaw records runtime config snapshots whenever `config.json` changes

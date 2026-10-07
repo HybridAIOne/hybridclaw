@@ -27,6 +27,12 @@ export default {
   kind: 'channel',
   register(api) {
     const bindings = new Map();
+    const owner = api.pluginConfig.ownerUserId;
+    if (owner !== undefined) {
+      if (typeof owner !== 'string' || !owner.trim() || owner.length > 200)
+        throw new Error('Invalid connector event owner.');
+      bindings.set('gmail', { userId: owner, source: 'gmail' });
+    }
     for (const binding of api.pluginConfig.bindings ?? []) {
       if (
         !binding ||
@@ -78,12 +84,14 @@ export default {
           }
           const binding = bindings.get(body.bindingId);
           if (!binding) throw new WebhookHttpError(404, 'Unknown binding.');
-          const result = api.queueConnectorChange({
+          const change = {
             userId: binding.userId,
-            taskId: binding.taskId,
             source: binding.source,
             eventId: body.eventId,
-          });
+          };
+          const result = binding.taskId
+            ? api.queueConnectorChange({ ...change, taskId: binding.taskId })
+            : { results: api.queueConnectorSourceChange(change) };
           sendWebhookJson(ctx.res, 202, result);
         } catch (error) {
           if (error instanceof WebhookHttpError) {

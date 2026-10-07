@@ -53,6 +53,7 @@ describe('config seed', () => {
     ['a non-object set', '{"set": []}'],
     ['a non-array name list', '{"disabledTools": "web_search"}'],
     ['an empty name', '{"plugins": [""]}'],
+    ['invalid plugin config', '{"pluginConfig": {"demo-plugin": []}}'],
   ])('rejects %s', async (_label, raw) => {
     const { parseConfigSeed } = await importSeed();
     expect(() => parseConfigSeed(raw)).toThrow(/HYBRIDCLAW_CONFIG_SEED/);
@@ -168,4 +169,46 @@ it('leaves local deployment skill choices intact', async () => {
   });
   const disabled = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
   for (const name of CLOUD_DISABLED_SKILLS) expect(disabled).not.toContain(name);
+});
+
+it('seeds installed plugin config while preserving other plugins and choices', async () => {
+  const source = writeDemoPlugin();
+  const { applyConfigSeed, getRuntimeConfig, updateRuntimeConfig } =
+    await importSeed();
+  await applyConfigSeed({
+    set: {},
+    disabledTools: [],
+    disabledSkills: [],
+    plugins: [source],
+    pluginConfig: { 'demo-plugin': { ownerUserId: 'alice' } },
+  });
+  expect(
+    getRuntimeConfig().plugins.list.find((entry) => entry.id === 'demo-plugin')
+      ?.config,
+  ).toEqual({ ownerUserId: 'alice' });
+  updateRuntimeConfig((draft) => {
+    draft.plugins.list.find(
+      (entry) => entry.id === 'demo-plugin',
+    )!.config.custom = true;
+  });
+  await applyConfigSeed({
+    set: {},
+    disabledTools: [],
+    disabledSkills: [],
+    plugins: [],
+    pluginConfig: { 'demo-plugin': { ownerUserId: 'alice' } },
+  });
+  expect(
+    getRuntimeConfig().plugins.list.find((entry) => entry.id === 'demo-plugin')
+      ?.config,
+  ).toEqual({ ownerUserId: 'alice', custom: true });
+  await expect(
+    applyConfigSeed({
+      set: {},
+      disabledTools: [],
+      disabledSkills: [],
+      plugins: [],
+      pluginConfig: { missing: {} },
+    }),
+  ).rejects.toThrow(/not installed/);
 });

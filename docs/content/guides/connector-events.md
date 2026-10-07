@@ -65,3 +65,29 @@ Graph or calendar subscriptions, or automatically subscribe connected accounts.
 It supplies the authenticated event entry point. No message body or event
 payload is placed in the model prompt; Hy rereads current connected sources
 using the original proactive policy and its existing approval rules.
+
+## Owner bindings for hosted mail
+
+A host can configure `ownerUserId` instead of a fixed task ID:
+
+```json
+{ "ownerUserId": "alice" }
+```
+
+This provides the `gmail` binding. Its events find the owner's currently enabled
+proactive policies, so replacing a schedule does not require updating the relay.
+The same ownership, quiet-hour and burst checks apply. Explicit `bindings` remain
+available; their IDs must not collide with `gmail` when the owner binding is set.
+
+Hosts can install and configure the plugin before gateway startup with the
+[config seed](../reference/configuration.md#seeding-config-at-gateway-start):
+
+```json
+{
+  "plugins": ["/app/plugins/connector-events"],
+  "pluginConfig": { "connector-events": { "ownerUserId": "alice" } }
+}
+```
+
+Keep relay credentials in the credential store or process environment, never in
+`pluginConfig`. Provider subscription setup still belongs to the trusted host.

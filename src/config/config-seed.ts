@@ -36,6 +36,7 @@ interface ConfigSeed {
   disabledTools: string[];
   disabledSkills: string[];
   plugins: string[];
+  pluginConfig?: Record<string, Record<string, unknown>>;
 }
 
 function parseNameList(raw: unknown, key: string): string[] {
@@ -59,8 +60,14 @@ export function parseConfigSeed(raw: string): ConfigSeed {
   if (!isRecord(parsed)) {
     throw new Error(`${CONFIG_SEED_ENV} must be a JSON object.`);
   }
-  const { set, disabledTools, disabledSkills, plugins, ...unknownKeys } =
-    parsed;
+  const {
+    set,
+    disabledTools,
+    disabledSkills,
+    plugins,
+    pluginConfig,
+    ...unknownKeys
+  } = parsed;
   const unknown = Object.keys(unknownKeys);
   if (unknown.length > 0) {
     throw new Error(
@@ -70,7 +77,21 @@ export function parseConfigSeed(raw: string): ConfigSeed {
   if (set !== undefined && !isRecord(set)) {
     throw new Error(`${CONFIG_SEED_ENV}.set must map config keys to values.`);
   }
+  if (
+    pluginConfig !== undefined &&
+    (!isRecord(pluginConfig) ||
+      Object.entries(pluginConfig).some(
+        ([id, value]) => !/^[a-z][a-z0-9-]*$/.test(id) || !isRecord(value),
+      ))
+  ) {
+    throw new Error(
+      `${CONFIG_SEED_ENV}.pluginConfig must map plugin IDs to objects.`,
+    );
+  }
   return {
+    pluginConfig: pluginConfig as
+      | Record<string, Record<string, unknown>>
+      | undefined,
     set: set ?? {},
     disabledTools: parseNameList(disabledTools, 'disabledTools'),
     disabledSkills: parseNameList(disabledSkills, 'disabledSkills'),
@@ -129,8 +150,39 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
     });
   }
 
+  const installedIds = new Set<string>();
   for (const source of seed.plugins) {
-    await reinstallPlugin(source, { approveDependencyInstall: true });
+    const installed = await reinstallPlugin(source, {
+      approveDependencyInstall: true,
+    });
+    installedIds.add(installed.pluginId);
+  }
+
+  const configs = seed.pluginConfig ?? {};
+  const plugins = getRuntimeConfig().plugins.list;
+  for (const id of Object.keys(configs)) {
+    if (!installedIds.has(id) && !plugins.some((entry) => entry.id === id))
+      throw new Error(`Config seed plugin "${id}" is not installed.`);
+  }
+  if (
+    Object.entries(configs).some(([id, config]) => {
+      const entry = plugins.find((plugin) => plugin.id === id);
+      return (
+        !entry ||
+        !isDeepStrictEqual(entry.config, { ...entry.config, ...config })
+      );
+    })
+  ) {
+    updateRuntimeConfig(
+      (draft) => {
+        for (const [id, config] of Object.entries(configs)) {
+          const entry = draft.plugins.list.find((plugin) => plugin.id === id);
+          if (entry) entry.config = { ...entry.config, ...config };
+          else draft.plugins.list.push({ id, enabled: true, config });
+        }
+      },
+      { route: SEED_ACTOR, source: 'internal' },
+    );
   }
 
   logger.info(

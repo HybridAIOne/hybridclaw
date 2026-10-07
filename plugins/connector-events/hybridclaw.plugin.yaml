@@ -10,6 +10,11 @@ configSchema:
   type: object
   additionalProperties: false
   properties:
+    ownerUserId:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: Verified owner whose current proactive policies the gmail binding wakes.
     bindings:
       type: array
       default: []
