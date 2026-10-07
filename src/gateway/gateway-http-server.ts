@@ -480,6 +480,7 @@ import {
   getAdminMSTeamsUsers,
   updateAdminMSTeamsUser,
 } from './msteams-users.js';
+import { handleNotesRoute, NOTES_PATH } from './notes.js';
 import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleCompletionRetrieve,
@@ -10949,6 +10950,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             authContext.tokenId,
             isOwnerDeviceToken(authContext.payload),
           );
+          if (pathname === NOTES_PATH) {
+            await handleNotesRoute(req, res, method, url);
+            return;
+          }
           if (pathname === SYSTEM_FILES_PATH) {
             await handleSystemFilesRoute(req, res, method, url);
             return;

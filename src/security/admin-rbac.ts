@@ -8,6 +8,8 @@
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 
+export const NOTES_PATH = '/api/notes';
+
 export const SYSTEM_FILES_PATH = '/api/system/files';
 
 export const ADMIN_SECRET_RBAC_ACTIONS = [
@@ -30,6 +32,8 @@ export const ADMIN_RBAC_ACTIONS = [
   'chat.send',
   'chat.history',
   'artifacts.read',
+  'notes.read',
+  'notes.write',
   'system_files.read',
   'system_files.write',
   'voice.session',
@@ -506,6 +510,11 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
+  }
+  if (pathname === NOTES_PATH) {
+    if (method === 'GET') return 'notes.read';
+    if (method === 'POST') return 'notes.write';
+    return null;
   }
   if (pathname === SYSTEM_FILES_PATH) {
     if (method === 'GET') return 'system_files.read';
