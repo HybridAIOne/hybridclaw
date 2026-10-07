@@ -89,6 +89,29 @@ describe('shared notebook', () => {
     expect(OWNER_DEVICE_TOKEN_ACTIONS).toEqual(expect.arrayContaining(['notes.read', 'notes.write']));
     expect(DEVICE_TOKEN_ACTIONS).not.toEqual(expect.arrayContaining(['notes.write']));
   });
+  it('lets Hy list, read and save through the revision-checked runtime callback', async () => {
+    const root = temp();
+    homes.set('runtime-notes', root);
+    const page = create(root);
+    let status = 0;
+    let result = '';
+    const res = { setHeader: vi.fn(), writeHead: (code: number) => { status = code; }, end: (value: string) => { result = value; } } as unknown as ServerResponse;
+    const url = new URL('http://localhost/api/notes/runtime?agentId=runtime-notes');
+    const send = async (body: unknown) => {
+      const req = Readable.from([Buffer.from(JSON.stringify(body))]) as IncomingMessage;
+      await handleNotesRoute(req, res, 'POST', url);
+      return JSON.parse(result);
+    };
+    expect(await send({ operation: 'list' })).toMatchObject({ agentId: 'runtime-notes', pages: [{ id: page.id }] });
+    const first = await send({ operation: 'read', id: page.id });
+    expect(first.content).toContain('Milk');
+    expect(await send({ operation: 'save', id: page.id, revision: first.revision, content: '- [x] Milk\n' })).toMatchObject({ content: '- [x] Milk\n' });
+    await send({ operation: 'save', id: page.id, revision: first.revision, content: 'Stale' });
+    expect(status).toBe(409);
+    await handleNotesRoute(Readable.from([]) as IncomingMessage, res, 'GET', url);
+    expect(status).toBe(405);
+    homes.clear();
+  });
   it('scopes HTTP responses to the requested registered workspace', async () => {
     const root = temp(); homes.set('notes-test', root); create(root);
     const req = Readable.from([]) as IncomingMessage; let status = 0; let result = '';

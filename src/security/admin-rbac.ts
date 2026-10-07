@@ -9,6 +9,7 @@ import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
 
 export const NOTES_PATH = '/api/notes';
+export const NOTES_RUNTIME_PATH = '/api/notes/runtime';
 
 export const SYSTEM_FILES_PATH = '/api/system/files';
 
@@ -126,6 +127,7 @@ export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
 // credential claims only `agent.runtime`, so this list is everything a
 // worker, task container, or skill script can reach on the gateway.
 const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
+  NOTES_RUNTIME_PATH,
   '/api/browser/sign-in',
   '/api/browser/tool',
   '/api/delegate',

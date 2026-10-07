@@ -8,11 +8,12 @@ import { getAgentById } from '../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { NOTES_PATH } from '../security/admin-rbac.js';
+import { NOTES_PATH, NOTES_RUNTIME_PATH } from '../security/admin-rbac.js';
+import { isRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 import { changeNotes, listNotes, readNote } from './notes-store.js';
 
-export { NOTES_PATH };
+export { NOTES_PATH, NOTES_RUNTIME_PATH };
 export async function handleNotesRoute(
   req: IncomingMessage,
   res: ServerResponse,
@@ -20,8 +21,14 @@ export async function handleNotesRoute(
   url: URL,
 ): Promise<void> {
   res.setHeader('Cache-Control', 'no-store');
-  if (!['GET', 'POST'].includes(method)) {
-    res.setHeader('Allow', 'GET, POST');
+  if (
+    !['GET', 'POST'].includes(method) ||
+    (url.pathname === NOTES_RUNTIME_PATH && method !== 'POST')
+  ) {
+    res.setHeader(
+      'Allow',
+      url.pathname === NOTES_RUNTIME_PATH ? 'POST' : 'GET, POST',
+    );
     sendJson(res, 405, { error: 'Method not allowed.' });
     return;
   }
@@ -33,12 +40,29 @@ export async function handleNotesRoute(
       throw new GatewayRequestError(404, 'Hy workspace is unavailable.');
     const root = agentWorkspaceDir(agent.id);
     const id = url.searchParams.get('id');
-    const result =
+    const body =
       method === 'POST'
-        ? changeNotes(root, await readJsonBody(req, 6 * 1024 * 1024 + 4096))
-        : id
-          ? readNote(root, id, url.searchParams.get('revision') ?? undefined)
-          : listNotes(root);
+        ? await readJsonBody(req, 6 * 1024 * 1024 + 4096)
+        : null;
+    const runtimeRead = url.pathname === NOTES_RUNTIME_PATH && isRecord(body);
+    const result =
+      runtimeRead && body.operation === 'list'
+        ? listNotes(root)
+        : runtimeRead && body.operation === 'read'
+          ? readNote(
+              root,
+              body.id,
+              typeof body.revision === 'string' ? body.revision : undefined,
+            )
+          : method === 'POST'
+            ? changeNotes(root, body)
+            : id
+              ? readNote(
+                  root,
+                  id,
+                  url.searchParams.get('revision') ?? undefined,
+                )
+              : listNotes(root);
     sendJson(res, 200, { ...result, scope: 'agent-notes', agentId: agent.id });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
