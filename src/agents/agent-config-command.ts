@@ -5,6 +5,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import { turnOffAgentOnboarding } from './agent-onboarding.js';
 import {
   getAgentById,
   getStoredAgentConfig,
@@ -221,6 +222,15 @@ function applyAgentConfigFieldUpdates(
       delete next.enableRag;
     } else {
       throw new Error('`enableRag` must be a boolean or null.');
+    }
+  }
+  if (Object.hasOwn(updates, 'onboarding')) {
+    if (typeof updates.onboarding === 'boolean') {
+      next.onboarding = updates.onboarding;
+    } else if (updates.onboarding === null) {
+      delete next.onboarding;
+    } else {
+      throw new Error('`onboarding` must be a boolean or null.');
     }
   }
   if (Object.hasOwn(updates, 'extends')) {
@@ -557,6 +567,10 @@ export async function applyAgentConfigJson(
     writeWorkspaceMarkdownFile(workspacePath, entry.fileName, entry.content);
     markdownFiles.push(entry.fileName);
   }
+  // A markdown BOOTSTRAP.md never restarts onboarding that is off or done.
+  if (saved.onboarding === false) turnOffAgentOnboarding(saved.id);
+  else if (markdownFiles.includes('BOOTSTRAP.md'))
+    ensureBootstrapFiles(saved.id);
   const runtimeConfigChanged = options.activate
     ? activateAgentInRuntimeConfig(saved)
     : false;

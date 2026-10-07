@@ -63,6 +63,7 @@ import {
   isLocalFilesystemInstallSource,
   resolveInstallArchiveSource,
 } from '../agents/agent-install-source.js';
+import { BOOTSTRAP_AUTOSTART_MARKER_PREFIX } from '../agents/agent-onboarding.js';
 import {
   deleteRegisteredAgent,
   findAgentConfig,
@@ -703,7 +704,6 @@ const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
 const TRACE_EXPORT_ALL_CONCURRENCY = 4;
 const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
-const BOOTSTRAP_AUTOSTART_MARKER_KEY = 'gateway.bootstrap_autostart.v1';
 // Stable KV namespace (owner call, 2026-09-01): BOOTSTRAP belongs to the
 // agent workspace; per-session OPENING behavior remains unchanged.
 const BOOTSTRAP_AUTOSTART_WORKSPACE_CLAIM_SCOPE =
@@ -952,7 +952,7 @@ function getBootstrapAutostartMarker(params: {
     );
   }
   return {
-    key: `${BOOTSTRAP_AUTOSTART_MARKER_KEY}.${params.agentId}.${params.fileName}.${fileFingerprint}`,
+    key: `${BOOTSTRAP_AUTOSTART_MARKER_PREFIX}.${params.agentId}.${params.fileName}.${fileFingerprint}`,
     fileFingerprint,
   };
 }

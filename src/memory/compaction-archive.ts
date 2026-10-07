@@ -41,6 +41,19 @@ export function deleteArchives(sessionId: string): void {
   });
 }
 
+/** Moves a session's archives to a new session id; a no-op without any. */
+export function renameArchives(
+  fromSessionId: string,
+  toSessionId: string,
+): void {
+  const source = path.join(DEFAULT_ARCHIVE_ROOT, safeFilePart(fromSessionId));
+  if (!fs.existsSync(source)) return;
+  fs.renameSync(
+    source,
+    path.join(DEFAULT_ARCHIVE_ROOT, safeFilePart(toSessionId)),
+  );
+}
+
 export function archiveTranscript(params: {
   sessionId: string;
   messages: StoredMessage[];

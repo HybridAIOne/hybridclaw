@@ -25,7 +25,7 @@ import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 import { createWorkSchema } from '../../work/work-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 71;
+export const DATABASE_SCHEMA_VERSION = 72;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -1493,9 +1493,14 @@ function mergeCanonicalMessages(
     });
 }
 
-function migrateLegacyCanonicalSessions(
+/**
+ * Folds every canonical session of `sourceAgentIds` into one per user under
+ * `targetAgentId`. Also used when one agent adopts another's history.
+ */
+export function mergeCanonicalSessionsInto(
   database: Database.Database,
   targetAgentId: string,
+  sourceAgentIds: readonly string[],
 ): void {
   if (
     !tableExists(database, 'canonical_sessions') ||
@@ -1504,7 +1509,6 @@ function migrateLegacyCanonicalSessions(
     return;
   }
 
-  const sourceAgentIds = [targetAgentId, ...LEGACY_PROVIDER_AGENT_IDS];
   const placeholders = sourceAgentIds.map(() => '?').join(', ');
   const rows = queryAll<CanonicalSessionRow, string[]>(
     database,
@@ -1639,7 +1643,10 @@ function migrateV6(
     }
 
     migrateLegacyKvStoreAgentIds(database, DEFAULT_AGENT_ID);
-    migrateLegacyCanonicalSessions(database, DEFAULT_AGENT_ID);
+    mergeCanonicalSessionsInto(database, DEFAULT_AGENT_ID, [
+      DEFAULT_AGENT_ID,
+      ...LEGACY_PROVIDER_AGENT_IDS,
+    ]);
 
     if (
       tableExists(database, 'usage_events') &&
@@ -3988,6 +3995,16 @@ export function runMigrations(
     // Its rows were copied into jobs at v34; kept, they came back after delete.
     database.exec('DROP TABLE IF EXISTS tasks');
     recordMigration(database, 71, 'Drop the legacy tasks table');
+  }
+  if (currentVersion < 72) {
+    addColumnIfMissing({
+      database,
+      table: 'agents',
+      column: 'onboarding',
+      ddl: 'onboarding INTEGER',
+      quiet,
+    });
+    recordMigration(database, 72, 'Let an agent opt out of onboarding');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

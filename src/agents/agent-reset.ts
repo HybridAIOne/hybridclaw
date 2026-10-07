@@ -21,7 +21,7 @@ import {
   listAgents,
   resolveAgentWorkspaceId,
 } from './agent-registry.js';
-import { DEFAULT_AGENT_ID } from './agent-types.js';
+import { type AgentConfig, DEFAULT_AGENT_ID } from './agent-types.js';
 import { uninstallAgent } from './agent-uninstall.js';
 
 function defaultPath(agentId: string): string {
@@ -41,6 +41,43 @@ export function saveAgentDefaults(rawJson: string): string {
   return agent.id;
 }
 
+/**
+ * The agent must be installed and own its workspace alone, under
+ * `<data>/agents/` and not through a symlink. Checked before any change.
+ */
+export function requireOwnManagedWorkspace(
+  agentId: string,
+  action: 'reset' | 'adopt',
+): AgentConfig {
+  const agent = getAgentById(agentId);
+  if (
+    !agent ||
+    resolveAgentWorkspaceId(agentId) !== agentId ||
+    listAgents().some(
+      (other) =>
+        other.id !== agentId && resolveAgentWorkspaceId(other.id) === agentId,
+    )
+  ) {
+    throw new Error(
+      `${action === 'reset' ? 'Reset' : 'Adopt'} requires an installed agent with its own workspace.`,
+    );
+  }
+  const root = path.dirname(agentWorkspaceDir(agentId));
+  const agentsRoot = path.resolve(DATA_DIR, 'agents');
+  if (
+    fs.existsSync(root) &&
+    (!fs
+      .realpathSync(root)
+      .startsWith(`${fs.realpathSync(agentsRoot)}${path.sep}`) ||
+      fs.lstatSync(root).isSymbolicLink())
+  ) {
+    throw new Error(
+      `Refusing to ${action} an agent outside its managed directory.`,
+    );
+  }
+  return agent;
+}
+
 export async function resetAgent(
   agentId: string,
   deleteHistory = true,
@@ -54,33 +91,7 @@ export async function resetAgent(
   const payload = JSON.parse(rawJson) as { agent: { id: string } };
   if (payload.agent.id !== agentId)
     throw new Error('Reset definition agent id does not match.');
-  const agent = getAgentById(agentId);
-  if (
-    !agent ||
-    resolveAgentWorkspaceId(agentId) !== agentId ||
-    listAgents().some(
-      (other) =>
-        other.id !== agentId && resolveAgentWorkspaceId(other.id) === agentId,
-    )
-  ) {
-    throw new Error(
-      'Reset requires an installed agent with its own workspace.',
-    );
-  }
-  // Validate the on-disk boundary before stopping sessions or deleting history.
-  const root = path.dirname(agentWorkspaceDir(agentId));
-  const agentsRoot = path.resolve(DATA_DIR, 'agents');
-  if (
-    fs.existsSync(root) &&
-    (!fs
-      .realpathSync(root)
-      .startsWith(`${fs.realpathSync(agentsRoot)}${path.sep}`) ||
-      fs.lstatSync(root).isSymbolicLink())
-  ) {
-    throw new Error(
-      'Refusing to reset an agent outside its managed directory.',
-    );
-  }
+  const agent = requireOwnManagedWorkspace(agentId, 'reset');
   const sessions = withMemoryDatabase(
     (db) =>
       db.prepare('SELECT id FROM sessions WHERE agent_id = ?').all(agentId) as {

@@ -5,7 +5,7 @@ import { getMemoryValue, setMemoryValue } from '../memory/db.js';
 import type { Session } from '../types/session.js';
 import type { GatewayAddressEnvelope } from './gateway-types.js';
 
-const ACTIVE_AGENT_KEY_PREFIX = 'gateway.activeAgent:';
+export const ACTIVE_AGENT_KEY_PREFIX = 'gateway.activeAgent:';
 const CANONICAL_AGENT_ADDRESS_RE =
   /^\s*@([A-Za-z0-9][A-Za-z0-9._-]{0,127}@[A-Za-z0-9][A-Za-z0-9._-]{0,127}@[A-Za-z0-9][A-Za-z0-9._-]{0,127})(?::|\s|$)/u;
 const HANDLE_RE = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]{0,127})\b/gu;

@@ -3067,6 +3067,10 @@ function normalizeAgentConfig(
     typeof value.enableRag === 'boolean'
       ? value.enableRag
       : fallback?.enableRag;
+  const onboarding =
+    typeof value.onboarding === 'boolean'
+      ? value.onboarding
+      : fallback?.onboarding;
   const skills = Object.hasOwn(value, 'skills')
     ? normalizeOptionalTrimmedUniqueStringArray(value.skills)
     : fallback?.skills
@@ -3163,6 +3167,7 @@ function normalizeAgentConfig(
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(typeof onboarding === 'boolean' ? { onboarding } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(reportsTo ? { reportsTo } : {}),

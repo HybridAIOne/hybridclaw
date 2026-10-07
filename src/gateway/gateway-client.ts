@@ -68,6 +68,25 @@ export async function gatewayResetAgent(
   });
 }
 
+export async function gatewayAdoptAgent(params: {
+  to: string;
+  from?: string;
+  sessions: Array<{ from: string; to: string }>;
+}): Promise<Record<string, unknown> & { status: string }> {
+  return requestJson(
+    `/api/admin/agents/${encodeURIComponent(params.to)}/adopt`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        confirmation: 'ADOPT AGENT',
+        ...(params.from ? { from: params.from } : {}),
+        sessions: params.sessions,
+      }),
+    },
+  );
+}
+
 async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {

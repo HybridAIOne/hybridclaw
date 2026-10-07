@@ -17,6 +17,7 @@ import {
   extractUserTimezone,
   resolveEffectiveTimezone,
 } from '../container/shared/workspace-time.js';
+import { resolveAgentConfig } from './agents/agent-registry.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
@@ -209,6 +210,29 @@ function writeWorkspaceOnboardingState(
   const payload = `${JSON.stringify(state, null, 2)}\n`;
   fs.writeFileSync(tempPath, payload, 'utf-8');
   fs.renameSync(tempPath, statePath);
+}
+
+function onboardingTurnedOff(agentId: string): boolean {
+  return resolveAgentConfig(agentId).onboarding === false;
+}
+
+/**
+ * Mark the workspace as onboarded without hatching: BOOTSTRAP.md goes and the
+ * state records onboarding as seeded and complete, so no later bootstrap pass
+ * seeds it again while the workspace exists.
+ */
+export function completeWorkspaceOnboarding(agentId: string): void {
+  const wsDir = agentWorkspaceDir(agentId);
+  fs.rmSync(path.join(wsDir, 'BOOTSTRAP.md'), { force: true });
+  const statePath = resolveWorkspaceStatePath(wsDir);
+  const state = readWorkspaceOnboardingState(statePath);
+  const now = new Date().toISOString();
+  writeWorkspaceOnboardingState(statePath, {
+    ...state,
+    bootstrapSeededAt: state.bootstrapSeededAt || now,
+    onboardingCompletedAt: state.onboardingCompletedAt || now,
+    hatchingTurnsWithoutMessage: 0,
+  });
 }
 
 // Files a child workspace starts from. USER.md is written per person and
@@ -870,6 +894,13 @@ export function ensureBootstrapFiles(
     stateDirty = true;
   };
   const nowIso = () => new Date().toISOString();
+  if (!state.onboardingCompletedAt && onboardingTurnedOff(agentId)) {
+    markState({
+      bootstrapSeededAt: state.bootstrapSeededAt || nowIso(),
+      onboardingCompletedAt: nowIso(),
+      hatchingTurnsWithoutMessage: 0,
+    });
+  }
 
   for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     if (ONE_TIME_BOOTSTRAP_FILES.has(filename)) continue;
@@ -1258,6 +1289,7 @@ export function buildContextPrompt(files: ContextFile[]): string {
  * jobs, and a handled first-jobs email status.
  */
 export function isBootstrapping(agentId: string): boolean {
+  if (onboardingTurnedOff(agentId)) return false;
   const wsDir = agentWorkspaceDir(agentId);
   const statePath = resolveWorkspaceStatePath(wsDir);
   const state = readWorkspaceOnboardingState(statePath);

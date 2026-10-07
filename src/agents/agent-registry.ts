@@ -183,6 +183,10 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     typeof (value as { enableRag?: unknown }).enableRag === 'boolean'
       ? (value as { enableRag: boolean }).enableRag
       : undefined;
+  const onboarding =
+    typeof (value as { onboarding?: unknown }).onboarding === 'boolean'
+      ? (value as { onboarding: boolean }).onboarding
+      : undefined;
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
@@ -224,6 +228,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(typeof onboarding === 'boolean' ? { onboarding } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(reportsTo ? { reportsTo } : {}),
@@ -307,6 +312,7 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintString(agent.workspace),
     fingerprintString(agent.chatbotId),
     typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
+    typeof agent.onboarding === 'boolean' ? String(agent.onboarding) : '',
     fingerprintString(agent.owner),
     fingerprintString(agent.role),
     fingerprintString(agent.reportsTo),
@@ -432,6 +438,9 @@ function applyDefaults(rawAgent: AgentConfig): AgentConfig {
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(typeof agent.onboarding === 'boolean'
+      ? { onboarding: agent.onboarding }
+      : {}),
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
     ...(agent.reportsTo ? { reportsTo: agent.reportsTo } : {}),
@@ -497,6 +506,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     workspace: agent.workspace,
     chatbotId: agent.chatbotId,
     enableRag: agent.enableRag,
+    onboarding: agent.onboarding,
     owner: agent.owner,
     role: agent.role,
     reportsTo: agent.reportsTo,
@@ -528,6 +538,7 @@ const DB_BACKED_OPTIONAL_AGENT_FIELDS = [
   'workspace',
   'chatbotId',
   'enableRag',
+  'onboarding',
   'owner',
   'role',
   'reportsTo',

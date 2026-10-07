@@ -84,6 +84,12 @@ export interface AgentConfig {
   workspace?: string;
   chatbotId?: string;
   enableRag?: boolean;
+  /**
+   * `false` keeps the agent out of first-run onboarding (BOOTSTRAP.md,
+   * hatching) for good, including after its workspace is wiped. Unset or
+   * `true` is the default: a fresh workspace hatches once.
+   */
+  onboarding?: boolean;
   owner?: string;
   role?: string;
   reportsTo?: string;
