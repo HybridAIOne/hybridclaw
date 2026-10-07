@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.38.0',
+  version: '0.39.0',
   highlights: [
-    'Reset agents to provisioned defaults',
-    'Voice sessions keep your language',
-    'Scoped worker credentials',
-    'Cloud-ready skill defaults',
+    'Shared notebook with page history',
+    'Hy keeps notes and checklists',
+    'Edit scheduled tasks from mobile',
+    'Gmail arrivals trigger check-ins',
   ],
 } as const;
 

@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+## [0.39.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.0) - 2026-10-07
+
+### Added
+
+- **Persistent shared notebook**: Each agent has Markdown notes with stable page
+  IDs, nested pages, ordering, archive/restore and revision-checked saves. The
+  latest 50 previous distinct content versions can be read and restored. Owner
+  mobile handoffs receive dedicated notes read/write capabilities.
+- **Hy notebook maintenance**: The bundled `shared-notes` skill lets Hy discover,
+  read and update notes, plans and checklists through the same notebook store,
+  preserving completed items and linking to individual pages in the mobile apps.
+- **Mobile scheduled task editing**: Edit instructions, title, schedule, time
+  zone, model, supported reasoning effort and fresh-session behavior without
+  recreating a task. Revision checks reject stale edits, and task ownership,
+  delivery and prior results remain associated with the original chat.
+- **Connector-triggered check-ins**: Authenticated Gmail arrival events can wake
+  the configured owner's current proactive policies, including recreated tasks.
+  Deduplication, debounce, cooldown and quiet hours still apply. The optional
+  connector-events plugin requires host-supplied arrival events.
+
+### Changed
+
+- **Seeded plugin configuration**: `HYBRIDCLAW_CONFIG_SEED` accepts optional
+  `pluginConfig` values for installed plugins before they load, preserving
+  settings not supplied by the seed.
+- **Trajectory history loading**: Behavior anomaly scoring reads only the
+  selected agent's trajectory files, filters colliding filenames by agent ID
+  and reparses only changed files.
+
+### Fixed
+
+- **Email reply threading**: Replies stay on the inbound conversation when a
+  concurrent scheduled or outbound email to the same person finishes sending.
+- **False behavior anomalies**: With trajectory capture enabled, familiar tool
+  calls are no longer escalated solely because they run at a different hour.
+  Novel tools, targets and sequences can still raise the approval tier.
+
+### Upgrade Notes
+
+- Deploy this runtime before enabling the companion apps' notebook and task
+  editor features. Gmail-triggered check-ins require authenticated host events
+  and a configured connector-events owner binding.
+- Notebook history covers content, not earlier titles or hierarchy. A notebook
+  lock left by a crash requires operator cleanup after confirming no writer is
+  active; the runtime does not steal locks.
+
 ## [0.38.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.38.0) - 2026-10-06
 
 ### Added
