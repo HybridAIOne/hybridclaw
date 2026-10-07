@@ -12,18 +12,37 @@
  * reply that says something is posted here, as the agent's message, so an
  * app can let a background check write into the conversation itself.
  *
+ * `update --json` validates a complete revision-bound editor payload before
+ * writing. It preserves creation and delivery metadata; model, effort and
+ * fresh-session options apply only to that task’s executions.
+ *
  * NOT the scheduler (`scheduler.ts`, which fires tasks) and NOT the admin
  * scheduler API, which edits every task on an operator's behalf.
  */
+import { createHash } from 'node:crypto';
 import { CronExpressionParser } from 'cron-parser';
+import {
+  getSupportedReasoningEfforts,
+  isReasoningEffort,
+} from '../../container/shared/reasoning-effort.js';
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { parseIntegerArg, parseLowerArg } from '../command-parsing.js';
 import {
   getRecentMessages,
   getSessionById,
   listSessionInstancesForKey,
 } from '../memory/db.js';
-import { createJob, deleteJob, getJob, setJobEnabled } from '../memory/jobs.js';
+import {
+  createJob,
+  deleteJob,
+  getJob,
+  setJobEnabled,
+  updateScheduledTask,
+} from '../memory/jobs.js';
+import { resolveModelProvider } from '../providers/factory.js';
+import { getAvailableModelList } from '../providers/model-catalog.js';
+import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   cronPromptHead,
   dbTaskLabel,
@@ -31,6 +50,7 @@ import {
 } from '../scheduler/scheduler.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   badCommand,
   infoCommand,
@@ -48,7 +68,7 @@ import {
 } from './scheduled-task-access.js';
 
 const USAGE =
-  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`. Add `--json` for a machine-readable answer.';
+  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
 const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
@@ -75,8 +95,36 @@ function isoTime(raw: string | null | undefined): string | null {
   return parseTimestamp(raw)?.toISOString() ?? null;
 }
 
+function taskRevision(task: ScheduledTask): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        task.prompt,
+        task.cron_expr,
+        task.tz,
+        task.run_at,
+        task.every_ms,
+        task.enabled,
+        task.title ?? null,
+        task.model ?? null,
+        task.effort ?? null,
+        task.fresh_session ?? false,
+        task.session_id,
+        task.channel_id,
+        task.reply_only ?? false,
+        task.alert ?? null,
+      ]),
+    )
+    .digest('hex');
+}
+
 function taskJson(task: ScheduledTask) {
   return {
+    revision: taskRevision(task),
+    title: task.title ?? null,
+    model: task.model ?? null,
+    effort: task.effort ?? null,
+    fresh_session: task.fresh_session ?? false,
     id: task.id,
     enabled: Boolean(task.enabled),
     cron: task.cron_expr || null,
@@ -297,11 +345,13 @@ function runReplies(task: ScheduledTask, limit: number) {
     for (let index = 0; index < messages.length; index += 1) {
       const reply = messages[index];
       const asked = messages[index - 1];
-      const answered = task.reply_only
-        ? reply.source === posted
-        : asked?.role === 'user' &&
+      const answered =
+        reply.source === posted ||
+        (!task.reply_only &&
+          !task.fresh_session &&
+          asked?.role === 'user' &&
           asked.user_id === 'scheduler' &&
-          askedByTask(asked.content);
+          askedByTask(asked.content));
       if (reply.role === 'assistant' && answered) {
         replies.push({
           id: reply.id,
@@ -346,11 +396,158 @@ function results(
   );
 }
 
+function taskEditor(session: Session) {
+  const inherited = resolveAgentForRequest({ session }).model;
+  const models = [...new Set([inherited, ...getAvailableModelList()])];
+  return {
+    version: 1,
+    default_model: inherited,
+    models: models.map((id) => ({
+      id,
+      label: formatModelForDisplay(id),
+      efforts: getSupportedReasoningEfforts(resolveModelProvider(id), id),
+    })),
+  };
+}
+
+function update(args: string[], session: Session): GatewayCommandResult {
+  const values = args.filter((value) => value !== '--json');
+  const id = parseIntegerArg(values, 0);
+  const task = findManageable(id, session);
+  if (!task)
+    return badCommand('Not Found', 'Task was not found for this chat.');
+  let data: unknown;
+  try {
+    if (values.length !== 2 || !/^[A-Za-z0-9_-]{1,180000}$/.test(values[1]))
+      throw new Error();
+    data = JSON.parse(Buffer.from(values[1], 'base64url').toString('utf8'));
+  } catch {
+    return badCommand('Invalid Task', 'Invalid task update.');
+  }
+  if (
+    !isRecord(data) ||
+    Object.keys(data).some(
+      (key) =>
+        ![
+          'revision',
+          'title',
+          'prompt',
+          'cron',
+          'tz',
+          'run_at',
+          'every_ms',
+          'model',
+          'effort',
+          'fresh_session',
+          'enabled',
+        ].includes(key),
+    )
+  )
+    return badCommand('Invalid Task', 'Unknown task fields.');
+  if (data.revision !== taskRevision(task))
+    return badCommand(
+      'Task Changed',
+      'Reopen the task before saving; it changed elsewhere.',
+    );
+  const {
+    title,
+    prompt,
+    cron,
+    tz,
+    run_at: runAt,
+    every_ms: everyMs,
+    model,
+    effort,
+    fresh_session: freshSession,
+    enabled,
+  } = data;
+  if (
+    typeof title !== 'string' ||
+    title.trim().length > 200 ||
+    typeof prompt !== 'string' ||
+    !prompt.trim() ||
+    prompt.length > 100000 ||
+    typeof freshSession !== 'boolean' ||
+    typeof enabled !== 'boolean'
+  )
+    return badCommand('Invalid Task', 'Check the title and instructions.');
+  if (typeof tz !== 'string' || (tz && !isValidTimezone(tz)))
+    return badCommand('Invalid Task', 'Invalid time zone.');
+  const schedules = [cron != null, runAt != null, everyMs != null].filter(
+    Boolean,
+  ).length;
+  if (schedules !== 1)
+    return badCommand('Invalid Task', 'Choose exactly one schedule.');
+  if (cron != null) {
+    if (typeof cron !== 'string' || !cron.trim())
+      return badCommand('Invalid Task', 'Invalid repeat schedule.');
+    try {
+      CronExpressionParser.parse(cron, tz ? { tz } : {});
+    } catch {
+      return badCommand('Invalid Task', 'Invalid repeat schedule.');
+    }
+  }
+  if (
+    runAt != null &&
+    (typeof runAt !== 'string' ||
+      !Number.isFinite(Date.parse(runAt)) ||
+      Date.parse(runAt) <= Date.now())
+  )
+    return badCommand('Invalid Task', 'Choose a future date.');
+  if (
+    everyMs != null &&
+    (typeof everyMs !== 'number' ||
+      !Number.isSafeInteger(everyMs) ||
+      everyMs < 10000)
+  )
+    return badCommand('Invalid Task', 'Invalid interval.');
+  const catalog = taskEditor(session);
+  if (
+    model !== null &&
+    (typeof model !== 'string' ||
+      !catalog.models.some((entry) => entry.id === model))
+  )
+    return badCommand('Invalid Task', 'Choose an available model.');
+  const effective = model || catalog.default_model;
+  if (
+    effort !== null &&
+    (!isReasoningEffort(effort) ||
+      !getSupportedReasoningEfforts(
+        resolveModelProvider(effective),
+        effective,
+      ).includes(effort))
+  )
+    return badCommand(
+      'Invalid Task',
+      'This model does not support that effort.',
+    );
+  updateScheduledTask(task.id, {
+    prompt,
+    channelId: task.channel_id,
+    title: title.trim() || null,
+    cronExpr: typeof cron === 'string' ? cron : undefined,
+    tz,
+    runAt:
+      typeof runAt === 'string' ? new Date(runAt).toISOString() : undefined,
+    everyMs: typeof everyMs === 'number' ? everyMs : undefined,
+    model,
+    effort,
+    freshSession,
+  });
+  setJobEnabled(task.id, enabled);
+  rearmScheduler();
+  const updated = getJob(task.id, { kind: 'scheduled_task' });
+  return plainCommand(
+    chatSafeJson({ version: 1, task: updated && taskJson(updated) }),
+  );
+}
+
 export function handleScheduleCommand(
   req: GatewayCommandRequest,
   session: Session,
 ): GatewayCommandResult {
   const sub = parseLowerArg(req.args, 1);
+  if (sub === 'update') return update(req.args.slice(2).map(String), session);
   const options = readOptions(req.args.slice(2).map(String), sub === 'add');
   if (options.error) return badCommand('Usage', options.error);
   const notFound = (taskId: number | null) =>
@@ -372,6 +569,7 @@ export function handleScheduleCommand(
         chatSafeJson({
           version: 1,
           tasks: tasks.map(taskJson),
+          editor: taskEditor(session),
           hidden: hiddenCount,
         }),
       );

@@ -1,4 +1,10 @@
 export interface ScheduledTask {
+  title?: string | null;
+  model?: string | null;
+  effort?:
+    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
+    | null;
+  fresh_session?: boolean;
   id: number;
   session_id: string;
   channel_id: string;

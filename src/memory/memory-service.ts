@@ -264,6 +264,7 @@ export interface StoreTurnParams {
     content: string;
     artifacts?: ArtifactMetadata[] | null;
     toolHistory?: ChatMessage[];
+    source?: string | null;
   };
 }
 
@@ -843,6 +844,7 @@ export class MemoryService {
       agentId: params.assistant.agentId,
       artifacts: params.assistant.artifacts,
       toolHistory: params.assistant.toolHistory,
+      source: params.assistant.source,
     });
 
     const interactionText = this.normalizeSemanticContent(
