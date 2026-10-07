@@ -66,6 +66,9 @@ export const OWNER_DEVICE_TOKEN_ACTIONS = [
   ...DEVICE_TOKEN_ACTIONS,
   // 2026-10-04 (product owner): Developer settings browse agents' home files.
   // Paired non-owner phones retain their narrower chat-only permissions.
+  // 2026-10-07 (product owner): shared notebook pages, isolated per agent.
+  'notes.read',
+  'notes.write',
   'system_files.read',
   // 2026-10-04 (product owner): edit Markdown and reset shipped defaults.
   'system_files.write',

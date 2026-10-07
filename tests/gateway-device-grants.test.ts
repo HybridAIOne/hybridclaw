@@ -248,17 +248,7 @@ describe('device authorization grants', () => {
     expect(verified).toMatchObject({
       label: 'Device: Hy for iPhone',
       claims: {
-        actions: [
-          'chat.send',
-          'agents.read',
-          'artifacts.read',
-          'voice.session',
-          'sign_ins.manage',
-          'system_files.read',
-          'system_files.write',
-          'chat.history',
-          'openai.api',
-        ],
+        actions: [...grants.OWNER_DEVICE_TOKEN_ACTIONS],
         owner: true,
       },
     });
