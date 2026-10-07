@@ -140,3 +140,31 @@ test('weekday-only policies stay quiet on weekends', async () => {
   vi.setSystemTime(new Date('2026-10-10T08:05:00Z'));
   expect(change(parent).status).toBe('scheduled');
 });
+
+test('source events follow recreated owned policies without waking another owner', async () => {
+  const { create, jobs, events } = await load();
+  const old = create();
+  const bob = create('bob');
+  jobs.deleteJob(old);
+  const current = create();
+  const results = events.queueConnectorSourceChange({
+    userId: 'alice',
+    source: 'gmail',
+    eventId: 'arrival-1',
+  });
+  expect(results).toHaveLength(1);
+  const copies = jobs
+    .getAllJobs({ kind: 'scheduled_task' })
+    .filter((job) => job.event_parent_id);
+  expect(copies).toHaveLength(1);
+  expect(copies[0].event_parent_id).toBe(current);
+  expect(copies[0].event_parent_id).not.toBe(bob);
+  jobs.setJobEnabled(current, false);
+  expect(
+    events.queueConnectorSourceChange({
+      userId: 'alice',
+      source: 'gmail',
+      eventId: 'arrival-2',
+    }),
+  ).toEqual([]);
+});

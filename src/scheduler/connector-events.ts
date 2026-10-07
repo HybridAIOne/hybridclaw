@@ -172,19 +172,26 @@ export function isConnectorEventCurrent(task: ScheduledTask): boolean {
   );
 }
 
-/** Phone snapshot updates are a real event source; identical refreshes stay quiet. */
-export function queuePhoneSourceChange(userId: string): void {
-  const eventId = randomUUID();
+/** Trusted sources discover current owned policies, including recreated tasks. */
+export function queueConnectorSourceChange(
+  change: Omit<ConnectorChange, 'taskId'>,
+): ConnectorChangeResult[] {
+  const results: ConnectorChangeResult[] = [];
   for (const task of getAllJobs({
     kind: 'scheduled_task',
     enabledOnly: true,
   })) {
-    if (isPolicy(task, userId))
-      queueConnectorChange({
-        userId,
-        taskId: task.id,
-        source: 'phone',
-        eventId,
-      });
+    if (isPolicy(task, change.userId))
+      results.push(queueConnectorChange({ ...change, taskId: task.id }));
   }
+  return results;
+}
+
+/** Phone snapshot updates are a real event source; identical refreshes stay quiet. */
+export function queuePhoneSourceChange(userId: string): void {
+  queueConnectorSourceChange({
+    userId,
+    source: 'phone',
+    eventId: randomUUID(),
+  });
 }

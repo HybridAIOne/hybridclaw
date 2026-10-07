@@ -690,6 +690,9 @@ export interface HybridClawPluginApi {
   getSessionMessages(sessionId: string, limit?: number): StoredMessage[];
   /** Trusted plugins may wake an existing owned proactive policy; event content is never executed. */
   queueConnectorChange(change: ConnectorChange): ConnectorChangeResult;
+  queueConnectorSourceChange(
+    change: Omit<ConnectorChange, 'taskId'>,
+  ): ConnectorChangeResult[];
   notifyPhones(
     notification: PluginPhoneNotification,
   ): Promise<PluginPhoneNotificationResult>;

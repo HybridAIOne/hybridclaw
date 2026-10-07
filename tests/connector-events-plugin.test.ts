@@ -4,13 +4,14 @@ import type { HybridClawPluginApi, PluginInboundWebhookDefinition } from '../src
 vi.mock('@hybridaione/hybridclaw/plugin-sdk', () => import('../src/plugins/plugin-sdk.ts'));
 let server: http.Server | undefined;
 afterEach(async () => { if (server) await new Promise((resolve) => server!.close(resolve)); server = undefined; });
-async function start() {
+async function start(ownerUserId?: string) {
   const hooks: PluginInboundWebhookDefinition[] = [];
   let token: string | undefined = 'relay-token';
   const queue = vi.fn(() => ({ status: 'queued', taskId: 43 }));
+  const sourceQueue = vi.fn(() => [{ status: 'queued', taskId: 44 }]);
   const api = {
-    pluginConfig: { bindings: [{ id: 'alice-mail', source: 'gmail', userId: 'alice', taskId: 42 }] },
-    getCredential: () => token, queueConnectorChange: queue,
+    pluginConfig: { ...(ownerUserId ? { ownerUserId } : {}), bindings: [{ id: 'alice-mail', source: 'gmail', userId: 'alice', taskId: 42 }] },
+    getCredential: () => token, queueConnectorChange: queue, queueConnectorSourceChange: sourceQueue,
     registerInboundWebhook: (hook: PluginInboundWebhookDefinition) => hooks.push(hook),
     logger: { error: vi.fn() },
   } as unknown as HybridClawPluginApi;
@@ -24,7 +25,7 @@ async function start() {
   const post = (body: unknown, authorization: string | null = 'Bearer relay-token', suffix = '') => fetch(url + suffix, {
     method: 'POST', headers: { 'content-type': 'application/json', ...(authorization ? { authorization } : {}) }, body: JSON.stringify(body),
   });
-  return { post, queue, rotate: (value: string | undefined) => { token = value; } };
+  return { post, queue, sourceQueue, rotate: (value: string | undefined) => { token = value; } };
 }
 const EVENT = { bindingId: 'alice-mail', eventId: 'opaque-event-1' };
 test('the authenticated binding fixes identity, policy and source', async () => {
@@ -53,4 +54,22 @@ test('unknown bindings, extra identity/prompt fields and oversized payloads are 
   }
   expect((await post({ ...EVENT, eventId: 'x'.repeat(5000) })).status).toBe(413);
   expect(queue).not.toHaveBeenCalled();
+});
+
+test('a cloud owner binding discovers policies and cannot be overridden by event content', async () => {
+  const { post, queue, sourceQueue } = await start('alice');
+  expect((await post({ bindingId: 'gmail', eventId: 'gmail-1' })).status).toBe(
+    202,
+  );
+  expect(sourceQueue).toHaveBeenCalledWith({
+    userId: 'alice',
+    source: 'gmail',
+    eventId: 'gmail-1',
+  });
+  expect(queue).not.toHaveBeenCalled();
+  expect(
+    (await post({ bindingId: 'gmail', eventId: 'gmail-2', userId: 'bob' }))
+      .status,
+  ).toBe(400);
+  expect(sourceQueue).toHaveBeenCalledOnce();
 });
