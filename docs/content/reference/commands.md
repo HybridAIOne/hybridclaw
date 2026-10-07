@@ -833,7 +833,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/rag [on|off]` | local and chat channels | Toggle prompt-time retrieval augmentation |
 | `/ralph [info|on|off|set n]` | local and chat channels | Configure the Ralph loop |
 | `/reset [yes|no]` | local and chat channels | Run the confirmed workspace reset flow |
-| `/schedule add|list|results|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the chat and read what their runs answered |
+| `/schedule add|list|results|update|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the chat and read what their runs answered |
 | `/secret [list|set|status|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
 | `/second-opinion [compare|validate|fact-check]` | local and chat channels | Ask a stronger configured model to compare, validate, or fact-check |
 | `/sessions [list|switch <number|session-id>|active|clear-active|prune --older-than <duration> [--dry-run|--confirm]]` | local and chat channels | List or switch sessions for the current chat, inspect active session tracking, or prune old persisted sessions |
@@ -845,6 +845,22 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
 | `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
+
+Task editors use `/schedule list --json` to read the `editor` capabilities,
+available models, supported reasoning efforts, and each task’s `revision`.
+To edit a task, send `/schedule update --json <id> <payload>` with a single
+base64url-encoded UTF-8 JSON payload. The payload includes the current `revision`,
+`title`, `prompt`, `cron`, `tz`, `run_at`, `every_ms`, `model`, `effort`,
+`fresh_session`, and `enabled`. Exactly one of `cron`, `run_at`, and `every_ms`
+is non-null. Send explicit nulls to clear optional model or effort overrides.
+A stale revision or invalid field rejects the entire update.
+
+Edits retain the task ID, ownership, original chat, delivery channel, alert,
+and reply-only behavior. `fresh_session: true` starts an isolated runtime
+session for each run and delivers replies to the original chat. It does not
+create a new visible chat. Leaving `model` null inherits the original chat’s
+model when the task runs; overrides affect only that scheduled run.
+
 
 ### Standing Goals
 

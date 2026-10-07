@@ -52,6 +52,7 @@ export async function runIsolatedScheduledTask(params: {
   channelId: string;
   chatbotId: string;
   model: string;
+  reasoningEffort?: import('../../container/shared/reasoning-effort.js').ReasoningEffort;
   agentId: string;
   sessionId?: string;
   sessionKey?: string;
@@ -176,6 +177,7 @@ export async function runIsolatedScheduledTask(params: {
       messages,
       chatbotId,
       enableRag: false,
+      reasoningEffort: params.reasoningEffort,
       model,
       agentId,
       channelId,
@@ -256,6 +258,10 @@ export async function runIsolatedScheduledTask(params: {
           username: null,
           agentId,
           content: output.result,
+          source:
+            taskId > 0
+              ? `schedule:${task?.event_parent_id ?? taskId}`
+              : undefined,
           artifacts: output.artifacts,
         },
       });

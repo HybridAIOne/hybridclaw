@@ -36,7 +36,16 @@ export interface CreateJobInput {
   eventParentId?: number;
 }
 
-export interface UpdateScheduledTaskInput {
+export interface TaskExecutionOptions {
+  title?: string | null;
+  model?: string | null;
+  effort?:
+    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
+    | null;
+  freshSession?: boolean;
+}
+
+export interface UpdateScheduledTaskInput extends TaskExecutionOptions {
   cronExpr?: string;
   tz?: string;
   runAt?: string;
@@ -163,14 +172,30 @@ function addOptionsOf(rawAction: string): {
   replyOnly?: true;
   ownerUserId?: string;
   eventParentId?: number;
+  title?: string | null;
+  model?: string | null;
+  effort?:
+    | import('../../container/shared/reasoning-effort.js').ReasoningEffort
+    | null;
+  freshSession?: boolean;
 } {
   const action = parseJobJson<{
     alert?: unknown;
     replyOnly?: unknown;
     ownerUserId?: unknown;
     eventParentId?: unknown;
+    title?: string | null;
+    model?: string | null;
+    effort?:
+      | import('../../container/shared/reasoning-effort.js').ReasoningEffort
+      | null;
+    freshSession?: boolean;
   } | null>(rawAction, null);
   return {
+    ...(typeof action?.title === 'string' ? { title: action.title } : {}),
+    ...(typeof action?.model === 'string' ? { model: action.model } : {}),
+    ...(action?.effort ? { effort: action.effort } : {}),
+    ...(action?.freshSession === true ? { freshSession: true } : {}),
     ...(typeof action?.alert === 'string' && action.alert
       ? { alert: action.alert }
       : {}),
@@ -200,6 +225,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     kind: 'agent_turn',
     message: '',
   });
+  const options = addOptionsOf(row.action);
   return {
     id: row.legacy_task_id ?? 0,
     session_id: row.session_id || '',
@@ -218,10 +244,14 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
     created_at: row.created_at,
-    alert: addOptionsOf(row.action).alert ?? null,
-    reply_only: addOptionsOf(row.action).replyOnly ?? false,
-    owner_user_id: addOptionsOf(row.action).ownerUserId ?? null,
-    event_parent_id: addOptionsOf(row.action).eventParentId ?? null,
+    alert: options.alert ?? null,
+    reply_only: options.replyOnly ?? false,
+    title: options.title,
+    model: options.model,
+    effort: options.effort,
+    fresh_session: options.freshSession ?? false,
+    owner_user_id: options.ownerUserId ?? null,
+    event_parent_id: options.eventParentId ?? null,
   };
 }
 
@@ -437,6 +467,12 @@ export function updateScheduledTask(
           kind: 'agent_turn',
           message: patch.prompt,
           ...addOptionsOf(existing.action),
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.model !== undefined ? { model: patch.model } : {}),
+          ...(patch.effort !== undefined ? { effort: patch.effort } : {}),
+          ...(patch.freshSession !== undefined
+            ? { freshSession: patch.freshSession }
+            : {}),
         }),
         JSON.stringify({
           kind: 'channel',

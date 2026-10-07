@@ -539,14 +539,16 @@ export async function runGatewayScheduledTask(
   if (preferredAgentId && session.agent_id !== preferredAgentId) {
     updateSessionAgent(session.id, preferredAgentId);
   }
+  const task = taskId > 0 ? getJob(taskId, { kind: 'scheduled_task' }) : null;
   const {
     agentId,
     chatbotId: requestedChatbotId,
-    model,
+    model: inheritedModel,
   } = resolveAgentForRequest({
     session,
     agentId: preferredAgentId,
   });
+  const model = task?.model || inheritedModel;
   const chatbotResolution = await resolveGatewayChatbotId({
     model,
     chatbotId: requestedChatbotId,
@@ -592,8 +594,11 @@ export async function runGatewayScheduledTask(
     agentId,
     // Apart, the run is stored under its own key and only its reply is
     // delivered to the chat (web-scheduled-delivery.ts).
-    sessionId: replyOnly ? undefined : session.id,
-    sessionKey: runKey,
+    sessionId: replyOnly || task?.fresh_session ? undefined : session.id,
+    sessionKey: task?.fresh_session
+      ? `${runKey ?? 'cron'}:${crypto.randomUUID()}`
+      : runKey,
+    reasoningEffort: task?.effort ?? undefined,
     mainSessionKey: session.main_session_key,
     onResult,
     onError,
