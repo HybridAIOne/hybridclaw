@@ -8,6 +8,7 @@ import { AgentAdoptError, adoptAgent } from '../agents/agent-adopt.js';
 import { resetAgent } from '../agents/agent-reset.js';
 import { isRecord } from '../utils/type-guards.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
+import { scheduleGatewayRestart } from './gateway-restart.js';
 
 export async function handleAgentResetRoute(
   req: IncomingMessage,
@@ -89,15 +90,23 @@ export async function handleAgentAdoptRoute(
     return true;
   }
   try {
-    sendJson(
-      res,
-      200,
-      await adoptAgent({
-        to: decodeURIComponent(match[1]),
-        from: body.from as string | undefined,
-        sessions,
-      }),
-    );
+    const result = await adoptAgent({
+      to: decodeURIComponent(match[1]),
+      from: body.from as string | undefined,
+      sessions,
+    });
+    if (result.status !== 'adopted') {
+      sendJson(res, 200, result);
+      return true;
+    }
+    // Channels such as email read their agent bindings once at start, so the
+    // gateway starts again once this answer is sent.
+    const restart = scheduleGatewayRestart();
+    sendJson(res, 200, {
+      ...result,
+      gatewayRestart: restart.requested ? 'requested' : 'unavailable',
+      ...(restart.reason ? { gatewayRestartReason: restart.reason } : {}),
+    });
   } catch (error) {
     sendJson(res, error instanceof AgentAdoptError ? error.status : 500, {
       error: error instanceof Error ? error.message : 'Agent adopt failed.',

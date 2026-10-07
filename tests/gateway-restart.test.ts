@@ -21,17 +21,53 @@ vi.mock('node:child_process', () => ({
 }));
 
 import {
+  GATEWAY_CONTAINER_RESTART_EXIT_CODE,
   getGatewayLifecycleStatus,
   normalizeGatewayRestartCommand,
   requestExternalGatewayRestart,
   requestGatewayRestart,
   runGatewayRestartHelperFromArg,
+  scheduleGatewayRestart,
 } from '../src/gateway/gateway-restart.js';
 
 describe('gateway restart helpers', () => {
   beforeEach(() => {
     spawnMock.mockReset();
     spawnMock.mockImplementation(() => createHelperMock());
+  });
+
+  test('a container gateway restarts by exiting for its restart policy', () => {
+    vi.useFakeTimers();
+    const kill = vi.fn();
+    const previous = process.exitCode;
+    try {
+      expect(scheduleGatewayRestart({ pid: 1, kill })).toEqual({
+        requested: true,
+        reason: null,
+      });
+      expect(kill).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(50);
+      expect(kill).toHaveBeenCalledWith(1, 'SIGTERM');
+      expect(process.exitCode).toBe(GATEWAY_CONTAINER_RESTART_EXIT_CODE);
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      process.exitCode = previous;
+      vi.useRealTimers();
+    }
+  });
+
+  test('a gateway that cannot restart itself is left running', () => {
+    vi.useFakeTimers();
+    const kill = vi.fn();
+    try {
+      expect(scheduleGatewayRestart({ pid: 424_242, kill }).requested).toBe(
+        false,
+      );
+      vi.advanceTimersByTime(50);
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('normalizes replayed gateway commands to use start --foreground', () => {

@@ -157,8 +157,13 @@ It prints one JSON line: `{"status":"adopted",...}` with `sessionsMoved`,
 `threadsRenamed`, `movedAside` and `filesCopied`; `{"status":"already"}` when
 the target already imported from this source; or `{"status":"nothing"}` when
 the source has no user messages and no files beyond templates. Importing from
-a second source fails until the target is reset. Mail routing changes take
-effect when the gateway restarts. The HTTP equivalent is
+a second source fails until the target is reset. After `adopted` the gateway
+restarts itself once the answer is sent (`"gatewayRestart":"requested"`), so
+channels such as email pick up the new agent bindings: through the restart
+helper when the CLI started it, or, as a container's main process, by exiting
+with code 75 for the container's on-failure restart policy. A gateway that can
+do neither answers `"gatewayRestart":"unavailable"` and needs a manual restart.
+The HTTP equivalent is
 `POST /api/admin/agents/<to>/adopt` with
 `{"confirmation":"ADOPT AGENT","from":"main","sessions":[{"from":"<old>","to":"<new>"}]}`,
 which also requires `admin.agents.delete`; a busy agent or a second source
