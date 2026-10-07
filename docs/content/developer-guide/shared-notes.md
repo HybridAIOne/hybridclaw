@@ -55,3 +55,21 @@ Malformed indexes, missing parents and cycles fail rather than being repaired
 or silently overwritten. A failed save leaves the caller's draft available for
 review. A notebook lock surviving a gateway crash must be removed only after
 confirming no writer is active; the API does not steal locks.
+
+## Hy integration
+
+The always-available `shared-notes` mini-skill directs Hy to discover pages,
+read relevant content, and reconcile changes through the same notebook store.
+Its helper uses the worker's gateway token and agent identity. `POST
+/api/notes/runtime` uses the existing `agent.runtime` capability; its `list`
+and `read` operations support model discovery, while writes use the same
+operations, lock and revisions as the mobile API. The runtime credential is
+shared by trusted workers on a gateway, as with other runtime tool callbacks;
+it is not an independently restricted per-agent credential.
+
+The helper accepts `list`, `read <id> [revision]`, and `apply` with a JSON
+operation on stdin. `--request` prints a request without a bearer token for
+inspection. It never retries writes. Returned page links use
+`hybridclaw://notes/<id>?agentId=<runtime-agent-id>`; apps resolve these only
+against agents in the signed-in configuration. Keep note bodies out of the
+system prompt: read the relevant page afresh when the user asks about it.
