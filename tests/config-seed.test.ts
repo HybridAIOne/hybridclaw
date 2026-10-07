@@ -147,12 +147,34 @@ it('excludes host and LAN skills from cloud catalogs while retaining cloud APIs'
   await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
   const disabled = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
   for (const name of CLOUD_DISABLED_SKILLS) expect(disabled).toContain(name);
-  for (const name of ['hue', 'shelly', 'fronius', 'microsoft-365', 'pdf']) {
+  for (const name of ['microsoft-365', 'pdf']) {
     expect(disabled).not.toContain(name);
   }
   const { loadSkills } = await import('../src/skills/skills.js');
   const names = loadSkills('main').map((skill) => skill.name);
   for (const name of CLOUD_DISABLED_SKILLS) expect(names).not.toContain(name);
+  expect(names).toContain('pdf');
+});
+
+it('adds new cloud exclusions to an existing cloud sandbox on the next boot', async () => {
+  const {
+    applyConfigSeed,
+    getRuntimeConfig,
+    getRuntimeSkillScopeDisabledNames,
+    updateRuntimeConfig,
+  } = await importSeed();
+  await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
+  // A sandbox seeded before `hue` joined the list.
+  updateRuntimeConfig((draft) => {
+    draft.skills.disabled = draft.skills.disabled.filter(
+      (name) => name !== 'hue',
+    );
+  });
+  expect(getRuntimeSkillScopeDisabledNames(getRuntimeConfig())).not.toContain(
+    'hue',
+  );
+  await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
+  expect(getRuntimeSkillScopeDisabledNames(getRuntimeConfig())).toContain('hue');
 });
 
 it('leaves local deployment skill choices intact', async () => {
