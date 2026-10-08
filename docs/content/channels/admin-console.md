@@ -16,7 +16,8 @@ agent.
 The connector setup page at `/admin/connectors` manages HybridAI, Google
 Workspace, GitHub, and Microsoft 365 connection flows.
 The human distillation page at `/admin/distill` manages subjects, consent,
-corpus documents, source uploads, and distillation runs.
+corpus documents, source uploads, and distillation runs. Its API comes from
+the `distill` plugin (`hybridclaw plugin install distill`).
 The Federation page at `/admin/federation` combines peer trust, fleet topology,
 and the instance-wide A2A inbox. It uses the same web-console authentication as
 the rest of `/admin`: `WEB_API_TOKEN` when configured, or loopback-only local

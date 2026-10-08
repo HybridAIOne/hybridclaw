@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { scanForLeaks } from '../security/confidential-redact.js';
+import { scanForLeaks } from '@hybridaione/hybridclaw/plugin-sdk';
 import { emitDistillAuditEvent } from './audit.js';
 import { listCorpusDocuments } from './corpus.js';
 import { loadDistillConfidentialRules } from './masking.js';
-import type { DistillPaths } from './paths.js';
+
 import { sha256Hex, writeJsonFile } from './paths.js';
 import { loadDistillState } from './state.js';
-import type { CorpusDocument, SubjectProfile } from './types.js';
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const CITATION_RE = /<!--\s*((?:doc_[0-9a-f]+\s*)+)-->/g;
@@ -17,10 +16,7 @@ const CITATION_RE = /<!--\s*((?:doc_[0-9a-f]+\s*)+)-->/g;
  * decides membership, so re-ingesting the same material always reserves the
  * same slice for eval and never feeds it to analysis.
  */
-export function markHoldoutDocuments(
-  documents: CorpusDocument[],
-  ratio: number,
-): CorpusDocument[] {
+export function markHoldoutDocuments(documents, ratio) {
   const percent = Math.round(Math.min(0.5, Math.max(0, ratio)) * 100);
   if (percent === 0) return documents;
   return documents.map((doc) => {
@@ -29,35 +25,13 @@ export function markHoldoutDocuments(
   });
 }
 
-export interface LeakageFinding {
-  file: string;
-  kind: 'third-party-email' | 'uncited-source' | 'confidential-rule';
-  detail: string;
-}
-
-export interface DistillEvalResult {
-  subject: string;
-  ranAt: string;
-  leakage: {
-    findings: LeakageFinding[];
-    passed: boolean;
-  };
-  fidelity: {
-    holdoutDocuments: number;
-    promptsPrepared: number;
-  };
-}
-
 /**
  * Leakage test: generated outputs must not contain third-party PII, must not
  * cite documents that do not exist in the corpus, and must not trip
  * operator-defined confidential rules. Any finding fails the eval.
  */
-export function runLeakageScan(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-): LeakageFinding[] {
-  const findings: LeakageFinding[] = [];
+export function runLeakageScan(paths, profile) {
+  const findings = [];
   const corpusIds = new Set(listCorpusDocuments(paths).map((doc) => doc.id));
   const subjectAliases = profile.matchAliases.map((alias) =>
     alias.toLowerCase(),
@@ -80,7 +54,7 @@ export function runLeakageScan(
     );
   }
   for (const target of targets) {
-    let content: string;
+    let content;
     try {
       content = fs.readFileSync(target, 'utf-8');
     } catch {
@@ -128,24 +102,12 @@ export function runLeakageScan(
   return findings;
 }
 
-export interface FidelityPrompt {
-  docId: string;
-  source: string;
-  title?: string;
-  /** Context shown to the coworker; the held-out original is the reference answer. */
-  prompt: string;
-  reference: string;
-}
-
 /**
  * Fidelity eval plan: held-out subject-authored documents become
  * prompt/reference pairs. The coworker answers the prompt cold; a grader
  * (operator or agent) compares decisions + voice against the reference.
  */
-export function buildFidelityPrompts(
-  paths: DistillPaths,
-  limit = 10,
-): FidelityPrompt[] {
+export function buildFidelityPrompts(paths, limit = 10) {
   const holdouts = listCorpusDocuments(paths)
     .filter((doc) => doc.holdout && doc.authoredBySubject)
     .sort((a, b) => b.weight - a.weight)
@@ -159,17 +121,13 @@ export function buildFidelityPrompts(
   }));
 }
 
-export function runDistillEval(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  evalPath: string,
-): DistillEvalResult {
+export function runDistillEval(paths, profile, evalPath) {
   const findings = runLeakageScan(paths, profile);
   const prompts = buildFidelityPrompts(paths);
   const holdoutDocuments = listCorpusDocuments(paths).filter(
     (doc) => doc.holdout,
   ).length;
-  const result: DistillEvalResult = {
+  const result = {
     subject: paths.subject,
     ranAt: new Date().toISOString(),
     leakage: { findings, passed: findings.length === 0 },

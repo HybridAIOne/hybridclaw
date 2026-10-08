@@ -42,6 +42,7 @@
     "infra/managed-browser/",
     "plugins/concierge-router/",
     "plugins/connector-events/",
+    "plugins/distill/",
     "plugins/media-tools/",
     "plugins/line/",
     "plugins/vonage-voice/",

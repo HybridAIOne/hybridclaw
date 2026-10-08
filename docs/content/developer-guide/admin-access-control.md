@@ -107,7 +107,10 @@ The route-level action catalog and role bundle source of truth is
 [`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts). An admin
 route with no action mapping there is denied to scoped sessions and scoped API
 tokens unless they hold the `*` wildcard, so every new admin route needs an
-entry.
+entry. Plugin admin routes (`api.registerAdminRoute`) carry their action in
+the registration instead and must name one from this catalog; the
+`admin.distill.*` actions belong to the `distill` plugin's routes under
+`/api/admin/distill`.
 
 ## Local-Only Slash Commands
 

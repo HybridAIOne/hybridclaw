@@ -1,35 +1,20 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isSkillContentEntry } from '../skills/skills-guard-structure.js';
+import { isSkillContentEntry } from '@hybridaione/hybridclaw/plugin-sdk';
 import { emitDistillAuditEvent } from './audit.js';
 import { loadConsentArtefact } from './consent.js';
-import type { DistillPaths } from './paths.js';
+
 import { readJsonFile, writeJsonFile } from './paths.js';
 import { loadDistillState, saveDistillState } from './state.js';
 import { ensureSubjectProfile } from './subject.js';
-import type { DistillState, SubjectProfile } from './types.js';
 
 export const COWORKER_EXPORT_HOSTS = [
   'claude-code',
   'codex',
   'openclaw',
   'hybridclaw',
-] as const;
-
-export type CoworkerExportHost = (typeof COWORKER_EXPORT_HOSTS)[number];
-
-export interface CoworkerBundleManifest {
-  version: 1;
-  subject: string;
-  displayName: string;
-  skillName: string;
-  exportedAt: string;
-  files: string[];
-  claims: number;
-  consent: { sha256: string; recordedAt: string } | null;
-  includesCorpus: boolean;
-}
+];
 
 const PERSONA_FILES = [
   'IDENTITY.md',
@@ -37,7 +22,7 @@ const PERSONA_FILES = [
   'USER.md',
   'MEMORY.md',
   'CV.md',
-] as const;
+];
 
 /**
  * One canonical bundle (R72.8): persona files + the generated skill +
@@ -45,12 +30,7 @@ const PERSONA_FILES = [
  * requested — the bundle re-instantiates the coworker, it does not republish
  * the subject's source material.
  */
-export function exportCoworkerBundle(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  outDir: string,
-  options: { includeCorpus?: boolean } = {},
-): { bundleDir: string; manifest: CoworkerBundleManifest } {
+export function exportCoworkerBundle(paths, profile, outDir, options = {}) {
   const state = loadDistillState(paths);
   if (!state.skillName || state.mergeHistory.length === 0) {
     throw new Error(
@@ -61,7 +41,7 @@ export function exportCoworkerBundle(
   fs.rmSync(bundleDir, { recursive: true, force: true });
   fs.mkdirSync(bundleDir, { recursive: true });
 
-  const files: string[] = [];
+  const files = [];
   const personaDir = path.join(bundleDir, 'persona');
   fs.mkdirSync(personaDir, { recursive: true });
   for (const filename of PERSONA_FILES) {
@@ -99,7 +79,7 @@ export function exportCoworkerBundle(
   }
 
   const consent = loadConsentArtefact(paths);
-  const manifest: CoworkerBundleManifest = {
+  const manifest = {
     version: 1,
     subject: paths.subject,
     displayName: profile.displayName,
@@ -131,10 +111,7 @@ export function exportCoworkerBundle(
  * bundle; installing means copying the skill into that host's skill root and
  * the persona alongside it.
  */
-export function resolveHostSkillRoot(
-  host: CoworkerExportHost,
-  homeDir = os.homedir(),
-): string {
+export function resolveHostSkillRoot(host, homeDir = os.homedir()) {
   switch (host) {
     case 'claude-code':
       return path.join(homeDir, '.claude', 'skills');
@@ -149,14 +126,8 @@ export function resolveHostSkillRoot(
   }
 }
 
-export function installCoworkerBundle(
-  bundleDir: string,
-  host: CoworkerExportHost,
-  homeDir = os.homedir(),
-): { installedTo: string; skillName: string } {
-  const manifest = readJsonFile<CoworkerBundleManifest>(
-    path.join(bundleDir, 'manifest.json'),
-  );
+export function installCoworkerBundle(bundleDir, host, homeDir = os.homedir()) {
+  const manifest = readJsonFile(path.join(bundleDir, 'manifest.json'));
   if (!manifest) {
     throw new Error(
       `Not a coworker bundle (missing manifest.json): ${bundleDir}`,
@@ -189,21 +160,14 @@ export function installCoworkerBundle(
  * Round-trip import: re-instantiates persona files, generated skill, state,
  * and subject profile into an agent workspace without re-distillation.
  */
-export function importCoworkerBundle(
-  bundleDir: string,
-  paths: DistillPaths,
-): CoworkerBundleManifest {
-  const manifest = readJsonFile<CoworkerBundleManifest>(
-    path.join(bundleDir, 'manifest.json'),
-  );
+export function importCoworkerBundle(bundleDir, paths) {
+  const manifest = readJsonFile(path.join(bundleDir, 'manifest.json'));
   if (!manifest) {
     throw new Error(
       `Not a coworker bundle (missing manifest.json): ${bundleDir}`,
     );
   }
-  const bundleProfile = readJsonFile<SubjectProfile>(
-    path.join(bundleDir, 'subject.json'),
-  );
+  const bundleProfile = readJsonFile(path.join(bundleDir, 'subject.json'));
   if (bundleProfile) {
     ensureSubjectProfile(paths, {
       alias: paths.subject,
@@ -235,7 +199,7 @@ export function importCoworkerBundle(
       filter: isSkillContentEntry,
     });
   }
-  const state = readJsonFile<DistillState>(path.join(bundleDir, 'state.json'));
+  const state = readJsonFile(path.join(bundleDir, 'state.json'));
   if (state) {
     saveDistillState(paths, { ...state, subject: paths.subject });
   }
@@ -253,8 +217,8 @@ export function importCoworkerBundle(
   return manifest;
 }
 
-function listFilesRecursive(dir: string): string[] {
-  const files: string[] = [];
+function listFilesRecursive(dir) {
+  const files = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
   for (const entry of entries) {
     if (entry.isFile()) files.push(path.join(entry.parentPath, entry.name));

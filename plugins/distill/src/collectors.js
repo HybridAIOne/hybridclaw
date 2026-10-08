@@ -1,25 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
+
 import {
   computeCorpusDocumentId,
   computeQualityWeight,
   countWords,
 } from './corpus.js';
 import { loadDistillConfidentialRules, maskThirdPartyPii } from './masking.js';
-import type { CorpusDocument, CorpusSourceKind } from './types.js';
-
-export interface CollectorContext {
-  subject: string;
-  matchAliases: string[];
-  ruleSet?: ConfidentialRuleSet | null;
-  now?: Date;
-}
-
-export interface CollectResult {
-  documents: CorpusDocument[];
-  warnings: string[];
-}
 
 const COLLECTABLE_EXTENSIONS = new Set([
   '.json',
@@ -38,19 +25,15 @@ const INTERVIEW_PAIR_RE =
 /** Minimum words for a chat message to also count as standalone long-form. */
 const LONGFORM_CHAT_WORDS = 50;
 
-export function collectSourcePath(
-  sourcePath: string,
-  kind: CorpusSourceKind | 'auto',
-  context: CollectorContext,
-): CollectResult {
+export function collectSourcePath(sourcePath, kind, context) {
   const resolved = path.resolve(sourcePath);
-  let stat: fs.Stats;
+  let stat;
   try {
     stat = fs.statSync(resolved);
   } catch {
     return { documents: [], warnings: [`Source not found: ${sourcePath}`] };
   }
-  const ctx: CollectorContext = {
+  const ctx = {
     ...context,
     ruleSet:
       context.ruleSet === undefined
@@ -63,13 +46,9 @@ export function collectSourcePath(
   return collectFile(resolved, kind, ctx);
 }
 
-function collectDirectory(
-  dir: string,
-  kind: CorpusSourceKind | 'auto',
-  context: CollectorContext,
-): CollectResult {
-  const documents: CorpusDocument[] = [];
-  const warnings: string[] = [];
+function collectDirectory(dir, kind, context) {
+  const documents = [];
+  const warnings = [];
   const slackUsers = readSlackUsersMap(dir);
   const entries = fs.readdirSync(dir, { withFileTypes: true, recursive: true });
   for (const entry of entries) {
@@ -90,13 +69,8 @@ function collectDirectory(
   return { documents, warnings };
 }
 
-function collectFile(
-  filePath: string,
-  kind: CorpusSourceKind | 'auto',
-  context: CollectorContext,
-  slackUsers?: Map<string, string> | null,
-): CollectResult {
-  let raw: string;
+function collectFile(filePath, kind, context, slackUsers) {
+  let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf-8');
   } catch {
@@ -126,10 +100,7 @@ function collectFile(
   }
 }
 
-export function detectSourceKind(
-  filePath: string,
-  content: string,
-): CorpusSourceKind {
+export function detectSourceKind(filePath, content) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.mbox') return 'email-mbox';
   if (ext === '.jsonl') return 'chat-jsonl';
@@ -150,18 +121,18 @@ export function detectSourceKind(
   return 'text';
 }
 
-function countInterviewPairs(content: string): number {
+function countInterviewPairs(content) {
   const matches = content.match(
     /^\s*(?:\*\*)?Q(?:uestion)?\s*[\d.]*\s*(?:\([^)\n]{1,40}\))?\s*[:.]/gim,
   );
   return matches ? matches.length : 0;
 }
 
-function looksLikeSlackMessages(content: string): boolean {
+function looksLikeSlackMessages(content) {
   try {
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed) || parsed.length === 0) return false;
-    const sample = parsed[0] as Record<string, unknown>;
+    const sample = parsed[0];
     return (
       typeof sample === 'object' &&
       sample !== null &&
@@ -173,12 +144,12 @@ function looksLikeSlackMessages(content: string): boolean {
   }
 }
 
-function readSlackUsersMap(dir: string): Map<string, string> | null {
+function readSlackUsersMap(dir) {
   const usersPath = path.join(dir, 'users.json');
   try {
     const parsed = JSON.parse(fs.readFileSync(usersPath, 'utf-8'));
     if (!Array.isArray(parsed)) return null;
-    const map = new Map<string, string>();
+    const map = new Map();
     for (const user of parsed) {
       const id = String(user?.id || '');
       const name = String(
@@ -192,19 +163,8 @@ function readSlackUsersMap(dir: string): Map<string, string> | null {
   }
 }
 
-interface ChatMessage {
-  author: string;
-  text: string;
-  timestamp?: string;
-}
-
-function collectSlackExportFile(
-  filePath: string,
-  raw: string,
-  context: CollectorContext,
-  slackUsers?: Map<string, string> | null,
-): CollectResult {
-  let parsed: unknown;
+function collectSlackExportFile(filePath, raw, context, slackUsers) {
+  let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -219,18 +179,15 @@ function collectSlackExportFile(
       warnings: [`Invalid Slack export JSON: ${filePath}`],
     };
   }
-  const messages: ChatMessage[] = [];
+  const messages = [];
   for (const entry of parsed) {
-    const record = entry as Record<string, unknown>;
+    const record = entry;
     const text = String(record.text || '').trim();
     if (!text) continue;
     const userId = String(record.user || record.username || '');
     const author =
       slackUsers?.get(userId) ||
-      String(
-        (record.user_profile as Record<string, unknown> | undefined)
-          ?.real_name || userId,
-      ) ||
+      String(record.user_profile?.real_name || userId) ||
       'unknown';
     const ts = Number(record.ts || 0);
     messages.push({
@@ -252,18 +209,14 @@ function collectSlackExportFile(
   };
 }
 
-function collectChatJsonl(
-  filePath: string,
-  raw: string,
-  context: CollectorContext,
-): CollectResult {
-  const messages: ChatMessage[] = [];
-  const warnings: string[] = [];
+function collectChatJsonl(filePath, raw, context) {
+  const messages = [];
+  const warnings = [];
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const record = JSON.parse(trimmed) as Record<string, unknown>;
+      const record = JSON.parse(trimmed);
       const text = String(
         record.text || record.content || record.message || record.body || '',
       ).trim();
@@ -303,15 +256,9 @@ function collectChatJsonl(
  * subject's own long-form messages, which carry more persona signal than the
  * surrounding chatter.
  */
-function buildChatDocuments(
-  filePath: string,
-  source: CorpusSourceKind,
-  messages: ChatMessage[],
-  channel: string | undefined,
-  context: CollectorContext,
-): CorpusDocument[] {
+function buildChatDocuments(filePath, source, messages, channel, context) {
   if (messages.length === 0) return [];
-  const documents: CorpusDocument[] = [];
+  const documents = [];
   const conversation = messages
     .map((message) => `[${message.author}] ${message.text}`)
     .join('\n');
@@ -354,13 +301,9 @@ function buildChatDocuments(
   return documents;
 }
 
-function collectMbox(
-  filePath: string,
-  raw: string,
-  context: CollectorContext,
-): CollectResult {
-  const documents: CorpusDocument[] = [];
-  const warnings: string[] = [];
+function collectMbox(filePath, raw, context) {
+  const documents = [];
+  const warnings = [];
   const chunks = `\n${raw}`.split(/\nFrom /).slice(1);
   if (chunks.length === 0) {
     return { documents, warnings: [`No messages found in mbox: ${filePath}`] };
@@ -390,14 +333,14 @@ function collectMbox(
   return { documents, warnings };
 }
 
-function readHeader(headerBlock: string, name: string): string | undefined {
+function readHeader(headerBlock, name) {
   const unfolded = headerBlock.replace(/\n[ \t]+/g, ' ');
   const re = new RegExp(`^${name}:\\s*(.+)$`, 'im');
   const match = unfolded.match(re);
   return match ? match[1].trim() : undefined;
 }
 
-function cleanEmailBody(body: string): string {
+function cleanEmailBody(body) {
   return body
     .split('\n')
     .filter((line) => {
@@ -416,13 +359,9 @@ function cleanEmailBody(body: string): string {
     .trim();
 }
 
-function collectTranscript(
-  filePath: string,
-  raw: string,
-  context: CollectorContext,
-): CollectResult {
+function collectTranscript(filePath, raw, context) {
   const lines = raw.split('\n');
-  const speakers = new Set<string>();
+  const speakers = new Set();
   for (const line of lines) {
     const match = line.match(TRANSCRIPT_LINE_RE);
     if (match) speakers.add(match[1].trim());
@@ -446,12 +385,7 @@ function collectTranscript(
   };
 }
 
-function collectLongForm(
-  filePath: string,
-  raw: string,
-  source: CorpusSourceKind,
-  context: CollectorContext,
-): CollectResult {
+function collectLongForm(filePath, raw, source, context) {
   const frontmatterAuthor = raw.match(
     /^---[\s\S]*?\nauthor:\s*(.+?)\n[\s\S]*?---/,
   );
@@ -477,10 +411,7 @@ function collectLongForm(
   };
 }
 
-export function isSubjectAuthor(
-  author: string,
-  matchAliases: string[],
-): boolean {
+export function isSubjectAuthor(author, matchAliases) {
   const normalized = author.trim().toLowerCase();
   if (!normalized) return false;
   const emailMatch = normalized.match(/<([^>]+)>/);
@@ -507,7 +438,7 @@ export function isSubjectAuthor(
   });
 }
 
-function normalizeTimestamp(value: unknown): string | undefined {
+function normalizeTimestamp(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const date =
     typeof value === 'number'
@@ -516,18 +447,7 @@ function normalizeTimestamp(value: unknown): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-function finalizeDocument(params: {
-  source: CorpusSourceKind;
-  origin: string;
-  author: string;
-  authoredBySubject: boolean;
-  content: string;
-  context: CollectorContext;
-  title?: string;
-  channel?: string;
-  timestamp?: string;
-  weightOverride?: number;
-}): CorpusDocument {
+function finalizeDocument(params) {
   const masked = maskThirdPartyPii(
     params.content,
     params.context.matchAliases,

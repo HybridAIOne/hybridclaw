@@ -201,3 +201,53 @@ describe('writePluginConfigValue', () => {
     expect(saveRuntimeConfig).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('bare plugin entries', () => {
+  // Discovery finds the plugin only through its entry, as for a bundled
+  // plugin enabled in place, or also from the runtime home.
+  async function importWithDiscovery(
+    config: RuntimeConfig,
+    source: 'bundled' | 'home',
+  ) {
+    const pluginConfig = await importFreshPluginConfig(config);
+    pluginConfig.discoverPlugins.mockImplementation(
+      async (candidateConfig: RuntimeConfig) => {
+        const entry = candidateConfig.plugins.list.find(
+          (candidate) => candidate.id === 'demo-plugin',
+        );
+        if (source === 'bundled' && entry?.enabled !== true) return [];
+        return [{ id: 'demo-plugin', config: entry?.config ?? {} }];
+      },
+    );
+    pluginConfig.resolveEffectivePluginConfigSchema.mockResolvedValue(
+      DEMO_SCHEMA,
+    );
+    return pluginConfig;
+  }
+
+  test.each([
+    ['bundled', [{ id: 'demo-plugin', enabled: true, config: {} }]],
+    ['home', []],
+  ] as const)('re-enabling a %s plugin keeps its entry only when discovery needs it', async (source, expected) => {
+    const config = {
+      plugins: { list: [{ id: 'demo-plugin', enabled: false, config: {} }] },
+    } as RuntimeConfig;
+    const { saveRuntimeConfig, setPluginEnabled } = await importWithDiscovery(
+      config,
+      source,
+    );
+
+    await setPluginEnabled('demo-plugin', true);
+    expect(saveRuntimeConfig.mock.calls[0]?.[0].plugins.list).toEqual(expected);
+  });
+
+  test('unsetting the last key of a bundled plugin keeps the entry that installs it', async () => {
+    const { saveRuntimeConfig, unsetPluginConfigValue } =
+      await importWithDiscovery(demoPluginConfig({ apiKey: 'k' }), 'bundled');
+
+    await unsetPluginConfigValue('demo-plugin', 'apiKey');
+    expect(saveRuntimeConfig.mock.calls[0]?.[0].plugins.list).toEqual([
+      { id: 'demo-plugin', enabled: true, config: {} },
+    ]);
+  });
+});

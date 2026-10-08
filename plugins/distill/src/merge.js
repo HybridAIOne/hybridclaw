@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { RuntimeRevisionAssetType } from '../config/runtime-config-revisions.js';
-import { syncRuntimeAssetRevisionState } from '../config/runtime-config-revisions.js';
-import { resolveInstallPath } from '../infra/install-root.js';
-import type { ExtractionValidationResult } from './analysis.js';
+import {
+  resolveInstallPath,
+  syncRuntimeAssetRevisionState,
+} from '@hybridaione/hybridclaw/plugin-sdk';
+
 import { emitDistillAuditEvent } from './audit.js';
-import type { DistillPaths } from './paths.js';
+
 import { readJsonFile, sha256Hex, writeJsonFile } from './paths.js';
 import {
   DISTILL_GENERATED_NOTE,
@@ -17,34 +18,13 @@ import {
   renderWorkModule,
 } from './render.js';
 import { loadDistillState, makeClaimId, saveDistillState } from './state.js';
-import type {
-  DistillExtraction,
-  DistillReviewItem,
-  DistillState,
-  ExtractionWorkModule,
-  PersonaClaim,
-  SubjectProfile,
-} from './types.js';
-
-export interface MergeResult {
-  claimsAdded: number;
-  claimsSuperseded: number;
-  reviewsOpened: number;
-  filesWritten: string[];
-  reviews: DistillReviewItem[];
-}
 
 /**
  * F4-versioned write: the file content lands on disk and is immediately
  * snapshotted into the runtime revision database, so every merge is a
  * reversible edit (`hybridclaw config revisions` surfaces the history).
  */
-export function writeVersionedDistillFile(
-  filePath: string,
-  content: string,
-  assetType: RuntimeRevisionAssetType,
-  runId: string,
-): void {
+export function writeVersionedDistillFile(filePath, content, assetType, runId) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, 'utf-8');
   syncRuntimeAssetRevisionState(assetType, filePath, {
@@ -61,18 +41,16 @@ export function writeVersionedDistillFile(
  * overwritten without a recorded decision.
  */
 export function applyDistillMerge(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  validation: ExtractionValidationResult,
-  analysedDocIds: string[],
-  runId: string,
-): MergeResult {
+  paths,
+  profile,
+  validation,
+  analysedDocIds,
+  runId,
+) {
   const state = loadDistillState(paths);
-  const standingById = new Map(
-    state.claims.map((claim) => [claim.id, claim] as const),
-  );
+  const standingById = new Map(state.claims.map((claim) => [claim.id, claim]));
   const now = new Date().toISOString();
-  const reviews: DistillReviewItem[] = [];
+  const reviews = [];
   let claimsAdded = 0;
 
   for (const incoming of validation.validClaims) {
@@ -82,7 +60,7 @@ export function applyDistillMerge(
       ? standingById.get(incoming.conflictsWith)
       : undefined;
     if (conflictTarget && conflictTarget.status === 'standing') {
-      const review: DistillReviewItem = {
+      const review = {
         id: `rev_${sha256Hex(`${conflictTarget.id}\n${incoming.claim}`).slice(0, 12)}`,
         subject: paths.subject,
         openedAt: now,
@@ -108,7 +86,7 @@ export function applyDistillMerge(
       });
       continue;
     }
-    const claim: PersonaClaim = {
+    const claim = {
       ...incoming,
       id,
       status: 'standing',
@@ -187,7 +165,7 @@ export function applyDistillMerge(
   };
 }
 
-const EMPTY_WORK_MODULE: ExtractionWorkModule = {
+const EMPTY_WORK_MODULE = {
   skillName: '',
   description: '',
   scope: [],
@@ -197,13 +175,7 @@ const EMPTY_WORK_MODULE: ExtractionWorkModule = {
   workedExamples: [],
 };
 
-function buildExtractionShape(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  state: DistillState,
-  runId: string,
-  extraction?: DistillExtraction,
-): DistillExtraction {
+function buildExtractionShape(paths, profile, state, runId, extraction) {
   if (extraction) return { ...extraction, runId };
   return {
     version: 1,
@@ -225,11 +197,11 @@ function buildExtractionShape(
   };
 }
 
-function normalizeTemplateComparison(content: string): string {
+function normalizeTemplateComparison(content) {
   return content.replace(/\r\n/g, '\n').trim();
 }
 
-function isDefaultMemoryTemplate(content: string): boolean {
+function isDefaultMemoryTemplate(content) {
   try {
     const template = fs.readFileSync(
       resolveInstallPath('templates', 'MEMORY.md'),
@@ -244,7 +216,7 @@ function isDefaultMemoryTemplate(content: string): boolean {
   }
 }
 
-function shouldWriteDistilledMemory(filePath: string): boolean {
+function shouldWriteDistilledMemory(filePath) {
   try {
     const existing = fs.readFileSync(filePath, 'utf-8');
     return (
@@ -253,16 +225,11 @@ function shouldWriteDistilledMemory(filePath: string): boolean {
       isDefaultMemoryTemplate(existing)
     );
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    return err.code === 'ENOENT';
+    return error.code === 'ENOENT';
   }
 }
 
-export function ensureDistilledMemoryFile(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  runId = 'register',
-): string | null {
+export function ensureDistilledMemoryFile(paths, profile, runId = 'register') {
   const state = loadDistillState(paths);
   if (
     state.mergeHistory.length === 0 &&
@@ -284,13 +251,7 @@ export function ensureDistilledMemoryFile(
   return memoryPath;
 }
 
-function renderPersonaFiles(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  state: DistillState,
-  runId: string,
-  options: { extraction?: DistillExtraction } = {},
-): string[] {
+function renderPersonaFiles(paths, profile, state, runId, options = {}) {
   const extractionShape = buildExtractionShape(
     paths,
     profile,
@@ -298,11 +259,7 @@ function renderPersonaFiles(
     runId,
     options.extraction,
   );
-  const targets: {
-    file: string;
-    content: string;
-    asset: RuntimeRevisionAssetType;
-  }[] = [
+  const targets = [
     {
       file: path.join(paths.workspaceDir, 'IDENTITY.md'),
       content: renderIdentityFile(profile, extractionShape),
@@ -334,7 +291,7 @@ function renderPersonaFiles(
       asset: 'cv',
     },
   ];
-  const written: string[] = [];
+  const written = [];
   for (const target of targets) {
     if (
       path.basename(target.file) === 'MEMORY.md' &&
@@ -348,19 +305,17 @@ function renderPersonaFiles(
   return written;
 }
 
-export function listReviewItems(paths: DistillPaths): DistillReviewItem[] {
-  let entries: string[];
+export function listReviewItems(paths) {
+  let entries;
   try {
     entries = fs.readdirSync(paths.reviewsDir);
   } catch {
     return [];
   }
-  const reviews: DistillReviewItem[] = [];
+  const reviews = [];
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
-    const review = readJsonFile<DistillReviewItem>(
-      path.join(paths.reviewsDir, entry),
-    );
+    const review = readJsonFile(path.join(paths.reviewsDir, entry));
     if (review) reviews.push(review);
   }
   return reviews.sort((a, b) => a.openedAt.localeCompare(b.openedAt));
@@ -371,14 +326,14 @@ export function listReviewItems(paths: DistillPaths): DistillReviewItem[] {
  * and the persona files are re-rendered from the updated standing set.
  */
 export function resolveReviewItem(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  reviewId: string,
-  resolution: 'keep-standing' | 'accept-incoming' | 'keep-both',
-  resolvedBy: string,
-): DistillReviewItem {
+  paths,
+  profile,
+  reviewId,
+  resolution,
+  resolvedBy,
+) {
   const reviewPath = path.join(paths.reviewsDir, `${reviewId}.json`);
-  const review = readJsonFile<DistillReviewItem>(reviewPath);
+  const review = readJsonFile(reviewPath);
   if (!review) {
     throw new Error(`Review item not found: ${reviewId}`);
   }
@@ -390,7 +345,7 @@ export function resolveReviewItem(
   const standing = state.claims.find(
     (claim) => claim.id === review.standingClaimId,
   );
-  const incoming: PersonaClaim = {
+  const incoming = {
     dimension: review.dimension,
     claim: review.incomingClaim,
     evidence: review.incomingEvidence,

@@ -1,29 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { emitDistillAuditEvent } from './audit.js';
-import type { DistillPaths, DistillRunPaths } from './paths.js';
+
 import {
   makeDistillRunId,
   readJsonFile,
   resolveDistillRunPaths,
   writeJsonFile,
 } from './paths.js';
-import type {
-  DistillRunRecord,
-  DistillRunSource,
-  DistillStageName,
-  DistillStageStatus,
-  SubjectProfile,
-} from './types.js';
+
 import { DISTILL_STAGE_ORDER } from './types.js';
 
-export function createDistillRun(
-  paths: DistillPaths,
-  sources: DistillRunSource[],
-): { run: DistillRunRecord; runPaths: DistillRunPaths } {
+export function createDistillRun(paths, sources) {
   const runId = makeDistillRunId();
   const now = new Date().toISOString();
-  const run: DistillRunRecord = {
+  const run = {
     version: 1,
     runId,
     subject: paths.subject,
@@ -32,7 +23,7 @@ export function createDistillRun(
     updatedAt: now,
     stages: Object.fromEntries(
       DISTILL_STAGE_ORDER.map((stage) => [stage, { status: 'pending' }]),
-    ) as DistillRunRecord['stages'],
+    ),
     sources,
     stats: {
       documentsAdded: 0,
@@ -55,57 +46,41 @@ export function createDistillRun(
   return { run, runPaths };
 }
 
-export function loadDistillRun(
-  paths: DistillPaths,
-  runId: string,
-): { run: DistillRunRecord; runPaths: DistillRunPaths } | null {
+export function loadDistillRun(paths, runId) {
   const runPaths = resolveDistillRunPaths(paths, runId);
-  const run = readJsonFile<DistillRunRecord>(runPaths.runRecordPath);
+  const run = readJsonFile(runPaths.runRecordPath);
   if (!run) return null;
   return { run, runPaths };
 }
 
-export function listDistillRuns(paths: DistillPaths): DistillRunRecord[] {
-  let entries: string[];
+export function listDistillRuns(paths) {
+  let entries;
   try {
     entries = fs.readdirSync(paths.runsRootDir);
   } catch {
     return [];
   }
-  const runs: DistillRunRecord[] = [];
+  const runs = [];
   for (const entry of entries) {
-    const run = readJsonFile<DistillRunRecord>(
-      path.join(paths.runsRootDir, entry, 'run.json'),
-    );
+    const run = readJsonFile(path.join(paths.runsRootDir, entry, 'run.json'));
     if (run && run.subject === paths.subject) runs.push(run);
   }
   return runs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export function findLatestDistillRun(
-  paths: DistillPaths,
-): { run: DistillRunRecord; runPaths: DistillRunPaths } | null {
+export function findLatestDistillRun(paths) {
   const runs = listDistillRuns(paths);
   const latest = runs[runs.length - 1];
   if (!latest) return null;
   return loadDistillRun(paths, latest.runId);
 }
 
-export function saveDistillRun(
-  runPaths: DistillRunPaths,
-  run: DistillRunRecord,
-): void {
+export function saveDistillRun(runPaths, run) {
   run.updatedAt = new Date().toISOString();
   writeJsonFile(runPaths.runRecordPath, run);
 }
 
-export function setDistillStage(
-  runPaths: DistillRunPaths,
-  run: DistillRunRecord,
-  stage: DistillStageName,
-  status: DistillStageStatus,
-  detail?: string,
-): void {
+export function setDistillStage(runPaths, run, stage, status, detail) {
   const state = run.stages[stage];
   if (status === 'completed') {
     state.completedAt = new Date().toISOString();
@@ -125,17 +100,8 @@ export function setDistillStage(
   });
 }
 
-export function renderRunReport(
-  run: DistillRunRecord,
-  profile: SubjectProfile,
-  extras: {
-    warnings?: string[];
-    flagged?: string[];
-    reviews?: string[];
-    nextSteps?: string[];
-  } = {},
-): string {
-  const lines: string[] = [
+export function renderRunReport(run, profile, extras = {}) {
+  const lines = [
     `# Distillation Report — ${profile.displayName}`,
     '',
     `- **Run:** \`${run.runId}\``,
@@ -180,12 +146,7 @@ export function renderRunReport(
   return lines.join('\n');
 }
 
-export function writeRunReport(
-  runPaths: DistillRunPaths,
-  run: DistillRunRecord,
-  profile: SubjectProfile,
-  extras?: Parameters<typeof renderRunReport>[2],
-): void {
+export function writeRunReport(runPaths, run, profile, extras) {
   fs.mkdirSync(runPaths.runDir, { recursive: true });
   fs.writeFileSync(
     runPaths.reportPath,
@@ -194,11 +155,7 @@ export function writeRunReport(
   );
 }
 
-function appendListSection(
-  lines: string[],
-  title: string,
-  items?: string[],
-): void {
+function appendListSection(lines, title, items) {
   if (!items || items.length === 0) return;
   lines.push('', `## ${title}`, '');
   for (const item of items) {

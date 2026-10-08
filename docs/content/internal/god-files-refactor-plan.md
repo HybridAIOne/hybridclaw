@@ -319,7 +319,7 @@ Flat module: ~330 free functions, no classes. Three macro-concerns: the admin
 REST surface (~4,000 LOC), the slash-command dispatcher `handleGatewayCommand`
 (3,162 LOC) + its private helper layer (~1,300), and delegation/bootstrap
 subsystems. Template extractions already exist for every shape needed:
-`gateway-distill-service.ts` (admin sub-surface), `skill-commands.ts` /
+`gateway-fleet-topology.ts` (admin sub-surface), `skill-commands.ts` /
 `policy-command.ts` (per-command modules), `gateway-request-runtime.ts`
 (module state behind accessors), `gateway-formatting.ts` (pure formatters).
 

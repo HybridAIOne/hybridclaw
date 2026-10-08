@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { agentWorkspaceDir } from '../infra/ipc.js';
+import { agentWorkspaceDir } from '@hybridaione/hybridclaw/plugin-sdk';
 
 const SUBJECT_SLUG_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
-export function normalizeSubjectAlias(raw: string): string {
+export function normalizeSubjectAlias(raw) {
   const slug = String(raw || '')
     .trim()
     .toLowerCase()
@@ -21,25 +21,7 @@ export function normalizeSubjectAlias(raw: string): string {
   return slug;
 }
 
-export interface DistillPaths {
-  agentId: string;
-  subject: string;
-  workspaceDir: string;
-  subjectDir: string;
-  subjectProfilePath: string;
-  consentPath: string;
-  corpusDir: string;
-  corpusDocumentsPath: string;
-  statePath: string;
-  reviewsDir: string;
-  correctionsPath: string;
-  runsRootDir: string;
-}
-
-export function resolveDistillPaths(
-  agentId: string,
-  subject: string,
-): DistillPaths {
+export function resolveDistillPaths(agentId, subject) {
   const alias = normalizeSubjectAlias(subject);
   const workspaceDir = agentWorkspaceDir(agentId);
   const subjectDir = path.join(workspaceDir, 'distill', alias);
@@ -60,21 +42,7 @@ export function resolveDistillPaths(
   };
 }
 
-export interface DistillRunPaths {
-  runDir: string;
-  runRecordPath: string;
-  reportPath: string;
-  analysisDir: string;
-  packetJsonPath: string;
-  packetMarkdownPath: string;
-  extractionPath: string;
-  evalPath: string;
-}
-
-export function resolveDistillRunPaths(
-  paths: DistillPaths,
-  runId: string,
-): DistillRunPaths {
+export function resolveDistillRunPaths(paths, runId) {
   if (!/^[a-z0-9_-]+$/i.test(runId)) {
     throw new Error(`Invalid distill run id: ${JSON.stringify(runId)}`);
   }
@@ -92,7 +60,7 @@ export function resolveDistillRunPaths(
   };
 }
 
-export function makeDistillRunId(now = new Date()): string {
+export function makeDistillRunId(now = new Date()) {
   const stamp = now
     .toISOString()
     .replace(/[-:.TZ]/g, '')
@@ -101,16 +69,16 @@ export function makeDistillRunId(now = new Date()): string {
   return `dst_${stamp}_${rand}`;
 }
 
-export function readJsonFile<T>(filePath: string): T | null {
+export function readJsonFile(filePath) {
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(raw) as T;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
-export function writeJsonFile(filePath: string, value: unknown): void {
+export function writeJsonFile(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tmpPath = `${filePath}.tmp-${process.pid}`;
   fs.writeFileSync(tmpPath, `${JSON.stringify(value, null, 2)}\n`, {
@@ -120,6 +88,6 @@ export function writeJsonFile(filePath: string, value: unknown): void {
   fs.renameSync(tmpPath, filePath);
 }
 
-export function sha256Hex(value: string): string {
+export function sha256Hex(value) {
   return crypto.createHash('sha256').update(value, 'utf-8').digest('hex');
 }

@@ -1,23 +1,12 @@
 import fs from 'node:fs';
-import type { DistillPaths } from './paths.js';
+
 import { readJsonFile, writeJsonFile } from './paths.js';
-import type { SubjectProfile } from './types.js';
 
-export interface CreateSubjectInput {
-  alias: string;
-  displayName?: string;
-  realPerson?: boolean;
-  role?: string;
-  relationship?: string;
-  personalityTags?: string[];
-  matchAliases?: string[];
+export function loadSubjectProfile(paths) {
+  return readJsonFile(paths.subjectProfilePath);
 }
 
-export function loadSubjectProfile(paths: DistillPaths): SubjectProfile | null {
-  return readJsonFile<SubjectProfile>(paths.subjectProfilePath);
-}
-
-export function requireSubjectProfile(paths: DistillPaths): SubjectProfile {
+export function requireSubjectProfile(paths) {
   const profile = loadSubjectProfile(paths);
   if (!profile) {
     throw new Error(
@@ -27,14 +16,11 @@ export function requireSubjectProfile(paths: DistillPaths): SubjectProfile {
   return profile;
 }
 
-export function ensureSubjectProfile(
-  paths: DistillPaths,
-  input: CreateSubjectInput,
-): { profile: SubjectProfile; created: boolean } {
+export function ensureSubjectProfile(paths, input) {
   const existing = loadSubjectProfile(paths);
   if (existing) {
     const displayName = input.displayName?.trim() || existing.displayName;
-    const updated: SubjectProfile = {
+    const updated = {
       ...existing,
       displayName,
       role: input.role?.trim() || existing.role,
@@ -60,7 +46,7 @@ export function ensureSubjectProfile(
   }
 
   const displayName = input.displayName?.trim() || paths.subject;
-  const profile: SubjectProfile = {
+  const profile = {
     version: 1,
     alias: paths.subject,
     displayName,
@@ -78,8 +64,8 @@ export function ensureSubjectProfile(
   return { profile, created: true };
 }
 
-function mergeUnique(base: string[], extra?: string[]): string[] {
-  const merged = new Set<string>();
+function mergeUnique(base, extra) {
+  const merged = new Set();
   for (const value of [...base, ...(extra || [])]) {
     const trimmed = String(value || '').trim();
     if (trimmed) merged.add(trimmed);

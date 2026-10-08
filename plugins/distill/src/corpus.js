@@ -1,18 +1,14 @@
 import fs from 'node:fs';
-import { syncRuntimeAssetRevisionState } from '../config/runtime-config-revisions.js';
+import { syncRuntimeAssetRevisionState } from '@hybridaione/hybridclaw/plugin-sdk';
 import { emitDistillAuditEvent } from './audit.js';
-import type { DistillPaths } from './paths.js';
-import { sha256Hex } from './paths.js';
-import type { CorpusDocument, CorpusSourceKind } from './types.js';
 
-export function computeCorpusDocumentId(
-  content: string,
-  origin: string,
-): string {
+import { sha256Hex } from './paths.js';
+
+export function computeCorpusDocumentId(content, origin) {
   return `doc_${sha256Hex(`${origin}\n${content}`).slice(0, 12)}`;
 }
 
-export function countWords(text: string): number {
+export function countWords(text) {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
@@ -21,12 +17,8 @@ export function countWords(text: string): number {
  * above casual chatter, third-party material is context only, and operator
  * signals (interview answers, corrections) carry the highest weight.
  */
-export function computeQualityWeight(params: {
-  source: CorpusSourceKind;
-  wordCount: number;
-  authoredBySubject: boolean;
-}): number {
-  const base: Record<CorpusSourceKind, number> = {
+export function computeQualityWeight(params) {
+  const base = {
     interview: 1.0,
     correction: 1.0,
     markdown: 0.9,
@@ -43,19 +35,19 @@ export function computeQualityWeight(params: {
   return Math.min(1, Math.max(0.05, Number(weight.toFixed(3))));
 }
 
-export function listCorpusDocuments(paths: DistillPaths): CorpusDocument[] {
-  let raw: string;
+export function listCorpusDocuments(paths) {
+  let raw;
   try {
     raw = fs.readFileSync(paths.corpusDocumentsPath, 'utf-8');
   } catch {
     return [];
   }
-  const documents: CorpusDocument[] = [];
+  const documents = [];
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      documents.push(JSON.parse(trimmed) as CorpusDocument);
+      documents.push(JSON.parse(trimmed));
     } catch {
       // Skip a torn line rather than failing the whole corpus read.
     }
@@ -63,17 +55,11 @@ export function listCorpusDocuments(paths: DistillPaths): CorpusDocument[] {
   return documents;
 }
 
-export function getCorpusDocument(
-  paths: DistillPaths,
-  docId: string,
-): CorpusDocument | null {
+export function getCorpusDocument(paths, docId) {
   return listCorpusDocuments(paths).find((doc) => doc.id === docId) || null;
 }
 
-export function removeCorpusDocument(
-  paths: DistillPaths,
-  docId: string,
-): CorpusDocument | null {
+export function removeCorpusDocument(paths, docId) {
   const documents = listCorpusDocuments(paths);
   const index = documents.findIndex((doc) => doc.id === docId);
   if (index < 0) return null;
@@ -110,13 +96,9 @@ export function removeCorpusDocument(
  * (same provenance id) are skipped, and every append lands as an F4-versioned
  * `knowledge` asset revision so corpus growth is reversible.
  */
-export function appendCorpusDocuments(
-  paths: DistillPaths,
-  documents: CorpusDocument[],
-  runId: string,
-): { added: CorpusDocument[]; skippedDuplicates: number } {
+export function appendCorpusDocuments(paths, documents, runId) {
   const existingIds = new Set(listCorpusDocuments(paths).map((doc) => doc.id));
-  const added: CorpusDocument[] = [];
+  const added = [];
   let skippedDuplicates = 0;
   for (const doc of documents) {
     if (existingIds.has(doc.id)) {

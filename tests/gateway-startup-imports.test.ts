@@ -25,6 +25,17 @@ const LAZY_ONLY_PACKAGES = [
   'nodemailer',
 ];
 
+// Optional features that ship as plugins (AGENTS.md §3.4). Core must not
+// import them, nor regrow them under `src/`: human distillation moved to
+// `plugins/distill` (#1801) and reaches the gateway only through
+// `registerAdminRoute` / `registerCliCommand`.
+const PLUGIN_ONLY_MODULES = [
+  'plugins/',
+  'src/distill/',
+  'src/gateway/gateway-distill-service.ts',
+  'src/cli/coworker-command.ts',
+];
+
 function packageName(specifier: string): string {
   const parts = specifier.split('/');
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
@@ -114,6 +125,7 @@ function runtimeImportSpecifiers(file: string, source: string): string[] {
 
 function collectStartupPackages(entry: string): {
   importers: Map<string, string>;
+  modules: string[];
   unresolved: string[];
 } {
   const importers = new Map<string, string>();
@@ -139,7 +151,11 @@ function collectStartupPackages(entry: string): {
       }
     }
   }
-  return { importers, unresolved };
+  return {
+    importers,
+    modules: [...seen].map((file) => path.relative(ROOT, file)),
+    unresolved,
+  };
 }
 
 test('gateway startup graph does not statically load optional channel SDKs', () => {
@@ -151,6 +167,17 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
     (name) => `${name} (imported by ${importers.get(name)})`,
   );
   expect(leaked).toEqual([]);
+});
+
+test('gateway startup graph does not statically load plugin-owned features', () => {
+  const { modules } = collectStartupPackages(GATEWAY_ENTRY);
+
+  expect(modules.length).toBeGreaterThan(100);
+  expect(
+    modules.filter((file) =>
+      PLUGIN_ONLY_MODULES.some((prefix) => file.startsWith(prefix)),
+    ),
+  ).toEqual([]);
 });
 
 test('import elision keeps value imports and drops type-only ones', () => {

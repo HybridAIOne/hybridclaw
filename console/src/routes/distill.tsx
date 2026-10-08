@@ -5,6 +5,7 @@ import {
   downloadDistillCorpusDocument,
   fetchAdminAgents,
   fetchDistill,
+  HttpResponseError,
   recordDistillConsent,
   registerDistillAgent,
   runDistill,
@@ -744,8 +745,14 @@ export function DistillPage() {
   }
 
   if (query.isError) {
+    const notInstalled =
+      query.error instanceof HttpResponseError && query.error.status === 404;
     return (
-      <div className="empty-state error">{getErrorMessage(query.error)}</div>
+      <div className="empty-state error">
+        {notInstalled
+          ? 'Distill is a plugin. Install it with `hybridclaw plugin install distill`.'
+          : getErrorMessage(query.error)}
+      </div>
     );
   }
 
