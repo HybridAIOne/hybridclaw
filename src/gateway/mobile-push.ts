@@ -13,6 +13,7 @@
  * ring that phone.
  */
 
+import { randomUUID } from 'node:crypto';
 import type {
   MobilePushDevice,
   WebNotification,
@@ -23,6 +24,7 @@ import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { recordWorkPush, skipWorkNotification } from '../work/work-delivery.js';
+import { waitWhileAtComputer } from './computer-presence.js';
 import {
   deleteMobilePushDevice,
   mobilePushDeviceApp,
@@ -253,7 +255,8 @@ export async function sendMobilePush(
 
 /**
  * Alerts the phones of whoever opened `sessionId` in web chat that belong to
- * the app the chat was last used from.
+ * the app the chat was last used from. While that person is at a computer the
+ * alert waits (`computer-presence.ts`) and nothing counts as sent yet.
  */
 export async function notifySessionPhones(
   sessionId: string,
@@ -261,7 +264,24 @@ export async function notifySessionPhones(
 ): Promise<MobilePushResult> {
   if (!KIND_PATTERN.test(message.kind))
     throw new Error('Push kind must be a short lowercase identifier.');
-  return sendMobilePush(readSessionMobilePushDevices(sessionId), message);
+  const devices = readSessionMobilePushDevices(sessionId);
+  const send = () => sendMobilePush(devices, message);
+  if (
+    !waitWhileAtComputer(
+      webNotificationSessionOperator(sessionId),
+      `${sessionId}:${message.kind}:${randomUUID()}`,
+      { send },
+    )
+  )
+    return send();
+  const workId =
+    typeof message.data?.workId === 'string' ? message.data.workId : undefined;
+  skipWorkNotification(workId, 'at_computer');
+  return {
+    devices: devices.filter((device) => device.kinds.includes(message.kind))
+      .length,
+    sent: 0,
+  };
 }
 
 /**

@@ -96,6 +96,24 @@ with `--alert` rings with its listed items instead of as a reminder; one added
 with `--reply-only` too rings like a reminder of the alert's kind. The message
 read back carries `source`, `schedule:<id>` for a reply a task posted.
 
+### Quiet while you are at a computer
+
+Phones stay quiet while the owner uses a chat page on a computer. The console's
+chat page reports itself with `POST /api/push/presence`
+(`{"page": "<random id>", "active": true}`) every 30 seconds while it is visible
+and has had a key press or pointer movement in the last five minutes, and sends
+`"active": false` when it is hidden (a locked screen hides it), goes idle or
+closes. A page that stops reporting counts as away after 75 seconds. A console
+login speaks for the owner, so it quiets the phones the owner's own phone
+token registered; any other identity quiets only its own phones.
+
+While a page is in use, every phone alert waits: finished replies, approvals,
+reminders, `--alert` tasks and plugin alerts. Each is still recorded and shown
+in the browser. When the last page goes away, each waiting alert whose notice
+is still unread rings after all, because the phone's conversations are not
+always the ones the computer shows. One read in the meantime does not ring.
+Waiting alerts live in memory and are lost if the gateway restarts.
+
 Apple's signing key is not on the gateway. The gateway hands each alert to
 HybridAI (`POST /v1/push` on `hybridai.baseUrl`), authenticated with the
 configured HybridAI key; HybridAI signs it for the app the phone registered

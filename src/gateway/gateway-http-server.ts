@@ -511,6 +511,7 @@ import {
 import { TurnTailTimer } from './turn-tail-timing.js';
 import {
   handleWebNotificationRoute,
+  resolvePresenceOperator,
   resolveWebNotificationOperator,
 } from './web-notification-routes.js';
 import {
@@ -10771,7 +10772,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               });
               return;
             }
-            await handleWebNotificationRoute(req, res, pathname, operatorId);
+            await handleWebNotificationRoute(
+              req,
+              res,
+              pathname,
+              operatorId,
+              resolvePresenceOperator(authContext.kind, operatorId),
+            );
             return;
           }
           if (pathname === DEVICE_MESSAGE_PATH && method === 'GET') {

@@ -22,6 +22,7 @@ import {
   readStoredRuntimeSecrets,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { waitWhileAtComputer } from './computer-presence.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   phoneAssistantName,
@@ -173,7 +174,8 @@ export interface WebNotificationDelivery {
 
 /**
  * Records and broadcasts an alert. `phone: false` leaves the phone alert to
- * the caller, which gets the recorded notice back (null if none was new).
+ * the caller, which gets the recorded notice back (null if none was new). The
+ * phone alert waits while the owner is at a computer (`computer-presence.ts`).
  */
 export function notifyWebSession(
   sessionId: string,
@@ -201,12 +203,21 @@ export function notifyWebSession(
     ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
-    if (phone && delivery.state.preferences[kind] && delivery.devices.length)
-      void phoneAlert(notification)
-        .then((message) => sendMobilePush(delivery.devices, message))
-        .catch(() =>
+    if (phone && delivery.state.preferences[kind] && delivery.devices.length) {
+      const send = () =>
+        phoneAlert(notification).then((message) =>
+          sendMobilePush(delivery.devices, message),
+        );
+      if (
+        !waitWhileAtComputer(delivery.state.operatorId, notification.id, {
+          noticeId: notification.id,
+          send,
+        })
+      )
+        void send().catch(() =>
           logger.warn('Phone push unavailable; notification remains in chat'),
         );
+    }
     return {
       notification,
       state: delivery.state,
