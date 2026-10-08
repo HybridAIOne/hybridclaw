@@ -23,9 +23,10 @@ import {
 } from '../../session/session-key.js';
 import type { CanonicalSessionMessage, Session } from '../../types/session.js';
 import { createWorkSchema } from '../../work/work-schema.js';
+import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 72;
+export const DATABASE_SCHEMA_VERSION = 73;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -3665,6 +3666,7 @@ function migrateV62(
   database: Database.Database,
   opts?: InitDatabaseOptions,
 ): void {
+  // compat: remove after v0.41 — read only by 0.39.x binaries since v73.
   database.exec(`CREATE TABLE IF NOT EXISTS msteams_users (
     tenant_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -3773,6 +3775,26 @@ function migrateV67(
     });
   }
   recordMigration(database, 67, 'Persist emoji reactions on chat messages');
+}
+
+// The v62 Teams-only table becomes channel_users, keyed like usage_events.
+// compat: remove after v0.41 — this one-shot copy and msteams_users itself.
+// The table stays so a 0.39.x binary opening a v73 database (a rollback, or an
+// old gateway still running while a new CLI migrates) keeps serving Teams from
+// its frozen copy instead of failing every turn.
+function migrateV73(database: Database.Database): void {
+  database.transaction(() => {
+    createChannelUsersSchema(database);
+    database.exec(`INSERT OR IGNORE INTO channel_users
+      (channel_kind, tenant_id, user_id, display_name, email, agent_id,
+        profile_json, message_count, first_seen, last_seen)
+      SELECT 'msteams', tenant_id, user_id, display_name, email, agent_id,
+        json_patch('{}', json_object('teamsUserId', teams_user_id,
+          'entraObjectId', entra_object_id)),
+        message_count, first_seen, last_seen
+      FROM msteams_users`);
+    recordMigration(database, 73, 'Copy Teams users into channel_users');
+  })();
 }
 
 export function runMigrations(
@@ -4006,6 +4028,7 @@ export function runMigrations(
     });
     recordMigration(database, 72, 'Let an agent opt out of onboarding');
   }
+  if (currentVersion < 73) migrateV73(database);
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

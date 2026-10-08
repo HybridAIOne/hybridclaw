@@ -538,10 +538,11 @@ describe('response ratings', () => {
       '../src/agents/agent-registry.js'
     );
     initAgentRegistry({ list: [{ id: 'main', chatbotId: 'bot-agent' }] });
-    const { observeMSTeamsUser } = await import(
-      '../src/memory/msteams-users.js'
+    const { observeChannelUser } = await import(
+      '../src/memory/channel-users.js'
     );
-    observeMSTeamsUser({
+    observeChannelUser({
+      channelKind: 'msteams',
       tenantId: 'tenant-a',
       userId: 'entra-a',
       email: 'member@example.com',

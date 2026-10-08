@@ -14,6 +14,7 @@ import { HYBRIDAI_BASE_URL } from '../config/config.js';
 import { createUserActor } from '../identity/actor.js';
 import { formatLocalOwnerUserId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
+import { findChannelUserEmail } from '../memory/channel-users.js';
 import {
   clearResponseRating,
   getResponseRatingsForMessages,
@@ -21,7 +22,6 @@ import {
   type ResponseRatingTarget,
   upsertResponseRating,
 } from '../memory/db.js';
-import { findMSTeamsUserEmail } from '../memory/msteams-users.js';
 import { normalizeBaseUrl } from '../providers/utils.js';
 import { recordSkillFeedbackForObservation } from '../skills/skills-observation.js';
 import type { ResponseRatingValue } from '../types/session.js';
@@ -88,7 +88,7 @@ function resolveHybridAIChatFeedbackUserId(
 ): string {
   // Teams ids are opaque Entra object ids; reviewers need the member's email.
   if (sourceSurface !== 'msteams') return operatorUserId;
-  return findMSTeamsUserEmail(operatorUserId) || operatorUserId;
+  return findChannelUserEmail('msteams', operatorUserId) || operatorUserId;
 }
 
 function warnHybridAIChatFeedbackForwardingFailed(
