@@ -1412,6 +1412,8 @@ export interface GatewayAdminAgent {
   archived: boolean;
   extends: string | null;
   name: string | null;
+  /** Set by whoever installed the agent, such as HybridAI; `name` wins. */
+  displayName: string | null;
   emptyChatHeader: string | null;
   model: string | null;
   skills: string[] | null;

@@ -32,6 +32,7 @@ import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader } from '../components/ui';
 import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
+import { agentLabel } from '../lib/agent-label';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
 import { TunnelSettings } from './tunnel-settings';
@@ -40,7 +41,8 @@ const DEFAULT_PROXY_SECRET_ID = 'HYBRIDAI_API_KEY';
 const OFFICIAL_HYBRIDAI_BASE_URL = 'https://hybridai.one';
 
 function formatAgentLabel(agent: AdminAgent): string {
-  return agent.name ? `${agent.name} (${agent.id})` : agent.id;
+  const label = agentLabel(agent);
+  return label === agent.id ? agent.id : `${label} (${agent.id})`;
 }
 
 function formatHybridAIBotLabel(bot: AdminHybridAIBot): string {

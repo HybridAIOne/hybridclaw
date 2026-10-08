@@ -1703,6 +1703,7 @@ function mapGatewayAdminAgent(
     archived: resolved.archived === true,
     extends: resolved.extends || null,
     name: resolved.name || null,
+    displayName: resolved.displayName || null,
     emptyChatHeader: resolved.emptyChatHeader || null,
     model: resolveAgentModel(resolved) || null,
     skills: Array.isArray(resolved.skills) ? [...resolved.skills] : null,

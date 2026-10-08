@@ -16,6 +16,7 @@ import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { TabbedPage, TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { AGENT_TABS } from '../lib/admin-tabs';
+import { agentLabel } from '../lib/agent-label';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { logNavigationError } from '../lib/navigation';
@@ -199,7 +200,7 @@ export function AgentsHubPage() {
                       onChange={() => toggleArchiveSelection(agent.id)}
                     />
                     <span>
-                      <strong>{agent.name || agent.id}</strong>
+                      <strong>{agentLabel(agent)}</strong>
                       <small>{agent.id}</small>
                     </span>
                   </label>
@@ -216,7 +217,7 @@ export function AgentsHubPage() {
               <strong>Archived</strong>
               {archivedAgents.map((agent) => (
                 <div className="agents-archived-row" key={agent.id}>
-                  <span>{agent.name || agent.id}</span>
+                  <span>{agentLabel(agent)}</span>
                   <Button
                     size="sm"
                     variant="ghost"
