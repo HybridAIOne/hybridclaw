@@ -747,17 +747,19 @@ test('registers dream as a local slash/text command', async () => {
   ]);
 });
 
-test('maps bot clear and bot auto to the clear gateway command', async () => {
+test.each([
+  [['bot'], ['bot', 'info']],
+  [['bot', 'clear'], ['bot', 'clear']],
+  [['bot', 'auto'], ['bot', 'clear']],
+  [
+    ['bot', 'set', 'Research', 'Bot'],
+    ['bot', 'set', 'Research', 'Bot'],
+  ],
+  [['bot', 'research-bot'], ['bot', 'research-bot']],
+])('maps %j to gateway args %j', async (parts, expected) => {
   const { mapCanonicalCommandToGatewayArgs } = await importCommandRegistry();
 
-  expect(mapCanonicalCommandToGatewayArgs(['bot', 'clear'])).toEqual([
-    'bot',
-    'clear',
-  ]);
-  expect(mapCanonicalCommandToGatewayArgs(['bot', 'auto'])).toEqual([
-    'bot',
-    'clear',
-  ]);
+  expect(mapCanonicalCommandToGatewayArgs(parts)).toEqual(expected);
 });
 
 test('parses /plugin disable into gateway args', async () => {

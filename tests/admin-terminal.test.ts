@@ -1,6 +1,9 @@
+import fs from 'node:fs';
 import type { IncomingMessage } from 'node:http';
+import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
 
 type ExitHandler = (event: {
   exitCode: number | null | undefined;
@@ -61,7 +64,28 @@ class FakeWebSocket {
   }
 }
 
+// admin-terminal.ts loads node-pty through createRequire, which
+// vi.doMock('node-pty') does not reach, so the stub goes on node:module.
+function mockNodePty(load: () => unknown): void {
+  vi.doMock('node:module', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:module')>();
+    const createRequire = (from: string | URL) => {
+      const real = actual.createRequire(from);
+      return Object.assign(
+        (id: string) => (id === 'node-pty' ? load() : real(id)),
+        real,
+      );
+    };
+    return {
+      ...actual,
+      default: { ...actual.default, createRequire },
+      createRequire,
+    };
+  });
+}
+
 describe('admin terminal manager', () => {
+  const makeTempDir = useTempDir('hc-admin-terminal-');
   let spawnedPtys: FakePty[] = [];
   let nextWebSocket: FakeWebSocket | null = null;
 
@@ -78,7 +102,7 @@ describe('admin terminal manager', () => {
   });
 
   test('keeps exited sessions attachable until timeout and closes after replaying exit', async () => {
-    vi.doMock('node-pty', () => ({
+    mockNodePty(() => ({
       spawn: vi.fn(() => {
         const pty = new FakePty();
         spawnedPtys.push(pty);
@@ -105,7 +129,7 @@ describe('admin terminal manager', () => {
       '../src/gateway/admin-terminal.ts'
     );
     const manager = createAdminTerminalManager();
-    const started = manager.startSession();
+    const started = await manager.startSession();
     const pty = spawnedPtys[0];
     expect(pty).toBeDefined();
 
@@ -137,6 +161,59 @@ describe('admin terminal manager', () => {
       },
     ]);
     expect(ws.close).toHaveBeenCalledTimes(1);
+
+    manager.dispose();
+  });
+
+  test('a node-pty load failure fails only the session start, and the next start loads it again', async () => {
+    let built = false;
+    mockNodePty(() => {
+      if (!built) throw new Error('node-pty prebuild missing');
+      return { spawn: vi.fn(() => new FakePty()) };
+    });
+
+    const { createAdminTerminalManager } = await import(
+      '../src/gateway/admin-terminal.ts'
+    );
+    const manager = createAdminTerminalManager();
+
+    await expect(manager.startSession()).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    built = true;
+    await expect(manager.startSession()).resolves.toHaveProperty('sessionId');
+
+    manager.dispose();
+  });
+
+  test('restores the spawn-helper execute bit on the first session start, not on import', async () => {
+    const installRoot = makeTempDir();
+    const helperDir = path.join(
+      installRoot,
+      'node_modules',
+      'node-pty',
+      'prebuilds',
+      'darwin-arm64',
+    );
+    const helperPath = path.join(helperDir, 'spawn-helper');
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(helperPath, '');
+    fs.chmodSync(helperPath, 0o644);
+    fs.mkdirSync(path.join(installRoot, 'dist'));
+    fs.writeFileSync(path.join(installRoot, 'dist', 'cli.js'), '');
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallRoot: () => installRoot,
+    }));
+    mockNodePty(() => ({ spawn: vi.fn(() => new FakePty()) }));
+
+    const { createAdminTerminalManager } = await import(
+      '../src/gateway/admin-terminal.ts'
+    );
+    const manager = createAdminTerminalManager();
+    expect(fs.statSync(helperPath).mode & 0o111).toBe(0);
+
+    await manager.startSession();
+    expect(fs.statSync(helperPath).mode & 0o777).toBe(0o755);
 
     manager.dispose();
   });

@@ -8,9 +8,9 @@ import {
 } from '../src/channels/msteams/inbound.js';
 import { closeDatabase, initDatabase } from '../src/memory/database.js';
 import {
-  listMSTeamsUsers,
-  observeMSTeamsUser,
-} from '../src/memory/msteams-users.js';
+  listChannelUsers,
+  observeChannelUser,
+} from '../src/memory/channel-users.js';
 
 const getAgentById = vi.hoisted(() =>
   vi.fn((id: string) => (id === 'sales' ? { id, archived: false } : null)),
@@ -59,12 +59,12 @@ afterEach(() => {
 
 function observe(input: typeof activity) {
   const actor = extractActorIdentity(input as never);
-  observeMSTeamsUser({
+  observeChannelUser({
+    channelKind: 'msteams',
     tenantId: TENANT,
     userId: actor.userId,
-    teamsUserId: input.from.id,
-    entraObjectId: actor.aadObjectId,
     displayName: actor.displayName,
+    profile: { teamsUserId: input.from.id, entraObjectId: actor.aadObjectId },
     isMessage: true,
   });
   return actor;
@@ -97,9 +97,9 @@ test('the Entra object ID is the routing key, the stored identity, and the sessi
   expect(buildSessionIdFromActivity(activity as never, agentId)).toBe(
     `agent:sales:channel:msteams:chat:dm:peer:${ENTRA_ID}`,
   );
-  expect(listMSTeamsUsers('72F988BF-86F1-41AF-91AB-2D7CD011DB47')).toHaveLength(
-    1,
-  );
+  expect(
+    listChannelUsers('msteams', '72F988BF-86F1-41AF-91AB-2D7CD011DB47'),
+  ).toHaveLength(1);
 });
 
 test('a sender without aadObjectId falls back to the Teams ID as a separate identity', () => {
@@ -110,7 +110,7 @@ test('a sender without aadObjectId falls back to the Teams ID as a separate iden
   observe(withoutAad);
   observe(activity);
   expect(
-    listMSTeamsUsers(TENANT)
+    listChannelUsers('msteams', TENANT)
       .map((user) => user.userId)
       .sort(),
   ).toEqual([activity.from.id, ENTRA_ID].sort());

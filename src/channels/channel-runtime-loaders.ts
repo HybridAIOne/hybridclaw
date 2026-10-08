@@ -13,34 +13,7 @@
  * NOT a channel registry: it decides nothing about which channels start.
  */
 
-interface LazyModule<T> {
-  load(): Promise<T>;
-  current(): T | null;
-  // Joins a load already in flight; never starts one.
-  loadIfRequested(): Promise<T | null>;
-}
-
-function lazyModule<T>(importer: () => Promise<T>): LazyModule<T> {
-  let loaded: T | null = null;
-  let pending: Promise<T> | null = null;
-  return {
-    load: () => {
-      pending ??= importer().then(
-        (module) => {
-          loaded = module;
-          return module;
-        },
-        (error: unknown) => {
-          pending = null;
-          throw error;
-        },
-      );
-      return pending;
-    },
-    current: () => loaded,
-    loadIfRequested: async () => (pending ? await pending : null),
-  };
-}
+import { type LazyModule, lazyModule } from '../utils/lazy-module.js';
 
 interface ChannelRuntimeModule<T> extends LazyModule<T> {
   loadForStart(): Promise<T | null>;

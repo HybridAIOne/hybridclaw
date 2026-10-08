@@ -163,14 +163,19 @@ test.each([false, true])('agent switch starts BOOTSTRAP hatching and attributes 
   });
   ensureBootstrapFiles('research');
 
-  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
-    '../src/memory/msteams-users.ts'
+  const { observeChannelUser, listChannelUsers } = await import(
+    '../src/memory/channel-users.ts'
   );
   const { flushTokenUsageBuffer } = await import(
     '../src/usage/token-usage-buffer.ts'
   );
   for (const userId of ['user-1', 'user-2']) {
-    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+    observeChannelUser({
+      channelKind: 'msteams',
+      tenantId: 'tenant-a',
+      userId,
+      isMessage: false,
+    });
   }
   const sessionId = 'session-agent-switch-bootstrap';
   storeMessage(sessionId, 'user-1', 'user', 'user', 'previous turn', 'bob');
@@ -225,7 +230,7 @@ test.each([false, true])('agent switch starts BOOTSTRAP hatching and attributes 
   });
   await flushTokenUsageBuffer();
   const users = new Map(
-    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+    listChannelUsers('msteams', 'tenant-a').map((user) => [user.userId, user]),
   );
   expect(users.get('user-1')?.totalTokens).toBe(teams ? 15 : 0);
   expect(users.get('user-2')?.totalTokens).toBe(0);

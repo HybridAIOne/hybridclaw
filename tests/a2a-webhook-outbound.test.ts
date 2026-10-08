@@ -17,17 +17,15 @@ describe('A2A webhook outbound adapter', () => {
   test('queues webhook envelopes and delivers a signed canonical body', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'old-secret' });
 
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
 
     runtime.sendMessage(sampleA2AWebhookEnvelope('msg-webhook-1'), {
       peerDescriptor: {
@@ -35,7 +33,7 @@ describe('A2A webhook outbound adapter', () => {
         url: 'https://hooks.example.com/a2a',
         secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-webhook',
       auditRunId: 'run-webhook',
     });
@@ -141,16 +139,14 @@ describe('A2A webhook outbound adapter', () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const audit = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'shared-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
 
     runtime.sendMessage(sampleA2AWebhookEnvelope('msg-webhook-default-audit'), {
       peerDescriptor: {
@@ -158,7 +154,7 @@ describe('A2A webhook outbound adapter', () => {
         url: 'https://hooks.example.com/a2a',
         secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -205,14 +201,12 @@ describe('A2A webhook outbound adapter', () => {
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
 
     runtime.sendMessage(sampleA2AWebhookEnvelope('msg-missing-secret'), {
       peerDescriptor: {
@@ -220,7 +214,7 @@ describe('A2A webhook outbound adapter', () => {
         url: 'https://hooks.example.com/missing-secret',
         secretRef: { source: 'store', id: 'MISSING_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-webhook-missing-secret',
       auditRunId: 'run-webhook-missing-secret',
       escalationTarget: {
@@ -264,7 +258,6 @@ describe('A2A webhook outbound adapter', () => {
   test('processes due webhook deliveries with bounded concurrency', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
@@ -272,10 +265,9 @@ describe('A2A webhook outbound adapter', () => {
     secrets.saveNamedRuntimeSecrets({
       A2A_WEBHOOK_SECRET: 'concurrent-secret',
     });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
 
     for (const id of ['msg-c1', 'msg-c2', 'msg-c3', 'msg-c4']) {
       runtime.sendMessage(sampleA2AWebhookEnvelope(id), {
@@ -284,7 +276,7 @@ describe('A2A webhook outbound adapter', () => {
           url: `https://hooks.example.com/${id}`,
           secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
         },
-        transportRegistry: registry,
+        transportAdapters,
       });
     }
 
@@ -314,23 +306,21 @@ describe('A2A webhook outbound adapter', () => {
     vi.useFakeTimers({ now: new Date('2030-01-01T00:00:00.000Z') });
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'startup-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
     runtime.sendMessage(sampleA2AWebhookEnvelope('msg-startup-sweep'), {
       peerDescriptor: {
         transport: 'webhook',
         url: 'https://hooks.example.com/startup-sweep',
         secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -375,20 +365,18 @@ describe('A2A webhook outbound adapter', () => {
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'retry-secret' });
 
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({
         autoProcess: false,
         maxAttempts: 2,
       }),
-    );
+    };
 
     runtime.sendMessage(sampleA2AWebhookEnvelope('msg-retry'), {
       peerDescriptor: {
@@ -396,7 +384,7 @@ describe('A2A webhook outbound adapter', () => {
         url: 'https://hooks.example.com/retry',
         secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-webhook-retry',
       auditRunId: 'run-webhook-retry',
     });
@@ -433,7 +421,7 @@ describe('A2A webhook outbound adapter', () => {
         url: 'https://hooks.example.com/fail-fast',
         secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-webhook-fail',
       auditRunId: 'run-webhook-fail',
       escalationTarget: {

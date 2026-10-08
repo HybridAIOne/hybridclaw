@@ -1,13 +1,12 @@
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { emitPostTurnEvent } from '../src/agent/post-turn-events.js';
 import { flushAuditTrail } from '../src/audit/audit-trail.js';
 import { HYBRIDAI_MODEL } from '../src/config/config.js';
 import { getThreadGoal, setThreadGoal } from '../src/goals/goal-manager.js';
 import {
   clearScheduledGoalContinuation,
   GOAL_CONTINUATION_SOURCE,
-  registerGoalPostTurnSubscriber,
+  maybeContinueGoalAfterTurn,
   setGoalContinuationRunHandler,
 } from '../src/goals/goal-runtime.js';
 import {
@@ -52,7 +51,6 @@ beforeEach(() => {
   );
   vi.stubGlobal('fetch', fetchMock);
   setGoalContinuationRunHandler(async () => {});
-  registerGoalPostTurnSubscriber();
 });
 afterEach(flushAuditTrail);
 
@@ -96,8 +94,7 @@ test.each([
       targetAgentId: 'main',
     });
 
-    await emitPostTurnEvent({
-      type: 'post_turn',
+    await maybeContinueGoalAfterTurn({
       session: turnSession,
       req: {
         source: GOAL_CONTINUATION_SOURCE,
@@ -107,8 +104,6 @@ test.each([
         ...req,
       },
       result: { status: 'success', result: 'Drafted two sections.', toolsUsed: [] },
-      runId: 'turn-a',
-      createdAt: new Date().toISOString(),
     });
     clearScheduledGoalContinuation(session.id);
 
