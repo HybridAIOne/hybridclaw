@@ -15,6 +15,8 @@ import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
 import { updateWork } from '../work/work-store.js';
+import { waitWhileAtComputer } from './computer-presence.js';
+import { webNotificationSessionOperator } from './web-notification-store.js';
 import {
   notifyWebSession,
   type WebNotificationDelivery,
@@ -27,7 +29,8 @@ import {
  * lists none, so a phone never shows such a reply's raw list. With
  * `--reply-only` as well, the reply is a message written for the chat, so it
  * rings like a reminder of the alert's kind. Best effort: looked up after the
- * reply is stored, and a failure only loses the alert.
+ * reply is stored, and a failure only loses the alert. It waits while the
+ * owner is at a computer (`computer-presence.ts`).
  */
 async function alertPhones(
   delivery: WebNotificationDelivery | null,
@@ -150,19 +153,30 @@ export function deliverWebScheduledMessage(
     undefined,
     { phone: false },
   );
-  void alertPhones(
-    delivery,
-    source,
-    session.id,
-    session.agent_id,
-    text,
-    messageId,
-    workId,
+  const send = () =>
+    alertPhones(
+      delivery,
+      source,
+      session.id,
+      session.agent_id,
+      text,
+      messageId,
+      workId,
+    )
+      .then(() => skipWorkNotification(workId, 'not_requested'))
+      .catch(() => {
+        skipWorkNotification(workId, 'alert_unavailable');
+        logger.warn('Phone alert unavailable; the reply remains in chat');
+      });
+  const noticeId = delivery?.notification.id;
+  if (
+    waitWhileAtComputer(
+      delivery?.state.operatorId ?? webNotificationSessionOperator(session.id),
+      noticeId ?? `${session.id}:reminder:${messageId}`,
+      { noticeId, send },
+    )
   )
-    .then(() => skipWorkNotification(workId, 'not_requested'))
-    .catch(() => {
-      skipWorkNotification(workId, 'alert_unavailable');
-      logger.warn('Phone alert unavailable; the reply remains in chat');
-    });
+    skipWorkNotification(workId, 'at_computer');
+  else void send();
   return { status: 'delivered' };
 }

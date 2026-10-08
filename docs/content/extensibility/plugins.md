@@ -335,8 +335,10 @@ session an app sends the plugin's command from. Only phones that registered
 session was last chatted in from. `title` and `body` show on the lock
 screen; `data` holds flat keys delivered next to `aps` for the app to route
 by. The result counts the phones that take `kind` (`devices`) and those the
-alert reached APNs for (`sent`). The gateway does not deduplicate plugin
-alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
+alert reached APNs for (`sent`). While the owner is at a computer the alert
+waits and `sent` is 0; it rings when they leave
+([Quiet while you are at a computer](../guides/web-notifications.md#quiet-while-you-are-at-a-computer)).
+The gateway does not deduplicate plugin alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
 
 ### Tools that read or write media
 
