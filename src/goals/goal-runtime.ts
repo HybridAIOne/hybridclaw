@@ -1,7 +1,3 @@
-import {
-  type PostTurnEvent,
-  subscribePostTurnEvents,
-} from '../agent/post-turn-events.js';
 import { hasPendingApproval } from '../gateway/fullauto-runtime.js';
 import type {
   GatewayChatRequest,
@@ -48,7 +44,6 @@ const goalContinuationBySession = new Map<
 
 let runGoalContinuationHandler: ((sessionId: string) => Promise<void>) | null =
   null;
-let goalPostTurnSubscriberRegistered = false;
 
 export function setGoalContinuationRunHandler(
   handler: (sessionId: string) => Promise<void>,
@@ -140,19 +135,6 @@ export function finishGoalContinuationRun(sessionId: string): void {
 
 export function isGoalContinuationRunning(sessionId: string): boolean {
   return goalContinuationBySession.get(sessionId)?.running === true;
-}
-
-export function registerGoalPostTurnSubscriber(): void {
-  if (goalPostTurnSubscriberRegistered) return;
-  goalPostTurnSubscriberRegistered = true;
-  subscribePostTurnEvents(async (event: PostTurnEvent) => {
-    await maybeContinueGoalAfterTurn({
-      session: event.session,
-      req: event.req,
-      channelType: event.channelType,
-      result: event.result,
-    });
-  });
 }
 
 export function clearScheduledGoalContinuation(sessionId: string): void {

@@ -51,8 +51,6 @@ export {
 } from './delegation-token.js';
 
 export class A2AOutboundAdapter implements TransportAdapter<A2AOutboxItem> {
-  readonly transport = 'a2a' as const;
-
   constructor(private readonly opts: A2AOutboundAdapterOptions = {}) {}
 
   encode(

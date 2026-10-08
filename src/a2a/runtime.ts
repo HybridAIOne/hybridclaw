@@ -20,7 +20,7 @@ import {
 } from './store.js';
 import {
   encodeForRegisteredTransport,
-  type TransportRegistry,
+  type TransportAdapters,
   TransportRegistryError,
 } from './transport-registry.js';
 
@@ -52,7 +52,7 @@ export interface A2ASendMessageMeta {
   actor?: string;
   auditRole?: 'sender' | 'receiver';
   peerDescriptor?: unknown;
-  transportRegistry?: TransportRegistry;
+  transportAdapters?: TransportAdapters;
   sessionId?: string;
   auditRunId?: string;
   escalationTarget?: EscalationTarget;
@@ -158,7 +158,7 @@ export function sendMessage(
       encodeForRegisteredTransport({
         envelope: normalizedEnvelope,
         peerDescriptor,
-        registry: meta?.transportRegistry,
+        adapters: meta?.transportAdapters,
         sessionId: meta?.sessionId,
         runId: meta?.auditRunId,
         escalationTarget: meta?.escalationTarget,

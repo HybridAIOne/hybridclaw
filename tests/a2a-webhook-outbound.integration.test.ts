@@ -44,15 +44,13 @@ describe('A2A webhook outbound integration', () => {
   test('stub receiver rejects old signatures after rotation and accepts new envelopes', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
     let receiverSecret = 'old-secret';
     const received: Array<{
       id: string;
@@ -91,7 +89,7 @@ describe('A2A webhook outbound integration', () => {
       secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'old-secret' });
       runtime.sendMessage(sampleA2AWebhookEnvelope('msg-old-secret'), {
         peerDescriptor,
-        transportRegistry: registry,
+        transportAdapters,
       });
 
       await expect(webhook.processWebhookOutbox()).resolves.toMatchObject({
@@ -122,7 +120,7 @@ describe('A2A webhook outbound integration', () => {
 
       runtime.sendMessage(sampleA2AWebhookEnvelope('msg-new-secret'), {
         peerDescriptor,
-        transportRegistry: registry,
+        transportAdapters,
       });
 
       await expect(webhook.processWebhookOutbox()).resolves.toMatchObject({

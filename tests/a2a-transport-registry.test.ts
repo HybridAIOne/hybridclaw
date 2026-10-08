@@ -1,21 +1,19 @@
 import { describe, expect, test } from 'vitest';
 import { a2aOutboundAdapter } from '../src/a2a/a2a-outbound.ts';
-import { validateA2AEnvelope } from '../src/a2a/envelope.ts';
+import { type A2AEnvelope, validateA2AEnvelope } from '../src/a2a/envelope.ts';
 import {
   normalizePeerDescriptor,
   PeerDescriptorValidationError,
 } from '../src/a2a/peer-descriptor.ts';
 import {
-  createDefaultTransportRegistry,
   encodeForRegisteredTransport,
   internalTransportAdapter,
-  type TransportAdapter,
+  resolveTransportAdapter,
 } from '../src/a2a/transport-registry.ts';
 import { webhookOutboundAdapter } from '../src/a2a/webhook-outbound.ts';
 
 describe('A2A transport adapter registry', () => {
   test('resolves the default internal adapter and preserves envelope shape', () => {
-    const registry = createDefaultTransportRegistry();
     const envelope = validateA2AEnvelope({
       id: 'msg-1',
       sender_agent_id: 'main',
@@ -26,43 +24,51 @@ describe('A2A transport adapter registry', () => {
       created_at: '2026-05-01T10:00:00.000Z',
     });
 
-    const { adapter, descriptor } = registry.resolve({
-      transport: 'internal',
-      agent_id: 'writer',
-    });
+    const adapter = resolveTransportAdapter(
+      normalizePeerDescriptor({ transport: 'internal', agent_id: 'writer' }),
+    );
 
     expect(adapter).toBe(internalTransportAdapter);
-    expect(descriptor).toEqual({
-      transport: 'internal',
-      agentId: 'writer',
-    });
     expect(adapter?.encode(envelope)).toEqual(envelope);
     expect(adapter?.decode(envelope)).toEqual(envelope);
   });
 
-  test('resolves default outbound adapters and falls through unknown transports', () => {
-    const registry = createDefaultTransportRegistry();
+  test.each([
+    [
+      {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
+      },
+      a2aOutboundAdapter,
+    ],
+    [
+      {
+        transport: 'webhook',
+        url: 'https://hooks.example.com/a2a',
+        secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
+      },
+      webhookOutboundAdapter,
+    ],
+    [{ transport: 'smtp' }, null],
+    [{ transport: 'constructor' }, null],
+  ])('resolves the default adapter for %j', (descriptor, expected) => {
+    expect(resolveTransportAdapter(normalizePeerDescriptor(descriptor))).toBe(
+      expected,
+    );
+  });
 
-    const a2a = registry.resolve({
-      transport: 'a2a',
-      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
-    });
-    const unknown = registry.resolve({ transport: 'smtp' });
-
-    expect(a2a.adapter).toBe(a2aOutboundAdapter);
-    expect(a2a.descriptor).toEqual({
-      transport: 'a2a',
-      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
-    });
-    expect(unknown.adapter).toBeNull();
-    expect(unknown.descriptor).toEqual({
-      transport: 'smtp',
-      raw: { transport: 'smtp' },
-    });
-    expect(registry.resolveByTransport('a2a')).toBe(a2aOutboundAdapter);
-    expect(registry.resolveByTransport('webhook')).toBe(webhookOutboundAdapter);
+  test('does not fall back to defaults for transports missing from an injected record', () => {
+    expect(
+      resolveTransportAdapter(
+        normalizePeerDescriptor({
+          transport: 'a2a',
+          agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+          bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
+        }),
+        { internal: internalTransportAdapter },
+      ),
+    ).toBeNull();
   });
 
   test('rejects malformed peer descriptors before adapter resolution', () => {
@@ -213,25 +219,11 @@ describe('A2A transport adapter registry', () => {
     ).toThrow(/version must be 1/);
   });
 
-  test('normalizes registered adapter transport keys', () => {
-    const registry = createDefaultTransportRegistry();
-    const adapter = {
-      ...internalTransportAdapter,
-      transport: ' Internal ',
-    } as unknown as TransportAdapter;
-
-    registry.register(adapter);
-
-    expect(registry.resolveByTransport('internal')).toBe(adapter);
-    expect(registry.resolveByTransport(' INTERNAL ')).toBe(adapter);
-  });
-
   test('invokes registered non-internal adapters and returns the canonical envelope', () => {
-    const registry = createDefaultTransportRegistry();
     let encodeCalled = false;
-    registry.register({
-      transport: 'a2a',
-      encode(envelope) {
+    const adapters = {
+      a2a: {
+        encode(envelope: A2AEnvelope) {
         encodeCalled = true;
         return {
           jsonrpc: '2.0',
@@ -239,10 +231,11 @@ describe('A2A transport adapter registry', () => {
           params: envelope,
         };
       },
-      decode() {
-        return envelope;
+        decode() {
+          return envelope;
+        },
       },
-    });
+    };
     const envelope = validateA2AEnvelope({
       id: 'msg-remote',
       sender_agent_id: 'main',
@@ -261,7 +254,7 @@ describe('A2A transport adapter registry', () => {
           agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
           bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
         },
-        registry,
+        adapters,
       }),
     ).toEqual(envelope);
     expect(encodeCalled).toBe(true);

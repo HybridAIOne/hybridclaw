@@ -15,10 +15,10 @@ import {
 } from './envelope.js';
 import {
   type A2APeerTransport,
+  isKnownPeerDescriptor,
   normalizePeerDescriptor,
   type PeerDescriptor,
 } from './peer-descriptor.js';
-import { A2A_TRANSPORT_PATTERN, normalizeTransportString } from './utils.js';
 import { webhookOutboundAdapter } from './webhook-outbound.js';
 
 export interface TransportAdapterContext {
@@ -28,7 +28,6 @@ export interface TransportAdapterContext {
 }
 
 export interface TransportAdapter<WirePayload = unknown> {
-  readonly transport: A2APeerTransport;
   encode(
     envelope: A2AEnvelope,
     descriptor?: PeerDescriptor,
@@ -37,55 +36,21 @@ export interface TransportAdapter<WirePayload = unknown> {
   decode(payload: WirePayload, descriptor?: PeerDescriptor): A2AEnvelope;
 }
 
+export type TransportAdapters = Partial<
+  Record<A2APeerTransport, TransportAdapter>
+>;
+
 export class TransportRegistryError extends Error {
   readonly transport: string;
 
-  constructor(
-    transport: string,
-    message = `No A2A transport adapter registered for "${transport}".`,
-  ) {
-    super(message);
+  constructor(transport: string) {
+    super(`No A2A transport adapter registered for "${transport}".`);
     this.name = 'TransportRegistryError';
     this.transport = transport;
   }
 }
 
-function normalizeAdapterTransport(transport: string): string {
-  const normalized = normalizeTransportString(transport);
-  if (!A2A_TRANSPORT_PATTERN.test(normalized)) {
-    throw new TransportRegistryError(
-      normalized || '<empty>',
-      'A2A transport adapter keys must match /^[a-z][a-z0-9._-]{0,63}$/ after trimming and lowercasing.',
-    );
-  }
-  return normalized;
-}
-
-export class TransportRegistry {
-  private readonly adapters = new Map<string, TransportAdapter>();
-
-  register(adapter: TransportAdapter): void {
-    this.adapters.set(normalizeAdapterTransport(adapter.transport), adapter);
-  }
-
-  resolveByTransport(transport: string): TransportAdapter | null {
-    return this.adapters.get(normalizeAdapterTransport(transport)) ?? null;
-  }
-
-  resolve(descriptor: unknown): {
-    adapter: TransportAdapter | null;
-    descriptor: ReturnType<typeof normalizePeerDescriptor>;
-  } {
-    const normalizedDescriptor = normalizePeerDescriptor(descriptor);
-    return {
-      adapter: this.resolveByTransport(normalizedDescriptor.transport),
-      descriptor: normalizedDescriptor,
-    };
-  }
-}
-
 export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
-  transport: 'internal',
   encode(envelope) {
     return envelope;
   },
@@ -94,15 +59,20 @@ export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
   },
 };
 
-export function createDefaultTransportRegistry(): TransportRegistry {
-  const registry = new TransportRegistry();
-  registry.register(internalTransportAdapter);
-  registry.register(a2aOutboundAdapter);
-  registry.register(webhookOutboundAdapter);
-  return registry;
-}
+export const DEFAULT_TRANSPORT_ADAPTERS: TransportAdapters = {
+  internal: internalTransportAdapter,
+  a2a: a2aOutboundAdapter,
+  webhook: webhookOutboundAdapter,
+};
 
-const defaultTransportRegistry = createDefaultTransportRegistry();
+export function resolveTransportAdapter(
+  descriptor: PeerDescriptor,
+  adapters: TransportAdapters = DEFAULT_TRANSPORT_ADAPTERS,
+): TransportAdapter | null {
+  return isKnownPeerDescriptor(descriptor)
+    ? (adapters[descriptor.transport] ?? null)
+    : null;
+}
 
 export interface TransportEscalationAuditInput {
   envelope: A2AEnvelope;
@@ -258,14 +228,14 @@ export function recordTransportEscalationAudit(
 export function encodeForRegisteredTransport(params: {
   envelope: unknown;
   peerDescriptor?: unknown;
-  registry?: TransportRegistry;
+  adapters?: TransportAdapters;
   sessionId?: string;
   runId?: string;
   escalationTarget?: EscalationTarget;
 }): A2AEnvelope {
   const normalizedEnvelope = validateA2AEnvelope(params.envelope);
-  const registry = params.registry || defaultTransportRegistry;
-  const { adapter, descriptor } = registry.resolve(params.peerDescriptor);
+  const descriptor = normalizePeerDescriptor(params.peerDescriptor);
+  const adapter = resolveTransportAdapter(descriptor, params.adapters);
   if (!adapter) {
     recordTransportEscalationAudit({
       envelope: normalizedEnvelope,

@@ -34,14 +34,12 @@ describe('A2A outbound adapter', () => {
     );
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     const descriptor = {
       transport: 'a2a',
@@ -51,7 +49,7 @@ describe('A2A outbound adapter', () => {
 
     runtime.sendMessage(sampleA2AEnvelope('msg-a2a-1'), {
       peerDescriptor: descriptor,
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-a2a-outbound',
       auditRunId: 'run-a2a-outbound',
     });
@@ -208,7 +206,7 @@ describe('A2A outbound adapter', () => {
 
     runtime.sendMessage(sampleA2AEnvelope('msg-a2a-2'), {
       peerDescriptor: descriptor,
-      transportRegistry: registry,
+      transportAdapters,
     });
     fetchImpl.mockImplementation(
       async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -245,19 +243,17 @@ describe('A2A outbound adapter', () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const audit = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     runtime.sendMessage(sampleA2AEnvelope('msg-a2a-default-audit'), {
       peerDescriptor: {
         transport: 'a2a',
         url: 'http://127.0.0.1:65535/a2a',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     const fetchImpl = vi.fn(
@@ -452,14 +448,12 @@ describe('A2A outbound adapter', () => {
   test('requires a JSON-RPC response body for tasks/send', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     runtime.sendMessage(sampleA2AEnvelope('msg-empty-task', 'handoff'), {
       peerDescriptor: {
@@ -467,7 +461,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -492,14 +486,12 @@ describe('A2A outbound adapter', () => {
   test('validates Agent Card delivery URLs before caching or sending', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     runtime.sendMessage(sampleA2AEnvelope('msg-bad-card-url'), {
       peerDescriptor: {
@@ -507,7 +499,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -532,13 +524,11 @@ describe('A2A outbound adapter', () => {
     );
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const peerKey = publicKeyJwk();
     const requests: Array<{
       method: string;
@@ -573,7 +563,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         expectPublicKey: true,
       },
-      transportRegistry: registry,
+      transportAdapters,
       auditRunId: 'run-a2a-tofu',
     });
 
@@ -605,22 +595,20 @@ describe('A2A outbound adapter', () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtimeConfig = await import('../src/config/runtime-config.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const peerKey = publicKeyJwk();
     initDatabase({ quiet: true });
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.deployment.a2a_e2ee_required = true;
     });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     runtime.sendMessage(sampleA2AEnvelope('msg-e2ee-required'), {
       peerDescriptor: {
         transport: 'a2a',
         agentCardUrl: 'https://legacy.example.com/.well-known/agent.json',
         expectPublicKey: true,
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
     const fetchImpl = vi.fn(async () =>
       Response.json({
@@ -649,13 +637,11 @@ describe('A2A outbound adapter', () => {
   test('resolves canonical A2A peer destinations through identity discovery', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const peerKey = publicKeyJwk();
     const resolver = {
       resolve: vi.fn(async (canonicalId: string) => {
@@ -700,7 +686,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -729,13 +715,11 @@ describe('A2A outbound adapter', () => {
   test('uses the default A2A resolver for trusted canonical peers', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const peerKey = publicKeyJwk();
     trust.upsertA2ATrustedPublicKeyPeer({
       peerId: 'peer-instance',
@@ -769,7 +753,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
@@ -791,13 +775,11 @@ describe('A2A outbound adapter', () => {
   test('fails unresolved queued messages fast when canonical peer trust was revoked', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     trust.upsertA2ATrustedPublicKeyPeer({
       peerId: 'peer-instance',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
@@ -811,7 +793,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(a2a.processA2AOutbox()).resolves.toMatchObject({
@@ -830,12 +812,10 @@ describe('A2A outbound adapter', () => {
     );
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const peerKey = publicKeyJwk();
 
     runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer-retry'), {
@@ -843,7 +823,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-resolved-peer-retry',
     });
 
@@ -898,12 +878,10 @@ describe('A2A outbound adapter', () => {
     );
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const resolverKey = publicKeyJwk();
     const cardKey = publicKeyJwk();
 
@@ -912,7 +890,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-resolved-peer-mismatch',
     });
 
@@ -962,12 +940,10 @@ describe('A2A outbound adapter', () => {
   test('rejects malformed resolved public key fingerprints before mismatch checks', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const cardKey = publicKeyJwk();
 
     runtime.sendMessage(sampleA2AEnvelope('msg-resolved-peer-bad-key'), {
@@ -975,7 +951,7 @@ describe('A2A outbound adapter', () => {
         transport: 'a2a',
         canonicalId: 'remote@team@peer-instance',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     await expect(
@@ -1015,12 +991,10 @@ describe('A2A outbound adapter', () => {
     );
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const firstPeerKey = publicKeyJwk();
     const secondPeerKey = publicKeyJwk();
     let currentPeerKey = firstPeerKey;
@@ -1046,7 +1020,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         expectPublicKey: true,
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
     await expect(
       a2a.processA2AOutbox({
@@ -1065,7 +1039,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         expectPublicKey: true,
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-a2a-mismatch',
     });
     await expect(
@@ -1097,19 +1071,17 @@ describe('A2A outbound adapter', () => {
   test('requires bearer auth based on the resolved delivery URL', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     runtime.sendMessage(sampleA2AEnvelope('msg-remote-delivery-no-auth'), {
       peerDescriptor: {
         transport: 'a2a',
         agentCardUrl: 'http://127.0.0.1:8787/.well-known/agent.json',
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
 
     let agentCardAuthorization = '';
@@ -1215,7 +1187,6 @@ describe('A2A outbound adapter', () => {
   test('keys Agent Card cache by auth context', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
@@ -1224,8 +1195,7 @@ describe('A2A outbound adapter', () => {
       A2A_PEER_TOKEN_A: 'peer-secret-a',
       A2A_PEER_TOKEN_B: 'peer-secret-b',
     });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
     const agentCardUrl = 'https://peer.example.com/.well-known/agent.json';
     const requests: Array<{ url: string; method: string; body: string }> = [];
     let cardFetches = 0;
@@ -1254,7 +1224,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl,
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN_A' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
     await a2a.processA2AOutbox({ fetchImpl });
 
@@ -1264,7 +1234,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl,
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN_B' },
       },
-      transportRegistry: registry,
+      transportAdapters,
     });
     await a2a.processA2AOutbox({ fetchImpl });
 
@@ -1337,14 +1307,12 @@ describe('A2A outbound adapter', () => {
     const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ maxAttempts: 2 }));
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter({ maxAttempts: 2 }) };
 
     runtime.sendMessage(sampleA2AEnvelope('msg-retry'), {
       peerDescriptor: {
@@ -1352,7 +1320,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-a2a-retry',
     });
 
@@ -1395,7 +1363,7 @@ describe('A2A outbound adapter', () => {
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
         bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       },
-      transportRegistry: registry,
+      transportAdapters,
       sessionId: 'session-a2a-fail',
       auditRunId: 'run-a2a-fail',
       escalationTarget: {
