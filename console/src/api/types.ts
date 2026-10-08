@@ -1231,6 +1231,8 @@ export interface AdminAgent {
   /** Parent agent whose settings fill in fields this agent leaves unset. */
   extends: string | null;
   name: string | null;
+  /** Set by whoever installed the agent, such as HybridAI. Older gateways omit it. */
+  displayName?: string | null;
   emptyChatHeader?: string | null;
   model: string | null;
   skills: string[] | null;

@@ -32,6 +32,7 @@ import {
 } from '../components/native-select';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
+import { agentLabel } from '../lib/agent-label';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -304,7 +305,7 @@ export function AgentFilesPage(
       hydratedContentRef.current = payload.file.content;
       setDraftContent(payload.file.content);
       toast.success(
-        `Saved ${payload.file.name} for ${payload.agent.name || payload.agent.id}.`,
+        `Saved ${payload.file.name} for ${agentLabel(payload.agent)}.`,
       );
     },
     onError: (error) => {
@@ -418,7 +419,7 @@ export function AgentFilesPage(
                   >
                     {selectableAgents.map((agent) => (
                       <NativeSelectOption key={agent.id} value={agent.id}>
-                        {agent.name || agent.id}
+                        {agentLabel(agent)}
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>

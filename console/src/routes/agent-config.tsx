@@ -35,6 +35,7 @@ import { Input } from '../components/input';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { useToast } from '../components/toast';
 import { SegmentedToggle } from '../components/ui';
+import { agentLabel } from '../lib/agent-label';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './agent-config.module.css';
@@ -113,7 +114,7 @@ function AgentOverview(props: {
           type="button"
           onClick={() => props.onSelect(agent.id)}
         >
-          <strong>{agent.name || agent.id}</strong>
+          <strong>{agentLabel(agent)}</strong>
           <code>{agent.id}</code>
           <span className="supporting-text">
             {agent.model || 'default model'}
@@ -226,7 +227,7 @@ export function AgentConfigPage(props: {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
       setDraftAgentId(saved.id);
       setDraft(toDraft(saved));
-      toast.success('Agent saved', `${saved.name || saved.id} updated.`);
+      toast.success('Agent saved', `${agentLabel(saved)} updated.`);
     },
     onError: (error) => {
       toast.error('Save failed', getErrorMessage(error));
@@ -291,7 +292,7 @@ export function AgentConfigPage(props: {
             <FieldLabel>Display name</FieldLabel>
             <Input
               value={draft.name}
-              placeholder={agent.id}
+              placeholder={agent.displayName || agent.id}
               onChange={(event) =>
                 setDraft({ ...draft, name: event.target.value })
               }
@@ -329,7 +330,7 @@ export function AgentConfigPage(props: {
                 .filter((entry) => entry.id !== agent.id && !entry.extends)
                 .map((entry) => (
                   <NativeSelectOption key={entry.id} value={entry.id}>
-                    {entry.name || entry.id}
+                    {agentLabel(entry)}
                   </NativeSelectOption>
                 ))}
             </NativeSelect>
@@ -452,7 +453,7 @@ export function AgentConfigPage(props: {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {agent.name || agent.id}</DialogTitle>
+            <DialogTitle>Delete {agentLabel(agent)}</DialogTitle>
             <DialogDescription>
               Sessions keep their history, but the agent disappears from every
               selector and can no longer be addressed. Type the agent id to

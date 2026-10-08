@@ -125,6 +125,16 @@ describe('AgentConfigPage', () => {
     expect(screen.getByText('all tools')).toBeTruthy();
   });
 
+  it('names an agent by its installer display name when it has no own name', async () => {
+    fetchAdminAgentsMock.mockResolvedValue([
+      makeAgent({ id: 'custom', name: null, displayName: 'Ela' }),
+    ]);
+    renderWithProviders(<AgentConfigPage onAgentChange={() => {}} />);
+
+    expect(await screen.findByText('Ela')).toBeTruthy();
+    expect(screen.getByText('custom')).toBeTruthy();
+  });
+
   it('starts empty when restricting and adds entries via the palette', async () => {
     updateAdminAgentMock.mockResolvedValue(makeAgent({ tools: ['read'] }));
     renderWithProviders(
