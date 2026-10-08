@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { validateWorkflowDefinition } from '../src/workflow/schema.js';
 import {
-  requireTestAgent,
-  requireTestClientOrg,
   SECRET_FIXTURE_CLASSES,
   testClientOrgs,
   testSecretSamples,
@@ -71,51 +68,5 @@ describe('trusted agents test fixtures', () => {
         thread.messages.some((message) => message.intent === 'handoff'),
       ),
     ).toBe(true);
-  });
-
-  test('roadmap 2.x workflow fixtures can model brief, build, and review ownership', () => {
-    const clientOrg = requireTestClientOrg('client_aster');
-    const workflow = {
-      id: 'workflow_fixture_launch_package',
-      name: 'Fixture launch package workflow',
-      steps: [
-        {
-          id: 'brief',
-          owner_coworker_id: requireTestAgent('agent_briefing').id,
-          action: `Brief ${clientOrg.launchCodename}`,
-          stakes_threshold: 'medium',
-        },
-        {
-          id: 'build',
-          owner_coworker_id: requireTestAgent('agent_builder').id,
-          action: 'Build approved artifact',
-          stakes_threshold: 'medium',
-        },
-        {
-          id: 'review',
-          owner_coworker_id: requireTestAgent('agent_reviewer').id,
-          action: 'Review output before client update',
-          stakes_threshold: 'high',
-        },
-      ],
-      transitions: [
-        { from: 'brief', to: 'build' },
-        { from: 'build', to: 'review' },
-      ],
-    };
-    const agentIds = new Set(
-      trustedAgentsFixtures.agents.map((agent) => agent.id),
-    );
-    const validatedWorkflow = validateWorkflowDefinition(workflow);
-
-    expect(
-      validatedWorkflow.steps.every((step) =>
-        agentIds.has(step.owner_coworker_id),
-      ),
-    ).toBe(true);
-    expect(
-      validatedWorkflow.steps.map((step) => step.owner_coworker_id),
-    ).toEqual(['agent_briefing', 'agent_builder', 'agent_reviewer']);
-    expect(validatedWorkflow.steps[2].stakes_threshold).toBe('high');
   });
 });

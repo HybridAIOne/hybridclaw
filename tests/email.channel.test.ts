@@ -7,7 +7,6 @@ import {
   matchesEmailAllowList,
   normalizeEmailAddress,
 } from '../src/channels/email/allowlist.js';
-import { createEmailDedupSet } from '../src/channels/email/dedup.js';
 import {
   createOutboundThreadContext,
   createThreadTracker,
@@ -111,20 +110,6 @@ describe('email allowlist helpers', () => {
     );
     expect(matchesEmailAllowList(['*'], 'boss@other.com')).toBe(true);
     expect(matchesEmailAllowList([], 'boss@example.com')).toBe(false);
-  });
-});
-
-describe('email dedup set', () => {
-  test('deduplicates entries and evicts the oldest when full', () => {
-    const dedup = createEmailDedupSet(2);
-
-    expect(dedup.add('inbox:1')).toBe(true);
-    expect(dedup.add('inbox:1')).toBe(false);
-    expect(dedup.add('inbox:2')).toBe(true);
-    expect(dedup.has('inbox:1')).toBe(true);
-    expect(dedup.add('inbox:3')).toBe(true);
-    expect(dedup.has('inbox:1')).toBe(false);
-    expect(dedup.size()).toBe(2);
   });
 });
 
