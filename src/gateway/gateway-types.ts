@@ -1168,20 +1168,6 @@ export interface GatewayAdminChannelsResponse {
   channels: GatewayAdminChannel[];
 }
 
-export type GatewayAdminChannelUpsertRequest =
-  | {
-      transport?: 'discord';
-      guildId: string;
-      channelId: string;
-      config: RuntimeDiscordChannelConfig;
-    }
-  | {
-      transport: 'msteams';
-      guildId: string;
-      channelId: string;
-      config: RuntimeMSTeamsChannelConfig;
-    };
-
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
@@ -1294,15 +1280,6 @@ export interface GatewayAdminFleetTopologyInstance {
 export interface GatewayAdminFleetTopologyResponse {
   hq: GatewayAdminFleetTopologyHq;
   instances: GatewayAdminFleetTopologyInstance[];
-}
-
-export interface GatewayAdminFleetTopologyUpsertRequest {
-  peerId?: unknown;
-  agentCardUrl?: unknown;
-  deliveryUrl?: unknown;
-  publicKeyFingerprint?: unknown;
-  publicKeyJwk?: unknown;
-  reason?: unknown;
 }
 
 export interface GatewayAdminA2APairingRequest

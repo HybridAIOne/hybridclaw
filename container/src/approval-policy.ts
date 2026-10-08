@@ -10,6 +10,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
 import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
+import type { BoostAnswer } from '../shared/boost-offer.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
   type BrowserStealthPolicyAccessEvaluation,
@@ -217,6 +218,8 @@ export interface ApprovalPrelude {
   approvedToolCall?: {
     toolName: string;
     argsJson: string;
+    /** The user's boost answer the repeated call carries (`boost-offers.ts`). */
+    boost?: BoostAnswer;
   };
   approvalMode?: ApprovalMode;
   approvedRequestId?: string;
@@ -901,7 +904,7 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
   };
 }
 
-function latestUserMessageText(messages: ChatMessage[]): string {
+export function latestUserMessageText(messages: ChatMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (messages[i].role !== 'user') continue;
     const content = messages[i].content;
@@ -1372,7 +1375,7 @@ function parseApprovalDirective(input: string): {
   return null;
 }
 
-function parseApprovalUserResponse(input: string): {
+export function parseApprovalUserResponse(input: string): {
   kind: 'approve' | 'deny';
   mode?: ApprovalMode;
   requestId: string;

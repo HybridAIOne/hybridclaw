@@ -291,3 +291,23 @@ test('commands carry the claims of a scoped caller and nothing for an unscoped o
   ).toBe(true);
   expect(isAdminActionClaimed(['*'], 'admin.config.write')).toBe(true);
 });
+
+test.each([
+  ['/api/admin/channels', 'GET', 'admin.channels.read'],
+  ['/api/admin/channels', 'PUT', null],
+  ['/api/admin/channels', 'DELETE', null],
+  ['/api/admin/fleet-topology', 'GET', 'admin.fleet.read'],
+  ['/api/admin/fleet-topology', 'POST', null],
+  ['/api/admin/fleet-topology', 'PUT', null],
+  ['/api/admin/fleet-topology', 'DELETE', null],
+])('read-only admin route %s %s maps to %s', (pathname, method, action) => {
+  expect(resolveAdminRbacAction(pathname, method)).toBe(action);
+});
+
+test('stored claims naming retired actions grant nothing', () => {
+  const payload = {
+    actions: ['admin.channels.delete', 'admin.fleet.write', 'admin.fleet.delete'],
+  };
+  expect(isAdminActionAllowed(payload, 'admin.channels.read')).toBe(false);
+  expect(isAdminActionAllowed(payload, 'admin.fleet.read')).toBe(false);
+});

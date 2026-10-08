@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { expect, test } from 'vitest';
 import {
-  expandSkillInvocation,
+  expandResolvedSkillInvocation,
   resolveObservedSkillName,
   resolveSkillInvocationForTurn,
   type Skill,
@@ -11,6 +11,12 @@ import {
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir();
+
+function expandSkillInvocation(content: string, skills: Skill[]): string {
+  const invocation = resolveSkillInvocationForTurn({ content, skills });
+  if (!invocation) return content;
+  return expandResolvedSkillInvocation(invocation, invocation.args);
+}
 
 function makeTempSkill(skillName: string): Skill {
   const baseDir = makeTempDir('hybridclaw-skill-');

@@ -551,6 +551,25 @@ Notes:
 - For pinned-sensitive red actions, `session`, `agent`, and `all` degrade to a
   one-time approval instead of creating durable trust.
 
+## Boost Questions
+
+A premium HybridAI tool (such as `image_generate` with Flux) can answer a call
+with a boost offer instead of a result. The runtime then ends the turn with an
+approval whose id is the offer id and whose `boost` field
+(`{ category, modelName, available }`) the apps show as their boost popup. It
+asks in every approval mode, full-auto included, and never becomes trust.
+
+- `/boost use <id>`, `yes`, or `yes <id>` repeats the same call with the
+  platform's `hybridai/boost` answer `use: true`; `/boost skip <id>`, `no`, or
+  `no <id>` repeats it with `use: false`. The model gets only the repeated
+  call's result.
+- The model never sees the offer, its id, or the boost `_meta`, and cannot
+  answer: only a user message does.
+- A session has one open boost question. A newer approval replaces it, and it
+  expires with the approval timeout; an expired offer lapses without a repeated
+  call, so nothing is spent. `/boost` for an offer that is no longer open
+  replies without running the model.
+
 ## Full-Auto
 
 Full-auto approves yellow and red actions without a prompt. It applies to

@@ -692,9 +692,7 @@ test('agent registry resolves org-chart helpers from persisted agents', async ()
     '../src/config/runtime-config.ts'
   );
   const {
-    escalationChainForAgent,
     initAgentRegistry,
-    managerOfAgent,
     peersOfAgent,
     resolveAgentEscalationTarget,
   } = await import('../src/agents/agent-registry.ts');
@@ -737,13 +735,9 @@ test('agent registry resolves org-chart helpers from persisted agents', async ()
   });
   initAgentRegistry({ list: agents });
 
-  expect(managerOfAgent('support-tier-1')?.id).toBe('support-lead');
   expect(peersOfAgent('support-tier-1').map((agent) => agent.id)).toEqual([
     'ops-lead',
   ]);
-  expect(
-    escalationChainForAgent('support-tier-1').map((agent) => agent.id),
-  ).toEqual(['support-lead', 'main']);
   expect(resolveAgentEscalationTarget('support-tier-1')).toEqual({
     channel: 'slack:exec',
     recipient: 'owner',

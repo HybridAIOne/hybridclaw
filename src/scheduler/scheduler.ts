@@ -1274,21 +1274,6 @@ function toRuntimeState(meta: ConfigJobMeta): ConfigJobRuntimeState {
   };
 }
 
-export function getConfigJobState(jobId: string): ConfigJobRuntimeState | null {
-  const normalizedJobId = jobId.trim();
-  if (!normalizedJobId) return null;
-  const jobs = getAllJobs({ kind: 'scheduler_job' });
-  pruneConfigJobMeta(jobs);
-  const job = jobs.find((candidate) => candidate.id === normalizedJobId);
-  if (!job) return null;
-  const reconciled = reconcileSuccessfulOneShotConfigJob(job);
-  const nextRunChanged = syncConfigJobNextRunAt(job, Date.now());
-  if (reconciled || nextRunChanged) {
-    persistSchedulerState();
-  }
-  return toRuntimeState(getConfigJobMeta(normalizedJobId));
-}
-
 export function getSchedulerStatus(): SchedulerStatusJob[] {
   const jobs = getAllJobs({ kind: 'scheduler_job' });
   pruneConfigJobMeta(jobs);

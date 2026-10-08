@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## [0.39.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.2) - 2026-10-08
+
+### Added
+
+- **Boost approval questions**: Premium HybridAI tools ask before spending a
+  boost, including in full-auto mode. A user answer repeats the same tool call
+  with the choice; unanswered or expired offers spend nothing. Boost approvals
+  never create durable trust.
+- **App Library pages**: Hy is guided to write long reports, plans, comparisons
+  and small interactive tools as self-contained HTML pages saved in the app's
+  Library. Pages support HTTPS pictures returned by tools and layouts suited
+  to phones; follow-up edits update the same file.
+
+### Changed
+
+- **Console consistency**: Channel names, file sizes, compact numbers and secret
+  metadata use shared formatting across pages.
+- **Admin API cleanup**: Channel and fleet-topology admin routes are read-only.
+  Unused write handlers and their RBAC actions have been removed.
+- **Runtime defaults**: Removed undocumented behavior-anomaly tuning,
+  leak-scan event filtering and config-revision debugging environment variables.
+  The built-in defaults apply.
+
+### Fixed
+
+- **App background task delivery**: Scheduled replies from hidden `feed-…` and
+  `ideas-…` data chats stay in those chats so the apps can read their JSON results
+  without posting them into the agent's main chat.
+- **Console font loading**: Fonts, including KaTeX fonts, ship as files so the
+  console's content security policy permits them to load.
+- **Console log selection**: Clicking a log file keeps it selected while its
+  contents load.
+
+### Upgrade Notes
+
+- Replace `PUT`/`DELETE /api/admin/channels` calls with channel configuration
+  edits. Replace `POST`/`PUT`/`DELETE /api/admin/fleet-topology` calls with the A2A
+  trust routes. Tokens listing `admin.channels.delete`, `admin.fleet.write` or
+  `admin.fleet.delete` still parse, but those entries grant no permission.
+- Remove `HYBRIDCLAW_BEHAVIOR_ANOMALY_MIN_TRAJECTORIES`,
+  `HYBRIDCLAW_BEHAVIOR_ANOMALY_EPSILON`,
+  `HYBRIDCLAW_BEHAVIOR_ANOMALY_CACHE_TTL_MS`, `HYBRIDCLAW_LEAK_SCAN_EVENT_TYPES`
+  and `HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC` from custom environments; they
+  no longer affect runtime behavior.
+
 ## [0.39.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.1) - 2026-10-08
 
 ### Added

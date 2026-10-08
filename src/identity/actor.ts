@@ -1,8 +1,5 @@
-import {
-  AgentIdentityValidationError,
-  parseAgentIdentity,
-} from './agent-id.js';
-import { parseUserId, UserIdValidationError } from './user-id.js';
+import { parseAgentIdentity } from './agent-id.js';
+import { parseUserId } from './user-id.js';
 
 export type ActorType = 'user' | 'agent';
 
@@ -70,63 +67,6 @@ export function normalizeActor(value: unknown): Actor {
   }
   const type = normalizeActorType(value.type);
   return createActor(type, normalizeActorId(type, value.id));
-}
-
-export function isUserActor(value: unknown): value is UserActor {
-  if (!isRecord(value) || value.type !== 'user') return false;
-  if (typeof value.id !== 'string' || !value.id.trim()) return false;
-  try {
-    parseUserId(value.id);
-    return true;
-  } catch (error) {
-    if (error instanceof UserIdValidationError) return false;
-    throw error;
-  }
-}
-
-export function isAgentActor(value: unknown): value is AgentActor {
-  if (!isRecord(value) || value.type !== 'agent') return false;
-  if (typeof value.id !== 'string' || !value.id.trim()) return false;
-  try {
-    parseAgentIdentity(value.id);
-    return true;
-  } catch (error) {
-    if (error instanceof AgentIdentityValidationError) return false;
-    throw error;
-  }
-}
-
-export function serializeActor(actor: Actor): string {
-  const normalized = normalizeActor(actor);
-  return `${normalized.type}:${normalized.id}`;
-}
-
-export function parseActor(value: string): Actor {
-  const raw = value.trim();
-  if (!raw) throw new ActorValidationError(['actor is required']);
-  if (raw.startsWith('{')) {
-    try {
-      return normalizeActor(JSON.parse(raw) as unknown);
-    } catch (error) {
-      if (error instanceof ActorValidationError) throw error;
-      throw new ActorValidationError([
-        `actor JSON is invalid: ${
-          error instanceof Error ? error.message : 'unknown parse error'
-        }`,
-      ]);
-    }
-  }
-
-  const separator = raw.indexOf(':');
-  if (separator <= 0) {
-    throw new ActorValidationError([
-      'actor must use the type:id serialized format',
-    ]);
-  }
-  return createActor(
-    normalizeActorType(raw.slice(0, separator)),
-    raw.slice(separator + 1),
-  );
 }
 
 export function actorFromLegacyFields(params: {

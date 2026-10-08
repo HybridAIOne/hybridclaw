@@ -71,7 +71,6 @@ test('a child resolves unset settings from its parent, live, and keeps its own i
   });
   expect(child?.name).toBeUndefined();
   expect(registry.getStoredAgentConfig('ams-erika')?.model).toBeUndefined();
-  expect(registry.childAgentsOf('ams')).toEqual(['ams-erika']);
 
   registry.upsertRegisteredAgent({
     ...registry.getStoredAgentConfig('ams'),

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { PDFDocument } from 'pdf-lib';
-import { expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 
 const helperPath = path.join(
   process.cwd(),
@@ -53,7 +53,6 @@ test('fax-send skill manifest declares DACH fax metadata and guarded secrets', (
   expect(skill).toContain('fax.send.start');
   expect(skill).toContain('fax.send.delivered');
   expect(skill).toContain('fax.send.failed');
-  expect(skill).toContain('recordFaxUsageEvent()');
   expect(skill).toContain('UsageTotals');
   expect(skill).toContain('unit: fax-page');
   expect(skill).toContain('Return exactly one user-facing summary');
@@ -452,85 +451,4 @@ test('fax channel docs describe fax-to-email inbound wiring and retention', () =
   expect(docs).toContain('delivery receipt');
   expect(docs).toContain('qualified electronic');
   expect(docs).toContain('+19898989898');
-});
-
-test('fax accounting persists structured audit events and page usage totals', async () => {
-  const dbPath = path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-fax-accounting-')),
-    'test.db',
-  );
-  vi.resetModules();
-  const {
-    getRecentStructuredAuditForSession,
-    getUsageBillableUnitTotals,
-    getUsageTotals,
-    initDatabase,
-  } = await import('../src/memory/db.ts');
-  const {
-    recordFaxSendDelivered,
-    recordFaxSendFailed,
-    recordFaxSendStart,
-    recordFaxUsageEvent,
-  } = await import('../src/fax/accounting.ts');
-  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
-
-  initDatabase({ quiet: true, dbPath });
-  const runId = recordFaxSendStart({
-    sessionId: 'session-fax',
-    provider: 'sinch',
-    recipientNumber: '+49891234567',
-    senderNumber: '+493012345678',
-    pageCount: 3,
-    documentUrl: 'https://example.com/contract.pdf',
-  });
-  recordFaxSendDelivered({
-    sessionId: 'session-fax',
-    runId,
-    provider: 'sinch',
-    providerMessageId: 'fax-provider-123',
-    recipientNumber: '+49891234567',
-    senderNumber: '+493012345678',
-    pageCount: 3,
-  });
-  recordFaxSendFailed({
-    sessionId: 'session-fax',
-    runId,
-    provider: 'sinch',
-    providerMessageId: 'fax-provider-456',
-    recipientNumber: '+49891234567',
-    pageCount: 3,
-    errorType: 'CALL_ERROR',
-    errorMessage: 'Line busy',
-    retryable: true,
-  });
-  recordFaxUsageEvent({
-    sessionId: 'session-fax',
-    agentId: 'agent-fax',
-    provider: 'sinch',
-    pageCount: 3,
-    costUsd: 0.45,
-  });
-
-  await flushAuditTrail();
-  const audit = getRecentStructuredAuditForSession('session-fax', 10);
-  expect(audit.map((event) => event.event_type)).toEqual([
-    'fax.send.failed',
-    'fax.send.delivered',
-    'fax.send.start',
-  ]);
-  expect(JSON.parse(audit[0]?.payload || '{}')).toMatchObject({
-    type: 'fax.send.failed',
-    provider: 'sinch',
-    providerMessageId: 'fax-provider-456',
-    retryable: true,
-  });
-
-  const totals = getUsageTotals({ agentId: 'agent-fax', window: 'daily' });
-  expect(totals.total_cost_usd).toBeCloseTo(0.45, 6);
-  expect(totals.billable_units).toEqual([
-    { unit: 'fax-page', quantity: 3, cost_usd: 0.45 },
-  ]);
-  expect(getUsageBillableUnitTotals({ agentId: 'agent-fax' })).toEqual([
-    { unit: 'fax-page', quantity: 3, cost_usd: 0.45 },
-  ]);
 });
