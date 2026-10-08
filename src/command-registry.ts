@@ -410,8 +410,7 @@ export function mapCanonicalCommandToGatewayArgs(
       if (!sub || sub === 'info') return ['bot', 'info'];
       if (sub === 'list') return ['bot', 'list'];
       if (sub === 'clear' || sub === 'auto') return ['bot', 'clear'];
-      if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
-      return ['bot', 'set', ...parts.slice(1)];
+      return ['bot', sub, ...parts.slice(2)];
     }
 
     case 'btw':

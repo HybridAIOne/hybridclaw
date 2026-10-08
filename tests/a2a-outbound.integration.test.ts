@@ -148,12 +148,10 @@ describe('A2A outbound integration', () => {
   test('stub peer accepts message/send and decoder round-trips the canonical envelope', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter());
+    const transportAdapters = { a2a: new a2a.A2AOutboundAdapter() };
 
     const envelope = {
       id: 'msg-int-a2a',
@@ -205,7 +203,7 @@ describe('A2A outbound integration', () => {
           transport: 'a2a',
           url: `http://127.0.0.1:${port}/a2a`,
         },
-        transportRegistry: registry,
+        transportAdapters,
       });
 
       await expect(a2a.processA2AOutbox()).resolves.toMatchObject({
