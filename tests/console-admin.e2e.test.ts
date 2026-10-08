@@ -457,12 +457,17 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
         .locator('strong');
     }
 
-    test('the gateway log reports a human-readable size', async () => {
+    test('log files report a human-readable size, or missing when absent', async () => {
       await open('/admin/logs');
       await logFile('Gateway').click();
       await expect
         .poll(() => sizeValue().textContent())
         .toMatch(/^(\d+ B|\d+(\.\d)? (KiB|MiB|GiB))$/);
+
+      await logFile('Model responses').click();
+      await expect.poll(() => sizeValue().textContent()).toBe('missing');
+      await page.getByText('This log file is not available yet.').waitFor();
+      await expect(page.locator('.log-viewer').count()).resolves.toBe(0);
     });
   });
 
