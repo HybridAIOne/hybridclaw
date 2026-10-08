@@ -3818,7 +3818,10 @@ async function handleApiChatStream(
     streamedTextBeforeNextTool = '';
   };
 
+  // The last browser frame says whether the turn ends waiting for a sign-in.
+  let waitingForSignIn = false;
   const onToolProgress = (event: ToolProgressEvent): void => {
+    if (event.browser) waitingForSignIn = Boolean(event.browser.signIn);
     if (event.phase === 'start') {
       pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
@@ -3947,6 +3950,7 @@ async function handleApiChatStream(
       chatRequest,
       filteredResult,
       streamedApprovalId,
+      waitingForSignIn,
     );
     sendEvent({
       type: 'result',

@@ -176,25 +176,35 @@ describe('phone delivery', () => {
     notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'send it' }, { status: 'success', result: 'I need your approval before I send the mail to Ben.', messageRole: 'assistant', toolsUsed: [], pendingApproval: { approvalId: 'ab12cd34' } } as never);
     await vi.waitFor(() => expect(calls()).toHaveLength(1));
     expect(relayed().body.payload).toEqual({
-      aps: { alert: { title: 'Hy', body: 'Needs your approval to go on.', 'loc-key': 'Needs your approval to go on.' }, sound: 'default', 'thread-id': 'session-a' },
+      aps: { alert: { title: 'Hy', body: 'Waiting for your approval to go on.', 'loc-key': 'Waiting for your approval to go on.' }, sound: 'default', 'thread-id': 'session-a' },
       kind: 'approval',
       id: 'session-a:approval:ab12cd34',
       sessionId: 'session-a',
       agentId: 'main',
     });
     expect(JSON.stringify(relayed().body)).not.toContain('Ben');
+    // A turn that ends asking for a website sign-in waits for the user too, without naming the site.
+    notifications.notifyWebChatResult(operator, { sessionId: 'session-a', channelId: 'web', guildId: null, userId: 'u', username: null, content: 'book it' }, { status: 'success', result: 'Please sign in to example.com first.', messageRole: 'assistant', toolsUsed: [], assistantMessageId: 10 }, null, true);
+    await vi.waitFor(() => expect(calls()).toHaveLength(2));
+    expect(relayed(1).body.payload).toMatchObject({
+      aps: { alert: { title: 'Hy', body: 'Waiting for you to sign in.', 'loc-key': 'Waiting for you to sign in.' } },
+      kind: 'approval',
+      id: 'session-a:approval:10',
+    });
+    expect(JSON.stringify(relayed(1).body)).not.toContain('example.com');
+    relay.mockClear();
     // Another agent goes by its display name, then its name, and is Hy without either.
     mocks.getSession.mockReturnValue({ id: 'session-a', channel_id: 'web', agent_id: 'agent-a' });
     mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research', displayName: 'Ada' });
     notifications.notifyWebSession('session-a', 'turn', '11');
-    await vi.waitFor(() => expect(calls()).toHaveLength(2));
+    await vi.waitFor(() => expect(calls()).toHaveLength(1));
     mocks.agent.mockReturnValue({ id: 'agent-a', name: 'Research' });
     notifications.notifyWebSession('session-a', 'turn', '12');
-    await vi.waitFor(() => expect(calls()).toHaveLength(3));
+    await vi.waitFor(() => expect(calls()).toHaveLength(2));
     mocks.agent.mockReturnValue(null);
     notifications.notifyWebSession('session-a', 'turn', '13');
-    await vi.waitFor(() => expect(calls()).toHaveLength(4));
-    expect(calls().map((call) => call.body.payload.aps.alert.title)).toEqual(['Hy', 'Ada', 'Research', 'Hy']);
+    await vi.waitFor(() => expect(calls()).toHaveLength(3));
+    expect(calls().map((call) => call.body.payload.aps.alert.title)).toEqual(['Ada', 'Research', 'Hy']);
     expect(push.phoneAssistantName(null, null)).toBe('Hy');
     expect(push.phoneAssistantName('main', { name: 'Main Agent' })).toBe('Hy');
     // Other kinds show the name alone, never the notice's own title.

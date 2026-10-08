@@ -41,6 +41,7 @@ const titles: Record<WebNotificationKind, string> = {
   reminder: 'HybridClaw reminder',
   approval: 'HybridClaw needs your approval',
 };
+const SIGN_IN_TITLE = 'HybridClaw needs you to sign in';
 
 export function trackWebNotificationSession(
   sessionId: string,
@@ -180,15 +181,19 @@ export function notifyWebSession(
   kind: WebNotificationKind,
   eventId: string = randomUUID(),
   operatorId?: string,
-  { phone = true }: { phone?: boolean } = {},
+  {
+    phone = true,
+    waitingFor,
+  }: { phone?: boolean; waitingFor?: WebNotification['waitingFor'] } = {},
 ): WebNotificationDelivery | null {
   try {
     const notification: WebNotification = {
       id: `${sessionId}:${kind}:${eventId}`,
       sessionId,
       kind,
+      ...(waitingFor ? { waitingFor } : {}),
       agentId: memoryService.getSessionById(sessionId)?.agent_id ?? null,
-      title: titles[kind],
+      title: waitingFor === 'sign_in' ? SIGN_IN_TITLE : titles[kind],
       createdAt: Date.now(),
     };
     const delivery = recordWebNotification(notification, operatorId);
@@ -218,11 +223,17 @@ export function notifyWebSession(
   }
 }
 
+/**
+ * A finished turn rings as done, or as waiting for the user when it ended on
+ * an approval or, per `waitingForSignIn`, on a website the agent's browser
+ * needs the user to sign in to.
+ */
 export function notifyWebChatResult(
   operatorId: string | null,
   request: GatewayChatRequest,
   result: GatewayChatResult,
   notifiedApprovalId?: string | null,
+  waitingForSignIn = false,
 ): void {
   if (!operatorId || request.channelId !== 'web' || result.status !== 'success')
     return;
@@ -241,9 +252,10 @@ export function notifyWebChatResult(
   ) {
     notifyWebSession(
       sessionId,
-      'turn',
+      waitingForSignIn ? 'approval' : 'turn',
       String(result.assistantMessageId ?? randomUUID()),
       operatorId,
+      waitingForSignIn ? { waitingFor: 'sign_in' } : {},
     );
   }
 }
