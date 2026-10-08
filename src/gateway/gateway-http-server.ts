@@ -2104,11 +2104,30 @@ async function resolveApiChatSlashCommandResult(
       guildId: chatRequest.guildId,
       channelId: chatRequest.channelId,
       args,
+      ...(chatRequest.media?.length ? { media: chatRequest.media } : {}),
       userId: chatRequest.userId,
       username: chatRequest.username,
       client: chatRequest.client,
       adminActions,
     });
+    // A lone command that hands over to the agent, such as `/import review`:
+    // the turn runs with the command's message and instructions instead.
+    const continuation = gatewayCommandResult.continueWith;
+    if (
+      continuation &&
+      gatewayCommandResult.kind !== 'error' &&
+      slashCommands.length === 1
+    ) {
+      chatRequest.content = continuation.content;
+      chatRequest.instructions = [
+        chatRequest.instructions?.trim(),
+        continuation.instructions,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      chatRequest.media = [];
+      return null;
+    }
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
     mainSessionKey = gatewayCommandResult.mainSessionKey || mainSessionKey;

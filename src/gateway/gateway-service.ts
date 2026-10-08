@@ -658,6 +658,7 @@ import {
   recordBootstrapOnboardingQuickMessage,
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
+import { handleImportCommand } from './import-command.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import {
   interruptedDelegationsNote,
@@ -12605,6 +12606,9 @@ export async function handleGatewayCommand(
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));
+
+      case 'import':
+        return handleImportCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);
