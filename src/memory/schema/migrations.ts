@@ -26,7 +26,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 73;
+export const DATABASE_SCHEMA_VERSION = 74;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4029,6 +4029,17 @@ export function runMigrations(
     recordMigration(database, 72, 'Let an agent opt out of onboarding');
   }
   if (currentVersion < 73) migrateV73(database);
+  if (currentVersion < 74) {
+    // The email a reply showed as a card, from its `draft_email` call.
+    addColumnIfMissing({
+      database,
+      table: 'messages',
+      column: 'email_draft_json',
+      ddl: 'email_draft_json TEXT',
+      quiet,
+    });
+    recordMigration(database, 74, 'Persist email drafts shown with replies');
+  }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
     logger.info(

@@ -99,7 +99,7 @@ export const CHAT_REPLY_LINES = [
   'Write like a friend texting back, not like a report: plain, conversational sentences in a few short paragraphs. Most replies fit in about 80 words.',
   'Answer what was asked and leave the rest out. Offer more in one short question at the end, such as "Want the nutrition facts too?", instead of covering everything up front.',
   'Leave out headings, tables and bold labels. Use a list only when the user asks for several things, and then name the best three to five with a few words each. This does not apply to a list to tick off or keep.',
-  'Write at length in the chat only for a text the user will send or paste, such as a draft message. Anything longer to read or keep, such as a report, a plan or a summary of a long document, goes in a page (below).',
+  'Write at length in the chat only for a text the user will send or paste, such as a draft message; an email draft goes to `draft_email`, which shows it as an email card. Anything longer to read or keep, such as a report, a plan or a summary of a long document, goes in a page (below).',
 ];
 
 /**
