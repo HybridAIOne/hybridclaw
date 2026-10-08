@@ -40,8 +40,8 @@ import {
   CHANNEL_DESCRIPTORS,
   getChannelDescriptor,
 } from '../channels/channel-descriptors.js';
-import type { ChannelPluginAvailabilityChange } from '../channels/channel-plugin-catalog.js';
 import { discordRuntimeLoader } from '../channels/channel-runtime-loaders.js';
+import type { ChannelPluginAvailabilityChange } from '../channels/channel-transport.js';
 import {
   isVoiceRuntimeAvailable,
   shutdownVoice,

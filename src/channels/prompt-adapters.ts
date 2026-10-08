@@ -1,22 +1,22 @@
 import { normalizeTrimmedString as normalizeValue } from '../utils/normalized-strings.js';
 import type { ChannelInfo } from './channel.js';
+import { isPluginChannelKind } from './channel-plugin-catalog.js';
 import {
   getChannel,
   getChannelByContextId,
   normalizeChannelValue,
 } from './channel-registry.js';
+import { getChannelTransport } from './channel-transport.js';
 import { discordAgentPromptAdapter } from './discord/prompt-adapter.js';
 import { discordWebhookAgentPromptAdapter } from './discord-webhook/prompt-adapter.js';
 import { emailAgentPromptAdapter } from './email/prompt-adapter.js';
 import { imessageAgentPromptAdapter } from './imessage/prompt-adapter.js';
-import { lineAgentPromptAdapter } from './line/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
 import { signalAgentPromptAdapter } from './signal/prompt-adapter.js';
 import { slackAgentPromptAdapter } from './slack/prompt-adapter.js';
 import { slackWebhookAgentPromptAdapter } from './slack-webhook/prompt-adapter.js';
 import { telegramAgentPromptAdapter } from './telegram/prompt-adapter.js';
 import { threemaAgentPromptAdapter } from './threema/prompt-adapter.js';
-import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
 export interface ChannelPromptRuntimeInfo {
   channel?: ChannelInfo;
@@ -60,10 +60,19 @@ function resolveChannelAgentPromptAdapter(params: {
 }): ChannelAgentPromptAdapter | null {
   const channel = resolveRuntimeChannel(params.runtimeInfo);
   if (!channel) return null;
-  if (channel.kind === 'whatsapp') return whatsappAgentPromptAdapter;
+  if (isPluginChannelKind(channel.kind)) {
+    const hints = getChannelTransport(channel.kind)?.messageToolHints;
+    return hints
+      ? {
+          messageToolHints: ({ runtimeInfo }) =>
+            hints({
+              channelId: normalizeValue(runtimeInfo?.channelId) || null,
+            }),
+        }
+      : null;
+  }
   if (channel.kind === 'email') return emailAgentPromptAdapter;
   if (channel.kind === 'imessage') return imessageAgentPromptAdapter;
-  if (channel.kind === 'line') return lineAgentPromptAdapter;
   if (channel.kind === 'msteams') return msteamsAgentPromptAdapter;
   if (channel.kind === 'signal') return signalAgentPromptAdapter;
   if (channel.kind === 'discord_webhook') {

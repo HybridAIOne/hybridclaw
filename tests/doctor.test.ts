@@ -1315,16 +1315,14 @@ test('checkChannels distinguishes intentionally disabled channels from missing s
       email: {
         enabled: false,
       },
+      line: {
+        enabled: false,
+      },
       whatsapp: {
         dmPolicy: 'disabled',
         groupPolicy: 'disabled',
       },
     }),
-  }));
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
-    getWhatsAppAuthStatus: vi.fn(async () => ({
-      linked: false,
-    })),
   }));
 
   const { checkChannels } = await import('../src/doctor/checks/channels.ts');
@@ -1348,14 +1346,9 @@ test('checkChannels reports a missing WhatsApp plugin when the channel is expect
       msteams: { enabled: false },
       email: { enabled: false },
       slackWebhook: { enabled: false, webhooks: {} },
+      line: { enabled: false },
       whatsapp: { dmPolicy: 'pairing', groupPolicy: 'disabled' },
     }),
-  }));
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
-    getWhatsAppAuthStatus: vi.fn(async () => ({ linked: false, jid: null })),
-  }));
-  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
-    isWhatsAppTransportInstalled: vi.fn(() => false),
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized: vi.fn(async () => ({})),
@@ -1386,12 +1379,7 @@ test('checkChannels reports a missing LINE plugin when the channel is expected',
       whatsapp: { dmPolicy: 'disabled', groupPolicy: 'disabled' },
     }),
   }));
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
-    getWhatsAppAuthStatus: vi.fn(async () => ({ linked: false, jid: null })),
-  }));
-  vi.doMock('../src/channels/line/runtime.js', () => ({
-    isLineTransportInstalled: vi.fn(() => false),
-  }));
+
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized: vi.fn(async () => ({})),
   }));

@@ -1,10 +1,14 @@
 import { expect, it, vi } from 'vitest';
+import { registerChannelTransport } from '../src/channels/channel-transport.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../src/channels/whatsapp/self-chat.js';
+import {
+  createFakeTransportInstance,
+  legacyWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
 const state = vi.hoisted(() => ({
   linked: true,
-  installed: true,
   dmPolicy: 'disabled',
   groupPolicy: 'disabled',
   heartbeat: { enabled: true, channel: '' },
@@ -23,14 +27,13 @@ vi.mock('../src/config/config.js', () => ({
     msteams: { enabled: false },
     email: { enabled: false },
     whatsapp: { dmPolicy: state.dmPolicy, groupPolicy: state.groupPolicy },
+    line: { enabled: false },
     heartbeat: state.heartbeat,
   }),
 }));
-vi.mock('../src/channels/whatsapp/auth.js', () => ({
+vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   getWhatsAppAuthStatus: async () => ({ linked: state.linked }),
-}));
-vi.mock('../src/channels/whatsapp/runtime.js', () => ({
-  isWhatsAppTransportInstalled: () => state.installed,
 }));
 vi.mock('../src/plugins/plugin-manager.js', () => ({
   ensurePluginManagerInitialized: async () => ({}),
@@ -40,6 +43,9 @@ vi.mock('../src/memory/db.js', () => ({
 }));
 
 useCleanMocks();
+registerChannelTransport(
+  legacyWhatsAppRegistration(createFakeTransportInstance()),
+);
 
 it.each([
   [true, 'disabled', true, '1234567@s.whatsapp.net', null, true],
@@ -78,8 +84,7 @@ it.each([
   async (channel, lastChannel) => {
     Object.assign(state, {
       linked: true,
-      installed: true,
-      dmPolicy: 'disabled',
+          dmPolicy: 'disabled',
       groupPolicy: 'allowlist',
       heartbeat: { enabled: true, channel },
       lastChannel,

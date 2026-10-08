@@ -1,4 +1,3 @@
-import { WhatsAppAuthLockError } from '../channels/whatsapp/auth.js';
 import { formatError } from '../utils/text-format.js';
 import {
   DEFAULT_CHANNEL_INTERRUPTED_REPLY,
@@ -41,12 +40,6 @@ export function isDiscordInvalidTokenError(error: unknown): boolean {
       ? error.message
       : '';
   return message.toLowerCase().includes('invalid token');
-}
-
-export function isWhatsAppAuthLockError(
-  error: unknown,
-): error is WhatsAppAuthLockError {
-  return error instanceof WhatsAppAuthLockError;
 }
 
 export function isVoiceGatewayAbort(

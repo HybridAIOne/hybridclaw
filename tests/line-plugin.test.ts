@@ -3,7 +3,7 @@ import type {
   ChannelTransportInstance,
   ChannelTransportRegistration,
   HybridClawPluginApi,
-  LineTransportHost,
+  ChannelTransportHost,
 } from '../src/plugins/plugin-sdk.js';
 
 afterEach(() => {
@@ -26,16 +26,17 @@ test('register and create stay lazy until the transport is used', async () => {
   const registered: ChannelTransportRegistration[] = [];
   const plugin = (await import('../plugins/line/src/index.js')).default;
   plugin.register({
+    runtime: { homeDir: '/tmp/unused' },
     registerChannelTransport(transport: ChannelTransportRegistration) {
       registered.push(transport);
     },
-  } as HybridClawPluginApi);
+  } as unknown as HybridClawPluginApi);
 
   expect(registered).toHaveLength(1);
   expect(registered[0]?.kind).toBe('line');
   expect(createLineTransport).not.toHaveBeenCalled();
 
-  const transport = registered[0]?.create({} as LineTransportHost);
+  const transport = registered[0]?.create({} as ChannelTransportHost);
   expect(transport).toBeDefined();
   expect(createLineTransport).not.toHaveBeenCalled();
 

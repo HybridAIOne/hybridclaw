@@ -13,15 +13,14 @@ import { descriptor as discord } from './discord/descriptor.js';
 import { descriptor as discordWebhook } from './discord-webhook/descriptor.js';
 import { descriptor as email } from './email/descriptor.js';
 import { descriptor as imessage } from './imessage/descriptor.js';
-import { descriptor as line } from './line/descriptor.js';
 import { descriptor as msteams } from './msteams/descriptor.js';
+import { PLUGIN_CHANNEL_DESCRIPTORS } from './plugin-channel/descriptor.js';
 import { descriptor as signal } from './signal/descriptor.js';
 import { descriptor as slack } from './slack/descriptor.js';
 import { descriptor as slackWebhook } from './slack-webhook/descriptor.js';
 import { descriptor as telegram } from './telegram/descriptor.js';
 import { descriptor as threema } from './threema/descriptor.js';
 import { descriptor as voice } from './voice/descriptor.js';
-import { descriptor as whatsapp } from './whatsapp/descriptor.js';
 
 export const CHANNEL_DESCRIPTORS: Record<
   ExternalChannelKind,
@@ -36,8 +35,7 @@ export const CHANNEL_DESCRIPTORS: Record<
   [slack.kind]: slack,
   [email.kind]: email,
   [telegram.kind]: telegram,
-  [line.kind]: line,
-  [whatsapp.kind]: whatsapp,
+  ...PLUGIN_CHANNEL_DESCRIPTORS,
   [voice.kind]: voice,
   [imessage.kind]: imessage,
 };

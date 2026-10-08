@@ -112,6 +112,7 @@ function runtimeImportSpecifiers(file: string, source: string): string[] {
 
 function collectStartupPackages(entry: string): {
   importers: Map<string, string>;
+  files: Set<string>;
   unresolved: string[];
 } {
   const importers = new Map<string, string>();
@@ -137,7 +138,11 @@ function collectStartupPackages(entry: string): {
       }
     }
   }
-  return { importers, unresolved };
+  return {
+    importers,
+    files: new Set([...seen].map((file) => path.relative(ROOT, file))),
+    unresolved,
+  };
 }
 
 test('gateway startup graph does not statically load optional channel SDKs', () => {
@@ -149,6 +154,17 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
     (name) => `${name} (imported by ${importers.get(name)})`,
   );
   expect(leaked).toEqual([]);
+});
+
+test('gateway startup graph builds no plugin channel transport host', () => {
+  const { files } = collectStartupPackages(GATEWAY_ENTRY);
+
+  // The transport host (media, session, and QR helpers) loads only when a
+  // channel plugin's transport is first created.
+  expect(files.has('src/channels/plugin-channel/host.ts')).toBe(false);
+  expect(
+    [...files].filter((file) => file.startsWith('src/channels/line/')),
+  ).toEqual([]);
 });
 
 test('import elision keeps value imports and drops type-only ones', () => {

@@ -1,3 +1,5 @@
+import { normalizePhoneNumber as normalizeE164PhoneNumber } from '../../utils/phone-number.js';
+
 const WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const WHATSAPP_USER_JID_RE =
   /^(\d+)(?::\d+)?@(s\.whatsapp\.net|lid|hosted|hosted\.lid)$/i;
@@ -15,15 +17,7 @@ function stripWhatsAppPrefix(value: string): string {
 }
 
 export function normalizePhoneNumber(raw: string): string | null {
-  const candidate = stripWhatsAppPrefix(raw);
-  if (!candidate || candidate.includes('@')) return null;
-
-  const digits = candidate.replace(/[^\d+]/g, '');
-  if (!digits) return null;
-
-  const normalizedDigits = digits.startsWith('+') ? digits.slice(1) : digits;
-  if (!E164_DIGITS_RE.test(normalizedDigits)) return null;
-  return `+${normalizedDigits}`;
+  return normalizeE164PhoneNumber(stripWhatsAppPrefix(raw));
 }
 
 export function phoneToJid(phone: string): string | null {

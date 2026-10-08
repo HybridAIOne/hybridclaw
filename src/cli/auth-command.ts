@@ -52,6 +52,11 @@ import {
   parseMicrosoft365Scopes,
 } from '../auth/microsoft-auth.js';
 import {
+  getPluginChannelName,
+  type PluginChannelKind,
+} from '../channels/channel-plugin-catalog.js';
+import { requireChannelTransport } from '../channels/channel-transport.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
@@ -101,9 +106,7 @@ import {
   printSlackUsage,
   printWhatsAppUsage,
 } from './help.js';
-import { ensureLineAuthApi, getLineAuthApi } from './line-api.js';
 import { ensureOnboardingApi } from './onboarding-api.js';
-import { ensureWhatsAppAuthApi, getWhatsAppAuthApi } from './whatsapp-api.js';
 
 type HybridAIAuthApi = typeof import('../auth/hybridai-auth.js');
 type CodexAuthApi = typeof import('../auth/codex-auth.js');
@@ -2392,14 +2395,22 @@ async function handleAuthLineCommand(normalizedArgs: string[]): Promise<void> {
       'Use `hybridclaw auth line reset` without additional arguments.',
     );
   }
-  await ensureLineAuthApi();
-  const status = await getLineAuthApi().getLineAuthStatus();
-  await getLineAuthApi().resetLineAuthState();
-  console.log(`Reset LINE auth state at ${getLineAuthApi().LINE_AUTH_DIR}.`);
+  await resetPluginChannelAuth('line');
+}
+
+async function resetPluginChannelAuth(kind: PluginChannelKind): Promise<void> {
+  const { ensurePluginManagerInitialized } = await import(
+    '../plugins/plugin-manager.js'
+  );
+  await ensurePluginManagerInitialized();
+  const registration = requireChannelTransport(kind);
+  const name = getPluginChannelName(kind);
+  const { linked } = await registration.getAuthStatus();
+  console.log(`Reset ${name} auth state at ${await registration.resetAuth()}.`);
   console.log(
-    status.linked
-      ? 'Personal-account session cleared. Re-run `hybridclaw channels line setup` to pair again.'
-      : 'No linked LINE session was present.',
+    linked
+      ? `Linked ${name} account cleared. Re-run \`hybridclaw channels ${kind} setup\` to pair again.`
+      : `No linked ${name} account was present. Run \`hybridclaw channels ${kind} setup\` when you are ready to pair.`,
   );
 }
 
@@ -2423,17 +2434,7 @@ async function handleAuthWhatsAppCommand(
     );
   }
 
-  await ensureWhatsAppAuthApi();
-  const status = await getWhatsAppAuthApi().getWhatsAppAuthStatus();
-  await getWhatsAppAuthApi().resetWhatsAppAuthState();
-  console.log(
-    `Reset WhatsApp auth state at ${getWhatsAppAuthApi().WHATSAPP_AUTH_DIR}.`,
-  );
-  console.log(
-    status.linked
-      ? 'Linked device state cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.'
-      : 'No linked auth was present. You can run `hybridclaw channels whatsapp setup` when you are ready to pair.',
-  );
+  await resetPluginChannelAuth('whatsapp');
 }
 
 type ProviderAction = 'status' | 'logout';

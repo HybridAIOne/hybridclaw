@@ -28,13 +28,15 @@ import { sendToDiscordWebhookTarget } from '../discord-webhook/runtime.js';
 import { normalizeDiscordWebhookChannelTarget } from '../discord-webhook/target.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import type { EmailMailboxReadResult } from '../email/runtime.js';
-import { getLineAuthStatus } from '../line/auth.js';
-import { sendToLineSelfChat } from '../line/runtime.js';
-import { normalizeLineChannelId } from '../line/target.js';
 import {
   looksLikeMSTeamsConversationId,
   resolveMSTeamsRequestSession,
 } from '../msteams/utils.js';
+import {
+  matchesPluginChannelTarget,
+  resolvePluginChannelTarget,
+  sendPluginChannelToolMessage,
+} from '../plugin-channel/tool-send.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -50,13 +52,6 @@ import {
 } from '../telegram/target.js';
 import { sendToThreemaChat } from '../threema/runtime.js';
 import { normalizeThreemaChannelId } from '../threema/target.js';
-import {
-  canonicalizeWhatsAppUserJid,
-  isWhatsAppJid,
-  normalizePhoneNumber,
-  phoneToJid,
-} from '../whatsapp/phone.js';
-import { sendWhatsAppToolMessage } from '../whatsapp/tool-send.js';
 
 const LOCAL_MESSAGE_QUEUE_LIMIT = 100;
 const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
@@ -66,13 +61,11 @@ const MESSAGE_TOOL_EMAIL_MAILBOX_TARGET_RE =
   /^(?:mailbox|email(?::(?:mailbox|all|inbox|folder:.+|[^@\s]+))?)$/i;
 const MESSAGE_TOOL_DISCORD_WEBHOOK_PREFIX_RE = /^discord[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
-const MESSAGE_TOOL_LINE_PREFIX_RE = /^line:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
 const MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE = /^slack[_-]?webhook(?::|$)/i;
 const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
 const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
 const MESSAGE_TOOL_THREEMA_PREFIX_RE = /^threema:/i;
-const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const MESSAGE_TOOL_DISCORD_CHANNEL_MENTION_RE = /^<#\d{16,22}>$/;
 const MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE =
   /^(?:channel:|discord:|user:)\d{16,22}$/i;
@@ -121,35 +114,11 @@ function resolveMessageToolSendFilePath(
   return resolvedPath;
 }
 
-function normalizeWhatsAppMessageTarget(rawTarget: string): string | null {
-  const trimmed = String(rawTarget || '').trim();
-  if (!trimmed) return null;
-
-  const withoutPrefix = trimmed
-    .replace(MESSAGE_TOOL_WHATSAPP_PREFIX_RE, '')
-    .trim();
-  if (!withoutPrefix) return null;
-
-  const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
-  if (canonicalJid) return canonicalJid;
-  if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
-  if (/[a-z]/i.test(withoutPrefix)) return null;
-
-  const normalizedPhone = normalizePhoneNumber(withoutPrefix);
-  if (!normalizedPhone) return null;
-  return phoneToJid(normalizedPhone);
-}
-
-function normalizeLineMessageTarget(rawTarget: string): string | null {
-  return normalizeLineChannelId(String(rawTarget || '').trim());
-}
-
 function normalizeLocalMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
   if (isDiscordChannelId(trimmed)) return null;
-  if (isWhatsAppJid(trimmed)) return null;
-  if (normalizeLineChannelId(trimmed)) return null;
+  if (matchesPluginChannelTarget(trimmed)) return null;
   if (isTelegramChannelId(trimmed)) return null;
   if (isEmailAddress(trimmed)) return null;
   return isSupportedProactiveChannelId(trimmed) ? trimmed : null;
@@ -455,52 +424,17 @@ function buildEmailSendResultMeta(params: {
   };
 }
 
-async function runWhatsAppMessageSendAction(
+async function runPluginChannelMessageSendAction(
   request: DiscordToolActionRequest,
-  channelId: string,
+  target: NonNullable<ReturnType<typeof resolvePluginChannelTarget>>,
 ): Promise<Record<string, unknown>> {
-  const content = String(request.content || '').trim();
-  const filePath = resolveMessageToolSendFilePath(request);
-  const hasComponents = hasMessageComponents(request);
-  if (!content && !filePath) {
-    throw new Error(
-      'content is required for WhatsApp send unless filePath is provided.',
-    );
-  }
-  if (hasComponents) {
-    throw new Error('components are not supported for WhatsApp sends.');
-  }
-
-  return sendWhatsAppToolMessage({
-    channelId,
-    content,
-    filePath,
+  return sendPluginChannelToolMessage({
+    ...target,
+    content: String(request.content || '').trim(),
+    filePath: resolveMessageToolSendFilePath(request),
+    hasComponents: hasMessageComponents(request),
     from: request.from,
   });
-}
-
-async function runLineMessageSendAction(
-  request: DiscordToolActionRequest,
-  channelId: string,
-): Promise<Record<string, unknown>> {
-  const content = String(request.content || '').trim();
-  if (!content) throw new Error('content is required for LINE sends.');
-  if (String(request.filePath || '').trim()) {
-    throw new Error('filePath is not supported for LINE sends.');
-  }
-  if (hasMessageComponents(request)) {
-    throw new Error('components are not supported for LINE sends.');
-  }
-  const auth = await getLineAuthStatus();
-  if (!auth.linked) throw new Error('LINE is not linked.');
-  await sendToLineSelfChat(channelId, content);
-  return {
-    ok: true,
-    action: 'send',
-    channelId,
-    transport: 'line',
-    contentLength: content.length,
-  };
 }
 
 async function runEmailMessageSendAction(
@@ -1024,14 +958,6 @@ export async function runMessageToolAction(
 
   if (
     rawChannelId &&
-    MESSAGE_TOOL_LINE_PREFIX_RE.test(rawChannelId) &&
-    !normalizeLineMessageTarget(rawChannelId)
-  ) {
-    throw new Error('LINE send targets must use `line:<linked-user-mid>`.');
-  }
-
-  if (
-    rawChannelId &&
     MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE.test(rawChannelId) &&
     !normalizeSlackWebhookMessageTarget(rawChannelId)
   ) {
@@ -1069,14 +995,12 @@ export async function runMessageToolAction(
     );
   }
 
-  const whatsappChannelId = normalizeWhatsAppMessageTarget(rawChannelId);
-  if (whatsappChannelId) {
-    return await runWhatsAppMessageSendAction(request, whatsappChannelId);
-  }
-
-  const lineChannelId = normalizeLineMessageTarget(rawChannelId);
-  if (lineChannelId) {
-    return await runLineMessageSendAction(request, lineChannelId);
+  const pluginChannelTarget = resolvePluginChannelTarget(rawChannelId);
+  if (pluginChannelTarget) {
+    return await runPluginChannelMessageSendAction(
+      request,
+      pluginChannelTarget,
+    );
   }
 
   const telegramChannelId = normalizeTelegramMessageTarget(rawChannelId);

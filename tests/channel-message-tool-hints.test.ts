@@ -12,7 +12,18 @@ import {
   WHATSAPP_CAPABILITIES,
 } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
+import { registerChannelTransport } from '../src/channels/channel-transport.js';
 import { resolveChannelMessageToolHints } from '../src/channels/prompt-adapters.js';
+import {
+  createFakeTransportInstance,
+  legacyWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
+
+// WhatsApp hints come from the plugin registration (the compat adapter for the
+// released create-only plugin).
+registerChannelTransport(
+  legacyWhatsAppRegistration(createFakeTransportInstance()),
+);
 
 const CHANNEL_ID = '1475079601968648386';
 const GUILD_ID = '123456789012345678';

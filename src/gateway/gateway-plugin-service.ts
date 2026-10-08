@@ -7,13 +7,15 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  getChannelPluginCatalogEntryByPluginId,
+  getOfficialChannelPluginCatalogEntries,
+} from '../channels/channel-plugin-catalog.js';
+import {
   type ChannelPluginAvailabilityChange,
   type ChannelPluginAvailabilitySnapshot,
   diffChannelPluginTransportAvailability,
-  getChannelPluginCatalogEntryByPluginId,
-  getOfficialChannelPluginCatalogEntries,
   snapshotChannelPluginTransportAvailability,
-} from '../channels/channel-plugin-catalog.js';
+} from '../channels/channel-transport.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {

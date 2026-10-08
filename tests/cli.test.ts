@@ -1,4 +1,4 @@
-import { getChannelPluginInstallCommand, getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
+import { getChannelPluginCatalogEntry } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -843,9 +843,26 @@ async function importFreshCli(options?: {
     () => options?.pluginAvailableSummary || [],
   );
   const formatDependencyPlanDetails = vi.fn(() => 'npm packages: demo');
-  const ensurePluginManagerInitialized = vi.fn(async () => ({
-    listPluginSummary,
-  }));
+  const ensurePluginManagerInitialized = vi.fn(async () => {
+    const transports = await import('../src/channels/channel-transport.ts');
+    if (!transports.hasChannelTransport('whatsapp')) {
+      transports.registerChannelTransport({
+        kind: 'whatsapp',
+        create: () => ({
+          init: async () => {},
+          shutdown: async () => {},
+          sendText: async () => {},
+          sendMedia: async () => {},
+          createPairingSession: createWhatsAppPairingSession,
+        }),
+        matchesTarget: () => false,
+        normalizeTarget: () => null,
+        getAuthStatus: getWhatsAppAuthStatus,
+        resetAuth: resetWhatsAppAuthState,
+      });
+    }
+    return { listPluginSummary };
+  });
   const initDatabase = vi.fn();
   const isDatabaseInitialized = vi.fn(() => false);
   const initAgentRegistry = vi.fn();
@@ -1337,17 +1354,8 @@ async function importFreshCli(options?: {
   vi.doMock('../src/infra/host-runtime-setup.js', () => ({
     ensureHostRuntimeReady,
   }));
-  vi.doMock('../src/channels/whatsapp/auth.ts', () => ({
-    getWhatsAppAuthStatus,
-    resetWhatsAppAuthState,
-    WHATSAPP_AUTH_DIR: '/tmp/whatsapp-auth',
-    WhatsAppAuthLockError: class WhatsAppAuthLockError extends Error {},
-  }));
-  vi.doMock('../src/channels/whatsapp/runtime.ts', () => ({
-    createWhatsAppPairingSession,
-    isWhatsAppTransportInstalled: vi.fn(() => true),
-    WHATSAPP_PLUGIN_INSTALL_HINT:
-      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
+  vi.doMock('../src/channels/plugin-channel/host.ts', () => ({
+    createChannelTransportHost: () => ({}),
   }));
   vi.doMock('node:readline/promises', () => ({
     default: {
@@ -1641,7 +1649,7 @@ useCleanMocks({
     '../src/gateway/gateway-lifecycle.ts',
     '../src/gateway/gateway.ts',
     '../src/infra/container-setup.ts',
-    '../src/channels/whatsapp/auth.ts',
+    '../src/channels/plugin-channel/host.ts',
     'node:readline/promises',
     '../src/onboarding.ts',
     '../src/skills/skills.ts',
@@ -3613,7 +3621,7 @@ describe('CLI hybridai commands', () => {
       'Reset WhatsApp auth state at /tmp/whatsapp-auth.',
     );
     expect(logSpy).toHaveBeenCalledWith(
-      'Linked device state cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.',
+      'Linked WhatsApp account cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.',
     );
   });
 

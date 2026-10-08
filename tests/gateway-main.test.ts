@@ -1,4 +1,3 @@
-import { getChannelPluginInstallCommand } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -590,39 +589,59 @@ async function importFreshGatewayMain(options?: {
     sendToEmail: vi.fn(async () => {}),
     shutdownEmail: state.shutdownEmail,
   }));
-  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
-    initWhatsApp: state.initWhatsApp,
-    isWhatsAppTransportInstalled: vi.fn(
-      () => options?.whatsappTransportInstalled !== false,
-    ),
-    sendToWhatsAppChat: state.sendToWhatsAppChat,
-    sendWhatsAppMediaToChat: vi.fn(async () => {}),
-    shutdownWhatsApp: state.shutdownWhatsApp,
-    WHATSAPP_PLUGIN_INSTALL_HINT:
-      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
+  state.initLine.mockImplementation(async (handler) => {
+    state.lineMessageHandler = handler;
+  });
+  // The plugin channel runtime dispatches by kind to the channel spies; the
+  // registrations below stand in for the installed WhatsApp and LINE plugins.
+  vi.doMock('../src/channels/plugin-channel/runtime.js', () => ({
+    initPluginChannel: (kind: string, handler: never) =>
+      kind === 'whatsapp' ? state.initWhatsApp(handler) : state.initLine(handler),
+    shutdownPluginChannel: (kind: string) =>
+      kind === 'whatsapp' ? state.shutdownWhatsApp() : state.shutdownLine(),
+    sendPluginChannelText: (kind: string, chatId: string, text: string) =>
+      kind === 'whatsapp'
+        ? state.sendToWhatsAppChat(chatId, text)
+        : Promise.resolve(undefined),
+    sendPluginChannelMedia: vi.fn(async () => undefined),
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
-    ensurePluginManagerInitialized: vi.fn(async () => ({})),
-  }));
-  vi.doMock('../src/channels/line/runtime.js', () => ({
-    initLine: state.initLine.mockImplementation(async (handler) => {
-      state.lineMessageHandler = handler;
+    ensurePluginManagerInitialized: vi.fn(async () => {
+      const transports = await import('../src/channels/channel-transport.js');
+      const { isWhatsAppJid } = await import(
+        '../src/channels/whatsapp/phone.js'
+      );
+      const unused = () => {
+        throw new Error('the runtime mock owns transport instances');
+      };
+      if (
+        options?.whatsappTransportInstalled !== false &&
+        !transports.hasChannelTransport('whatsapp')
+      ) {
+        transports.registerChannelTransport({
+          kind: 'whatsapp',
+          create: unused,
+          matchesTarget: isWhatsAppJid,
+          normalizeTarget: () => null,
+          getAuthStatus: async () => ({
+            linked: state.whatsappLinked,
+            jid: state.whatsappLinked ? '491701234567:16@s.whatsapp.net' : null,
+          }),
+          resetAuth: async () => '/tmp/whatsapp-auth',
+        });
+      }
+      if (!transports.hasChannelTransport('line')) {
+        transports.registerChannelTransport({
+          kind: 'line',
+          create: unused,
+          matchesTarget: (target) => /^line:u[0-9a-f]{32}$/i.test(target),
+          normalizeTarget: () => null,
+          getAuthStatus: async () => ({ linked: false, mid: null }),
+          resetAuth: async () => '/tmp/line-auth',
+        });
+      }
+      return {};
     }),
-    isLineTransportInstalled: vi.fn(() => true),
-    LINE_PLUGIN_INSTALL_HINT: 'Install it with: hybridclaw plugin install line',
-    sendToLineSelfChat: vi.fn(async () => {}),
-    shutdownLine: state.shutdownLine,
-  }));
-  vi.doMock('../src/channels/line/auth.js', () => ({
-    LineAuthLockError: class extends Error {},
-    getLineAuthStatus: vi.fn(async () => ({ linked: false, mid: null })),
-  }));
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
-    WhatsAppAuthLockError: MockWhatsAppAuthLockError,
-    getWhatsAppAuthStatus: vi.fn(async () => ({
-      linked: state.whatsappLinked,
-      jid: state.whatsappLinked ? '491701234567:16@s.whatsapp.net' : null,
-    })),
   }));
   vi.doMock('../src/config/config.js', () => ({
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
@@ -843,8 +862,7 @@ useCleanMocks({
     '../src/channels/msteams/runtime.js',
     '../src/channels/slack/runtime.js',
     '../src/channels/email/runtime.js',
-    '../src/channels/whatsapp/runtime.js',
-    '../src/channels/whatsapp/auth.js',
+    '../src/channels/plugin-channel/runtime.js',
     '../src/config/config.js',
     '../src/logger.js',
     '../src/memory/db.js',

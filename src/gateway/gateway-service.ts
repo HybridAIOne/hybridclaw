@@ -104,9 +104,9 @@ import {
 } from '../board/card-store.js';
 import { syncLocalManagedBrowserTenantPolicyFromAdminPolicies } from '../browser/managed-browser-tenant-policy.js';
 import { resolveChannelTargetKind } from '../channels/channel-descriptors.js';
-import { getChannelPluginStatuses } from '../channels/channel-plugin-catalog.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { emailAdminMailboxLoader } from '../channels/channel-runtime-loaders.js';
+import { getChannelPluginStatuses } from '../channels/channel-transport.js';
 import { isSafeDiscordCdnUrl } from '../channels/discord/discord-cdn-fetch.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -116,8 +116,7 @@ import {
   normalizeDiscordWebhookTargetName,
   normalizeDiscordWebhookUrl,
 } from '../channels/discord-webhook/target.js';
-import { getLineAuthStatus } from '../channels/line/auth.js';
-import { getLinePairingState } from '../channels/line/pairing-state.js';
+import { getPluginChannelGatewayStatuses } from '../channels/plugin-channel/status.js';
 import {
   getSignalCliAvailability,
   getSignalLinkState,
@@ -139,8 +138,6 @@ import {
   normalizeTwilioPhoneNumber,
   resolveVoiceCallWebhookUrl,
 } from '../channels/voice/twilio-manager.js';
-import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
-import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import {
   parseIdArg,
   parseIntegerArg,
@@ -4493,14 +4490,12 @@ export async function getGatewayStatus(
   const [
     localBackendsResult,
     hybridaiResult,
-    whatsappAuthResult,
-    lineAuthResult,
+    pluginChannelsResult,
     codexDiscoveryResult,
   ] = await Promise.allSettled([
     resolveGatewayLocalBackendsHealth(options),
     resolveGatewayHybridAIHealth(options),
-    getWhatsAppAuthStatus(),
-    getLineAuthStatus(),
+    getPluginChannelGatewayStatuses(getRuntimeConfig()),
     // Warm the Codex model cache for provider counts; the status payload
     // reads discovered names after all probes settle.
     refreshProviderHealth && codex.authenticated && !codex.reloginRequired
@@ -4528,16 +4523,10 @@ export async function getGatewayStatus(
           latencyMs: 0,
         },
   );
-  const whatsappAuth =
-    whatsappAuthResult.status === 'fulfilled'
-      ? whatsappAuthResult.value
-      : { linked: false, jid: null };
-  const lineAuth =
-    lineAuthResult.status === 'fulfilled'
-      ? lineAuthResult.value
-      : { linked: false, mid: null };
-  const whatsappPairing = getWhatsAppPairingState();
-  const linePairing = getLinePairingState();
+  const pluginChannels =
+    pluginChannelsResult.status === 'fulfilled'
+      ? pluginChannelsResult.value
+      : {};
   const signalPairing = getSignalLinkState();
   const signalCli = runtimeConfig.signal.enabled
     ? getSignalCliAvailability()
@@ -4733,22 +4722,7 @@ export async function getGatewayStatus(
       webhookPath: runtimeConfig.voice.webhookPath,
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
     },
-    whatsapp: {
-      ...whatsappAuth,
-      pairingQrText: whatsappPairing.pairingQrText,
-      pairingUpdatedAt: whatsappPairing.updatedAt,
-      pairingError: whatsappPairing.error,
-    },
-    line: {
-      ...lineAuth,
-      enabled: runtimeConfig.line.enabled,
-      pairingQrText: linePairing.pairingQrText,
-      pairingQrSvg: linePairing.pairingQrSvg,
-      pairingUrl: linePairing.pairingUrl,
-      pincode: linePairing.pincode,
-      pairingUpdatedAt: linePairing.updatedAt,
-      pairingError: linePairing.error,
-    },
+    ...pluginChannels,
     providerHealth,
     localBackends,
     ...(coworkerLiveness ? { coworkerLiveness } : {}),

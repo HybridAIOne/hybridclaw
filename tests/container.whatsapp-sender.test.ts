@@ -5,20 +5,29 @@ import {
   setGatewayContext,
   setSessionContext,
 } from '../container/src/tools.js';
-import { sendWhatsAppToolMessage } from '../src/channels/whatsapp/tool-send.js';
+import { registerChannelTransport } from '../src/channels/channel-transport.js';
+import {
+  resolvePluginChannelTarget,
+  sendPluginChannelToolMessage,
+} from '../src/channels/plugin-channel/tool-send.js';
+import {
+  createFakeTransportInstance,
+  legacyWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
-const mocks = vi.hoisted(() => ({ text: vi.fn(), media: vi.fn() }));
-vi.mock('../src/channels/whatsapp/auth.js', () => ({
+vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   getWhatsAppAuthStatus: async () => ({
     linked: true,
     jid: '15550100100:7@s.whatsapp.net',
   }),
 }));
-vi.mock('../src/channels/whatsapp/runtime.js', () => ({
-  sendToWhatsAppChat: mocks.text,
-  sendWhatsAppMediaToChat: mocks.media,
+vi.mock('../src/channels/plugin-channel/host.js', () => ({
+  createChannelTransportHost: () => ({}),
 }));
+const instance = createFakeTransportInstance();
+registerChannelTransport(legacyWhatsAppRegistration(instance));
 useCleanMocks({
   unstubAllGlobals: true,
   restoreAllMocks: true,
@@ -37,9 +46,14 @@ test.each(['+15550100200', '', null])(
       const payload = JSON.parse(String(init?.body));
       expect(payload).toHaveProperty('from', from);
       try {
-        const result = await sendWhatsAppToolMessage({
-          ...payload,
+        const target = resolvePluginChannelTarget(payload.channelId);
+        if (!target) throw new Error('unresolved target');
+        const result = await sendPluginChannelToolMessage({
+          ...target,
+          content: payload.content,
           filePath: payload.filePath ?? null,
+          hasComponents: false,
+          from: payload.from,
         });
         return {
           ok: true,
@@ -73,8 +87,8 @@ test.each(['+15550100200', '', null])(
       expect(result).toContain('Messages are sent from +15550100100');
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(mocks.text).not.toHaveBeenCalled();
-    expect(mocks.media).not.toHaveBeenCalled();
+    expect(instance.sendText).not.toHaveBeenCalled();
+    expect(instance.sendMedia).not.toHaveBeenCalled();
   },
 );
 

@@ -4,7 +4,7 @@ import { FileStorage } from '@jsr/evex__linejs/storage';
 import qrcode from 'qrcode-terminal';
 
 /**
- * @typedef {import('@hybridaione/hybridclaw/plugin-sdk').LineTransportHost} LineTransportHost
+ * @typedef {import('./host.js').LineTransportHost} LineTransportHost
  */
 
 /**

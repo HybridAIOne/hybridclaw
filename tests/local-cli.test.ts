@@ -1,4 +1,3 @@
-import { getChannelPluginInstallCommand } from '../src/channels/channel-plugin-catalog.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,18 +39,29 @@ async function importFreshCli(
       return [{ folder: 'INBOX', lastProcessedUid: 41, seeded: true }];
     },
   }));
-  vi.doMock('../src/channels/whatsapp/runtime.ts', () => ({
-    createWhatsAppPairingSession: async () => ({
-      start: async () => {},
-      stop: async () => {},
-      waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
-    }),
-    isWhatsAppTransportInstalled: () => true,
-    WHATSAPP_PLUGIN_INSTALL_HINT:
-      `Install it with: ${getChannelPluginInstallCommand('whatsapp')}`,
-  }));
+  // Plugin init registers what the released WhatsApp plugin registers: the
+  // create-only shape that core's compat adapter completes.
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
-    ensurePluginManagerInitialized: async () => ({}),
+    ensurePluginManagerInitialized: async () => {
+      const transports = await import('../src/channels/channel-transport.ts');
+      if (!transports.hasChannelTransport('whatsapp')) {
+        transports.registerChannelTransport({
+          kind: 'whatsapp',
+          create: () => ({
+            init: async () => {},
+            shutdown: async () => {},
+            sendText: async () => {},
+            sendMedia: async () => {},
+            createPairingSession: async () => ({
+              start: async () => {},
+              stop: async () => {},
+              waitForConnection: async () => ({ id: 'test@s.whatsapp.net' }),
+            }),
+          }),
+        } as never);
+      }
+      return {};
+    },
   }));
   return import('../src/cli.ts');
 }
@@ -104,7 +114,6 @@ async function readRuntimeSecrets(
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('../src/channels/whatsapp/runtime.ts');
   vi.doUnmock('../src/plugins/plugin-manager.ts');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {

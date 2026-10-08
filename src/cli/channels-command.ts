@@ -1,5 +1,11 @@
 import readline from 'node:readline/promises';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  getChannelPluginInstallCommand,
+  getPluginChannelName,
+  type PluginChannelKind,
+} from '../channels/channel-plugin-catalog.js';
+import { getChannelTransport } from '../channels/channel-transport.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import {
   DISCORD_WEBHOOK_DEFAULT_TARGET,
@@ -16,11 +22,7 @@ import {
   seedEmailFolderCursors,
 } from '../channels/email/connection.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
-import {
-  createLinePairingSession,
-  isLineTransportInstalled,
-  LINE_PLUGIN_INSTALL_HINT,
-} from '../channels/line/runtime.js';
+import { createPluginChannelPairingSession } from '../channels/plugin-channel/runtime.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
@@ -35,11 +37,6 @@ import {
   normalizeThreemaChannelId,
   normalizeThreemaId,
 } from '../channels/threema/target.js';
-import {
-  createWhatsAppPairingSession,
-  isWhatsAppTransportInstalled,
-  WHATSAPP_PLUGIN_INSTALL_HINT,
-} from '../channels/whatsapp/runtime.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../channels/whatsapp/self-chat.js';
 import {
   ensureRuntimeConfigFile,
@@ -57,17 +54,11 @@ import {
   runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { normalizePhoneNumber } from '../utils/phone-number.js';
 import { promptForSecretInput } from '../utils/secret-prompt.js';
 import { sleep } from '../utils/sleep.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printChannelsUsage } from './help.js';
-import { ensureLineAuthApi, getLineAuthApi } from './line-api.js';
-import {
-  ensureWhatsAppAuthApi,
-  ensureWhatsAppPhoneApi,
-  getWhatsAppAuthApi,
-  getWhatsAppPhoneApi,
-} from './whatsapp-api.js';
 
 function resolveWhatsAppSetupSettleMs(): number {
   const raw = String(
@@ -95,7 +86,7 @@ function parseWhatsAppSetupArgs(args: string[]): {
     if (arg === '--allow-from') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--allow-from`.');
-      const normalized = getWhatsAppPhoneApi().normalizePhoneNumber(next);
+      const normalized = normalizePhoneNumber(next);
       if (!normalized) {
         throw new Error(
           `Invalid WhatsApp phone number: ${next}. Use E.164 format like +491701234567.`,
@@ -107,7 +98,7 @@ function parseWhatsAppSetupArgs(args: string[]): {
     }
     if (arg.startsWith('--allow-from=')) {
       const raw = arg.slice('--allow-from='.length);
-      const normalized = getWhatsAppPhoneApi().normalizePhoneNumber(raw);
+      const normalized = normalizePhoneNumber(raw);
       if (!normalized) {
         throw new Error(
           `Invalid WhatsApp phone number: ${raw}. Use E.164 format like +491701234567.`,
@@ -1871,33 +1862,40 @@ async function configureEmailChannel(args: string[]): Promise<void> {
   }
 }
 
-async function pairWhatsAppChannel(): Promise<boolean> {
+async function pairPluginChannel(
+  kind: PluginChannelKind,
+  params: { reset: boolean; instructions: string; settleMs: number },
+): Promise<boolean> {
   const { ensurePluginManagerInitialized } = await import(
     '../plugins/plugin-manager.js'
   );
   await ensurePluginManagerInitialized();
-  if (!isWhatsAppTransportInstalled()) {
+  const name = getPluginChannelName(kind);
+  const registration = getChannelTransport(kind);
+  if (!registration) {
     console.error(
-      `WhatsApp transport plugin is not installed. ${WHATSAPP_PLUGIN_INSTALL_HINT}`,
+      `${name} transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`,
     );
     process.exitCode = 1;
     return false;
   }
-  const settleMs = resolveWhatsAppSetupSettleMs();
-  const session = await createWhatsAppPairingSession();
-  try {
-    console.log('Opening WhatsApp pairing session...');
+  if (params.reset) {
     console.log(
-      'Scan the QR code in WhatsApp: Settings > Linked Devices > Link a Device',
+      `Reset ${name} auth state at ${await registration.resetAuth()}.`,
     );
+  }
+  const session = await createPluginChannelPairingSession(kind);
+  try {
+    console.log(`Opening ${name} pairing session...`);
+    console.log(params.instructions);
     await session.start();
     const connection = await session.waitForConnection();
-    console.log(`WhatsApp linked: ${connection.id || 'connected'}`);
-    if (settleMs > 0) {
+    console.log(`${name} linked: ${connection.id || 'connected'}`);
+    if (params.settleMs > 0) {
       console.log(
-        `Keeping the temporary setup session open for ${Math.floor(settleMs / 1000)}s so WhatsApp can finish linking...`,
+        `Keeping the temporary setup session open for ${Math.floor(params.settleMs / 1000)}s so ${name} can finish linking...`,
       );
-      await sleep(settleMs);
+      await sleep(params.settleMs);
     }
   } finally {
     await session.stop().catch(() => {});
@@ -1906,7 +1904,6 @@ async function pairWhatsAppChannel(): Promise<boolean> {
 }
 
 async function configureWhatsAppChannel(args: string[]): Promise<void> {
-  await Promise.all([ensureWhatsAppAuthApi(), ensureWhatsAppPhoneApi()]);
   ensureRuntimeConfigFile();
   const parsed = parseWhatsAppSetupArgs(args);
   const nextConfig = updateRuntimeConfig((draft) => {
@@ -1936,41 +1933,12 @@ async function configureWhatsAppChannel(args: string[]): Promise<void> {
   console.log(
     `Ack reaction: ${nextConfig.whatsapp.ackReaction.trim() || '(disabled)'}`,
   );
-  console.log(`Auth directory: ${getWhatsAppAuthApi().WHATSAPP_AUTH_DIR}`);
-  if (parsed.reset) {
-    await getWhatsAppAuthApi().resetWhatsAppAuthState();
-    console.log(
-      `Reset WhatsApp auth state at ${getWhatsAppAuthApi().WHATSAPP_AUTH_DIR}`,
-    );
-  }
-  await pairWhatsAppChannel();
-}
-
-async function pairLineChannel(): Promise<boolean> {
-  const { ensurePluginManagerInitialized } = await import(
-    '../plugins/plugin-manager.js'
-  );
-  await ensurePluginManagerInitialized();
-  if (!isLineTransportInstalled()) {
-    console.error(
-      `LINE transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
-    );
-    process.exitCode = 1;
-    return false;
-  }
-  const session = await createLinePairingSession();
-  try {
-    console.log('Opening LINE QR login session...');
-    console.log(
-      'Scan the QR code with the LINE mobile app and confirm the PIN.',
-    );
-    await session.start();
-    const connection = await session.waitForConnection();
-    console.log(`LINE linked: ${connection.id || 'connected'}`);
-  } finally {
-    await session.stop().catch(() => {});
-  }
-  return true;
+  await pairPluginChannel('whatsapp', {
+    reset: parsed.reset,
+    instructions:
+      'Scan the QR code in WhatsApp: Settings > Linked Devices > Link a Device',
+    settleMs: resolveWhatsAppSetupSettleMs(),
+  });
 }
 
 async function configureLineChannel(args: string[]): Promise<void> {
@@ -1985,7 +1953,6 @@ async function configureLineChannel(args: string[]): Promise<void> {
     );
   }
 
-  await ensureLineAuthApi();
   ensureRuntimeConfigFile();
   updateRuntimeConfig((draft) => {
     draft.line.enabled = true;
@@ -1995,13 +1962,12 @@ async function configureLineChannel(args: string[]): Promise<void> {
   console.log(
     'WARNING: LINE personal-account automation is unofficial and may cause temporary restrictions or an account ban.',
   );
-  console.log(`Auth directory: ${getLineAuthApi().LINE_AUTH_DIR}`);
-  if (reset) {
-    await getLineAuthApi().resetLineAuthState();
-    console.log(`Reset LINE auth state at ${getLineAuthApi().LINE_AUTH_DIR}.`);
-  }
-
-  await pairLineChannel();
+  await pairPluginChannel('line', {
+    reset,
+    instructions:
+      'Scan the QR code with the LINE mobile app and confirm the PIN.',
+    settleMs: 0,
+  });
 }
 
 async function resolveInteractiveTelegramSetup(params: {

@@ -100,6 +100,12 @@ export function normalizeSkillConfigChannelKind(
 
 const channels = new Map<ChannelKind, ChannelInfo>();
 
+export function getChannelCapabilities(
+  kind: ChannelKind,
+): ChannelInfo['capabilities'] {
+  return CHANNEL_CAPABILITIES[kind];
+}
+
 function buildDefaultChannelInfo(kind: ChannelKind): ChannelInfo {
   return {
     kind,

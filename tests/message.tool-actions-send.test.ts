@@ -252,8 +252,12 @@ async function importFreshMessageToolActions(
   );
   const agentWorkspaceDir = vi.fn(() => '/tmp/hybridclaw-agent-workspace');
 
-  vi.doMock('../src/channels/whatsapp/auth.js', () => ({
+  vi.doMock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
+    ...(await importOriginal<object>()),
     getWhatsAppAuthStatus,
+  }));
+  vi.doMock('../src/channels/plugin-channel/host.js', () => ({
+    createChannelTransportHost: () => ({}),
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     readEmailMailbox,
@@ -284,10 +288,6 @@ async function importFreshMessageToolActions(
   vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
     sendToDiscordWebhookTarget,
   }));
-  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
-    sendToWhatsAppChat,
-    sendWhatsAppMediaToChat,
-  }));
   vi.doMock('../src/channels/discord/runtime.js', () => ({
     runDiscordToolAction,
   }));
@@ -310,6 +310,19 @@ async function importFreshMessageToolActions(
   }));
 
   const module = await import('../src/channels/message/tool-actions.js');
+  // The released WhatsApp plugin registers the create-only shape; core's
+  // compat adapter supplies the target, auth, and send-description hooks.
+  (await import('../src/channels/channel-transport.js')).registerChannelTransport(
+    {
+      kind: 'whatsapp',
+      create: () => ({
+        init: async () => {},
+        shutdown: async () => {},
+        sendText: sendToWhatsAppChat,
+        sendMedia: sendWhatsAppMediaToChat,
+      }),
+    } as never,
+  );
   const loaders = await import('../src/channels/channel-runtime-loaders.js');
   if (channelsRunning) {
     await loaders.discordRuntimeLoader.load();

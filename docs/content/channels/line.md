@@ -38,6 +38,15 @@ LINEJS.
 Existing linked sessions are preserved. The plugin uses the same
 `~/.hybridclaw/credentials/line` auth directory as earlier HybridClaw versions.
 
+The plugin owns the LINE credential store, pairing prompt, and `line:` target
+syntax. A LINE plugin installed before 0.2.0 registered only its transport and
+no longer loads; `hybridclaw doctor` reports it and the plugin list shows the
+fix. Update it in place, keeping the linked session:
+
+```bash
+hybridclaw plugin reinstall line --yes
+```
+
 ## Pair the account
 
 Stop the gateway first so only the setup process owns the auth state, then run:

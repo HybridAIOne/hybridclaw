@@ -1,5 +1,5 @@
+import { normalizePhoneNumber } from '../../utils/phone-number.js';
 import { normalizeEmailAddress } from '../email/allowlist.js';
-import { normalizePhoneNumber } from '../whatsapp/phone.js';
 
 const IMESSAGE_PREFIX_RE = /^imessage:/i;
 const GROUP_PREFIX_RE = /^chat:/i;
