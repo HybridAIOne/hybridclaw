@@ -22,6 +22,7 @@ vi.mock('../src/config/config.js', async (importOriginal) => ({
   MSTEAMS_TENANT_ID: TENANT.toUpperCase(),
 }));
 
+// compat: remove after v0.41 — with the v73 copy and msteams_users.
 // Copied from a database created by the released 0.39.1 package (v62 table
 // plus the v66 email column), so the upgrade runs against the shipped shape.
 const RELEASED_MSTEAMS_USERS = (withEmail: boolean) => `CREATE TABLE msteams_users (
@@ -225,6 +226,7 @@ describe('msteams_users to channel_users upgrade', () => {
     );
   });
 
+  // compat: remove after v0.41 — 0.39.x binaries stop being supported then.
   test('a 0.39.x binary still serves Teams from the upgraded database', () => {
     const dbPath = createReleasedDatabase(72);
     initDatabase({ dbPath, quiet: true });

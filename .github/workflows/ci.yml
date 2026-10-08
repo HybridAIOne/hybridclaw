@@ -220,6 +220,11 @@ jobs:
           HYBRIDCLAW_RUN_CONSOLE_E2E: '1'
         run: npx vitest run --project e2e tests/console-admin.e2e.test.ts
 
+      - name: Teams webhook e2e (built gateway, fake Bot Connector and model)
+        env:
+          HYBRIDCLAW_RUN_MSTEAMS_E2E: '1'
+        run: npx vitest run --project e2e tests/msteams-channel-users.e2e.test.ts
+
       # node-pty is built only now, after the steps above booted gateways
       # without it, so the real-PTY terminal cases run instead of skipping. The
       # bundle is the entrypoint the Docker image runs.

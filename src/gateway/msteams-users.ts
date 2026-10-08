@@ -21,12 +21,7 @@ import {
 
 function listMSTeamsUsers() {
   return listChannelUsers('msteams', MSTEAMS_TENANT_ID).map(
-    ({ tenantId, userId, profile, ...user }) => ({
-      tenantId,
-      userId,
-      ...readMSTeamsUserProfile(profile),
-      ...user,
-    }),
+    ({ profile, ...user }) => ({ ...user, ...readMSTeamsUserProfile(profile) }),
   );
 }
 
