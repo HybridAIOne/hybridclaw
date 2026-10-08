@@ -11,11 +11,6 @@ import {
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from '../../src/evals/eval-profile.js';
-import {
-  NIST_AI_RMF_CORE_FUNCTIONS,
-  NIST_GAI_PROFILE_RISKS,
-  OWASP_LLM_TOP_10_2025,
-} from '../../src/evolution/harness-risk-taxonomy.js';
 import type { GatewayCommandResult } from '../../src/gateway/gateway-types.js';
 import { resolveInstallRoot } from '../../src/infra/install-root.js';
 import { logger } from '../../src/logger.js';
@@ -27,6 +22,11 @@ import {
   parsePositiveInteger,
 } from '../../src/utils/number-normalization.js';
 import { AGENT_RISK_RESULT_SCHEMA_VERSION } from './agent-risk-native.js';
+import {
+  NIST_AI_RMF_CORE_FUNCTIONS,
+  NIST_GAI_PROFILE_RISKS,
+  OWASP_LLM_TOP_10_2025,
+} from './harness-risk-taxonomy.js';
 import {
   handleHybridaiSkillsCommand,
   isHybridaiSkillsAlias,

@@ -10,9 +10,16 @@
 import { getRuntimeConfig } from '../../src/config/runtime-config.js';
 import { renderGatewayCommand } from '../../src/gateway/gateway-types.js';
 
-// Detached runs re-enter this entry point to execute native runners in a
+// Entry points that bypass the gateway-driven suite dispatcher: the harness
+// evolution loop, and the native runners that detached runs re-enter in a
 // fresh process (see `buildInternalEvalCommand`).
-const NATIVE_RUNNERS: Record<string, (args: string[]) => Promise<void>> = {
+const DIRECT_COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  'harness-evolve': async (args) => {
+    const { runHarnessEvolveCommand } = await import(
+      './harness-evolve-command.js'
+    );
+    await runHarnessEvolveCommand(args);
+  },
   '__eval-terminal-bench-native': async (args) => {
     await initRuntimeState();
     const { runTerminalBenchNativeCli } = await import(
@@ -75,8 +82,8 @@ async function runEvalCommand(args: string[]): Promise<void> {
 
 async function main(argv: string[]): Promise<void> {
   const [command = '', ...rest] = argv;
-  if (Object.hasOwn(NATIVE_RUNNERS, command)) {
-    await NATIVE_RUNNERS[command](rest);
+  if (Object.hasOwn(DIRECT_COMMANDS, command)) {
+    await DIRECT_COMMANDS[command](rest);
     return;
   }
   await runEvalCommand(argv);

@@ -560,15 +560,6 @@ const TEAMS_OUTLINE_ICON_PATH = resolveInstallPath(
   'teams-outline.png',
 );
 const AGENT_ARTIFACT_ROOT = path.resolve(path.join(DATA_DIR, 'agents'));
-const HARNESS_EVOLUTION_ALLOWED_ROOTS = [
-  path.join(DATA_DIR, 'harness-evolution'),
-  ...(process.env.HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS || '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean),
-].map((entry) => path.resolve(entry));
-let resolvedHarnessEvolutionAllowedRootsPromise: Promise<string[]> | null =
-  null;
 const DISCORD_MEDIA_CACHE_ROOT_DISPLAY = '/discord-media-cache';
 const DISCORD_MEDIA_CACHE_DIR = path.resolve(
   path.join(DATA_DIR, 'discord-media-cache'),
@@ -7824,112 +7815,6 @@ async function handleApiAdaptiveSkills(
   sendJson(res, 404, { error: 'Not Found' });
 }
 
-async function handleApiAdminHarnessEvolution(
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const targetRoot = (url.searchParams.get('targetRoot') || '').trim();
-  const summaryPath = (url.searchParams.get('summaryPath') || '').trim();
-  const manifestPath = (url.searchParams.get('manifestPath') || '').trim();
-  if (!targetRoot) {
-    sendJson(res, 400, { error: 'Missing targetRoot query parameter.' });
-    return;
-  }
-
-  const root = path.resolve(targetRoot);
-  if (!(await isAllowedHarnessEvolutionRoot(root))) {
-    sendJson(res, 403, {
-      error:
-        'targetRoot is not under an allowed harness evolution root. Set HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS or use the runtime data harness-evolution directory.',
-    });
-    return;
-  }
-  try {
-    const evolution = await import('../evolution/harness-evolution.js');
-    if (manifestPath) {
-      await assertPathInsideRoot(root, manifestPath);
-      sendJson(res, 200, {
-        manifest: evolution.readHarnessEvolutionManifest(manifestPath),
-      });
-      return;
-    }
-    if (summaryPath) {
-      await assertPathInsideRoot(root, summaryPath);
-      sendJson(res, 200, {
-        run: evolution.readHarnessEvolutionSummary(summaryPath),
-      });
-      return;
-    }
-    sendJson(res, 200, evolution.listHarnessEvolutionRuns(root));
-  } catch (error) {
-    sendJson(
-      res,
-      error instanceof GatewayRequestError ? error.statusCode : 400,
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-    );
-  }
-}
-
-async function assertPathInsideRoot(
-  root: string,
-  candidate: string,
-): Promise<void> {
-  const rootReal = await fs.promises.realpath(root);
-  const candidatePath = path.resolve(candidate);
-  try {
-    await fs.promises.access(candidatePath);
-  } catch {
-    throw new GatewayRequestError(400, 'Requested path does not exist.');
-  }
-  const candidateReal = await fs.promises.realpath(candidatePath);
-  if (!isPathInsideRoot(rootReal, candidateReal)) {
-    throw new GatewayRequestError(400, 'Requested path is outside targetRoot.');
-  }
-}
-
-async function isAllowedHarnessEvolutionRoot(
-  targetRoot: string,
-): Promise<boolean> {
-  const [resolvedTargetRoot, allowedRoots] = await Promise.all([
-    resolveHarnessEvolutionAccessPathForRequest(targetRoot),
-    getResolvedHarnessEvolutionAllowedRoots(),
-  ]);
-  return allowedRoots.some((root) =>
-    isPathInsideRoot(root, resolvedTargetRoot),
-  );
-}
-
-function getResolvedHarnessEvolutionAllowedRoots(): Promise<string[]> {
-  resolvedHarnessEvolutionAllowedRootsPromise ??= Promise.all(
-    HARNESS_EVOLUTION_ALLOWED_ROOTS.map((root) =>
-      resolveHarnessEvolutionAccessPathForRequest(root),
-    ),
-  );
-  return resolvedHarnessEvolutionAllowedRootsPromise;
-}
-
-async function resolveHarnessEvolutionAccessPathForRequest(
-  candidate: string,
-): Promise<string> {
-  const resolved = path.resolve(candidate);
-  try {
-    return await fs.promises.realpath(resolved);
-  } catch {
-    return resolved;
-  }
-}
-
-function isPathInsideRoot(root: string, candidate: string): boolean {
-  const resolvedRoot = path.resolve(root);
-  const resolvedCandidate = path.resolve(candidate);
-  return (
-    resolvedCandidate === resolvedRoot ||
-    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
-  );
-}
-
 function handleApiEvents(
   req: IncomingMessage,
   res: ServerResponse,
@@ -11266,10 +11151,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             } else {
               sendMethodNotAllowed(res);
             }
-            return;
-          }
-          if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
-            await handleApiAdminHarnessEvolution(res, url);
             return;
           }
           if (

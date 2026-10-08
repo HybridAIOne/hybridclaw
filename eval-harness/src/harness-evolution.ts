@@ -1,9 +1,16 @@
+/**
+ * R10a harness-evolution loop: rollouts, F12 manifests, attribution rollback.
+ *
+ * Writes only the seven editable surfaces of one target workspace and keeps
+ * every run artifact under its `runs/`. Unshipped: the eval-harness CLI
+ * (`harness-evolve-command.ts`) is its only caller, never the gateway.
+ */
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { redactSecrets } from '../security/redact.js';
+import { redactSecrets } from '../../src/security/redact.js';
 import {
   type AgentRiskReferences,
   assertHarnessRiskCoverage,
@@ -349,7 +356,7 @@ export interface HarnessEvolutionRunListEntry {
   createdAt: string;
 }
 
-export interface HarnessEvolutionAdminState {
+export interface HarnessEvolutionRunList {
   targetRoot: string;
   runs: HarnessEvolutionRunListEntry[];
 }
@@ -565,7 +572,7 @@ export function loadEvolutionEvalSuite(suitePath: string): EvolutionEvalSuite {
 
 export function listHarnessEvolutionRuns(
   targetRoot: string,
-): HarnessEvolutionAdminState {
+): HarnessEvolutionRunList {
   const root = path.resolve(targetRoot);
   const runsDir = path.join(root, 'runs');
   if (!fs.existsSync(runsDir)) {
@@ -729,7 +736,9 @@ export function readDebuggerReport(reportPath: string): string {
 export async function runEvolveAgent(
   request: EvolveAgentRunRequest,
 ): Promise<EvolveAgentRunResult> {
-  const { callAuxiliaryModel } = await import('../providers/auxiliary.js');
+  const { callAuxiliaryModel } = await import(
+    '../../src/providers/auxiliary.js'
+  );
   const response = await callAuxiliaryModel({
     task: 'eval_judge',
     temperature: 0.2,

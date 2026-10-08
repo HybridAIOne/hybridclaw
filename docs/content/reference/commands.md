@@ -101,42 +101,9 @@ token. Approve the code in **Credentials → Devices**; the resulting API token 
 scoped to `chat.send`, `agents.read`, and `artifacts.read` and can be revoked in
 **Credentials → API tokens**. See [device pairing](../guides/web-notifications.md#pairing-a-device).
 
-## Harness Evolution Workflows
+## OpenAI-Compatible API
 
-`hybridclaw harness-evolve` runs controlled eval-driven evolution loops against
-one target coworker workspace. It initializes or validates a bash-only seed,
-runs a command-backed eval suite, asks the evolve-agent for F12-governed edits,
-and records round summaries plus manifests for review.
-
-```bash
-hybridclaw harness-evolve init --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve validate-seed --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve contract
-hybridclaw harness-evolve run \
-  --target /tmp/hc-evolve-agent \
-  --suite /tmp/hc-evals/scenarios.json \
-  --rounds 2 \
-  --k 1 \
-  --fresh-seed
-hybridclaw harness-evolve status --summary /tmp/hc-evolve-agent/runs/<run-id>/summary.json
-```
-
-- editable surfaces are limited to `system_prompt.md`, `tools.yaml`, `tools/`,
-  `middleware/`, `sub_agents/`, `config/`, and `long_term_memory/`
-- eval suites are JSON files, or skill directories containing
-  `evals/scenarios.json`
-- each task command is split into argv and run without a shell; wrap pipes,
-  redirects, and multi-command checks in a script file
-- `--dry-run` exercises eval execution and summaries without applying edits
-- `--commit` creates Git commits for confirmed rounds in a Git-backed target
-  workspace
-- the admin console reads completed runs from `/admin/harness-evolution` when
-  `HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` allowlists the target root
-
-See [Harness Evolution](../developer-guide/harness-evolution.md) for an example
-suite and benchmark-adaptation guidance.
-
-The same loopback surface is available directly from the running gateway:
+The running gateway serves an OpenAI-compatible loopback API:
 
 ```bash
 curl http://127.0.0.1:9090/v1/models

@@ -60,7 +60,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.agents.delete',
   'admin.hybridai.bots.read',
   'admin.agent_scoreboard.read',
-  'admin.harness_evolution.read',
   'admin.models.read',
   'admin.models.write',
   // 2026-09-10, console setup security choice: native installation requires
@@ -155,7 +154,6 @@ const ADMIN_READ_ACTIONS = [
   'admin.agents.read',
   'admin.hybridai.bots.read',
   'admin.agent_scoreboard.read',
-  'admin.harness_evolution.read',
   'admin.models.read',
   'admin.sessions.read',
   'admin.email.read',
@@ -615,9 +613,6 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
     return 'admin.agent_scoreboard.read';
-  }
-  if (pathname === '/api/admin/harness-evolution' && method === 'GET') {
-    return 'admin.harness_evolution.read';
   }
   if (pathname === '/api/admin/local-models') {
     if (method === 'GET') return 'admin.models.read';

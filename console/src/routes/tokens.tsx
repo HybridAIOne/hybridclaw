@@ -94,7 +94,6 @@ const TOKEN_ACTION_VALUES = [
   'admin.agents.delete',
   'admin.hybridai.bots.read',
   'admin.agent_scoreboard.read',
-  'admin.harness_evolution.read',
   'admin.models.read',
   'admin.models.write',
   'admin.sessions.read',
