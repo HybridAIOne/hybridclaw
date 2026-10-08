@@ -50,11 +50,6 @@ import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 import styles from './secrets.module.css';
 
-function formatTimestamp(value: string | null): string {
-  if (!value) return 'never';
-  return formatRelativeTime(value);
-}
-
 function formatTokenStatus(token: AdminApiTokenEntry): string {
   if (token.revoked_at) return 'Revoked';
   if (token.expires_at && Date.parse(token.expires_at) <= Date.now()) {
@@ -461,13 +456,13 @@ export function TokensPage(props: { embedded?: boolean } = {}) {
                   <td>{formatTokenStatus(entry)}</td>
                   <td>{formatClaims(entry.claims)}</td>
                   <td title={entry.created_at}>
-                    {formatTimestamp(entry.created_at)}
+                    {formatRelativeTime(entry.created_at)}
                   </td>
                   <td title={entry.last_used_at ?? undefined}>
-                    {formatTimestamp(entry.last_used_at)}
+                    {formatRelativeTime(entry.last_used_at)}
                   </td>
                   <td title={entry.expires_at ?? undefined}>
-                    {formatTimestamp(entry.expires_at)}
+                    {formatRelativeTime(entry.expires_at)}
                   </td>
                   {canRevoke ? (
                     <td>

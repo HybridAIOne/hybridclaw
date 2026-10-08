@@ -16,9 +16,8 @@ import type {
 } from './chat-types';
 import {
   buildWebCommandRequestBody,
-  requestHeaders,
+  requestBlob,
   requestJson,
-  throwResponseError,
   validateToken,
 } from './client';
 import type { AdminCommandResult } from './types';
@@ -214,19 +213,17 @@ export function fetchMediaCapabilities(
   });
 }
 
-export async function synthesizeSpeech(
+export function synthesizeSpeech(
   token: string,
   text: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const response = await fetch('/api/media/speech', {
+  return requestBlob('/api/media/speech', {
+    token,
     method: 'POST',
-    headers: requestHeaders(token, { text }),
-    body: JSON.stringify({ text }),
+    body: { text },
     signal,
   });
-  if (!response.ok) await throwResponseError(response);
-  return response.blob();
 }
 
 export function artifactUrl(path: string): string {
@@ -238,32 +235,16 @@ export function agentAvatarUrl(imageUrl: string): string {
   return imageUrl;
 }
 
-async function fetchAuthenticatedBlob(
-  token: string,
-  url: string,
-): Promise<Blob> {
-  const response = await fetch(url, {
-    headers: requestHeaders(token),
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
-
-  return response.blob();
-}
-
-export async function fetchArtifactBlob(
+export function fetchArtifactBlob(
   token: string,
   artifactPath: string,
 ): Promise<Blob> {
-  return fetchAuthenticatedBlob(token, artifactUrl(artifactPath));
+  return requestBlob(artifactUrl(artifactPath), { token, cache: 'no-store' });
 }
 
 export function fetchAgentAvatarBlob(
   token: string,
   imageUrl: string,
 ): Promise<Blob> {
-  return fetchAuthenticatedBlob(token, agentAvatarUrl(imageUrl));
+  return requestBlob(agentAvatarUrl(imageUrl), { token, cache: 'no-store' });
 }

@@ -34,10 +34,8 @@ import {
   stopObservabilityIngest,
 } from '../audit/observability-ingest.js';
 import { startHybridAIAccessTokenMaintenance } from '../auth/hybridai-oauth.js';
-import type {
-  ChannelDescriptor,
-  ExternalChannelKind,
-} from '../channels/channel-descriptor.js';
+import type { ExternalChannelKind } from '../channels/channel.js';
+import type { ChannelDescriptor } from '../channels/channel-descriptor.js';
 import {
   CHANNEL_DESCRIPTORS,
   getChannelDescriptor,

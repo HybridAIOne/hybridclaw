@@ -1,4 +1,4 @@
-import { requestHeaders, requestJson, throwResponseError } from './client';
+import { requestBlob, requestJson } from './client';
 
 export type AppCategory =
   | 'apps'
@@ -218,20 +218,13 @@ export function revokeAppPublication(
   );
 }
 
-export async function downloadAppTeamsManifest(
+export function downloadAppTeamsManifest(
   token: string,
   appId: string,
 ): Promise<Blob> {
-  const response = await fetch(
-    `/api/apps/${encodeURIComponent(appId)}/teams-manifest`,
-    {
-      headers: requestHeaders(token),
-    },
-  );
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
-  return response.blob();
+  return requestBlob(`/api/apps/${encodeURIComponent(appId)}/teams-manifest`, {
+    token,
+  });
 }
 
 export function callLiveAppTool(

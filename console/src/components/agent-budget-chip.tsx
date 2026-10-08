@@ -1,4 +1,5 @@
 import type { AdminBoardBudgetSummary } from '../api/types';
+import { formatCompactNumber } from '../lib/format';
 
 export type AgentBudgetChipTone = 'neutral' | 'warn' | 'hard';
 
@@ -21,26 +22,9 @@ function formatCurrency(
   }).format(value);
 }
 
-function formatTokenCount(value: number) {
-  const abs = Math.abs(value);
-  const compact =
-    abs >= 1_000_000
-      ? { divisor: 1_000_000, suffix: 'm' }
-      : abs >= 1_000
-        ? { divisor: 1_000, suffix: 'k' }
-        : null;
-  if (!compact) return Math.round(value).toLocaleString('en-US');
-
-  const scaled = value / compact.divisor;
-  const formatted = Number.isInteger(scaled)
-    ? scaled.toFixed(0)
-    : scaled.toFixed(1);
-  return `${formatted}${compact.suffix}`;
-}
-
 function formatBudgetValue(budget: AdminBoardBudgetSummary, value: number) {
   return budget.unit === 'tokens'
-    ? formatTokenCount(value)
+    ? formatCompactNumber(value)
     : formatCurrency(value, budget.currency);
 }
 

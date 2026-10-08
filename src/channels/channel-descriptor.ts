@@ -5,17 +5,12 @@
  */
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ArtifactMetadata } from '../types/execution.js';
-import type { ChannelKind } from './channel.js';
+import type { ExternalChannelKind } from './channel.js';
 
 export interface ProactiveDeliveryOutcome {
   status: 'delivered' | 'queued' | 'suppressed' | 'failed';
   reason?: string;
 }
-
-export type ExternalChannelKind = Exclude<
-  ChannelKind,
-  'heartbeat' | 'scheduler' | 'tui'
->;
 
 export interface ChannelDescriptor {
   kind: ExternalChannelKind;

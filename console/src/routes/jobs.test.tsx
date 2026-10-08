@@ -346,9 +346,9 @@ describe('JobsPage', () => {
 
     renderJobsPage();
 
-    const token = await screen.findByText('12.4k / 100k tokens');
-    const tokenWarn = await screen.findByText('80k / 100k tokens');
-    const tokenHard = await screen.findByText('101k / 100k tokens');
+    const token = await screen.findByText('12.4K / 100K tokens');
+    const tokenWarn = await screen.findByText('80K / 100K tokens');
+    const tokenHard = await screen.findByText('101K / 100K tokens');
     expect(token.getAttribute('data-tone')).toBe('neutral');
     expect(token.getAttribute('title')).toBe('12% used');
     expect(tokenWarn.getAttribute('data-tone')).toBe('warn');

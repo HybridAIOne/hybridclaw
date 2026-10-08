@@ -26,6 +26,11 @@ export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 
 export type ChannelTargetKind = ChannelKind | 'web' | 'cli';
 
+export type ExternalChannelKind = Exclude<
+  ChannelKind,
+  'heartbeat' | 'scheduler' | 'tui'
+>;
+
 export const NON_SYSTEM_CHANNEL_KINDS = CHANNEL_KINDS.filter(
   (kind) => kind !== 'heartbeat' && kind !== 'scheduler',
 );

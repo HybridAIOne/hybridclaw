@@ -42,7 +42,7 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatDateTime, parseStringList } from '../lib/format';
+import { formatBytes, formatDateTime, parseStringList } from '../lib/format';
 
 const DISTILL_STAGE_ORDER = [
   'ingest',
@@ -82,15 +82,6 @@ function statusClass(run: AdminDistillRunSummary | null): string {
     return 'status-dot status-dot-warning';
   }
   return 'status-dot';
-}
-
-function formatBytes(sizeBytes: number): string {
-  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) return '0 B';
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  const kib = sizeBytes / 1024;
-  if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
-  const mib = kib / 1024;
-  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
 }
 
 function splitManualSources(value: string, kind: AdminDistillSourceKind) {

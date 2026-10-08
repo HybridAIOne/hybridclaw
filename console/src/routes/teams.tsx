@@ -20,7 +20,7 @@ import { Input } from '../components/input';
 import { Switch } from '../components/switch';
 import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
-import { PageHeader } from '../components/ui';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import styles from './teams.module.css';
 import { TeamsUsers } from './teams-users';
@@ -40,14 +40,6 @@ function defaultTeamsTabConfig(config: AdminConfig['msteams']) {
       appIdUri: '',
       allowFrom: [],
     }
-  );
-}
-
-function StatusPill(props: { ok: boolean }) {
-  return (
-    <span className={props.ok ? styles.pillOk : styles.pill}>
-      {props.ok ? 'Ready' : 'Missing'}
-    </span>
   );
 }
 
@@ -303,23 +295,43 @@ export function TeamsPage() {
           <ul className={styles.checkList}>
             <li className={styles.checkItem}>
               <span>Tab SSO enabled</span>
-              <StatusPill ok={status?.enabled === true} />
+              <BooleanPill
+                value={status?.enabled === true}
+                trueLabel="Ready"
+                falseLabel="Missing"
+              />
             </li>
             <li className={styles.checkItem}>
               <span>Tenant ID</span>
-              <StatusPill ok={Boolean(status?.tenantId)} />
+              <BooleanPill
+                value={Boolean(status?.tenantId)}
+                trueLabel="Ready"
+                falseLabel="Missing"
+              />
             </li>
             <li className={styles.checkItem}>
               <span>SSO app ID</span>
-              <StatusPill ok={Boolean(status?.ssoAppId)} />
+              <BooleanPill
+                value={Boolean(status?.ssoAppId)}
+                trueLabel="Ready"
+                falseLabel="Missing"
+              />
             </li>
             <li className={styles.checkItem}>
               <span>App ID URI</span>
-              <StatusPill ok={Boolean(status?.appIdUri)} />
+              <BooleanPill
+                value={Boolean(status?.appIdUri)}
+                trueLabel="Ready"
+                falseLabel="Missing"
+              />
             </li>
             <li className={styles.checkItem}>
               <span>Scope</span>
-              <StatusPill ok={status?.scope === 'access_as_user'} />
+              <BooleanPill
+                value={status?.scope === 'access_as_user'}
+                trueLabel="Ready"
+                falseLabel="Missing"
+              />
             </li>
           </ul>
         </CardContent>

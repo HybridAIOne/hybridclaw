@@ -31,21 +31,12 @@ import { TabbedPageActions } from '../components/tabbed-page';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatRelativeTime } from '../lib/format';
+import {
+  formatRelativeTime,
+  formatSecretFingerprint,
+  formatSecretLength,
+} from '../lib/format';
 import styles from './secrets.module.css';
-
-function formatLength(entry: AdminSecretEntry): string {
-  return entry.length === null ? '—' : `${entry.length} bytes`;
-}
-
-function formatFingerprint(entry: AdminSecretEntry): string {
-  return entry.fingerprint ? `sha256:${entry.fingerprint.sha256_prefix}` : '—';
-}
-
-function formatTimestamp(value: string | null): string {
-  if (!value) return 'never';
-  return formatRelativeTime(value);
-}
 
 export function SecretsPage(props: { embedded?: boolean } = {}) {
   const { token } = useAuth();
@@ -204,14 +195,14 @@ export function SecretsPage(props: { embedded?: boolean } = {}) {
                     <td>
                       <strong className={styles.name}>{entry.name}</strong>
                     </td>
-                    <td>{formatLength(entry)}</td>
+                    <td>{formatSecretLength(entry)}</td>
                     <td>
                       <code className={styles.fingerprint}>
-                        {formatFingerprint(entry)}
+                        {formatSecretFingerprint(entry)}
                       </code>
                     </td>
                     <td title={entry.last_rotated_at ?? undefined}>
-                      {formatTimestamp(entry.last_rotated_at)}
+                      {formatRelativeTime(entry.last_rotated_at)}
                     </td>
                     {showSetActions ? (
                       <td>

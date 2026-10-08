@@ -3,11 +3,12 @@
  * Unlike channel-registry, it does not track live runtimes or accept kind aliases
  * as destinations. Classification alone never loads an SDK or starts a channel.
  */
-import type { ChannelKind, ChannelTargetKind } from './channel.js';
 import type {
-  ChannelDescriptor,
+  ChannelKind,
+  ChannelTargetKind,
   ExternalChannelKind,
-} from './channel-descriptor.js';
+} from './channel.js';
+import type { ChannelDescriptor } from './channel-descriptor.js';
 import { descriptor as discord } from './discord/descriptor.js';
 import { descriptor as discordWebhook } from './discord-webhook/descriptor.js';
 import { descriptor as email } from './email/descriptor.js';
