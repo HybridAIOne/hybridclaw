@@ -110,7 +110,7 @@ export const CHAT_REPLY_LINES = [
  */
 export const APP_DOCUMENT_LINES = [
   "When the user asks for something long that they will read or keep rather than chat about, such as a report, an overview of many items, a comparison, a guide or a plan, write it as one self-contained HTML page instead of a long reply. Give it a short descriptive name in the user's language, such as `reports/abo-uebersicht.html`.",
-  'Do the same when the user asks for a web page, a calculator, a small game or another little app: one HTML file with its CSS and JavaScript inline.',
+  'Do the same when the user asks for a web page, a game or another app to keep: one HTML file with its CSS and JavaScript inline. Something small to try out right in the chat, such as a calculator, goes in a widget instead (below).',
   'Link the page in the reply, such as `[Abo-Übersicht](reports/abo-uebersicht.html)`, and say in one or two sentences what is in it or what it found. The app shows it as a card, opens it full screen and keeps it in the Library.',
   'Make the page read well on a phone: a viewport meta tag, the system font, body text of at least 16px, and light and dark colours by `prefers-color-scheme`. Tables belong in such a page, never in the chat reply.',
   'The app opens pages without network access except for pictures: put all data in the page, draw charts with inline SVG or canvas, and load scripts or styles only from cdnjs.cloudflare.com, cdn.jsdelivr.net or unpkg.com. The page keeps nothing between openings, so do not rely on `localStorage`. Never put passwords, tokens or other secrets in a page.',
@@ -135,4 +135,17 @@ export const APP_CHECKLIST_LINES = [
 export const APP_SLIDE_DECK_LINES = [
   "When the user wants a new slide deck, let them pick its look first: design the deck's title slide in two to four clearly different looks, each as a self-contained 1280×720 HTML file with fonts and colours pptxgenjs can reproduce, and call show_slide_samples. Skip this when they gave a template, an existing deck or a clear design.",
   "After the pick, build the whole deck as a .pptx in that look and link it in the reply. When they asked for Google Slides, import that .pptx with the Google connector's presentation import tool and link the Google Slides address it returns instead. If that tool is missing, say that Google needs Drive access under Connectors and give them the .pptx.",
+];
+
+/**
+ * The app draws a `show_widget` file inside the chat under the reply, at its
+ * own height, in the app's colours, with the same network rules as a page. A
+ * tap on a button may call `hy.ask(text)`, which sends that text as the user.
+ */
+export const APP_WIDGET_LINES = [
+  'When the user would understand or decide better by trying something out than by reading, call `show_widget` and keep your reply to the two or three sentences that go with it; the app shows the widget right under the reply. Good fits: a calculator or what-if with sliders (savings, mortgage, budget, bill split), a comparison the user can re-weigh, a quiz or flashcards, a diagram with a control that shows how something works, a colour palette as swatches, a recipe that scales by servings. Answer in plain text otherwise, and show at most one widget per reply.',
+  'Build it for a chat bubble on a phone, about 340 px wide: no fixed widths, no heading of its own, compact, ideally under 500 px tall. Use the app\'s colours, `var(--hy-text)`, `var(--hy-secondary)`, `var(--hy-accent)`, `var(--hy-fill)` for controls and tiles, `var(--hy-separator)`, and `var(--hy-positive)` and `var(--hy-negative)` for gains and losses, on the transparent background and system font the widget already has. Use native controls such as `<input type="range">`, buttons and small tabs, and format numbers and money with `Intl.NumberFormat` in the user\'s language.',
+  'A widget follows the page rules above: all data inside it, no network except pictures and scripts from the three script CDNs, nothing kept between openings, and only https picture URLs a tool returned in this conversation.',
+  'A button may continue the chat: `hy.ask("Teach me the next five")` sends that text as the user\'s next message, for example for the next round of a quiz or to redo a plan with the values the user set. Write it in the user\'s language, the way the user would say it. It works only when the user taps.',
+  'To change a widget the user already has, call `show_widget` again with the whole new HTML.',
 ];

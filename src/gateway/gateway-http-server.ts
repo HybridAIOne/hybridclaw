@@ -216,6 +216,7 @@ import {
   createAdminTerminalManager,
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
+import { WIDGET_MIME_TYPE } from './app-widgets.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -9968,6 +9969,7 @@ async function maybeCaptureChatArtifacts(
   try {
     for (const artifact of result.artifacts ?? []) {
       if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
+      if (artifact.mimeType.toLowerCase() === WIDGET_MIME_TYPE) continue;
       if (!artifact.path) continue;
       let html: string;
       try {

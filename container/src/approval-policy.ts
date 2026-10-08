@@ -2898,6 +2898,23 @@ export class TrustedAgentApprovalRuntime {
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
 
+    if (lowerTool === 'show_widget') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'show a widget in the chat',
+        consequenceIfDenied: 'I will answer in text instead.',
+        reason:
+          'this only writes a new file under widgets/ for the app to show and sends nothing',
+        commandPreview: normalizePreview(String(args.title ?? '')),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (
       lowerTool === 'read' ||
       lowerTool === 'glob' ||

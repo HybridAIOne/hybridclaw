@@ -69,6 +69,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['device_data'],
   },
   {
+    label: 'App Widgets',
+    tools: ['show_widget'],
+  },
+  {
     label: 'Vision',
     tools: ['vision_analyze'],
   },

@@ -158,6 +158,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
+import { SHOW_WIDGET_TOOL } from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -409,16 +410,16 @@ async function routeEscalationApproval(params: {
 }
 
 /**
- * `show_slide_samples` needs a client that shows its pictures as a card to
- * pick from; only the Hy app (`client: "mobile"`) does. Elsewhere the agent
- * describes the looks in words.
+ * `show_slide_samples` and `show_widget` need a client that draws them: a
+ * card of slide pictures to pick from, or a live widget under the reply. Only
+ * the Hy app (`client: "mobile"`) does. Elsewhere the agent answers in words.
  */
-function blockSlideSamplesUnlessApp(
+function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
   client: GatewayChatRequest['client'],
 ): string[] | undefined {
   if (client === 'mobile') return blockedTools;
-  return [...(blockedTools ?? []), 'show_slide_samples'];
+  return [...(blockedTools ?? []), 'show_slide_samples', SHOW_WIDGET_TOOL];
 }
 
 function readGatewayPromptModeDefault(): PromptMode | undefined {
@@ -1850,7 +1851,7 @@ async function handleGatewayMessageInner(
   // 2026-10-02): a per-turn block changes the tool list and system prompt at
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
-  const blockedTools = blockSlideSamplesUnlessApp(
+  const blockedTools = blockAppOnlyToolsUnlessApp(
     blockDeviceDataToolUnlessShared(undefined, req.userId),
     req.client,
   );
