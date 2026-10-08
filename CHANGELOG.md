@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.39.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.4) - 2026-10-09
+
+### Added
+
+- **Inline chat widgets**: In the Hy app, the assistant can show interactive
+  calculators, quizzes, comparisons and other small views directly below a
+  reply. Widgets stay with their reply and out of the Apps gallery.
+
+### Fixed
+
+- **Voice conversation context**: Web and app calls use the agent's display
+  name and the user's name, and summarize the existing chat while the call
+  rings. Greeting and microphone processing wait until the realtime service
+  acknowledges the summary. Failed summaries or setup timeouts end the call.
+- **Voice time answers**: Current time and date questions consult the agent
+  with a fresh clock. Calls use the device timezone when supplied, otherwise
+  the user's configured timezone.
+- **Tool discovery recovery**: Chats can correct missing or invalid
+  tool-discovery actions instead of ending with a technical error. The
+  existing two-correction limit and rejected-batch checks still apply.
+- **Phone calendar range**: Shared calendars can cover the past month through
+  a year ahead. Large calendar reads show the nearest entries and guide the
+  assistant to query by day or month for the rest.
+
+### Upgrade Notes
+
+- Continuing a chat with existing history by voice requires a working
+  `auxiliaryModels.compression` model. Check that configuration before relying
+  on voice continuation after upgrading.
+- Update the Hy app to display inline widgets and share the extended calendar
+  range. Device timezone support also requires the companion app update.
+
 ## [0.39.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.3) - 2026-10-08
 
 ### Added
