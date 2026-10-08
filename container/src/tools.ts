@@ -4626,7 +4626,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'device_data',
       description:
-        'Read what the user’s phone shares through the companion app: their calendar for the coming days, reminders that are due, a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts), and their contacts (names, companies, email addresses, phone numbers, birthdays, relationships such as sister or manager). Call it before answering anything about the user’s schedule, what is due, how they slept, moved or trained, or who someone is and how to reach them; do not say you cannot see their calendar, health data or contacts without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
+        'Read what the user’s phone shares through the companion app: their calendar from the past month to a year ahead, reminders that are due, a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts), and their contacts (names, companies, email addresses, phone numbers, birthdays, relationships such as sister or manager). Call it before answering anything about the user’s schedule, what is due, how they slept, moved or trained, or who someone is and how to reach them; do not say you cannot see their calendar, health data or contacts without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
       parameters: {
         type: 'object',
         properties: {
@@ -4638,7 +4638,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           query: {
             type: 'string',
             description:
-              'Words to look for, such as a name, company, email address, relationship (`sister`) or birthday month (`Oct`). Returns only the entries that contain every word. Needed to read `contacts`, which is too long to list whole.',
+              'Words to look for, such as a name, company, email address, relationship (`sister`), birthday month (`Oct`), or a calendar day (`14 Nov`) or month (`Nov 2026`). Returns only the entries that contain every word. Needed to read `contacts`, which is too long to list whole, and the later days of a long calendar.',
           },
         },
         required: [],
