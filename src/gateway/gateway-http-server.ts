@@ -11218,6 +11218,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               ).handleAgentResetRoute(req, res, pathname))
             )
               return;
+            if (
+              pathname.endsWith('/adopt') &&
+              (await (
+                await import('./agent-reset-route.js')
+              ).handleAgentAdoptRoute(req, res, pathname))
+            )
+              return;
             await handleApiAdminAgents(req, res, url);
             return;
           }

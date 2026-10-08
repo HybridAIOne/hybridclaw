@@ -158,6 +158,31 @@ export function deleteWebNotificationSession(sessionId: string): void {
   writeStore(store);
 }
 
+/** Moves a session's owner, app and notifications to a new session id. */
+export function renameWebNotificationSession(
+  fromSessionId: string,
+  toSessionId: string,
+): void {
+  const store = readStore();
+  const fromKey = notificationOperatorId(fromSessionId);
+  const operatorId = store.sessions[fromKey];
+  if (!operatorId) return;
+  const toKey = notificationOperatorId(toSessionId);
+  store.sessions[toKey] = operatorId;
+  delete store.sessions[fromKey];
+  const app = store.sessionApps?.[fromKey];
+  if (store.sessionApps) {
+    delete store.sessionApps[fromKey];
+    if (app) store.sessionApps[toKey] = app;
+  }
+  for (const notification of operatorState(store, operatorId).notifications) {
+    if (notification.sessionId === fromSessionId) {
+      notification.sessionId = toSessionId;
+    }
+  }
+  writeStore(store);
+}
+
 export function readWebNotificationState(
   operatorId: string,
 ): WebNotificationState {

@@ -1,7 +1,11 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, test } from 'vitest';
-import { closeDatabase, initDatabase } from '../src/memory/db.js';
+import {
+  closeDatabase,
+  DATABASE_SCHEMA_VERSION,
+  initDatabase,
+} from '../src/memory/db.js';
 import { getAllJobs } from '../src/memory/jobs.js';
 import { useTempDir } from './test-utils.js';
 
@@ -52,7 +56,9 @@ test.each([69, 70])(
     const tasksTable = inspect
       .prepare("SELECT name FROM sqlite_master WHERE name = 'tasks'")
       .get();
-    expect(inspect.pragma('user_version', { simple: true })).toBe(71);
+    expect(inspect.pragma('user_version', { simple: true })).toBe(
+      DATABASE_SCHEMA_VERSION,
+    );
     expect(inspect.prepare('SELECT id FROM work_records').all()).toEqual(
       version === 69 ? [] : [{ id: 'work-1' }],
     );

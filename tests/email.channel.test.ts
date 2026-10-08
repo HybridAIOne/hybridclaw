@@ -1466,6 +1466,57 @@ describe('email runtime', () => {
     ]);
   });
 
+  test('routes the top-level mailbox to the configured default agent', async () => {
+    vi.doMock('../src/config/config.ts', () => ({
+      APP_VERSION: '0.7.1',
+      DATA_DIR: path.join(os.tmpdir(), 'hybridclaw-test-data'),
+      EMAIL_PASSWORD: '',
+      EMAIL_TEXT_CHUNK_LIMIT: 50_000,
+      getConfigSnapshot: () => ({
+        email: {
+          ...BASE_EMAIL_CONFIG,
+          address: 'main@example.com',
+          password: 'main-password',
+          accounts: [],
+        },
+      }),
+    }));
+    vi.doMock('../src/config/runtime-config.ts', async () => ({
+      ...(await vi.importActual('../src/config/runtime-config.ts')),
+      resolveDefaultAgentId: () => 'hy',
+    }));
+    vi.doMock('nodemailer', () => ({
+      default: {
+        createTransport: vi.fn(() => ({
+          close: vi.fn(async () => {}),
+          verify: vi.fn(async () => {}),
+        })),
+      },
+    }));
+    const agentIds: string[] = [];
+    vi.doMock('../src/channels/email/connection.ts', () => ({
+      createEmailConnectionManager: vi.fn((config: { agentId: string }) => {
+        agentIds.push(config.agentId);
+        return { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      }),
+    }));
+    vi.doMock('../src/channels/email/inbound.ts', () => ({
+      cleanupEmailInboundMedia: vi.fn(async () => {}),
+      processInboundEmail: vi.fn(),
+    }));
+
+    const { createEmailRuntime } = await import(
+      '../src/channels/email/runtime.js'
+    );
+    try {
+      await createEmailRuntime().initEmail(vi.fn());
+    } finally {
+      vi.doUnmock('../src/config/runtime-config.ts');
+    }
+
+    expect(agentIds).toEqual(['hy']);
+  });
+
   test('lets an explicit main-agent mailbox override the top-level mailbox', async () => {
     const accounts = [
       {

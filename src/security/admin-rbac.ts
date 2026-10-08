@@ -602,7 +602,7 @@ export function resolveAdminRbacAction(
   if (isPathOrChild(pathname, '/api/admin/agents')) {
     if (
       method === 'POST' &&
-      /^\/api\/admin\/agents\/[^/]+\/reset$/.test(pathname)
+      /^\/api\/admin\/agents\/[^/]+\/(reset|adopt)$/.test(pathname)
     )
       return 'admin.agents.delete';
     if (method === 'GET') return 'admin.agents.read';

@@ -15,17 +15,11 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import {
-  deleteMemoryValuesByKey,
-  deleteMemoryValuesByKeyPrefix,
-} from '../memory/db.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
+import { clearBootstrapAutostartMarkers } from './agent-onboarding.js';
 import { deleteRegisteredAgent, getAgentById } from './agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from './agent-types.js';
-
-const GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX =
-  'gateway.bootstrap_autostart.v1';
 
 export interface UninstallAgentResult {
   agentId: string;
@@ -117,10 +111,8 @@ export function uninstallAgent(
       );
     });
   }
-  const bootstrapAutostartMarkerKey = `${GATEWAY_BOOTSTRAP_AUTOSTART_MARKER_PREFIX}.${normalizedAgentId}`;
   const removedBootstrapAutostartMarkers =
-    deleteMemoryValuesByKey(bootstrapAutostartMarkerKey) +
-    deleteMemoryValuesByKeyPrefix(`${bootstrapAutostartMarkerKey}.`);
+    clearBootstrapAutostartMarkers(normalizedAgentId);
   return {
     agentId: normalizedAgentId,
     agentRootPath,

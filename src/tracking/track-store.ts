@@ -137,6 +137,43 @@ function save(owners: Map<string, TrackList>): void {
   }
 }
 
+/**
+ * Re-keys lists when one agent's chats pass to another, as `renameTodoOwners`
+ * does, and points result copies at the new agent's workspace.
+ */
+export function renameTrackedOwners(
+  rename: (owner: string) => string,
+  rewritePath: (resultPath: string) => string,
+): void {
+  const owners = load();
+  const next = new Map<string, TrackList>();
+  const entries = [...owners].sort(
+    ([a], [b]) => Number(rename(b) !== b) - Number(rename(a) !== a),
+  );
+  let changed = false;
+  for (const [owner, list] of entries) {
+    const target = rename(owner);
+    for (const item of list.items) {
+      for (const result of item.results ?? []) {
+        const rewritten = rewritePath(result.path);
+        if (rewritten !== result.path) changed = true;
+        result.path = rewritten;
+      }
+    }
+    if (target !== owner) changed = true;
+    const base = next.get(target);
+    if (!base) {
+      next.set(target, list);
+      continue;
+    }
+    for (const item of list.items) {
+      base.items.push({ ...item, id: base.nextId });
+      base.nextId += 1;
+    }
+  }
+  if (changed) save(next);
+}
+
 /** One line of text, trimmed; throws past `max` characters. */
 function line(raw: string, max: number, what: string): string {
   const text = raw.replace(/\s+/g, ' ').trim();

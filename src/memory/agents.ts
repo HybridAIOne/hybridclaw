@@ -62,6 +62,7 @@ type AgentRow = {
   tools: string | null;
   chatbot_id: string | null;
   enable_rag: number | null;
+  onboarding: number | null;
   workspace: string | null;
   owner: string | null;
   role: string | null;
@@ -476,6 +477,9 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(typeof row.enable_rag === 'number'
       ? { enableRag: row.enable_rag !== 0 }
       : {}),
+    ...(typeof row.onboarding === 'number'
+      ? { onboarding: row.onboarding !== 0 }
+      : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(reportsTo ? { reportsTo } : {}),
@@ -489,7 +493,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, tools, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, extends_agent_id, created_at, updated_at';
+  'id, archived, canonical_id, owner_user_id, name, display_name, image_asset, empty_chat_header, model, skills, tools, chatbot_id, enable_rag, onboarding, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, proxy, extends_agent_id, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -525,6 +529,7 @@ interface SerializedAgentSettings {
   tools: string | null;
   chatbotId: string | null;
   enableRag: number | null;
+  onboarding: number | null;
   workspace: string | null;
   owner: string | null;
   role: string | null;
@@ -551,6 +556,8 @@ function serializeAgentSettings(agent: AgentConfig): SerializedAgentSettings {
     chatbotId: agent.chatbotId?.trim() || null,
     enableRag:
       typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null,
+    onboarding:
+      typeof agent.onboarding === 'boolean' ? (agent.onboarding ? 1 : 0) : null,
     workspace: agent.workspace?.trim() || null,
     owner: agent.owner?.trim() || null,
     role: agent.role?.trim() || null,
@@ -677,6 +684,7 @@ export function upsertAgent(
        tools,
        chatbot_id,
        enable_rag,
+       onboarding,
        workspace,
        owner,
        role,
@@ -690,7 +698,7 @@ export function upsertAgent(
        extends_agent_id,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        archived = excluded.archived,
        canonical_id = excluded.canonical_id,
@@ -704,6 +712,7 @@ export function upsertAgent(
        tools = excluded.tools,
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
+       onboarding = excluded.onboarding,
        workspace = excluded.workspace,
        owner = excluded.owner,
        role = excluded.role,
@@ -731,6 +740,7 @@ export function upsertAgent(
       settings.tools,
       settings.chatbotId,
       settings.enableRag,
+      settings.onboarding,
       settings.workspace,
       settings.owner,
       settings.role,

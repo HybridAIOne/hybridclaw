@@ -40,6 +40,7 @@ hybridclaw agent list
 hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent defaults <json>
 hybridclaw agent reset <agent-id> [--yes] [--keep-history]
+hybridclaw agent adopt <agent-id> [--from <agent-id>] [--session <old>=<new>]... [--yes]
 hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -120,7 +121,53 @@ require an independent managed workspace and do not support `workspace`,
 `extends` or `imageAsset`. Reset refuses the main agent and shared or symlinked
 agent directories. The HTTP equivalent is an admin-only
 `POST /api/admin/agents/<id>/reset` with `{"confirmation":"RESET AGENT"}`;
-it requires `admin.agents.delete` permission.
+it requires `admin.agents.delete` permission. Reset also clears an earlier
+`adopt` (below), since the adopted data is gone.
+
+## Importing Another Agent's History
+
+`adopt` moves the user's history from one agent (default `main`) to another,
+for example when a user switches to a dedicated companion agent:
+
+```bash
+hybridclaw agent adopt hy --from main \
+  --session main-<hash>-main=main-<hash>-hy-<persona> --yes
+```
+
+It runs in the gateway (which must be running, with both agents idle) and:
+
+- copies the source workspace into the target's, except the target's own
+  persona and runtime files (`IDENTITY.md`, `SOUL.md`, `AGENTS.md`, `TOOLS.md`,
+  `BOOT.md`, `OPENING.md`, `BOOTSTRAP.md`, `node_modules`,
+  `.hybridclaw/workspace-state.json`). Same-named files are replaced, except
+  `MEMORY.md` and `memory/*.md`: what the target already had stays below a
+  `## Before the import from <agent>` heading. The source workspace stays as
+  a backup;
+- moves the source's sessions (with messages, scheduled tasks, session memory,
+  audit logs, compaction archives and notification bindings), agent-scoped
+  memory, canonical context, todos and tracked goals to the target, and
+  rewrites `agent:<from>:` session keys;
+- renames each `--session <old>=<new>` thread. A `<new>` session that already
+  exists is kept as `<new>-before-adopt-<unix ms>`;
+- makes the target the default agent, routes the source's mailboxes to it
+  (accounts without `agentId` follow the default agent), and turns the
+  target's onboarding off.
+
+It prints one JSON line: `{"status":"adopted",...}` with `sessionsMoved`,
+`threadsRenamed`, `movedAside` and `filesCopied`; `{"status":"already"}` when
+the target already imported from this source; or `{"status":"nothing"}` when
+the source has no user messages and no files beyond templates. Importing from
+a second source fails until the target is reset. After `adopted` the gateway
+restarts itself once the answer is sent (`"gatewayRestart":"requested"`), so
+channels such as email pick up the new agent bindings: through the restart
+helper when the CLI started it, or, as a container's main process, by exiting
+with code 75 for the container's on-failure restart policy. A gateway that can
+do neither answers `"gatewayRestart":"unavailable"` and needs a manual restart.
+The HTTP equivalent is
+`POST /api/admin/agents/<to>/adopt` with
+`{"confirmation":"ADOPT AGENT","from":"main","sessions":[{"from":"<old>","to":"<new>"}]}`,
+which also requires `admin.agents.delete`; a busy agent or a second source
+answers 409.
 
 ## Configuring Agents From JSON
 
@@ -150,6 +197,11 @@ Omitted agent fields are preserved when the agent already exists, so a later
 payload can update only markdown without clearing the model, bot binding, skill
 allowlist, or RAG setting. Passing an empty value for a supported agent field
 clears that field.
+
+`"onboarding": false` keeps the agent out of first-run onboarding for good: no
+`BOOTSTRAP.md`, no hatching turn and no welcome email, also after its
+workspace is wiped or the agent is reset from defaults that carry the flag.
+Setting it removes an existing `BOOTSTRAP.md`; `null` restores the default.
 
 `emptyChatHeader` sets the heading shown when the agent is selected in an empty
 chat. When `imageAsset` is an `http`/`https` URL or a local file path, `agent

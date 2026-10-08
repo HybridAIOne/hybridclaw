@@ -1,11 +1,11 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import type {
   RuntimeEmailAccountConfig,
   RuntimeEmailConfig,
 } from '../../config/runtime-config.js';
+import { resolveDefaultAgentId } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
@@ -186,8 +186,14 @@ function accountKey(address: string): string {
     .toLowerCase();
 }
 
+// Mail without an explicit agent goes to the default agent, which follows
+// `agents.defaultAgentId` (an agent that adopted main's user takes its mail).
+function defaultEmailAgentId(): string {
+  return resolveDefaultAgentId();
+}
+
 function normalizeEmailAgentId(value: string): string {
-  return String(value || '').trim() || DEFAULT_AGENT_ID;
+  return String(value || '').trim() || defaultEmailAgentId();
 }
 
 function resolvePlainEmailPassword(value: unknown, label: string): string {
@@ -223,8 +229,9 @@ function accountFromLegacyConfig(
       'Email channel password is required. Store EMAIL_PASSWORD with `hybridclaw secret set EMAIL_PASSWORD <password>` or in TUI with `/secret set EMAIL_PASSWORD <password>`, or set email.password in /admin/config.',
     );
   }
+  const agentId = defaultEmailAgentId();
   const accountConfig: RuntimeEmailAccountConfig = {
-    agentId: DEFAULT_AGENT_ID,
+    agentId,
     imapHost: config.imapHost,
     imapPort: config.imapPort,
     imapSecure: config.imapSecure,
@@ -240,7 +247,7 @@ function accountFromLegacyConfig(
   };
   return {
     key: accountKey(address),
-    agentId: DEFAULT_AGENT_ID,
+    agentId,
     address,
     config: accountConfig,
     password,
@@ -290,7 +297,7 @@ function configuredAccountOverridesLegacy(
   account: ResolvedEmailAccount,
   legacy: ResolvedEmailAccount,
 ): boolean {
-  const targetsDefaultAgent = account.agentId === DEFAULT_AGENT_ID;
+  const targetsDefaultAgent = account.agentId === legacy.agentId;
   const usesLegacyAddress = account.key === legacy.key;
   // Default-agent accounts replace legacy config; matching addresses avoid duplicate polling.
   return targetsDefaultAgent || usesLegacyAddress;

@@ -265,6 +265,14 @@ async function loadSessionState(sessionId: string): Promise<SessionAuditState> {
   return state;
 }
 
+/**
+ * Drops cached chain heads so the next append re-reads each session's wire
+ * file. Call after `flushAuditTrail()` when a session's audit directory moved.
+ */
+export function forgetAuditSessionState(sessionIds: Iterable<string>): void {
+  for (const sessionId of sessionIds) sessionStateCache.delete(sessionId);
+}
+
 export function createAuditRunId(prefix = 'run'): string {
   const normalized = prefix.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'run';
   return `${normalized}_${Date.now()}_${randomUUID().slice(0, 8)}`;

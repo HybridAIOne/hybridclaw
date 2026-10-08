@@ -40,6 +40,7 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.workspace === b.workspace &&
     a.chatbotId === b.chatbotId &&
     a.enableRag === b.enableRag &&
+    a.onboarding === b.onboarding &&
     a.owner === b.owner &&
     a.role === b.role &&
     a.reportsTo === b.reportsTo &&

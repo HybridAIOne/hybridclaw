@@ -7,6 +7,7 @@ import {
   readUserTimezoneFile,
 } from '../../container/shared/workspace-time.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
+import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import type { MemoryConsolidationReport } from './memory-consolidation.js';
@@ -81,7 +82,9 @@ function persistMemoryConsolidationState(): void {
 }
 
 export function getDreamTimezone(): string | undefined {
-  return readUserTimezoneFile(path.join(agentWorkspaceDir('main'), 'USER.md'));
+  return readUserTimezoneFile(
+    path.join(agentWorkspaceDir(resolveDefaultAgentId()), 'USER.md'),
+  );
 }
 
 export function hasDreamRunToday(now = new Date()): boolean {

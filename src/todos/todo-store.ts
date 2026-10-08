@@ -113,6 +113,33 @@ export function todoOwnerOf(session: Session): string {
   return `chat:${session.session_key || session.id}`;
 }
 
+/**
+ * Re-keys lists when one agent's chats pass to another. A renamed list keeps
+ * its ids; a list already under the new owner follows it, renumbered.
+ */
+export function renameTodoOwners(rename: (owner: string) => string): void {
+  const owners = load();
+  const next = new Map<string, TodoList>();
+  const entries = [...owners].sort(
+    ([a], [b]) => Number(rename(b) !== b) - Number(rename(a) !== a),
+  );
+  let changed = false;
+  for (const [owner, list] of entries) {
+    const target = rename(owner);
+    if (target !== owner) changed = true;
+    const base = next.get(target);
+    if (!base) {
+      next.set(target, list);
+      continue;
+    }
+    for (const todo of list.todos) {
+      base.todos.push({ ...todo, id: base.nextId });
+      base.nextId += 1;
+    }
+  }
+  if (changed) save(next);
+}
+
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days))

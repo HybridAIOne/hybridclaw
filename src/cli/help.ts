@@ -874,6 +874,7 @@ Commands:
   hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent defaults <json>
   hybridclaw agent reset <agent-id> [--yes] [--keep-history]
+  hybridclaw agent adopt <agent-id> [--from <agent-id>] [--session <old>=<new>]... [--yes]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -900,6 +901,8 @@ Notes:
   - \`install github:owner/repo/<agent-dir>\` resolves the packaged agent from a GitHub claws repo; use \`github:owner/repo/<ref>/<agent-dir>\` to pin a ref.
   - Direct \`https://.../*.claw\` URLs download the archive before installing it.
   - \`activate\` makes an installed agent the default for new requests that do not specify an agent explicitly.
+  - \`adopt\` moves another agent's (default \`main\`) sessions, tasks and memory to an agent and copies its workspace files over; \`--session\` renames a thread on the way. Prints one JSON line.
+  - Set \`"onboarding": false\` in a \`config\` or \`defaults\` payload to skip first-run onboarding for that agent for good.
   - \`uninstall\` removes a non-main agent registration and its workspace root.
   - Use \`--yes\` to skip the install or uninstall confirmation prompt.
   - Use \`--force\` to replace an existing agent workspace or bundled plugin install during install.
