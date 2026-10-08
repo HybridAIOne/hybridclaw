@@ -6,6 +6,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, test } from 'vitest';
+import {
+  EVOLVE_AGENT_SYSTEM_PROMPT,
+  EVOLVE_AGENT_TOOLS,
+} from '../eval-harness/src/harness-evolution.ts';
 import { useTempDir } from './test-utils.ts';
 
 const execFileAsync = promisify(execFile);
@@ -33,25 +37,43 @@ const MEMORY_EDIT = {
   rollbackScope: 'long_term_memory/stderr-debugging.md',
 };
 
-// A vLLM-compatible chat endpoint that plays the evolve agent.
+interface ModelCall {
+  url: string;
+  model?: string;
+  chatbotId?: string;
+  systemPrompt: string;
+}
+
+// Plays the evolve agent behind an OpenAI-style chat endpoint. HybridAI's
+// health probe (bot list, model list) gets a 200 so the provider is healthy.
 async function startFakeModelServer(): Promise<{
-  baseUrl: string;
-  systemPrompts: string[];
+  origin: string;
+  calls: ModelCall[];
 }> {
-  const systemPrompts: string[] = [];
+  const calls: ModelCall[] = [];
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
     });
     req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (!req.url?.endsWith('/chat/completions')) {
+        res.end(JSON.stringify({ object: 'list', data: [] }));
+        return;
+      }
       const parsed = JSON.parse(body || '{}') as {
         model?: string;
+        chatbot_id?: string;
         messages?: Array<{ content?: string }>;
       };
-      systemPrompts.push(String(parsed.messages?.[0]?.content || ''));
+      calls.push({
+        url: req.url,
+        model: parsed.model,
+        chatbotId: parsed.chatbot_id,
+        systemPrompt: String(parsed.messages?.[0]?.content || ''),
+      });
       const content = `\`\`\`json\n${JSON.stringify({ f12Edits: [MEMORY_EDIT] })}\n\`\`\``;
-      res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
           id: 'chatcmpl-test',
@@ -75,22 +97,37 @@ async function startFakeModelServer(): Promise<{
     server.listen(0, '127.0.0.1', () => resolve()),
   );
   const { port } = server.address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${port}/v1`, systemPrompts };
+  return { origin: `http://127.0.0.1:${port}`, calls };
 }
 
-function writeFixture(dir: string, modelBaseUrl: string) {
+// Two configs a user really has: a dedicated `eval_judge` model on a local
+// vLLM, or only HybridAI with its default model and no auxiliary override.
+function vllmJudgeConfig(origin: string) {
+  return {
+    local: { backends: { vllm: { enabled: true, baseUrl: `${origin}/v1` } } },
+    auxiliaryModels: {
+      eval_judge: { provider: 'vllm', model: 'vllm/fake-evolver' },
+    },
+  };
+}
+
+function hybridaiOnlyConfig(origin: string) {
+  return {
+    hybridai: {
+      baseUrl: origin,
+      defaultModel: 'gpt-5',
+      defaultChatbotId: 'bot_test',
+    },
+  };
+}
+
+function writeFixture(dir: string, config: Record<string, unknown>) {
   const dataDir = path.join(dir, 'data');
+  const home = path.join(dir, 'home');
   const target = path.join(dir, 'agent');
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dataDir, 'config.json'),
-    JSON.stringify({
-      local: { backends: { vllm: { enabled: true, baseUrl: modelBaseUrl } } },
-      auxiliaryModels: {
-        eval_judge: { provider: 'vllm', model: 'vllm/fake-evolver' },
-      },
-    }),
-  );
+  fs.mkdirSync(home);
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify(config));
   const checker = path.join(dir, 'check-memory.mjs');
   fs.writeFileSync(
     checker,
@@ -113,27 +150,39 @@ function writeFixture(dir: string, modelBaseUrl: string) {
       ],
     }),
   );
-  return { dataDir, target, suite };
+  return { dir, dataDir, home, target, suite };
 }
 
-async function harnessEvolve(
-  dataDir: string,
+type Fixture = ReturnType<typeof writeFixture>;
+
+// A clean process env: no inherited provider keys or ~/.codex login, so the
+// model chain sees only what the fixture configures.
+function cliEnv(fixture: Fixture, extra: Record<string, string> = {}) {
+  return {
+    PATH: process.env.PATH ?? '',
+    HOME: fixture.home,
+    HYBRIDCLAW_DATA_DIR: fixture.dataDir,
+    HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
+    GIT_AUTHOR_NAME: 'user_a',
+    GIT_AUTHOR_EMAIL: 'user_a@example.com',
+    GIT_COMMITTER_NAME: 'user_a',
+    GIT_COMMITTER_EMAIL: 'user_a@example.com',
+    ...extra,
+  };
+}
+
+type CliResult = { code: number; stdout: string; stderr: string };
+
+async function runCli(
+  file: string,
   args: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+): Promise<CliResult> {
   try {
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      [TSX_CLI, HARNESS_CLI, 'harness-evolve', ...args],
-      {
-        cwd: ROOT,
-        env: {
-          ...process.env,
-          HYBRIDCLAW_DATA_DIR: dataDir,
-          HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
-        },
-        timeout: 60_000,
-      },
-    );
+    const { stdout, stderr } = await execFileAsync(file, args, {
+      ...options,
+      timeout: 90_000,
+    });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code?: number; stdout?: string; stderr?: string };
@@ -145,50 +194,61 @@ async function harnessEvolve(
   }
 }
 
-describe('npm run eval -- harness-evolve', () => {
-  test('evolves a seed through a real model endpoint and inspects the run', async () => {
-    const dir = makeTempDir();
-    const model = await startFakeModelServer();
-    const { dataDir, target, suite } = writeFixture(dir, model.baseUrl);
+function harnessEvolve(
+  fixture: Fixture,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): Promise<CliResult> {
+  return runCli(
+    process.execPath,
+    [TSX_CLI, HARNESS_CLI, 'harness-evolve', ...args],
+    { cwd: ROOT, env: cliEnv(fixture, extraEnv) },
+  );
+}
 
-    expect((await harnessEvolve(dataDir, ['init', '--target', target])).code).toBe(0);
-    const seed = await harnessEvolve(dataDir, ['validate-seed', '--target', target]);
+function runArgs(fixture: Fixture, ...extra: string[]): string[] {
+  const { target, suite } = fixture;
+  return ['run', '--target', target, '--suite', suite, '--k', '1', ...extra];
+}
+
+function summaryPathOf(stdout: string): string {
+  return /^Summary: (.+)$/m.exec(stdout)?.[1] ?? '';
+}
+
+function readMemory(target: string): string | null {
+  const file = path.join(target, 'long_term_memory', 'stderr-debugging.md');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+}
+
+describe('npm run eval -- harness-evolve', () => {
+  test('evolves a seed through an eval_judge model and inspects the run', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), vllmJudgeConfig(model.origin));
+    const { target } = fixture;
+
+    expect((await harnessEvolve(fixture, ['init', '--target', target])).code).toBe(0);
+    const seed = await harnessEvolve(fixture, ['validate-seed', '--target', target]);
     expect(seed.code).toBe(0);
     expect(seed.stdout).toContain('minimal bash-only harness');
 
-    const run = await harnessEvolve(dataDir, [
-      'run',
-      '--target',
-      target,
-      '--suite',
-      suite,
-      '--rounds',
-      '2',
-      '--k',
-      '1',
-      '--fresh-seed',
-    ]);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '2', '--fresh-seed'));
     expect(run.code).toBe(0);
     expect(run.stdout).toContain('Best: round 2 pass@1=1');
-    expect(model.systemPrompts).toHaveLength(2);
-    expect(model.systemPrompts[0]).toMatch(/harness-evolution agent/);
-    expect(
-      fs.readFileSync(
-        path.join(target, 'long_term_memory', 'stderr-debugging.md'),
-        'utf-8',
-      ),
-    ).toMatch(/stderr/);
+    expect(model.calls.map((call) => call.model)).toEqual(['fake-evolver', 'fake-evolver']);
+    expect(model.calls[0]?.systemPrompt).toBe(EVOLVE_AGENT_SYSTEM_PROMPT);
+    expect(readMemory(target)).toMatch(/stderr/);
 
-    const summaryPath = /^Summary: (.+)$/m.exec(run.stdout)?.[1] ?? '';
-    const list = await harnessEvolve(dataDir, ['list', '--target', target]);
+    const summaryPath = summaryPathOf(run.stdout);
+    const list = await harnessEvolve(fixture, ['list', '--target', target]);
     expect(list.code).toBe(0);
     expect(list.stdout).toContain(`summary: ${summaryPath}`);
+    expect(list.stdout).not.toContain('Incomplete runs');
 
-    const status = await harnessEvolve(dataDir, ['status', '--summary', summaryPath]);
+    const status = await harnessEvolve(fixture, ['status', '--summary', summaryPath]);
     expect(status.code).toBe(0);
     expect(status.stdout).toContain('long_term_memory:1');
 
-    const manifest = await harnessEvolve(dataDir, [
+    const manifest = await harnessEvolve(fixture, [
       'manifest',
       '--manifest',
       path.join(path.dirname(summaryPath), 'round-1', 'f12-manifest.json'),
@@ -201,7 +261,125 @@ describe('npm run eval -- harness-evolve', () => {
         confirmed: true,
       }),
     ]);
+  }, 180_000);
+
+  test('falls back to the HybridAI default model when no eval_judge is configured', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), hybridaiOnlyConfig(model.origin));
+    const env = { HYBRIDAI_API_KEY: 'test-key' };
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target], env)).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '1', '--fresh-seed'), env);
+
+    expect(run.code, run.stderr).toBe(0);
+    expect(model.calls).toEqual([
+      expect.objectContaining({
+        url: '/v1/chat/completions',
+        model: 'gpt-5',
+        chatbotId: 'bot_test',
+      }),
+    ]);
+    expect(readMemory(fixture.target)).toMatch(/stderr/);
   }, 120_000);
+
+  test('fails cleanly without any usable model and lists the run as incomplete', async () => {
+    // Port 9 (discard) refuses connections: HybridAI is configured but down.
+    const fixture = writeFixture(makeTempDir(), hybridaiOnlyConfig('http://127.0.0.1:9'));
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target])).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '1'));
+    expect(run.code).toBe(1);
+    expect(run.stderr).toMatch(/^eval error: /m);
+
+    const list = await harnessEvolve(fixture, ['list', '--target', fixture.target]);
+    expect(list.code).toBe(0);
+    expect(list.stdout).toMatch(/: 0$/m);
+    const [runId] = fs.readdirSync(path.join(fixture.target, 'runs'));
+    expect(list.stdout).toMatch(new RegExp(`^Incomplete runs .*${runId}$`, 'm'));
+  }, 120_000);
+
+  test('--dry-run measures the seed without calling the model or editing surfaces', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), vllmJudgeConfig(model.origin));
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target])).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '2', '--dry-run'));
+
+    expect(run.code, run.stderr).toBe(0);
+    expect(model.calls).toEqual([]);
+    expect(readMemory(fixture.target)).toBeNull();
+    expect(fs.existsSync(summaryPathOf(run.stdout))).toBe(true);
+  }, 120_000);
+
+  test('--commit records each evolved round as a git commit in the target', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), vllmJudgeConfig(model.origin));
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target])).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '2', '--commit'));
+    expect(run.code, run.stderr).toBe(0);
+
+    const summary = JSON.parse(fs.readFileSync(summaryPathOf(run.stdout), 'utf-8')) as {
+      rounds: Array<{ gitCommit: string | null }>;
+    };
+    const head = await runCli('git', ['rev-parse', 'HEAD'], {
+      cwd: fixture.target,
+      env: cliEnv(fixture),
+    });
+    expect(summary.rounds[0]?.gitCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(head.stdout.trim()).toBe(
+      summary.rounds.map((round) => round.gitCommit).filter(Boolean).at(-1),
+    );
+    const tracked = await runCli('git', ['ls-files', 'long_term_memory'], {
+      cwd: fixture.target,
+      env: cliEnv(fixture),
+    });
+    expect(tracked.stdout.split('\n')).toContain(MEMORY_EDIT.relativePath);
+  }, 120_000);
+
+  test('resolves relative paths against the directory npm was run from', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), vllmJudgeConfig(model.origin));
+    const npmEval = (args: string[]) =>
+      runCli(
+        'npm',
+        ['--prefix', ROOT, 'run', '-s', 'eval', '--', 'harness-evolve', ...args],
+        { cwd: fixture.dir, env: cliEnv(fixture) },
+      );
+
+    expect((await npmEval(['init', '--target', 'agent'])).code).toBe(0);
+    expect(fs.existsSync(path.join(fixture.dir, 'agent', 'system_prompt.md'))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'agent'))).toBe(false);
+
+    const run = await npmEval(['run', '--target', 'agent', '--suite', 'suite.json', '--rounds', '1', '--k', '1']);
+    expect(run.code, run.stderr).toBe(0);
+    expect(summaryPathOf(run.stdout).startsWith(path.join(fixture.dir, 'agent', 'runs'))).toBe(true);
+  }, 180_000);
+
+  test('contract prints the evolve-agent prompt and tool schema', async () => {
+    const result = await harnessEvolve(writeFixture(makeTempDir(), {}), ['contract']);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      systemPrompt: EVOLVE_AGENT_SYSTEM_PROMPT,
+      tools: EVOLVE_AGENT_TOOLS,
+    });
+  }, 60_000);
+
+  test('help lists every subcommand, and the eval usage lists harness-evolve', async () => {
+    const fixture = writeFixture(makeTempDir(), {});
+    const help = await harnessEvolve(fixture, ['help']);
+    expect(help.code).toBe(0);
+    for (const sub of ['init', 'validate-seed', 'run', 'list', 'status', 'manifest', 'contract']) {
+      expect(help.stdout).toMatch(new RegExp(`^ {2}harness-evolve ${sub}\\b`, 'm'));
+    }
+
+    const evalHelp = await runCli(process.execPath, [TSX_CLI, HARNESS_CLI, 'help'], {
+      cwd: ROOT,
+      env: cliEnv(fixture),
+    });
+    expect(evalHelp.code, evalHelp.stderr).toBe(0);
+    expect(evalHelp.stdout).toMatch(/npm run eval -- harness-evolve /);
+  }, 60_000);
 
   test.each([
     [['bogus'], /Unknown harness-evolve subcommand: bogus/],
@@ -209,7 +387,7 @@ describe('npm run eval -- harness-evolve', () => {
     [['run', '--target', 'x'], /Usage: harness-evolve run/],
     [['run', '--target', 'x', '--suite', 'y', '--k', '0'], /--k must be a positive integer/],
   ])('rejects %j', async (args, message) => {
-    const result = await harnessEvolve(makeTempDir(), args);
+    const result = await harnessEvolve(writeFixture(makeTempDir(), {}), args);
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(message);
   }, 60_000);

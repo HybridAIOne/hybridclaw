@@ -88,6 +88,14 @@ npm run eval -- harness-evolve run \
 Add `--dry-run` to test eval execution, metrics, and summaries without applying evolve-agent edits. Add `--commit` only when the target
 workspace is a Git checkout and you want one commit per confirmed round.
 
+Relative `--target`, `--suite`, `--summary`, and `--manifest` paths resolve
+against the directory you ran `npm run eval` from.
+
+The evolve-agent uses the `auxiliaryModels.eval_judge` model when one is
+configured. Otherwise it uses a healthy local backend or remote auxiliary
+fallback, and then the configured default model (`hybridai.defaultModel`), so
+a HybridAI-only setup works without extra configuration.
+
 ## Eval Suite Format
 
 A harness evolution suite is a JSON file, or a skill directory containing
@@ -269,7 +277,8 @@ npm run eval -- harness-evolve manifest --manifest <manifestPath>
 ```
 
 `list` shows every run with its suite, round count, best pass@1, cost, and
-summary path. `status` renders round metrics, the pass@1 trajectory, seed
+summary path, and names any incomplete run directory (a run that failed or
+was interrupted before writing its summary). `status` renders round metrics, the pass@1 trajectory, seed
 delta, risk coverage, and per-round manifest paths. `manifest` prints the F12
 entries for one round.
 

@@ -626,6 +626,7 @@ function renderUsage(env: EvalEnvironment): string {
     '- `npm run eval -- terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `npm run eval -- tau2 [setup|run|status|stop|results]`',
     '- `npm run eval -- hybridai-skills [setup|list|run|results]`',
+    '- `npm run eval -- harness-evolve <subcommand>` (no gateway; `harness-evolve help` lists subcommands)',
     '- `npm run eval -- <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `npm run eval -- [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
     '',

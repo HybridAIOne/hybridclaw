@@ -7,7 +7,6 @@
  * gateway through its OpenAI-compatible endpoint; the gateway-side eval
  * profile parsing (`src/evals/eval-profile.ts`) stays in core.
  */
-import { getRuntimeConfig } from '../../src/config/runtime-config.js';
 import { renderGatewayCommand } from '../../src/gateway/gateway-types.js';
 
 // Entry points that bypass the gateway-driven suite dispatcher: the harness
@@ -41,7 +40,12 @@ const DIRECT_COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   },
 };
 
+// Loaded lazily: loading the runtime config may migrate config.json and log
+// that on stdout, which would corrupt `harness-evolve contract` JSON.
 async function initRuntimeState(): Promise<void> {
+  const { getRuntimeConfig } = await import(
+    '../../src/config/runtime-config.js'
+  );
   const { initDatabase, isDatabaseInitialized } = await import(
     '../../src/memory/db.js'
   );

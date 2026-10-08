@@ -42,7 +42,6 @@ const SECTION_OWNERS: Readonly<
   skills: { label: 'Skills', to: '/admin/skills' },
   tools: { label: 'Plugins & Tools', to: '/admin/extensions?tab=tools' },
   plugins: { label: 'Plugins & Tools', to: '/admin/extensions?tab=plugins' },
-  adaptiveSkills: { label: 'Skills', to: '/admin/skills' },
   deployment: { label: 'Gateway', to: '/admin/gateway' },
   hybridai: PROVIDERS_OWNER,
   codex: PROVIDERS_OWNER,

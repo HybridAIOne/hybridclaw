@@ -359,6 +359,8 @@ export interface HarnessEvolutionRunListEntry {
 export interface HarnessEvolutionRunList {
   targetRoot: string;
   runs: HarnessEvolutionRunListEntry[];
+  /** Run directories with no summary: the run failed or was interrupted. */
+  incompleteRunIds: string[];
 }
 
 export function initializeHarnessWorkspace(targetRoot: string): void {
@@ -575,15 +577,19 @@ export function listHarnessEvolutionRuns(
 ): HarnessEvolutionRunList {
   const root = path.resolve(targetRoot);
   const runsDir = path.join(root, 'runs');
+  const runs: HarnessEvolutionRunListEntry[] = [];
+  const incompleteRunIds: string[] = [];
   if (!fs.existsSync(runsDir)) {
-    return { targetRoot: root, runs: [] };
+    return { targetRoot: root, runs, incompleteRunIds };
   }
-  const runs = fs
-    .readdirSync(runsDir)
-    .map((entry) => readRunListEntry(path.join(runsDir, entry)))
-    .filter((entry): entry is HarnessEvolutionRunListEntry => entry !== null)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return { targetRoot: root, runs };
+  for (const entry of fs.readdirSync(runsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const run = readRunListEntry(path.join(runsDir, entry.name));
+    if (run) runs.push(run);
+    else incompleteRunIds.push(entry.name);
+  }
+  runs.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return { targetRoot: root, runs, incompleteRunIds: incompleteRunIds.sort() };
 }
 
 export function readHarnessEvolutionSummary(
@@ -739,8 +745,16 @@ export async function runEvolveAgent(
   const { callAuxiliaryModel } = await import(
     '../../src/providers/auxiliary.js'
   );
+  const { getRuntimeConfig } = await import(
+    '../../src/config/runtime-config.js'
+  );
+  const { hybridai } = getRuntimeConfig();
   const response = await callAuxiliaryModel({
     task: 'eval_judge',
+    // Without an `eval_judge` model, fall back to the configured default
+    // model instead of failing when no fixed remote fallback is configured.
+    fallbackModel: hybridai.defaultModel,
+    fallbackChatbotId: hybridai.defaultChatbotId,
     temperature: 0.2,
     maxTokens: 4_000,
     messages: [
@@ -1900,11 +1914,13 @@ function commitEvolutionRound(
   round: number,
   runId: string,
 ): string | null {
+  // H_best.json appears only once a round improves on the seed; staging a
+  // missing path makes `git add` fail the whole round.
   const stagePaths = [
     ...HARNESS_SURFACES.map((surface) => surface.relativePath),
     'H_best.json',
     'runs',
-  ];
+  ].filter((entry) => fs.existsSync(path.join(targetRoot, entry)));
   const add = spawnSync('git', ['add', ...stagePaths], {
     cwd: targetRoot,
     encoding: 'utf-8',
