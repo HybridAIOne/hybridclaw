@@ -15,10 +15,9 @@ import {
 } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
 import {
-  getMSTeamsUserAgent,
-  getMSTeamsUserMapping,
-  setMSTeamsUserAgent,
-} from '../../memory/msteams-users.js';
+  getChannelUserMapping,
+  setChannelUserAgent,
+} from '../../memory/channel-users.js';
 import type { MSTeamsConversationKind } from './inbound.js';
 
 export function resolveMSTeamsUserAgent(
@@ -27,7 +26,8 @@ export function resolveMSTeamsUserAgent(
   conversationKind: MSTeamsConversationKind = 'personal',
 ): string {
   const agentId = tenantId.trim()
-    ? getMSTeamsUserAgent(tenantId, userId)
+    ? getChannelUserMapping({ channelKind: 'msteams', tenantId, userId })
+        ?.agentId
     : null;
   if (!agentId) return resolveDefaultAgentId(getRuntimeConfig());
   const agent = getAgentById(agentId);
@@ -78,7 +78,12 @@ export function ensureMSTeamsPersonalAgent(
 ): string | null {
   const parentAgentId = getRuntimeConfig().msteams.personalAgentParent.trim();
   if (!parentAgentId || !seed.tenantId.trim()) return null;
-  const mapping = getMSTeamsUserMapping(seed.tenantId, seed.userId);
+  const key = {
+    channelKind: 'msteams',
+    tenantId: seed.tenantId,
+    userId: seed.userId,
+  } as const;
+  const mapping = getChannelUserMapping(key);
   if (!mapping || mapping.agentId) return null;
   const parent = getAgentById(parentAgentId);
   const created = createPersonalAgent({
@@ -87,7 +92,7 @@ export function ensureMSTeamsPersonalAgent(
     displayName: `${parent?.displayName || parent?.name || parentAgentId} · ${seed.displayName || seed.userId}`,
     userMarkdown: buildMSTeamsUserMarkdown(seed),
   });
-  setMSTeamsUserAgent(seed.tenantId, seed.userId, created.id);
+  setChannelUserAgent(key, created.id);
   logger.info(
     { agentId: created.id, parentAgentId },
     'Created personal Teams agent',

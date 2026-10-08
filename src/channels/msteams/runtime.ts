@@ -28,11 +28,11 @@ import {
   MSTEAMS_TENANT_ID,
 } from '../../config/config.js';
 import { logger } from '../../logger.js';
-import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
 import {
-  findMSTeamsUserEmail,
-  observeMSTeamsUser,
-} from '../../memory/msteams-users.js';
+  findChannelUserEmail,
+  observeChannelUser,
+} from '../../memory/channel-users.js';
+import { getMemoryValue, setMemoryValue } from '../../memory/db.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { MSTEAMS_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
@@ -646,7 +646,7 @@ async function fetchMSTeamsMemberEmail(
   turnContext: TurnContext,
   userId: string,
 ): Promise<string | null> {
-  if (findMSTeamsUserEmail(userId)) return null;
+  if (findChannelUserEmail('msteams', userId)) return null;
   try {
     const member = await TeamsInfo.getMember(
       turnContext,
@@ -724,13 +724,16 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
   };
 
   if (configuredTenant) {
-    observeMSTeamsUser({
+    observeChannelUser({
+      channelKind: 'msteams',
       tenantId: configuredTenant,
       userId: actor.userId,
-      teamsUserId: activity.from?.id,
-      entraObjectId: actor.aadObjectId,
       displayName: actor.displayName || actor.username,
       email: await fetchMSTeamsMemberEmail(turnContext, actor.userId),
+      profile: {
+        teamsUserId: activity.from?.id,
+        entraObjectId: actor.aadObjectId?.toLowerCase(),
+      },
       isMessage: !parsedCommand.isCommand,
     });
     if (isDm) {
