@@ -93,6 +93,10 @@
         "to": "hybridclaw-runtime/container/node_modules"
       },
       {
+        "from": "build/runtime-deps/tools-node_modules",
+        "to": "hybridclaw-runtime/container/tools/node_modules"
+      },
+      {
         "from": "build/runtime-bin",
         "to": "hybridclaw-runtime/bin",
         "filter": [

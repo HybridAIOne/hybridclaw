@@ -1,4 +1,9 @@
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import {
+  type ChildProcess,
+  execFileSync,
+  spawn,
+  spawnSync,
+} from 'node:child_process';
 import fs from 'node:fs';
 import type http from 'node:http';
 import os from 'node:os';
@@ -13,6 +18,7 @@ import {
   type ModelRequestBody,
   startScriptedModelServer,
 } from './helpers/scripted-model-server.js';
+import { cleanupTrackedTempDirs } from './test-utils.js';
 
 /**
  * Host-sandbox agents in the layouts the npm-install journey does not cover:
@@ -22,7 +28,8 @@ import {
  * and skill scripts are real; only the model is scripted (`RUN: <command>`
  * becomes one bash call, `READ: <path>` one read call, and the tool output is
  * the answer). Needs `npm run build` and `npm run setup`; the setup test runs
- * a real `npm ci` of container/tools into the gateway's data dir.
+ * a real `npm ci` of container/tools into the gateway's data dir. CI runs it
+ * in the `CLI binary e2e` step, where node-pty is still unbuilt.
  */
 
 const RUN = process.env.HYBRIDCLAW_RUN_CLI_E2E === '1';
@@ -202,6 +209,19 @@ async function chat(
   return String(body.result ?? '');
 }
 
+/** The checkout CLI against a gateway's data dir, as an operator runs it. */
+function cli(home: string, ...args: string[]) {
+  const env = { ...process.env, HOME: home, HYBRIDCLAW_DATA_DIR: path.join(home, 'data') };
+  delete env.NODE_PATH;
+  const run = spawnSync(NODE, [path.join(repoRoot, 'dist', 'cli.js'), ...args], {
+    cwd: home,
+    env,
+    encoding: 'utf8',
+    timeout: SETUP_TIMEOUT_MS,
+  });
+  return { status: run.status, output: `${run.stdout}\n${run.stderr}` };
+}
+
 /** A `/skill …` command from a local web session. */
 function skillCommand(gateway: Gateway, ...args: string[]) {
   return post<{ kind: string; text: string }>(gateway, '/api/command', {
@@ -218,6 +238,7 @@ async function skillState(gateway: Gateway, skill: string): Promise<string> {
 }
 
 describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', () => {
+  const tempDirs: string[] = [];
   let tempRoot = '';
   let modelServer: http.Server | undefined;
   let modelRequests: ModelRequestBody[] = [];
@@ -236,6 +257,7 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
     tempRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-host-runtime-e2e-'),
     );
+    tempDirs.push(tempRoot);
     const model = await startScriptedModelServer(scriptedAgent, {
       model: MODEL_ID,
     });
@@ -246,7 +268,7 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
 
   afterAll(async () => {
     modelServer?.close();
-    if (tempRoot) await fs.promises.rm(tempRoot, { recursive: true, force: true });
+    cleanupTrackedTempDirs(tempDirs);
   });
 
   describe('gateway image layout: bundle/cli.js with the libraries on NODE_PATH', () => {
@@ -366,7 +388,9 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
       });
     };
 
-    beforeAll(startCheckoutGateway, STARTUP_TIMEOUT_MS);
+    // Longer than the health wait, so a gateway that never starts reports its
+    // stderr instead of a bare hook timeout.
+    beforeAll(startCheckoutGateway, STARTUP_TIMEOUT_MS + 30_000);
 
     afterAll(async () => {
       await gateway?.stop();
@@ -378,8 +402,22 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
         if (!gateway) throw new Error('gateway did not start');
         expect(await skillState(gateway, 'xlsx')).toContain('node_module:xlsx');
 
-        const setup = await skillCommand(gateway, 'setup', 'xlsx');
+        const pending = skillCommand(gateway, 'setup', 'xlsx');
+        const lock = path.join(gateway.dataDir, 'runtime-tools', 'setup.lock');
+        await expect.poll(() => fs.existsSync(lock), { timeout: 10_000 }).toBe(
+          true,
+        );
+        // An operator's CLI run on the same data dir while the gateway's
+        // `npm ci` is still in flight.
+        const competing = cli(path.dirname(gateway.dataDir), 'skill', 'setup', 'docx');
+        expect(competing.status).not.toBe(0);
+        expect(competing.output).toContain(
+          'Another skill library setup is running',
+        );
+
+        const setup = await pending;
         expect(setup.kind, setup.text).toBe('info');
+        expect(fs.existsSync(lock)).toBe(false);
         expect(setup.text).toContain('Set up xlsx');
         for (const skill of ['xlsx', 'docx', 'pptx']) {
           expect(await skillState(gateway, skill), skill).toBe('enabled');
@@ -428,5 +466,26 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
       },
       STARTUP_TIMEOUT_MS + TURN_TIMEOUT_MS,
     );
+  });
+
+  describe('container sandbox: the CLI setup leaves the data dir alone', () => {
+    test('`skill setup xlsx` installs nothing and `skill list` shows the image libraries', () => {
+      const home = path.join(tempRoot, 'container');
+      fs.mkdirSync(path.join(home, 'data'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'data', 'config.json'),
+        JSON.stringify({ container: { sandboxMode: 'container' } }),
+      );
+
+      const setup = cli(home, 'skill', 'setup', 'xlsx');
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('container sandbox');
+      expect(fs.existsSync(path.join(home, 'data', 'runtime-tools'))).toBe(
+        false,
+      );
+      const list = cli(home, 'skill', 'list');
+      expect(list.status, list.output).toBe(0);
+      expect(list.output).not.toContain('node_module:');
+    });
   });
 });

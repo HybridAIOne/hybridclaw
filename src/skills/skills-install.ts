@@ -9,15 +9,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { getResolvedSandboxMode } from '../config/config.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { hasResolvableNodeModule } from '../utils/node-modules.js';
-import { hostRuntimeToolsDir } from './skill-node-modules.js';
+import { claimSetupLock } from '../utils/setup-lock.js';
+import {
+  hostRuntimeToolsDir,
+  sharedSkillLibraryNames,
+} from './skill-node-modules.js';
 import {
   hasBinary,
   loadSkillCatalog,
   type SkillCatalogEntry,
   type SkillInstallSpec,
 } from './skills.js';
+import type { SkillInstallKind } from './skills-install-spec.js';
 
 export interface SkillInstallResult {
   ok: boolean;
@@ -213,9 +219,7 @@ export function resolveSkillInstallSelection(params: {
   );
   if (!matched) {
     const required = [
-      ...new Set(
-        compatible.map((spec) => (spec.kind === 'node' ? 'npm' : spec.kind)),
-      ),
+      ...new Set(compatible.map((spec) => installerBinary(spec.kind))),
     ].join(', ');
     return {
       error: `No available installer for "${skill.name}" (${normalizedInstallId}) on ${process.platform}/${process.arch}. Install a prerequisite (${required}) on the gateway PATH, or provision the dependency in the runtime image.`,
@@ -229,14 +233,19 @@ export function resolveSkillInstallSelection(params: {
   };
 }
 
+function installerBinary(kind: SkillInstallKind): string {
+  return kind === 'node' || kind === 'runtime-tools' ? 'npm' : kind;
+}
+
 function installerAvailable(spec: SkillInstallSpec): boolean {
   if (spec.kind === 'download') return true;
+  // Settling a setup that has nothing to install needs no npm (the desktop
+  // app and the gateway image ship none).
+  if (spec.kind === 'runtime-tools' && hostRuntimeToolsNotNeeded()) return true;
   if (spec.kind === 'brew') return resolveBrewExecutable() !== null;
   if (spec.kind === 'uv')
     return hasBinary('uv') || resolveBrewExecutable() !== null;
-  return hasBinary(
-    spec.kind === 'node' || spec.kind === 'runtime-tools' ? 'npm' : spec.kind,
-  );
+  return hasBinary(installerBinary(spec.kind));
 }
 
 function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
@@ -456,46 +465,76 @@ const RUNTIME_TOOLS_SOURCE_ENTRIES = [
   'stubs',
 ] as const;
 
-// Copies the packaged container/tools manifest so `npm ci` installs exactly the
-// locked libraries the agent images bake into /opt/hybridclaw-tools. Returns a
-// result instead when those libraries already resolve for host agents (the
-// gateway image puts them on NODE_PATH) or the package lacks the manifest.
-function stageHostRuntimeTools(): SkillInstallResult | null {
-  const source = resolveInstallPath('container', 'tools');
-  let libraries: string[] = [];
-  try {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(source, 'package.json'), 'utf8'),
-    ) as { dependencies?: Record<string, string> };
-    libraries = Object.keys(manifest.dependencies ?? {});
-  } catch {
-    // Reported below as a missing manifest.
+// Why host agents need no data-dir copy of the shared skill libraries, or
+// null when they do: container agents use the image, and the gateway image and
+// desktop app already put the libraries on NODE_PATH.
+function hostRuntimeToolsNotNeeded(): string | null {
+  if (getResolvedSandboxMode() !== 'host') {
+    return 'Agents run in the container sandbox, whose image carries the shared skill libraries; nothing to install. Run this again after switching container.sandboxMode to "host".';
   }
-  if (
-    libraries.length > 0 &&
+  let libraries: string[];
+  try {
+    libraries = sharedSkillLibraryNames();
+  } catch {
+    return null;
+  }
+  return libraries.length > 0 &&
     libraries.every((name) =>
       hasResolvableNodeModule(name, { cwd: resolveInstallPath() }),
     )
-  ) {
-    const message = `The shared skill libraries (${libraries.join(', ')}) already resolve for host agents; nothing to install.`;
-    return createInstallSuccess({ message, stdout: message });
+    ? `The shared skill libraries (${libraries.join(', ')}) already resolve for host agents; nothing to install.`
+    : null;
+}
+
+// Settles `skill setup` without touching the data dir when host agents need no
+// copy, or when the install lacks the locked manifest to copy.
+function preflightHostRuntimeTools(): SkillInstallResult | null {
+  const notNeeded = hostRuntimeToolsNotNeeded();
+  if (notNeeded) {
+    return createInstallSuccess({ message: notNeeded, stdout: notNeeded });
   }
   const missing = RUNTIME_TOOLS_SOURCE_ENTRIES.filter(
-    (entry) => !fs.existsSync(path.join(source, entry)),
+    (entry) => !fs.existsSync(resolveInstallPath('container', 'tools', entry)),
   );
   if (missing.length > 0) {
     return createInstallFailure({
       message: `This HybridClaw installation does not include ${missing.map((entry) => `container/tools/${entry}`).join(', ')}, so the shared skill libraries cannot be installed for host agents. Reinstall from the npm package, or run agents in the container sandbox, whose image carries them.`,
     });
   }
+  return null;
+}
+
+// Copies the packaged container/tools manifest so `npm ci` installs exactly the
+// locked libraries the agent images bake into /opt/hybridclaw-tools. The lock
+// serializes setups across the gateway and the CLI: every `npm ci` deletes
+// node_modules first, so overlapping runs would leave a partial tree.
+async function installHostRuntimeTools(
+  selection: SkillInstallSelection,
+): Promise<SkillInstallResult> {
+  const skipped = preflightHostRuntimeTools();
+  if (skipped) return skipped;
   const target = hostRuntimeToolsDir();
   fs.mkdirSync(target, { recursive: true });
-  for (const entry of RUNTIME_TOOLS_SOURCE_ENTRIES) {
-    fs.cpSync(path.join(source, entry), path.join(target, entry), {
-      recursive: true,
+  let release: () => void;
+  try {
+    release = claimSetupLock(target, 'skill library setup');
+  } catch (err) {
+    return createInstallFailure({
+      message: err instanceof Error ? err.message : String(err),
     });
   }
-  return null;
+  try {
+    for (const entry of RUNTIME_TOOLS_SOURCE_ENTRIES) {
+      fs.cpSync(
+        resolveInstallPath('container', 'tools', entry),
+        path.join(target, entry),
+        { recursive: true },
+      );
+    }
+    return await runInstallCommand(selection);
+  } finally {
+    release();
+  }
 }
 
 function validateInstalledBins(spec: SkillInstallSpec): string[] {
@@ -544,17 +583,23 @@ export async function installSkillDependency(params: {
     return result;
   }
 
+  if (selection.spec.kind === 'runtime-tools') {
+    return installHostRuntimeTools(selection);
+  }
+
   let env: NodeJS.ProcessEnv | undefined;
   if (selection.spec.kind === 'uv') {
     const uvSetup = await ensureUvInstalled();
     if ('ok' in uvSetup) return uvSetup;
     env = uvSetup.env;
   }
-  if (selection.spec.kind === 'runtime-tools') {
-    const staged = stageHostRuntimeTools();
-    if (staged) return staged;
-  }
+  return runInstallCommand(selection, env);
+}
 
+async function runInstallCommand(
+  selection: SkillInstallSelection,
+  env?: NodeJS.ProcessEnv,
+): Promise<SkillInstallResult> {
   const argv = buildInstallCommand(selection.spec);
   if (!argv) {
     return createInstallFailure({

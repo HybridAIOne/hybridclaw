@@ -214,18 +214,25 @@ test('gateway startup graph does not statically load plugin-owned features', () 
   ).toEqual([]);
 });
 
-// The gateway package does not install these; only the agent runtime
-// (container/) and the skill tool libraries (container/tools/) carry them.
+function manifestDependencies(relativePath: string): string[] {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(ROOT, relativePath), 'utf8'),
+  ) as { dependencies?: Record<string, string> };
+  return Object.keys(manifest.dependencies ?? {});
+}
+
+// Packages only the agent runtime (container/) and the skill tool libraries
+// (container/tools/) declare; the gateway package does not install them.
 test('gateway startup graph does not import agent-runtime or skill libraries', () => {
   const { importers } = collectStartupPackages(GATEWAY_ENTRY);
+  const gatewayDependencies = new Set(manifestDependencies('package.json'));
   const agentOnly = [
-    '@napi-rs/canvas',
-    'csv-parse',
-    'docx',
-    'iconv-lite',
-    'pdfjs-dist',
-    'xlsx-populate',
-  ];
+    ...manifestDependencies('container/package.json'),
+    ...manifestDependencies('container/tools/package.json'),
+  ].filter((name) => !gatewayDependencies.has(name));
+  expect(agentOnly).toEqual(
+    expect.arrayContaining(['pdfjs-dist', 'docx', 'xlsx-populate']),
+  );
   expect(agentOnly.filter((name) => importers.has(name))).toEqual([]);
 });
 

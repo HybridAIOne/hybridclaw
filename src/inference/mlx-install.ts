@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { claimSetupLock } from '../utils/setup-lock.js';
 import {
   detectMacHardware,
   estimateMacModels,
@@ -23,7 +24,6 @@ import {
   startMlxChild,
   stopMlxChild,
 } from './mlx-runtime.js';
-import { claimMlxSetup } from './mlx-setup-lock.js';
 
 async function run(
   command: string,
@@ -102,7 +102,7 @@ export async function installMlxModel(
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   let releaseSetup: () => void;
   try {
-    releaseSetup = claimMlxSetup(home);
+    releaseSetup = claimSetupLock(home, 'local model setup');
   } catch {
     throw new MlxSetupError(
       'Another local setup is running or its lock needs attention. Wait for it to finish before retrying.',

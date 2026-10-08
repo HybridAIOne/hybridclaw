@@ -50,9 +50,12 @@ agent runtime's own dependencies (`pdf-lib`, `pdfjs-dist`, `jszip`,
 `hybridclaw skill list` shows those skills with the missing
 `node_module:<name>`. When an upgrade ships a different lockfile, host agents
 stop loading the old copy and `skill list` shows the libraries as missing again
-until you rerun setup. Distributions that already put the libraries on
-`NODE_PATH`, such as the gateway Docker image, need no setup; the command
-reports that and installs nothing.
+until you rerun setup, and `hybridclaw doctor` names the command. Distributions
+that already put the libraries on `NODE_PATH`, such as the gateway Docker image
+and the desktop app, need no setup; the command reports that and installs
+nothing. It also installs nothing while agents run in the container sandbox,
+whose image carries the libraries. Only one setup runs per data dir at a time;
+a second one started meanwhile fails and asks you to wait.
 
 ## macOS
 

@@ -14,10 +14,27 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { hasResolvableNodeModule } from '../utils/node-modules.js';
 
+const SHARED_SKILL_LIBRARIES_MANIFEST = [
+  'container',
+  'tools',
+  'package.json',
+] as const;
 const AGENT_PACKAGE_MANIFESTS = [
   ['container', 'package.json'],
-  ['container', 'tools', 'package.json'],
+  SHARED_SKILL_LIBRARIES_MANIFEST,
 ] as const;
+
+function manifestDependencyNames(segments: readonly string[]): string[] {
+  const manifest = JSON.parse(
+    fs.readFileSync(resolveInstallPath(...segments), 'utf8'),
+  ) as { dependencies?: Record<string, string> };
+  return Object.keys(manifest.dependencies ?? {});
+}
+
+/** The libraries container/tools locks; throws when the install lacks it. */
+export function sharedSkillLibraryNames(): string[] {
+  return manifestDependencyNames(SHARED_SKILL_LIBRARIES_MANIFEST);
+}
 
 export function hostRuntimeToolsDir(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, 'runtime-tools');
@@ -26,7 +43,7 @@ export function hostRuntimeToolsDir(): string {
 // A data-dir copy staged from another release's lockfile is ignored, so host
 // agents never keep loading libraries a later lockfile replaced (for example
 // for a CVE); `skill list` then reports them missing until setup runs again.
-function hostRuntimeToolsStale(): boolean {
+export function hostRuntimeToolsStale(): boolean {
   let staged: Buffer;
   try {
     staged = fs.readFileSync(
@@ -62,16 +79,7 @@ export function hostAgentNodePath(inherited?: string): string {
 }
 
 function agentPackageNames(): Set<string> {
-  const names = new Set<string>();
-  for (const segments of AGENT_PACKAGE_MANIFESTS) {
-    const manifest = JSON.parse(
-      fs.readFileSync(resolveInstallPath(...segments), 'utf8'),
-    ) as { dependencies?: Record<string, string> };
-    for (const name of Object.keys(manifest.dependencies ?? {})) {
-      names.add(name);
-    }
-  }
-  return names;
+  return new Set(AGENT_PACKAGE_MANIFESTS.flatMap(manifestDependencyNames));
 }
 
 let containerPackages: Set<string> | null = null;

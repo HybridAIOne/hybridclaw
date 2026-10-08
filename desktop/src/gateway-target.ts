@@ -93,11 +93,36 @@ export function buildGatewayPath(currentPath = process.env.PATH || ''): string {
   return entries.join(path.delimiter);
 }
 
-export function buildGatewayEnv(baseUrl: string): NodeJS.ProcessEnv {
+// Like the gateway image, the app puts the shared skill libraries it bundles
+// on NODE_PATH, so host-sandbox agents load them without `skill setup` (the
+// app ships no npm).
+export function buildGatewayNodePath(
+  runtimeRoot: string,
+  inherited = process.env.NODE_PATH,
+): string {
+  return [
+    path.join(runtimeRoot, 'container', 'tools', 'node_modules'),
+    inherited,
+  ]
+    .filter(Boolean)
+    .join(path.delimiter);
+}
+
+export function buildGatewayEnv(
+  baseUrl: string,
+  runtime: { runtimeRoot: string; nodeExecutable: string },
+): NodeJS.ProcessEnv {
   const url = new URL(`${baseUrl}/`);
+  // The Node the gateway runs on is the fallback `node` for skills and host
+  // agents on a machine without its own.
+  const gatewayPath = buildGatewayPath(process.env.PATH);
+  const nodeDir = path.dirname(runtime.nodeExecutable);
   return {
     ...process.env,
-    PATH: buildGatewayPath(process.env.PATH),
+    PATH: gatewayPath.split(path.delimiter).includes(nodeDir)
+      ? gatewayPath
+      : [gatewayPath, nodeDir].join(path.delimiter),
+    NODE_PATH: buildGatewayNodePath(runtime.runtimeRoot),
     GATEWAY_BASE_URL: baseUrl,
     HEALTH_HOST: url.hostname,
     HEALTH_PORT: url.port || (url.protocol === 'https:' ? '443' : '80'),

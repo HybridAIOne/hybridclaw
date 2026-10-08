@@ -400,8 +400,9 @@ Supported install kinds:
 
 `runtime-tools` takes no package field: it runs `npm ci --ignore-scripts` for
 the packaged `container/tools/` lockfile into the data dir's `runtime-tools/`
-directory, which host agents see through `NODE_PATH`. Bundled skills whose
-libraries only the images carry (`xlsx`, `docx`, `pptx`) declare it.
+directory, which host agents see through `NODE_PATH`. It installs nothing in
+the container sandbox or when the libraries already resolve. Bundled skills
+whose libraries only the images carry (`xlsx`, `docx`, `pptx`) declare it.
 
 Example:
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PDFDocument } from 'pdf-lib';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { setSandboxModeOverride } from '../src/config/config.js';
 import { injectPdfContextMessages } from '../src/media/pdf-context.js';
 import type { ChatMessage } from '../src/types/api.js';
@@ -220,5 +220,41 @@ describe('PDF attachment preview', () => {
       messages: [{ role: 'user', content: `Read "${outside}"` }],
     });
     expect(preview(allowed).previews[0].pageCount).toBe(6);
+  });
+
+  test('without the agent runtime (pnpm, --ignore-scripts) the preview fails soft and logs the repair command once', async () => {
+    const root = tempDir();
+    await pdf(root);
+    const installRoot = tempDir();
+    vi.resetModules();
+    vi.doMock('../src/infra/install-root.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/infra/install-root.js')>()),
+      resolveInstallRoot: () => installRoot,
+      resolveInstallPath: (...segments: string[]) =>
+        path.join(installRoot, ...segments),
+    }));
+    try {
+      const { logger } = await import('../src/logger.js');
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const { injectPdfContextMessages: inject } = await import(
+        '../src/media/pdf-context.js'
+      );
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await inject({
+          workspaceRoot: root,
+          messages: [{ role: 'user', content: 'Summarize ./document.pdf' }],
+        });
+        expect(preview(result).previews[0].status).toContain(
+          'PDF preview failed',
+        );
+      }
+      expect(warn).toHaveBeenCalledOnce();
+      const message = String(warn.mock.calls[0]?.[1]);
+      expect(message).toContain(path.join(installRoot, 'container', 'node_modules'));
+      expect(message).toContain('--ignore-scripts');
+    } finally {
+      vi.doUnmock('../src/infra/install-root.js');
+      vi.resetModules();
+    }
   });
 });

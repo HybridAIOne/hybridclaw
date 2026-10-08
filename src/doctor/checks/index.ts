@@ -12,6 +12,7 @@ import { checkProviders } from './providers.js';
 import { resourceHygieneDoctorChecks } from './resource-hygiene.js';
 import { checkRuntime } from './runtime.js';
 import { checkSecurity } from './security.js';
+import { checkHostSkillLibraries } from './skill-libraries.js';
 import { checkSkills } from './skills.js';
 
 export function doctorChecks(): DoctorCheck[] {
@@ -70,6 +71,11 @@ export function doctorChecks(): DoctorCheck[] {
       category: 'skills',
       label: 'Skills',
       run: checkSkills,
+    },
+    {
+      category: 'skills',
+      label: 'Skill libraries',
+      run: checkHostSkillLibraries,
     },
     {
       category: 'security',

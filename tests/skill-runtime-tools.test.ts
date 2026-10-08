@@ -18,15 +18,16 @@ let dataDir = '';
 beforeEach(() => {
   dataDir = makeTempDir();
   vi.stubEnv('HYBRIDCLAW_DATA_DIR', dataDir);
+  vi.stubEnv('HYBRIDCLAW_SANDBOX_MODE_OVERRIDE', 'host');
   vi.resetModules();
 });
 
-function exitedProcess(): EventEmitter {
+function exitedProcess(exit: Promise<void> = Promise.resolve()): EventEmitter {
   const child = Object.assign(new EventEmitter(), {
     stdout: new EventEmitter(),
     stderr: new EventEmitter(),
   });
-  queueMicrotask(() => child.emit('close', 0));
+  void exit.then(() => child.emit('close', 0));
   return child;
 }
 
@@ -214,5 +215,156 @@ describe('skill libraries for host-sandbox agents', () => {
         path.join(target, 'node_modules'),
       ),
     ).toBe(current);
+  });
+
+  test('skill setup installs nothing in the container sandbox, whose image carries the libraries', async () => {
+    vi.stubEnv('HYBRIDCLAW_SANDBOX_MODE_OVERRIDE', 'container');
+    const spawnMock = vi.fn(() => exitedProcess());
+    vi.doMock('node:child_process', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('node:child_process')>()),
+      spawn: spawnMock,
+    }));
+    const { setupSkillDependencies } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const result = await setupSkillDependencies({ skillName: 'docx' });
+
+    expect(result.ok, result.message).toBe(true);
+    expect(result.stdout).toContain('container sandbox');
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(dataDir, 'runtime-tools'))).toBe(false);
+  });
+
+  test('a second setup fails fast while another one installs into the same data dir', async () => {
+    let finishFirst = () => {};
+    const firstExit = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const spawnMock = vi.fn(() => exitedProcess(firstExit));
+    vi.doMock('node:child_process', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('node:child_process')>()),
+      spawn: spawnMock,
+    }));
+    const { setupSkillDependencies } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const first = setupSkillDependencies({ skillName: 'xlsx' });
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledOnce());
+    const second = await setupSkillDependencies({ skillName: 'docx' });
+    finishFirst();
+
+    expect(second.ok).toBe(false);
+    expect(second.message).toContain('Another skill library setup is running');
+    expect((await first).ok).toBe(true);
+    expect(spawnMock).toHaveBeenCalledOnce();
+    expect(fs.existsSync(path.join(dataDir, 'runtime-tools', 'setup.lock'))).toBe(
+      false,
+    );
+    expect((await setupSkillDependencies({ skillName: 'pptx' })).ok).toBe(true);
+  });
+
+  test('without npm on PATH, skill setup names npm as the missing prerequisite', async () => {
+    vi.stubEnv('PATH', makeTempDir());
+    const { setupSkillDependencies } = await import(
+      '../src/skills/skills-install.ts'
+    );
+
+    const result = await setupSkillDependencies({ skillName: 'xlsx' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('Install a prerequisite (npm)');
+  });
+
+  test('without npm on PATH, a setup with nothing to install still succeeds, as in the desktop app', async () => {
+    vi.stubEnv('PATH', makeTempDir());
+    const root = fakeInstallRoot(['package.json', 'package-lock.json', 'stubs']);
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(root, 'container', 'tools', 'package.json'),
+        'utf8',
+      ),
+    ) as { dependencies: Record<string, string> };
+    for (const name of Object.keys(manifest.dependencies)) {
+      writeFakePackage(path.join(root, 'node_modules'), name);
+    }
+    const { setupSkillDependencies, spawnMock } =
+      await importInstallerAt(root);
+
+    const result = await setupSkillDependencies({ skillName: 'xlsx' });
+
+    expect(result.ok, result.message).toBe(true);
+    expect(result.stdout).toContain('already resolve');
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('doctor check for host-sandbox skill libraries', () => {
+  async function runCheck(root: string) {
+    vi.doMock('../src/infra/install-root.ts', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/infra/install-root.ts')>()),
+      resolveInstallRoot: () => root,
+      resolveInstallPath: (...segments: string[]) =>
+        path.join(root, ...segments),
+    }));
+    const { checkHostSkillLibraries } = await import(
+      '../src/doctor/checks/skill-libraries.ts'
+    );
+    const [result] = await checkHostSkillLibraries();
+    return result;
+  }
+
+  test('names the setup command when host agents cannot load the libraries', async () => {
+    const result = await runCheck(
+      fakeInstallRoot(['package.json', 'package-lock.json']),
+    );
+
+    expect(result.severity).toBe('warn');
+    expect(result.message).toContain('docx');
+    expect(result.message).toContain('`hybridclaw skill setup xlsx`');
+    expect(result.message).not.toContain('another release');
+  });
+
+  test('says the data-dir copy belongs to another release after an upgrade', async () => {
+    const root = fakeInstallRoot(['package.json', 'package-lock.json']);
+    const target = path.join(dataDir, 'runtime-tools');
+    for (const name of Object.keys(
+      JSON.parse(
+        fs.readFileSync(path.join(root, 'container', 'tools', 'package.json'), 'utf8'),
+      ).dependencies,
+    )) {
+      writeFakePackage(path.join(target, 'node_modules'), name);
+    }
+    fs.writeFileSync(path.join(target, 'package-lock.json'), '{}');
+
+    const result = await runCheck(root);
+
+    expect(result.severity).toBe('warn');
+    expect(result.message).toContain('another release');
+  });
+
+  test('passes once setup installed the current lockfile', async () => {
+    const root = fakeInstallRoot(['package.json', 'package-lock.json']);
+    const target = path.join(dataDir, 'runtime-tools');
+    for (const name of Object.keys(
+      JSON.parse(
+        fs.readFileSync(path.join(root, 'container', 'tools', 'package.json'), 'utf8'),
+      ).dependencies,
+    )) {
+      writeFakePackage(path.join(target, 'node_modules'), name);
+    }
+    fs.copyFileSync(
+      path.join(root, 'container', 'tools', 'package-lock.json'),
+      path.join(target, 'package-lock.json'),
+    );
+
+    expect((await runCheck(root)).severity).toBe('ok');
+  });
+
+  test('reports nothing to fix for container agents', async () => {
+    vi.stubEnv('HYBRIDCLAW_SANDBOX_MODE_OVERRIDE', 'container');
+
+    expect((await runCheck(fakeInstallRoot([]))).severity).toBe('ok');
   });
 });

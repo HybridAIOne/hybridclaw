@@ -452,7 +452,19 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
   // ── Skill libraries: owned by the agent runtime, not the gateway ────
 
   test('the gateway package does not carry skill-only libraries', () => {
-    for (const name of ['pdfjs-dist', 'xlsx-populate', 'docx', 'csv-parse']) {
+    const readJson = (file: string) =>
+      JSON.parse(fs.readFileSync(path.join(installedPackageDir(), file), 'utf8'));
+    const lockedPackages: Record<string, unknown> = readJson(
+      'npm-shrinkwrap.json',
+    ).packages;
+    // Skill libraries no gateway dependency pulls in transitively.
+    const skillOnly = Object.keys(
+      readJson('container/tools/package.json').dependencies,
+    ).filter((name) => !lockedPackages[`node_modules/${name}`]);
+    expect(skillOnly).toEqual(
+      expect.arrayContaining(['xlsx-populate', 'docx', 'csv-parse']),
+    );
+    for (const name of ['pdfjs-dist', ...skillOnly]) {
       expect(
         fs.existsSync(path.join(installedPackageDir(), 'node_modules', name)),
         name,
