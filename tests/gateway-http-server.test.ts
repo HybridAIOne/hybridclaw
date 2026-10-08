@@ -12872,6 +12872,28 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Explain photosynthesis\nKeep it brief.' }));
   });
 
+  test.each([false, true])('continues a command that hands over to the agent (stream=%s)', async (stream) => {
+    const state = await importFreshHealth();
+    state.handleGatewayCommand.mockResolvedValueOnce({
+      kind: 'plain', text: 'Reading the import.',
+      continueWith: { content: 'Import what ChatGPT knows about me.', instructions: 'Read imports/x.' },
+    });
+    state.handleGatewayMessage.mockResolvedValueOnce({ status: 'success', result: 'Got it.', toolsUsed: [] });
+    const req = makeRequest({ method: 'POST', url: '/api/chat', body: {
+      sessionId: 'session-import-review', channelId: 'web', userId: 'user-web',
+      content: '/import review chatgpt-20261008-120000', stream,
+    } });
+    const res = makeResponse();
+    state.handler(req as never, res as never);
+    await settle();
+    expect(state.handleGatewayCommand).toHaveBeenCalledWith(expect.objectContaining({ args: ['import', 'review', 'chatgpt-20261008-120000'] }));
+    expect(state.handleGatewayMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'Import what ChatGPT knows about me.', instructions: 'Read imports/x.', media: [],
+    }));
+    expect(res.body).toContain('Got it.');
+    expect(res.body).not.toContain('Reading the import.');
+  });
+
   test('guards secret commands inside inline escalation before queueing a turn', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ method: 'POST', url: '/api/chat', body: {

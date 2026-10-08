@@ -723,6 +723,38 @@ spelling, replacing the whole line. Companion apps send the phone's zone with
 `schedule`, `null` when there is no valid zone. Scheduled tasks that already
 exist keep the zone they were created with.
 
+### Import
+
+```text
+/import <chatgpt|claude|openclaw|hermes|files>
+/import review <id>
+```
+
+Brings what the user told another assistant into the agent's memory, in two
+steps. Sent with uploaded files (the `media` of an `/api/chat` turn),
+`/import <source>` stages them in the agent's workspace under
+`imports/<id>/`: a ChatGPT or Claude export (`.zip` or `conversations.json`)
+becomes `conversations.md`, the user's own messages with the newest
+conversations first, about 120,000 characters at most, plus ChatGPT's custom
+instructions and Claude's project descriptions; Markdown and text files, such
+as an answer pasted from the other assistant or OpenClaw and Hermes
+`MEMORY.md`, `USER.md` and `memory/` notes, are kept as they are. Settings,
+keys and skills in an agent home stay out. `files` keeps documents (PDF,
+Office, text, Markdown, CSV, JSON). Nothing is written to `USER.md` or
+`MEMORY.md` at this step.
+
+`/import review <id>` then becomes one ordinary agent turn: the stored user
+message is a plain sentence such as "Import what ChatGPT knows about me.", and
+the turn's operator instructions tell the agent to read the staged files, fold
+what matters into `USER.md` and `MEMORY.md`, leave out secrets, and answer with
+what it now knows. Over `/api/chat` only; elsewhere it just names the import.
+
+Companion apps stage with `--json`, which answers
+`{"version": 1, "id": …, "source": …, "files": […], "conversations": …, "omitted": …}`
+in the same escaping as `schedule`, or `{"version": 1, "error": …}` with
+`unknown-source`, `no-files`, `unreadable`, `nothing-found` or
+`unknown-import`.
+
 ### Receipts
 
 ```text
@@ -832,6 +864,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/info` | TUI | Show bot, model, and runtime status together |
 | `/name [set <name>|clear]` | local TUI/web | Show or change what the agent calls you |
 | `/timezone [set <zone>|clear]` | local TUI/web | Show or change your time zone for schedules and dates |
+| `/import <source>`, `/import review <id>` | local TUI/web | Read what you told ChatGPT, Claude, OpenClaw or Hermes, or files about you, into memory |
 | `/mcp [list|add|toggle|remove|reconnect|login|logout|status]` | local and chat channels | Manage runtime MCP servers and OAuth login state |
 | `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
 | `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |

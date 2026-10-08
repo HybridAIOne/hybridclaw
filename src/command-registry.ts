@@ -680,6 +680,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'timezone':
       return ['timezone', ...parts.slice(1)];
 
+    case 'import':
+      return ['import', ...parts.slice(1)];
+
     case 'receipts':
       return ['receipts', ...parts.slice(1)];
 
@@ -771,6 +774,14 @@ function buildSlashCommandCatalogDefinitions(
       // Local chats only; companion apps set it from their settings with `--json`.
       name: 'name',
       description: 'What the agent calls you: show, set <name>, clear',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps send files to stage with `--json`.
+      name: 'import',
+      description:
+        'Read what you told ChatGPT, Claude, OpenClaw or Hermes, or files about you, into memory',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },

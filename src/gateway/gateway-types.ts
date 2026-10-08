@@ -85,6 +85,12 @@ export interface GatewaySessionSwitcherEntry {
 export interface GatewayCommandResult {
   /** Command accepted an inline prompt for the normal chat execution path. */
   continueWithMessage?: boolean;
+  /**
+   * A chat slash command that continues into an ordinary agent turn: the turn
+   * stores `content` as the user's message and adds `instructions`, the
+   * command's own text, to the prompt as operator instructions.
+   */
+  continueWith?: { content: string; instructions: string };
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
@@ -323,6 +329,8 @@ export interface GatewayCommandRequest {
   guildId: string | null;
   channelId: string;
   args: string[];
+  /** Files sent with a chat slash command, such as `/import`. */
+  media?: GatewayMediaItem[];
   userId?: string | null;
   username?: string | null;
   client?: GatewayChatRequest['client'];
