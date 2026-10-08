@@ -6,7 +6,10 @@
  */
 
 import { logger } from '../logger.js';
-import { getAgentMainSession } from '../memory/agent-main-session.js';
+import {
+  getAgentMainSession,
+  isAppDataChat,
+} from '../memory/agent-main-session.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
@@ -98,12 +101,14 @@ function unreadReminders(delivery: WebNotificationDelivery): number {
  * Where a web task's replies go instead of the chat that created it: its
  * agent's main chat (2026-10-08, product owner: Hy's crons always reach the
  * main chat, never a side chat the user rarely opens). Null when the task's
- * chat is not a web chat, is the main chat itself, or its agent has none.
+ * chat is not a web chat, is the main chat itself, is one of the apps' hidden
+ * data chats, or its agent has none.
  * Looked up per run, so stored tasks follow a new main chat.
  */
 export function mainChatForWebTask(taskSessionId: string): Session | null {
   const origin = memoryService.getSessionById(taskSessionId);
-  if (origin?.channel_id !== 'web') return null;
+  if (origin?.channel_id !== 'web' || isAppDataChat(origin.session_key))
+    return null;
   const main = getAgentMainSession(origin.agent_id);
   return main && main.session_key !== origin.session_key ? main : null;
 }
