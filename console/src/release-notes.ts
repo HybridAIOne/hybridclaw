@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.2',
+  version: '0.39.3',
   highlights: [
-    'Choose when premium tools spend a boost',
-    'Reports and tools in the app Library',
-    'Background app tasks keep their replies',
-    'Console fonts and log selection fixed',
+    'Import memory from another assistant',
+    'Review email drafts and slide designs',
+    'Find savings with approval before cancelling',
+    'Phone alerts wait while you use web chat',
   ],
 } as const;
 
