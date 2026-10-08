@@ -424,19 +424,6 @@ export async function fetchGatewayMcpOAuthStatus(
   );
 }
 
-export async function logoutGatewayMcpOAuth(
-  name: string,
-): Promise<GatewayAdminMcpResponse> {
-  return requestJson<GatewayAdminMcpResponse>('/api/admin/mcp/oauth/logout', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
-    },
-    body: JSON.stringify({ name }),
-  });
-}
-
 export async function gatewayPullProactive(
   channelId: string,
   limit = 20,

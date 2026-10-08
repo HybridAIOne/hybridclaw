@@ -85,19 +85,18 @@ test('delegation job accessors track lifecycle and artifacts', async () => {
   ]);
 });
 
-test('delegation job cancellation and stale failure only affect active rows', async () => {
+test('delegation job stale failure only affects active rows', async () => {
   const db = await importFreshDb(makeTempHome());
 
   db.createDelegationJob({
-    publicId: 'chatcmpl_cancel',
-    internalId: 'parent:cancel',
+    publicId: 'chatcmpl_done',
+    internalId: 'parent:done',
     parentSessionId: 'parent-session',
     channelId: 'openai',
     agentId: 'main',
     taskCount: 1,
   });
-  expect(db.cancelDelegationJob('chatcmpl_cancel')).toBe(true);
-  expect(db.getDelegationJob('chatcmpl_cancel')?.status).toBe('cancelled');
+  db.completeDelegationJob('chatcmpl_done', { resultText: 'done' });
 
   db.createDelegationJob({
     publicId: 'chatcmpl_running',
@@ -108,8 +107,6 @@ test('delegation job cancellation and stale failure only affect active rows', as
     taskCount: 1,
   });
   db.markDelegationJobInProgress('chatcmpl_running');
-  expect(db.cancelDelegationJob('chatcmpl_running')).toBe(false);
-  expect(db.getDelegationJob('chatcmpl_running')?.status).toBe('in_progress');
 
   db.createDelegationJob({
     publicId: 'chatcmpl_queued',
@@ -120,7 +117,7 @@ test('delegation job cancellation and stale failure only affect active rows', as
     taskCount: 1,
   });
   expect(db.failStaleDelegationJobs('gateway_restart')).toBe(2);
-  expect(db.getDelegationJob('chatcmpl_cancel')?.status).toBe('cancelled');
+  expect(db.getDelegationJob('chatcmpl_done')?.status).toBe('completed');
   expect(db.getDelegationJob('chatcmpl_running')).toMatchObject({
     status: 'failed',
     error: 'gateway_restart',

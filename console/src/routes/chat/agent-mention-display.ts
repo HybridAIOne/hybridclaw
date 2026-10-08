@@ -58,13 +58,3 @@ export function normalizeAgentAttributionTarget(
   if (!trimmed || trimmed.toLowerCase() === 'main') return null;
   return trimmed;
 }
-
-export function addAgentAttribution(
-  content: string,
-  agentId: string | null | undefined,
-): string {
-  const target = normalizeAgentAttributionTarget(agentId);
-  if (!target || parseLeadingAgentMention(content)) return content;
-  const trimmed = content.trimStart();
-  return trimmed ? `@${target} ${trimmed}` : `@${target}`;
-}

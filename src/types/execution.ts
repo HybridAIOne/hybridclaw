@@ -1,3 +1,4 @@
+import type { BoostPrompt } from '../../container/shared/boost-offer.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
@@ -128,6 +129,8 @@ export interface PendingApproval {
   allowAll: boolean;
   expiresAt: number | null;
   escalationTarget?: EscalationTarget;
+  /** Set when the question is whether to spend one of the user's boosts. */
+  boost?: BoostPrompt;
 }
 
 /** Where the agent's browser is after a browser tool ran. */

@@ -81,17 +81,6 @@ export function setSignalPairingError(error: string): void {
   };
 }
 
-export function clearSignalPairingState(): void {
-  currentPairingState = {
-    status: 'idle',
-    pairingQrText: null,
-    pairingQrSvg: null,
-    pairingUri: null,
-    updatedAt: null,
-    error: null,
-  };
-}
-
 export function getSignalPairingState(): SignalPairingState {
   return { ...currentPairingState };
 }

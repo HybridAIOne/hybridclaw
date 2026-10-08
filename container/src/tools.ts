@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describeBashStatePersistence } from '../shared/bash-state.js';
+import type { BoostAnswer } from '../shared/boost-offer.js';
 import { DAILY_MEMORY_MAX_CHARS } from '../shared/daily-memory.js';
 import {
   waitForMemoryFileLock,
@@ -2839,6 +2840,7 @@ async function executeToolInternal(
   name: string,
   argsJson: string,
   sentFiles: FileReferenceExpansion[],
+  boost?: BoostAnswer,
 ): Promise<string | ToolRunResult> {
   let parsedArgs: unknown;
   try {
@@ -2873,11 +2875,12 @@ async function executeToolInternal(
     const result = await mcpClientManager.callToolDetailed(
       name,
       args as Record<string, unknown>,
+      boost,
     );
     if (result.isError) {
       return failTool(result.output);
     }
-    return result.output;
+    return result.boostOffer ? result : result.output;
   }
 
   if (getPluginToolDefinition(name)) {
@@ -4147,13 +4150,15 @@ async function executeToolInternal(
   }
 }
 
+/** `boost` reaches MCP tools only; it is the user's answer to an offer. */
 export async function executeToolWithMetadata(
   name: string,
   argsJson: string,
+  boost?: BoostAnswer,
 ): Promise<ToolRunResult> {
   const sentFiles: FileReferenceExpansion[] = [];
   try {
-    const result = await executeToolInternal(name, argsJson, sentFiles);
+    const result = await executeToolInternal(name, argsJson, sentFiles, boost);
     const metadata =
       typeof result === 'string' ? { output: result, isError: false } : result;
     return {

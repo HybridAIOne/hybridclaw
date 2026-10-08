@@ -109,7 +109,7 @@ test('heartbeat_poll scheduler jobs do not dispatch when HEARTBEAT.md has no act
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -122,7 +122,9 @@ test('heartbeat_poll scheduler jobs do not dispatch when HEARTBEAT.md has no act
   stopScheduler();
 
   expect(runner).not.toHaveBeenCalled();
-  expect(getConfigJobState('empty-heartbeat')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'empty-heartbeat'),
+  ).toMatchObject({
     lastStatus: 'success',
     consecutiveErrors: 0,
   });
@@ -236,7 +238,7 @@ test('legacy backlog-assigned one-shot scheduler jobs move to review after the d
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -266,7 +268,9 @@ test('legacy backlog-assigned one-shot scheduler jobs move to review after the d
   ).toMatchObject({
     boardStatus: 'review',
   });
-  expect(getConfigJobState('backlog-retry')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'backlog-retry'),
+  ).toMatchObject({
     lastStatus: 'error',
     consecutiveErrors: 4,
     disabled: false,
@@ -318,7 +322,7 @@ test('one-shot scheduler jobs respect maxRetries before moving failed work into 
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -345,7 +349,9 @@ test('one-shot scheduler jobs respect maxRetries before moving failed work into 
   ).toMatchObject({
     boardStatus: 'review',
   });
-  expect(getConfigJobState('release-brief')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'release-brief'),
+  ).toMatchObject({
     lastStatus: 'error',
     consecutiveErrors: 2,
     disabled: false,
@@ -396,7 +402,7 @@ test('backlog-assigned one-shot scheduler jobs complete once and move to review'
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -420,7 +426,9 @@ test('backlog-assigned one-shot scheduler jobs complete once and move to review'
   ).toMatchObject({
     boardStatus: 'review',
   });
-  expect(getConfigJobState('release-notes')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
     lastStatus: 'success',
     consecutiveErrors: 0,
     disabled: false,
@@ -485,7 +493,7 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -508,7 +516,9 @@ test('stale successful one-shot jobs reconcile to review without rerunning', asy
   ).toMatchObject({
     boardStatus: 'review',
   });
-  expect(getConfigJobState('release-notes')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
     lastStatus: 'success',
     disabled: false,
     nextRunAt: null,
@@ -572,7 +582,7 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState, startScheduler, stopScheduler } = await import(
+  const { getSchedulerStatus, startScheduler, stopScheduler } = await import(
     '../src/scheduler/scheduler.ts'
   );
   initDatabase({ quiet: true });
@@ -595,14 +605,16 @@ test('stale successful one-shot jobs already in review do not rerun', async () =
   ).toMatchObject({
     boardStatus: 'review',
   });
-  expect(getConfigJobState('release-notes')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
     lastStatus: 'success',
     disabled: false,
     nextRunAt: null,
   });
 });
 
-test('getConfigJobState reconciles stale successful one-shot jobs directly', async () => {
+test('getSchedulerStatus reconciles stale successful one-shot jobs', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-07T12:02:00.000Z'));
 
@@ -659,12 +671,14 @@ test('getConfigJobState reconciles stale successful one-shot jobs directly', asy
   const { migrateConfigSchedulerJobsToDatabase } = await import(
     '../src/gateway/gateway-scheduled-task-service.ts'
   );
-  const { getConfigJobState } = await import('../src/scheduler/scheduler.ts');
+  const { getSchedulerStatus } = await import('../src/scheduler/scheduler.ts');
   initDatabase({ quiet: true });
   replaceJobs([]);
   migrateConfigSchedulerJobsToDatabase();
 
-  expect(getConfigJobState('release-notes')).toMatchObject({
+  expect(
+    getSchedulerStatus().find((job) => job.id === 'release-notes'),
+  ).toMatchObject({
     lastStatus: 'success',
     disabled: false,
     nextRunAt: null,

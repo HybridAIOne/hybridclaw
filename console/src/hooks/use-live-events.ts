@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { adminEventsUrl } from '../api/client';
 import type { AdminOverview, GatewayStatus } from '../api/types';
 
 export type LiveConnection = 'idle' | 'connecting' | 'open' | 'error';
@@ -20,8 +19,9 @@ export function useLiveEvents(token: string): LiveState {
     lastEventAt: null,
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reopen the stream when the signed-in token changes
   useEffect(() => {
-    const source = new EventSource(adminEventsUrl(trimmedToken));
+    const source = new EventSource('/api/events');
     setState((current) => ({
       ...current,
       connection: 'connecting',

@@ -345,14 +345,3 @@ export function updateAppVisibility(
     return row ? appFromRow(row) : null;
   });
 }
-
-export function countApps(): number {
-  return withMemoryDatabase((database: Database.Database) => {
-    const row = database
-      .prepare<unknown[], { count: number }>(
-        `SELECT COUNT(*) AS count FROM apps`,
-      )
-      .get();
-    return row?.count ?? 0;
-  });
-}
