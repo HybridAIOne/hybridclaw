@@ -38,14 +38,14 @@ function validateWebhookJsonBody(
   return body;
 }
 
-export async function readWebhookJsonBody(
+/** Reads the raw body, failing with a `WebhookHttpError` past `maxBytes`. */
+export async function readWebhookBody(
   req: IncomingMessage,
-  options: ReadWebhookJsonBodyOptions,
-): Promise<unknown> {
-  if (typeof options.parsedBody !== 'undefined') {
-    return validateWebhookJsonBody(options.parsedBody, options);
-  }
-
+  options: Pick<
+    ReadWebhookJsonBodyOptions,
+    'maxBytes' | 'tooLargeMessage' | 'tooLargeStatusCode'
+  >,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
@@ -59,12 +59,18 @@ export async function readWebhookJsonBody(
     }
     chunks.push(buffer);
   }
+  return Buffer.concat(chunks);
+}
 
-  if (chunks.length === 0) {
-    return validateWebhookJsonBody({}, options);
+export async function readWebhookJsonBody(
+  req: IncomingMessage,
+  options: ReadWebhookJsonBodyOptions,
+): Promise<unknown> {
+  if (typeof options.parsedBody !== 'undefined') {
+    return validateWebhookJsonBody(options.parsedBody, options);
   }
 
-  const raw = Buffer.concat(chunks).toString('utf8');
+  const raw = (await readWebhookBody(req, options)).toString('utf8');
   if (!raw.trim()) {
     return validateWebhookJsonBody({}, options);
   }

@@ -46,7 +46,11 @@ From a local TUI/web session you can also run:
 
 The install command:
 
-- copies the plugin into `~/.hybridclaw/plugins/<plugin-id>/`
+- copies the plugin into `~/.hybridclaw/plugins/<plugin-id>/`, except for a
+  plugin bundled with HybridClaw that has no dependencies to install: that one
+  is enabled in place with a `plugins.list[]` entry, so it upgrades together
+  with HybridClaw. `plugin reinstall <plugin-id>` replaces a home copy that an
+  older release left behind with that entry.
 - validates `hybridclaw.plugin.yaml`
 - installs npm dependencies when the plugin ships a `package.json` or npm
   install hints
@@ -275,6 +279,8 @@ The manifest supports:
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
+- top-level CLI commands under `cliCommands`, each with a `name` and a
+  `description` (see `registerCliCommand` below)
 
 `memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
 only for plugins that should behave like a primary external memory system.
@@ -444,7 +450,11 @@ routes sit behind the gateway's normal admin authentication:
   captures one path segment; the decoded value arrives as `params.name`.
 - `rbacAction` must be an action from the core RBAC catalog
   (`src/security/admin-rbac.ts`); the gateway checks it before the handler
-  runs, so scoped API tokens and sessions need that action.
+  runs, so scoped API tokens and sessions need that action. A plugin that
+  needs actions of its own adds `admin.<plugin-id>.<verb>` entries to
+  `PLUGIN_ADMIN_RBAC_ACTIONS` there; manifests cannot declare actions. While
+  such a plugin is not loaded, every caller gets 404 for its namespace, so
+  the console can tell "not installed" apart from "forbidden".
 - Registration throws on an unknown method or action, a path outside the
   plugin's namespace, a path core already serves, or a path that overlaps
   another registered route. A known path with another method answers 405.
@@ -452,14 +462,28 @@ routes sit behind the gateway's normal admin authentication:
 Handlers receive `{ req, res, url, params, pluginId, logger }`, write the
 response themselves, and throw `WebhookHttpError` for an error status.
 
-`api.registerCliCommand({ name, description, run })` adds a top-level
-`hybridclaw <name>` command. The CLI looks plugin commands up only for names
-no built-in command handles. It loads installed plugins register-only (no
-services, memory layers, or gateway hooks start) and opens the runtime
-database before `run(args)`.
+`api.registerCliCommand({ name, run })` adds a top-level `hybridclaw <name>`
+command that the manifest declares under `cliCommands`:
+
+```yaml
+cliCommands:
+  - name: coworker
+    description: Distill a human's source material into a coworker agent
+```
+
+The CLI looks plugin commands up only for names no built-in command handles,
+and routes by manifest: it imports only the one plugin that declares the name,
+register-only (no services, memory layers, or gateway hooks start), and opens
+the runtime database before `run(args)`. A name no manifest declares loads no
+plugin code; a name two enabled plugins declare fails. Plugin-manager logs go
+to stderr, so the command owns stdout. `hybridclaw help` lists the declared
+commands of installed plugins, and `hybridclaw help <name>` runs
+`<name> --help`. Registering a command the manifest does not declare fails.
 
 The plugin SDK also exports the host services a plugin should reuse rather
-than copy: `recordAuditEvent`, `syncRuntimeAssetRevisionState` /
+than copy: `readWebhookBody` / `readWebhookJsonBody` for size-capped request
+bodies, `parseValueFlag` for `--flag value` / `--flag=value` CLI parsing,
+`recordAuditEvent`, `syncRuntimeAssetRevisionState` /
 `clearRuntimeAssetRevisions` (F4 revisions), the confidential-rule helpers
 (`loadConfidentialRules`, `dehydrateConfidential`, `scanForLeaks`), and the
 agent registry and workspace helpers. The `distill` plugin uses all of these.

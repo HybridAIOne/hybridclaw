@@ -48,6 +48,7 @@ import type {
   PluginHookName,
   PluginInboundWebhookDefinition,
   PluginLogger,
+  PluginManifestCliCommand,
   PluginMiddlewareSkill,
   PluginOutputGuard,
   PluginPhoneNotification,
@@ -85,6 +86,7 @@ export function createPluginApi(params: {
   pluginConfig: Record<string, unknown>;
   declaredEnv: readonly string[];
   declaredCredentials?: readonly string[];
+  declaredCliCommands?: readonly PluginManifestCliCommand[];
   homeDir: string;
   cwd: string;
 }): HybridClawPluginApi {
@@ -192,7 +194,11 @@ export function createPluginApi(params: {
       params.manager.adminRoutes.register(params.pluginId, route);
     },
     registerCliCommand(command: PluginCliCommandDefinition): void {
-      params.manager.cliCommands.register(params.pluginId, command);
+      params.manager.cliCommands.register(
+        params.pluginId,
+        command,
+        params.declaredCliCommands || [],
+      );
     },
     dispatchInboundMessage(
       request: PluginDispatchInboundMessageRequest,

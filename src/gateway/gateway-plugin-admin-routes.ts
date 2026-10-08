@@ -13,7 +13,10 @@ import { WebhookHttpError } from '../channels/webhook-http.js';
 import { logger } from '../logger.js';
 import { matchLoadedPluginAdminRoute } from '../plugins/plugin-manager.js';
 import type { PluginLogger } from '../plugins/plugin-types.js';
-import type { AdminRbacAction } from '../security/admin-rbac.js';
+import {
+  type AdminRbacAction,
+  isPluginAdminNamespacePath,
+} from '../security/admin-rbac.js';
 import { sendJson } from './gateway-http-utils.js';
 
 export function resolvePluginAdminRouteAction(
@@ -22,6 +25,22 @@ export function resolvePluginAdminRouteAction(
 ): AdminRbacAction | null {
   const match = matchLoadedPluginAdminRoute(method, pathname);
   return match?.kind === 'route' ? match.entry.route.rbacAction : null;
+}
+
+/**
+ * A path in a catalogued plugin namespace that no loaded route matches: the
+ * plugin is not installed (or is reloading). It answers 404 to every caller,
+ * scoped or not, so the console can say "install the plugin" instead of
+ * "Forbidden"; no core handler lives in a plugin namespace to fall through to.
+ */
+export function isUnservedPluginAdminPath(
+  pathname: string,
+  method: string,
+): boolean {
+  return (
+    isPluginAdminNamespacePath(pathname) &&
+    !matchLoadedPluginAdminRoute(method, pathname)
+  );
 }
 
 /** Returns false when no plugin owns the path, so the caller answers 404. */

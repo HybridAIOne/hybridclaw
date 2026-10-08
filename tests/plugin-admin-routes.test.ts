@@ -2,7 +2,10 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { PluginAdminRouteRegistry } from '../src/plugins/plugin-admin-routes.js';
-import { PluginCliCommandRegistry } from '../src/plugins/plugin-cli-commands.js';
+import {
+  normalizeManifestCliCommands,
+  PluginCliCommandRegistry,
+} from '../src/plugins/plugin-cli-commands.js';
 import type { PluginAdminRouteDefinition } from '../src/plugins/plugin-types.js';
 import { useCleanMocks } from './test-utils.js';
 
@@ -103,31 +106,58 @@ describe('PluginAdminRouteRegistry', () => {
 });
 
 describe('PluginCliCommandRegistry', () => {
+  const declared = [{ name: 'demo', description: 'Demo' }];
+
   test.each([
     ['an uppercase name', { name: 'Coworker' }, /lowercase/],
     ['a flag-like name', { name: '--help' }, /lowercase/],
+    ['a name the manifest does not declare', { name: 'other' }, /not declared/],
     ['a missing run', { run: undefined }, /no run/],
   ])('rejects %s', (_label, overrides, message) => {
     const registry = new PluginCliCommandRegistry();
     expect(() =>
-      registry.register('demo', {
-        name: 'demo',
-        description: 'Demo',
-        run: () => {},
-        ...(overrides as object),
-      }),
+      registry.register(
+        'demo',
+        { name: 'demo', run: () => {}, ...(overrides as object) },
+        declared,
+      ),
     ).toThrow(message);
   });
 
   test('keeps one owner per command name', () => {
     const registry = new PluginCliCommandRegistry();
     const run = vi.fn();
-    registry.register('a', { name: 'demo', description: 'Demo', run });
-    expect(() =>
-      registry.register('b', { name: 'demo', description: 'Demo', run }),
-    ).toThrow(/already registered by "a"/);
+    registry.register('a', { name: 'demo', run }, declared);
+    expect(() => registry.register('b', { name: 'demo', run }, declared)).toThrow(
+      /already registered by "a"/,
+    );
     expect(registry.find('demo')?.pluginId).toBe('a');
     expect(registry.find('other')).toBeUndefined();
+  });
+
+  test.each([
+    ['a non-list', 'coworker', /must be a list/],
+    ['a bad name', [{ name: 'Co', description: 'x' }], /lowercase/],
+    ['a missing description', [{ name: 'demo' }], /needs a description/],
+    [
+      'a duplicate',
+      [
+        { name: 'demo', description: 'x' },
+        { name: 'demo', description: 'y' },
+      ],
+      /twice/,
+    ],
+  ])('manifest cliCommands rejects %s', (_label, value, message) => {
+    expect(() => normalizeManifestCliCommands('demo', value)).toThrow(message);
+  });
+
+  test('manifest cliCommands keeps name and description', () => {
+    expect(
+      normalizeManifestCliCommands('demo', [
+        { name: ' demo ', description: ' Demo command ' },
+      ]),
+    ).toEqual([{ name: 'demo', description: 'Demo command' }]);
+    expect(normalizeManifestCliCommands('demo', undefined)).toBeUndefined();
   });
 });
 

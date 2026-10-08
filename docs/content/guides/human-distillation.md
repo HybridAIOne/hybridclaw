@@ -28,7 +28,11 @@ hybridclaw plugin install distill   # from a source checkout: ./plugins/distill
 hybridclaw gateway restart          # loads the admin console Distill page
 ```
 
-The CLI picks the plugin up immediately. Distill data lives in each agent
+`/plugin install distill` from a local TUI or console session loads the
+console API without a restart. The install enables the copy bundled with
+HybridClaw rather than copying it, so the plugin upgrades with HybridClaw.
+The CLI picks the plugin up immediately, and `hybridclaw help` lists
+`coworker` under plugin commands. Distill data lives in each agent
 workspace, so subjects, consent artefacts, corpora, runs, and revision history
 created before the plugin existed keep working without a migration.
 `hybridclaw plugin uninstall distill` removes the commands and the console

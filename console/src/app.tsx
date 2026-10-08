@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { HttpResponseError } from './api/client';
 import { useAuth } from './auth';
 import { Button } from './components/button';
 import { HybridClaw } from './components/icons';
@@ -16,6 +17,11 @@ export function App() {
         defaultOptions: {
           queries: {
             refetchOnWindowFocus: false,
+            // A 404 is not transient (e.g. a plugin page whose plugin is not
+            // installed); retrying it only delays the page's explanation.
+            retry: (failureCount, error) =>
+              !(error instanceof HttpResponseError && error.status === 404) &&
+              failureCount < 3,
           },
         },
       }),

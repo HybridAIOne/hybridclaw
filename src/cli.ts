@@ -2056,8 +2056,10 @@ export async function main(
     }
     case 'help': {
       const topic = (subargs[0] || '').trim().toLowerCase();
+      const pluginCli = await import('./cli/plugin-cli-dispatch.js');
       if (!topic) {
         printMainUsage();
+        await pluginCli.printPluginCliCommandUsage();
         console.log('');
         printHelpUsage();
         break;
@@ -2065,6 +2067,7 @@ export async function main(
       if (await printHelpTopic(topic)) {
         break;
       }
+      if (await pluginCli.runPluginCliCommand(topic, ['--help'])) break;
       printMainUsage();
       console.log('');
       printHelpUsage();
@@ -2073,13 +2076,12 @@ export async function main(
       break;
     }
     default: {
-      if (command) {
-        const { runPluginCliCommand } = await import(
-          './cli/plugin-cli-dispatch.js'
-        );
-        if (await runPluginCliCommand(command, subargs)) break;
+      const pluginCli = await import('./cli/plugin-cli-dispatch.js');
+      if (command && (await pluginCli.runPluginCliCommand(command, subargs))) {
+        break;
       }
       printMainUsage();
+      await pluginCli.printPluginCliCommandUsage();
       process.exit(command ? 1 : 0);
     }
   }

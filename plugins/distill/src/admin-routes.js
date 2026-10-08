@@ -5,6 +5,7 @@ import {
   DATA_DIR,
   ensureBootstrapFiles,
   getAgentById,
+  readWebhookBody,
   readWebhookJsonBody,
   sendWebhookJson,
   upsertRegisteredAgent,
@@ -542,17 +543,11 @@ function readJsonObject(req) {
   });
 }
 
-async function readUploadBody(req) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > MAX_SOURCE_UPLOAD_BYTES) {
-      throw new WebhookHttpError(413, 'Request body too large.');
-    }
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+function readUploadBody(req) {
+  return readWebhookBody(req, {
+    maxBytes: MAX_SOURCE_UPLOAD_BYTES,
+    tooLargeMessage: 'Request body too large.',
+  });
 }
 
 function decodeUploadFilename(req) {

@@ -306,6 +306,7 @@ import { GatewayLocalModelService } from './gateway-local-model-service.js';
 import { getGatewayAdminLogs } from './gateway-log-service.js';
 import {
   handleGatewayPluginAdminRoute,
+  isUnservedPluginAdminPath,
   resolvePluginAdminRouteAction,
 } from './gateway-plugin-admin-routes.js';
 import {
@@ -2519,6 +2520,10 @@ function enforceAdminRouteRbac(
   const action =
     resolveAdminRbacAction(pathname, method) ??
     resolvePluginAdminRouteAction(pathname, method);
+  if (!action && isUnservedPluginAdminPath(pathname, method)) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return false;
+  }
   if (authContext.kind === 'apiToken') {
     if (!action && hasFullApiTokenWildcard(authContext)) return true;
     if (!action) {

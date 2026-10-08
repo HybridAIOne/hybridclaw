@@ -25,11 +25,13 @@ export type {
 } from '../channels/channel-transport.js';
 export type { LineTransportHost } from '../channels/line/transport-host.js';
 export {
+  readWebhookBody,
   readWebhookJsonBody,
   sendWebhookJson,
   WebhookHttpError,
 } from '../channels/webhook-http.js';
 export type { WhatsAppTransportHost } from '../channels/whatsapp/transport-host.js';
+export { parseValueFlag } from '../cli/common.js';
 export { DATA_DIR } from '../config/config.js';
 export type {
   RuntimeConfig,

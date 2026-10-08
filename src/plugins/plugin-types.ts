@@ -107,6 +107,13 @@ export interface PluginManifest {
   externalDependencies?: PluginExternalDependency[];
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
+  cliCommands?: PluginManifestCliCommand[];
+}
+
+/** A top-level `hybridclaw <name>` command the plugin's manifest declares. */
+export interface PluginManifestCliCommand {
+  name: string;
+  description: string;
 }
 
 export interface PluginCandidate {
@@ -461,10 +468,12 @@ export interface PluginCommandDefinition {
   ) => Promise<unknown> | unknown;
 }
 
-/** A top-level `hybridclaw <name>` command; built-in commands take precedence. */
+/**
+ * Runs a `cliCommands` entry of the manifest; built-in commands take
+ * precedence. The manifest carries the description shown in `hybridclaw help`.
+ */
 export interface PluginCliCommandDefinition {
   name: string;
-  description: string;
   run: (args: string[]) => Promise<void> | void;
 }
 

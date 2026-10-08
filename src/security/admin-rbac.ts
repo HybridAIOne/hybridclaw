@@ -5,7 +5,8 @@
  * The gateway denies an admin route left unmapped here to every scoped caller
  * without a `*` claim, so each new core admin route needs an entry. Plugin
  * admin routes are mapped by their registration instead, and may only name
- * an action from this catalog.
+ * an action from this catalog; a plugin that needs its own actions adds them
+ * to `PLUGIN_ADMIN_RBAC_ACTIONS` in core.
  */
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
@@ -26,6 +27,26 @@ export const ADMIN_TOKEN_RBAC_ACTIONS = [
   'admin.tokens.create',
   'admin.tokens.revoke',
 ] as const;
+
+// Actions of plugin admin routes, `admin.<plugin-id>.<verb>`. (#1893 review,
+// 2026-10-08): they stay in this catalog so scoped tokens and roles can name
+// them while the plugin is not loaded; letting manifests declare their own
+// actions is deferred to an owner call.
+export const PLUGIN_ADMIN_RBAC_ACTIONS = [
+  'admin.distill.read',
+  'admin.distill.write',
+  'admin.distill.delete',
+] as const;
+
+const PLUGIN_ADMIN_NAMESPACES = new Set(
+  PLUGIN_ADMIN_RBAC_ACTIONS.map((action) => action.split('.')[1]),
+);
+
+/** True for `/api/admin/<plugin-id>[/...]` of a plugin with catalog actions. */
+export function isPluginAdminNamespacePath(pathname: string): boolean {
+  const namespace = /^\/api\/admin\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
+  return namespace !== undefined && PLUGIN_ADMIN_NAMESPACES.has(namespace);
+}
 
 export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
@@ -103,10 +124,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.output_guard.read',
   'admin.output_guard.write',
   'admin.output_guard.preview',
-  // Routes of the `distill` plugin; kept so issued token claims stay valid.
-  'admin.distill.read',
-  'admin.distill.write',
-  'admin.distill.delete',
+  ...PLUGIN_ADMIN_RBAC_ACTIONS,
   'admin.skills.read',
   'admin.skills.write',
   'admin.skills.unblock',

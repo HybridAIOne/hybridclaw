@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseValueFlag } from '@hybridaione/hybridclaw/plugin-sdk';
 import { collectSourcePath } from './collectors.js';
 import {
   loadConsentArtefact,
@@ -77,24 +78,6 @@ Notes:
 
 const SOURCE_KINDS = new Set(DISTILL_SOURCE_KINDS);
 
-function parseValueFlag(arg, args, index, name) {
-  if (arg === name) {
-    const value = String(args[index + 1] || '').trim();
-    if (!value) {
-      throw new Error(
-        `Missing value for \`${name}\`. Use \`${name} <value>\`.`,
-      );
-    }
-    return { value, nextIndex: index + 1 };
-  }
-  if (arg.startsWith(`${name}=`)) {
-    const value = arg.slice(`${name}=`.length).trim();
-    if (!value) throw new Error(`Missing value for \`${name}=<value>\`.`);
-    return { value, nextIndex: index };
-  }
-  return null;
-}
-
 function parseCoworkerFlags(args) {
   const flags = {
     tags: [],
@@ -148,7 +131,13 @@ function parseCoworkerFlags(args) {
     ];
     let matched = false;
     for (const [name, assign] of valueFlags) {
-      const parsed = parseValueFlag(arg, args, index, name);
+      const parsed = parseValueFlag({
+        arg,
+        args,
+        index,
+        name,
+        placeholder: '<value>',
+      });
       if (parsed) {
         assign(parsed.value);
         index = parsed.nextIndex;

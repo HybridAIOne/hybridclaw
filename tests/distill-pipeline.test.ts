@@ -1,7 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
 
 type DistillClaim = {
   dimension: string;
@@ -12,7 +13,8 @@ type DistillClaim = {
 };
 type DistillExtraction = { claims: DistillClaim[] } & Record<string, unknown>;
 
-const ORIGINAL_HOME = process.env.HOME;
+const makeTempDir = useTempDir('hybridclaw-distillp-');
+useCleanMocks({ unstubAllEnvs: true });
 
 let tempHome: string;
 
@@ -21,7 +23,12 @@ async function loadModules() {
   vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
     import('../src/plugins/plugin-sdk.ts'),
   );
+  // The gateway and the CLI dispatcher open the DB before the plugin runs;
+  // do the same so audit events reach the SQLite mirror as well as the chain.
+  (await import('../src/memory/db.js')).initDatabase({ quiet: true });
   return {
+    audit: await import('../src/memory/db.js'),
+    auditTrail: await import('../src/audit/audit-trail.js'),
     consent: await import('../plugins/distill/src/consent.js'),
     corpus: await import('../plugins/distill/src/corpus.js'),
     corrections: await import('../plugins/distill/src/corrections.js'),
@@ -42,13 +49,13 @@ async function loadModules() {
 type Modules = Awaited<ReturnType<typeof loadModules>>;
 
 beforeEach(() => {
-  tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-distillp-'));
-  process.env.HOME = tempHome;
+  tempHome = makeTempDir();
+  vi.stubEnv('HOME', tempHome);
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', '');
 });
 
-afterEach(() => {
-  process.env.HOME = ORIGINAL_HOME;
-  fs.rmSync(tempHome, { recursive: true, force: true });
+afterEach(async () => {
+  await cleanupGatewayRuntime();
 });
 
 function writeSource(name: string, content: string): string {
@@ -261,6 +268,27 @@ test('full pipeline: consent, ingest, awaiting-extraction, resume, merge with ci
     resumeRunId: first.run.runId,
   });
   expect(idempotent.run.stats.claimsAdded).toBe(2);
+
+  // F2 provenance: the lifecycle lands in the hash-chained trail and its
+  // SQLite mirror under one per-subject session.
+  await modules.auditTrail.flushAuditTrail();
+  await vi.waitFor(() => {
+    const types = modules.audit
+      .getStructuredAuditForSession('distill:maya')
+      .map((entry) => entry.event_type);
+    expect(types).toEqual(
+      expect.arrayContaining([
+        'distill.consent.recorded',
+        'distill.run.created',
+        'distill.corpus.appended',
+        'distill.claim.merged',
+        'distill.merge.applied',
+      ]),
+    );
+  });
+  expect(
+    modules.auditTrail.verifyAuditSessionChain('distill:maya').ok,
+  ).toBe(true);
 });
 
 async function buildMergedSubject(modules: Modules) {

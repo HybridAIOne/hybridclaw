@@ -47,6 +47,18 @@ function installedCliPath(): string {
   );
 }
 
+const WEB_API_TOKEN = 'npm-e2e-web-token';
+
+function installedCliEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: tempDir,
+    HYBRIDCLAW_DATA_DIR: dataDir(),
+    HYBRIDCLAW_ACCEPT_TRUST: 'true',
+    HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
+  };
+}
+
 function verifyPnpmInstallBlocksExoticSubdeps(tarball: string): void {
   const pnpmHome = path.join(tempDir, 'pnpm-home');
   const pnpmGlobalDir = path.join(tempDir, 'pnpm-global');
@@ -100,9 +112,20 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
       JSON.stringify({
-        ops: { healthPort: HOST_PORT, healthHost: '127.0.0.1' },
+        ops: {
+          healthPort: HOST_PORT,
+          healthHost: '127.0.0.1',
+          webApiToken: WEB_API_TOKEN,
+        },
       }),
     );
+
+    // The install-on-demand distill plugin, by id from the installed package.
+    execSync(`node "${installedCliPath()}" plugin install distill`, {
+      encoding: 'utf-8',
+      timeout: 60_000,
+      env: installedCliEnv(),
+    });
 
     gatewayProcess = spawn(
       'node',
@@ -236,6 +259,48 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<title>HybridClaw Chat</title>');
+  });
+
+  test('the distill plugin installs by id and runs from the installed package', () => {
+    const packageRoot = path.dirname(path.dirname(installedCliPath()));
+    expect(fs.existsSync(path.join(dataDir(), 'plugins', 'distill'))).toBe(
+      false,
+    );
+    const config = JSON.parse(
+      fs.readFileSync(path.join(dataDir(), 'config.json'), 'utf-8'),
+    ) as { plugins?: { list?: Array<{ id: string; enabled: boolean }> } };
+    expect(config.plugins?.list).toContainEqual(
+      expect.objectContaining({ id: 'distill', enabled: true }),
+    );
+    expect(
+      fs.existsSync(path.join(packageRoot, 'plugins', 'distill', 'src')),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(packageRoot, 'dist', 'distill'))).toBe(
+      false,
+    );
+
+    const help = execSync(`node "${installedCliPath()}" help`, {
+      encoding: 'utf-8',
+      timeout: 30_000,
+      env: installedCliEnv(),
+    });
+    expect(help).toMatch(/Plugin commands:\n\s+coworker\s/);
+    const usage = execSync(`node "${installedCliPath()}" coworker --help`, {
+      encoding: 'utf-8',
+      timeout: 30_000,
+      env: installedCliEnv(),
+    });
+    expect(usage.startsWith('Usage: hybridclaw coworker')).toBe(true);
+  });
+
+  test('the gateway serves the distill admin API from the installed plugin', async () => {
+    const res = await fetch(`${GATEWAY_URL}/api/admin/distill`, {
+      headers: { Authorization: `Bearer ${WEB_API_TOKEN}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { subjects: unknown[] };
+    expect(body.subjects).toEqual([]);
   });
 
   test('/admin serves the console (host mode, no container auth)', async () => {

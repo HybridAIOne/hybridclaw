@@ -5,6 +5,9 @@ description: Distill a consenting person's source material into a coworker agent
 entrypoint: src/index.js
 requires:
   node: 22.x
+cliCommands:
+  - name: coworker
+    description: Distill a human's source material into a coworker agent
 configSchema:
   type: object
   additionalProperties: false

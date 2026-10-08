@@ -23,7 +23,9 @@ async function startDistillApi(): Promise<void> {
   const { initDatabase } = await import('../src/memory/db.js');
   initDatabase({ quiet: true });
   const { getRuntimeConfig } = await import('../src/config/runtime-config.js');
-  const { getPluginManager } = await import('../src/plugins/plugin-manager.js');
+  const { getPluginManager, loadPluginManifest } = await import(
+    '../src/plugins/plugin-manager.js'
+  );
   const { createPluginApi } = await import('../src/plugins/plugin-api.js');
   const { handleGatewayPluginAdminRoute } = await import(
     '../src/gateway/gateway-plugin-admin-routes.js'
@@ -40,6 +42,9 @@ async function startDistillApi(): Promise<void> {
       config: getRuntimeConfig(),
       pluginConfig: {},
       declaredEnv: [],
+      declaredCliCommands: loadPluginManifest(
+        path.resolve('plugins/distill/hybridclaw.plugin.yaml'),
+      ).cliCommands,
       homeDir: home,
       cwd: home,
     }),

@@ -1449,6 +1449,7 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/cli/plugin-cli-dispatch.js', () => ({
     runPluginCliCommand,
+    printPluginCliCommandUsage: vi.fn(async () => {}),
   }));
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,

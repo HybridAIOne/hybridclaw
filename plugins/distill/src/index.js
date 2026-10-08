@@ -16,10 +16,6 @@ export default {
   id: 'distill',
   register(api) {
     registerDistillAdminRoutes(api);
-    api.registerCliCommand({
-      name: 'coworker',
-      description: "Distill a human's source material into a coworker agent",
-      run: runCoworkerCommand,
-    });
+    api.registerCliCommand({ name: 'coworker', run: runCoworkerCommand });
   },
 };

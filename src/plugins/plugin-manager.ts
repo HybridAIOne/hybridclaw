@@ -63,7 +63,10 @@ import {
   PluginAdminRouteRegistry,
 } from './plugin-admin-routes.js';
 import { createPluginApi } from './plugin-api.js';
-import { PluginCliCommandRegistry } from './plugin-cli-commands.js';
+import {
+  normalizeManifestCliCommands,
+  PluginCliCommandRegistry,
+} from './plugin-cli-commands.js';
 import { validatePluginConfig } from './plugin-config-validation.js';
 import { linkPluginSdk } from './plugin-sdk-link.js';
 import type {
@@ -114,7 +117,7 @@ import type {
 } from './plugin-types.js';
 import { buildPluginInboundWebhookPath } from './plugin-webhooks.js';
 
-const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
+export const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
 const SKIP_OUTPUT_GUARD_EVENT = '__hybridclaw_skip_output_guard_event__';
 const DEFAULT_ENTRYPOINT_CANDIDATES = [
   'index.js',
@@ -554,6 +557,7 @@ function normalizeManifest(input: unknown): PluginManifest {
       ? (input.configSchema as PluginConfigSchema)
       : undefined,
     configUiHints: normalizePluginConfigUiHints(input.configUiHints),
+    cliCommands: normalizeManifestCliCommands(id, input.cliCommands),
   };
 }
 
@@ -1240,6 +1244,7 @@ export class PluginManager {
         pluginConfig: validatedConfig,
         declaredEnv: candidate.manifest.requires?.env || [],
         declaredCredentials: candidate.manifest.credentials || [],
+        declaredCliCommands: candidate.manifest.cliCommands || [],
         homeDir: this.homeDir,
         cwd: this.cwd,
       });
