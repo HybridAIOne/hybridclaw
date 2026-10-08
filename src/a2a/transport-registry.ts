@@ -59,7 +59,7 @@ export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
   },
 };
 
-export const DEFAULT_TRANSPORT_ADAPTERS: TransportAdapters = {
+const DEFAULT_TRANSPORT_ADAPTERS: TransportAdapters = {
   internal: internalTransportAdapter,
   a2a: a2aOutboundAdapter,
   webhook: webhookOutboundAdapter,
