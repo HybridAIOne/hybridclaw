@@ -191,6 +191,7 @@ test('bridge configures a µ-law realtime session and speaks the greeting', () =
 test('bridge forwards caller audio upstream and model audio downstream', () => {
   const { bridge, socket, sentAudio, states } = createBridge();
   socket.open();
+  socket.serverEvent({ type: 'session.updated' });
 
   bridge.handleCallerAudio('dGVzdA==');
   expect(socket.sentOfType('input_audio_buffer.append')).toEqual([
@@ -212,6 +213,8 @@ test('caller audio from before the socket opens is flushed after setup', () => {
 
   socket.readyState = 1;
   socket.open();
+  expect(socket.sentOfType('input_audio_buffer.append')).toHaveLength(0);
+  socket.serverEvent({ type: 'session.updated' });
 
   const types = socket.sent.map((event) => event.type);
   expect(types.indexOf('session.update')).toBeLessThan(
@@ -943,3 +946,77 @@ test('inherited object keys are not languages', () => {
   }
 });
 
+test('history is finalized before greeting, ready, or buffered microphone audio', () => {
+  const onReady = vi.fn();
+  const { bridge, socket } = createBridge({
+    onReady,
+    history: [
+      { role: 'user', text: 'Please help me plan tomorrow.' },
+      { role: 'assistant', text: 'We chose the morning train.' },
+    ],
+  });
+  try {
+    bridge.handleCallerAudio('ZWFybHk=');
+    socket.open();
+    socket.serverEvent({ type: 'session.updated' });
+    const items = socket
+      .sentOfType('conversation.item.create')
+      .map((event) => event.item as Record<string, unknown>);
+    expect(items).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Please help me plan tomorrow.' },
+        ],
+      }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'We chose the morning train.' }],
+      }),
+    ]);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(socket.sentOfType('response.create')).toEqual([]);
+    expect(socket.sentOfType('input_audio_buffer.append')).toEqual([]);
+    socket.serverEvent({ type: 'conversation.item.added', item: items[0] });
+    expect(onReady).not.toHaveBeenCalled();
+    socket.serverEvent({
+      type: 'conversation.item.done',
+      item: { id: 'unrelated' },
+    });
+    socket.serverEvent({ type: 'conversation.item.done', item: items[1] });
+    expect(onReady).not.toHaveBeenCalled();
+    socket.serverEvent({ type: 'session.updated' });
+    expect(socket.sentOfType('conversation.item.create')).toHaveLength(2);
+    socket.serverEvent({ type: 'conversation.item.done', item: items[0] });
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(socket.sentOfType('response.create')).toHaveLength(1);
+    expect(socket.sentOfType('input_audio_buffer.append')).toEqual([
+      { type: 'input_audio_buffer.append', audio: 'ZWFybHk=' },
+    ]);
+    socket.serverEvent({ type: 'conversation.item.done', item: items[0] });
+    expect(onReady).toHaveBeenCalledTimes(1);
+  } finally {
+    bridge.close();
+  }
+});
+
+test('voice keeps a single consult tool and requires it for current time and date', () => {
+  const { bridge, socket } = createBridge();
+  try {
+    socket.open();
+    const session = socket.sentOfType('session.update')[0].session as Record<
+      string,
+      unknown
+    >;
+    expect(
+      (session.tools as Array<{ name: string }>).map((tool) => tool.name),
+    ).toEqual(['consult_agent']);
+    expect(session.instructions).toContain(
+      'For the current time or date, always call consult_agent',
+    );
+    expect(session.instructions).toContain('If the consultation fails');
+    expect(session.instructions).toContain('previous conversation');
+  } finally {
+    bridge.close();
+  }
+});

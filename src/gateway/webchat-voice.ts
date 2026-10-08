@@ -8,6 +8,8 @@
  * user/assistant messages tagged `source: 'voice'`. `consult_agent` runs an
  * ordinary web chat turn through `handleGatewayMessage`, so tools, approvals,
  * and session history behave exactly like typed chat.
+ * The prior conversation is preloaded before `ready` or the greeting; each
+ * consultation receives a fresh clock and the validated client timezone.
  *
  * Threat model: the HTTP server authenticates the upgrade BEFORE handing
  * sockets to this module — nothing here may run for anonymous peers. Two
@@ -21,10 +23,9 @@
  * transcripts are logged as lengths only.
  *
  * A session started with an existing chat's id hands the realtime model a
- * bounded recap of that chat (`chat-recap.ts`). That sends stored text to the
- * realtime provider and exposes nothing a consult into the same session could
- * not already reach; the recap is fenced as untrusted data and logged as a
- * length only.
+ * summary of that chat (`webchat-voice-context.ts`). Ownership is checked before
+ * the compression auxiliary reads the text. The summary is sent to the realtime
+ * provider as ordinary conversation data, never system instructions.
  *
  * NOT the Twilio path: phone calls live in `src/channels/voice/runtime.ts`.
  */
@@ -34,10 +35,6 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
 import { displayNameForAgent } from '../agents/agent-registry.js';
-import {
-  buildVoiceChatRecap,
-  VOICE_CHAT_RECAP_MAX_MESSAGES,
-} from '../channels/voice/chat-recap.js';
 import type { RealtimeSocketFactory } from '../channels/voice/openai-realtime.js';
 import {
   type RealtimeBridgeState,
@@ -56,7 +53,6 @@ import {
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
-import { memoryService } from '../memory/memory-service.js';
 import {
   buildSessionKey,
   classifySessionKeyShape,
@@ -68,6 +64,10 @@ import {
 } from '../workspace.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
+import {
+  loadWebchatVoiceHistory,
+  voiceConsultInstructions,
+} from './webchat-voice-context.js';
 
 export const WEBCHAT_VOICE_STREAM_PATH = '/api/chat/voice/stream';
 export const WEBCHAT_VOICE_TOKEN_PATH = '/api/chat/voice/token';
@@ -75,6 +75,9 @@ export const WEBCHAT_VOICE_TOKEN_PATH = '/api/chat/voice/token';
 const MAX_CONCURRENT_SESSIONS = 4;
 const MAX_FRAME_BYTES = 256 * 1024;
 const START_DEADLINE_MS = 10_000;
+// 2026-10-08: summary plus upstream preload must finish before the mobile
+// client's 25s ringing limit. The auxiliary call gets at most 10s of this.
+const PRELOAD_DEADLINE_MS = 20_000;
 // 60s single-use TTL, small pending cap (call, 2026-08-24): clients mint and
 // connect immediately, so the cap only bounds unclaimed mints.
 const STREAM_TOKEN_TTL_MS = 60_000;
@@ -135,6 +138,7 @@ interface ClientFrame {
   agentId?: unknown;
   client?: unknown;
   language?: unknown;
+  timeZone?: unknown;
 }
 
 function sendFrame(ws: WebSocket, frame: Record<string, unknown>): void {
@@ -160,50 +164,25 @@ function resolveVoiceSessionId(requested: unknown, agentId: string): string {
   );
 }
 
-// Twice the recap window, so rows the recap skips (non-chat roles, silent
-// replies) do not shrink it.
-const RECAP_FETCH_LIMIT = VOICE_CHAT_RECAP_MAX_MESSAGES * 2;
-
-/**
- * Recap of the chat a voice session continues, or null for a session with no
- * stored history. Lookup only: a fresh session id has no row yet, and this
- * must not create one.
- */
-function loadVoiceChatRecap(sessionId: string): string | null {
-  // Best effort: a call without a recap still works, so a failed read must
-  // not stop it.
-  try {
-    const session = memoryService.getSessionById(sessionId);
-    if (!session) return null;
-    return buildVoiceChatRecap({
-      summary: session.session_summary,
-      messages: memoryService.getRecentMessages(session.id, RECAP_FETCH_LIMIT),
-    });
-  } catch (err) {
-    logger.warn({ err, sessionId }, 'Webchat voice chat recap unavailable');
-    return null;
-  }
-}
-
 /**
  * What the voice knows before it picks up: its own name, the user's name and
- * local time, and a recap of the chat. Gathered once at the start frame, while
+ * local time. The chat summary is loaded separately as conversation data while
  * the phone app still rings. Each part is best effort, since a call without it
  * still works.
  */
 function loadVoiceCallContext(
   agentId: string,
-  sessionId: string,
+  timeZone?: string,
 ): { context: RealtimeCallContext; userName: string | null } {
-  const context: RealtimeCallContext = {
-    chatRecap: loadVoiceChatRecap(sessionId),
-  };
+  const context: RealtimeCallContext = {};
   let userName: string | null = null;
   try {
     context.assistantName = displayNameForAgent(agentId);
     const names = readUserNames(agentId);
     userName = names.name || names.fullName;
-    context.now = formatCurrentTime(readUserTimezone(agentId) ?? undefined);
+    context.now = formatCurrentTime(
+      timeZone ?? readUserTimezone(agentId) ?? undefined,
+    );
   } catch (err) {
     logger.warn({ err, agentId }, 'Webchat voice call context unavailable');
   }
@@ -223,6 +202,7 @@ export class WebchatVoiceConnection {
   private bridge: RealtimeCallBridge | null = null;
   private startTimer: NodeJS.Timeout | null = null;
   private closed = false;
+  private starting = false;
   private readonly ws: WebSocket;
   private readonly identity: WebchatVoiceIdentity;
   private readonly remoteIp: string;
@@ -266,7 +246,9 @@ export class WebchatVoiceConnection {
       return;
     }
     if (frame.type === 'start') {
-      this.handleStart(frame);
+      void this.handleStart(frame).catch(() => {
+        this.fail('Voice call could not be prepared.', 1011);
+      });
       return;
     }
     if (frame.type === 'audio') {
@@ -283,20 +265,30 @@ export class WebchatVoiceConnection {
     this.fail(`Unknown voice frame type: ${String(frame.type)}`, 1008);
   }
 
-  private handleStart(frame: ClientFrame): void {
-    if (this.bridge) {
+  private async handleStart(frame: ClientFrame): Promise<void> {
+    if (this.bridge || this.starting) {
       this.fail('Voice session already started.', 1008);
       return;
+    }
+    let timeZone: string | undefined;
+    if (frame.timeZone !== undefined) {
+      try {
+        if (typeof frame.timeZone !== 'string' || frame.timeZone.length > 100) {
+          throw new Error('Invalid timezone.');
+        }
+        timeZone = new Intl.DateTimeFormat('en', {
+          timeZone: frame.timeZone,
+        }).resolvedOptions().timeZone;
+      } catch {
+        this.fail('Invalid voice timezone.', 1008);
+        return;
+      }
     }
     const voiceConfig = getConfigSnapshot().speech.realtime;
     const resolved = resolveRealtimeConnection(voiceConfig.provider);
     if (!resolved.connection) {
       this.fail(resolved.error, 1011);
       return;
-    }
-    if (this.startTimer) {
-      clearTimeout(this.startTimer);
-      this.startTimer = null;
     }
     const agentId =
       (typeof frame.agentId === 'string' && frame.agentId.trim()) ||
@@ -310,8 +302,20 @@ export class WebchatVoiceConnection {
     const language = voiceLanguageCode(frame.language) ?? undefined;
     const userId = this.identity.userId || sessionId;
     const username = this.identity.username || 'web';
-    const { context, userName } = loadVoiceCallContext(agentId, sessionId);
-    // The name the user gave the agent; a console login's 'web' is none.
+    this.starting = true;
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = setTimeout(() => {
+      this.fail('Voice conversation could not be prepared in time.', 1011);
+    }, PRELOAD_DEADLINE_MS);
+    let history: Awaited<ReturnType<typeof loadWebchatVoiceHistory>>;
+    try {
+      history = await loadWebchatVoiceHistory(sessionId, agentId, userId);
+    } catch {
+      this.fail('Voice conversation could not be prepared.', 1011);
+      return;
+    }
+    if (this.closed) return;
+    const { context, userName } = loadVoiceCallContext(agentId, timeZone);
     const callerName = userName || (username === 'web' ? '' : username);
     this.bridge = new RealtimeCallBridge({
       connection: resolved.connection,
@@ -319,6 +323,18 @@ export class WebchatVoiceConnection {
       caller: { from: '', to: '', callerName },
       surface: 'web',
       context,
+      history,
+      onReady: () => {
+        if (this.startTimer) {
+          clearTimeout(this.startTimer);
+          this.startTimer = null;
+        }
+        sendFrame(this.ws, { type: 'ready', sessionId });
+        logger.info(
+          { sessionId, remoteIp: this.remoteIp },
+          'Webchat voice session started',
+        );
+      },
       audioFormat: { type: 'audio/pcm', rate: 24000 },
       sendAudio: async (base64Audio) => {
         sendFrame(this.ws, { type: 'audio', payload: base64Audio });
@@ -334,6 +350,7 @@ export class WebchatVoiceConnection {
           userId,
           username,
           content: request,
+          instructions: voiceConsultInstructions(timeZone),
           agentId,
           ...(client ? { client } : {}),
           abortSignal: hooks.abortSignal,
@@ -385,15 +402,6 @@ export class WebchatVoiceConnection {
       socketFactory: this.socketFactory,
       ...(language ? { language } : {}),
     });
-    sendFrame(this.ws, { type: 'ready', sessionId });
-    logger.info(
-      {
-        sessionId,
-        remoteIp: this.remoteIp,
-        recapChars: context.chatRecap?.length ?? 0,
-      },
-      'Webchat voice session started',
-    );
   }
 
   private fail(message: string, code: number): void {

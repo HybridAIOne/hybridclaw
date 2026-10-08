@@ -70,7 +70,7 @@ webchat voice frame protocol — JSON text frames both ways:
 
 | Direction | Frame | Meaning |
 | --- | --- | --- |
-| client → server | `{"type":"start","sessionId?":"…","agentId?":"…","client?":"mobile"}` | Start the session (within 10 s of connecting); `client: "mobile"` keeps a phone app's chat from resetting, as on `POST /api/chat` |
+| client → server | `{"type":"start","sessionId?":"…","agentId?":"…","client?":"mobile","language?":"en","timeZone?":"Europe/Berlin"}` | Start the session (within 10 s of connecting); `client: "mobile"` keeps a phone app's chat from resetting, as on `POST /api/chat`. `timeZone` supplies the caller's IANA timezone for live clock requests. Invalid timezones close the connection with code 1008. |
 | client → server | `{"type":"audio","payload":"<base64 PCM16>"}` | Microphone audio |
 | client → server | `{"type":"stop"}` | End the session |
 | server → client | `{"type":"ready","sessionId":"…"}` | Session is live |
@@ -87,22 +87,26 @@ directions.
 ### Continuing an existing chat
 
 Pass an existing chat's `sessionId` in the `start` frame to continue that
-session by voice: spoken turns and agent requests land in the same history as
-the typed messages. When the session already has stored messages, the gateway
-also gives the realtime voice model a short recap of it (the session summary,
-if any, and the last few user and assistant messages, about 2,400 characters
-at most), so it understands references to the chat and keeps its language.
-The recap is background for the voice model only and is sent to the
-configured realtime provider; it is not spoken or returned in a frame. Omit
-`sessionId`, or send one the gateway has not seen, to start without a recap.
+session by voice. Spoken turns and consultations land in the same history as
+typed messages. A new session starts without a summary.
 
-Every session also starts knowing who it is and who it talks to: the voice
-goes by the agent's display name (for example "Hy"), calls the user by the
-name in the agent's `USER.md` ("What to call them", else "Name"), and knows
-the user's local date and time from `USER.md`'s "Timezone". All of this is
-read once at the `start` frame, so a client can play a ringing tone while the
-realtime session connects and greets; the greeting audio arrives as soon as
-the voice is ready.
+While the call rings, the gateway uses the configured `auxiliaryModels.compression`
+model (such as Gemma) to summarize the session summary and recent user/assistant
+messages, then preloads that summary into the realtime conversation. It sends
+`ready` and starts the greeting only after the realtime service acknowledges
+that history. Historical requests are context, not instructions to execute again.
+Summarization uses no tools and no provider fallback. A missing or failed auxiliary
+model ends the call during setup. Summary generation and realtime preload have a
+20-second deadline. Existing history must belong to the authenticated user and
+requested agent before it is sent to either model.
+
+The voice goes by the agent's display name (for example "Hy") and uses the
+user's name from `USER.md`. Its initial clock uses the device timezone when
+supplied, otherwise the user's `USER.md` timezone. The voice model has one tool,
+`consult_agent`. Time/date questions must use it, and every consultation receives
+a fresh gateway timestamp and the validated caller timezone. A failed
+consultation must not be replaced by a guessed answer.
+
 
 Minimal client sketch:
 
@@ -110,7 +114,7 @@ Minimal client sketch:
 const { token } = await fetch('/my-backend/voice-token', { method: 'POST' })
   .then((res) => res.json());
 const ws = new WebSocket(`wss://gateway.example/api/chat/voice/stream?token=${token}`);
-ws.onopen = () => ws.send(JSON.stringify({ type: 'start' }));
+ws.onopen = () => ws.send(JSON.stringify({ type: 'start', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
 ws.onmessage = (event) => {
   const frame = JSON.parse(event.data);
   if (frame.type === 'audio') playPcm16Base64(frame.payload); // 24 kHz mono
