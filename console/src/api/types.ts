@@ -1833,7 +1833,7 @@ export interface AdminSkill {
   relatedSkills: string[];
   install: Array<{
     id?: string;
-    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download';
+    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download' | 'runtime-tools';
     label?: string;
     bins?: string[];
     formula?: string;

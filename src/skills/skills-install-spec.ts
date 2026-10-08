@@ -12,7 +12,8 @@ export type SkillInstallKind =
   | 'npm'
   | 'node'
   | 'go'
-  | 'download';
+  | 'download'
+  | 'runtime-tools';
 
 export interface SkillInstallSpec {
   id?: string;
@@ -56,7 +57,8 @@ export function normalizeInstallSpecs(
       kindRaw !== 'npm' &&
       kindRaw !== 'node' &&
       kindRaw !== 'go' &&
-      kindRaw !== 'download'
+      kindRaw !== 'download' &&
+      kindRaw !== 'runtime-tools'
     ) {
       continue;
     }

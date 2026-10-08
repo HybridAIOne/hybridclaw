@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import process from 'node:process';
 
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { resolveRuntimeModule } from './_pdf_runtime.mjs';
 
 const MAX_IMAGE_BYTES = 5_000_000;
 
@@ -153,10 +154,8 @@ async function embedTextFont(
   const { default: fontkit } = await import('@pdf-lib/fontkit');
   const source =
     fontPath ||
-    new URL(
-      import.meta.resolve(
-        `pdfjs-dist/standard_fonts/LiberationSans-${bundledName}.ttf`,
-      ),
+    resolveRuntimeModule(
+      `pdfjs-dist/standard_fonts/LiberationSans-${bundledName}.ttf`,
     );
   const bytes = fs.readFileSync(source);
   const parsed = fontkit.create(bytes);

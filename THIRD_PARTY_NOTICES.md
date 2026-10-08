@@ -15,7 +15,7 @@ texts ship inside the respective packages.
 
 ## @hybridaione/hybridclaw (`npm-shrinkwrap.json`)
 
-528 production dependencies.
+516 production dependencies.
 
 | Package | Version | License |
 | --- | --- | --- |
@@ -164,7 +164,6 @@ texts ship inside the respective packages.
 | @types/jsonwebtoken | 9.0.6 | MIT |
 | @types/ms | 2.1.0 | MIT |
 | @types/node | 22.20.4 | MIT |
-| @types/node | 25.9.8 | MIT |
 | @types/qs | 6.15.1 | MIT |
 | @types/range-parser | 1.2.7 | MIT |
 | @types/retry | 0.12.0 | MIT |
@@ -180,7 +179,6 @@ texts ship inside the respective packages.
 | @zone-eu/mailsplit | 5.4.17 | (MIT OR EUPL-1.1+) |
 | accepts | 2.0.0 | MIT |
 | adaptivecards | 1.2.3 | MIT |
-| adler-32 | 1.3.1 | Apache-2.0 |
 | agent-base | 6.0.2 | MIT |
 | agent-base | 7.1.4 | MIT |
 | agent-browser | 0.27.0 | Apache-2.0 |
@@ -216,7 +214,6 @@ texts ship inside the respective packages.
 | bytes | 3.1.2 | MIT |
 | call-bind-apply-helpers | 1.0.2 | MIT |
 | call-bound | 1.0.4 | MIT |
-| cfb | 1.2.2 | Apache-2.0 |
 | chownr | 1.1.4 | ISC |
 | cjs-module-lexer | 2.2.1 | MIT |
 | cliui | 8.0.1 | ISC |
@@ -233,14 +230,12 @@ texts ship inside the respective packages.
 | cookie-signature | 1.2.2 | MIT |
 | core-util-is | 1.0.3 | MIT |
 | cors | 2.8.6 | MIT |
-| crc-32 | 1.2.2 | Apache-2.0 |
 | cron-parser | 5.10.1 | MIT |
 | cross-fetch | 4.1.0 | MIT |
 | cross-spawn | 7.0.6 | MIT |
 | css-select | 7.0.0 | BSD-2-Clause |
 | css-what | 8.0.0 | BSD-2-Clause |
 | cssom | 0.5.0 | MIT |
-| csv-parse | 7.0.2 | MIT |
 | dateformat | 4.6.3 | MIT |
 | dayjs | 1.11.23 | MIT |
 | debug | 4.4.3 | MIT |
@@ -257,7 +252,6 @@ texts ship inside the respective packages.
 | detect-libc | 2.1.2 | Apache-2.0 |
 | discord-api-types | 0.38.55 | MIT |
 | discord.js | 14.27.0 | Apache-2.0 |
-| docx | 9.7.2 | MIT |
 | dom-serializer | 2.0.0 | MIT |
 | dom-serializer | 3.1.1 | MIT |
 | domelementtype | 2.3.0 | BSD-2-Clause |
@@ -316,7 +310,6 @@ texts ship inside the respective packages.
 | graceful-fs | 4.2.11 | ISC |
 | has-symbols | 1.1.0 | MIT |
 | has-tostringtag | 1.0.2 | MIT |
-| hash.js | 1.1.7 | MIT |
 | hasown | 2.0.4 | MIT |
 | he | 1.2.0 | MIT |
 | help-me | 5.0.0 | MIT |
@@ -472,7 +465,6 @@ texts ship inside the respective packages.
 | safe-stable-stringify | 2.5.0 | MIT |
 | safer-buffer | 2.1.2 | MIT |
 | sanitize-html | 2.17.7 | MIT |
-| sax | 1.6.1 | BlueOak-1.0.0 |
 | scheduler | 0.28.0 | MIT |
 | secure-json-parse | 4.1.0 | BSD-3-Clause |
 | selderee | 0.12.0 | MIT |
@@ -519,7 +511,6 @@ texts ship inside the respective packages.
 | uhyphen | 0.2.0 | ISC |
 | undici | 6.28.1 | MIT |
 | undici-types | 6.21.0 | MIT |
-| undici-types | 7.24.6 | MIT |
 | universalify | 2.0.1 | MIT |
 | unpipe | 1.0.0 | MIT |
 | use-sync-external-store | 1.7.0 | MIT |
@@ -535,9 +526,6 @@ texts ship inside the respective packages.
 | ws | 7.5.13 | MIT |
 | ws | 8.21.3 | MIT |
 | wsl-utils | 0.1.0 | MIT |
-| xlsx-populate | 1.21.0 | MIT |
-| xml | 1.0.1 | MIT |
-| xml-js | 1.6.11 | MIT |
 | y18n | 5.0.8 | ISC |
 | yaml | 2.9.1 | ISC |
 | yargs | 17.7.3 | MIT |

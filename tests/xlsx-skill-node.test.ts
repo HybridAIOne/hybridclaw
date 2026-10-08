@@ -1,12 +1,18 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
-import XlsxPopulate from 'xlsx-populate';
 import { useTempDir } from './test-utils.ts';
 
 const repoRoot = process.cwd();
+// The skill libraries are owned by the runtime tools manifest, which the
+// images expose through NODE_PATH; the gateway package does not carry them.
+const runtimeToolsDir = path.join(repoRoot, 'container', 'tools');
+const XlsxPopulate = createRequire(path.join(runtimeToolsDir, 'package.json'))(
+  'xlsx-populate',
+);
 
 const makeTempDir = useTempDir('hybridclaw-xlsx-test-');
 
@@ -14,6 +20,10 @@ function runNodeScript(args: string[]) {
   const result = spawnSync(process.execPath, args, {
     cwd: repoRoot,
     encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_PATH: path.join(runtimeToolsDir, 'node_modules'),
+    },
   });
 
   if (result.status !== 0) {

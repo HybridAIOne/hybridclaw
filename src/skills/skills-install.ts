@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { resolveInstallPath } from '../infra/install-root.js';
+import { hostRuntimeToolsDir } from './skill-node-modules.js';
 import {
   hasBinary,
   loadSkillCatalog,
@@ -231,7 +233,9 @@ function installerAvailable(spec: SkillInstallSpec): boolean {
   if (spec.kind === 'brew') return resolveBrewExecutable() !== null;
   if (spec.kind === 'uv')
     return hasBinary('uv') || resolveBrewExecutable() !== null;
-  return hasBinary(spec.kind === 'node' ? 'npm' : spec.kind);
+  return hasBinary(
+    spec.kind === 'node' || spec.kind === 'runtime-tools' ? 'npm' : spec.kind,
+  );
 }
 
 function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
@@ -249,6 +253,17 @@ function buildInstallCommand(spec: SkillInstallSpec): string[] | null {
         : null;
     case 'go':
       return spec.module ? ['go', 'install', spec.module] : null;
+    case 'runtime-tools':
+      return [
+        'npm',
+        'ci',
+        '--ignore-scripts',
+        '--omit=dev',
+        '--no-audit',
+        '--fund=false',
+        '--prefix',
+        hostRuntimeToolsDir(),
+      ];
     case 'download':
       return null;
     default:
@@ -293,6 +308,8 @@ function validateInstallSpec(spec: SkillInstallSpec): string | null {
       }
       return null;
     }
+    case 'runtime-tools':
+      return null;
     default:
       return 'unsupported install kind';
   }
@@ -432,6 +449,19 @@ async function runDownloadInstall(
   }
 }
 
+// Copies the packaged container/tools manifest so `npm ci` installs exactly the
+// locked libraries the agent images bake into /opt/hybridclaw-tools.
+function stageHostRuntimeTools(): void {
+  const source = resolveInstallPath('container', 'tools');
+  const target = hostRuntimeToolsDir();
+  fs.mkdirSync(target, { recursive: true });
+  for (const entry of ['package.json', 'package-lock.json', 'stubs']) {
+    fs.cpSync(path.join(source, entry), path.join(target, entry), {
+      recursive: true,
+    });
+  }
+}
+
 function validateInstalledBins(spec: SkillInstallSpec): string[] {
   return (spec.bins || []).filter((bin) => !hasBinary(bin));
 }
@@ -484,6 +514,7 @@ export async function installSkillDependency(params: {
     if ('ok' in uvSetup) return uvSetup;
     env = uvSetup.env;
   }
+  if (selection.spec.kind === 'runtime-tools') stageHostRuntimeTools();
 
   const argv = buildInstallCommand(selection.spec);
   if (!argv) {

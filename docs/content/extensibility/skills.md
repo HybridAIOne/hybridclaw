@@ -154,7 +154,9 @@ report rules, and a prefilled handoff link in three short lines.
   images ship (`container/tools/package.json` or `container/package.json`);
   a test enforces that. Container mode checks package names against those
   agent-image manifests; host mode resolves modules from the installed
-  HybridClaw package. Custom container images are not inspected.
+  HybridClaw package, its agent runtime (`container/`), and the shared tool
+  libraries a `runtime-tools` installer puts in the data dir. Custom container
+  images are not inspected.
 - installer metadata lives under `metadata.hybridclaw.install:`
 - production package metadata lives under `manifest:` or
   `metadata.hybridclaw.manifest:` and declares `id`, `version`,
@@ -394,6 +396,12 @@ Supported install kinds:
 - `node`
 - `go`
 - `download`
+- `runtime-tools`
+
+`runtime-tools` takes no package field: it runs `npm ci --ignore-scripts` for
+the packaged `container/tools/` lockfile into the data dir's `runtime-tools/`
+directory, which host agents see through `NODE_PATH`. Bundled skills whose
+libraries only the images carry (`xlsx`, `docx`, `pptx`) declare it.
 
 Example:
 

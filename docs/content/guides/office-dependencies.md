@@ -32,6 +32,24 @@ What they unlock:
 - Poppler (`pdftoppm`) for slide and page thumbnail rendering
 - Pandoc for higher-quality document conversion paths
 
+## Host Sandbox Node Libraries
+
+The npm package does not carry the shared Node libraries; only the images
+install them. Host-sandbox agents get the same locked set with one command:
+
+```bash
+hybridclaw skill setup xlsx
+```
+
+`skill setup xlsx`, `skill setup docx`, and `skill setup pptx` each run
+`npm ci --ignore-scripts` for the packaged `container/tools/` lockfile into
+`~/.hybridclaw/runtime-tools/` (inside `HYBRIDCLAW_DATA_DIR` when that is set),
+so one run covers all three skills. Host agents resolve these libraries and the
+agent runtime's own dependencies (`pdf-lib`, `pdfjs-dist`, `jszip`,
+`linkedom`) through `NODE_PATH`, as the images do. Until setup has run,
+`hybridclaw skill list` shows those skills with the missing
+`node_module:<name>`. Run it again after an upgrade that changes the lockfile.
+
 ## macOS
 
 ```bash
