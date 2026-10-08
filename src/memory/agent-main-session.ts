@@ -4,6 +4,8 @@
  * `main-<hash of the platform user>-<persona>`, which becomes its session key,
  * so it stays the main chat across resets that give it a new instance id.
  * Side chats (`ios-<uuid>` and the like) and console chats never use `main-`.
+ * The apps also keep hidden data chats (`feed-<uuid>`, `ideas-<uuid>`) whose
+ * scheduled tasks write JSON the app reads with `/schedule results`.
  *
  * NOT `sessions.main_session_key`, which is the routing scope a session's
  * context is shared under; this module only names which web chat is the main one.
@@ -32,4 +34,13 @@ export function getAgentMainSession(agentId: string): Session | undefined {
       agentId,
     ),
   );
+}
+
+/**
+ * A hidden chat the apps fill their For you and Ideas screens from. Its tasks
+ * reply with JSON for the app, not a message for the user, so their replies
+ * must stay in that chat and never reach the main chat.
+ */
+export function isAppDataChat(sessionKey: string): boolean {
+  return /^(?:feed|ideas)-/.test(sessionKey);
 }

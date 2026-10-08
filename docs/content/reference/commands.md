@@ -576,8 +576,9 @@ open with a session id starting with `main-` (the most recently active one, if
 there are several). A task created in another web chat of that agent runs
 apart, as with `--reply-only`, and its reply is posted to the main chat and
 rings its phones. The main chat is looked up at each run, so tasks follow a new
-one. Tasks of agents without a main chat, and tasks of messaging channels,
-reply in the chat that created them.
+one. Tasks of agents without a main chat, tasks of messaging channels, and
+tasks of the apps' hidden data chats (`feed-…`, `ideas-…`, whose replies are
+JSON for the app) reply in the chat that created them.
 
 `--alert <kind>` (before the schedule) rings the creating operator's phones
 when a run's reply lists items: a JSON array of objects with a `title`, read

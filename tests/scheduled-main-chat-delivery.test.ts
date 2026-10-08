@@ -190,3 +190,15 @@ test('the main chat is the current, most recently active main- chat of the agent
   db.getOrCreateSession('discord-dm', null, '123456789012345678', 'main');
   expect(mainChatForWebTask('discord-dm')).toBeNull();
 });
+
+test("tasks of the apps' hidden data chats keep replying there", async () => {
+  const { chat, mainChatForWebTask } = await load();
+  chat(MAIN_CHAT);
+  for (const id of [
+    'feed-0c5b6f2e-6d1a-4f3b-9a51-2d7f0e8c4b11',
+    'ideas-7e2a9c40-1b6d-4e8f-a3c2-5f9d0b1e6a77',
+  ]) {
+    chat(id);
+    expect(mainChatForWebTask(id)).toBeNull();
+  }
+});
