@@ -279,10 +279,6 @@ function normalizeInstanceId(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function isA2AAgentId(value: string): boolean {
-  return classifyA2AAgentId(value) !== null;
-}
-
 export function isA2AOpaqueId(value: string): boolean {
   const normalized = value.trim();
   return (
@@ -618,22 +614,6 @@ export function createA2AEnvelope(input: CreateA2AEnvelopeInput): A2AEnvelope {
     id: input.id ?? randomUUID(),
     created_at: input.created_at ?? new Date().toISOString(),
   });
-}
-
-export function parseA2AEnvelopeJson(raw: string): A2AEnvelope {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new A2AEnvelopeValidationError([
-      error instanceof Error ? error.message : 'invalid JSON',
-    ]);
-  }
-  return validateA2AEnvelope(parsed);
-}
-
-export function serializeA2AEnvelope(envelope: A2AEnvelope): string {
-  return `${JSON.stringify(envelope)}\n`;
 }
 
 export function summarizeA2AEnvelopeForAudit(

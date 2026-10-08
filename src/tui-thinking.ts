@@ -209,33 +209,12 @@ export function countTerminalRows(text: string, columns: number): number {
   return Math.max(1, rows);
 }
 
-export function appendTerminalRowCount(
-  currentRows: number,
-  appendedText: string,
-): number {
-  const normalized = String(appendedText || '');
-  if (!normalized) return currentRows;
-  let newlineCount = 0;
-  for (const char of normalized) {
-    if (char === '\n') newlineCount += 1;
-  }
-  return currentRows > 0 ? currentRows + newlineCount : newlineCount + 1;
-}
-
 export function wrapTuiBlock(
   text: string,
   columns: number,
   indent = DEFAULT_TUI_INDENT,
 ): string {
   return wrapTuiLines(text, columns, indent).join('\n');
-}
-
-export function indentTuiBlock(text: string, indent = '  '): string {
-  return String(text || '')
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map((line) => `${indent}${line}`)
-    .join('\n');
 }
 
 export function createTuiThinkingStreamState(): {

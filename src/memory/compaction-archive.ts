@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DATA_DIR } from '../config/config.js';
-import { logger } from '../logger.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ArchiveEntry } from '../types/memory.js';
@@ -93,45 +92,4 @@ export function archiveTranscript(params: {
     messageCount: params.messages.length,
     estimatedTokens,
   };
-}
-
-export function listArchives(
-  sessionId: string,
-  baseDir?: string,
-): ArchiveEntry[] {
-  const archiveRoot = resolveArchiveRoot(baseDir);
-  const sessionDir = path.join(archiveRoot, safeFilePart(sessionId));
-  if (!fs.existsSync(sessionDir)) return [];
-
-  const entries: ArchiveEntry[] = [];
-  for (const name of fs.readdirSync(sessionDir)) {
-    if (!name.endsWith('.json')) continue;
-    const filePath = path.join(sessionDir, name);
-    try {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      const parsed = JSON.parse(raw) as Partial<ArchiveEntry> & {
-        archivedAt?: unknown;
-        messageCount?: unknown;
-        estimatedTokens?: unknown;
-      };
-      entries.push({
-        sessionId,
-        path: filePath,
-        archivedAt:
-          typeof parsed.archivedAt === 'string'
-            ? parsed.archivedAt
-            : new Date(0).toISOString(),
-        messageCount:
-          typeof parsed.messageCount === 'number' ? parsed.messageCount : 0,
-        estimatedTokens:
-          typeof parsed.estimatedTokens === 'number'
-            ? parsed.estimatedTokens
-            : 0,
-      });
-    } catch (err) {
-      logger.warn({ filePath, err }, 'Failed to read compaction archive');
-    }
-  }
-
-  return entries.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
 }

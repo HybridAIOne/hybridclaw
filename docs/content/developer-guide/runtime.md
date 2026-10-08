@@ -171,6 +171,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Agent files, memory, transcripts, artifacts | Workspace | Kept |
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
+| Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
 | Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |

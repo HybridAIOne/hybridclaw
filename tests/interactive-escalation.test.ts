@@ -246,7 +246,7 @@ test('operator return cache expires unconsumed responses', async () => {
 
 test('emitInteractionNeededEvent records typed F14 payload with routing hints', async () => {
   const escalation = await importInteractiveEscalation();
-  const session = escalation.awaitTwoFactor({
+  const session = escalation.createSuspendedSession({
     sessionId: 'session-push',
     approvalId: 'approval-push',
     prompt: 'Approve the sign-in push.',

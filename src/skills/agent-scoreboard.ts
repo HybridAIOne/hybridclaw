@@ -16,7 +16,7 @@ export {
   waitForQueuedAgentCvRefreshes,
 } from './agent-cv.js';
 
-import { cvPathForAgent, refreshAgentCv } from './agent-cv.js';
+import { cvPathForAgent } from './agent-cv.js';
 import type { SkillCatalogEntry } from './skills.js';
 import { loadSkillCatalog } from './skills.js';
 
@@ -154,25 +154,6 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
 
 export function getObservedAgentSkillCount(): number {
   return new Set(getAgentSkillScores().map((score) => score.skill_name)).size;
-}
-
-export function getBestAgentsForSkill(
-  skillName: string,
-  limit = 5,
-): AgentSkillScore[] {
-  return getAgentSkillScores({
-    skillName,
-    limit: Math.max(1, Math.min(limit, 25)),
-  });
-}
-
-export function refreshAllAgentCvs(): string[] {
-  const registeredIds = listAgents().map((agent) => agent.id);
-  const observedIds = getAgentScoreboard().map((entry) => entry.agent_id);
-  const ids = Array.from(new Set([...registeredIds, ...observedIds]));
-  return ids
-    .map((id) => refreshAgentCv(id))
-    .filter((value): value is string => Boolean(value));
 }
 
 function normalizeRecommendationTerm(value: string): string {

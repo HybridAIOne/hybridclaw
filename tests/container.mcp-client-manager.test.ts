@@ -264,6 +264,70 @@ describe('McpClientManager call timeout', () => {
   });
 });
 
+describe('McpClientManager boost handshake', () => {
+  const offer = {
+    id: 'offer1',
+    category: 'image',
+    modelName: 'Flux 2 Pro',
+    available: 2,
+  };
+  const offering = () =>
+    vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Waiting for the user.' }],
+      _meta: { 'hybridai/boostOffer': offer },
+    });
+
+  test('only HybridAI calls say they can ask, beside the model’s arguments', async () => {
+    const args = { prompt: 'fox', _meta: { 'hybridai/boost': { use: true } } };
+    const hybridai = makeHandle('hybridai', 'image_generate');
+    const hybridaiCall = offering();
+    hybridai.client = { callTool: hybridaiCall } as never;
+    const mail = makeHandle('mail', 'image_generate');
+    const mailCall = offering();
+    mail.client = { callTool: mailCall } as never;
+
+    const offered = await managerWith(hybridai).callToolDetailed(
+      'hybridai__image_generate',
+      args,
+    );
+    const plain = await managerWith(mail).callToolDetailed(
+      'mail__image_generate',
+      args,
+    );
+
+    expect(hybridaiCall.mock.calls[0]?.[0]).toEqual({
+      name: 'image_generate',
+      arguments: args,
+      _meta: { 'hybridai/boostOffers': true },
+    });
+    expect(offered).toMatchObject({ boostOffer: offer });
+    expect(mailCall.mock.calls[0]?.[0]).toEqual({
+      name: 'image_generate',
+      arguments: args,
+    });
+    expect(plain).not.toHaveProperty('boostOffer');
+  });
+
+  test('an answered call is final, even when it offers again', async () => {
+    const handle = makeHandle('hybridai', 'image_generate');
+    const callTool = offering();
+    handle.client = { callTool } as never;
+
+    const result = await (
+      managerWith(handle) as unknown as McpClientManager
+    ).callToolDetailed('hybridai__image_generate', {}, {
+      offer: 'offer1',
+      use: false,
+    });
+
+    expect(callTool.mock.calls[0]?.[0]._meta).toEqual({
+      'hybridai/boostOffers': true,
+      'hybridai/boost': { offer: 'offer1', use: false },
+    });
+    expect(result).toEqual({ output: 'Waiting for the user.', isError: false });
+  });
+});
+
 describe('McpClientManager when the server answers with an error', () => {
   test.each([
     ErrorCode.InvalidParams,
