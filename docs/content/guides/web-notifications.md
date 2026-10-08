@@ -79,8 +79,11 @@ the phone for every app's chats.
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply
-is ready." or "Needs your approval to go on.", never the reply or the request
-itself. That line is also sent as `loc-key`, so an app that translates it shows
+is ready." or "Waiting for your approval to go on.", never the reply or the
+request itself. A streamed turn that ends with the agent's browser asking the
+user to sign in to a website rings as an `approval` that says "Waiting for you
+to sign in.", without naming the site; its notice carries
+`"waitingFor": "sign_in"`. That line is also sent as `loc-key`, so an app that translates it shows
 it in the phone's language. The phone app calls the default agent Hy, so its
 alerts say Hy whatever the agent is named here; other agents go by their
 display name, then their name, and an agent without either is Hy too. A

@@ -365,16 +365,19 @@ export function phoneAssistantName(
   return agent?.displayName || agent?.name || 'Hy';
 }
 
-// What a finished reply and a waiting approval say under the assistant's name.
-// Each is also the app's key for it, so a phone shows it in its own language.
+// What a finished reply, and a turn that waits for the user, say under the
+// assistant's name. Each is also the app's key for it, so a phone shows it in
+// its own language. 2026-10-08 (product owner): what needs the user says that
+// the assistant is waiting for them.
 const REPLY_BODIES: Partial<Record<string, string>> = {
   turn: 'Done. Your reply is ready.',
-  approval: 'Needs your approval to go on.',
+  approval: 'Waiting for your approval to go on.',
+  sign_in: 'Waiting for you to sign in.',
 };
 
 /**
- * "Done" or "needs you": the assistant's name over what happened, never what
- * the reply or the request says. Other kinds show the name alone: a notice's
+ * "Done" or "waiting for you": the assistant's name over what happened, never
+ * what the reply or the request says, nor which site wants a sign-in. Other kinds show the name alone: a notice's
  * own title is for browsers and names the runtime, not the assistant.
  */
 export function replyAlert(options: {
@@ -382,7 +385,7 @@ export function replyAlert(options: {
   assistant: string;
 }): MobilePushMessage {
   const { notification } = options;
-  const body = REPLY_BODIES[notification.kind];
+  const body = REPLY_BODIES[notification.waitingFor ?? notification.kind];
   return {
     kind: notification.kind,
     title: options.assistant,
