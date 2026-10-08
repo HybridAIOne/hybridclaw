@@ -5,7 +5,7 @@ import { useCleanMocks } from './test-utils.js';
 
 const mocks = vi.hoisted(() => ({ run: vi.fn(), deliverWeb: vi.fn() }));
 vi.mock('../src/gateway/gateway-scheduled-task-service.js', () => ({ runGatewayScheduledTask: mocks.run }));
-vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ deliverWebScheduledMessage: mocks.deliverWeb }));
+vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ deliverWebScheduledMessage: mocks.deliverWeb, mainChatForWebTask: () => null }));
 vi.mock('../src/logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 useCleanMocks();
 beforeEach(() => {
@@ -34,7 +34,7 @@ test('a reply-only task runs apart from the chat it delivers to', async () => {
   await runScheduledTask({ ...request(), replyOnly: true }, dependencies());
   expect(mocks.run.mock.calls[0][8]).toBe(true);
   await runScheduledTask(request(), dependencies());
-  expect(mocks.run.mock.calls[1][8]).toBeUndefined();
+  expect(mocks.run.mock.calls[1][8]).toBe(false);
 });
 
 test('web system events persist without running an agent', async () => {

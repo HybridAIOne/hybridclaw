@@ -1,12 +1,15 @@
 /**
- * Scheduled web output is delivered to its originating conversation at run time.
- * Unlike transport queues, durable history is the delivery target; push is only
- * a best-effort alert and cannot turn a stored reminder into a failed job.
+ * Scheduled web output is delivered at run time to its agent's main chat, or
+ * to the conversation that created the task when that agent has none. Unlike
+ * transport queues, durable history is the delivery target; push is only a
+ * best-effort alert and cannot turn a stored reminder into a failed job.
  */
 
 import { logger } from '../logger.js';
+import { getAgentMainSession } from '../memory/agent-main-session.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
+import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
 import { updateWork } from '../work/work-store.js';
 import {
@@ -89,6 +92,20 @@ function unreadReminders(delivery: WebNotificationDelivery): number {
   return delivery.state.notifications.filter(
     (notice) => notice.kind === 'reminder',
   ).length;
+}
+
+/**
+ * Where a web task's replies go instead of the chat that created it: its
+ * agent's main chat (2026-10-08, product owner: Hy's crons always reach the
+ * main chat, never a side chat the user rarely opens). Null when the task's
+ * chat is not a web chat, is the main chat itself, or its agent has none.
+ * Looked up per run, so stored tasks follow a new main chat.
+ */
+export function mainChatForWebTask(taskSessionId: string): Session | null {
+  const origin = memoryService.getSessionById(taskSessionId);
+  if (origin?.channel_id !== 'web') return null;
+  const main = getAgentMainSession(origin.agent_id);
+  return main && main.session_key !== origin.session_key ? main : null;
 }
 
 export function deliverWebScheduledMessage(
