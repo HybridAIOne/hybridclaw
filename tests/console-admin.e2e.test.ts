@@ -35,6 +35,7 @@ let gatewayLog = '';
 let baseUrl = '';
 let browser: Browser;
 let page: Page;
+const cspViolations: string[] = [];
 
 async function startGateway(): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-console-e2e-'));
@@ -148,6 +149,14 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
     }, LATEST_RELEASE_NOTES.version);
     // The gateway trusts loopback browsers, so the console skips its token prompt.
     page = await context.newPage();
+    page.on('console', (message) => {
+      if (
+        message.type() === 'error' &&
+        message.text().includes('Content Security Policy')
+      ) {
+        cspViolations.push(message.text().slice(0, 200));
+      }
+    });
   }, STARTUP_TIMEOUT_MS + 30_000);
 
   afterAll(async () => {
@@ -155,6 +164,16 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
     await stopGateway();
     cleanupTrackedTempDirs(tempDirs);
   }, STOP_TIMEOUT_MS + 10_000);
+
+  test.each(['/admin', '/admin/channels', '/admin/config', '/admin/logs'])(
+    '%s loads without Content Security Policy violations',
+    async (pathname) => {
+      cspViolations.length = 0;
+      await open(pathname);
+      await page.evaluate(() => document.fonts.ready);
+      expect(cspViolations).toEqual([]);
+    },
+  );
 
   describe('channels', () => {
     test('lists one labelled card with a logo per external channel kind', async () => {

@@ -9,6 +9,9 @@ export default defineConfig({
     // Raise the limit to 1 MB — the admin console intentionally bundles
     // sizeable vendor libs (xterm, tanstack router/query, React DOM).
     chunkSizeWarningLimit: 1000,
+    // The console CSP has no font-src, so a font inlined as a data: URL is blocked.
+    assetsInlineLimit: (filePath) =>
+      /\.(woff2?|ttf|otf)$/.test(filePath) ? false : undefined,
     rollupOptions: {
       output: {
         manualChunks(id) {
