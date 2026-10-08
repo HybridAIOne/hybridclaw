@@ -62,14 +62,6 @@ export function getThemeSnapshot(): ThemeSnapshot {
   return snapshot;
 }
 
-export function getThemePreference(): Theme {
-  return snapshot.theme;
-}
-
-export function getResolvedTheme(): ResolvedTheme {
-  return snapshot.resolved;
-}
-
 export function setTheme(theme: Theme) {
   themePreference = theme;
   if (typeof window !== 'undefined') {

@@ -12,10 +12,3 @@ export function oneOfOr<T extends string>(
     ? (value as T)
     : fallback;
 }
-
-export function isOneOf<T extends string>(
-  allowed: ReadonlyArray<T>,
-  value: string,
-): value is T {
-  return (allowed as ReadonlyArray<string>).includes(value);
-}

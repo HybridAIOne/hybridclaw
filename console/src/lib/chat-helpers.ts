@@ -1,9 +1,5 @@
 import type { ChatStreamApproval } from '../api/chat-types';
-import {
-  getActiveSessionId,
-  setActiveSessionId,
-  subscribeActiveSessionId,
-} from './chat-session-store';
+import { setActiveSessionId } from './chat-session-store';
 
 export const DEFAULT_AGENT_ID = 'main';
 
@@ -33,16 +29,8 @@ export function readStoredUserId(): string {
   return id;
 }
 
-export function readStoredSessionId(): string {
-  return getActiveSessionId();
-}
-
 export function storeSessionId(id: string): void {
   setActiveSessionId(id);
-}
-
-export function subscribeToStoredSessionId(listener: () => void): () => void {
-  return subscribeActiveSessionId(listener);
 }
 
 let msgCounter = 0;
