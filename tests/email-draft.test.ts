@@ -40,24 +40,27 @@ function call(args: unknown, extra: Partial<ToolExecution> = {}): ToolExecution 
 }
 
 test('the tool accepts a complete draft and refuses one it cannot show', () => {
-  expect(normalizeEmailDraft({ ...draft, cc: [], subject: '  ' })).toEqual({
-    draft: {
-      from: draft.from,
-      to: draft.to,
-      body: draft.body,
-      source: draft.source,
-    },
+  expect(normalizeEmailDraft({ ...draft, cc: [], bcc: null })).toEqual({
+    draft,
   });
   expect(runDraftEmailTool(draft).ok).toBe(true);
   for (const args of [
     {},
-    { body: '   ' },
-    { body: 'Hi', to: 'franziska@example.com' },
-    { body: 'Hi', to: ['Franziska <franziska@example.com>'] },
-    { body: 'Hi', subject: 'Demo\nBcc: wrong@example.com' },
+    { ...draft, body: '   ' },
+    { ...draft, to: 'franziska@example.com' },
+    { ...draft, to: ['Franziska <franziska@example.com>'] },
+    { ...draft, subject: 'Demo\nBcc: wrong@example.com' },
+    { ...draft, from: 'Benedikt' },
   ]) {
     expect(runDraftEmailTool(args).ok).toBe(false);
   }
+  // Every draft names its sender, recipients and subject.
+  for (const field of ['from', 'to', 'subject'] as const) {
+    const checked = runDraftEmailTool({ ...draft, [field]: undefined });
+    expect(checked.ok).toBe(false);
+    expect(checked.text).toContain('read them from the original email');
+  }
+  expect(runDraftEmailTool({ ...draft, to: [], subject: ' ' }).ok).toBe(false);
 });
 
 test('a turn shows its last successful draft, never a refused or blocked one', () => {
@@ -71,17 +74,21 @@ test('a turn shows its last successful draft, never a refused or blocked one', (
     ])?.body,
   ).toBe(draft.body);
   expect(turnEmailDraft([call({ body: '' })])).toBeNull();
+  expect(turnEmailDraft([call({ body: 'Hi', to: draft.to })])).toBeNull();
   expect(turnEmailDraft(undefined)).toBeNull();
 });
 
 test('the stored reply carries the draft as fenced text, the card keeps the reply', () => {
   const shown = replyWithEmailDraft('I drafted a reply.', {
+    from: 'me@example.com',
+    to: ['a@example.com'],
+    subject: 'Hi',
     body: 'See ```code``` here',
   });
   expect(shown.content).toBe(
-    'I drafted a reply.\n\n**Email draft (not sent)**\n````text\nSee ```code``` here\n````',
+    'I drafted a reply.\n\n**Email draft (not sent)**\n````text\nFrom: me@example.com\nTo: a@example.com\nSubject: Hi\n\nSee ```code``` here\n````',
   );
-  expect(shown.emailDraft).toEqual({
+  expect(shown.emailDraft).toMatchObject({
     body: 'See ```code``` here',
     reply: 'I drafted a reply.',
   });

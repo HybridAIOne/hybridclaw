@@ -14,7 +14,7 @@ export const DRAFT_EMAIL_TOOL_DEFINITION: ToolDefinition = {
   function: {
     name: 'draft_email',
     description:
-      'Show the user an email you drafted for them, as an email card they can edit, send or discard. Use it for every email draft you prepare, a reply or a new email, instead of writing the draft in your reply; then say in one short sentence what you drafted, without repeating it. One draft per reply. This sends nothing, and you never send it yourself: when the user taps Send, they ask you in a new message to send exactly that version. For a reply, take the fields from the original email: from is the user’s address it was sent to, to is its sender (or its Reply-To address), cc keeps the others on it only when the reply is for them too, and subject is its subject with Re: in front. Omit a field only when you cannot verify it; never guess recipients or account details.',
+      'Show the user an email you drafted for them, as an email card they can edit, send or discard. Use it for every email draft you prepare, a reply or a new email, instead of writing the draft in your reply; then say in one short sentence what you drafted, without repeating it. One draft per reply. This sends nothing, and you never send it yourself: when the user taps Send, they ask you in a new message to send exactly that version. Every draft has from, to and subject. For a reply, read them from the original email and the connected account: from is the user’s address it was sent to, to is its sender (or its Reply-To address), cc keeps the others on it only when the reply is for them too, and subject is its subject with Re: in front. For a new email whose recipient you do not know, ask the user instead of drafting. Never guess recipients or account details.',
     parameters: {
       type: 'object',
       properties: {
@@ -46,7 +46,7 @@ export const DRAFT_EMAIL_TOOL_DEFINITION: ToolDefinition = {
             'The connected service, account and original thread, so the email can be sent from there later',
         },
       },
-      required: ['body'],
+      required: ['from', 'to', 'subject', 'body'],
     },
   },
 };

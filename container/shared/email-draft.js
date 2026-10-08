@@ -27,11 +27,7 @@ function addresses(value, field) {
   const list = [];
   for (const item of value) {
     const text = typeof item === 'string' ? item.trim() : '';
-    if (
-      !text ||
-      text.length > ADDRESS_MAX ||
-      !/^[^\s@,;<>]+@[^\s@,;<>]+$/.test(text)
-    ) {
+    if (!text || !isAddress(text)) {
       return {
         error: `"${field}" must hold plain email addresses such as name@example.com.`,
       };
@@ -39,6 +35,15 @@ function addresses(value, field) {
     list.push(text);
   }
   return { ok: true, value: list };
+}
+
+// Every draft names its sender, recipients and subject: the user sees exactly
+// what would go out, and a draft without them never becomes a card.
+const MISSING =
+  'An email draft needs "from", "to" and "subject". For a reply, read them from the original email and the connected account: from is the user\u2019s address it was sent to, to is its sender (or its Reply-To address), subject is its subject with Re: in front. For a new email whose recipient you do not know, ask the user instead of drafting.';
+
+function isAddress(text) {
+  return text.length <= ADDRESS_MAX && /^[^\s@,;<>]+@[^\s@,;<>]+$/.test(text);
 }
 
 export function normalizeEmailDraft(args) {
@@ -62,6 +67,11 @@ export function normalizeEmailDraft(args) {
     if (checked.error) return { error: checked.error };
     if (checked.value?.length) draft[field] = checked.value;
   }
+  if (!draft.from || !draft.to || !draft.subject) return { error: MISSING };
+  if (!isAddress(draft.from))
+    return {
+      error: '"from" must be a plain email address such as name@example.com.',
+    };
   draft.body = body;
   return { draft };
 }

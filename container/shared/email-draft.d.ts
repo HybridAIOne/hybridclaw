@@ -1,9 +1,9 @@
 export interface EmailDraft {
-  from?: string;
-  to?: string[];
+  from: string;
+  to: string[];
   cc?: string[];
   bcc?: string[];
-  subject?: string;
+  subject: string;
   body: string;
   source?: string;
 }
