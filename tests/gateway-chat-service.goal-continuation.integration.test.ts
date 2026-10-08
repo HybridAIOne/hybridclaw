@@ -61,6 +61,7 @@ async function runTurnWithActiveGoal(source: string) {
     guildId: null,
     channelId: 'web',
     userId: 'user_a',
+    username: 'User A',
     content: 'keep going',
     agentId: 'main',
     model: 'test-model',
