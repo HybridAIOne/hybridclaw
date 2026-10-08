@@ -26,6 +26,7 @@ A few notable categories:
 - marketplace and automation workflows: `sokosumi`
 - communication and runtime utilities: `fax-send`, `hybridclaw-help`, `current-time`, `personality`, `channel-catchup`
 - delivery and travel handoffs: `handoff-links`
+- saving money in Germany and the EU (prices, subscriptions, contracts, delay compensation): `money-saving`
 
 ## Commands
 

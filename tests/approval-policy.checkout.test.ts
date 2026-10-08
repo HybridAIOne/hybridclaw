@@ -3,6 +3,8 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import {
   classifyBrowserCheckout,
+  isCancellationLabel,
+  isCancellationPage,
   isCheckoutPage,
   isPurchaseLabel,
   recordBrowserPage,
@@ -74,6 +76,10 @@ describe('purchase labels', () => {
     'Jetzt kaufen',
     'Bestellung abschließen',
     'Kaufen',
+    'Jetzt zahlungspflichtig bestellen',
+    'Kostenpflichtig wechseln',
+    'Zahlungspflichtig abschließen',
+    'Wechsel jetzt verbindlich beauftragen',
   ])('%s buys', (label) => {
     expect(isPurchaseLabel(label)).toBe(true);
   });
@@ -102,10 +108,55 @@ describe('purchase labels', () => {
   });
 });
 
+describe('cancellation labels', () => {
+  test.each([
+    'jetzt kündigen',
+    'Jetzt kündigen',
+    'Jetzt verbindlich kündigen',
+    'Kündigung absenden',
+    'Kündigung jetzt bestätigen',
+    'Widerruf bestätigen',
+    'Jetzt widerrufen',
+    'Endgültig kündigen',
+    'Confirm cancellation',
+    'Finish cancellation',
+    'Yes, cancel',
+    'Cancel my subscription now',
+  ])('%s cancels', (label) => {
+    expect(isCancellationLabel(label)).toBe(true);
+    expect(isPurchaseLabel(label)).toBe(false);
+  });
+
+  test.each([
+    'Verträge hier kündigen',
+    'Vertrag kündigen',
+    'Cancel',
+    'Cancel subscription',
+    'Kündigungsfristen',
+    'Abbrechen',
+    'Weiter',
+    '',
+  ])('%s does not cancel', (label) => {
+    expect(isCancellationLabel(label)).toBe(false);
+  });
+
+  test('recognises cancellation pages by their path', () => {
+    expect(isCancellationPage('https://isp.example/kuendigung')).toBe(true);
+    expect(isCancellationPage('https://isp.example/k%C3%BCndigung/')).toBe(
+      true,
+    );
+    expect(isCancellationPage('https://isp.example/account/cancel')).toBe(true);
+    expect(
+      isCancellationPage('https://isp.example/hilfe/kuendigungsfristen'),
+    ).toBe(false);
+  });
+});
+
 describe('browser checkout classification', () => {
   test('reads a ref click label from the last snapshot', () => {
     onCheckout();
     expect(classifyBrowserCheckout('browser_click', { ref: '@e9' })).toEqual({
+      kind: 'purchase',
       host: 'shop.example',
       label: 'Place your order',
       url: 'https://www.shop.example/checkout/review?session=abc',
@@ -133,6 +184,30 @@ describe('browser checkout classification', () => {
     expect(
       classifyBrowserCheckout('browser_click', { selector: '#placeOrder' }),
     ).toMatchObject({ host: 'news.example' });
+  });
+
+  test('a cancellation button is a cancellation, not a purchase', () => {
+    recordBrowserPage({
+      url: 'https://www.isp.example/vertraege-kuendigen',
+      title: 'Kündigung bestätigen',
+    });
+    recordBrowserSnapshotRefs({ e3: { role: 'button', name: 'jetzt kündigen' } });
+    expect(classifyBrowserCheckout('browser_click', { ref: 'e3' })).toEqual({
+      kind: 'cancellation',
+      host: 'isp.example',
+      label: 'jetzt kündigen',
+      url: 'https://www.isp.example/vertraege-kuendigen',
+    });
+  });
+
+  test('on a cancellation page, unnamed clicks and Enter ask first', () => {
+    recordBrowserPage({ url: 'https://streaming.example/account/cancel' });
+    expect(
+      classifyBrowserCheckout('browser_click', { x: 10, y: 20 }),
+    ).toMatchObject({ kind: 'cancellation', label: '' });
+    expect(
+      classifyBrowserCheckout('browser_press', { key: 'Enter' }),
+    ).toMatchObject({ kind: 'cancellation' });
   });
 
   test('a new page forgets the old refs', () => {
@@ -176,6 +251,25 @@ describe('checkout approvals', () => {
     expect(evaluate(runtime, 'browser_click', { ref: '@e9' }).decision).toBe(
       'required',
     );
+  });
+
+  test('a cancellation click asks, even in full mode', () => {
+    for (const mode of ['auto', 'full'] as const) {
+      recordBrowserPage({ url: 'https://www.isp.example/kuendigung' });
+      recordBrowserSnapshotRefs({
+        e3: { role: 'button', name: 'jetzt kündigen' },
+      });
+      const evaluation = evaluate(createRuntime(mode), 'browser_click', {
+        ref: '@e3',
+      });
+      expect(evaluation, mode).toMatchObject({
+        tier: 'red',
+        pinned: true,
+        decision: 'required',
+        actionKey: 'browser_cancellation:isp.example',
+        intent: 'cancel a contract on isp.example (button "jetzt kündigen")',
+      });
+    }
   });
 
   test('ordinary browsing stays quiet', () => {
