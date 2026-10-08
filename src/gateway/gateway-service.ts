@@ -584,7 +584,6 @@ import {
   type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
-  type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminDiscordWebhookTargetRequest,
@@ -5622,67 +5621,6 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     },
     channels,
   };
-}
-
-export function upsertGatewayAdminChannel(
-  input: GatewayAdminChannelUpsertRequest,
-): GatewayAdminChannelsResponse {
-  const guildId = input.guildId.trim();
-  const channelId = input.channelId.trim();
-  if (!guildId || !channelId) {
-    throw new Error('Both `guildId` and `channelId` are required.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    if (input.transport === 'msteams') {
-      const team = draft.msteams.teams[guildId] ?? {
-        requireMention: draft.msteams.requireMention,
-        replyStyle: draft.msteams.replyStyle,
-        channels: {},
-      };
-      team.channels[channelId] = input.config;
-      draft.msteams.teams[guildId] = team;
-      return;
-    }
-
-    const guild = draft.discord.guilds[guildId] ?? {
-      defaultMode: 'mention',
-      channels: {},
-    };
-    guild.channels[channelId] = input.config;
-    draft.discord.guilds[guildId] = guild;
-  });
-
-  return getGatewayAdminChannels();
-}
-
-export function removeGatewayAdminChannel(params: {
-  transport?: 'discord' | 'msteams';
-  guildId: string;
-  channelId: string;
-}): GatewayAdminChannelsResponse {
-  const guildId = params.guildId.trim();
-  const channelId = params.channelId.trim();
-  if (!guildId || !channelId) {
-    throw new Error('Both `guildId` and `channelId` are required.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    if (params.transport === 'msteams') {
-      const team = draft.msteams.teams[guildId];
-      if (!team?.channels[channelId]) return;
-      delete team.channels[channelId];
-      draft.msteams.teams[guildId] = team;
-      return;
-    }
-
-    const guild = draft.discord.guilds[guildId];
-    if (!guild?.channels[channelId]) return;
-    delete guild.channels[channelId];
-    draft.discord.guilds[guildId] = guild;
-  });
-
-  return getGatewayAdminChannels();
 }
 
 function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
