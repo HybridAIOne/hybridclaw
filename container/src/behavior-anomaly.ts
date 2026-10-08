@@ -96,36 +96,6 @@ function safeFilePart(raw: string): string {
   return raw.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown';
 }
 
-function parsePositiveInteger(raw: unknown, fallback: number): number {
-  const value =
-    typeof raw === 'number'
-      ? raw
-      : typeof raw === 'string'
-        ? Number.parseInt(raw, 10)
-        : NaN;
-  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
-}
-
-function parseNonNegativeInteger(raw: unknown, fallback: number): number {
-  const value =
-    typeof raw === 'number'
-      ? raw
-      : typeof raw === 'string'
-        ? Number.parseInt(raw, 10)
-        : NaN;
-  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : fallback;
-}
-
-function parsePositiveNumber(raw: unknown, fallback: number): number {
-  const value =
-    typeof raw === 'number'
-      ? raw
-      : typeof raw === 'string'
-        ? Number.parseFloat(raw)
-        : NaN;
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 function parseJsonObject(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     return raw as Record<string, unknown>;
@@ -431,24 +401,9 @@ export class BehaviorAnomalyReranker {
       options?.agentId ||
       String(process.env.HYBRIDCLAW_AGENT_ID || '').trim() ||
       'default';
-    this.minTrajectories =
-      options?.minTrajectories ||
-      parsePositiveInteger(
-        process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_MIN_TRAJECTORIES,
-        DEFAULT_MIN_TRAJECTORIES,
-      );
-    this.epsilon =
-      options?.epsilon ||
-      parsePositiveNumber(
-        process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_EPSILON,
-        DEFAULT_EPSILON,
-      );
-    this.cacheTtlMs =
-      options?.cacheTtlMs ??
-      parseNonNegativeInteger(
-        process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_CACHE_TTL_MS,
-        DEFAULT_CACHE_TTL_MS,
-      );
+    this.minTrajectories = options?.minTrajectories || DEFAULT_MIN_TRAJECTORIES;
+    this.epsilon = options?.epsilon || DEFAULT_EPSILON;
+    this.cacheTtlMs = options?.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.model = this.getModel();
   }
 
