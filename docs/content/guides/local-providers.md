@@ -63,8 +63,13 @@ as unknown rather than zero. Use
 keys provided through the CLI are stored in the encrypted runtime secret store
 and referenced from config.
 
-For the other host-served local backends, restart the gateway with `--sandbox=host` so
-the runtime can reach those local endpoints directly.
+In the default container sandbox, the agent reaches a `localhost` or
+`127.0.0.1` base URL as `host.docker.internal`. On Linux that name is the
+Docker bridge gateway (usually `172.17.0.1`), so the model server must listen
+on that address; listening on `0.0.0.0` also works but exposes it to your
+network. A server bound only to loopback, the Ollama and LM Studio default, is
+unreachable from the container: rebind it or restart the gateway with
+`--sandbox=host`.
 
 ## Notes
 

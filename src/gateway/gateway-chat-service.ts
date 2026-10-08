@@ -17,7 +17,6 @@ import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
-import { emitPostTurnEvent } from '../agent/post-turn-events.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import {
   type PromptPartName,
@@ -57,6 +56,7 @@ import { preprocessContextReferences } from '../context-references/index.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
+  maybeContinueGoalAfterTurn,
   pauseActiveGoalForSession,
 } from '../goals/goal-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -961,28 +961,17 @@ async function handleGatewayMessageInner(
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
-  const emitPostTurnForResult = async (
+  const continueGoalAfterResult = async (
     result: GatewayChatResult,
   ): Promise<void> => {
-    await emitPostTurnEvent({
-      type: 'post_turn',
-      session,
-      req: {
-        source: req.source,
-        guildId: req.guildId,
-        userId: req.userId,
-        username: req.username,
-        chatbotId: req.chatbotId,
-        model: req.model,
-        enableRag: req.enableRag,
-        onProactiveMessage: req.onProactiveMessage,
-        abortSignal: req.abortSignal,
-      },
-      channelType,
-      result,
-      runId,
-      createdAt: new Date().toISOString(),
-    });
+    try {
+      await maybeContinueGoalAfterTurn({ session, req, channelType, result });
+    } catch (error) {
+      logger.warn(
+        { runId, sessionId: session.id, error },
+        'Goal continuation after turn failed',
+      );
+    }
   };
   if (
     source !== 'fullauto' &&
@@ -1346,7 +1335,7 @@ async function handleGatewayMessageInner(
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
       };
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
     effectiveUserTurnContentExpanded = routingOutcome.userContent;
@@ -1706,7 +1695,7 @@ async function handleGatewayMessageInner(
       durationMs: Date.now() - startedAt,
       toolCallCount: 0,
     });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     return attachSessionIdentity(result);
   }
 
@@ -2034,7 +2023,7 @@ async function handleGatewayMessageInner(
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
       };
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
     agentUserContent = preSendOutcome.userContent;
@@ -2798,7 +2787,7 @@ async function handleGatewayMessageInner(
         durationMs,
         toolCallCount: toolExecutions.length,
       });
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
 
@@ -3023,7 +3012,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     tail.mark('postTurn');
     maybeAutoTitleSession({
       ...autoTitleParams(),
@@ -3179,7 +3168,7 @@ async function handleGatewayMessageInner(
       durationMs,
       toolCallCount: 0,
     });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     return result;
   } finally {
     endDeviceDataTurn();

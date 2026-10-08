@@ -313,26 +313,54 @@ test('admin tunnel status stops stale ngrok provider when config changes', async
   expect(newProvider.stop).toHaveBeenCalledTimes(1);
 });
 
-test('admin tunnel status creates a managed tailscale provider', async () => {
+const MANAGED_PROVIDER_FACTORIES = {
+  cloudflare: 'createCloudflareTunnelProvider',
+  ngrok: 'createNgrokTunnelProvider',
+  tailscale: 'createTailscaleTunnelProvider',
+} as const;
+
+test.each([
+  {
+    provider: 'cloudflare',
+    publicUrl: 'https://bot.example.com',
+    options: {
+      addr: '127.0.0.1:19090',
+      healthCheckIntervalMs: 60_000,
+      publicUrl: 'https://bot.example.com',
+    },
+  },
+  {
+    provider: 'ngrok',
+    publicUrl: '',
+    options: { addr: '127.0.0.1:19090', healthCheckIntervalMs: 60_000 },
+  },
+  {
+    provider: 'tailscale',
+    publicUrl: '',
+    options: { addr: '127.0.0.1:19090', healthCheckIntervalMs: 60_000 },
+  },
+] as const)('admin tunnel status creates a managed $provider provider', async ({
+  provider: providerName,
+  publicUrl,
+  options,
+}) => {
   const provider: TunnelProvider = {
     status: vi.fn(() => ({
       ...downStatus,
       running: true,
-      public_url: 'https://gateway.example.ts.net',
+      public_url: 'https://gateway.example.test',
       state: 'up',
     })),
     stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({
-      public_url: 'https://gateway.example.ts.net',
-    })),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.test' })),
   };
   const service = await importService({
     config: makeRuntimeConfig(
       {
         mode: 'local',
-        public_url: '',
+        public_url: publicUrl,
         tunnel: {
-          provider: 'tailscale',
+          provider: providerName,
           health_check_interval_ms: 60_000,
         },
       },
@@ -342,54 +370,85 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
   });
 
   expect(service.getGatewayAdminTunnelStatus()).toMatchObject({
-    provider: 'tailscale',
-    publicUrl: 'https://gateway.example.ts.net',
+    provider: providerName,
+    publicUrl: 'https://gateway.example.test',
     health: 'healthy',
     reconnectSupported: true,
   });
-  expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
-  expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
-    addr: '127.0.0.1:19090',
-    healthCheckIntervalMs: 60_000,
-  });
+  for (const [name, factory] of Object.entries(MANAGED_PROVIDER_FACTORIES)) {
+    if (name === providerName) {
+      expect(service[factory]).toHaveBeenCalledExactlyOnceWith(options);
+    } else {
+      expect(service[factory]).not.toHaveBeenCalled();
+    }
+  }
 });
 
-test('admin tunnel status creates a managed cloudflare provider', async () => {
-  const provider: TunnelProvider = {
-    status: vi.fn(() => ({
-      ...downStatus,
-      running: true,
-      public_url: 'https://bot.example.com',
-      state: 'up',
-    })),
-    stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({ public_url: 'https://bot.example.com' })),
-  };
+test.each([
+  'manual',
+  'ssh',
+  'localtunnel',
+])('admin tunnel status creates no managed provider for %s', async (providerName) => {
   const service = await importService({
     config: makeRuntimeConfig({
       mode: 'local',
-      public_url: 'https://bot.example.com',
+      public_url: '',
       tunnel: {
-        provider: 'cloudflare',
-        health_check_interval_ms: 60_000,
+        provider: providerName,
+        health_check_interval_ms: 30_000,
       },
     }),
-    provider,
   });
 
   expect(service.getGatewayAdminTunnelStatus()).toMatchObject({
-    provider: 'cloudflare',
-    publicUrl: 'https://bot.example.com',
-    health: 'healthy',
-    reconnectSupported: true,
+    provider: providerName,
+    state: 'down',
+    reconnectSupported: false,
   });
-  expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
-  expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
-  expect(service.createCloudflareTunnelProvider).toHaveBeenCalledWith({
-    addr: '127.0.0.1:9090',
-    healthCheckIntervalMs: 60_000,
-    publicUrl: 'https://bot.example.com',
+  for (const factory of Object.values(MANAGED_PROVIDER_FACTORIES)) {
+    expect(service[factory]).not.toHaveBeenCalled();
+  }
+  await expect(service.reconnectGatewayAdminTunnel()).rejects.toMatchObject({
+    statusCode: 409,
   });
+});
+
+test('admin tunnel status stops the stale provider when switching managed providers', async () => {
+  const config = makeRuntimeConfig({
+    mode: 'local',
+    public_url: 'https://bot.example.com',
+    tunnel: {
+      provider: 'ngrok',
+      health_check_interval_ms: 30_000,
+    },
+  });
+  const makeProvider = (): TunnelProvider => ({
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: null })),
+  });
+  const ngrok = makeProvider();
+  const tailscale = makeProvider();
+  const cloudflare = makeProvider();
+  const service = await importService({
+    config,
+    providers: [ngrok, tailscale, cloudflare],
+  });
+
+  service.getGatewayAdminTunnelStatus();
+  config.deployment.tunnel.provider = 'tailscale';
+  service.getGatewayAdminTunnelStatus();
+  config.deployment.tunnel.provider = 'cloudflare';
+  service.getGatewayAdminTunnelStatus();
+  config.deployment.tunnel.provider = 'localtunnel';
+  service.getGatewayAdminTunnelStatus();
+
+  expect(ngrok.stop).toHaveBeenCalledOnce();
+  expect(tailscale.stop).toHaveBeenCalledOnce();
+  expect(cloudflare.stop).toHaveBeenCalledOnce();
+  for (const factory of Object.values(MANAGED_PROVIDER_FACTORIES)) {
+    expect(service[factory]).toHaveBeenCalledOnce();
+  }
 });
 
 test('admin tunnel status does not restart cloudflare on health interval changes', async () => {

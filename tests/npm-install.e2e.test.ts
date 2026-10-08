@@ -210,6 +210,20 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     expect(result).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
+  test('gateway status does not report the packaged build as stale', () => {
+    const output = execSync(`node "${installedCliPath()}" gateway status`, {
+      encoding: 'utf-8',
+      timeout: REQUEST_TIMEOUT_MS * 4,
+      env: {
+        ...process.env,
+        HOME: tempDir,
+        HYBRIDCLAW_DATA_DIR: dataDir(),
+      },
+    });
+    expect(output).toMatch(/Gateway build: .*\| stale: no/);
+    expect(output).not.toContain('Stale build files');
+  });
+
   // ── Gateway serves content from npm-installed package ───────────────
 
   test('/health returns ok with semver version', async () => {

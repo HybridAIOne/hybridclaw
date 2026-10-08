@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.1',
+  version: '0.39.2',
   highlights: [
-    'Import history into another agent',
-    'Skip first-run onboarding',
-    'Scheduled replies reach the main chat',
-    'Agent display names in the console',
+    'Choose when premium tools spend a boost',
+    'Reports and tools in the app Library',
+    'Background app tasks keep their replies',
+    'Console fonts and log selection fixed',
   ],
 } as const;
 

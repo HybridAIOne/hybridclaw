@@ -1,6 +1,6 @@
 import http from 'node:http';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
   sampleA2AWebhookEnvelope,
@@ -44,15 +44,13 @@ describe('A2A webhook outbound integration', () => {
   test('stub receiver rejects old signatures after rotation and accepts new envelopes', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const runtime = await import('../src/a2a/runtime.ts');
-    const transport = await import('../src/a2a/transport-registry.ts');
     const webhook = await import('../src/a2a/webhook-outbound.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
-    const registry = new transport.TransportRegistry();
-    registry.register(
-      new webhook.WebhookOutboundAdapter({ autoProcess: false }),
-    );
+    const transportAdapters = {
+      webhook: new webhook.WebhookOutboundAdapter({ autoProcess: false }),
+    };
     let receiverSecret = 'old-secret';
     const received: Array<{
       id: string;
@@ -91,7 +89,7 @@ describe('A2A webhook outbound integration', () => {
       secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'old-secret' });
       runtime.sendMessage(sampleA2AWebhookEnvelope('msg-old-secret'), {
         peerDescriptor,
-        transportRegistry: registry,
+        transportAdapters,
       });
 
       await expect(webhook.processWebhookOutbox()).resolves.toMatchObject({
@@ -122,7 +120,7 @@ describe('A2A webhook outbound integration', () => {
 
       runtime.sendMessage(sampleA2AWebhookEnvelope('msg-new-secret'), {
         peerDescriptor,
-        transportRegistry: registry,
+        transportAdapters,
       });
 
       await expect(webhook.processWebhookOutbox()).resolves.toMatchObject({
@@ -133,6 +131,56 @@ describe('A2A webhook outbound integration', () => {
         id: 'msg-new-secret',
         accepted: true,
       });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test('default webhook adapter delivers sendMessage envelopes without an explicit drain', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const webhook = await import('../src/a2a/webhook-outbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({ A2A_WEBHOOK_SECRET: 'default-secret' });
+    const received: Array<{ id: string; accepted: boolean }> = [];
+    const server = http.createServer(async (request, response) => {
+      const body = await readRequestBody(request);
+      const accepted = webhook.verifyWebhookSignature({
+        header: String(
+          request.headers[webhook.WEBHOOK_SIGNATURE_HEADER.toLowerCase()] ||
+            '',
+        ),
+        body,
+        secret: 'default-secret',
+      });
+      received.push({
+        id: (JSON.parse(body) as { id?: string }).id || '',
+        accepted,
+      });
+      response.writeHead(accepted ? 202 : 401);
+      response.end();
+    });
+    const port = await listen(server);
+
+    try {
+      expect(
+        runtime.sendMessage(sampleA2AWebhookEnvelope('msg-default-webhook'), {
+          peerDescriptor: {
+            transport: 'webhook',
+            url: `http://127.0.0.1:${port}/a2a`,
+            secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
+          },
+        }),
+      ).toMatchObject({ delivered: 'pending' });
+
+      await vi.waitFor(() => {
+        expect(webhook.listWebhookOutboxItems()).toMatchObject([
+          { status: 'delivered' },
+        ]);
+      });
+      expect(received).toEqual([{ id: 'msg-default-webhook', accepted: true }]);
     } finally {
       await closeServer(server);
     }

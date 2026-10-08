@@ -97,6 +97,10 @@ import {
   ensureBehaviorAnomalyTrajectoryStoreDir,
 } from './behavior-anomaly-runtime.js';
 import {
+  containerHostAliasArgs,
+  remapHostBaseUrlForContainer,
+} from './container-host-alias.js';
+import {
   agentWorkspaceDir,
   cleanupIpc,
   createActivityTracker,
@@ -681,13 +685,6 @@ export function takeBrowserFrame(
   return frame;
 }
 
-function remapHostBaseUrlForContainer(baseUrl: string): string {
-  return baseUrl.replace(
-    /\/\/(localhost|127\.0\.0\.1)([:/])/,
-    '//host.docker.internal$2',
-  );
-}
-
 function getContainerWorkspacePath(params: {
   sessionId: string;
   agentId: string;
@@ -789,6 +786,7 @@ function getOrSpawnContainer(
     '--security-opt=no-new-privileges',
     '--pids-limit=256',
     `--network=${CONTAINER_NETWORK || 'bridge'}`,
+    ...containerHostAliasArgs(process.platform, CONTAINER_NETWORK || 'bridge'),
     '--tmpfs',
     '/tmp:rw,nosuid,size=512m',
     '-v',

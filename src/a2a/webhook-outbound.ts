@@ -692,8 +692,6 @@ export function stopWebhookOutboxProcessor(): void {
 export class WebhookOutboundAdapter
   implements TransportAdapter<WebhookOutboxItem>
 {
-  readonly transport = 'webhook' as const;
-
   constructor(private readonly opts: WebhookOutboundAdapterOptions = {}) {}
 
   encode(

@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
+import { useCleanMocks } from './test-utils.js';
 
 const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
@@ -8,6 +9,8 @@ const { runAgentMock } = vi.hoisted(() => ({
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: runAgentMock,
 }));
+
+useCleanMocks({ unstubAllEnvs: true });
 
 const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-bot-auth-',
@@ -693,4 +696,62 @@ test('bot list still classifies generic auth errors without HybridAIBotFetchErro
     'HybridAI rejected the configured API key: Invalid API key provided.',
   );
   expect(result.text).toContain('Update `HYBRIDAI_API_KEY`');
+});
+
+test.each([
+  {
+    name: 'a missing API key reports the login command without a request',
+    apiKey: '',
+    fetchImpl: undefined,
+    expected: '`hybridclaw auth login hybridai`',
+    fetchCalls: 0,
+  },
+  {
+    name: 'a refused connection reports HybridAI as unreachable',
+    apiKey: 'hai-test-key',
+    fetchImpl: async () => {
+      throw new TypeError('fetch failed', {
+        cause: new Error('connect ECONNREFUSED 127.0.0.1:9'),
+      });
+    },
+    expected: 'is not reachable',
+    fetchCalls: 1,
+  },
+  {
+    name: 'a 401 reports the rejected API key',
+    apiKey: 'hai-test-key',
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    expected: 'rejected the configured API key',
+    fetchCalls: 1,
+  },
+])('bot list through the real bot client: $name', async (scenario) => {
+  setupHome();
+  vi.stubEnv('HYBRIDAI_API_KEY', scenario.apiKey);
+  vi.stubEnv('API_KEY', '');
+  const fetchSpy = vi.fn(scenario.fetchImpl);
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-bot-real-client',
+    guildId: null,
+    channelId: 'channel-bot-real-client',
+    args: ['bot', 'list'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(scenario.expected);
+  expect(fetchSpy).toHaveBeenCalledTimes(scenario.fetchCalls);
 });
