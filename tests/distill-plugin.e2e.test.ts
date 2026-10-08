@@ -427,6 +427,104 @@ describe.skipIf(!RUN)('distill plugin on a real gateway', () => {
       expect((await api(gw, caller, 'GET', '/distill')).status).toBe(200);
     }
   });
+
+  // The auth gate and the dispatch each look the route up in the loaded
+  // plugin table, which a reload swaps; a request in between must still be
+  // either served under its checked action or answered as not installed.
+  test('requests racing plugin reloads are served or 404, never wrongly allowed', async () => {
+    const reads = new Set<number>();
+    const writes = new Set<number>();
+    const outsiders = new Set<number>();
+    let reloading = true;
+    const subject = { alias: 'race', displayName: 'Race', realPerson: false };
+    const poll = (async () => {
+      while (reloading) {
+        for (const caller of [reader, readerSession]) {
+          reads.add((await api(gw, caller, 'GET', '/distill')).status);
+          writes.add(
+            (await api(gw, caller, 'POST', '/distill/subjects', subject)).status,
+          );
+        }
+        outsiders.add((await api(gw, overview, 'GET', '/distill')).status);
+      }
+    })();
+    for (let round = 0; round < 3; round += 1) {
+      await gatewayCommand(gw, ['plugin', 'disable', 'distill']);
+      await gatewayCommand(gw, ['plugin', 'enable', 'distill']);
+    }
+    reloading = false;
+    await poll;
+    expect([...reads].sort()).toEqual(expect.arrayContaining([200]));
+    expect([...reads].filter((status) => status !== 200 && status !== 404)).toEqual([]);
+    expect([...writes].filter((status) => status !== 403 && status !== 404)).toEqual([]);
+    expect([...outsiders].filter((status) => status !== 403 && status !== 404)).toEqual([]);
+    expect((await api(gw, reader, 'GET', '/distill')).status).toBe(200);
+  }, 120_000);
+});
+
+// Upgrading from 0.39.1, where distill was core: the subjects stay in the
+// agent workspace, but nothing serves them until the plugin is installed.
+describe.skipIf(!RUN)('upgrading with distill data and no distill plugin', () => {
+  const web: Caller = { token: WEB_API_TOKEN };
+  let gw: GatewayHarness;
+
+  beforeAll(async () => {
+    gw = await startGateway();
+    // Write a subject through the plugin, then uninstall it again: the data
+    // dir now holds distill data with the plugin not installed.
+    const source = path.join(gw.root, 'memo.md');
+    fs.writeFileSync(source, '# Memo\n\nShip small, ship often.\n');
+    runCli(gw, ['plugin', 'install', 'distill']);
+    runCli(gw, [
+      'coworker',
+      'distill',
+      '--alias',
+      'maya',
+      '--name',
+      'Maya',
+      '--fictional',
+      '--source',
+      source,
+      '--holdout',
+      '0',
+    ]);
+    runCli(gw, ['plugin', 'uninstall', 'distill']);
+  }, 120_000);
+
+  afterAll(async () => {
+    await gw?.stop();
+    cleanupTrackedTempDirs(tempDirs);
+  });
+
+  test('the CLI names the plugin to install instead of printing generic usage', () => {
+    for (const args of [
+      ['coworker', 'status', '--alias', 'maya'],
+      ['help', 'coworker'],
+    ]) {
+      let failure: { status?: number; stdout?: string; stderr?: string } = {};
+      try {
+        runCli(gw, args);
+      } catch (error) {
+        failure = error as typeof failure;
+      }
+      expect(failure.status).toBe(1);
+      expect(failure.stdout).toBe('');
+      expect(failure.stderr).toContain('hybridclaw plugin install distill');
+    }
+  });
+
+  test('installing the plugin serves the existing subjects without a restart', async () => {
+    expect((await api(gw, web, 'GET', '/distill')).status).toBe(404);
+    await gatewayCommand(gw, ['plugin', 'install', 'distill']);
+    const listed = await api(gw, web, 'GET', '/distill');
+    expect(listed.status).toBe(200);
+    expect(listed.json.subjects).toEqual([
+      expect.objectContaining({ alias: 'maya', corpusDocuments: 1 }),
+    ]);
+    expect(runCli(gw, ['coworker', 'status', '--alias', 'maya'])).toContain(
+      'Corpus: 1 documents',
+    );
+  });
 });
 
 describe.skipIf(!RUN)('upgrading with a home copy of distill installed', () => {

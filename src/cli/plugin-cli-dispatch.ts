@@ -6,9 +6,13 @@
  * imported, register-only (no services, memory layers or gateway hooks), and
  * no other plugin's code runs, so a typo or an unrelated broken plugin costs
  * nothing. Plugin-manager logs go to stderr at error level so the command's
- * stdout stays its own. Returns false when no manifest declares the name; it
- * never falls through to a different command.
+ * stdout stays its own. Project plugins (`<cwd>/.hybridclaw/plugins`) never
+ * provide CLI commands, so running a command inside an untrusted checkout
+ * cannot execute that checkout's code. A name only a bundled plugin that is
+ * not installed declares fails with the install command. Returns false when
+ * no manifest declares the name; it never falls through to a different command.
  */
+import path from 'node:path';
 import pino from 'pino';
 import type { PluginManager } from '../plugins/plugin-manager.js';
 import type { PluginCandidate } from '../plugins/plugin-types.js';
@@ -24,8 +28,30 @@ async function discoverCliCommandPlugins(
   manager: PluginManager,
 ): Promise<PluginCandidate[]> {
   return (await manager.discoverPlugins()).filter(
-    (candidate) => (candidate.manifest.cliCommands?.length ?? 0) > 0,
+    (candidate) =>
+      candidate.source !== 'project' &&
+      (candidate.manifest.cliCommands?.length ?? 0) > 0,
   );
+}
+
+async function findBundledCliCommandOwner(
+  name: string,
+): Promise<string | null> {
+  const { listBundledInstallablePlugins } = await import(
+    '../plugins/plugin-install.js'
+  );
+  const { loadPluginManifest, MANIFEST_FILE_NAME } = await import(
+    '../plugins/plugin-manager.js'
+  );
+  for (const plugin of listBundledInstallablePlugins()) {
+    const manifest = loadPluginManifest(
+      path.join(plugin.dir, MANIFEST_FILE_NAME),
+    );
+    if (manifest.cliCommands?.some((command) => command.name === name)) {
+      return plugin.id;
+    }
+  }
+  return null;
 }
 
 export async function runPluginCliCommand(
@@ -37,7 +63,13 @@ export async function runPluginCliCommand(
     (candidate) =>
       candidate.manifest.cliCommands?.some((command) => command.name === name),
   );
-  if (owners.length === 0) return false;
+  if (owners.length === 0) {
+    const bundledOwner = await findBundledCliCommandOwner(name);
+    if (!bundledOwner) return false;
+    throw new Error(
+      `\`${name}\` is provided by the bundled "${bundledOwner}" plugin, which is not installed. Install it with \`hybridclaw plugin install ${bundledOwner}\`.`,
+    );
+  }
   if (owners.length > 1) {
     throw new Error(
       `CLI command "${name}" is declared by plugins ${owners.map((owner) => `"${owner.id}"`).join(' and ')}; disable all but one with \`hybridclaw plugin disable <id>\`.`,

@@ -15,7 +15,7 @@ import {
 } from '../security/admin-rbac.js';
 import type { PluginAdminRouteDefinition } from './plugin-types.js';
 
-const ADMIN_ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
+const ADMIN_ROUTE_METHODS = new Set(['GET', 'POST', 'DELETE']);
 const ADMIN_RBAC_ACTION_SET: ReadonlySet<string> = new Set(ADMIN_RBAC_ACTIONS);
 const PATH_SEGMENT_RE = /^(:[A-Za-z][A-Za-z0-9_]*|[A-Za-z0-9._-]+)$/;
 

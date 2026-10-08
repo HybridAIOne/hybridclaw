@@ -25,6 +25,8 @@ docs/tools/
 docs/CNAME
 packages/
 plugins/*
+!plugins/distill/
+!plugins/distill/**
 !plugins/media-tools/
 !plugins/media-tools/**
 !plugins/tier-router/

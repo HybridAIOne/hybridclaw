@@ -10,9 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { WebhookHttpError } from '../channels/webhook-http.js';
-import { logger } from '../logger.js';
 import { matchLoadedPluginAdminRoute } from '../plugins/plugin-manager.js';
-import type { PluginLogger } from '../plugins/plugin-types.js';
 import {
   type AdminRbacAction,
   isPluginAdminNamespacePath,
@@ -61,17 +59,7 @@ export async function handleGatewayPluginAdminRoute(
   }
   const { entry, params } = match;
   try {
-    await entry.route.handler({
-      req,
-      res,
-      url,
-      params,
-      pluginId: entry.pluginId,
-      logger: logger.child({
-        pluginId: entry.pluginId,
-        adminRoute: entry.route.path,
-      }) as PluginLogger,
-    });
+    await entry.route.handler({ req, res, url, params });
   } catch (error) {
     if (!(error instanceof WebhookHttpError)) throw error;
     sendJson(res, error.statusCode, { error: error.message });

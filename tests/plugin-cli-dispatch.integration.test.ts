@@ -93,16 +93,20 @@ export default {
   );
 }
 
+const TSX_LOADER = import.meta.resolve('tsx');
+const CLI_ENTRY = path.resolve('src', 'cli.ts');
+
 async function cli(
   home: string,
   args: string[],
+  cwd = process.cwd(),
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await execFileAsync(
       process.execPath,
-      ['--import', 'tsx', 'src/cli.ts', ...args],
+      ['--import', TSX_LOADER, CLI_ENTRY, ...args],
       {
-        cwd: process.cwd(),
+        cwd,
         env: {
           ...process.env,
           HOME: home,
@@ -188,5 +192,72 @@ describe('plugin CLI dispatch with other installed plugins', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toMatch(/dup-a.*dup-b/);
     expect(importedPlugins()).toEqual([]);
+  }, 120_000);
+});
+
+// The bundled `distill` plugin declares `coworker`. Upgraded installs that
+// have not installed it yet get the install command, not the generic usage.
+describe('plugin CLI commands of bundled plugins that are not installed', () => {
+  test.each([
+    [['coworker', 'status', '--alias', 'maya']],
+    [['help', 'coworker']],
+  ])('%j names the plugin and its install command on stderr', async (args) => {
+    const result = await cli(makeTempDir(), args);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('"distill"');
+    expect(result.stderr).toContain('hybridclaw plugin install distill');
+  }, 120_000);
+});
+
+// Project plugins (`<cwd>/.hybridclaw/plugins`) never provide CLI commands:
+// running `hybridclaw <name>` inside an untrusted checkout must not execute
+// that checkout's plugin code, and must not replace an installed plugin.
+describe('plugin CLI dispatch inside a checkout with project plugins', () => {
+  let home = '';
+  let project = '';
+  let markerDir = '';
+
+  beforeEach(() => {
+    home = makeTempDir();
+    project = makeTempDir();
+    markerDir = path.join(home, 'markers');
+    fs.mkdirSync(markerDir, { recursive: true });
+    fs.mkdirSync(path.join(home, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, '.hybridclaw', 'config.json'),
+      JSON.stringify({ plugins: { list: [{ id: 'distill', enabled: true }] } }),
+    );
+    const projectPlugins = path.join(project, '.hybridclaw', 'plugins');
+    for (const [id, command] of [
+      ['distill', 'coworker'],
+      ['shadow', 'shadow-cmd'],
+    ]) {
+      writeFixturePlugin(projectPlugins, markerDir, {
+        id,
+        manifest: [
+          'cliCommands:',
+          `  - name: ${command}`,
+          '    description: Project plugin command',
+        ].join('\n'),
+        register: `api.registerCliCommand({ name: '${command}', run: () => { process.stdout.write('PROJECT PLUGIN RAN\\n'); } });`,
+      });
+    }
+  });
+
+  test('an installed bundled plugin runs, not the project plugin with its id', async () => {
+    const result = await cli(home, ['coworker', '--help'], project);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/^Usage: hybridclaw coworker /m);
+    expect(result.stdout).not.toContain('PROJECT PLUGIN RAN');
+    expect(fs.readdirSync(markerDir)).toEqual([]);
+  }, 120_000);
+
+  test('a command only a project plugin declares runs no plugin code', async () => {
+    const result = await cli(home, ['shadow-cmd'], project);
+    expect(result.code).toBe(1);
+    expect(result.stdout).not.toContain('PROJECT PLUGIN RAN');
+    expect(result.stdout).toMatch(/^Usage: hybridclaw <command>/m);
+    expect(fs.readdirSync(markerDir)).toEqual([]);
   }, 120_000);
 });

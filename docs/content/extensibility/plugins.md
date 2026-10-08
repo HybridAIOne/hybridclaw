@@ -83,8 +83,9 @@ The reinstall command:
 `hybridclaw plugin list` shows installed/discovered plugins first, then
 installable bundled or project-local plugins. Use `hybridclaw plugin list
 installed` or `hybridclaw plugin list available` to show only one section.
-When installing by bare plugin id, project-local plugins in `./plugins/` take
-priority over bundled plugins with the same id.
+When installing by bare plugin id, a plugin bundled with HybridClaw takes
+priority over a project-local `./plugins/<id>` with the same id, so running the
+install from a source checkout still enables the packaged copy.
 An exact npm package name also resolves to a matching `package.json` in those
 local plugin catalogs before HybridClaw contacts the registry. This lets the
 same canonical install source work in a source checkout and in packaged
@@ -223,7 +224,10 @@ Discovery sources:
 - explicit `plugins.list[].path` entries from runtime config
 
 Any valid plugin found in the home or project plugin directories is discovered
-automatically.
+automatically. For an id with an enabled `plugins.list[]` entry, a home copy
+wins over a bundled plugin, and a bundled plugin wins over a project one, so a
+checkout's `.hybridclaw/plugins/<id>` cannot replace a bundled plugin you
+installed.
 
 `plugins.list[]` is an override layer, not the activation gate. Use it to:
 
@@ -445,7 +449,7 @@ plus the parsed `URL`, and can reuse `readWebhookJsonBody(...)`,
 operator API route for the admin console. Unlike inbound webhooks, these
 routes sit behind the gateway's normal admin authentication:
 
-- `method` is `GET`, `POST`, `PUT`, or `DELETE`.
+- `method` is `GET`, `POST`, or `DELETE`.
 - `path` is `/api/admin/<plugin-id>` or a child of it. A `:name` segment
   captures one path segment; the decoded value arrives as `params.name`.
 - `rbacAction` must be an action from the core RBAC catalog
@@ -459,7 +463,7 @@ routes sit behind the gateway's normal admin authentication:
   plugin's namespace, a path core already serves, or a path that overlaps
   another registered route. A known path with another method answers 405.
 
-Handlers receive `{ req, res, url, params, pluginId, logger }`, write the
+Handlers receive `{ req, res, url, params }`, write the
 response themselves, and throw `WebhookHttpError` for an error status.
 
 `api.registerCliCommand({ name, run })` adds a top-level `hybridclaw <name>`
@@ -475,8 +479,12 @@ The CLI looks plugin commands up only for names no built-in command handles,
 and routes by manifest: it imports only the one plugin that declares the name,
 register-only (no services, memory layers, or gateway hooks start), and opens
 the runtime database before `run(args)`. A name no manifest declares loads no
-plugin code; a name two enabled plugins declare fails. Plugin-manager logs go
-to stderr, so the command owns stdout. `hybridclaw help` lists the declared
+plugin code; a name two enabled plugins declare fails. Project plugins
+(`<cwd>/.hybridclaw/plugins`) never provide CLI commands, so running
+`hybridclaw` inside an untrusted checkout does not execute its plugin code. A
+name that only a bundled, not-installed plugin declares fails with that
+plugin's install command. Plugin-manager logs go to stderr, so the command
+owns stdout. `hybridclaw help` lists the declared
 commands of installed plugins, and `hybridclaw help <name>` runs
 `<name> --help`. Registering a command the manifest does not declare fails.
 

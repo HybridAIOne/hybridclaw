@@ -483,8 +483,6 @@ export interface PluginAdminRouteContext {
   url: URL;
   /** Decoded `:name` path segments. */
   params: Readonly<Record<string, string>>;
-  pluginId: string;
-  logger: PluginLogger;
 }
 
 /**
@@ -492,7 +490,7 @@ export interface PluginAdminRouteContext {
  * `rbacAction` before the handler runs; throw `WebhookHttpError` for a status.
  */
 export interface PluginAdminRouteDefinition {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'DELETE';
   path: string;
   rbacAction: AdminRbacAction;
   handler: (context: PluginAdminRouteContext) => Promise<void> | void;

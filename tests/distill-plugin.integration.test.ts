@@ -6,8 +6,9 @@ import { expect, test } from 'vitest';
 import { useTempDir } from './test-utils.js';
 
 // The real CLI (`node --import tsx src/cli.ts`, as in dev) with a real plugin
-// install: `coworker` exists only once the distill plugin is installed, and
-// then reaches the plugin through `registerCliCommand` and the plugin SDK.
+// install: `coworker` names its plugin until the bundled distill plugin is
+// enabled in place, and then reaches the plugin through `registerCliCommand`
+// and the plugin SDK.
 const makeTempDir = useTempDir('hybridclaw-distill-cli-');
 const execFileAsync = promisify(execFile);
 
@@ -40,22 +41,28 @@ async function cli(
   }
 }
 
-test('coworker is unknown until the distill plugin is installed, then runs from the plugin', async () => {
+test('coworker points at the distill plugin until it is installed, then runs from the bundled copy', async () => {
   const home = makeTempDir();
   const source = path.join(home, 'memo.md');
   fs.writeFileSync(source, '# Memo\n\nBoring options win until measured.\n');
 
   const before = await cli(home, ['coworker', 'status', '--alias', 'nova']);
   expect(before.code).toBe(1);
-  expect(before.out).toContain('Usage: hybridclaw <command>');
+  expect(before.out).toContain('hybridclaw plugin install distill');
 
-  const install = await cli(home, ['plugin', 'install', './plugins/distill']);
+  const install = await cli(home, ['plugin', 'install', 'distill']);
   expect(install.code).toBe(0);
   expect(
-    fs.existsSync(
-      path.join(home, '.hybridclaw', 'plugins', 'distill', 'src', 'index.js'),
-    ),
-  ).toBe(true);
+    fs.existsSync(path.join(home, '.hybridclaw', 'plugins', 'distill')),
+  ).toBe(false);
+  const config = JSON.parse(
+    fs.readFileSync(path.join(home, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as { plugins: { list: Array<{ id: string; enabled: boolean }> } };
+  expect(config.plugins.list).toContainEqual(
+    expect.objectContaining({ id: 'distill', enabled: true }),
+  );
+  const list = await cli(home, ['plugin', 'list']);
+  expect(list.out).toMatch(/^distill v\S+ \[bundled\]$/m);
 
   const blocked = await cli(home, [
     'coworker',

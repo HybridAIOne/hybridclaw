@@ -989,12 +989,18 @@ export class PluginManager {
         discovered.set(candidate.id, candidate);
     }
 
+    // A configured id resolves home > bundled > project: the config entry is
+    // the install record of a bundled plugin enabled in place, so a checkout's
+    // `.hybridclaw/plugins/<id>` cannot replace it, as it never could replace
+    // the home copy that older releases installed.
     const available = new Map<string, PluginCandidate>(discovered);
     for (const candidate of this.scanDirectory(
       resolveInstallPath('plugins'),
       'bundled',
     )) {
-      if (!available.has(candidate.id)) available.set(candidate.id, candidate);
+      if (available.get(candidate.id)?.source !== 'home') {
+        available.set(candidate.id, candidate);
+      }
     }
 
     const selected = new Map<string, PluginCandidate>(discovered);

@@ -217,17 +217,17 @@ describe('gateway plugin admin route dispatch', () => {
     const { WebhookHttpError } = await import(
       '../src/channels/webhook-http.js'
     );
-    const { base } = await serveDemoPlugin(({ res, params, pluginId }) => {
+    const { base } = await serveDemoPlugin(({ res, params }) => {
       if (params.id === 'missing') throw new WebhookHttpError(404, 'gone');
       if (params.id === 'crash') throw new Error('boom');
       if (params.id === 'silent') return;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ id: params.id, pluginId }));
+      res.end(JSON.stringify({ id: params.id }));
     });
 
     const ok = await fetch(`${base}/api/admin/demo/items/a%2Fb`);
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ id: 'a/b', pluginId: 'demo' });
+    expect(await ok.json()).toEqual({ id: 'a/b' });
 
     const missing = await fetch(`${base}/api/admin/demo/items/missing`);
     expect([missing.status, await missing.json()]).toEqual([

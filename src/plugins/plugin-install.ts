@@ -232,7 +232,14 @@ function resolveProjectPluginDir(input: string, cwd: string): string | null {
   if (!installSource || looksLikeLocalPath(installSource)) {
     return null;
   }
-  for (const root of listPluginCatalogRoots(cwd)) {
+  // A bare id names the package's bundled plugin first, so a `plugins/<id>`
+  // under the current directory cannot turn the in-place install of a
+  // bundled plugin into a copy of the cwd's version.
+  const roots = listPluginCatalogRoots(cwd).sort(
+    (left, right) =>
+      Number(right.source === 'bundled') - Number(left.source === 'bundled'),
+  );
+  for (const root of roots) {
     const directCandidate = path.join(root.dir, installSource);
     if (
       fs.existsSync(directCandidate) &&

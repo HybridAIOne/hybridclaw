@@ -82,7 +82,9 @@ function verifyPnpmInstallBlocksExoticSubdeps(tarball: string): void {
 
 describe.skipIf(!NPM_E2E)('npm install user journey', () => {
   beforeAll(async () => {
-    HOST_PORT = await getAvailablePort(9198);
+    HOST_PORT = await getAvailablePort(
+      Number(process.env.HYBRIDCLAW_E2E_PORT) || 9198,
+    );
     GATEWAY_URL = `http://127.0.0.1:${HOST_PORT}`;
 
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-npm-e2e-'));
