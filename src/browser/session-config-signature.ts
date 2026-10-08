@@ -1,4 +1,5 @@
 import type { RuntimeBrowserConfig } from '../config/runtime-config.js';
+import { browserProviderRegistryRevision } from './provider-factory.js';
 
 export function browserSessionConfigSignature(
   config: RuntimeBrowserConfig,
@@ -7,9 +8,7 @@ export function browserSessionConfigSignature(
     provider: config.provider,
     allowPrivateNetwork: config.allowPrivateNetwork,
     local: config.local,
-    camofox: config.camofox,
-    browserUseCloud: config.browserUseCloud,
-    managedCloud: config.managedCloud,
-    macCua: config.macCua,
+    // Plugin providers read their own config; a reload re-registers them.
+    registry: browserProviderRegistryRevision(),
   });
 }

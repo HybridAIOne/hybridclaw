@@ -4,6 +4,7 @@
  * plugins never receive a mutable reference to gateway configuration.
  */
 import path from 'node:path';
+import { registerBrowserProvider } from '../browser/provider-factory.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import {
@@ -153,6 +154,7 @@ export function createPluginApi(params: {
       params.manager.registerEmbeddingProvider(params.pluginId, provider);
     },
     registerLocalClassifier,
+    registerBrowserProvider,
     registerProvider(provider: AIProvider): void {
       params.manager.registerProvider(params.pluginId, provider);
     },

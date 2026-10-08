@@ -33,6 +33,7 @@ const checkMode = process.argv.includes('--check');
 // user explicitly enables them. They are not part of the distributed core
 // dependency tree, so they stay out of the core notices file.
 const CORE_EXCLUDED_COMPONENTS = new Set([
+  'plugins/camofox',
   'plugins/line',
   'plugins/transformers-embeddings',
 ]);

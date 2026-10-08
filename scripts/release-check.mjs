@@ -31,6 +31,17 @@ const requiredExactPaths = [
   'plugins/line/src/connection.js',
   'plugins/line/src/delivery.js',
   'plugins/line/src/inbound.js',
+  // Upgraded configs that selected a vendor browser enable these bundled
+  // plugins in place (runtime-config migrateLegacyBrowserPluginConfig).
+  'plugins/browser-use-cloud/hybridclaw.plugin.yaml',
+  'plugins/browser-use-cloud/src/index.js',
+  'plugins/camofox/hybridclaw.plugin.yaml',
+  'plugins/camofox/package-lock.json',
+  'plugins/camofox/src/index.js',
+  'plugins/mac-cua/hybridclaw.plugin.yaml',
+  'plugins/mac-cua/src/index.js',
+  'plugins/managed-cloud/hybridclaw.plugin.yaml',
+  'plugins/managed-cloud/src/index.js',
   'plugins/vonage-voice/hybridclaw.plugin.yaml',
   'plugins/vonage-voice/package.json',
   'plugins/vonage-voice/src/index.js',

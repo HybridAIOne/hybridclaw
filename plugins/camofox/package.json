@@ -1,0 +1,20 @@
+{
+  "name": "hybridclaw-plugin-camofox",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw browser provider backed by the Camoufox stealth Firefox build",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "camoufox-js": "0.11.5",
+    "playwright-core": "1.63.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "brace-expansion": "5.0.12",
+    "ua-parser-js": "1.0.41"
+  }
+}

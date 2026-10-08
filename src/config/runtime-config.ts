@@ -10,7 +10,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
@@ -331,19 +330,8 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
   RuntimeWebSearchProvider,
   'auto'
 >;
-export type RuntimeBrowserProviderKind =
-  | 'local'
-  | 'camofox'
-  | 'managed-cloud'
-  | 'browser-use-cloud'
-  | 'mac-cua';
-export type RuntimeBrowserMacCuaBrowser =
-  | 'safari'
-  | 'chrome'
-  | 'firefox'
-  | 'brave'
-  | 'arc';
-export type RuntimeBrowserMacCuaScreenshotMode = 'som' | 'vision' | 'ax';
+/** `local`, or the kind a plugin registered through `registerBrowserProvider`. */
+export type RuntimeBrowserProviderKind = string;
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -409,87 +397,10 @@ export interface RuntimeBrowserLocalConfig {
   headed: boolean;
 }
 
-export type RuntimeBrowserCamofoxLaunchOptions = Partial<
-  Pick<
-    CamofoxLaunchOptions,
-    | 'os'
-    | 'block_images'
-    | 'block_webrtc'
-    | 'block_webgl'
-    | 'disable_coop'
-    | 'geoip'
-    | 'humanize'
-    | 'locale'
-    | 'addons'
-    | 'fonts'
-    | 'custom_fonts_only'
-    | 'exclude_addons'
-    | 'screen'
-    | 'window'
-    | 'fingerprint'
-    | 'ff_version'
-    | 'main_world_eval'
-    | 'executable_path'
-    | 'firefox_user_prefs'
-    | 'proxy'
-    | 'enable_cache'
-    | 'args'
-    | 'env'
-    | 'debug'
-    | 'virtual_display'
-    | 'webgl_config'
-  >
->;
-
-export interface RuntimeBrowserCamofoxConfig {
-  profileRoot: string;
-  headed: boolean;
-  launchOptions: RuntimeBrowserCamofoxLaunchOptions;
-}
-
-export interface RuntimeBrowserUseCloudConfig {
-  apiKeyRef: SecretRef;
-  baseUrl: string;
-  browser: {
-    profileId?: string | null;
-    proxyCountryCode?: string | null;
-    timeoutMinutes?: number;
-    browserScreenWidth?: number;
-    browserScreenHeight?: number;
-    allowResizing?: boolean;
-    enableRecording?: boolean;
-  };
-  pricing: {
-    browserUsdPerMinute?: number;
-    actionUsd?: number;
-  };
-}
-
-export interface RuntimeBrowserMacCuaConfig {
-  browser: RuntimeBrowserMacCuaBrowser;
-  driverCommand: string;
-  driverArgs: string[];
-  screenshotMode: RuntimeBrowserMacCuaScreenshotMode;
-}
-
-export interface RuntimeManagedCloudBrowserConfig {
-  endpointUrl: string;
-  poolTokenRef?: SecretRef;
-  defaultTenantId: string;
-  pricing: {
-    browserUsdPerMinute?: number;
-    actionUsd?: number;
-  };
-}
-
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
   allowPrivateNetwork: boolean;
   local: RuntimeBrowserLocalConfig;
-  camofox: RuntimeBrowserCamofoxConfig;
-  managedCloud: RuntimeManagedCloudBrowserConfig;
-  browserUseCloud: RuntimeBrowserUseCloudConfig;
-  macCua: RuntimeBrowserMacCuaConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -1577,31 +1488,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     local: {
       profileRoot: '',
       headed: false,
-    },
-    camofox: {
-      profileRoot: '',
-      headed: false,
-      launchOptions: {},
-    },
-    managedCloud: {
-      endpointUrl: 'http://127.0.0.1:8787',
-      defaultTenantId: '',
-      pricing: {},
-    },
-    browserUseCloud: {
-      apiKeyRef: {
-        source: 'store',
-        id: 'BROWSER_USE_API_KEY',
-      },
-      baseUrl: '',
-      browser: {},
-      pricing: {},
-    },
-    macCua: {
-      browser: 'chrome',
-      driverCommand: '',
-      driverArgs: [],
-      screenshotMode: 'som',
     },
   },
   agents: {
@@ -6245,76 +6131,7 @@ function normalizeBrowserProviderKind(
   fallback: RuntimeBrowserProviderKind,
 ): RuntimeBrowserProviderKind {
   if (typeof value !== 'string') return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'local' ||
-    normalized === 'camofox' ||
-    normalized === 'managed-cloud' ||
-    normalized === 'browser-use-cloud' ||
-    normalized === 'mac-cua'
-  ) {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeBrowserMacCuaBrowser(
-  value: unknown,
-  fallback: RuntimeBrowserMacCuaBrowser,
-): RuntimeBrowserMacCuaBrowser {
-  if (typeof value !== 'string') return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === 'safari' ||
-    normalized === 'chrome' ||
-    normalized === 'firefox' ||
-    normalized === 'brave' ||
-    normalized === 'arc'
-  ) {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeBrowserMacCuaScreenshotMode(
-  value: unknown,
-  fallback: RuntimeBrowserMacCuaScreenshotMode,
-): RuntimeBrowserMacCuaScreenshotMode {
-  if (typeof value !== 'string') return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'som' || normalized === 'vision' || normalized === 'ax') {
-    return normalized;
-  }
-  return fallback;
-}
-
-function normalizeBrowserUseCloudApiKeyRef(
-  value: unknown,
-  fallback: SecretRef,
-): SecretRef {
-  if (value === undefined || value === null || value === '') {
-    return cloneConfig(fallback);
-  }
-  let input = value;
-  if (isRecord(value) && value.source === 'env') {
-    if (typeof value.id !== 'string') {
-      throw new Error(
-        'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
-      );
-    }
-    console.warn(
-      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
-    );
-    input = { source: 'store', id: value.id };
-  }
-  const parsed = parseSecretInput(input);
-  if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
-  if (parsed.kind === 'invalid') {
-    throw new Error(`browser.browserUseCloud.apiKeyRef ${parsed.reason}.`);
-  }
-  throw new Error(
-    'browser.browserUseCloud.apiKeyRef must use a stored secret reference such as `{ "source": "store", "id": "BROWSER_USE_API_KEY" }`.',
-  );
+  return value.trim().toLowerCase() || fallback;
 }
 
 function normalizeOptionalSecretRef(
@@ -6325,491 +6142,73 @@ function normalizeOptionalSecretRef(
   return parseSecretRefInput(value, path);
 }
 
-const CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS = new Set([
-  'headless',
-  'timeout',
-  'user_data_dir',
-]);
+// compat: remove after v0.41 — through v0.39 the vendor browser providers
+// were core and kept their settings under browser.<section>. They are bundled
+// plugins now (#1801), each with the id of its provider kind. The selected
+// provider's settings move into a plugins.list[] entry, which also enables the
+// bundled plugin, so an upgraded install keeps the browser it chose; settings
+// of providers that were not selected are dropped. A secret ref becomes the
+// plugin's declared credential.
+const LEGACY_BROWSER_PLUGIN_SECTIONS: ReadonlyArray<{
+  section: string;
+  pluginId: string;
+  secretRef?: { key: string; credential: string };
+}> = [
+  { section: 'camofox', pluginId: 'camofox' },
+  {
+    section: 'managedCloud',
+    pluginId: 'managed-cloud',
+    secretRef: {
+      key: 'poolTokenRef',
+      credential: 'MANAGED_BROWSER_POOL_TOKEN',
+    },
+  },
+  {
+    section: 'browserUseCloud',
+    pluginId: 'browser-use-cloud',
+    secretRef: { key: 'apiKeyRef', credential: 'BROWSER_USE_API_KEY' },
+  },
+  { section: 'macCua', pluginId: 'mac-cua' },
+];
 
-const CAMOFOX_ALLOWED_LAUNCH_OPTION_KEYS = new Set([
-  'os',
-  'block_images',
-  'block_webrtc',
-  'block_webgl',
-  'disable_coop',
-  'geoip',
-  'humanize',
-  'locale',
-  'addons',
-  'fonts',
-  'custom_fonts_only',
-  'exclude_addons',
-  'screen',
-  'window',
-  'fingerprint',
-  'ff_version',
-  'main_world_eval',
-  'executable_path',
-  'firefox_user_prefs',
-  'proxy',
-  'enable_cache',
-  'args',
-  'env',
-  'debug',
-  'virtual_display',
-  'webgl_config',
-]);
-
-function assertCamofoxLaunchOption(
-  condition: boolean,
-  path: string,
-  expected: string,
-): asserts condition {
-  if (!condition) {
-    throw new Error(`${path} must be ${expected}.`);
+function migrateLegacyBrowserPluginConfig(
+  rawBrowser: Record<string, unknown>,
+  rawPlugins: Record<string, unknown>,
+): Record<string, unknown> {
+  const list = Array.isArray(rawPlugins.list) ? [...rawPlugins.list] : [];
+  const provider = normalizeBrowserProviderKind(rawBrowser.provider, '');
+  const legacy = LEGACY_BROWSER_PLUGIN_SECTIONS.find(
+    (entry) => entry.pluginId === provider,
+  );
+  // The section is the migration's source: normalization drops it, so this
+  // runs once and never re-enables a plugin the operator removed later.
+  const section = legacy ? rawBrowser[legacy.section] : undefined;
+  if (
+    !legacy ||
+    !isRecord(section) ||
+    list.some((entry) => isRecord(entry) && entry.id === legacy.pluginId)
+  ) {
+    return rawPlugins;
   }
-}
-
-function normalizeCamofoxStringList(value: unknown, path: string): string[] {
-  assertCamofoxLaunchOption(Array.isArray(value), path, 'an array of strings');
-  const normalized = value.map((item) => {
-    assertCamofoxLaunchOption(
-      typeof item === 'string' && item.trim().length > 0,
-      path,
-      'an array of non-empty strings',
-    );
-    return item.trim();
-  });
-  return normalized;
-}
-
-function normalizeCamofoxExcludeAddons(
-  value: unknown,
-  path: string,
-): NonNullable<RuntimeBrowserCamofoxLaunchOptions['exclude_addons']> {
-  assertCamofoxLaunchOption(Array.isArray(value), path, 'an array of strings');
-  return value.map((item) => {
-    assertCamofoxLaunchOption(
-      item === 'UBO',
-      path,
-      'an array containing only "UBO"',
-    );
-    return item;
-  });
-}
-
-function normalizeCamofoxOsList(
-  value: unknown,
-  path: string,
-): RuntimeBrowserCamofoxLaunchOptions['os'] {
-  const normalizeOs = (item: unknown): 'windows' | 'macos' | 'linux' => {
-    assertCamofoxLaunchOption(
-      typeof item === 'string',
-      path,
-      '"windows", "macos", "linux", or an array of those values',
-    );
-    const normalized = item.trim().toLowerCase();
-    assertCamofoxLaunchOption(
-      normalized === 'windows' ||
-        normalized === 'macos' ||
-        normalized === 'linux',
-      path,
-      '"windows", "macos", "linux", or an array of those values',
-    );
-    return normalized;
-  };
-
-  if (Array.isArray(value)) {
-    assertCamofoxLaunchOption(value.length > 0, path, 'a non-empty OS array');
-    return value.map((item) => normalizeOs(item));
-  }
-  return normalizeOs(value);
-}
-
-function normalizeCamofoxNumberTuple(
-  value: unknown,
-  path: string,
-): [number, number] {
-  assertCamofoxLaunchOption(
-    Array.isArray(value) && value.length === 2,
-    path,
-    'a two-item number tuple',
-  );
-  const first = value[0];
-  const second = value[1];
-  assertCamofoxLaunchOption(
-    typeof first === 'number' && Number.isFinite(first),
-    path,
-    'a two-item number tuple',
-  );
-  assertCamofoxLaunchOption(
-    typeof second === 'number' && Number.isFinite(second),
-    path,
-    'a two-item number tuple',
-  );
-  return [first, second];
-}
-
-function normalizeCamofoxStringTuple(
-  value: unknown,
-  path: string,
-): [string, string] {
-  assertCamofoxLaunchOption(
-    Array.isArray(value) && value.length === 2,
-    path,
-    'a two-item string tuple',
-  );
-  const first = value[0];
-  const second = value[1];
-  assertCamofoxLaunchOption(
-    typeof first === 'string' && first.trim().length > 0,
-    path,
-    'a two-item non-empty string tuple',
-  );
-  assertCamofoxLaunchOption(
-    typeof second === 'string' && second.trim().length > 0,
-    path,
-    'a two-item non-empty string tuple',
-  );
-  return [first.trim(), second.trim()];
-}
-
-function normalizeCamofoxStringOrStringList(
-  value: unknown,
-  path: string,
-): string | string[] {
-  if (Array.isArray(value)) return normalizeCamofoxStringList(value, path);
-  assertCamofoxLaunchOption(
-    typeof value === 'string' && value.trim().length > 0,
-    path,
-    'a non-empty string or array of strings',
-  );
-  return value.trim();
-}
-
-function normalizeCamofoxEnv(
-  value: unknown,
-  path: string,
-): NonNullable<RuntimeBrowserCamofoxLaunchOptions['env']> {
-  assertCamofoxLaunchOption(isRecord(value), path, 'an object');
-  const normalized: NonNullable<RuntimeBrowserCamofoxLaunchOptions['env']> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    assertCamofoxLaunchOption(
-      key.trim().length > 0,
-      path,
-      'an object with non-empty keys',
-    );
-    assertCamofoxLaunchOption(
-      typeof entry === 'string' ||
-        typeof entry === 'number' ||
-        typeof entry === 'boolean',
-      `${path}.${key}`,
-      'a string, number, or boolean',
-    );
-    normalized[key] = entry;
-  }
-  return normalized;
-}
-
-function normalizeCamofoxProxy(
-  value: unknown,
-  path: string,
-): NonNullable<RuntimeBrowserCamofoxLaunchOptions['proxy']> {
-  if (typeof value === 'string') {
-    assertCamofoxLaunchOption(
-      value.trim().length > 0,
-      path,
-      'a non-empty string or proxy object',
-    );
-    return value.trim();
-  }
-
-  assertCamofoxLaunchOption(
-    isRecord(value),
-    path,
-    'a non-empty string or proxy object',
-  );
-  assertCamofoxLaunchOption(
-    typeof value.server === 'string' && value.server.trim().length > 0,
-    `${path}.server`,
-    'a non-empty string',
-  );
-  const proxy: NonNullable<
-    Exclude<RuntimeBrowserCamofoxLaunchOptions['proxy'], string>
-  > = {
-    server: value.server.trim(),
-  };
-  for (const key of ['bypass', 'username', 'password'] as const) {
-    const entry = value[key];
-    if (entry === undefined) continue;
-    assertCamofoxLaunchOption(
-      typeof entry === 'string',
-      `${path}.${key}`,
-      'a string',
-    );
-    proxy[key] = entry;
-  }
-  return proxy;
-}
-
-function normalizeCamofoxLaunchOptions(
-  value: unknown,
-  fallback: RuntimeBrowserCamofoxLaunchOptions,
-): RuntimeBrowserCamofoxLaunchOptions {
-  if (value === undefined || value === null) return cloneConfig(fallback);
-  assertCamofoxLaunchOption(
-    isRecord(value),
-    'browser.camofox.launchOptions',
-    'an object',
-  );
-
-  const normalized: RuntimeBrowserCamofoxLaunchOptions = {};
-  for (const [key, entry] of Object.entries(value)) {
-    const path = `browser.camofox.launchOptions.${key}`;
-    if (CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS.has(key)) {
-      throw new Error(
-        `${path} is managed by HybridClaw; use browser.camofox.headed or SessionOptions instead.`,
+  const config: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(section)) {
+    if (value === '') continue;
+    if (key !== legacy.secretRef?.key) {
+      config[key] = value;
+      continue;
+    }
+    const refId = isRecord(value) ? value.id : undefined;
+    if (typeof refId === 'string' && refId !== legacy.secretRef.credential) {
+      console.warn(
+        `[runtime-config] the ${legacy.pluginId} plugin reads its secret from ${legacy.secretRef.credential}; store it under that name with \`hybridclaw secret set ${legacy.secretRef.credential} <value>\``,
       );
     }
-    if (!CAMOFOX_ALLOWED_LAUNCH_OPTION_KEYS.has(key)) {
-      throw new Error(`${path} is not a supported Camofox launch option.`);
-    }
-
-    switch (key) {
-      case 'os':
-        normalized.os = normalizeCamofoxOsList(entry, path);
-        break;
-      case 'geoip':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean' ||
-            (typeof entry === 'string' && entry.trim().length > 0),
-          path,
-          'a boolean or non-empty string',
-        );
-        normalized.geoip = typeof entry === 'string' ? entry.trim() : entry;
-        break;
-      case 'humanize':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean' ||
-            (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0),
-          path,
-          'a boolean or non-negative number',
-        );
-        normalized.humanize = entry;
-        break;
-      case 'locale':
-        normalized.locale = normalizeCamofoxStringOrStringList(entry, path);
-        break;
-      case 'addons':
-        normalized.addons = normalizeCamofoxStringList(entry, path);
-        break;
-      case 'fonts':
-        normalized.fonts = normalizeCamofoxStringList(entry, path);
-        break;
-      case 'args':
-        normalized.args = normalizeCamofoxStringList(entry, path);
-        break;
-      case 'exclude_addons':
-        normalized.exclude_addons = normalizeCamofoxExcludeAddons(entry, path);
-        break;
-      case 'window':
-        normalized.window = normalizeCamofoxNumberTuple(entry, path);
-        break;
-      case 'webgl_config':
-        normalized.webgl_config = normalizeCamofoxStringTuple(entry, path);
-        break;
-      case 'ff_version':
-        assertCamofoxLaunchOption(
-          typeof entry === 'number' && Number.isInteger(entry) && entry > 0,
-          path,
-          'a positive integer',
-        );
-        normalized.ff_version = entry;
-        break;
-      case 'executable_path':
-      case 'virtual_display':
-        assertCamofoxLaunchOption(
-          typeof entry === 'string' && entry.trim().length > 0,
-          path,
-          'a non-empty string',
-        );
-        normalized[key] = entry.trim();
-        break;
-      case 'env':
-        normalized.env = normalizeCamofoxEnv(entry, path);
-        break;
-      case 'screen':
-        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
-        normalized.screen = cloneConfig(
-          entry,
-        ) as RuntimeBrowserCamofoxLaunchOptions['screen'];
-        break;
-      case 'fingerprint':
-        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
-        normalized.fingerprint = cloneConfig(
-          entry,
-        ) as RuntimeBrowserCamofoxLaunchOptions['fingerprint'];
-        break;
-      case 'firefox_user_prefs':
-        assertCamofoxLaunchOption(isRecord(entry), path, 'an object');
-        normalized.firefox_user_prefs = cloneConfig(
-          entry,
-        ) as RuntimeBrowserCamofoxLaunchOptions['firefox_user_prefs'];
-        break;
-      case 'proxy':
-        normalized.proxy = normalizeCamofoxProxy(entry, path);
-        break;
-      case 'block_images':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.block_images = entry;
-        break;
-      case 'block_webrtc':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.block_webrtc = entry;
-        break;
-      case 'block_webgl':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.block_webgl = entry;
-        break;
-      case 'disable_coop':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.disable_coop = entry;
-        break;
-      case 'custom_fonts_only':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.custom_fonts_only = entry;
-        break;
-      case 'main_world_eval':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.main_world_eval = entry;
-        break;
-      case 'enable_cache':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.enable_cache = entry;
-        break;
-      case 'debug':
-        assertCamofoxLaunchOption(
-          typeof entry === 'boolean',
-          path,
-          'a boolean',
-        );
-        normalized.debug = entry;
-        break;
-    }
   }
-
-  return normalized;
-}
-
-function normalizeBrowserUseCloudSessionConfig(
-  value: unknown,
-  fallback: RuntimeBrowserUseCloudConfig['browser'],
-): RuntimeBrowserUseCloudConfig['browser'] {
-  const raw = isRecord(value) ? value : {};
-  const profileId = normalizeString(raw.profileId, fallback.profileId ?? '', {
-    allowEmpty: true,
-  });
-  const proxyCountryCode = normalizeString(
-    raw.proxyCountryCode,
-    fallback.proxyCountryCode ?? '',
-    { allowEmpty: true },
+  console.warn(
+    `[runtime-config] moved browser.${legacy.section} into plugins.list[] and enabled the bundled ${legacy.pluginId} browser provider plugin`,
   );
-  const timeoutMinutes = normalizeInteger(raw.timeoutMinutes, 0, {
-    min: 1,
-    max: 240,
-  });
-  const browserScreenWidth = normalizeInteger(raw.browserScreenWidth, 0, {
-    min: 1,
-    max: 10_000,
-  });
-  const browserScreenHeight = normalizeInteger(raw.browserScreenHeight, 0, {
-    min: 1,
-    max: 10_000,
-  });
-  return {
-    ...(profileId ? { profileId } : {}),
-    ...(proxyCountryCode ? { proxyCountryCode } : {}),
-    ...(timeoutMinutes > 0 ? { timeoutMinutes } : {}),
-    ...(browserScreenWidth > 0 ? { browserScreenWidth } : {}),
-    ...(browserScreenHeight > 0 ? { browserScreenHeight } : {}),
-    ...(typeof raw.allowResizing === 'boolean'
-      ? { allowResizing: raw.allowResizing }
-      : typeof fallback.allowResizing === 'boolean'
-        ? { allowResizing: fallback.allowResizing }
-        : {}),
-    ...(typeof raw.enableRecording === 'boolean'
-      ? { enableRecording: raw.enableRecording }
-      : typeof fallback.enableRecording === 'boolean'
-        ? { enableRecording: fallback.enableRecording }
-        : {}),
-  };
-}
-
-function normalizeBrowserUseCloudPricing(
-  value: unknown,
-  fallback: RuntimeBrowserUseCloudConfig['pricing'],
-): RuntimeBrowserUseCloudConfig['pricing'] {
-  const raw = isRecord(value) ? value : {};
-  const browserUsdPerMinute = normalizeNumber(
-    raw.browserUsdPerMinute,
-    fallback.browserUsdPerMinute ?? -1,
-    { min: 0 },
-  );
-  const actionUsd = normalizeNumber(raw.actionUsd, fallback.actionUsd ?? -1, {
-    min: 0,
-  });
-  return {
-    ...(browserUsdPerMinute >= 0 ? { browserUsdPerMinute } : {}),
-    ...(actionUsd >= 0 ? { actionUsd } : {}),
-  };
-}
-
-function normalizeManagedCloudBrowserConfig(
-  value: unknown,
-  fallback: RuntimeManagedCloudBrowserConfig,
-): RuntimeManagedCloudBrowserConfig {
-  const raw = isRecord(value) ? value : {};
-  return {
-    endpointUrl: normalizeBaseUrl(raw.endpointUrl, fallback.endpointUrl),
-    poolTokenRef: normalizeOptionalSecretRef(
-      raw.poolTokenRef,
-      'browser.managedCloud.poolTokenRef',
-    ),
-    defaultTenantId: normalizeString(
-      raw.defaultTenantId,
-      fallback.defaultTenantId,
-      { allowEmpty: true },
-    ),
-    pricing: normalizeBrowserUseCloudPricing(raw.pricing, fallback.pricing),
-  };
+  list.push({ id: legacy.pluginId, enabled: true, config });
+  return { ...rawPlugins, list };
 }
 
 function normalizeBrowserConfig(
@@ -6818,12 +6217,6 @@ function normalizeBrowserConfig(
 ): RuntimeBrowserConfig {
   const raw = isRecord(value) ? value : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
-  const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
-  const rawManagedCloud = isRecord(raw.managedCloud) ? raw.managedCloud : {};
-  const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
-    ? raw.browserUseCloud
-    : {};
-  const rawMacCua = isRecord(raw.macCua) ? raw.macCua : {};
   return {
     provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
     allowPrivateNetwork: normalizeBoolean(
@@ -6837,58 +6230,6 @@ function normalizeBrowserConfig(
         { allowEmpty: true },
       ),
       headed: normalizeBoolean(rawLocal.headed, fallback.local.headed),
-    },
-    camofox: {
-      profileRoot: normalizeString(
-        rawCamofox.profileRoot,
-        fallback.camofox.profileRoot,
-        { allowEmpty: true },
-      ),
-      headed: normalizeBoolean(rawCamofox.headed, fallback.camofox.headed),
-      launchOptions: normalizeCamofoxLaunchOptions(
-        rawCamofox.launchOptions,
-        fallback.camofox.launchOptions,
-      ),
-    },
-    managedCloud: normalizeManagedCloudBrowserConfig(
-      rawManagedCloud,
-      fallback.managedCloud,
-    ),
-    browserUseCloud: {
-      apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
-        rawBrowserUseCloud.apiKeyRef,
-        fallback.browserUseCloud.apiKeyRef,
-      ),
-      baseUrl: normalizeBaseUrl(
-        rawBrowserUseCloud.baseUrl,
-        fallback.browserUseCloud.baseUrl,
-      ),
-      browser: normalizeBrowserUseCloudSessionConfig(
-        rawBrowserUseCloud.browser,
-        fallback.browserUseCloud.browser,
-      ),
-      pricing: normalizeBrowserUseCloudPricing(
-        rawBrowserUseCloud.pricing,
-        fallback.browserUseCloud.pricing,
-      ),
-    },
-    macCua: {
-      browser: normalizeBrowserMacCuaBrowser(
-        rawMacCua.browser,
-        fallback.macCua.browser,
-      ),
-      driverCommand: normalizeString(
-        rawMacCua.driverCommand,
-        fallback.macCua.driverCommand,
-        { allowEmpty: true },
-      ),
-      driverArgs:
-        normalizeOptionalTrimmedUniqueStringArray(rawMacCua.driverArgs) ??
-        fallback.macCua.driverArgs,
-      screenshotMode: normalizeBrowserMacCuaScreenshotMode(
-        rawMacCua.screenshotMode,
-        fallback.macCua.screenshotMode,
-      ),
     },
   };
 }
@@ -7812,7 +7153,7 @@ function normalizeRuntimeConfig(
       DEFAULT_RUNTIME_CONFIG.channelInstructions,
     ),
     plugins: normalizeRuntimePluginsConfig(
-      rawPlugins,
+      migrateLegacyBrowserPluginConfig(rawBrowser, rawPlugins),
       DEFAULT_RUNTIME_CONFIG.plugins,
       modelRouting.enabled,
     ),

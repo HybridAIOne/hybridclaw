@@ -114,8 +114,6 @@ const TOKEN_ACTION_VALUES = [
   'admin.config.read',
   'admin.config.write',
   'admin.config.reload',
-  'admin.browser_pool.read',
-  'admin.browser_pool.start',
   'admin.webhook_targets.write',
   'admin.a2a.read',
   'admin.a2a.write',

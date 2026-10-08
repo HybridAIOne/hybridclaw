@@ -1,24 +1,31 @@
+/**
+ * mac-cua readiness: the platform, the `cua-driver` binary, and the macOS
+ * Accessibility and Screen Recording grants of the process that runs the
+ * gateway. The provider refuses to launch until every check is `ok`; the
+ * `/mac-cua doctor` command prints the same checks.
+ */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { DiagResult } from '../types.js';
-import { makeResult, shortenHomePath } from '../utils.js';
+
+function result(label, severity, message) {
+  return { label, severity, message };
+}
+
+function shortenHomePath(filePath) {
+  const homeDir = os.homedir();
+  return filePath.startsWith(homeDir)
+    ? `~${filePath.slice(homeDir.length)}`
+    : filePath;
+}
 
 const ACCESSIBILITY_DEEP_LINK =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
 const SCREEN_RECORDING_DEEP_LINK =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 
-export interface CuaMacProbeInput {
-  platform?: NodeJS.Platform;
-  driverPath?: string | null;
-  accessibilityGranted?: boolean;
-  screenRecordingGranted?: boolean;
-  permissionProbeError?: string;
-}
-
-function resolvePathBinary(command: string): string | null {
+function resolvePathBinary(command) {
   if (path.isAbsolute(command)) {
     try {
       fs.accessSync(command, fs.constants.X_OK);
@@ -33,37 +40,27 @@ function resolvePathBinary(command: string): string | null {
     : null;
 }
 
-export function resolveCuaDriverPath(): string | null {
+export function resolveCuaDriverPath() {
   const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
   if (configured) return resolvePathBinary(configured);
   return resolvePathBinary('cua-driver');
 }
 
-function probeCuaDriverPermissions(
-  driverPath: string,
-): Pick<
-  CuaMacProbeInput,
-  'accessibilityGranted' | 'screenRecordingGranted' | 'permissionProbeError'
-> {
+function probeCuaDriverPermissions(driverPath) {
   const doctorResult = spawnSync(driverPath, ['doctor', '--json'], {
     encoding: 'utf-8',
     timeout: 10_000,
   });
   if (doctorResult.status === 0) {
     try {
-      const payload = JSON.parse(doctorResult.stdout) as Record<
-        string,
-        unknown
-      >;
+      const payload = JSON.parse(doctorResult.stdout);
       return {
         accessibilityGranted: payload.accessibilityGranted === true,
         screenRecordingGranted: payload.screenRecordingGranted === true,
       };
     } catch (error) {
       return {
-        permissionProbeError: `cua-driver doctor returned invalid JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        permissionProbeError: `cua-driver doctor returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   }
@@ -91,7 +88,7 @@ function probeCuaDriverPermissions(
   };
 }
 
-function parsePermissionLine(output: string, label: string): boolean | null {
+function parsePermissionLine(output, label) {
   const match = new RegExp(`${label}:\\s*(granted|not granted)`, 'iu').exec(
     output,
   );
@@ -99,12 +96,7 @@ function parsePermissionLine(output: string, label: string): boolean | null {
   return match[1].toLowerCase() === 'granted';
 }
 
-export function parseCheckPermissionsOutput(
-  output: string,
-): Pick<
-  CuaMacProbeInput,
-  'accessibilityGranted' | 'screenRecordingGranted'
-> | null {
+export function parseCheckPermissionsOutput(output) {
   const accessibilityGranted = parsePermissionLine(output, 'Accessibility');
   const screenRecordingGranted = parsePermissionLine(
     output,
@@ -119,12 +111,11 @@ export function parseCheckPermissionsOutput(
   };
 }
 
-export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
+export function buildCuaMacResults(input = {}) {
   const platform = input.platform || os.platform();
   if (platform !== 'darwin') {
     return [
-      makeResult(
-        'cua-mac',
+      result(
         'Mac CUA',
         'warn',
         'mac-cua browser provider is only supported on macOS.',
@@ -134,11 +125,10 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
 
   const driverPath =
     input.driverPath === undefined ? resolveCuaDriverPath() : input.driverPath;
-  const results: DiagResult[] = [];
+  const results = [];
   if (!driverPath) {
     results.push(
-      makeResult(
-        'cua-mac',
+      result(
         'CUA driver',
         'error',
         'cua-driver is not installed or HYBRIDAI_CUA_DRIVER_BIN does not point to an executable.',
@@ -148,8 +138,7 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
   }
 
   results.push(
-    makeResult(
-      'cua-mac',
+    result(
       'CUA driver',
       'ok',
       `cua-driver available at ${shortenHomePath(driverPath)}`,
@@ -165,8 +154,7 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
 
   if (permissions.permissionProbeError) {
     results.push(
-      makeResult(
-        'cua-mac',
+      result(
         'macOS permissions',
         'warn',
         `Unable to verify Accessibility and Screen Recording grants: ${permissions.permissionProbeError}`,
@@ -175,7 +163,7 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
     return results;
   }
 
-  const missing: string[] = [];
+  const missing = [];
   if (permissions.accessibilityGranted !== true) {
     missing.push(`Accessibility (${ACCESSIBILITY_DEEP_LINK})`);
   }
@@ -185,8 +173,7 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
 
   if (missing.length > 0) {
     results.push(
-      makeResult(
-        'cua-mac',
+      result(
         'macOS permissions',
         'error',
         `Missing macOS TCC grants for ${missing.join(' and ')}. mac-cua will not be advertised until both grants are present.`,
@@ -196,16 +183,11 @@ export function buildCuaMacResults(input: CuaMacProbeInput = {}): DiagResult[] {
   }
 
   results.push(
-    makeResult(
-      'cua-mac',
+    result(
       'macOS permissions',
       'ok',
       'Accessibility and Screen Recording grants are present; mac-cua can be advertised.',
     ),
   );
   return results;
-}
-
-export async function checkCuaMac(): Promise<DiagResult[]> {
-  return buildCuaMacResults();
 }

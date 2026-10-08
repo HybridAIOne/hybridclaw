@@ -23,8 +23,6 @@ export function printMainUsage(): void {
   channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
   coworker   Distill a human's source material into a coworker agent
   browser    Manage persistent browser profiles for agent web automation
-  browser-pool
-             Check managed browser pool health
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
   skill      List skill dependency installers or run one
@@ -390,17 +388,6 @@ Notes:
   - Profile data is stored under the HybridClaw data directory (configurable via HYBRIDCLAW_DATA_DIR; default: ~/.hybridclaw/data/browser-profiles/).
   - This directory contains persistent authenticated browser sessions — treat it as sensitive data.
   - Use \`browser reset\` to clear all saved sessions and start fresh.`);
-}
-
-export function printBrowserPoolUsage(): void {
-  console.log(`Usage: hybridclaw browser-pool <command>
-
-Commands:
-  hybridclaw browser-pool doctor          Check managed browser pool health
-
-Notes:
-  - Uses \`browser.managedCloud.endpointUrl\` from runtime config.
-  - The pool health endpoint must report at least one healthy, idle, or leased node.`);
 }
 
 export function printMigrationUsage(): void {
@@ -1074,9 +1061,6 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'browser':
       printBrowserUsage();
-      return true;
-    case 'browser-pool':
-      printBrowserPoolUsage();
       return true;
     case 'migrate':
       printMigrationUsage();

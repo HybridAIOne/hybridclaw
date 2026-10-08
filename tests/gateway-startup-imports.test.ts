@@ -17,6 +17,8 @@ const LAZY_ONLY_PACKAGES = [
   'botbuilder-core',
   'botframework-connector',
   'botframework-schema',
+  // Vendor browser providers are plugins (#1801); none may come back as core.
+  'camoufox-js',
   'discord.js',
   'imapflow',
   'mailparser',

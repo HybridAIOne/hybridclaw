@@ -1,40 +1,41 @@
-import { expect, test } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
 
+import {
+  clearBrowserProviders,
+  registerBrowserProvider,
+} from '../src/browser/provider-factory.js';
 import { browserSessionConfigSignature } from '../src/browser/session-config-signature.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../src/config/runtime-config.js';
 
-test('browser session config signature changes when private network access changes', () => {
-  const base = {
-    ...DEFAULT_RUNTIME_CONFIG.browser,
-    provider: 'mac-cua' as const,
-    allowPrivateNetwork: false,
-  };
+afterEach(() => {
+  clearBrowserProviders();
+});
 
+const base = {
+  ...DEFAULT_RUNTIME_CONFIG.browser,
+  provider: 'mac-cua',
+  allowPrivateNetwork: false,
+};
+
+test('browser session config signature changes when private network access changes', () => {
   expect(
-    browserSessionConfigSignature({
-      ...base,
-      allowPrivateNetwork: true,
-    }),
+    browserSessionConfigSignature({ ...base, allowPrivateNetwork: true }),
   ).not.toBe(browserSessionConfigSignature(base));
 });
 
-test('browser session config signature changes when native browser changes', () => {
-  const base = {
-    ...DEFAULT_RUNTIME_CONFIG.browser,
-    provider: 'mac-cua' as const,
-    macCua: {
-      ...DEFAULT_RUNTIME_CONFIG.browser.macCua,
-      browser: 'safari' as const,
-    },
-  };
-
-  expect(
-    browserSessionConfigSignature({
-      ...base,
-      macCua: {
-        ...base.macCua,
-        browser: 'chrome',
+// A plugin config edit reloads the plugin, which re-registers its provider;
+// cached sessions must not keep running on the old settings.
+test('browser session config signature changes when a provider re-registers', () => {
+  const before = browserSessionConfigSignature(base);
+  registerBrowserProvider({
+    kind: 'mac-cua',
+    create: () => ({
+      launchSession: async () => {
+        throw new Error('unused');
       },
+      closeSession: async () => undefined,
     }),
-  ).not.toBe(browserSessionConfigSignature(base));
+  });
+
+  expect(browserSessionConfigSignature(base)).not.toBe(before);
 });

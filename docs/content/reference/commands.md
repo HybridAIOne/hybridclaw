@@ -41,7 +41,6 @@ hybridclaw token revoke <id>
 hybridclaw browser login [--url <url>]
 hybridclaw browser status
 hybridclaw browser reset
-hybridclaw browser-pool doctor
 hybridclaw gateway concierge [info]
 hybridclaw update [status|--check] [--yes]
 hybridclaw help

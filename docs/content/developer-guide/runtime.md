@@ -118,8 +118,9 @@ This state lives in worker memory and is rebuilt when a worker is replaced.
 
 ### Browser Live Frames
 
-After successful page-changing calls, local and mac-cua browsers attach
-`browser: { url, title, frame }` to the tool finish event in the chat stream.
+After successful page-changing calls, local browsers and gateway browsers
+with live frames (mac-cua) attach `browser: { url, title, frame }` to the tool
+finish event in the chat stream.
 Clients can retrieve `frame` through `/api/artifact`; it names a small viewport
 JPEG in the workspace. The frame directory retains the latest 24 images.
 Reported URLs include origin and path, with queries and fragments omitted.
@@ -181,7 +182,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | IPC directory watcher and pending wakeup | Worker, per input wait | Closed after each wait; replacement workers scan existing files before waiting |
 | Browser cookies, local storage, logins | `data/browser-profiles/` on the gateway host | Kept |
 | Open pages and element refs, local browser | Worker | Lost; the next browser call starts a fresh browser |
-| Open pages, `managed-cloud` and `mac-cua` browsers | Gateway | Kept |
+| Open pages, plugin browsers (`managed-cloud`, `mac-cua`, ...) | Gateway | Kept |
 | Page parked for 2FA, local browser | Worker | Lost; `browser_resume_interaction` fails and leaves the operator's reply unused |
 | Which 2FA request a managed page is parked on | Worker memory | Lost; `browser_resume_interaction` then needs the `suspended_session_id` from the park result |
 | MCP connections and scheduling declarations | Worker | Reconnected and revalidated from gateway config on the next turn; an idle warm worker connects them before its first turn |

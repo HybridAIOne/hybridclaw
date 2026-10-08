@@ -135,7 +135,17 @@ saved revision history directly.
 - legacy `container.additionalMounts` JSON is migrated into `container.binds`
   on startup; update config files to use `binds` before `additionalMounts` is
   removed
-- `browser.provider` selects the browser automation backend. Supported values include `local`, `camofox`, `managed-cloud`, `browser-use-cloud`, and `mac-cua`. Turns from the mobile app (`client: "mobile"`) always use `local`, whatever this is set to: the app shows the agent's browser through the page and frame reports that only the local browser sends. `browser.local.*` and `browser.camofox.*` configure persistent profile roots and headed mode; `browser.managedCloud.*` points at an operator-run HybridClaw browser pool with navigation-guard enforcement and optional `poolTokenRef` bearer authentication; `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef; and `browser.macCua.*` selects the operator-owned macOS browser, driver command, driver args, and screenshot mode (`som`, `vision`, or `ax`). Camofox stealth mode is deny-by-default per host; allow it from the workspace policy with `browser.stealth.rules`. Run `hybridclaw doctor cua-mac` before enabling `mac-cua`; the provider requires the `cua-driver` binary plus macOS Accessibility and Screen Recording grants. `mac-cua` opens and controls its own window in that browser, never one you already have open. If you close that window, the next browser call opens a new one; calls other than `browser_navigate` then fail once, asking the agent to load the page again.
+- `browser.provider` selects the browser automation backend. `local` (the
+  default) is a Chromium on this host, configured by `browser.local.*`
+  (persistent profile root and headed mode). Every other value names a browser
+  provider plugin, and browsing fails with an install hint until a plugin
+  registers that kind; it never falls back to `local`. HybridClaw bundles four,
+  each with the id of its kind: `managed-cloud`, `browser-use-cloud`,
+  `camofox`, and `mac-cua`. See
+  [Browser Provider Plugins](#browser-provider-plugins). Turns from the mobile
+  app (`client: "mobile"`) always use `local`, whatever this is set to: the app
+  shows the agent's browser through the page and frame reports that only the
+  local browser sends.
 - `ui.navigation[]` controls the console top navigation strip. Each entry has
   `label` and `href`; optional `icon` values (`chat`, `agents`, `admin`,
   `docs`) select built-in console icons, and optional `image` values use a
@@ -461,6 +471,44 @@ For the dual-backend iMessage workflow, see
 For SSH tunnels, host-managed Tailscale, and the macOS LaunchAgent tunnel
 pattern, see [Remote Access](../guides/remote-access.md).
 
+## Browser Provider Plugins
+
+Install the plugin for a browser provider, configure it with
+`hybridclaw plugin config <id> <key> <value>`, then select it:
+
+```bash
+hybridclaw plugin install managed-cloud
+hybridclaw plugin config managed-cloud endpointUrl http://127.0.0.1:8787
+hybridclaw config set browser.provider managed-cloud
+```
+
+| Plugin (`browser.provider`) | What it drives | Config keys | Credential |
+|---|---|---|---|
+| `managed-cloud` | Chromium leased from an operator-run HybridClaw browser pool with its navigation guard ([Hetzner recipe](../guides/hetzner-managed-browser.md)) | `endpointUrl`, `defaultTenantId`, `pricing.actionUsd` | `MANAGED_BROWSER_POOL_TOKEN` (optional bearer token) |
+| `browser-use-cloud` | Remote Chromium sessions from the Browser Use Cloud API | `baseUrl`, `browser` (session options), `pricing` | `BROWSER_USE_API_KEY` |
+| `camofox` | The Camoufox stealth Firefox build on this host | `profileRoot`, `headed`, `launchOptions` (camoufox-js options) | — |
+| `mac-cua` | The operator's own macOS browser through the Cua Driver | `browser`, `driverCommand`, `driverArgs`, `screenshotMode` | — |
+
+Store credentials with `hybridclaw secret set <NAME> <value>`. Browser provider
+plugins run in the gateway, so the sandbox drives them through the gateway's
+browser tool route; only `local` runs a browser of its own.
+
+- `managed-cloud` adds `/browser-pool doctor` (or
+  `hybridclaw gateway browser-pool doctor`), which needs at least one healthy,
+  idle, or leased pool node.
+- `camofox` downloads the Camoufox browser separately: after installing the
+  plugin, run `npx camoufox-js fetch` in `~/.hybridclaw/plugins/camofox`.
+  Stealth mode is deny-by-default per host; allow it from the workspace policy
+  with `browser.stealth.rules`.
+- `mac-cua` only runs on macOS; see the setup below.
+
+A config from v0.39 or earlier that selected one of these providers keeps it:
+on first start, its `browser.<section>` settings move into the plugin's
+`plugins.list[]` entry, which enables the bundled plugin. A secret reference
+becomes the plugin's credential; if it used another secret name, store the
+value under the credential name above. Settings of providers that were not
+selected are dropped.
+
 ## mac-cua Driver Setup
 
 The `mac-cua` browser provider drives the operator-owned macOS browser through
@@ -497,7 +545,7 @@ If `cua-driver` is installed outside `PATH`, point HybridClaw at the executable:
 export HYBRIDAI_CUA_DRIVER_BIN="$HOME/.local/bin/cua-driver"
 ```
 
-Leave `browser.macCua.driverArgs` empty to use the default
+Leave the plugin's `driverArgs` empty to use the default
 `["mcp", "--no-daemon-relaunch"]`. Set it only when you need to override the
 driver launch mode explicitly.
 
@@ -515,28 +563,32 @@ Accessibility: granted.
 Screen Recording: granted.
 ```
 
-Then verify HybridClaw readiness:
-
-```bash
-hybridclaw doctor cua-mac
-```
-
 Enable the provider:
 
 ```bash
+hybridclaw plugin install mac-cua
+hybridclaw plugin config mac-cua browser chrome
 hybridclaw config set browser.provider mac-cua
-hybridclaw config set browser.macCua.browser chrome
 ```
 
-Supported `browser.macCua.browser` values are `safari`, `chrome`, `firefox`,
-`brave`, and `arc`. Supported screenshot modes are `som`, `vision`, and `ax`:
+Then verify readiness from a TUI or web session, which checks the gateway
+process that will drive the browser:
+
+```text
+/mac-cua doctor
+```
+
+Supported `browser` values are `safari`, `chrome`, `firefox`, `brave`, and
+`arc`. Supported screenshot modes are `som`, `vision`, and `ax`:
 
 ```bash
-hybridclaw config set browser.macCua.screenshotMode som
+hybridclaw plugin config mac-cua screenshotMode som
 ```
 
-Restart the gateway after changing browser configuration so the runtime picks
-up the new provider.
+`mac-cua` opens and controls its own window in that browser, never one you
+already have open. If you close that window, the next browser call opens a new
+one; calls other than `browser_navigate` then fail once, asking the agent to
+load the page again.
 
 ## Shared Inbound Media Staging
 
@@ -642,7 +694,7 @@ credential checks run.
 - current built-in SecretRef surfaces include `ops.webApiToken`,
   `ops.gatewayApiToken`, `email.password`, `imessage.password`,
   `voice.twilio.authToken`, `local.backends.vllm.apiKey`,
-  `browser.browserUseCloud.apiKeyRef`, `web.search.searxngBearerTokenRef`, and
+  `web.search.searxngBearerTokenRef`, and
   per-agent `agents.list[].webSearch.searxngBearerTokenRef`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`

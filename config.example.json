@@ -44,31 +44,6 @@
     "local": {
       "profileRoot": "",
       "headed": false
-    },
-    "camofox": {
-      "profileRoot": "",
-      "headed": false,
-      "launchOptions": {}
-    },
-    "managedCloud": {
-      "endpointUrl": "http://127.0.0.1:8787",
-      "defaultTenantId": "",
-      "pricing": {}
-    },
-    "browserUseCloud": {
-      "apiKeyRef": {
-        "source": "store",
-        "id": "BROWSER_USE_API_KEY"
-      },
-      "baseUrl": "",
-      "browser": {},
-      "pricing": {}
-    },
-    "macCua": {
-      "browser": "chrome",
-      "driverCommand": "",
-      "driverArgs": [],
-      "screenshotMode": "som"
     }
   },
   "skills": {

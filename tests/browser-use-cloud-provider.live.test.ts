@@ -35,12 +35,16 @@ liveTest(
         '../src/memory/db.js'
       );
       const { BrowserUseCloudProvider } = await import(
-        '../src/browser/browser-use-cloud-provider.js'
+        '../plugins/browser-use-cloud/src/provider.js'
+      );
+      const { createBrowserProviderHost } = await import(
+        '../src/browser/provider-host.js'
       );
       initDatabase({ quiet: true, dbPath: path.join(tmpDir, 'usage.db') });
 
       const provider = new BrowserUseCloudProvider({
-        apiKeyRef: { source: 'store', id: 'BROWSER_USE_API_KEY' },
+        host: createBrowserProviderHost({ allowPrivateNetwork: false }),
+        getApiKey: () => BROWSER_USE_API_KEY,
         browser: {
           timeoutMinutes: 1,
           proxyCountryCode: null,

@@ -1,13 +1,14 @@
 {
   "lockfiles": {
-    "package-lock.json": "b700e9ede9cbc1a7597db46fd657c0e4dde338c00c9663a6eb05f14d324008a2",
-    "npm-shrinkwrap.json": "b700e9ede9cbc1a7597db46fd657c0e4dde338c00c9663a6eb05f14d324008a2",
+    "package-lock.json": "7369da395443b60e3988d59247577e6ef01188ce39aff99d900ccb17310e6705",
+    "npm-shrinkwrap.json": "7369da395443b60e3988d59247577e6ef01188ce39aff99d900ccb17310e6705",
     "container/package-lock.json": "1b98af570f1225ddfb3c6acca80fb10218060383e08b031de47030495d781ef5",
     "container/npm-shrinkwrap.json": "1b98af570f1225ddfb3c6acca80fb10218060383e08b031de47030495d781ef5",
     "plugins/brevo-email/package-lock.json": "11293bb72d817999d3bbd5ef4625a0ab78468bd6857ae31b44dd7c7cec4ec6a6",
     "plugins/line/package-lock.json": "7c2d0b77e804b0603e26e31123fff0d6826410a41a27200b55d32ce5d05102c6",
     "container/tools/package-lock.json": "3e83b32631665041bce0032e637805cae7184817dc40ed916357a4cd330b4d06",
-    "plugins/transformers-embeddings/package-lock.json": "4893f74df0202670eb34766f75d201c26af7f42f2745b02cb9b38fc8e9dfc089"
+    "plugins/transformers-embeddings/package-lock.json": "4893f74df0202670eb34766f75d201c26af7f42f2745b02cb9b38fc8e9dfc089",
+    "plugins/camofox/package-lock.json": "fe7793bf612911f76938147f0c3718f0bdc9aad15bae04ac5f8b7d6f603df8c9"
   },
   "licenses": {}
 }

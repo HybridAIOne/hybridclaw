@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-mac-cua",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw browser provider that drives the operator's macOS browser through the Cua Driver",
+  "engines": {
+    "node": "22.x"
+  }
+}

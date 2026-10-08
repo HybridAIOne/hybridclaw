@@ -5,6 +5,7 @@ import type {
   ClassifierMiddlewareSkill,
   MiddlewareDecision,
 } from '../agent/middleware.js';
+import type { BrowserProviderRegistration } from '../browser/provider-factory.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
@@ -641,6 +642,8 @@ export interface HybridClawPluginApi {
   /** Supplies a `memory.embedding.provider` id other than the built-in `hashed`. */
   registerEmbeddingProvider(provider: EmbeddingProviderRegistration): void;
   registerLocalClassifier(registration: LocalClassifierRegistration): void;
+  /** Supplies a `browser.provider` kind other than the built-in `local`. */
+  registerBrowserProvider(registration: BrowserProviderRegistration): void;
   registerProvider(provider: AIProvider): void;
   registerChannel(channel: ChannelInfo): void;
   registerChannelTransport(transport: ChannelTransportRegistration): void;

@@ -19,6 +19,11 @@ import {
   type MiddlewareOutcome,
   type MiddlewarePhase,
 } from '../agent/middleware.js';
+import {
+  clearBrowserProviders,
+  restoreBrowserProviders,
+  snapshotBrowserProviders,
+} from '../browser/provider-factory.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
   listChannels,
@@ -249,6 +254,7 @@ type PluginRegistrationSnapshot = {
   channelTransports: RegisteredChannelTransport[];
   localClassifiers: ReturnType<typeof snapshotLocalClassifiers>;
   embeddingProviders: ReturnType<typeof snapshotEmbeddingProviders>;
+  browserProviders: ReturnType<typeof snapshotBrowserProviders>;
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
   hooks: Map<PluginHookName, RegisteredHook[]>;
@@ -899,6 +905,7 @@ export class PluginManager {
       }
       this.channelTransports = [];
       clearEmbeddingProviders();
+      clearBrowserProviders();
       clearLocalClassifiers();
       this.cleanupImportSnapshots();
       return;
@@ -938,6 +945,7 @@ export class PluginManager {
     }
     this.channelTransports = [];
     clearEmbeddingProviders();
+    clearBrowserProviders();
     clearLocalClassifiers();
 
     this.cleanupImportSnapshots();
@@ -1590,6 +1598,7 @@ export class PluginManager {
       channelTransports: [...this.channelTransports],
       localClassifiers: snapshotLocalClassifiers(),
       embeddingProviders: snapshotEmbeddingProviders(),
+      browserProviders: snapshotBrowserProviders(),
       tools: new Map(this.tools),
       commands: new Map(this.commands),
       hooks: new Map(
@@ -1623,6 +1632,7 @@ export class PluginManager {
       registerChannelTransport(entry.transport);
     }
     restoreEmbeddingProviders(snapshot.embeddingProviders);
+    restoreBrowserProviders(snapshot.browserProviders);
     restoreLocalClassifiers(snapshot.localClassifiers);
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);

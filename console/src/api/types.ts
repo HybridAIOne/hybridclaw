@@ -838,55 +838,12 @@ export interface AdminConfig {
     persistBashState: boolean;
   };
   browser?: {
-    provider:
-      | 'local'
-      | 'camofox'
-      | 'managed-cloud'
-      | 'browser-use-cloud'
-      | 'mac-cua';
+    /** `local`, or a kind a browser-provider plugin registers. */
+    provider: string;
     allowPrivateNetwork: boolean;
     local: {
       profileDir: string;
       headed: boolean;
-    };
-    camofox: {
-      profileDir: string;
-      headed: boolean;
-    };
-    managedCloud: {
-      endpointUrl: string;
-      poolTokenRef:
-        | {
-            source: 'store';
-            id: string;
-          }
-        | undefined;
-      defaultTenantId: string;
-      pricing: {
-        actionUsd: number;
-      };
-    };
-    browserUseCloud: {
-      apiKeyRef:
-        | {
-            source: 'store';
-            id: string;
-          }
-        | undefined;
-      projectId: string;
-      profileId: string;
-      region: string;
-      keepAlive: boolean;
-      pricing: {
-        browserUsdPerMinute: number;
-        actionUsd: number;
-      };
-    };
-    macCua: {
-      browser: 'safari' | 'chrome' | 'firefox' | 'brave' | 'arc';
-      driverCommand: string;
-      driverArgs: string[];
-      screenshotMode: 'som' | 'vision' | 'ax';
     };
   };
   deployment: {
@@ -1015,25 +972,6 @@ export interface AdminLogsResponse {
   files: AdminLogFile[];
   selected: AdminLogTail | null;
   logging?: AdminLoggingState;
-}
-
-export interface AdminBrowserPoolHealthResponse {
-  ok: boolean;
-  status: 'online' | 'offline' | 'disabled';
-  endpointUrl: string;
-  nodeCount: number;
-  healthyNodeCount: number;
-  message: string;
-}
-
-export interface AdminBrowserPoolLaunchResponse {
-  ok: boolean;
-  status: 'started' | 'starting' | 'already-running' | 'unsupported' | 'failed';
-  endpointUrl: string;
-  pid: number | null;
-  message: string;
-  poolTokenRefId?: string;
-  logTail?: string;
 }
 
 export interface SignalLinkResponse {

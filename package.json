@@ -40,10 +40,14 @@
     "templates/",
     "docs/",
     "infra/managed-browser/",
+    "plugins/browser-use-cloud/",
+    "plugins/camofox/",
     "plugins/concierge-router/",
     "plugins/connector-events/",
     "plugins/media-tools/",
     "plugins/line/",
+    "plugins/mac-cua/",
+    "plugins/managed-cloud/",
     "plugins/vonage-voice/",
     "plugins/tier-router/",
     "plugins/transformers-embeddings/",
@@ -138,7 +142,6 @@
     "amaro": "1.2.1",
     "better-sqlite3": "12.11.1",
     "botbuilder": "4.23.3",
-    "camoufox-js": "0.11.5",
     "cron-parser": "5.10.1",
     "csv-parse": "7.0.2",
     "discord.js": "14.27.0",
@@ -207,11 +210,6 @@
     "postcss": {
       ".": "8.5.28",
       "nanoid": "5.1.16"
-    },
-    "camoufox-js": {
-      "adm-zip": "0.6.1",
-      "brace-expansion": "5.0.12",
-      "ua-parser-js": "1.0.41"
     },
     "shell-quote": "1.10.0",
     "tar": "7.5.22",
