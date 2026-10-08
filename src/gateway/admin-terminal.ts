@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
-import { type IPty, spawn as spawnPty } from 'node-pty';
+import type { IPty } from 'node-pty';
 import type WebSocket from 'ws';
 import * as wsModule from 'ws';
 import { resolveInstallRoot } from '../infra/install-root.js';
@@ -142,7 +142,17 @@ function ensureNodePtySpawnHelpersExecutable(installRoot: string): void {
   }
 }
 
-ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
+let nodePty: typeof import('node-pty') | null = null;
+
+// node-pty is a native addon; a missing or broken prebuild must fail only the
+// terminal request, not the gateway import graph.
+async function loadNodePty(): Promise<typeof import('node-pty')> {
+  if (!nodePty) {
+    ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
+    nodePty = await import('node-pty');
+  }
+  return nodePty;
+}
 
 function formatLaunchCommand(command: string, args: string[]): string {
   return [command, ...args]
@@ -195,7 +205,7 @@ function encodeServerMessage(message: AdminTerminalServerMessage): string {
 export function createAdminTerminalManager(): {
   startSession: (
     options?: AdminTerminalStartOptions,
-  ) => AdminTerminalStartResponse;
+  ) => Promise<AdminTerminalStartResponse>;
   stopSession: (sessionId: string) => boolean;
   handleUpgrade: (
     req: IncomingMessage,
@@ -284,7 +294,8 @@ export function createAdminTerminalManager(): {
   };
 
   return {
-    startSession(options) {
+    async startSession(options) {
+      const { spawn: spawnPty } = await loadNodePty();
       if (sessions.size >= MAX_ACTIVE_SESSIONS) {
         throw new AdminTerminalCapacityError();
       }

@@ -105,7 +105,7 @@ describe('admin terminal manager', () => {
       '../src/gateway/admin-terminal.ts'
     );
     const manager = createAdminTerminalManager();
-    const started = manager.startSession();
+    const started = await manager.startSession();
     const pty = spawnedPtys[0];
     expect(pty).toBeDefined();
 
@@ -137,6 +137,21 @@ describe('admin terminal manager', () => {
       },
     ]);
     expect(ws.close).toHaveBeenCalledTimes(1);
+
+    manager.dispose();
+  });
+
+  test('a node-pty load failure fails only the session start, not the module import', async () => {
+    vi.doMock('node-pty', () => {
+      throw new Error('node-pty prebuild missing');
+    });
+
+    const { createAdminTerminalManager } = await import(
+      '../src/gateway/admin-terminal.ts'
+    );
+    const manager = createAdminTerminalManager();
+
+    await expect(manager.startSession()).rejects.toThrow();
 
     manager.dispose();
   });
