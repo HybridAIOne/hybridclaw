@@ -42,8 +42,10 @@ describe.sequential('container MCP tool dispatch', () => {
     );
 
     expect(result).toBe('ok');
-    expect(callToolDetailed).toHaveBeenCalledWith('demo__echo', {
-      value: 'hello',
-    });
+    expect(callToolDetailed).toHaveBeenCalledWith(
+      'demo__echo',
+      { value: 'hello' },
+      undefined,
+    );
   });
 });

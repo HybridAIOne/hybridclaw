@@ -1,4 +1,5 @@
 import type { ApprovalMode } from '../shared/approval-mode.js';
+import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
 import type { SessionSkillCatalogEntry } from '../shared/skill-catalog.js';
@@ -118,6 +119,8 @@ export interface ToolDefinition {
 export interface ToolRunResult extends VisualAttachmentMessage {
   output: string;
   isError: boolean;
+  /** The platform asks the user first; `output` is then only a placeholder. */
+  boostOffer?: BoostOffer;
 }
 
 export interface ToolSchema {
@@ -390,6 +393,8 @@ export interface PendingApproval {
   allowAll: boolean;
   expiresAt: number | null;
   escalationTarget?: EscalationTarget;
+  /** Set when the question is whether to spend one of the user's boosts. */
+  boost?: BoostPrompt;
 }
 
 export interface TokenUsageStats {

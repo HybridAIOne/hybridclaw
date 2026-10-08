@@ -19,6 +19,9 @@ export interface McpServerConfig {
   toolBehavior?: McpToolBehaviorConfig;
 }
 
+/** The MCP server the runtime adds for the HybridAI platform's gateway tools. */
+export const HYBRIDAI_MCP_SERVER_NAME: 'hybridai';
+
 export function parseMcpToolBehaviorConfig(
   value: unknown,
 ): McpToolBehaviorConfig | undefined;

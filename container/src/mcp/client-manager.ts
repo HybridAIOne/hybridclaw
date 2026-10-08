@@ -2,7 +2,9 @@
  * MCP connections own discovered tools and bind scheduling trust to their config.
  * Overlap needs both live and requested config trust, including after a failed
  * replacement. Unlike approval-policy, this manager does not grant approvals
- * or infer concurrency from tool names.
+ * or infer concurrency from tool names. Calls to the HybridAI server carry the
+ * boost handshake; an offer comes back as `boostOffer`, and the caller, not
+ * this manager, decides when to send the user's answer.
  */
 import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -22,7 +24,11 @@ import {
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { parseMcpToolBehaviorConfig } from '../../shared/mcp-server-config.js';
+import { type BoostAnswer, parseBoostOffer } from '../../shared/boost-offer.js';
+import {
+  HYBRIDAI_MCP_SERVER_NAME,
+  parseMcpToolBehaviorConfig,
+} from '../../shared/mcp-server-config.js';
 import {
   buildMcpServerNamespaces,
   sanitizeMcpToolSegment,
@@ -32,6 +38,9 @@ import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';
 import { isParallelSafeMcpTool } from './tool-concurrency.js';
 import {
+  BOOST_META,
+  BOOST_OFFER_META,
+  BOOST_OFFERS_META,
   DEFER_LOADING_META,
   type LiveHeaders,
   type McpClientHandle,
@@ -350,9 +359,14 @@ export class McpClientManager {
     );
   }
 
+  /**
+   * `boost` is the user's answer to an offer this call returned before; only
+   * the approval flow passes it, never tool arguments.
+   */
   async callToolDetailed(
     namespacedName: string,
     args: Record<string, unknown>,
+    boost?: BoostAnswer,
   ): Promise<ToolRunResult> {
     const entry = this.toolIndex.get(namespacedName);
     if (!entry) throw new Error(`Unknown MCP tool: ${namespacedName}`);
@@ -362,6 +376,7 @@ export class McpClientManager {
       namespacedName,
       args,
       isResendSafe(entry.annotations) ? 'resend' : 'reconnect',
+      boost,
     );
   }
 
@@ -605,11 +620,13 @@ export class McpClientManager {
     namespacedName: string,
     args: Record<string, unknown>,
     retry: 'resend' | 'reconnect' | 'none',
+    boost?: BoostAnswer,
   ): Promise<ToolRunResult> {
     const handle = this.clients.get(serverName);
     if (!handle) {
       throw new Error(`MCP server ${serverName} is not connected`);
     }
+    const isHybridAI = serverName === HYBRIDAI_MCP_SERVER_NAME;
 
     try {
       // Without an explicit timeout the SDK applies its own 60 s default.
@@ -617,6 +634,14 @@ export class McpClientManager {
         {
           name: toolName,
           arguments: args,
+          ...(isHybridAI
+            ? {
+                _meta: {
+                  [BOOST_OFFERS_META]: true,
+                  ...(boost ? { [BOOST_META]: boost } : {}),
+                },
+              }
+            : {}),
         },
         CallToolResultSchema,
         { timeout: MCP_TOOL_CALL_TIMEOUT_MS },
@@ -630,9 +655,15 @@ export class McpClientManager {
         toolName: namespacedName,
         ok: !result.isError,
       });
+      // An answered call is final: a second offer keeps its fallback text.
+      const boostOffer =
+        isHybridAI && !boost && !result.isError
+          ? parseBoostOffer(result._meta?.[BOOST_OFFER_META])
+          : null;
       return {
         output: rendered,
         isError: result.isError === true,
+        ...(boostOffer ? { boostOffer } : {}),
       };
     } catch (error) {
       if (isAnsweredByServer(error)) throw error;
@@ -652,6 +683,7 @@ export class McpClientManager {
         namespacedName,
         args,
         'none',
+        boost,
       );
     }
   }
