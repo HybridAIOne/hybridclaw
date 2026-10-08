@@ -1840,11 +1840,6 @@ async function handleSkillCommand(args: string[]): Promise<void> {
   await cliSkill.handleSkillCommand(args);
 }
 
-async function handleCoworkerCommand(args: string[]): Promise<void> {
-  const cliCoworker = await import('./cli/coworker-command.js');
-  await cliCoworker.handleCoworkerCommand(args);
-}
-
 async function handleToolCommand(args: string[]): Promise<void> {
   const cliTool = await import('./cli/tool-command.js');
   await cliTool.handleToolCommand(args);
@@ -2028,9 +2023,6 @@ export async function main(
     case 'skill':
       await handleSkillCommand(subargs);
       break;
-    case 'coworker':
-      await handleCoworkerCommand(subargs);
-      break;
     case 'tool':
       await handleToolCommand(subargs);
       break;
@@ -2080,9 +2072,16 @@ export async function main(
       process.exit(1);
       break;
     }
-    default:
+    default: {
+      if (command) {
+        const { runPluginCliCommand } = await import(
+          './cli/plugin-cli-dispatch.js'
+        );
+        if (await runPluginCliCommand(command, subargs)) break;
+      }
       printMainUsage();
       process.exit(command ? 1 : 0);
+    }
   }
 }
 

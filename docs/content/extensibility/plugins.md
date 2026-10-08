@@ -143,6 +143,10 @@ in a hand-edited config are dropped when the plugin loads.
 - `vonage-voice` provides signed inbound and outbound phone calls through
   Vonage Voice without adding Vonage configuration to the core voice channel —
   turn-based by default, or realtime speech-to-speech with `mode: realtime`.
+- `distill` adds human distillation: the `hybridclaw coworker` CLI and the
+  admin console Distill page (`/api/admin/distill`). It ships in the npm
+  package but loads only once installed (`hybridclaw plugin install distill`);
+  see [Human Distillation](../guides/human-distillation.md).
 - `published-tools` serves admin-defined tools on an MCP endpoint (protocol
   `2026-07-28`) so hosts such as Microsoft Copilot can hand tasks to an agent;
   see [Published Tools (MCP)](../guides/published-tools.md).
@@ -310,6 +314,9 @@ Currently wired runtime surfaces:
 - classifier middleware with `pre_send` and `post_receive` hooks
 - plugin tools
 - inbound webhooks on fixed plugin-owned routes
+- authenticated admin API routes under `/api/admin/<plugin-id>`
+  (`registerAdminRoute`)
+- top-level CLI commands (`registerCliCommand`)
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
 - services
 - channels
@@ -425,6 +432,37 @@ Use the exported `buildPluginInboundWebhookPath(...)` helper from
 Webhook handlers receive the raw Node `IncomingMessage` and `ServerResponse`
 plus the parsed `URL`, and can reuse `readWebhookJsonBody(...)`,
 `sendWebhookJson(...)`, and `WebhookHttpError` from the same SDK path.
+
+### Admin routes and CLI commands
+
+`api.registerAdminRoute({ method, path, rbacAction, handler })` adds an
+operator API route for the admin console. Unlike inbound webhooks, these
+routes sit behind the gateway's normal admin authentication:
+
+- `method` is `GET`, `POST`, `PUT`, or `DELETE`.
+- `path` is `/api/admin/<plugin-id>` or a child of it. A `:name` segment
+  captures one path segment; the decoded value arrives as `params.name`.
+- `rbacAction` must be an action from the core RBAC catalog
+  (`src/security/admin-rbac.ts`); the gateway checks it before the handler
+  runs, so scoped API tokens and sessions need that action.
+- Registration throws on an unknown method or action, a path outside the
+  plugin's namespace, a path core already serves, or a path that overlaps
+  another registered route. A known path with another method answers 405.
+
+Handlers receive `{ req, res, url, params, pluginId, logger }`, write the
+response themselves, and throw `WebhookHttpError` for an error status.
+
+`api.registerCliCommand({ name, description, run })` adds a top-level
+`hybridclaw <name>` command. The CLI looks plugin commands up only for names
+no built-in command handles. It loads installed plugins register-only (no
+services, memory layers, or gateway hooks start) and opens the runtime
+database before `run(args)`.
+
+The plugin SDK also exports the host services a plugin should reuse rather
+than copy: `recordAuditEvent`, `syncRuntimeAssetRevisionState` /
+`clearRuntimeAssetRevisions` (F4 revisions), the confidential-rule helpers
+(`loadConfidentialRules`, `dehydrateConfidential`, `scanForLeaks`), and the
+agent registry and workspace helpers. The `distill` plugin uses all of these.
 
 To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway

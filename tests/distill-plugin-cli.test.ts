@@ -1,25 +1,30 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
 
-const ORIGINAL_HOME = process.env.HOME;
+// The distill plugin's `coworker` CLI, called the way the core dispatcher
+// calls a registered plugin CLI command (runtime database already open).
+const makeTempHome = useTempDir('hybridclaw-coworker-cli-');
+useCleanMocks({ unstubAllEnvs: true, restoreAllMocks: true });
 
-function makeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-coworker-cli-'));
-}
-
-async function importFreshCli(homeDir: string) {
-  process.env.HOME = homeDir;
-  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+async function importCoworkerCli(homeDir: string) {
+  vi.stubEnv('HOME', homeDir);
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', '');
   vi.resetModules();
-  return import('../src/cli.ts');
+  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
+    import('../src/plugins/plugin-sdk.ts'),
+  );
+  const { initDatabase } = await import('../src/memory/db.js');
+  initDatabase({ quiet: true });
+  const { runCoworkerCommand } = await import('../plugins/distill/src/cli.js');
+  return { run: async (args: string[]) => runCoworkerCommand(args) };
 }
 
-afterEach(() => {
-  process.env.HOME = ORIGINAL_HOME;
+afterEach(async () => {
   process.exitCode = 0;
-  vi.restoreAllMocks();
+  await cleanupGatewayRuntime();
 });
 
 function writeSource(homeDir: string, name: string, content: string): string {
@@ -42,7 +47,7 @@ function workspaceDir(homeDir: string, agentId: string): string {
 
 test('coworker distill against a real person is blocked until consent is recorded, then produces run.json + REPORT.md', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir);
+  const cli = await importCoworkerCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   const source = writeSource(
@@ -51,8 +56,7 @@ test('coworker distill against a real person is blocked until consent is recorde
     '# Decisions\n\nBoring options win until measured otherwise.',
   );
 
-  await cli.main([
-    'coworker',
+  await cli.run([
     'distill',
     '--alias',
     'maya',
@@ -67,8 +71,7 @@ test('coworker distill against a real person is blocked until consent is recorde
   expect(errorOutput).toContain('coworker consent record');
   process.exitCode = 0;
 
-  await cli.main([
-    'coworker',
+  await cli.run([
     'consent',
     'record',
     '--alias',
@@ -81,8 +84,7 @@ test('coworker distill against a real person is blocked until consent is recorde
     'I consent to distillation.',
   ]);
 
-  await cli.main([
-    'coworker',
+  await cli.run([
     'distill',
     '--alias',
     'maya',
@@ -109,12 +111,11 @@ test('coworker distill against a real person is blocked until consent is recorde
 
 test('coworker interview writes a gap-driven questionnaire and status reports corpus state', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir);
+  const cli = await importCoworkerCli(homeDir);
   const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   const source = writeSource(homeDir, 'memo.md', '# Memo\n\nShort note.');
 
-  await cli.main([
-    'coworker',
+  await cli.run([
     'distill',
     '--alias',
     'nova',
@@ -128,8 +129,7 @@ test('coworker interview writes a gap-driven questionnaire and status reports co
   ]);
 
   const questionnairePath = path.join(homeDir, 'interview.md');
-  await cli.main([
-    'coworker',
+  await cli.run([
     'interview',
     '--alias',
     'nova',
@@ -147,7 +147,7 @@ test('coworker interview writes a gap-driven questionnaire and status reports co
   expect(questionnaire).toContain('--kind interview');
 
   logSpy.mockClear();
-  await cli.main(['coworker', 'status', '--alias', 'nova']);
+  await cli.run(['status', '--alias', 'nova']);
   const statusOutput = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
   expect(statusOutput).toContain('Coworker: Nova');
   expect(statusOutput).toContain('fictional');
@@ -156,13 +156,12 @@ test('coworker interview writes a gap-driven questionnaire and status reports co
 
 test('numeric flags fail fast on invalid values instead of propagating NaN', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir);
+  const cli = await importCoworkerCli(homeDir);
   vi.spyOn(console, 'log').mockImplementation(() => {});
   const source = writeSource(homeDir, 'memo.md', '# Memo\n\nNote.');
   await expect(
-    cli.main([
-      'coworker',
-      'distill',
+    cli.run([
+    'distill',
       '--alias',
       'nova',
       '--fictional',
@@ -173,9 +172,8 @@ test('numeric flags fail fast on invalid values instead of propagating NaN', asy
     ]),
   ).rejects.toThrow(/Invalid `--holdout` value/);
   await expect(
-    cli.main([
-      'coworker',
-      'distill',
+    cli.run([
+    'distill',
       '--alias',
       'nova',
       '--fictional',
@@ -186,9 +184,8 @@ test('numeric flags fail fast on invalid values instead of propagating NaN', asy
     ]),
   ).rejects.toThrow(/Invalid `--holdout` value/);
   await expect(
-    cli.main([
-      'coworker',
-      'interview',
+    cli.run([
+    'interview',
       '--alias',
       'nova',
       '--count',
@@ -199,11 +196,10 @@ test('numeric flags fail fast on invalid values instead of propagating NaN', asy
 
 test('coworker forget requires --confirm and unknown subcommands fail with usage', async () => {
   const homeDir = makeTempHome();
-  const cli = await importFreshCli(homeDir);
+  const cli = await importCoworkerCli(homeDir);
   vi.spyOn(console, 'log').mockImplementation(() => {});
   const source = writeSource(homeDir, 'memo.md', '# Memo\n\nNote.');
-  await cli.main([
-    'coworker',
+  await cli.run([
     'distill',
     '--alias',
     'nova',
@@ -211,10 +207,10 @@ test('coworker forget requires --confirm and unknown subcommands fail with usage
     '--source',
     source,
   ]);
-  await expect(
-    cli.main(['coworker', 'forget', '--alias', 'nova']),
-  ).rejects.toThrow(/--confirm/);
-  await expect(cli.main(['coworker', 'frobnicate'])).rejects.toThrow(
+  await expect(cli.run(['forget', '--alias', 'nova'])).rejects.toThrow(
+    /--confirm/,
+  );
+  await expect(cli.run(['frobnicate'])).rejects.toThrow(
     /Unknown coworker subcommand/,
   );
 });

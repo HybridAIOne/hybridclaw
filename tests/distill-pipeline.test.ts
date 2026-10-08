@@ -2,7 +2,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import type { DistillExtraction } from '../src/distill/types.js';
+
+type DistillClaim = {
+  dimension: string;
+  claim: string;
+  evidence: string[];
+  confidence: number;
+  conflictsWith?: string;
+};
+type DistillExtraction = { claims: DistillClaim[] } & Record<string, unknown>;
 
 const ORIGINAL_HOME = process.env.HOME;
 
@@ -10,21 +18,24 @@ let tempHome: string;
 
 async function loadModules() {
   vi.resetModules();
+  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
+    import('../src/plugins/plugin-sdk.ts'),
+  );
   return {
-    consent: await import('../src/distill/consent.js'),
-    corpus: await import('../src/distill/corpus.js'),
-    corrections: await import('../src/distill/corrections.js'),
-    evalMod: await import('../src/distill/eval.js'),
-    exportMod: await import('../src/distill/export.js'),
-    forget: await import('../src/distill/forget.js'),
-    merge: await import('../src/distill/merge.js'),
-    paths: await import('../src/distill/paths.js'),
-    pipeline: await import('../src/distill/pipeline.js'),
+    consent: await import('../plugins/distill/src/consent.js'),
+    corpus: await import('../plugins/distill/src/corpus.js'),
+    corrections: await import('../plugins/distill/src/corrections.js'),
+    evalMod: await import('../plugins/distill/src/eval.js'),
+    exportMod: await import('../plugins/distill/src/export.js'),
+    forget: await import('../plugins/distill/src/forget.js'),
+    merge: await import('../plugins/distill/src/merge.js'),
+    paths: await import('../plugins/distill/src/paths.js'),
+    pipeline: await import('../plugins/distill/src/pipeline.js'),
     revisions: await import('../src/config/runtime-config-revisions.js'),
     skillManifest: await import('../src/skills/skill-manifest.js'),
-    state: await import('../src/distill/state.js'),
-    subject: await import('../src/distill/subject.js'),
-    types: await import('../src/distill/types.js'),
+    state: await import('../plugins/distill/src/state.js'),
+    subject: await import('../plugins/distill/src/subject.js'),
+    types: await import('../plugins/distill/src/types.js'),
   };
 }
 

@@ -1,25 +1,17 @@
 import {
   createPlaceholderMap,
   dehydrateConfidential,
-} from '../security/confidential-redact.js';
-import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
-import {
   loadConfidentialRules,
   ruleHasContent,
-} from '../security/confidential-rules.js';
+} from '@hybridaione/hybridclaw/plugin-sdk';
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const PHONE_RE =
   /(?<![\w/.-])\+?\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?![\w/.-])/g;
 
-export interface ThirdPartyMaskResult {
-  text: string;
-  maskedCount: number;
-}
+let cachedRuleSet;
 
-let cachedRuleSet: ConfidentialRuleSet | null | undefined;
-
-export function loadDistillConfidentialRules(): ConfidentialRuleSet | null {
+export function loadDistillConfidentialRules() {
   if (cachedRuleSet !== undefined) return cachedRuleSet;
   try {
     const ruleSet = loadConfidentialRules();
@@ -30,7 +22,7 @@ export function loadDistillConfidentialRules(): ConfidentialRuleSet | null {
   return cachedRuleSet;
 }
 
-export function resetDistillConfidentialRulesCache(): void {
+export function resetDistillConfidentialRulesCache() {
   cachedRuleSet = undefined;
 }
 
@@ -43,10 +35,10 @@ export function resetDistillConfidentialRulesCache(): void {
  * deliberately discarded.
  */
 export function maskThirdPartyPii(
-  text: string,
-  subjectAliases: string[],
-  ruleSet: ConfidentialRuleSet | null = loadDistillConfidentialRules(),
-): ThirdPartyMaskResult {
+  text,
+  subjectAliases,
+  ruleSet = loadDistillConfidentialRules(),
+) {
   const aliases = subjectAliases.map((alias) => alias.toLowerCase());
   let maskedCount = 0;
 

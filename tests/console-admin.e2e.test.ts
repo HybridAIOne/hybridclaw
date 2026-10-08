@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,7 +44,9 @@ async function startGateway(): Promise<void> {
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(home);
   fs.mkdirSync(dataDir);
-  const port = await getAvailablePort();
+  const port = await getAvailablePort(
+    Number(process.env.HYBRIDCLAW_E2E_PORT) || undefined,
+  );
   baseUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(
     path.join(dataDir, 'config.json'),
@@ -54,21 +56,24 @@ async function startGateway(): Promise<void> {
       hybridai: { baseUrl: 'http://127.0.0.1:9' },
     }),
   );
+  const env = {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    HYBRIDCLAW_DATA_DIR: dataDir,
+    HYBRIDCLAW_ACCEPT_TRUST: 'true',
+    HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
+    WEB_API_TOKEN,
+  };
+  // The Distill page is served by the install-on-demand distill plugin.
+  execFileSync(process.execPath, [CLI, 'plugin', 'install', './plugins/distill'], {
+    cwd: REPO,
+    env,
+    stdio: 'ignore',
+  });
   gateway = spawn(
     process.execPath,
     [CLI, 'gateway', 'start', '--foreground', '--sandbox=host'],
-    {
-      cwd: root,
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: home,
-        HYBRIDCLAW_DATA_DIR: dataDir,
-        HYBRIDCLAW_ACCEPT_TRUST: 'true',
-        HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
-        WEB_API_TOKEN,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
+    { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   gateway.stdout?.on('data', (chunk) => {
     gatewayLog += chunk;

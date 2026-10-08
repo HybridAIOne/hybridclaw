@@ -1,93 +1,102 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { collectSourcePath } from '../distill/collectors.js';
+import { collectSourcePath } from './collectors.js';
 import {
   loadConsentArtefact,
   recordConsentArtefact,
   revokeConsentArtefact,
-} from '../distill/consent.js';
-import {
-  appendCorpusDocuments,
-  listCorpusDocuments,
-} from '../distill/corpus.js';
-import {
-  pendingCorrections,
-  recordCorrection,
-} from '../distill/corrections.js';
-import { markHoldoutDocuments, runDistillEval } from '../distill/eval.js';
-import type { CoworkerExportHost } from '../distill/export.js';
+} from './consent.js';
+import { appendCorpusDocuments, listCorpusDocuments } from './corpus.js';
+import { pendingCorrections, recordCorrection } from './corrections.js';
+import { markHoldoutDocuments, runDistillEval } from './eval.js';
+
 import {
   COWORKER_EXPORT_HOSTS,
   exportCoworkerBundle,
   importCoworkerBundle,
   installCoworkerBundle,
-} from '../distill/export.js';
-import { forgetDistilledSubject } from '../distill/forget.js';
-import { generateQuestionnaire } from '../distill/interview.js';
-import { listReviewItems, resolveReviewItem } from '../distill/merge.js';
-import type { DistillPaths } from '../distill/paths.js';
-import { resolveDistillPaths } from '../distill/paths.js';
-import { runDistillPipeline } from '../distill/pipeline.js';
-import { findLatestDistillRun, loadDistillRun } from '../distill/run.js';
-import { loadDistillState } from '../distill/state.js';
+} from './export.js';
+import { forgetDistilledSubject } from './forget.js';
+import { generateQuestionnaire } from './interview.js';
+import { listReviewItems, resolveReviewItem } from './merge.js';
+
+import { resolveDistillPaths } from './paths.js';
+import { runDistillPipeline } from './pipeline.js';
+import { findLatestDistillRun, loadDistillRun } from './run.js';
+import { loadDistillState } from './state.js';
 import {
   ensureSubjectProfile,
   loadSubjectProfile,
   requireSubjectProfile,
-} from '../distill/subject.js';
-import type {
-  CorpusSourceKind,
-  DistillRunSource,
-  SubjectProfile,
-} from '../distill/types.js';
-import { DISTILL_STAGE_ORDER, DistillBlockedError } from '../distill/types.js';
-import { normalizeArgs, parseValueFlag } from './common.js';
-import { isHelpRequest, printCoworkerUsage } from './help.js';
+} from './subject.js';
 
-const SOURCE_KINDS: ReadonlySet<string> = new Set([
-  'auto',
-  'slack-export',
-  'email-mbox',
-  'transcript',
-  'chat-jsonl',
-  'markdown',
-  'text',
-  'interview',
-]);
+import {
+  DISTILL_SOURCE_KINDS,
+  DISTILL_STAGE_ORDER,
+  DistillBlockedError,
+} from './types.js';
 
-interface CoworkerFlags {
-  alias?: string;
-  agent?: string;
-  name?: string;
-  role?: string;
-  relationship?: string;
-  tags: string[];
-  matchAliases: string[];
-  sources: string[];
-  kind: string;
-  fictional: boolean;
-  resume?: string;
-  holdout?: number;
-  grantedBy?: string;
-  method?: string;
-  statement?: string;
-  scope?: string;
-  note?: string;
-  by?: string;
-  id?: string;
-  keep?: string;
-  out?: string;
-  host?: string;
-  bundle?: string;
-  includeCorpus: boolean;
-  audience?: string;
-  count?: number;
-  confirm: boolean;
-  positional: string[];
+const COWORKER_USAGE = `Usage: hybridclaw coworker <command>
+
+Distill a real person's source material (chat exports, emails, transcripts,
+docs, interviews) into a hireable coworker agent: persona into the existing
+identity files (IDENTITY.md / SOUL.md / USER.md / CV.md) plus a generated
+work-module skill, with per-claim source citations.
+
+Commands:
+  hybridclaw coworker distill --alias <alias> [--name "<display name>"] --source <path> [...]
+      Run the pipeline: ingest -> analyse -> build -> merge -> correct.
+      Flags: --role <role> --relationship <rel> --tag <tag> --match-alias <name|email>
+             --kind <auto|slack-export|email-mbox|transcript|chat-jsonl|markdown|text|interview>
+             --agent <agent-id> --resume <run-id> --holdout <0..0.5> --fictional
+  hybridclaw coworker consent record --alias <alias> --granted-by <who> --method <how> --statement "<text>"
+  hybridclaw coworker consent show|revoke --alias <alias>
+      Recorded consent artefact; required before distilling a real, named human.
+  hybridclaw coworker sources add --alias <alias> [--kind <kind>] <path> [...]
+      Add source material to the corpus without starting a full run.
+  hybridclaw coworker interview --alias <alias> [--audience subject|colleague] [--count <n>] [--out <file>]
+      Generate a gap-driven questionnaire targeting under-evidenced dimensions.
+  hybridclaw coworker status --alias <alias> [--id <run-id>]
+  hybridclaw coworker correct --alias <alias> --note "<correction>" [--scope persona|work|both]
+      Record a conversational correction; promoted on the next run.
+  hybridclaw coworker review list|resolve --alias <alias> [--id <review-id> --keep standing|incoming|both]
+      Conflicting evidence is surfaced here, never silently merged.
+  hybridclaw coworker eval --alias <alias>
+      Leakage scan over generated files + held-out fidelity prompts.
+  hybridclaw coworker export --alias <alias> [--out <dir>] [--host claude-code|codex|openclaw|hybridclaw] [--include-corpus]
+  hybridclaw coworker import --alias <alias> --bundle <dir>
+  hybridclaw coworker forget --alias <alias> --confirm
+      Right-to-be-forgotten: removes corpus, persona, work module, runs, and
+      their revision snapshots; the erasure event stays in the audit trail.
+
+Notes:
+  - Distilling a real, named human is blocked until consent is recorded.
+  - Every generated claim cites corpus document ids; unsupported claims are
+    flagged in the run REPORT.md instead of written into the persona.
+  - Run records live under the agent workspace at runtime/distill/<run-id>/.`;
+
+const SOURCE_KINDS = new Set(DISTILL_SOURCE_KINDS);
+
+function parseValueFlag(arg, args, index, name) {
+  if (arg === name) {
+    const value = String(args[index + 1] || '').trim();
+    if (!value) {
+      throw new Error(
+        `Missing value for \`${name}\`. Use \`${name} <value>\`.`,
+      );
+    }
+    return { value, nextIndex: index + 1 };
+  }
+  if (arg.startsWith(`${name}=`)) {
+    const value = arg.slice(`${name}=`.length).trim();
+    if (!value) throw new Error(`Missing value for \`${name}=<value>\`.`);
+    return { value, nextIndex: index };
+  }
+  return null;
 }
 
-function parseCoworkerFlags(args: string[]): CoworkerFlags {
-  const flags: CoworkerFlags = {
+function parseCoworkerFlags(args) {
+  const flags = {
     tags: [],
     matchAliases: [],
     sources: [],
@@ -111,7 +120,7 @@ function parseCoworkerFlags(args: string[]): CoworkerFlags {
       flags.confirm = true;
       continue;
     }
-    const valueFlags: [string, (value: string) => void][] = [
+    const valueFlags = [
       ['--alias', (value) => (flags.alias = value)],
       ['--agent', (value) => (flags.agent = value)],
       ['--name', (value) => (flags.name = value)],
@@ -139,13 +148,7 @@ function parseCoworkerFlags(args: string[]): CoworkerFlags {
     ];
     let matched = false;
     for (const [name, assign] of valueFlags) {
-      const parsed = parseValueFlag({
-        arg,
-        args,
-        index,
-        name,
-        placeholder: '<value>',
-      });
+      const parsed = parseValueFlag(arg, args, index, name);
       if (parsed) {
         assign(parsed.value);
         index = parsed.nextIndex;
@@ -162,10 +165,7 @@ function parseCoworkerFlags(args: string[]): CoworkerFlags {
   return flags;
 }
 
-function resolveSubjectContext(flags: CoworkerFlags): {
-  paths: DistillPaths;
-  profile: SubjectProfile;
-} {
+function resolveSubjectContext(flags) {
   if (!flags.alias) {
     throw new Error('Missing `--alias <coworker-alias>`.');
   }
@@ -174,7 +174,7 @@ function resolveSubjectContext(flags: CoworkerFlags): {
   return { paths, profile };
 }
 
-function parseHoldoutRatio(value: string): number {
+function parseHoldoutRatio(value) {
   const ratio = Number(value);
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 0.5) {
     throw new Error(
@@ -184,7 +184,7 @@ function parseHoldoutRatio(value: string): number {
   return ratio;
 }
 
-function parseQuestionCount(value: string): number {
+function parseQuestionCount(value) {
   const count = Number(value);
   if (!Number.isInteger(count) || count < 1 || count > 20) {
     throw new Error(
@@ -194,36 +194,43 @@ function parseQuestionCount(value: string): number {
   return count;
 }
 
-function parseSourceKind(value: string): CorpusSourceKind | 'auto' {
+function parseSourceKind(value) {
   if (!SOURCE_KINDS.has(value)) {
     throw new Error(
       `Unsupported source kind: ${value}. Use one of: ${[...SOURCE_KINDS].join(', ')}.`,
     );
   }
-  return value as CorpusSourceKind | 'auto';
+  return value;
 }
 
-export async function handleCoworkerCommand(args: string[]): Promise<void> {
-  const normalized = normalizeArgs(args);
-  if (normalized.length === 0 || isHelpRequest(normalized)) {
-    printCoworkerUsage();
+const SUBCOMMANDS = {
+  distill: runDistillCommand,
+  consent: runConsentCommand,
+  sources: runSourcesCommand,
+  interview: runInterviewCommand,
+  status: runStatusCommand,
+  correct: runCorrectCommand,
+  review: runReviewCommand,
+  eval: runEvalCommand,
+  export: runExportCommand,
+  import: runImportCommand,
+  forget: runForgetCommand,
+};
+
+export function runCoworkerCommand(args) {
+  const normalized = args.map((arg) => arg.trim()).filter(Boolean);
+  const first = (normalized[0] || '').toLowerCase();
+  if (!first || first === 'help' || first === '--help' || first === '-h') {
+    console.log(COWORKER_USAGE);
     return;
   }
-  const sub = normalized[0].toLowerCase();
-  const rest = normalized.slice(1);
-
+  const run = Object.hasOwn(SUBCOMMANDS, first) ? SUBCOMMANDS[first] : null;
+  if (!run) {
+    console.log(COWORKER_USAGE);
+    throw new Error(`Unknown coworker subcommand: ${first}`);
+  }
   try {
-    if (sub === 'distill') return runDistillCommand(rest);
-    if (sub === 'consent') return runConsentCommand(rest);
-    if (sub === 'sources') return runSourcesCommand(rest);
-    if (sub === 'interview') return runInterviewCommand(rest);
-    if (sub === 'status') return runStatusCommand(rest);
-    if (sub === 'correct') return runCorrectCommand(rest);
-    if (sub === 'review') return runReviewCommand(rest);
-    if (sub === 'eval') return runEvalCommand(rest);
-    if (sub === 'export') return runExportCommand(rest);
-    if (sub === 'import') return runImportCommand(rest);
-    if (sub === 'forget') return runForgetCommand(rest);
+    run(normalized.slice(1));
   } catch (error) {
     if (error instanceof DistillBlockedError) {
       console.error(error.message);
@@ -234,12 +241,9 @@ export async function handleCoworkerCommand(args: string[]): Promise<void> {
     }
     throw error;
   }
-
-  printCoworkerUsage();
-  throw new Error(`Unknown coworker subcommand: ${sub}`);
 }
 
-function runDistillCommand(args: string[]): void {
+function runDistillCommand(args) {
   const flags = parseCoworkerFlags(args);
   if (!flags.alias) {
     throw new Error(
@@ -267,7 +271,7 @@ function runDistillCommand(args: string[]): void {
     );
   }
   const kind = parseSourceKind(flags.kind);
-  const sources: DistillRunSource[] = flags.sources.map((source) => ({
+  const sources = flags.sources.map((source) => ({
     path: source,
     kind,
   }));
@@ -301,7 +305,7 @@ function runDistillCommand(args: string[]): void {
   }
 }
 
-function runConsentCommand(args: string[]): void {
+function runConsentCommand(args) {
   const action = (args[0] || '').toLowerCase();
   const flags = parseCoworkerFlags(args.slice(1));
   if (!flags.alias) {
@@ -349,7 +353,7 @@ function runConsentCommand(args: string[]): void {
   );
 }
 
-function runSourcesCommand(args: string[]): void {
+function runSourcesCommand(args) {
   const action = (args[0] || '').toLowerCase();
   if (action !== 'add') {
     throw new Error(
@@ -389,7 +393,7 @@ function runSourcesCommand(args: string[]): void {
   );
 }
 
-function runInterviewCommand(args: string[]): void {
+function runInterviewCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   const audience = flags.audience === 'colleague' ? 'colleague' : 'subject';
@@ -409,7 +413,7 @@ function runInterviewCommand(args: string[]): void {
   }
 }
 
-function runStatusCommand(args: string[]): void {
+function runStatusCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   const documents = listCorpusDocuments(paths);
@@ -463,7 +467,7 @@ function runStatusCommand(args: string[]): void {
   }
 }
 
-function runCorrectCommand(args: string[]): void {
+function runCorrectCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   const scope =
@@ -479,7 +483,7 @@ function runCorrectCommand(args: string[]): void {
   );
 }
 
-function runReviewCommand(args: string[]): void {
+function runReviewCommand(args) {
   const action = (args[0] || '').toLowerCase();
   const flags = parseCoworkerFlags(args.slice(1));
   const { paths, profile } = resolveSubjectContext(flags);
@@ -527,7 +531,7 @@ function runReviewCommand(args: string[]): void {
   );
 }
 
-function runEvalCommand(args: string[]): void {
+function runEvalCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   const latest = findLatestDistillRun(paths);
@@ -550,7 +554,7 @@ function runEvalCommand(args: string[]): void {
   }
 }
 
-function runExportCommand(args: string[]): void {
+function runExportCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   const outDir = path.resolve(flags.out || 'exports');
@@ -561,7 +565,7 @@ function runExportCommand(args: string[]): void {
     `Exported coworker bundle to ${bundleDir} (${manifest.files.length} files, ${manifest.claims} standing claims).`,
   );
   if (flags.host) {
-    const host = flags.host as CoworkerExportHost;
+    const host = flags.host;
     if (!COWORKER_EXPORT_HOSTS.includes(host)) {
       throw new Error(
         `Unsupported host: ${flags.host}. Use one of: ${COWORKER_EXPORT_HOSTS.join(', ')}.`,
@@ -572,7 +576,7 @@ function runExportCommand(args: string[]): void {
   }
 }
 
-function runImportCommand(args: string[]): void {
+function runImportCommand(args) {
   const flags = parseCoworkerFlags(args);
   if (!flags.alias) {
     throw new Error('Missing `--alias <coworker-alias>`.');
@@ -587,7 +591,7 @@ function runImportCommand(args: string[]): void {
   );
 }
 
-function runForgetCommand(args: string[]): void {
+function runForgetCommand(args) {
   const flags = parseCoworkerFlags(args);
   const { paths, profile } = resolveSubjectContext(flags);
   if (!flags.confirm) {

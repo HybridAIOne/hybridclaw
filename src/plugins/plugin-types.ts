@@ -17,6 +17,7 @@ import type {
   ConnectorChange,
   ConnectorChangeResult,
 } from '../scheduler/connector-events.js';
+import type { AdminRbacAction } from '../security/admin-rbac.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
@@ -460,6 +461,34 @@ export interface PluginCommandDefinition {
   ) => Promise<unknown> | unknown;
 }
 
+/** A top-level `hybridclaw <name>` command; built-in commands take precedence. */
+export interface PluginCliCommandDefinition {
+  name: string;
+  description: string;
+  run: (args: string[]) => Promise<void> | void;
+}
+
+export interface PluginAdminRouteContext {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  /** Decoded `:name` path segments. */
+  params: Readonly<Record<string, string>>;
+  pluginId: string;
+  logger: PluginLogger;
+}
+
+/**
+ * An authenticated route under `/api/admin/<pluginId>`. The gateway checks
+ * `rbacAction` before the handler runs; throw `WebhookHttpError` for a status.
+ */
+export interface PluginAdminRouteDefinition {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  path: string;
+  rbacAction: AdminRbacAction;
+  handler: (context: PluginAdminRouteContext) => Promise<void> | void;
+}
+
 export interface PluginService {
   id: string;
   start?: () => Promise<void>;
@@ -652,6 +681,8 @@ export interface HybridClawPluginApi {
   registerService(svc: PluginService): void;
   registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void;
   registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void;
+  registerAdminRoute(route: PluginAdminRouteDefinition): void;
+  registerCliCommand(command: PluginCliCommandDefinition): void;
   dispatchInboundMessage(
     request: PluginDispatchInboundMessageRequest,
   ): Promise<GatewayChatResult>;

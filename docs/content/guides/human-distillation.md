@@ -18,6 +18,22 @@ Three properties make the result trustworthy rather than vibes-based:
 2. **Merges are reversible.** Every generated file is snapshotted into the F4 revision database; conflicting evidence opens a review item the operator resolves explicitly — nothing standing is silently overwritten.
 3. **Consent is a hard gate.** A run that names a real human is blocked until a consent artefact is recorded, the block is audited, and the subject can be erased as one identifier set later.
 
+## Install
+
+Human distillation ships as the `distill` plugin. It is bundled with the npm
+package but loads only after you install it:
+
+```bash
+hybridclaw plugin install distill   # from a source checkout: ./plugins/distill
+hybridclaw gateway restart          # loads the admin console Distill page
+```
+
+The CLI picks the plugin up immediately. Distill data lives in each agent
+workspace, so subjects, consent artefacts, corpora, runs, and revision history
+created before the plugin existed keep working without a migration.
+`hybridclaw plugin uninstall distill` removes the commands and the console
+API, not the data.
+
 ## Quickstart
 
 ```bash

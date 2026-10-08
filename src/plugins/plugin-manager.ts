@@ -58,7 +58,12 @@ import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  type PluginAdminRouteMatch,
+  PluginAdminRouteRegistry,
+} from './plugin-admin-routes.js';
 import { createPluginApi } from './plugin-api.js';
+import { PluginCliCommandRegistry } from './plugin-cli-commands.js';
 import { validatePluginConfig } from './plugin-config-validation.js';
 import { linkPluginSdk } from './plugin-sdk-link.js';
 import type {
@@ -251,6 +256,8 @@ type PluginRegistrationSnapshot = {
   embeddingProviders: ReturnType<typeof snapshotEmbeddingProviders>;
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
+  adminRoutes: ReturnType<PluginAdminRouteRegistry['snapshot']>;
+  cliCommands: ReturnType<PluginCliCommandRegistry['snapshot']>;
   hooks: Map<PluginHookName, RegisteredHook[]>;
   registeredChannels: ChannelInfo[];
   gatewayStartedAt: string | null;
@@ -811,6 +818,8 @@ export class PluginManager {
   private channels: RegisteredChannel[] = [];
   private channelTransports: RegisteredChannelTransport[] = [];
   private commands = new Map<string, RegisteredCommand>();
+  readonly adminRoutes = new PluginAdminRouteRegistry();
+  readonly cliCommands = new PluginCliCommandRegistry();
   private hooks = new Map<PluginHookName, RegisteredHook[]>();
   private sessionWorkspaceRoots = new Map<string, string>();
   private sessionUserIds = new Map<string, string>();
@@ -1592,6 +1601,8 @@ export class PluginManager {
       embeddingProviders: snapshotEmbeddingProviders(),
       tools: new Map(this.tools),
       commands: new Map(this.commands),
+      adminRoutes: this.adminRoutes.snapshot(),
+      cliCommands: this.cliCommands.snapshot(),
       hooks: new Map(
         [...this.hooks.entries()].map(([name, entries]) => [
           name,
@@ -1627,6 +1638,8 @@ export class PluginManager {
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
     this.commands = new Map(snapshot.commands);
+    this.adminRoutes.restore(snapshot.adminRoutes);
+    this.cliCommands.restore(snapshot.cliCommands);
     this.hooks = new Map(
       [...snapshot.hooks.entries()].map(([name, entries]) => [
         name,
@@ -2692,6 +2705,13 @@ export function findLoadedPluginCommand(
 ): PluginCommandDefinition | undefined {
   if (!singleton) return undefined;
   return singleton.findCommand(name);
+}
+
+export function matchLoadedPluginAdminRoute(
+  method: string,
+  pathname: string,
+): PluginAdminRouteMatch | null {
+  return singleton?.adminRoutes.match(method, pathname) ?? null;
 }
 
 export function listLoadedPluginCommands(): PluginCommandSummary[] {

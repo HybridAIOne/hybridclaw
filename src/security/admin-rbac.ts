@@ -3,7 +3,9 @@
  * never authenticates a request. HTTP authentication and local-host restrictions
  * remain the gateway's responsibility, outside these authorization mappings.
  * The gateway denies an admin route left unmapped here to every scoped caller
- * without a `*` claim, so each new admin route needs an entry.
+ * without a `*` claim, so each new core admin route needs an entry. Plugin
+ * admin routes are mapped by their registration instead, and may only name
+ * an action from this catalog.
  */
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
@@ -104,6 +106,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.output_guard.read',
   'admin.output_guard.write',
   'admin.output_guard.preview',
+  // Routes of the `distill` plugin; kept so issued token claims stay valid.
   'admin.distill.read',
   'admin.distill.write',
   'admin.distill.delete',
@@ -817,12 +820,6 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/output-guard/preview' && method === 'POST') {
     return 'admin.output_guard.preview';
-  }
-  if (isPathOrChild(pathname, '/api/admin/distill')) {
-    if (method === 'GET') return 'admin.distill.read';
-    if (method === 'POST') return 'admin.distill.write';
-    if (method === 'DELETE') return 'admin.distill.delete';
-    return null;
   }
   if (pathname === '/api/admin/skills') {
     if (method === 'GET') return 'admin.skills.read';

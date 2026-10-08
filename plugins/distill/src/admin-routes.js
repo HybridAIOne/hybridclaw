@@ -1,209 +1,55 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  DATA_DIR,
+  ensureBootstrapFiles,
   getAgentById,
+  readWebhookJsonBody,
+  sendWebhookJson,
   upsertRegisteredAgent,
-} from '../agents/agent-registry.js';
-import { DATA_DIR } from '../config/config.js';
+  WebhookHttpError,
+} from '@hybridaione/hybridclaw/plugin-sdk';
 import {
+  consentDigest,
   loadConsentArtefact,
   recordConsentArtefact,
-} from '../distill/consent.js';
+} from './consent.js';
 import {
   getCorpusDocument,
   listCorpusDocuments,
   removeCorpusDocument,
-} from '../distill/corpus.js';
+} from './corpus.js';
+import { ensureDistilledMemoryFile, listReviewItems } from './merge.js';
 import {
-  ensureDistilledMemoryFile,
-  listReviewItems,
-} from '../distill/merge.js';
-import {
-  type DistillPaths,
   normalizeSubjectAlias,
   resolveDistillPaths,
   resolveDistillRunPaths,
-} from '../distill/paths.js';
-import { runDistillPipeline } from '../distill/pipeline.js';
-import { listDistillRuns } from '../distill/run.js';
+} from './paths.js';
+import { runDistillPipeline } from './pipeline.js';
+import { listDistillRuns } from './run.js';
 import {
   ensureSubjectProfile,
   loadSubjectProfile,
   requireSubjectProfile,
-} from '../distill/subject.js';
-import type {
-  ConsentArtefact,
-  CorpusDocument,
-  DistillRunRecord,
-  DistillRunSource,
-  DistillStageName,
-  DistillStageState,
-  SubjectProfile,
-} from '../distill/types.js';
-import { DISTILL_STAGE_ORDER, DistillBlockedError } from '../distill/types.js';
-import { GatewayRequestError } from '../errors/gateway-request-error.js';
-import { ensureBootstrapFiles } from '../workspace.js';
+} from './subject.js';
+import {
+  DISTILL_SOURCE_KINDS,
+  DISTILL_STAGE_ORDER,
+  DistillBlockedError,
+} from './types.js';
 
-export const ADMIN_DISTILL_SOURCE_KINDS = [
-  'auto',
-  'slack-export',
-  'email-mbox',
-  'transcript',
-  'chat-jsonl',
-  'markdown',
-  'text',
-  'interview',
-] as const;
-
-type AdminDistillSelectableSourceKind =
-  (typeof ADMIN_DISTILL_SOURCE_KINDS)[number];
-type AdminDistillSourceKind = DistillRunSource['kind'];
 const ADMIN_DISTILL_FILE_PREVIEW_BYTES = 80_000;
 const ADMIN_DISTILL_UPLOAD_PREVIEW_BYTES = 40_000;
 const ADMIN_DISTILL_CORPUS_PREVIEW_CHARS = 2_000;
 
-export interface GatewayAdminDistillConsentSummary {
-  present: boolean;
-  valid: boolean;
-  revokedAt: string | null;
-  recordedAt: string | null;
-  grantedBy: string | null;
-  method: string | null;
-  scope: string | null;
-  sha256: string | null;
-}
-
-export interface GatewayAdminDistillEmbeddedText {
-  available: boolean;
-  content: string;
-  byteLength: number;
-  truncated: boolean;
-  error: string | null;
-}
-
-export interface GatewayAdminDistillRunSummary {
-  runId: string;
-  status: 'pending' | 'awaiting-extraction' | 'failed' | 'completed';
-  createdAt: string;
-  updatedAt: string;
-  stages: Record<DistillStageName, DistillStageState>;
-  stats: DistillRunRecord['stats'];
-  sources: DistillRunSource[];
-  reportPath: string;
-  packetMarkdownPath: string;
-  extractionPath: string;
-  artifacts: {
-    report: GatewayAdminDistillEmbeddedText;
-    packetMarkdown: GatewayAdminDistillEmbeddedText;
-    extraction: GatewayAdminDistillEmbeddedText;
-  };
-}
-
-export interface GatewayAdminDistillDataPaths {
-  workspacePath: string;
-  subjectPath: string;
-  uploadsPath: string;
-  corpusDocumentsPath: string;
-}
-
-export interface GatewayAdminDistillCorpusDocumentSummary {
-  id: string;
-  source: CorpusDocument['source'];
-  origin: string;
-  author: string;
-  authoredBySubject: boolean;
-  title?: string;
-  channel?: string;
-  timestamp?: string;
-  wordCount: number;
-  weight: number;
-  holdout: boolean;
-  runId: string | null;
-  contentPreview: GatewayAdminDistillEmbeddedText;
-}
-
-export interface GatewayAdminDistillSubjectSummary {
-  agentId: string;
-  alias: string;
-  registeredAgent: boolean;
-  profile: SubjectProfile;
-  consent: GatewayAdminDistillConsentSummary;
-  paths: GatewayAdminDistillDataPaths;
-  corpusDocuments: number;
-  corpus: GatewayAdminDistillCorpusDocumentSummary[];
-  openReviews: number;
-  runs: GatewayAdminDistillRunSummary[];
-  latestRun: GatewayAdminDistillRunSummary | null;
-}
-
-export interface GatewayAdminDistillResponse {
-  sourceKinds: readonly AdminDistillSelectableSourceKind[];
-  subjects: GatewayAdminDistillSubjectSummary[];
-}
-
-export interface GatewayAdminDistillSubjectInput {
-  agentId?: unknown;
-  alias?: unknown;
-  displayName?: unknown;
-  realPerson?: unknown;
-  role?: unknown;
-  relationship?: unknown;
-  personalityTags?: unknown;
-  matchAliases?: unknown;
-}
-
-export interface GatewayAdminDistillConsentInput {
-  agentId?: unknown;
-  alias?: unknown;
-  subjectName?: unknown;
-  grantedBy?: unknown;
-  method?: unknown;
-  statement?: unknown;
-  scope?: unknown;
-  note?: unknown;
-}
-
-export interface GatewayAdminDistillRunInput
-  extends GatewayAdminDistillSubjectInput {
-  sources?: unknown;
-  resumeRunId?: unknown;
-  holdoutRatio?: unknown;
-  kind?: unknown;
-}
-
-export interface GatewayAdminDistillRegisterInput {
-  agentId?: unknown;
-  alias?: unknown;
-}
-
-export interface GatewayAdminDistillCorpusDocumentInput {
-  agentId?: unknown;
-  alias?: unknown;
-  documentId?: unknown;
-}
-
-export interface GatewayAdminDistillCorpusDocumentDownload {
-  documentId: string;
-  filename: string;
-  content: string;
-}
-
-export interface GatewayAdminDistillUploadResult {
-  source: DistillRunSource;
-  path: string;
-  filename: string;
-  sizeBytes: number;
-  preview: GatewayAdminDistillEmbeddedText;
-}
-
-function normalizeOptionalText(value: unknown): string | undefined {
+function normalizeOptionalText(value) {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
 }
 
-function normalizeTextArray(value: unknown): string[] | undefined {
+function normalizeTextArray(value) {
   if (!Array.isArray(value)) return undefined;
   const values = value
     .map((entry) => String(entry || '').trim())
@@ -211,53 +57,49 @@ function normalizeTextArray(value: unknown): string[] | undefined {
   return values.length > 0 ? [...new Set(values)] : undefined;
 }
 
-function normalizeAgentId(value: unknown, fallback: string): string {
+function normalizeAgentId(value, fallback) {
   return normalizeOptionalText(value) || fallback;
 }
 
-function normalizeSourceKind(value: unknown): AdminDistillSourceKind {
+function normalizeSourceKind(value) {
   const raw = normalizeOptionalText(value) || 'auto';
-  if (
-    ![...ADMIN_DISTILL_SOURCE_KINDS, 'correction'].includes(
-      raw as AdminDistillSourceKind,
-    )
-  ) {
-    throw new GatewayRequestError(400, `Unsupported source kind: ${raw}.`);
+  if (![...DISTILL_SOURCE_KINDS, 'correction'].includes(raw)) {
+    throw new WebhookHttpError(400, `Unsupported source kind: ${raw}.`);
   }
-  return raw as AdminDistillSourceKind;
+  return raw;
 }
 
-function normalizeAlias(value: unknown): string {
+function normalizeAlias(value) {
   const raw = normalizeOptionalText(value);
   if (!raw) {
-    throw new GatewayRequestError(400, '`alias` is required.');
+    throw new WebhookHttpError(400, '`alias` is required.');
   }
   try {
     return normalizeSubjectAlias(raw);
   } catch (error) {
-    throw new GatewayRequestError(
+    throw new WebhookHttpError(
       400,
       error instanceof Error ? error.message : String(error),
     );
   }
 }
 
-function normalizeCorpusDocumentId(value: unknown): string {
+function normalizeCorpusDocumentId(value) {
   const raw = normalizeOptionalText(value);
   if (!raw) {
-    throw new GatewayRequestError(400, '`documentId` is required.');
+    throw new WebhookHttpError(400, '`documentId` is required.');
   }
   if (!/^doc_[a-zA-Z0-9_-]+$/.test(raw)) {
-    throw new GatewayRequestError(400, 'Invalid corpus document id.');
+    throw new WebhookHttpError(400, 'Invalid corpus document id.');
   }
   return raw;
 }
 
-function normalizeHoldoutRatio(value: unknown): number | undefined {
+function normalizeHoldoutRatio(value) {
   if (value == null || value === '') return undefined;
   const ratio = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 0.5) {
-    throw new GatewayRequestError(
+    throw new WebhookHttpError(
       400,
       '`holdoutRatio` must be a number between 0 and 0.5.',
     );
@@ -265,37 +107,18 @@ function normalizeHoldoutRatio(value: unknown): number | undefined {
   return ratio;
 }
 
-function requireAdminSubjectProfile(paths: DistillPaths) {
+function requireAdminSubjectProfile(paths) {
   try {
     return requireSubjectProfile(paths);
   } catch (error) {
-    throw new GatewayRequestError(
+    throw new WebhookHttpError(
       404,
       error instanceof Error ? error.message : String(error),
     );
   }
 }
 
-function consentDigest(consent: ConsentArtefact): string {
-  return createHash('sha256')
-    .update(
-      [
-        consent.subject,
-        consent.subjectName,
-        consent.grantedBy,
-        consent.method,
-        consent.scope,
-        consent.statement,
-        consent.recordedAt,
-      ].join('\n'),
-      'utf-8',
-    )
-    .digest('hex');
-}
-
-function summarizeConsent(
-  consent: ConsentArtefact | null,
-): GatewayAdminDistillConsentSummary {
+function summarizeConsent(consent) {
   if (!consent) {
     return {
       present: false,
@@ -320,10 +143,7 @@ function summarizeConsent(
   };
 }
 
-function embeddedTextFromString(
-  content: string,
-  maxChars: number,
-): GatewayAdminDistillEmbeddedText {
+function embeddedTextFromString(content, maxChars) {
   const truncated = content.length > maxChars;
   return {
     available: true,
@@ -334,10 +154,7 @@ function embeddedTextFromString(
   };
 }
 
-function embeddedTextFromBuffer(
-  buffer: Buffer,
-  maxBytes: number,
-): GatewayAdminDistillEmbeddedText {
+function embeddedTextFromBuffer(buffer, maxBytes) {
   const truncated = buffer.length > maxBytes;
   const visible = truncated ? buffer.subarray(0, maxBytes) : buffer;
   return {
@@ -349,9 +166,7 @@ function embeddedTextFromBuffer(
   };
 }
 
-function readEmbeddedTextFile(
-  filePath: string,
-): GatewayAdminDistillEmbeddedText {
+function readEmbeddedTextFile(filePath) {
   try {
     const file = fs.openSync(filePath, 'r');
     try {
@@ -370,23 +185,20 @@ function readEmbeddedTextFile(
       fs.closeSync(file);
     }
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
     return {
       available: false,
       content: '',
       byteLength: 0,
       truncated: false,
       error:
-        err.code === 'ENOENT'
+        error.code === 'ENOENT'
           ? 'Not generated yet.'
-          : err.message || 'Unable to read artifact.',
+          : error.message || 'Unable to read artifact.',
     };
   }
 }
 
-function summarizeCorpusDocument(
-  document: CorpusDocument,
-): GatewayAdminDistillCorpusDocumentSummary {
+function summarizeCorpusDocument(document) {
   return {
     id: document.id,
     source: document.source,
@@ -407,10 +219,7 @@ function summarizeCorpusDocument(
   };
 }
 
-function summarizeRun(
-  agentId: string,
-  run: DistillRunRecord,
-): GatewayAdminDistillRunSummary {
+function summarizeRun(agentId, run) {
   const paths = resolveDistillPaths(agentId, run.subject);
   const runPaths = resolveDistillRunPaths(paths, run.runId);
   return {
@@ -432,9 +241,7 @@ function summarizeRun(
   };
 }
 
-function deriveRunStatus(
-  run: DistillRunRecord,
-): GatewayAdminDistillRunSummary['status'] {
+function deriveRunStatus(run) {
   const states = DISTILL_STAGE_ORDER.map((stage) => run.stages[stage]?.status);
   if (states.includes('failed')) return 'failed';
   if (states.includes('awaiting-extraction')) return 'awaiting-extraction';
@@ -442,11 +249,7 @@ function deriveRunStatus(
   return 'pending';
 }
 
-function summarizeSubject(
-  agentId: string,
-  alias: string,
-  profile: SubjectProfile,
-): GatewayAdminDistillSubjectSummary {
+function summarizeSubject(agentId, alias, profile) {
   const paths = resolveDistillPaths(agentId, alias);
   const corpus = listCorpusDocuments(paths);
   const runs = listDistillRuns(paths)
@@ -475,21 +278,21 @@ function summarizeSubject(
   };
 }
 
-function collectSubjectSummaries(): GatewayAdminDistillSubjectSummary[] {
+function collectSubjectSummaries() {
   const agentsRoot = path.join(DATA_DIR, 'agents');
-  let agentEntries: fs.Dirent[];
+  let agentEntries;
   try {
     agentEntries = fs.readdirSync(agentsRoot, { withFileTypes: true });
   } catch {
     return [];
   }
 
-  const subjects: GatewayAdminDistillSubjectSummary[] = [];
+  const subjects = [];
   for (const agentEntry of agentEntries) {
     if (!agentEntry.isDirectory()) continue;
     const agentId = agentEntry.name;
     const distillRoot = path.join(agentsRoot, agentId, 'workspace', 'distill');
-    let subjectEntries: fs.Dirent[];
+    let subjectEntries;
     try {
       subjectEntries = fs.readdirSync(distillRoot, { withFileTypes: true });
     } catch {
@@ -514,16 +317,14 @@ function collectSubjectSummaries(): GatewayAdminDistillSubjectSummary[] {
   });
 }
 
-export function getGatewayAdminDistill(): GatewayAdminDistillResponse {
+function getGatewayAdminDistill() {
   return {
-    sourceKinds: ADMIN_DISTILL_SOURCE_KINDS,
+    sourceKinds: DISTILL_SOURCE_KINDS,
     subjects: collectSubjectSummaries(),
   };
 }
 
-export function upsertGatewayAdminDistillSubject(
-  input: GatewayAdminDistillSubjectInput,
-): GatewayAdminDistillSubjectSummary {
+function upsertGatewayAdminDistillSubject(input) {
   const alias = normalizeAlias(input.alias);
   const agentId = normalizeAgentId(input.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
@@ -540,9 +341,7 @@ export function upsertGatewayAdminDistillSubject(
   return summarizeSubject(agentId, alias, profile);
 }
 
-export function recordGatewayAdminDistillConsent(
-  input: GatewayAdminDistillConsentInput,
-): GatewayAdminDistillSubjectSummary {
+function recordGatewayAdminDistillConsent(input) {
   const alias = normalizeAlias(input.alias);
   const agentId = normalizeAgentId(input.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
@@ -558,7 +357,7 @@ export function recordGatewayAdminDistillConsent(
       note: normalizeOptionalText(input.note),
     });
   } catch (error) {
-    throw new GatewayRequestError(
+    throw new WebhookHttpError(
       400,
       error instanceof Error ? error.message : String(error),
     );
@@ -566,12 +365,10 @@ export function recordGatewayAdminDistillConsent(
   return summarizeSubject(agentId, alias, profile);
 }
 
-function normalizeRunSources(
-  input: GatewayAdminDistillRunInput,
-): DistillRunSource[] {
+function normalizeRunSources(input) {
   const defaultKind = normalizeSourceKind(input.kind);
   if (!Array.isArray(input.sources)) return [];
-  const sources: DistillRunSource[] = [];
+  const sources = [];
   for (const source of input.sources) {
     if (typeof source === 'string') {
       const sourcePath = source.trim();
@@ -581,7 +378,7 @@ function normalizeRunSources(
     if (!source || typeof source !== 'object' || Array.isArray(source)) {
       continue;
     }
-    const record = source as { path?: unknown; kind?: unknown };
+    const record = source;
     const sourcePath = normalizeOptionalText(record.path);
     if (!sourcePath) continue;
     sources.push({
@@ -592,14 +389,7 @@ function normalizeRunSources(
   return sources;
 }
 
-export function runGatewayAdminDistillPipeline(
-  input: GatewayAdminDistillRunInput,
-): {
-  subject: GatewayAdminDistillSubjectSummary;
-  run: GatewayAdminDistillRunSummary;
-  warnings: string[];
-  flagged: string[];
-} {
+function runGatewayAdminDistillPipeline(input) {
   const alias = normalizeAlias(input.alias);
   const agentId = normalizeAgentId(input.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
@@ -618,12 +408,12 @@ export function runGatewayAdminDistillPipeline(
       }).profile;
   const sources = normalizeRunSources(input);
   if (!resumeRunId && sources.length === 0) {
-    throw new GatewayRequestError(
+    throw new WebhookHttpError(
       400,
       'Provide at least one source or a run id to resume.',
     );
   }
-  let result: ReturnType<typeof runDistillPipeline>;
+  let result;
   try {
     result = runDistillPipeline(paths, profile, {
       sources,
@@ -632,7 +422,7 @@ export function runGatewayAdminDistillPipeline(
     });
   } catch (error) {
     if (error instanceof DistillBlockedError) {
-      throw new GatewayRequestError(
+      throw new WebhookHttpError(
         409,
         `${error.message}\n\n${error.remediation}`,
       );
@@ -647,9 +437,7 @@ export function runGatewayAdminDistillPipeline(
   };
 }
 
-export function registerGatewayAdminDistillAgent(
-  input: GatewayAdminDistillRegisterInput,
-): GatewayAdminDistillSubjectSummary {
+function registerGatewayAdminDistillAgent(input) {
   const alias = normalizeAlias(input.alias);
   const agentId = normalizeAgentId(input.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
@@ -666,16 +454,7 @@ export function registerGatewayAdminDistillAgent(
   return summarizeSubject(agentId, alias, profile);
 }
 
-function requireGatewayAdminDistillCorpusDocument(
-  input: GatewayAdminDistillCorpusDocumentInput,
-): {
-  agentId: string;
-  alias: string;
-  paths: DistillPaths;
-  profile: SubjectProfile;
-  documentId: string;
-  document: CorpusDocument;
-} {
+function requireGatewayAdminDistillCorpusDocument(input) {
   const alias = normalizeAlias(input.alias);
   const agentId = normalizeAgentId(input.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
@@ -683,19 +462,17 @@ function requireGatewayAdminDistillCorpusDocument(
   const documentId = normalizeCorpusDocumentId(input.documentId);
   const document = getCorpusDocument(paths, documentId);
   if (!document) {
-    throw new GatewayRequestError(404, 'Corpus document not found.');
+    throw new WebhookHttpError(404, 'Corpus document not found.');
   }
   return { agentId, alias, paths, profile, documentId, document };
 }
 
-function corpusDocumentDownloadFilename(document: CorpusDocument): string {
+function corpusDocumentDownloadFilename(document) {
   const label = document.title || document.source;
   return sanitizeDistillUploadFilename(`${document.id}-${label}.txt`);
 }
 
-export function getGatewayAdminDistillCorpusDocument(
-  input: GatewayAdminDistillCorpusDocumentInput,
-): GatewayAdminDistillCorpusDocumentDownload {
+function getGatewayAdminDistillCorpusDocument(input) {
   const { document, documentId } =
     requireGatewayAdminDistillCorpusDocument(input);
   return {
@@ -705,16 +482,14 @@ export function getGatewayAdminDistillCorpusDocument(
   };
 }
 
-export function deleteGatewayAdminDistillCorpusDocument(
-  input: GatewayAdminDistillCorpusDocumentInput,
-): GatewayAdminDistillSubjectSummary {
+function deleteGatewayAdminDistillCorpusDocument(input) {
   const { agentId, alias, paths, profile, documentId } =
     requireGatewayAdminDistillCorpusDocument(input);
   removeCorpusDocument(paths, documentId);
   return summarizeSubject(agentId, alias, profile);
 }
 
-function sanitizeDistillUploadFilename(raw: string): string {
+function sanitizeDistillUploadFilename(raw) {
   const basename = path.basename(raw.trim() || 'source.txt');
   const safe = basename
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
@@ -724,19 +499,13 @@ function sanitizeDistillUploadFilename(raw: string): string {
   return safe || 'source.txt';
 }
 
-export async function uploadGatewayAdminDistillSource(params: {
-  agentId?: unknown;
-  alias?: unknown;
-  filename: string;
-  buffer: Buffer;
-  kind?: unknown;
-}): Promise<GatewayAdminDistillUploadResult> {
+async function uploadGatewayAdminDistillSource(params) {
   const alias = normalizeAlias(params.alias);
   const agentId = normalizeAgentId(params.agentId, alias);
   const paths = resolveDistillPaths(agentId, alias);
   requireAdminSubjectProfile(paths);
   if (params.buffer.length === 0) {
-    throw new GatewayRequestError(400, 'Uploaded source file is empty.');
+    throw new WebhookHttpError(400, 'Uploaded source file is empty.');
   }
   const filename = sanitizeDistillUploadFilename(params.filename);
   const datePrefix = new Date().toISOString().slice(0, 10);
@@ -758,4 +527,139 @@ export async function uploadGatewayAdminDistillSource(params: {
       kind: normalizeSourceKind(params.kind),
     },
   };
+}
+
+const MAX_JSON_BODY_BYTES = 1_000_000;
+const MAX_SOURCE_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+function readJsonObject(req) {
+  return readWebhookJsonBody(req, {
+    maxBytes: MAX_JSON_BODY_BYTES,
+    tooLargeMessage: 'Request body too large.',
+    invalidJsonMessage: 'Invalid JSON body',
+    requireObject: true,
+    invalidShapeMessage: 'Request body must be a JSON object.',
+  });
+}
+
+async function readUploadBody(req) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_SOURCE_UPLOAD_BYTES) {
+      throw new WebhookHttpError(413, 'Request body too large.');
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+function decodeUploadFilename(req) {
+  const header = req.headers['x-hybridclaw-filename'];
+  const encoded = (Array.isArray(header) ? header[0] : header)?.trim();
+  if (!encoded) {
+    throw new WebhookHttpError(400, 'Missing `X-Hybridclaw-Filename` header.');
+  }
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new WebhookHttpError(400, 'Invalid `X-Hybridclaw-Filename` header.');
+  }
+}
+
+function subjectQuery(url) {
+  return {
+    agentId: url.searchParams.get('agentId') || undefined,
+    alias: url.searchParams.get('alias') || undefined,
+  };
+}
+
+/** Registers the admin console API; the gateway enforces each rbacAction. */
+export function registerDistillAdminRoutes(api) {
+  const route = (method, suffix, rbacAction, handler) =>
+    api.registerAdminRoute({
+      method,
+      path: `/api/admin/distill${suffix}`,
+      rbacAction,
+      handler,
+    });
+
+  route('GET', '', 'admin.distill.read', ({ res }) => {
+    sendWebhookJson(res, 200, getGatewayAdminDistill());
+  });
+  route('POST', '/subjects', 'admin.distill.write', async ({ req, res }) => {
+    const body = await readJsonObject(req);
+    sendWebhookJson(res, 201, {
+      subject: upsertGatewayAdminDistillSubject(body),
+    });
+  });
+  route('POST', '/consent', 'admin.distill.write', async ({ req, res }) => {
+    const body = await readJsonObject(req);
+    sendWebhookJson(res, 201, {
+      subject: recordGatewayAdminDistillConsent(body),
+    });
+  });
+  route('POST', '/register', 'admin.distill.write', async ({ req, res }) => {
+    const body = await readJsonObject(req);
+    sendWebhookJson(res, 201, {
+      subject: registerGatewayAdminDistillAgent(body),
+    });
+  });
+  route('POST', '/runs', 'admin.distill.write', async ({ req, res }) => {
+    const body = await readJsonObject(req);
+    sendWebhookJson(res, 200, runGatewayAdminDistillPipeline(body));
+  });
+  route(
+    'POST',
+    '/sources/upload',
+    'admin.distill.write',
+    async ({ req, res, url }) => {
+      const filename = decodeUploadFilename(req);
+      const buffer = await readUploadBody(req);
+      sendWebhookJson(
+        res,
+        201,
+        await uploadGatewayAdminDistillSource({
+          ...subjectQuery(url),
+          kind: url.searchParams.get('kind') || undefined,
+          filename,
+          buffer,
+        }),
+      );
+    },
+  );
+  route(
+    'GET',
+    '/corpus/:documentId',
+    'admin.distill.read',
+    ({ res, url, params }) => {
+      const download = getGatewayAdminDistillCorpusDocument({
+        ...subjectQuery(url),
+        documentId: params.documentId,
+      });
+      const body = Buffer.from(download.content, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${download.filename.replace(/"/g, '')}"`,
+        'Cache-Control': 'no-store',
+        'Content-Length': String(body.length),
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(body);
+    },
+  );
+  route(
+    'DELETE',
+    '/corpus/:documentId',
+    'admin.distill.delete',
+    ({ res, url, params }) => {
+      sendWebhookJson(res, 200, {
+        subject: deleteGatewayAdminDistillCorpusDocument({
+          ...subjectQuery(url),
+          documentId: params.documentId,
+        }),
+      });
+    },
+  );
 }

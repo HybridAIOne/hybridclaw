@@ -1,18 +1,12 @@
 import fs from 'node:fs';
 import { listCorpusDocuments } from './corpus.js';
-import type { DistillPaths, DistillRunPaths } from './paths.js';
+
 import { readJsonFile, writeJsonFile } from './paths.js';
 import { loadDistillState } from './state.js';
-import type {
-  CorpusDocument,
-  DistillExtraction,
-  ExtractionClaim,
-  PersonaDimension,
-  SubjectProfile,
-} from './types.js';
+
 import { PERSONA_DIMENSIONS } from './types.js';
 
-export const DIMENSION_GUIDE: Record<PersonaDimension, string> = {
+export const DIMENSION_GUIDE = {
   identity:
     'Who they are at work: role, self-image, what they own, what they are known for.',
   expression:
@@ -27,32 +21,6 @@ export const DIMENSION_GUIDE: Record<PersonaDimension, string> = {
     'Known corrections: behaviours the operator or subject has explicitly corrected; these override conflicting inferences.',
 };
 
-export interface AnalysisPacket {
-  version: 1;
-  subject: string;
-  runId: string;
-  generatedAt: string;
-  profile: {
-    displayName: string;
-    role?: string;
-    relationship?: string;
-    personalityTags: string[];
-  };
-  standingClaims: { id: string; dimension: PersonaDimension; claim: string }[];
-  dimensionCoverage: Record<PersonaDimension, number>;
-  deltaDocuments: {
-    id: string;
-    source: string;
-    origin: string;
-    author: string;
-    authoredBySubject: boolean;
-    weight: number;
-    title?: string;
-    timestamp?: string;
-    content: string;
-  }[];
-}
-
 /**
  * The analyse stage is deterministic: it selects the corpus delta (documents
  * not yet analysed, holdouts excluded), orders it by quality weight, and
@@ -60,12 +28,7 @@ export interface AnalysisPacket {
  * only what is new. Model judgment happens against this packet and comes
  * back through `extraction.json`.
  */
-export function buildAnalysisPacket(
-  paths: DistillPaths,
-  runPaths: DistillRunPaths,
-  profile: SubjectProfile,
-  runId: string,
-): AnalysisPacket {
+export function buildAnalysisPacket(paths, runPaths, profile, runId) {
   const state = loadDistillState(paths);
   const analysed = new Set(state.analysedDocIds);
   const delta = listCorpusDocuments(paths)
@@ -87,8 +50,8 @@ export function buildAnalysisPacket(
       dimension,
       standingClaims.filter((claim) => claim.dimension === dimension).length,
     ]),
-  ) as Record<PersonaDimension, number>;
-  const packet: AnalysisPacket = {
+  );
+  const packet = {
     version: 1,
     subject: paths.subject,
     runId,
@@ -123,8 +86,8 @@ export function buildAnalysisPacket(
   return packet;
 }
 
-function renderPacketMarkdown(packet: AnalysisPacket): string {
-  const lines: string[] = [
+function renderPacketMarkdown(packet) {
+  const lines = [
     `# Analysis Packet — ${packet.profile.displayName}`,
     '',
     `Run \`${packet.runId}\`. Read the delta documents below, then write`,
@@ -166,16 +129,13 @@ function renderPacketMarkdown(packet: AnalysisPacket): string {
   return lines.join('\n');
 }
 
-export interface ExtractionValidationResult {
-  extraction: DistillExtraction;
-  validClaims: ExtractionClaim[];
-  flagged: { claim: string; reason: string }[];
-}
-
-export function loadExtraction(
-  runPaths: DistillRunPaths,
-): DistillExtraction | null {
-  return readJsonFile<DistillExtraction>(runPaths.extractionPath);
+/**
+ * `extraction.json` is the single contract through which model judgment
+ * enters the pipeline: written by the analysing agent, validated here, and
+ * rendered deterministically into the identity files and work-module skill.
+ */
+export function loadExtraction(runPaths) {
+  return readJsonFile(runPaths.extractionPath);
 }
 
 /**
@@ -184,10 +144,7 @@ export function loadExtraction(
  * corpus (holdouts excluded — they are reserved for eval). Unsupported claims
  * are flagged for the report, not fabricated into the persona.
  */
-export function validateExtraction(
-  paths: DistillPaths,
-  extraction: DistillExtraction,
-): ExtractionValidationResult {
+export function validateExtraction(paths, extraction) {
   if (extraction.version !== 1) {
     throw new Error(
       `Unsupported extraction version: ${String(extraction.version)}`,
@@ -203,8 +160,8 @@ export function validateExtraction(
       .filter((doc) => !doc.holdout)
       .map((doc) => doc.id),
   );
-  const flagged: { claim: string; reason: string }[] = [];
-  const checkEvidence = (label: string, evidence: unknown): boolean => {
+  const flagged = [];
+  const checkEvidence = (label, evidence) => {
     if (!Array.isArray(evidence) || evidence.length === 0) {
       flagged.push({ claim: label, reason: 'no evidence cited' });
       return false;
@@ -222,7 +179,7 @@ export function validateExtraction(
     return true;
   };
 
-  const validClaims: ExtractionClaim[] = [];
+  const validClaims = [];
   for (const claim of extraction.claims || []) {
     const text = String(claim?.claim || '').trim();
     if (!text) continue;
@@ -266,14 +223,14 @@ export function validateExtraction(
   return { extraction, validClaims, flagged };
 }
 
-function clampConfidence(value: unknown): number {
+function clampConfidence(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return 0.5;
   return Math.min(1, Math.max(0, num));
 }
 
-export function summarizeDelta(documents: CorpusDocument[]): string {
-  const bySource = new Map<string, number>();
+export function summarizeDelta(documents) {
+  const bySource = new Map();
   for (const doc of documents) {
     bySource.set(doc.source, (bySource.get(doc.source) || 0) + 1);
   }

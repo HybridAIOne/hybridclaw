@@ -39,7 +39,9 @@ import {
 import type {
   HybridClawPluginApi,
   MemoryLayerPlugin,
+  PluginAdminRouteDefinition,
   PluginAuxiliaryModelRequest,
+  PluginCliCommandDefinition,
   PluginCommandDefinition,
   PluginDispatchInboundMessageRequest,
   PluginHookHandlerMap,
@@ -185,6 +187,12 @@ export function createPluginApi(params: {
     },
     registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void {
       params.manager.registerWebsocketWebhook(params.pluginId, webhook);
+    },
+    registerAdminRoute(route: PluginAdminRouteDefinition): void {
+      params.manager.adminRoutes.register(params.pluginId, route);
+    },
+    registerCliCommand(command: PluginCliCommandDefinition): void {
+      params.manager.cliCommands.register(params.pluginId, command);
     },
     dispatchInboundMessage(
       request: PluginDispatchInboundMessageRequest,

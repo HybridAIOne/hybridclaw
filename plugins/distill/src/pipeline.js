@@ -1,4 +1,3 @@
-import type { AnalysisPacket } from './analysis.js';
 import {
   buildAnalysisPacket,
   loadExtraction,
@@ -11,7 +10,7 @@ import { appendCorpusDocuments, listCorpusDocuments } from './corpus.js';
 import { pendingCorrections } from './corrections.js';
 import { markHoldoutDocuments } from './eval.js';
 import { applyDistillMerge, listReviewItems } from './merge.js';
-import type { DistillPaths, DistillRunPaths } from './paths.js';
+
 import { readJsonFile } from './paths.js';
 import {
   createDistillRun,
@@ -19,26 +18,6 @@ import {
   setDistillStage,
   writeRunReport,
 } from './run.js';
-import type {
-  DistillRunRecord,
-  DistillRunSource,
-  SubjectProfile,
-} from './types.js';
-
-export interface DistillPipelineOptions {
-  sources: DistillRunSource[];
-  resumeRunId?: string;
-  /** Fraction of ingested documents reserved for fidelity eval. */
-  holdoutRatio?: number;
-}
-
-export interface DistillPipelineResult {
-  run: DistillRunRecord;
-  runPaths: DistillRunPaths;
-  status: 'completed' | 'awaiting-extraction';
-  warnings: string[];
-  flagged: string[];
-}
 
 /**
  * R72.1 orchestration: ingest → analyse → build → merge → correct, each
@@ -46,13 +25,9 @@ export interface DistillPipelineResult {
  * stage; the build stage parks as `awaiting-extraction` until the analysing
  * agent writes `extraction.json` next to the packet.
  */
-export function runDistillPipeline(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  options: DistillPipelineOptions,
-): DistillPipelineResult {
-  let run: DistillRunRecord;
-  let runPaths: DistillRunPaths;
+export function runDistillPipeline(paths, profile, options) {
+  let run;
+  let runPaths;
   if (options.resumeRunId) {
     const loaded = loadDistillRun(paths, options.resumeRunId);
     if (!loaded) {
@@ -67,8 +42,8 @@ export function runDistillPipeline(
     ({ run, runPaths } = createDistillRun(paths, options.sources));
   }
 
-  const warnings: string[] = [];
-  const flagged: string[] = [];
+  const warnings = [];
+  const flagged = [];
 
   if (run.stages.ingest.status !== 'completed') {
     let added = 0;
@@ -116,7 +91,7 @@ export function runDistillPipeline(
     );
   }
 
-  const packet = readJsonFile<AnalysisPacket>(runPaths.packetJsonPath);
+  const packet = readJsonFile(runPaths.packetJsonPath);
   if (!packet || !Array.isArray(packet.deltaDocuments)) {
     // A completed analyse stage without a readable packet means the run
     // directory was tampered with or partially lost — fail loudly instead of

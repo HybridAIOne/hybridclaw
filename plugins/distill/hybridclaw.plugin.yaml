@@ -1,0 +1,11 @@
+id: distill
+name: Human Distillation
+version: 0.1.0
+description: Distill a consenting person's source material into a coworker agent, with the `hybridclaw coworker` CLI and the admin console Distill page.
+entrypoint: src/index.js
+requires:
+  node: 22.x
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

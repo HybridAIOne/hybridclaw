@@ -1,16 +1,8 @@
-import type { DistillPaths } from './paths.js';
 import { loadDistillState } from './state.js';
-import type { PersonaDimension, SubjectProfile } from './types.js';
+
 import { PERSONA_DIMENSIONS } from './types.js';
 
-export type InterviewAudience = 'subject' | 'colleague';
-
-interface QuestionPair {
-  subject: string;
-  colleague: string;
-}
-
-const QUESTION_BANK: Record<PersonaDimension, QuestionPair[]> = {
+const QUESTION_BANK = {
   identity: [
     {
       subject:
@@ -116,15 +108,11 @@ const QUESTION_BANK: Record<PersonaDimension, QuestionPair[]> = {
  * what the corpus has not yet shown. Answers are saved as an `interview`
  * source (weight 1.0) and feed the next analyse cycle.
  */
-export function generateQuestionnaire(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  options: { audience?: InterviewAudience; count?: number } = {},
-): string {
+export function generateQuestionnaire(paths, profile, options = {}) {
   const audience = options.audience || 'subject';
   const count = Math.max(1, Math.min(20, options.count ?? 8));
   const state = loadDistillState(paths);
-  const coverage = new Map<PersonaDimension, number>(
+  const coverage = new Map(
     PERSONA_DIMENSIONS.map((dimension) => [
       dimension,
       state.claims.filter(
@@ -135,7 +123,7 @@ export function generateQuestionnaire(
   const ordered = [...PERSONA_DIMENSIONS].sort(
     (a, b) => (coverage.get(a) || 0) - (coverage.get(b) || 0),
   );
-  const questions: { dimension: PersonaDimension; text: string }[] = [];
+  const questions = [];
   let round = 0;
   while (questions.length < count && round < 10) {
     for (const dimension of ordered) {
@@ -154,7 +142,7 @@ export function generateQuestionnaire(
     audience === 'subject'
       ? `_Answer in your own voice — half-sentences and tangents welcome. The more it sounds like you, the better the distillation._`
       : `_Answer about ${profile.displayName} as honestly as you can. Concrete stories beat adjectives._`;
-  const lines: string[] = [
+  const lines = [
     `# Distillation Interview — ${profile.displayName}`,
     '',
     intro,

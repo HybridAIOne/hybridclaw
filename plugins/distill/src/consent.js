@@ -1,36 +1,22 @@
 import fs from 'node:fs';
 import { emitDistillAuditEvent } from './audit.js';
-import type { DistillPaths } from './paths.js';
+
 import { readJsonFile, sha256Hex, writeJsonFile } from './paths.js';
-import type { ConsentArtefact, SubjectProfile } from './types.js';
+
 import { DistillBlockedError } from './types.js';
 
-export interface RecordConsentInput {
-  subjectName: string;
-  grantedBy: string;
-  method: string;
-  statement: string;
-  scope?: string;
-  note?: string;
+export function loadConsentArtefact(paths) {
+  return readJsonFile(paths.consentPath);
 }
 
-export function loadConsentArtefact(
-  paths: DistillPaths,
-): ConsentArtefact | null {
-  return readJsonFile<ConsentArtefact>(paths.consentPath);
-}
-
-export function hasValidConsent(paths: DistillPaths): boolean {
+export function hasValidConsent(paths) {
   const consent = loadConsentArtefact(paths);
   if (!consent || consent.revokedAt) return false;
   const expected = consentDigest(consent);
   return consent.sha256 === expected;
 }
 
-export function recordConsentArtefact(
-  paths: DistillPaths,
-  input: RecordConsentInput,
-): ConsentArtefact {
+export function recordConsentArtefact(paths, input) {
   const grantedBy = input.grantedBy.trim();
   const statement = input.statement.trim();
   const method = input.method.trim();
@@ -39,7 +25,7 @@ export function recordConsentArtefact(
       'Consent requires --granted-by, --method, and --statement values.',
     );
   }
-  const artefact: ConsentArtefact = {
+  const artefact = {
     version: 1,
     subject: paths.subject,
     subjectName: input.subjectName.trim() || paths.subject,
@@ -70,7 +56,7 @@ export function recordConsentArtefact(
   return artefact;
 }
 
-export function revokeConsentArtefact(paths: DistillPaths): ConsentArtefact {
+export function revokeConsentArtefact(paths) {
   const consent = loadConsentArtefact(paths);
   if (!consent) {
     throw new Error(`No consent artefact recorded for \`${paths.subject}\`.`);
@@ -93,11 +79,7 @@ export function revokeConsentArtefact(paths: DistillPaths): ConsentArtefact {
  * blocked until a recorded consent artefact exists. The block itself is
  * audited so refusals are as traceable as approvals.
  */
-export function assertDistillConsent(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  runId: string,
-): void {
+export function assertDistillConsent(paths, profile, runId) {
   if (!profile.realPerson) return;
   if (hasValidConsent(paths)) return;
   const consent = loadConsentArtefact(paths);
@@ -124,7 +106,7 @@ export function assertDistillConsent(
   );
 }
 
-function consentDigest(artefact: ConsentArtefact): string {
+export function consentDigest(artefact) {
   return sha256Hex(
     [
       artefact.subject,

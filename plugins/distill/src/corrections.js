@@ -6,10 +6,9 @@ import {
   countWords,
 } from './corpus.js';
 import { maskThirdPartyPii } from './masking.js';
-import type { DistillPaths } from './paths.js';
+
 import { sha256Hex } from './paths.js';
 import { loadDistillState } from './state.js';
-import type { CorrectionRecord, SubjectProfile } from './types.js';
 
 /**
  * Conversational correction layer (R72.6): an operator nudge ("she'd never
@@ -17,15 +16,7 @@ import type { CorrectionRecord, SubjectProfile } from './types.js';
  * next analyse → merge cycle promotes it into the persona/work files as a
  * `correction`-dimension claim that overrides conflicting inferences.
  */
-export function recordCorrection(
-  paths: DistillPaths,
-  profile: SubjectProfile,
-  input: {
-    text: string;
-    scope?: 'persona' | 'work' | 'both';
-    recordedBy: string;
-  },
-): CorrectionRecord {
+export function recordCorrection(paths, profile, input) {
   const text = input.text.trim();
   if (!text) {
     throw new Error('A correction needs text. Use --note "<correction>".');
@@ -54,7 +45,7 @@ export function recordCorrection(
     ],
     'correction',
   );
-  const record: CorrectionRecord = {
+  const record = {
     id: `cor_${sha256Hex(`${recordedAt}\n${text}`).slice(0, 12)}`,
     subject: paths.subject,
     text: masked.text,
@@ -78,19 +69,19 @@ export function recordCorrection(
   return record;
 }
 
-export function listCorrections(paths: DistillPaths): CorrectionRecord[] {
-  let raw: string;
+export function listCorrections(paths) {
+  let raw;
   try {
     raw = fs.readFileSync(paths.correctionsPath, 'utf-8');
   } catch {
     return [];
   }
-  const records: CorrectionRecord[] = [];
+  const records = [];
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      records.push(JSON.parse(trimmed) as CorrectionRecord);
+      records.push(JSON.parse(trimmed));
     } catch {
       // Skip torn lines.
     }
@@ -98,7 +89,7 @@ export function listCorrections(paths: DistillPaths): CorrectionRecord[] {
   return records;
 }
 
-export function pendingCorrections(paths: DistillPaths): CorrectionRecord[] {
+export function pendingCorrections(paths) {
   const analysed = new Set(loadDistillState(paths).analysedDocIds);
   return listCorrections(paths).filter((record) => !analysed.has(record.docId));
 }
