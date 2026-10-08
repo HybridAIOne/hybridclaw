@@ -7,23 +7,11 @@ export interface ModelCapabilityFlags {
   reasoning: boolean;
 }
 
-/**
- * Prompt-destined, byte-stable model overlay text. String fields must be
- * non-empty when an overlay is populated.
- */
-export interface ModelOverlay {
-  tool_discipline: string;
-  completion_contract: string;
-  execution_policy: string;
-  narrate_only_retry: boolean;
-}
-
 interface StaticModelMetadataEntry {
   contextWindow: number | null;
   maxTokens?: number | null;
   capabilities: ModelCapabilityFlags;
   sources: string[];
-  model_overlay?: ModelOverlay;
 }
 
 const MODEL_METADATA_SOURCES = {
@@ -312,44 +300,6 @@ function candidatesIncludeGpt5ModelId(candidates: readonly string[]): boolean {
 
 export function isGpt5ModelId(modelId: string): boolean {
   return candidatesIncludeGpt5ModelId(collectModelLookupCandidates(modelId));
-}
-
-export function isCodexFamilyModelId(_modelId: string): boolean {
-  return false;
-}
-
-export function isLocalLlmModelId(_modelId: string): boolean {
-  return false;
-}
-
-const MODEL_OVERLAY_MATCHERS: {
-  matches: (modelId: string) => boolean;
-  overlay: ModelOverlay | undefined;
-}[] = [
-  { matches: isGpt5ModelId, overlay: undefined },
-  { matches: isCodexFamilyModelId, overlay: undefined },
-  { matches: isLocalLlmModelId, overlay: undefined },
-];
-
-function matchesModelOverlayCandidate(
-  matcher: (modelId: string) => boolean,
-  candidates: readonly string[],
-): boolean {
-  return candidates.some((candidate) => matcher(candidate));
-}
-
-export function getModelOverlay(modelId: string): ModelOverlay | undefined {
-  const candidates = collectModelLookupCandidates(modelId);
-  const entry = findStaticModelMetadataEntryFromCandidates(candidates);
-  if (entry?.model_overlay) return entry.model_overlay;
-
-  for (const matcher of MODEL_OVERLAY_MATCHERS) {
-    if (matchesModelOverlayCandidate(matcher.matches, candidates)) {
-      return matcher.overlay;
-    }
-  }
-
-  return undefined;
 }
 
 export function resolveStaticModelCatalogMetadata(

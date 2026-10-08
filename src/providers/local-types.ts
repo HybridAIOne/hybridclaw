@@ -81,11 +81,3 @@ export interface HealthCheckResult {
   error?: string;
   modelCount?: number;
 }
-
-export interface ModelHealthCheckResult {
-  modelId: string;
-  backend: LocalBackendType;
-  usable: boolean;
-  latencyMs: number;
-  error?: string;
-}

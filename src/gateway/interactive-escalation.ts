@@ -657,17 +657,6 @@ export function createSuspendedSession(
   return session;
 }
 
-export function awaitTwoFactor(
-  input: Omit<CreateSuspendedSessionInput, 'modality'> & {
-    modality?: InteractionModality;
-  },
-): SuspendedSession {
-  return createSuspendedSession({
-    ...input,
-    modality: input.modality || 'totp',
-  });
-}
-
 export function resumeWith(
   sessionId: string,
   response: OperatorReturn,

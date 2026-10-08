@@ -249,24 +249,6 @@ export function selectAuditTurnGroups(
   return { allTurns, selectedTurns: allTurns, error: null };
 }
 
-export function countCompletedTurnsBefore(
-  allTurns: AuditTurnGroup[],
-  selectedTurns: AuditTurnGroup[],
-): number {
-  const firstSelectedSeq = selectedTurns[0]?.turnStart.seq;
-  if (firstSelectedSeq == null) return 0;
-  let completed = 0;
-  for (const turn of allTurns) {
-    if (turn.turnStart.seq >= firstSelectedSeq) break;
-    const turnEnd = turn.rows.find((row) => row.event_type === 'turn.end');
-    const finishReason = turnEnd
-      ? readString(parseJsonObject(turnEnd.payload), 'finishReason')
-      : null;
-    if (finishReason === 'completed') completed += 1;
-  }
-  return completed;
-}
-
 function durationBetween(start: string, end: string): number | null {
   const startMs = new Date(start).getTime();
   const endMs = new Date(end).getTime();
