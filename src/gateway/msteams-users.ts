@@ -5,7 +5,10 @@
  */
 import { getAgentById } from '../agents/agent-registry.js';
 import { createPersonalAgent } from '../agents/personal-agent.js';
-import { buildMSTeamsUserMarkdown } from '../channels/msteams/user-routing.js';
+import {
+  buildMSTeamsUserMarkdown,
+  readMSTeamsUserProfile,
+} from '../channels/msteams/user-routing.js';
 import { MSTEAMS_TENANT_ID } from '../config/config.js';
 import {
   getRuntimeConfig,
@@ -18,10 +21,11 @@ import {
 
 function listMSTeamsUsers() {
   return listChannelUsers('msteams', MSTEAMS_TENANT_ID).map(
-    ({ profile, ...user }) => ({
+    ({ tenantId, userId, profile, ...user }) => ({
+      tenantId,
+      userId,
+      ...readMSTeamsUserProfile(profile),
       ...user,
-      teamsUserId: profile.teamsUserId ?? null,
-      entraObjectId: profile.entraObjectId ?? null,
     }),
   );
 }

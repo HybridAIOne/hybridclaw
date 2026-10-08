@@ -138,12 +138,12 @@ function readTables(dbPath: string) {
 }
 
 describe('msteams_users to channel_users upgrade', () => {
-  test('a fresh database has channel_users and no Teams-only table', () => {
+  test('a fresh database has channel_users and an empty legacy table', () => {
     const dbPath = path.join(makeTempDir(), 'hybridclaw.db');
     initDatabase({ dbPath, quiet: true });
     expect(readTables(dbPath)).toMatchObject({
       userVersion: DATABASE_SCHEMA_VERSION,
-      tables: ['channel_users'],
+      tables: ['channel_users', 'msteams_users'],
       rows: [],
     });
   });
@@ -154,9 +154,9 @@ describe('msteams_users to channel_users upgrade', () => {
 
     const after = readTables(dbPath);
     expect(after.userVersion).toBe(DATABASE_SCHEMA_VERSION);
-    expect(after.tables).toEqual(['channel_users']);
+    expect(after.tables).toEqual(['channel_users', 'msteams_users']);
     expect(after.migration).toEqual({
-      description: 'Replace the Teams-only user table with channel_users',
+      description: 'Copy Teams users into channel_users',
     });
     expect(after.rows).toEqual(
       RELEASED_ROWS.map((row) => ({
@@ -213,7 +213,6 @@ describe('msteams_users to channel_users upgrade', () => {
     const dbPath = createReleasedDatabase(65);
     initDatabase({ dbPath, quiet: true });
     const after = readTables(dbPath);
-    expect(after.tables).toEqual(['channel_users']);
     expect(after.rows).toHaveLength(RELEASED_ROWS.length);
     expect(after.rows).toEqual(
       expect.arrayContaining([
@@ -224,5 +223,64 @@ describe('msteams_users to channel_users upgrade', () => {
         }),
       ]),
     );
+  });
+
+  test('a 0.39.x binary still serves Teams from the upgraded database', () => {
+    const dbPath = createReleasedDatabase(72);
+    initDatabase({ dbPath, quiet: true });
+    const migrated = readTables(dbPath).rows;
+    closeDatabase();
+
+    // A 0.39.x binary skips migrations on a newer schema and runs its own
+    // store queries; these are the statements from the released 0.39.1 store.
+    const db = new Database(dbPath);
+    try {
+      const max = RELEASED_ROWS[1].user_id;
+      db.prepare(`INSERT INTO msteams_users
+        (tenant_id, user_id, teams_user_id, entra_object_id, display_name, email, message_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tenant_id, user_id) DO UPDATE SET
+          teams_user_id = COALESCE(excluded.teams_user_id, teams_user_id),
+          entra_object_id = COALESCE(excluded.entra_object_id, entra_object_id),
+          display_name = COALESCE(excluded.display_name, display_name),
+          email = COALESCE(excluded.email, email),
+          message_count = message_count + excluded.message_count,
+          last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).run(
+        TENANT,
+        max,
+        '29:1max-teams-id',
+        null,
+        'Max Example',
+        null,
+        1,
+      );
+      expect(
+        db
+          .prepare(
+            'SELECT agent_id FROM msteams_users WHERE tenant_id = ? AND user_id = ?',
+          )
+          .get(TENANT, max),
+      ).toEqual({ agent_id: 'main' });
+      expect(
+        db
+          .prepare(
+            'SELECT email FROM msteams_users WHERE user_id = ? AND email IS NOT NULL ORDER BY last_seen DESC LIMIT 1',
+          )
+          .get(max),
+      ).toEqual({ email: 'max@example.com' });
+      expect(
+        db
+          .prepare(
+            'UPDATE msteams_users SET agent_id = ? WHERE tenant_id = ? AND user_id = ?',
+          )
+          .run(null, TENANT, max).changes,
+      ).toBe(1);
+    } finally {
+      db.close();
+    }
+
+    // Upgrading again does not re-import what the old binary wrote.
+    initDatabase({ dbPath, quiet: true });
+    expect(readTables(dbPath).rows).toEqual(migrated);
   });
 });

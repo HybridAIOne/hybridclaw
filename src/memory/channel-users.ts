@@ -125,7 +125,7 @@ export function listChannelUsers(
     WITH usage AS (
       SELECT user_id, COUNT(DISTINCT session_id) AS sessions,
         SUM(total_tokens) AS tokens, SUM(cost_usd) AS cost
-      FROM usage_events WHERE channel_kind = ? AND COALESCE(tenant_id, '') = ?
+      FROM usage_events WHERE channel_kind = ? AND tenant_id = ?
       GROUP BY user_id
     )
     SELECT u.tenant_id AS tenantId, u.user_id AS userId,

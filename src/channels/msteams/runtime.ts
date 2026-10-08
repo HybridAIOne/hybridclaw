@@ -65,6 +65,7 @@ import { MSTeamsStreamManager } from './stream.js';
 import { createMSTeamsTypingController } from './typing.js';
 import {
   ensureMSTeamsPersonalAgent,
+  type MSTeamsUserProfile,
   resolveMSTeamsUserAgent,
 } from './user-routing.js';
 import {
@@ -733,7 +734,7 @@ async function handleIncomingMessage(turnContext: TurnContext): Promise<void> {
       profile: {
         teamsUserId: activity.from?.id,
         entraObjectId: actor.aadObjectId?.toLowerCase(),
-      },
+      } satisfies Partial<Record<keyof MSTeamsUserProfile, string>>,
       isMessage: !parsedCommand.isCommand,
     });
     if (isDm) {

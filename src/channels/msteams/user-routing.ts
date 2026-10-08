@@ -43,12 +43,25 @@ export function resolveMSTeamsUserAgent(
   return agent.id;
 }
 
-export interface MSTeamsPersonalAgentSeed {
+/** Teams identifiers a `channel_users` row keeps in its `profile`. */
+export interface MSTeamsUserProfile {
+  teamsUserId: string | null;
+  entraObjectId: string | null;
+}
+
+export function readMSTeamsUserProfile(
+  profile: Record<string, string>,
+): MSTeamsUserProfile {
+  return {
+    teamsUserId: profile.teamsUserId ?? null,
+    entraObjectId: profile.entraObjectId ?? null,
+  };
+}
+
+export interface MSTeamsPersonalAgentSeed extends MSTeamsUserProfile {
   tenantId: string;
   userId: string;
   displayName: string | null;
-  entraObjectId: string | null;
-  teamsUserId: string | null;
 }
 
 export function buildMSTeamsUserMarkdown(
