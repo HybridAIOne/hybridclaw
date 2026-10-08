@@ -88,6 +88,51 @@ const handleGatewayMessage = vi.fn(async (_request: unknown) => ({
 
 const persistVoiceTranscript = vi.fn();
 
+const STORED_SESSION_ID = 'agent:main:channel:web:chat:dm:peer:stored1';
+
+// Stand-in for the session store: one session with history, nothing else.
+const memoryService = {
+  getSessionById: vi.fn((sessionId: string) =>
+    sessionId === STORED_SESSION_ID
+      ? { id: STORED_SESSION_ID, session_summary: 'Planning the offsite.' }
+      : undefined,
+  ),
+  getRecentMessages: vi.fn((_sessionId: string, _limit?: number) => [
+    { role: 'user', content: 'Which venue is cheaper?' },
+    { role: 'tool', content: 'venue lookup output' },
+    { role: 'assistant', content: 'The **riverside** one.' },
+  ]),
+  getOrCreateSession: vi.fn(),
+};
+
+// The agent's name and the user's details from USER.md, as the runtime reads them.
+const callContext = {
+  displayNameForAgent: vi.fn((_agentId: string) => 'Hy'),
+  readUserNames: vi.fn((_agentId: string) => ({
+    name: 'Anna' as string | null,
+    fullName: null as string | null,
+  })),
+  readUserTimezone: vi.fn((_agentId: string) => 'Europe/Berlin'),
+  formatCurrentTime: vi.fn(
+    (_timezone?: string) => 'Thursday, October 8th, 2026 — 21:30 (Europe/Berlin)',
+  ),
+};
+
+function mockCallContext(): void {
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    displayNameForAgent: callContext.displayNameForAgent,
+  }));
+  vi.doMock('../src/workspace.js', () => ({
+    readUserNames: callContext.readUserNames,
+    readUserTimezone: callContext.readUserTimezone,
+    formatCurrentTime: callContext.formatCurrentTime,
+  }));
+}
+
+function mockMemoryService(): void {
+  vi.doMock('../src/memory/memory-service.js', () => ({ memoryService }));
+}
+
 async function createConnection(params?: { apiKey?: string }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
@@ -105,6 +150,8 @@ async function createConnection(params?: { apiKey?: string }) {
     persistVoiceTranscript,
     VOICE_MESSAGE_SOURCE: 'voice',
   }));
+  mockMemoryService();
+  mockCallContext();
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: () => {},
@@ -149,6 +196,8 @@ async function loadWebchatVoiceModule() {
     persistVoiceTranscript,
     VOICE_MESSAGE_SOURCE: 'voice',
   }));
+  mockMemoryService();
+  mockCallContext();
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: () => {},
@@ -167,10 +216,16 @@ async function flushAsync(): Promise<void> {
 afterEach(() => {
   handleGatewayMessage.mockClear();
   persistVoiceTranscript.mockClear();
+  memoryService.getSessionById.mockClear();
+  memoryService.getRecentMessages.mockClear();
+  memoryService.getOrCreateSession.mockClear();
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/gateway/gateway-chat-service.js');
   vi.doUnmock('../src/gateway/voice-transcript-store.js');
+  vi.doUnmock('../src/memory/memory-service.js');
+  vi.doUnmock('../src/agents/agent-registry.js');
+  vi.doUnmock('../src/workspace.js');
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
 });
@@ -309,6 +364,88 @@ test('an unknown client is not passed on to consults', async () => {
 
   expect(handleGatewayMessage).toHaveBeenCalledTimes(1);
   expect(handleGatewayMessage.mock.calls[0][0]).not.toHaveProperty('client');
+});
+
+function sentInstructions(realtime: FakeRealtimeSocket): string {
+  const [sessionUpdate] = realtime.sentOfType('session.update');
+  return String((sessionUpdate.session as Record<string, unknown>).instructions);
+}
+
+test('starting in a session with stored messages gives the voice model a recap', async () => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', sessionId: STORED_SESSION_ID });
+  realtime.open();
+
+  expect(memoryService.getRecentMessages).toHaveBeenCalledWith(
+    STORED_SESSION_ID,
+    expect.any(Number),
+  );
+  const instructions = sentInstructions(realtime);
+  const recap = instructions.slice(instructions.indexOf('<earlier_chat>'));
+  expect(recap.split('\n')).toEqual([
+    '<earlier_chat>',
+    expect.stringContaining('Planning the offsite.'),
+    'User: Which venue is cheaper?',
+    'Assistant: The **riverside** one.',
+    '</earlier_chat>',
+  ]);
+  // The greeting is unchanged by the recap.
+  realtime.serverEvent({ type: 'session.updated' });
+  expect(
+    realtime.sentOfType('response.create').map((event) => event.response),
+  ).toEqual([
+    { instructions: expect.stringContaining(REALTIME_CONFIG.greeting) },
+  ]);
+  expect(browser.sentOfType('ready')).toEqual([
+    { type: 'ready', sessionId: STORED_SESSION_ID },
+  ]);
+});
+
+test('the voice picks up knowing its name, the user and the time', async () => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', agentId: 'hy', client: 'mobile' });
+  realtime.open();
+
+  expect(callContext.displayNameForAgent).toHaveBeenCalledWith('hy');
+  const instructions = sentInstructions(realtime);
+  expect(instructions).toContain('You are the realtime voice of Hy,');
+  expect(instructions).not.toContain('HybridClaw');
+  expect(instructions).toContain('User details: name Anna.');
+  expect(instructions).toContain(
+    'Current date and time for the user: Thursday, October 8th, 2026 — 21:30 (Europe/Berlin).',
+  );
+});
+
+test('a call goes ahead when the context cannot be read', async () => {
+  callContext.readUserNames.mockImplementationOnce(() => {
+    throw new Error('USER.md unreadable');
+  });
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', agentId: 'hy' });
+  realtime.open();
+
+  expect(browser.sentOfType('ready')).toHaveLength(1);
+  const instructions = sentInstructions(realtime);
+  // The console login's name stands in when USER.md has none.
+  expect(instructions).toContain('User details: name Ada.');
+});
+
+test.each([
+  ['an unknown session id', 'agent:main:channel:web:chat:dm:peer:unknown1'],
+  ['no session id', undefined],
+])('starting with %s gives no recap and creates no session', async (_label, sessionId) => {
+  const { browser, realtime } = await createConnection();
+
+  browser.clientFrame({ type: 'start', sessionId });
+  realtime.open();
+
+  expect(sentInstructions(realtime)).not.toContain('earlier_chat');
+  expect(memoryService.getSessionById).toHaveBeenCalledTimes(1);
+  expect(memoryService.getRecentMessages).not.toHaveBeenCalled();
+  expect(memoryService.getOrCreateSession).not.toHaveBeenCalled();
 });
 
 test('audio flows both ways and barge-in clears browser playback', async () => {

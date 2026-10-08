@@ -84,6 +84,26 @@ webchat voice frame protocol — JSON text frames both ways:
 Audio is 16-bit little-endian mono PCM at **24 kHz**, base64-encoded, in both
 directions.
 
+### Continuing an existing chat
+
+Pass an existing chat's `sessionId` in the `start` frame to continue that
+session by voice: spoken turns and agent requests land in the same history as
+the typed messages. When the session already has stored messages, the gateway
+also gives the realtime voice model a short recap of it (the session summary,
+if any, and the last few user and assistant messages, about 2,400 characters
+at most), so it understands references to the chat and keeps its language.
+The recap is background for the voice model only and is sent to the
+configured realtime provider; it is not spoken or returned in a frame. Omit
+`sessionId`, or send one the gateway has not seen, to start without a recap.
+
+Every session also starts knowing who it is and who it talks to: the voice
+goes by the agent's display name (for example "Hy"), calls the user by the
+name in the agent's `USER.md` ("What to call them", else "Name"), and knows
+the user's local date and time from `USER.md`'s "Timezone". All of this is
+read once at the `start` frame, so a client can play a ringing tone while the
+realtime session connects and greets; the greeting audio arrives as soon as
+the voice is ready.
+
 Minimal client sketch:
 
 ```js
