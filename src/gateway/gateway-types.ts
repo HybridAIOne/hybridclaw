@@ -56,6 +56,7 @@ import type {
   ArtifactMetadata,
   BrowserFrame,
   PendingApproval,
+  SlideSamples,
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
@@ -167,6 +168,8 @@ export interface GatewayChatToolProgressEvent {
   durationMs?: number;
   /** On a browser tool's finish: the page it left the browser on. */
   browser?: BrowserFrame;
+  /** On `show_slide_samples`' finish: the looks the user picks from. */
+  slideSamples?: SlideSamples;
 }
 
 export interface GatewayChatTextDeltaEvent {

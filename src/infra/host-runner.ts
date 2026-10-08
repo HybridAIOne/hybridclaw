@@ -76,7 +76,9 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
   stashBrowserFrameLine,
+  stashSlideSamplesLine,
   takeBrowserFrame,
+  takeSlideSamples,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -365,9 +367,11 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
   if (stashBrowserFrameLine(entry, line)) return;
+  if (stashSlideSamplesLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
   const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
+  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
@@ -375,6 +379,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
       ...(browser ? { browser } : {}),
+      ...(slideSamples ? { slideSamples } : {}),
     });
   } catch (err) {
     logger.debug(

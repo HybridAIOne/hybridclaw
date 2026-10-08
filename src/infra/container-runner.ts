@@ -86,6 +86,7 @@ import type {
   ArtifactMetadata,
   BrowserFrame,
   PendingApproval,
+  SlideSamples,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { AdditionalMount } from '../types/security.js';
@@ -127,6 +128,7 @@ import {
 } from './stream-debug.js';
 import {
   parseBrowserFrameLine,
+  parseSlideSamplesLine,
   parseToolProgressLine,
 } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
@@ -279,9 +281,11 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
   if (stashBrowserFrameLine(entry, line)) return;
+  if (stashSlideSamplesLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
   const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
+  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
@@ -289,6 +293,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
       ...(browser ? { browser } : {}),
+      ...(slideSamples ? { slideSamples } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -643,9 +648,10 @@ export function remapOutputArtifacts(
   output.artifacts = mapped;
 }
 
-/** Pool-entry state for the `[browser-frame]` line that precedes a result. */
+/** Pool-entry state for the side lines (`[browser-frame]`, `[slide-samples]`) that precede a result. */
 export interface BrowserFrameSink {
   pendingBrowserFrame?: BrowserFrame;
+  pendingSlideSamples?: SlideSamples;
   browserFrameWorkspace?: { path: string; displayRoot?: string };
 }
 
@@ -672,6 +678,41 @@ export function stashBrowserFrameLine(
     ...(frame.signIn ? { signIn: frame.signIn } : {}),
   };
   return true;
+}
+
+/** Keep a `[slide-samples]` line for the tool's result; true if it was one. */
+export function stashSlideSamplesLine(
+  entry: BrowserFrameSink,
+  line: string,
+): boolean {
+  const samples = parseSlideSamplesLine(line);
+  if (!samples) return false;
+  const workspace = entry.browserFrameWorkspace;
+  const looks = workspace
+    ? samples.looks.flatMap((look) => {
+        const image = resolveArtifactHostPath(
+          look.image,
+          workspace.path,
+          workspace.displayRoot,
+        );
+        return image ? [{ ...look, image }] : [];
+      })
+    : [];
+  // A picture that doesn't resolve would leave a look the user can't see.
+  entry.pendingSlideSamples =
+    looks.length === samples.looks.length ? { ...samples, looks } : undefined;
+  return true;
+}
+
+export function takeSlideSamples(
+  entry: BrowserFrameSink,
+  toolName: string,
+  phase: 'start' | 'finish',
+): SlideSamples | undefined {
+  if (phase !== 'finish' || toolName !== 'show_slide_samples') return undefined;
+  const samples = entry.pendingSlideSamples;
+  entry.pendingSlideSamples = undefined;
+  return samples;
 }
 
 export function takeBrowserFrame(

@@ -406,6 +406,19 @@ async function routeEscalationApproval(params: {
   }
 }
 
+/**
+ * `show_slide_samples` needs a client that shows its pictures as a card to
+ * pick from; only the Hy app (`client: "mobile"`) does. Elsewhere the agent
+ * describes the looks in words.
+ */
+function blockSlideSamplesUnlessApp(
+  blockedTools: string[] | undefined,
+  client: GatewayChatRequest['client'],
+): string[] | undefined {
+  if (client === 'mobile') return blockedTools;
+  return [...(blockedTools ?? []), 'show_slide_samples'];
+}
+
 function readGatewayPromptModeDefault(): PromptMode | undefined {
   const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
     .trim()
@@ -1835,7 +1848,10 @@ async function handleGatewayMessageInner(
   // 2026-10-02): a per-turn block changes the tool list and system prompt at
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
-  const blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
+  const blockedTools = blockSlideSamplesUnlessApp(
+    blockDeviceDataToolUnlessShared(undefined, req.userId),
+    req.client,
+  );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,

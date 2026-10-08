@@ -3838,6 +3838,7 @@ async function handleApiChatStream(
       preview: event.preview,
       durationMs: event.durationMs,
       ...(event.browser ? { browser: event.browser } : {}),
+      ...(event.slideSamples ? { slideSamples: event.slideSamples } : {}),
     });
   };
 

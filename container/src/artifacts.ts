@@ -29,6 +29,8 @@ const ARTIFACT_DISCOVERY_IGNORED_DIRS = new Set([
   '.git',
   '.hybridclaw',
   '.npm',
+  // Sample slides of `show_slide_samples`: shown in their own card.
+  '.slide-samples',
   '.synced-skills',
   '__pycache__',
   'node_modules',
