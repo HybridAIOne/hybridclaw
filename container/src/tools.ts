@@ -113,6 +113,11 @@ import {
 } from './tools/slide-samples.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
+import {
+  runShowWidget,
+  SHOW_WIDGET_DEFINITION,
+  SHOW_WIDGET_TOOL,
+} from './tools/widget.js';
 import { runWorkTool, WORK_TOOL_DEFINITION } from './tools/work.js';
 import type {
   DelegationSideEffect,
@@ -2239,6 +2244,32 @@ function safeJoin(userPath: string): string {
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
+function writeWorkspaceFile(userPath: string, contents: string): void {
+  if (TASK_SANDBOX_FS_ENABLED) {
+    const sandboxPath = resolveTaskSandboxPath(userPath);
+    if (!sandboxPath) {
+      failTool(`Error: Path escapes workspace: ${userPath}`);
+    }
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
+    );
+    const localPath = path.join(
+      tempDir,
+      path.posix.basename(sandboxPath) || 'file',
+    );
+    try {
+      fs.writeFileSync(localPath, contents, 'utf-8');
+      writeTempFileToTaskSandbox(localPath, sandboxPath);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    return;
+  }
+  const filePath = safeJoin(userPath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents);
+}
+
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
@@ -2993,30 +3024,18 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      if (TASK_SANDBOX_FS_ENABLED) {
-        const sandboxPath = resolveTaskSandboxPath(args.path);
-        if (!sandboxPath) {
-          return failTool(`Error: Path escapes workspace: ${args.path}`);
-        }
-        const tempDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
-        );
-        const localPath = path.join(
-          tempDir,
-          path.posix.basename(sandboxPath) || 'file',
-        );
-        try {
-          fs.writeFileSync(localPath, args.contents, 'utf-8');
-          writeTempFileToTaskSandbox(localPath, sandboxPath);
-        } finally {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-      } else {
-        const filePath = safeJoin(args.path);
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, args.contents);
-      }
+      writeWorkspaceFile(args.path, args.contents);
       return `Wrote ${args.contents.length} bytes to ${args.path}`;
+    }
+
+    case SHOW_WIDGET_TOOL: {
+      try {
+        return runShowWidget(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     case 'edit': {
@@ -4278,6 +4297,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  SHOW_WIDGET_DEFINITION,
   {
     type: 'function',
     function: {

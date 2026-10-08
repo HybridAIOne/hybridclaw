@@ -7,6 +7,7 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
+import { SHOW_WIDGET_TOOL } from '../gateway/app-widgets.js';
 import {
   beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
@@ -119,7 +120,10 @@ export async function runIsolatedScheduledTask(params: {
     runSessionId: activeSessionId,
     taskId: taskId > 0 ? taskId : null,
   });
-  const blockedTools = blockDeviceDataToolUnlessShared(['cron'], owner);
+  const blockedTools = blockDeviceDataToolUnlessShared(
+    ['cron', SHOW_WIDGET_TOOL],
+    owner,
+  );
   const { messages, skills } = buildConversationContext({
     agentId,
     preferenceUserId: owner ?? null,
