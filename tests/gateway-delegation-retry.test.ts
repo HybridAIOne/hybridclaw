@@ -64,6 +64,7 @@ async function runSingleDelegation(): Promise<string> {
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
+  const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   initDatabase({ quiet: true, dbPath: path.join(homeDir, 'hybridclaw.db') });
   getOrCreateSession('retry-parent-session', null, 'tui', 'test-agent');
   updateRuntimeConfig((draft) => {
@@ -98,10 +99,16 @@ async function runSingleDelegation(): Promise<string> {
     }),
   });
   const publicId = descriptor?.publicId || '';
-  await vi.waitFor(
-    () => expect(getDelegationJob(publicId)?.status).toBe('completed'),
-    { timeout: 5_000 },
-  );
+  try {
+    await vi.waitFor(
+      () => expect(getDelegationJob(publicId)?.status).toBe('completed'),
+      { timeout: 5_000 },
+    );
+  } finally {
+    // A child's tool executions are audited in the background and can still
+    // be writing under the temp home when the job completes.
+    await flushAuditTrail();
+  }
   return getDelegationJob(publicId)?.result_digest || '';
 }
 
