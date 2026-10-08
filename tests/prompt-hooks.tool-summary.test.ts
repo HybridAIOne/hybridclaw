@@ -749,6 +749,7 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('the three-to-five rule does not apply');
   expect(mobile).toContain('write it as one self-contained HTML page');
   expect(mobile).toContain('Tables belong in such a page');
+  expect(mobile).toContain('A page may show pictures with `<img>`');
   expect(web).not.toContain('write it as one self-contained HTML page');
   expect(web).not.toContain('`- [ ] item`');
 });
