@@ -1,9 +1,5 @@
 import type { ReasoningEffort } from '../../shared/reasoning-effort.js';
-import {
-  type ModelBehavior,
-  type ModelThinkingFormat,
-  normalizeModelBehavior,
-} from '../model-behavior.js';
+import type { ModelBehavior, ModelThinkingFormat } from '../model-behavior.js';
 import { normalizeMessageContentToText } from '../ralph.js';
 import type {
   ChatCompletionResponse,
@@ -11,7 +7,7 @@ import type {
   ContainerInput,
   ToolDefinition,
 } from '../types.js';
-import { isRuntimeProvider, type RuntimeProvider } from './provider-ids.js';
+import type { RuntimeProvider } from './provider-ids.js';
 
 export type { RuntimeProvider } from './provider-ids.js';
 
@@ -271,31 +267,6 @@ export function readStringValue(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return isRecord(value);
-}
-
-function normalizeThinkingFormat(
-  value: unknown,
-): ModelThinkingFormat | undefined {
-  return value === 'qwen' ? 'qwen' : undefined;
-}
-
-function normalizeCallModelBehavior(
-  value: unknown,
-  thinkingFormat: ModelThinkingFormat | undefined,
-): ModelBehavior | undefined {
-  const rawBehavior = isRecord(value)
-    ? normalizeModelBehavior({
-        thinkingFormat: normalizeThinkingFormat(value.thinkingFormat),
-      })
-    : undefined;
-  return normalizeModelBehavior({
-    ...(rawBehavior || {}),
-    ...(thinkingFormat ? { thinkingFormat } : {}),
-  });
-}
-
 const HYBRIDAI_CORRELATION_HEADERS = {
   sessionId: 'X-HybridClaw-Session-Id',
   runId: 'X-HybridClaw-Run-Id',
@@ -350,134 +321,4 @@ export function normalizeOpenRouterRuntimeModelName(model: string): string {
   // OpenRouter-native ids like `openrouter/free` and `openrouter/hunter-alpha`
   // keep their namespace. Vendor-scoped ids use the upstream path.
   return upstreamModel.includes('/') ? upstreamModel : trimmed;
-}
-
-export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
-  if (isRuntimeProvider(rawArgs[0])) {
-    return {
-      provider: rawArgs[0],
-      baseUrl: String(rawArgs[1] || ''),
-      apiKey: String(rawArgs[2] || ''),
-      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
-      model: String(rawArgs[4] || ''),
-      chatbotId: String(rawArgs[5] || ''),
-      enableRag: Boolean(rawArgs[6]),
-      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
-      messages: (rawArgs[8] as ChatMessage[]) || [],
-      tools: (rawArgs[9] as ToolDefinition[]) || [],
-      maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
-      isLocal: Boolean(rawArgs[11]),
-      contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
-      thinkingFormat: normalizeThinkingFormat(rawArgs[13]),
-      modelBehavior: normalizeCallModelBehavior(
-        rawArgs[14],
-        normalizeThinkingFormat(rawArgs[13]),
-      ),
-    };
-  }
-
-  return {
-    provider: undefined,
-    baseUrl: String(rawArgs[0] || ''),
-    apiKey: String(rawArgs[1] || ''),
-    model: String(rawArgs[2] || ''),
-    chatbotId: String(rawArgs[3] || ''),
-    enableRag: Boolean(rawArgs[4]),
-    requestHeaders: undefined,
-    messages: (rawArgs[5] as ChatMessage[]) || [],
-    tools: (rawArgs[6] as ToolDefinition[]) || [],
-    maxTokens: typeof rawArgs[7] === 'number' ? rawArgs[7] : undefined,
-    isLocal: Boolean(rawArgs[8]),
-    contextWindow: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
-    thinkingFormat: normalizeThinkingFormat(rawArgs[10]),
-    modelBehavior: normalizeCallModelBehavior(
-      rawArgs[11],
-      normalizeThinkingFormat(rawArgs[10]),
-    ),
-  };
-}
-
-export function normalizeStreamCallArgs(
-  rawArgs: unknown[],
-): NormalizedStreamCallArgs {
-  if (isRuntimeProvider(rawArgs[0])) {
-    const onActivity =
-      typeof rawArgs[11] === 'function'
-        ? (rawArgs[11] as () => void)
-        : () => undefined;
-    const maxTokensIndex = typeof rawArgs[11] === 'function' ? 12 : 11;
-    const isLocalIndex = maxTokensIndex + 1;
-    const contextWindowIndex = maxTokensIndex + 2;
-    const thinkingFormatIndex = maxTokensIndex + 3;
-    const modelBehaviorIndex = maxTokensIndex + 4;
-    const thinkingFormat = normalizeThinkingFormat(
-      rawArgs[thinkingFormatIndex],
-    );
-    return {
-      provider: rawArgs[0],
-      baseUrl: String(rawArgs[1] || ''),
-      apiKey: String(rawArgs[2] || ''),
-      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
-      model: String(rawArgs[4] || ''),
-      chatbotId: String(rawArgs[5] || ''),
-      enableRag: Boolean(rawArgs[6]),
-      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
-      messages: (rawArgs[8] as ChatMessage[]) || [],
-      tools: (rawArgs[9] as ToolDefinition[]) || [],
-      onTextDelta: (rawArgs[10] as (delta: string) => void) || (() => {}),
-      onActivity,
-      maxTokens:
-        typeof rawArgs[maxTokensIndex] === 'number'
-          ? rawArgs[maxTokensIndex]
-          : undefined,
-      isLocal: Boolean(rawArgs[isLocalIndex]),
-      contextWindow:
-        typeof rawArgs[contextWindowIndex] === 'number'
-          ? rawArgs[contextWindowIndex]
-          : undefined,
-      thinkingFormat,
-      modelBehavior: normalizeCallModelBehavior(
-        rawArgs[modelBehaviorIndex],
-        thinkingFormat,
-      ),
-    };
-  }
-
-  const onActivity =
-    typeof rawArgs[8] === 'function'
-      ? (rawArgs[8] as () => void)
-      : () => undefined;
-  const maxTokensIndex = typeof rawArgs[8] === 'function' ? 9 : 8;
-  const isLocalIndex = maxTokensIndex + 1;
-  const contextWindowIndex = maxTokensIndex + 2;
-  const thinkingFormatIndex = maxTokensIndex + 3;
-  const modelBehaviorIndex = maxTokensIndex + 4;
-  const thinkingFormat = normalizeThinkingFormat(rawArgs[thinkingFormatIndex]);
-  return {
-    provider: undefined,
-    baseUrl: String(rawArgs[0] || ''),
-    apiKey: String(rawArgs[1] || ''),
-    model: String(rawArgs[2] || ''),
-    chatbotId: String(rawArgs[3] || ''),
-    enableRag: Boolean(rawArgs[4]),
-    requestHeaders: undefined,
-    messages: (rawArgs[5] as ChatMessage[]) || [],
-    tools: (rawArgs[6] as ToolDefinition[]) || [],
-    onTextDelta: (rawArgs[7] as (delta: string) => void) || (() => {}),
-    onActivity,
-    maxTokens:
-      typeof rawArgs[maxTokensIndex] === 'number'
-        ? rawArgs[maxTokensIndex]
-        : undefined,
-    isLocal: Boolean(rawArgs[isLocalIndex]),
-    contextWindow:
-      typeof rawArgs[contextWindowIndex] === 'number'
-        ? rawArgs[contextWindowIndex]
-        : undefined,
-    thinkingFormat,
-    modelBehavior: normalizeCallModelBehavior(
-      rawArgs[modelBehaviorIndex],
-      thinkingFormat,
-    ),
-  };
 }

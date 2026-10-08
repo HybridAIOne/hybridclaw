@@ -89,37 +89,6 @@ export function extractThinkingBlocks(
   };
 }
 
-export function createThinkingDeltaFilter(
-  onTextDelta: (delta: string) => void,
-): {
-  push: (delta: string) => void;
-  getRawContent: () => string;
-  getVisibleContent: () => string;
-} {
-  let rawContent = '';
-  let emittedVisibleContent = '';
-
-  return {
-    push(delta: string): void {
-      if (!delta) return;
-      rawContent += delta;
-      const extracted = extractThinkingBlocks(rawContent);
-      const nextVisible = extracted.thinkingOnly ? '' : extracted.content || '';
-      if (!nextVisible.startsWith(emittedVisibleContent)) return;
-      const visibleDelta = nextVisible.slice(emittedVisibleContent.length);
-      emittedVisibleContent = nextVisible;
-      if (visibleDelta) onTextDelta(visibleDelta);
-    },
-    getRawContent(): string {
-      return rawContent;
-    },
-    getVisibleContent(): string {
-      const extracted = extractThinkingBlocks(rawContent);
-      return extracted.thinkingOnly ? '' : extracted.content || '';
-    },
-  };
-}
-
 export function createThinkingStreamEmitter(
   onTextDelta: (delta: string) => void,
   options?: {
