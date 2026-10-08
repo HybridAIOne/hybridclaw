@@ -7,6 +7,7 @@ export function setup(): void {
   const hasGatewayImage = !!process.env.HYBRIDCLAW_E2E_IMAGE;
   const hasAgentImage = !!process.env.HYBRIDCLAW_E2E_AGENT_IMAGE;
   const npmE2e = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
+  const consoleE2e = process.env.HYBRIDCLAW_RUN_CONSOLE_E2E === '1';
 
   const skipped: string[] = [];
 
@@ -23,6 +24,11 @@ export function setup(): void {
   if (!npmE2e) {
     skipped.push(
       '  HYBRIDCLAW_RUN_NPM_E2E=1                                        \u2192 npm install journey',
+    );
+  }
+  if (!consoleE2e) {
+    skipped.push(
+      '  HYBRIDCLAW_RUN_CONSOLE_E2E=1                                    \u2192 admin console in a browser',
     );
   }
 
