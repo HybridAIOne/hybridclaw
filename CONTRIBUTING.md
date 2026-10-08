@@ -81,6 +81,10 @@ npm run test:integration
 npm run test:e2e
 npm run test:live
 
+# Admin console in Chromium against a local gateway (needs `npm run build`)
+npx playwright install chromium
+HYBRIDCLAW_RUN_CONSOLE_E2E=1 npx vitest run --project e2e tests/console-admin.e2e.test.ts
+
 # Runtime and packaging
 npm run build
 npm run release:check
