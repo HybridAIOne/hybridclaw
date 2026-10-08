@@ -2185,6 +2185,7 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools,
@@ -2305,6 +2306,7 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools,
@@ -2771,6 +2773,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        errorCode: output.errorCode,
         userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
       };
