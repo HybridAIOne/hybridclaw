@@ -61,11 +61,11 @@ describe('ContextRing', () => {
 
     expect(
       await screen.findByRole('button', {
-        name: 'Context usage 62 percent (124k of 200k tokens)',
+        name: 'Context usage 62 percent (124K of 200K tokens)',
       }),
     ).toBeTruthy();
-    expect(tooltipRow('Used')).toBe('124k / 200k tokens');
-    expect(tooltipRow('Headroom')).toBe('76k tokens');
+    expect(tooltipRow('Used')).toBe('124K / 200K tokens');
+    expect(tooltipRow('Headroom')).toBe('76K tokens');
     expect(tooltipRow('Cache')).toBe('82% hit · 1.5M read / 950 written');
     expect(tooltipRow('Compactions')).toBe('3 · 120 msgs / 2M tokens');
   });

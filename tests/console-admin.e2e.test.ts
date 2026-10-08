@@ -432,16 +432,18 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
         credential.locator('.skill-credential-fingerprint').textContent(),
       ).resolves.toMatch(/^sha256:[0-9a-f]{12}$/);
 
-      const skillMdBytes = fs.statSync(
-        path.join(REPO, 'skills', 'hetzner-dns', 'SKILL.md'),
-      ).size;
+      const skillMdKiB =
+        fs.statSync(path.join(REPO, 'skills', 'hetzner-dns', 'SKILL.md')).size /
+        1024;
       await expect(
         page
           .locator('.skill-file-row')
           .filter({ hasText: /^SKILL\.md/ })
           .locator('.skill-file-meta')
           .textContent(),
-      ).resolves.toBe(`file · ${(skillMdBytes / 1024).toFixed(1)} KB`);
+      ).resolves.toBe(
+        `file · ${skillMdKiB.toFixed(skillMdKiB >= 10 ? 0 : 1)} KiB`,
+      );
     });
   });
 

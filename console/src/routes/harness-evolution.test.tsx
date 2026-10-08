@@ -68,8 +68,8 @@ describe('HarnessEvolutionPage cost', () => {
 
   it.each([
     [0.0123, null, '$0.0123', 'no budget'],
-    [12.5, 20, '$12.5000', 'within budget'],
-    [25, 20, '$25.0000', 'over budget'],
+    [12.5, 20, '$12.50', 'within budget'],
+    [25, 20, '$25.00', 'over budget'],
   ])(
     'shows %d USD against budget %s as %s (%s)',
     async (cost, budget, value, detail) => {
