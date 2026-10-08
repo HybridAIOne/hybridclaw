@@ -166,16 +166,19 @@ export function LogsPage() {
   });
 
   const files = logsQuery.data?.files || [];
-  const selectedLog = logsQuery.data?.selected;
+  const responseLog = logsQuery.data?.selected;
   const selectedFile = useMemo(() => {
-    const selectedId = selectedLog?.fileId || selectedFileId;
+    const selectedId = selectedFileId || responseLog?.fileId;
     return (
       files.find((file) => file.id === selectedId) ||
       files.find((file) => file.readable) ||
       files[0] ||
       null
     );
-  }, [files, selectedLog?.fileId, selectedFileId]);
+  }, [files, responseLog?.fileId, selectedFileId]);
+  // While the next file loads, placeholder data still holds the previous tail.
+  const selectedLog =
+    responseLog && responseLog.fileId === selectedFile?.id ? responseLog : null;
 
   useEffect(() => {
     if (!selectedFile || selectedFile.id === selectedFileId) return;

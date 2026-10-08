@@ -8,7 +8,13 @@ import type {
 import { renderWithProviders } from '../test-utils';
 import { LogsPage } from './logs';
 
-const fetchAdminLogsMock = vi.fn<() => Promise<AdminLogsResponse>>();
+const fetchAdminLogsMock =
+  vi.fn<
+    (
+      token?: string,
+      params?: { fileId?: string | null },
+    ) => Promise<AdminLogsResponse>
+  >();
 const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const reloadGatewayMock = vi.fn();
 const saveConfigMock = vi.fn();
@@ -18,7 +24,8 @@ type AdminConfigOverrides = Partial<Omit<AdminConfig, 'ops'>> & {
 };
 
 vi.mock('../api/client', () => ({
-  fetchAdminLogs: () => fetchAdminLogsMock(),
+  fetchAdminLogs: (token: string, params?: { fileId?: string | null }) =>
+    fetchAdminLogsMock(token, params),
   fetchConfig: () => fetchConfigMock(),
   reloadGateway: (...args: unknown[]) => reloadGatewayMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
@@ -284,6 +291,47 @@ describe('LogsPage', () => {
         scrollHeightDescriptor,
       );
     }
+  });
+
+  it('keeps a missing log file selected without showing the previous tail', async () => {
+    const logs = makeLogs();
+    logs.files.push({
+      id: 'model-responses',
+      label: 'Model responses',
+      path: '/tmp/model-responses.log',
+      exists: false,
+      readable: false,
+      sizeBytes: null,
+      mtime: null,
+      description: 'Optional model response debug log.',
+      error: null,
+    });
+    let resolveMissing: (value: AdminLogsResponse) => void = () => {};
+    fetchAdminLogsMock.mockImplementation((_token, params) =>
+      params?.fileId === 'model-responses'
+        ? new Promise((resolve) => {
+            resolveMissing = resolve;
+          })
+        : Promise.resolve(logs),
+    );
+    renderLogsPage();
+    await screen.findByText('gateway log');
+
+    fireEvent.click(screen.getByRole('button', { name: /Model responses/ }));
+
+    await screen.findByRole('heading', { name: 'Model responses' });
+    expect(screen.queryByText('gateway log')).toBeNull();
+
+    resolveMissing({ ...logs, selected: null });
+    await screen.findByText('This log file is not available yet.');
+    expect(
+      screen.getByRole('heading', { name: 'Model responses' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('gateway log')).toBeNull();
+    expect(fetchAdminLogsMock).toHaveBeenLastCalledWith(
+      'admin-token',
+      expect.objectContaining({ fileId: 'model-responses' }),
+    );
   });
 
   it('saves off logging mode to config and reloads the gateway', async () => {
