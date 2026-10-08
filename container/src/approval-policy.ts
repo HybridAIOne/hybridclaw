@@ -2815,6 +2815,9 @@ export class TrustedAgentApprovalRuntime {
   // Clients read the intent's opening words "place an order on" to show a
   // checkout card; keep them stable.
   private classifyBrowserPurchase(checkout: CheckoutAction): ClassifiedAction {
+    if (checkout.kind === 'cancellation') {
+      return this.classifyBrowserCancellation(checkout);
+    }
     const site = checkout.host || 'this website';
     const button = checkout.label
       ? ` (button "${checkout.label}")`
@@ -2826,6 +2829,36 @@ export class TrustedAgentApprovalRuntime {
       consequenceIfDenied:
         'Nothing is bought. I stop before this step and tell you where I got to.',
       reason: 'this step places an order or pays, which spends your money',
+      commandPreview: normalizePreview(
+        [checkout.label || 'click', checkout.url].filter(Boolean).join(' · '),
+      ),
+      pathHints: [],
+      hostHints: checkout.host ? [checkout.host] : [],
+      writeIntent: true,
+      promotableRed: false,
+      stickyYellow: true,
+      explicitApprovalRequired: true,
+      pinned: true,
+    };
+  }
+
+  // Sending a cancellation ends a contract, and the site confirms it at once.
+  // Like an order, every one asks, in every mode.
+  private classifyBrowserCancellation(
+    checkout: CheckoutAction,
+  ): ClassifiedAction {
+    const site = checkout.host || 'this website';
+    const button = checkout.label
+      ? ` (button "${checkout.label}")`
+      : ' (a button I could not read on the cancellation page)';
+    return {
+      tier: 'red',
+      actionKey: `browser_cancellation:${checkout.host || 'unknown'}`,
+      intent: `cancel a contract on ${site}${button}`,
+      consequenceIfDenied:
+        'Nothing is cancelled. I stop before this step and tell you where I got to.',
+      reason:
+        'this step cancels a contract or subscription, which I cannot take back',
       commandPreview: normalizePreview(
         [checkout.label || 'click', checkout.url].filter(Boolean).join(' · '),
       ),
