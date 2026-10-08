@@ -210,11 +210,10 @@ jobs:
           HYBRIDCLAW_RUN_CLI_E2E: '1'
         run: npx vitest run --project e2e
 
-      # The gateway loads node-pty at startup and it ships no Linux prebuild.
+      # node-pty stays unbuilt here (no Linux prebuild, --ignore-scripts), so
+      # this e2e also proves the gateway boots without the native addon.
       - name: Install console e2e prerequisites
-        run: |
-          npm rebuild node-pty --ignore-scripts=false --no-audit --fund=false
-          npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Console e2e (browser against a local gateway)
         env:

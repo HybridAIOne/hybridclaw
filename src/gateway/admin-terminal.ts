@@ -1,3 +1,12 @@
+/**
+ * Admin console PTY manager: spawns `hybridclaw tui` sessions and bridges them
+ * to the `/api/admin/terminal/stream` websocket.
+ *
+ * node-pty is a native addon and loads only on the first startSession(), so a
+ * missing or broken prebuild fails that request (503, logged) and never gateway
+ * boot; keep it out of static imports. Auth and RBAC belong to the route in
+ * `gateway-http-server.ts`, not to this module.
+ */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import type { IncomingMessage } from 'node:http';
@@ -6,6 +15,7 @@ import type { Duplex } from 'node:stream';
 import type { IPty } from 'node-pty';
 import type WebSocket from 'ws';
 import * as wsModule from 'ws';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
 import type {
@@ -144,12 +154,22 @@ function ensureNodePtySpawnHelpersExecutable(installRoot: string): void {
 
 let nodePty: typeof import('node-pty') | null = null;
 
-// node-pty is a native addon; a missing or broken prebuild must fail only the
-// terminal request, not the gateway import graph.
 async function loadNodePty(): Promise<typeof import('node-pty')> {
   if (!nodePty) {
     ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
-    nodePty = await import('node-pty');
+    try {
+      nodePty = await import('node-pty');
+    } catch (error) {
+      logger.error(
+        { error, installRoot: INSTALL_ROOT },
+        'Unable to load node-pty; admin terminal unavailable',
+      );
+      throw new GatewayRequestError(
+        503,
+        'Admin terminal unavailable: the node-pty native module failed to load. Run `npm rebuild node-pty` in the HybridClaw install directory.',
+        { cause: error },
+      );
+    }
   }
   return nodePty;
 }

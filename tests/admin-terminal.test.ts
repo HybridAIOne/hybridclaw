@@ -1,6 +1,9 @@
+import fs from 'node:fs';
 import type { IncomingMessage } from 'node:http';
+import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useTempDir } from './test-utils.js';
 
 type ExitHandler = (event: {
   exitCode: number | null | undefined;
@@ -62,6 +65,7 @@ class FakeWebSocket {
 }
 
 describe('admin terminal manager', () => {
+  const makeTempDir = useTempDir('hc-admin-terminal-');
   let spawnedPtys: FakePty[] = [];
   let nextWebSocket: FakeWebSocket | null = null;
 
@@ -151,7 +155,41 @@ describe('admin terminal manager', () => {
     );
     const manager = createAdminTerminalManager();
 
-    await expect(manager.startSession()).rejects.toThrow();
+    await expect(manager.startSession()).rejects.toMatchObject({
+      statusCode: 503,
+    });
+
+    manager.dispose();
+  });
+
+  test('restores the spawn-helper execute bit on the first session start, not on import', async () => {
+    const installRoot = makeTempDir();
+    const helperDir = path.join(
+      installRoot,
+      'node_modules',
+      'node-pty',
+      'prebuilds',
+      'darwin-arm64',
+    );
+    const helperPath = path.join(helperDir, 'spawn-helper');
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(helperPath, '');
+    fs.chmodSync(helperPath, 0o644);
+    fs.mkdirSync(path.join(installRoot, 'dist'));
+    fs.writeFileSync(path.join(installRoot, 'dist', 'cli.js'), '');
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallRoot: () => installRoot,
+    }));
+    vi.doMock('node-pty', () => ({ spawn: vi.fn(() => new FakePty()) }));
+
+    const { createAdminTerminalManager } = await import(
+      '../src/gateway/admin-terminal.ts'
+    );
+    const manager = createAdminTerminalManager();
+    expect(fs.statSync(helperPath).mode & 0o111).toBe(0);
+
+    await manager.startSession();
+    expect(fs.statSync(helperPath).mode & 0o777).toBe(0o755);
 
     manager.dispose();
   });
