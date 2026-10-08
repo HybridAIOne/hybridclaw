@@ -10,9 +10,8 @@ import {
 import {
   AUTH_REQUIRED_EVENT,
   clearStoredToken,
+  discardLegacyTokens,
   fetchHealth,
-  readStoredToken,
-  storeToken,
   validateToken,
 } from './api/client';
 import type { GatewayStatus } from './api/types';
@@ -53,10 +52,9 @@ export type AuthContextValue = AuthState & {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider(props: { children: ReactNode }) {
-  const [initialToken] = useState(() => readStoredToken());
   const [state, setState] = useState<AuthState>({
     status: 'checking',
-    token: initialToken,
+    token: '',
     gatewayStatus: null,
     error: null,
   });
@@ -64,70 +62,33 @@ export function AuthProvider(props: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const bootstrap = async (): Promise<void> => {
+      discardLegacyTokens();
       try {
         const health = await fetchHealth();
         if (cancelled) return;
 
-        if (health.webAuthConfigured) {
-          if (!initialToken.trim()) {
-            try {
-              const gatewayStatus = await validateToken('');
-              if (cancelled) return;
-              setState({
-                status: 'ready',
-                token: '',
-                gatewayStatus,
-                error: null,
-              });
-              return;
-            } catch {
-              if (cancelled) return;
-            }
-
-            setState({
-              status: 'prompt',
-              token: '',
-              gatewayStatus: null,
-              error: null,
-            });
-            return;
-          }
-
-          try {
-            const gatewayStatus = await validateToken(initialToken);
-            if (cancelled) return;
-            setState({
-              status: 'ready',
-              token: initialToken,
-              gatewayStatus,
-              error: null,
-            });
-            return;
-          } catch (error) {
-            if (cancelled) return;
-            clearStoredToken();
-            setState({
-              status: 'prompt',
-              token: '',
-              gatewayStatus: null,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            return;
-          }
-        }
-
         try {
-          const gatewayStatus = await validateToken(initialToken);
+          const gatewayStatus = await validateToken('');
           if (cancelled) return;
           setState({
             status: 'ready',
-            token: initialToken,
+            token: '',
             gatewayStatus,
             error: null,
           });
+          return;
         } catch {
           if (cancelled) return;
-          clearStoredToken();
+        }
+
+        if (health.webAuthConfigured) {
+          setState({
+            status: 'prompt',
+            token: '',
+            gatewayStatus: null,
+            error: null,
+          });
+        } else {
           setState({
             status: 'error',
             token: '',
@@ -152,7 +113,7 @@ export function AuthProvider(props: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [initialToken]);
+  }, []);
 
   useEffect(() => {
     const onAuthRequired = (event: Event): void => {
@@ -200,7 +161,6 @@ export function AuthProvider(props: { children: ReactNode }) {
 
     try {
       const gatewayStatus = await validateToken(trimmed);
-      storeToken(trimmed);
       setState({
         status: 'ready',
         token: trimmed,
