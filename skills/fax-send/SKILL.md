@@ -89,8 +89,7 @@ storage, or client records.
 - outbound fax send from a local generated PDF file
 - Sinch Fax API request construction for EU-resident Sinch projects/services
 - delivery status lookup and status-to-audit-event classification
-- structured audit persistence through `src/fax/accounting.ts`
-- fax-page usage accounting through HybridClaw `UsageTotals`
+- fax-page cost measurement in helper output
 - inbound fax-to-email operating recipe through the existing email channel
 - eval scenarios for successful send, busy/retry, failed delivery, and inbound
   PDF handoff flows
@@ -297,10 +296,3 @@ node skills/fax-send/fax_send.cjs --format json http-request send \
 - Cost per fax is page-based. Helper output includes
   `costMeasurement.system = "UsageTotals"` plus `unit = "fax-page"` and the
   provided `pageCount` so evals can verify the accounting contract.
-- Runtime integrations should call `recordFaxUsageEvent()` after provider
-  acceptance or final delivery so `UsageTotals.billable_units` includes
-  `fax-page` quantity and provider cost.
-- Runtime integrations should call `recordFaxSendStart()`,
-  `recordFaxSendDelivered()`, and `recordFaxSendFailed()` from
-  `src/fax/accounting.ts` so the structured audit table contains real
-  `fax.send.*` rows with provider message IDs.
