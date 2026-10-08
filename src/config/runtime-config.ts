@@ -9034,12 +9034,8 @@ function loadRuntimeConfigFromSources(
   const normalized = normalizeRuntimeConfig(diskPatch);
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
-  } catch (err) {
-    if (process.env.HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC === '1') {
-      console.warn(
-        `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  } catch {
+    // Revision history is best-effort on load; saves report sync failures.
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   rememberLegacySchedulerJobs(diskSource);
