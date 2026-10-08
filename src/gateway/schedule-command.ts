@@ -4,7 +4,8 @@
  * A task stays with the chat that created it across that chat's session
  * resets, and a web chat of the same agent may manage it too (the cron tool's
  * rule, `scheduled-task-access.ts`). What a run answered can quote private
- * data, so only the creating chat reads it back. `--json` answers in one line
+ * data, so only the creating chat and the main chat a web task replies in
+ * (`web-scheduled-delivery.ts`) read it back. `--json` answers in one line
  * that survives a chat relay, for apps that drive this command. `--alert
  * <kind>` has a run whose reply lists items ring the creator's phones with
  * the first item (`mobile-push.ts`). `--reply-only` keeps each run's prompt
@@ -63,9 +64,10 @@ import type {
 } from './gateway-types.js';
 import {
   canManageScheduledTask,
-  isCreatingChat,
+  canReadScheduledTaskResults,
   listManageableScheduledTasks,
 } from './scheduled-task-access.js';
+import { mainChatForWebTask } from './web-scheduled-delivery.js';
 
 const USAGE =
   'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
@@ -328,12 +330,18 @@ function runReplies(task: ScheduledTask, limit: number) {
   const askedByTask = (content: string) =>
     content === task.prompt || content.startsWith(head);
   const posted = `schedule:${task.id}`;
-  const key = getSessionById(task.session_id)?.session_key;
-  const sessionIds = key
-    ? listSessionInstancesForKey(key, { limit: MAX_CHAT_SESSIONS }).map(
-        (session) => session.id,
-      )
-    : [task.session_id];
+  const keys = [
+    getSessionById(task.session_id)?.session_key,
+    mainChatForWebTask(task.session_id)?.session_key,
+  ].filter((key): key is string => Boolean(key));
+  const sessionIds =
+    keys.length > 0
+      ? keys.flatMap((key) =>
+          listSessionInstancesForKey(key, { limit: MAX_CHAT_SESSIONS }).map(
+            (session) => session.id,
+          ),
+        )
+      : [task.session_id];
   const replies: Array<{
     id: number;
     created_at: string | null;
@@ -598,7 +606,8 @@ export function handleScheduleCommand(
 
   if (sub === 'results') {
     const task = taskId ? getJob(taskId, { kind: 'scheduled_task' }) : null;
-    if (!task || !isCreatingChat(task, session)) return notFound(taskId);
+    if (!task || !canReadScheduledTaskResults(task, session))
+      return notFound(taskId);
     return results(task, options);
   }
 

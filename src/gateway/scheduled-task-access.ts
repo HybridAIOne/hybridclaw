@@ -3,7 +3,8 @@
  * and among web chats every chat of the same agent. Messaging-channel
  * sessions stay isolated so one peer cannot list or change another peer's
  * schedules or read another peer's audit trail. Cron task access follows the
- * session the task was created in.
+ * session the task was created in; a task's results are also readable from
+ * the agent's main chat its web replies are delivered to.
  *
  * NOT the admin scheduler or admin audit, which deliberately operate across
  * all sessions for the local operator.
@@ -13,6 +14,7 @@ import { getAllJobs } from '../memory/jobs.js';
 import { resolveSessionIdCompat } from '../memory/sessions.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
+import { mainChatForWebTask } from './web-scheduled-delivery.js';
 
 /**
  * Whether `sessionId` is an instance of the `requester` chat. A chat keeps its
@@ -33,11 +35,22 @@ export function canSeeSession(sessionId: string, requester: Session): boolean {
 }
 
 /** Whether `requester` is the chat that created the task. */
-export function isCreatingChat(
+function isCreatingChat(task: ScheduledTask, requester: Session): boolean {
+  return isSameChat(task.session_id, requester);
+}
+
+/**
+ * Whether `requester` may read what the task's runs answered: the chat that
+ * created it, or the main chat its replies go to. A run can quote private
+ * data, so the agent's other chats may manage the task but not read this.
+ */
+export function canReadScheduledTaskResults(
   task: ScheduledTask,
   requester: Session,
 ): boolean {
-  return isSameChat(task.session_id, requester);
+  if (isCreatingChat(task, requester)) return true;
+  const mainChat = mainChatForWebTask(task.session_id);
+  return mainChat !== null && mainChat.session_key === requester.session_key;
 }
 
 export function canManageScheduledTask(

@@ -566,9 +566,18 @@ actions. Common examples:
 it when an idle or daily reset gives the chat a new session. A web chat may
 also list, remove and toggle the tasks of other web chats assigned to the same
 agent. `schedule results` shows what the task's recent runs answered (20 by
-default, at most 200) and only answers the chat that created the task, because
-a run can quote private data. Cron expressions run in UTC unless `--tz` names
-an IANA time zone; `--tz` must come before the schedule.
+default, at most 200) and only answers the chat that created the task and the
+main chat its replies go to, because a run can quote private data. Cron
+expressions run in UTC unless `--tz` names an IANA time zone; `--tz` must come
+before the schedule.
+
+A web task replies in its agent's main chat: the web chat the HybridAI apps
+open with a session id starting with `main-` (the most recently active one, if
+there are several). A task created in another web chat of that agent runs
+apart, as with `--reply-only`, and its reply is posted to the main chat and
+rings its phones. The main chat is looked up at each run, so tasks follow a new
+one. Tasks of agents without a main chat, and tasks of messaging channels,
+reply in the chat that created them.
 
 `--alert <kind>` (before the schedule) rings the creating operator's phones
 when a run's reply lists items: a JSON array of objects with a `title`, read

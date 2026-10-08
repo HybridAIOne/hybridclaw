@@ -8,7 +8,10 @@ import type { SchedulerDispatchRequest } from '../scheduler/scheduler.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import { runGatewayScheduledTask } from './gateway-scheduled-task-service.js';
 import { isHeartbeatOkText } from './proactive-delivery.js';
-import { deliverWebScheduledMessage } from './web-scheduled-delivery.js';
+import {
+  deliverWebScheduledMessage,
+  mainChatForWebTask,
+} from './web-scheduled-delivery.js';
 
 interface ScheduledDeliveryDependencies {
   deliverProactiveMessage: (
@@ -98,6 +101,14 @@ export async function runScheduledTask(
     return;
   }
 
+  // A web task from a side chat replies in its agent's main chat. It then runs
+  // apart like `--reply-only`, so the side chat's history is not mixed into the
+  // main chat and the run's turn does not land in the side chat.
+  const mainChat =
+    request.source === 'scheduled-task' && resolvedDeliveryChannelId === 'web'
+      ? mainChatForWebTask(request.sessionId)
+      : null;
+  const deliverySessionId = mainChat?.id ?? request.sessionId;
   const runChannelId =
     request.channelId || resolvedDeliveryChannelId || 'scheduler';
   const taskId = request.taskId ?? -1;
@@ -161,7 +172,7 @@ export async function runScheduledTask(
       const outcome =
         resolvedDeliveryChannelId === 'web'
           ? deliverWebScheduledMessage(
-              request.sessionId,
+              deliverySessionId,
               result.text,
               sourceLabel,
               result.artifacts,
@@ -206,7 +217,7 @@ export async function runScheduledTask(
     },
     runKey,
     request.agentId,
-    request.replyOnly,
+    request.replyOnly || mainChat !== null,
     request.taskOwner,
   );
   if (runError !== null) {
