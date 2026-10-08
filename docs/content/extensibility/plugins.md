@@ -224,10 +224,9 @@ Discovery sources:
 - explicit `plugins.list[].path` entries from runtime config
 
 Any valid plugin found in the home or project plugin directories is discovered
-automatically. For an id with an enabled `plugins.list[]` entry, a home copy
-wins over a bundled plugin, and a bundled plugin wins over a project one, so a
-checkout's `.hybridclaw/plugins/<id>` cannot replace a bundled plugin you
-installed.
+automatically. The `hybridclaw <command>` CLI is the exception: it never
+discovers project plugins, so a checkout's `.hybridclaw/plugins/<id>` cannot
+replace the plugin that provides a CLI command.
 
 `plugins.list[]` is an override layer, not the activation gate. Use it to:
 

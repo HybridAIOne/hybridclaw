@@ -132,21 +132,3 @@ test('a bare id resolves to the bundled plugin even when the cwd has plugins/<id
     { id: 'distill', enabled: true, config: {} },
   ]);
 });
-
-// A checkout's `.hybridclaw/plugins/<id>` is auto-discovered, but it must not
-// replace a bundled plugin the operator installed in place, as it never
-// replaced the home copy older releases installed.
-test('an installed bundled plugin outranks a project plugin with the same id', async () => {
-  const homeDir = makeTempDir();
-  const cwd = makeTempDir();
-  const state = runtimeConfigState();
-  const projectCopy = path.join(cwd, '.hybridclaw', 'plugins', 'distill');
-  fs.cpSync(BUNDLED_DISTILL_DIR, projectCopy, { recursive: true });
-  expect(await discoveredDistillDir(homeDir, cwd, state)).toBe(projectCopy);
-
-  const { installPlugin } = await import('../src/plugins/plugin-install.js');
-  await installPlugin('distill', { homeDir, cwd, ...state });
-  expect(await discoveredDistillDir(homeDir, cwd, state)).toBe(
-    BUNDLED_DISTILL_DIR,
-  );
-});

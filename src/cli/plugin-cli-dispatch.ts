@@ -21,6 +21,7 @@ async function createCliPluginManager(): Promise<PluginManager> {
   const { PluginManager } = await import('../plugins/plugin-manager.js');
   return new PluginManager({
     logger: pino({ level: 'error' }, pino.destination(2)),
+    includeProjectPlugins: false,
   });
 }
 
@@ -28,9 +29,7 @@ async function discoverCliCommandPlugins(
   manager: PluginManager,
 ): Promise<PluginCandidate[]> {
   return (await manager.discoverPlugins()).filter(
-    (candidate) =>
-      candidate.source !== 'project' &&
-      (candidate.manifest.cliCommands?.length ?? 0) > 0,
+    (candidate) => (candidate.manifest.cliCommands?.length ?? 0) > 0,
   );
 }
 

@@ -279,6 +279,8 @@ export interface PluginManagerOptions {
   cwd?: string;
   getRuntimeConfig?: () => RuntimeConfig;
   logger?: PluginLogger;
+  /** False skips `<cwd>/.hybridclaw/plugins` (the CLI must not run a checkout's plugins). */
+  includeProjectPlugins?: boolean;
   dispatchInboundMessage?: (
     pluginId: string,
     request: PluginDispatchInboundMessageRequest,
@@ -800,6 +802,7 @@ function normalizeToolResult(value: unknown): string {
 export class PluginManager {
   private readonly homeDir: string;
   private readonly cwd: string;
+  private readonly includeProjectPlugins: boolean;
   private readonly getConfig: () => RuntimeConfig;
   private readonly logger: PluginLogger;
   private initializing: Promise<void> | null = null;
@@ -840,6 +843,7 @@ export class PluginManager {
     this.cwd = options?.cwd || process.cwd();
     this.getConfig = options?.getRuntimeConfig || getRuntimeConfig;
     this.logger = options?.logger || rootLogger;
+    this.includeProjectPlugins = options?.includeProjectPlugins ?? true;
     this.dispatchInboundMessageHost = options?.dispatchInboundMessage || null;
   }
 
@@ -981,26 +985,22 @@ export class PluginManager {
       if (!discovered.has(candidate.id))
         discovered.set(candidate.id, candidate);
     }
-    for (const candidate of this.scanDirectory(
-      path.join(this.cwd, '.hybridclaw', 'plugins'),
-      'project',
-    )) {
+    for (const candidate of this.includeProjectPlugins
+      ? this.scanDirectory(
+          path.join(this.cwd, '.hybridclaw', 'plugins'),
+          'project',
+        )
+      : []) {
       if (!discovered.has(candidate.id))
         discovered.set(candidate.id, candidate);
     }
 
-    // A configured id resolves home > bundled > project: the config entry is
-    // the install record of a bundled plugin enabled in place, so a checkout's
-    // `.hybridclaw/plugins/<id>` cannot replace it, as it never could replace
-    // the home copy that older releases installed.
     const available = new Map<string, PluginCandidate>(discovered);
     for (const candidate of this.scanDirectory(
       resolveInstallPath('plugins'),
       'bundled',
     )) {
-      if (available.get(candidate.id)?.source !== 'home') {
-        available.set(candidate.id, candidate);
-      }
+      if (!available.has(candidate.id)) available.set(candidate.id, candidate);
     }
 
     const selected = new Map<string, PluginCandidate>(discovered);
