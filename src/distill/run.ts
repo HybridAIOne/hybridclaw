@@ -125,15 +125,6 @@ export function setDistillStage(
   });
 }
 
-export function nextPendingStage(
-  run: DistillRunRecord,
-): DistillStageName | null {
-  for (const stage of DISTILL_STAGE_ORDER) {
-    if (run.stages[stage].status !== 'completed') return stage;
-  }
-  return null;
-}
-
 export function renderRunReport(
   run: DistillRunRecord,
   profile: SubjectProfile,

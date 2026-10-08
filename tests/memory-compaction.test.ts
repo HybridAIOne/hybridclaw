@@ -4,7 +4,6 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 import { compactConversation } from '../src/memory/compaction.js';
-import { listArchives } from '../src/memory/compaction-archive.js';
 import type { Session, StoredMessage } from '../src/types/session.js';
 
 function makeSession(partial?: Partial<Session>): Session {
@@ -275,9 +274,9 @@ describe('memory compaction', () => {
     expect(updatedSummaries[0]).toContain('## Goals');
     expect(deletedIds[0]?.length).toBe(result.messagesCompacted);
 
-    const archives = listArchives('session:compact', archiveBaseDir);
-    expect(archives).toHaveLength(1);
-    expect(archives[0]?.path).toBe(result.archivePath);
+    expect(
+      fs.readdirSync(path.join(archiveBaseDir, 'session_compact')),
+    ).toEqual([path.basename(result.archivePath)]);
   });
 
   test('compactConversation uses multi-stage summarization for large histories', async () => {

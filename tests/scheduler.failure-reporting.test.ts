@@ -181,7 +181,9 @@ test('config scheduler jobs expose the failure reason in their runtime state', a
   scheduler.stopScheduler();
 
   expect(runner).toHaveBeenCalledTimes(1);
-  expect(scheduler.getConfigJobState('ops-ping')).toMatchObject({
+  expect(
+    scheduler.getSchedulerStatus().find((job) => job.id === 'ops-ping'),
+  ).toMatchObject({
     lastStatus: 'error',
     lastError: 'Delivery to tui failed: inbox closed',
     consecutiveErrors: 1,

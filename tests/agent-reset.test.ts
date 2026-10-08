@@ -33,9 +33,9 @@ test('reset restores provisioned identity and removes only the chosen agent data
   const rotated = ctx.db.createFreshSessionInstance(ctx.hySession.id);
   const { DATA_DIR } = await import('../src/config/config.ts');
   const sessionDir = path.join(DATA_DIR, 'sessions', ctx.hySession.id.replace(/[^a-zA-Z0-9_-]/g, '_'));
-  const { archiveTranscript, listArchives } = await import('../src/memory/compaction-archive.ts');
-  archiveTranscript({ sessionId: ctx.hySession.id, messages: [] });
-  archiveTranscript({ sessionId: ctx.writerSession.id, messages: [] });
+  const { archiveTranscript } = await import('../src/memory/compaction-archive.ts');
+  const hyArchive = archiveTranscript({ sessionId: ctx.hySession.id, messages: [] });
+  const writerArchive = archiveTranscript({ sessionId: ctx.writerSession.id, messages: [] });
   fs.mkdirSync(sessionDir, { recursive: true });
   fs.writeFileSync(path.join(sessionDir, 'transcript.json'), '{}');
   const { upsertRegisteredAgent, getAgentById } = await import('../src/agents/agent-registry.ts');
@@ -56,8 +56,8 @@ test('reset restores provisioned identity and removes only the chosen agent data
   expect(ctx.db.getMemoryValue('hy', 'personal')).toBeNull();
   expect(ctx.db.getMemoryValue('writer', 'personal')).toBe('keep');
   expect(fs.existsSync(sessionDir)).toBe(false);
-  expect(listArchives(ctx.hySession.id)).toEqual([]);
-  expect(listArchives(ctx.writerSession.id)).toHaveLength(1);
+  expect(fs.existsSync(hyArchive.path)).toBe(false);
+  expect(fs.existsSync(writerArchive.path)).toBe(true);
   const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
   expect(getRuntimeConfig().agents.defaultAgentId).toBe('hy');
   await ctx.resetAgent('hy');

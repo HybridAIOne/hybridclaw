@@ -154,8 +154,6 @@ import {
   deleteRuntimeAssetRevision as deleteTrackedRuntimeAssetRevision,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
   getRuntimeAssetRevision as getTrackedRuntimeAssetRevision,
-  getRuntimeAssetRevisionState as getTrackedRuntimeAssetRevisionState,
-  getRuntimeAssetRevisionStateMetadata as getTrackedRuntimeAssetRevisionStateMetadata,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
   getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
   getRuntimeConfigRevisionStateMetadata as getTrackedRuntimeConfigRevisionStateMetadata,
@@ -9823,22 +9821,8 @@ export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState
   return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
 }
 
-export function getLastKnownGoodRuntimeAssetState(
-  assetType: RuntimeRevisionAssetType,
-  assetPath: string,
-): RuntimeConfigRevisionState | null {
-  return getTrackedRuntimeAssetRevisionState(assetType, assetPath);
-}
-
 export function getLastKnownGoodRuntimeConfigMetadata(): RuntimeConfigRevisionStateMetadata | null {
   return getTrackedRuntimeConfigRevisionStateMetadata(CONFIG_PATH);
-}
-
-export function getLastKnownGoodRuntimeAssetMetadata(
-  assetType: RuntimeRevisionAssetType,
-  assetPath: string,
-): RuntimeConfigRevisionStateMetadata | null {
-  return getTrackedRuntimeAssetRevisionStateMetadata(assetType, assetPath);
 }
 
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
@@ -9939,54 +9923,6 @@ export function restoreRuntimeAssetRevision(
     revisionId,
     meta,
   );
-}
-
-export function restoreRuntimeSkillRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('skill', assetPath, revisionId, meta);
-}
-
-export function restoreRuntimeKnowledgeRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('knowledge', assetPath, revisionId, meta);
-}
-
-export function restoreRuntimeCvRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('cv', assetPath, revisionId, meta);
-}
-
-export function restoreRuntimeClassifierRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('classifier', assetPath, revisionId, meta);
-}
-
-export function restoreRuntimeTeamRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
-}
-
-export function restoreRuntimeTemplateRevision(
-  assetPath: string,
-  revisionId: number,
-  meta?: RuntimeConfigChangeMeta,
-): string {
-  return restoreRuntimeAssetRevision('template', assetPath, revisionId, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {

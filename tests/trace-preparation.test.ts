@@ -257,7 +257,9 @@ test('prepareTraceJudgePrompt rejects ambiguous inline and file templates', asyn
 test('default prompt template is versioned as a runtime template asset', async () => {
   const { DEFAULT_TRACE_JUDGE_TEMPLATE_PATH, prepareTraceJudgePrompt } =
     await import('../src/evals/trace-preparation.js');
-  const configMod = await import('../src/config/runtime-config.js');
+  const revisionsMod = await import(
+    '../src/config/runtime-config-revisions.js'
+  );
 
   const prepared = prepareTraceJudgePrompt({ answer: 'A' }, 'Pass.', {
     confidentialRuleSet: null,
@@ -276,7 +278,7 @@ test('default prompt template is versioned as a runtime template asset', async (
   });
   expect(fs.existsSync(DEFAULT_TRACE_JUDGE_TEMPLATE_PATH)).toBe(true);
   expect(
-    configMod.getLastKnownGoodRuntimeAssetState(
+    revisionsMod.getRuntimeAssetRevisionState(
       'template',
       DEFAULT_TRACE_JUDGE_TEMPLATE_PATH,
     )?.content,
@@ -346,7 +348,8 @@ test('file-backed prompt templates are versioned as runtime template assets', as
     route: 'trace.template.update',
   });
 
-  const restored = configMod.restoreRuntimeTemplateRevision(
+  const restored = configMod.restoreRuntimeAssetRevision(
+    'template',
     templatePath,
     revisions[0].id,
     {
