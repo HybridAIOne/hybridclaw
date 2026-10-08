@@ -13,6 +13,18 @@ The supported PDF runtime is:
 
 If a task cannot be done with those libraries, it is outside the guaranteed path of this skill.
 
+In your own `.mjs` scripts, `pdf-lib` imports by name. Load `pdfjs-dist` and
+`@napi-rs/canvas` through the skill's loader instead, because a bare
+`import 'pdfjs-dist/...'` does not resolve in every sandbox (path shown for a
+script in the workspace root):
+
+```js
+import { loadCanvas, loadPdfJs } from "./skills/pdf/scripts/_pdf_runtime.mjs";
+
+const pdfjs = await loadPdfJs();
+const { createCanvas } = await loadCanvas();
+```
+
 ## Bundled Scripts
 
 ### Extract page text

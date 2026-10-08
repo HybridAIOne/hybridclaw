@@ -2,10 +2,10 @@
  * Skill module eligibility follows the agent runtime, not the gateway process.
  * Host agents resolve from the gateway installation, the agent runtime's own
  * dependencies (container/), and the host copy of the shared skill libraries
- * (container/tools) that `skill setup` installs; the host runner exports the
- * last two as NODE_PATH, as the images do. Container agents use the
- * dependencies declared by the packaged agent image. This does not inspect a
- * running image.
+ * (container/tools) that `skill setup` installs, while its lockfile matches
+ * the packaged one; the host runner exports the last two as NODE_PATH, as the
+ * images do. Container agents use the dependencies declared by the packaged
+ * agent image. This does not inspect a running image.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,8 +23,33 @@ export function hostRuntimeToolsDir(): string {
   return path.join(DEFAULT_RUNTIME_HOME_DIR, 'runtime-tools');
 }
 
+// A data-dir copy staged from another release's lockfile is ignored, so host
+// agents never keep loading libraries a later lockfile replaced (for example
+// for a CVE); `skill list` then reports them missing until setup runs again.
+function hostRuntimeToolsStale(): boolean {
+  let staged: Buffer;
+  try {
+    staged = fs.readFileSync(
+      path.join(hostRuntimeToolsDir(), 'package-lock.json'),
+    );
+  } catch {
+    return false;
+  }
+  try {
+    return !staged.equals(
+      fs.readFileSync(
+        resolveInstallPath('container', 'tools', 'package-lock.json'),
+      ),
+    );
+  } catch {
+    return true;
+  }
+}
+
 function hostAgentPackageDirs(): string[] {
-  return [resolveInstallPath('container'), hostRuntimeToolsDir()];
+  const dirs = [resolveInstallPath('container')];
+  if (!hostRuntimeToolsStale()) dirs.push(hostRuntimeToolsDir());
+  return dirs;
 }
 
 export function hostAgentNodePath(inherited?: string): string {

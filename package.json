@@ -116,7 +116,7 @@
     "desktop:mac": "npm run build && npm --workspace desktop run dist:mac",
     "desktop:linux": "npm run build && npm --workspace desktop run dist:linux",
     "test:live": "vitest run --configLoader runner --project live --passWithNoTests",
-    "setup": "npm --prefix container install",
+    "setup": "npm --prefix container install && npm --prefix container/tools ci --ignore-scripts --omit=dev --no-audit --fund=false",
     "dev": "tsx src/cli.ts gateway",
     "dev:console": "HYBRIDCLAW_DEV_VITE_URL=http://127.0.0.1:4173 tsx src/cli.ts gateway restart && npm --workspace console run dev",
     "gateway": "tsx src/cli.ts gateway",

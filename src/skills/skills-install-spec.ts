@@ -6,14 +6,21 @@
 import YAML from 'yaml';
 import { isRecord } from '../utils/type-guards.js';
 
-export type SkillInstallKind =
-  | 'brew'
-  | 'uv'
-  | 'npm'
-  | 'node'
-  | 'go'
-  | 'download'
-  | 'runtime-tools';
+export const SKILL_INSTALL_KINDS = [
+  'brew',
+  'uv',
+  'npm',
+  'node',
+  'go',
+  'download',
+  'runtime-tools',
+] as const;
+
+export type SkillInstallKind = (typeof SKILL_INSTALL_KINDS)[number];
+
+function isSkillInstallKind(value: string): value is SkillInstallKind {
+  return (SKILL_INSTALL_KINDS as readonly string[]).includes(value);
+}
 
 export interface SkillInstallSpec {
   id?: string;
@@ -51,17 +58,7 @@ export function normalizeInstallSpecs(
     if (!isRecord(entry)) continue;
     const kindRaw =
       typeof entry.kind === 'string' ? entry.kind.trim().toLowerCase() : '';
-    if (
-      kindRaw !== 'brew' &&
-      kindRaw !== 'uv' &&
-      kindRaw !== 'npm' &&
-      kindRaw !== 'node' &&
-      kindRaw !== 'go' &&
-      kindRaw !== 'download' &&
-      kindRaw !== 'runtime-tools'
-    ) {
-      continue;
-    }
+    if (!isSkillInstallKind(kindRaw)) continue;
 
     specs.push({
       id: typeof entry.id === 'string' ? entry.id.trim() : undefined,

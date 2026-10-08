@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { resolveInstallPath } from '../infra/install-root.js';
+import { hasResolvableNodeModule } from '../utils/node-modules.js';
 import { hostRuntimeToolsDir } from './skill-node-modules.js';
 import {
   hasBinary,
@@ -449,17 +450,52 @@ async function runDownloadInstall(
   }
 }
 
+const RUNTIME_TOOLS_SOURCE_ENTRIES = [
+  'package.json',
+  'package-lock.json',
+  'stubs',
+] as const;
+
 // Copies the packaged container/tools manifest so `npm ci` installs exactly the
-// locked libraries the agent images bake into /opt/hybridclaw-tools.
-function stageHostRuntimeTools(): void {
+// locked libraries the agent images bake into /opt/hybridclaw-tools. Returns a
+// result instead when those libraries already resolve for host agents (the
+// gateway image puts them on NODE_PATH) or the package lacks the manifest.
+function stageHostRuntimeTools(): SkillInstallResult | null {
   const source = resolveInstallPath('container', 'tools');
+  let libraries: string[] = [];
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(source, 'package.json'), 'utf8'),
+    ) as { dependencies?: Record<string, string> };
+    libraries = Object.keys(manifest.dependencies ?? {});
+  } catch {
+    // Reported below as a missing manifest.
+  }
+  if (
+    libraries.length > 0 &&
+    libraries.every((name) =>
+      hasResolvableNodeModule(name, { cwd: resolveInstallPath() }),
+    )
+  ) {
+    const message = `The shared skill libraries (${libraries.join(', ')}) already resolve for host agents; nothing to install.`;
+    return createInstallSuccess({ message, stdout: message });
+  }
+  const missing = RUNTIME_TOOLS_SOURCE_ENTRIES.filter(
+    (entry) => !fs.existsSync(path.join(source, entry)),
+  );
+  if (missing.length > 0) {
+    return createInstallFailure({
+      message: `This HybridClaw installation does not include ${missing.map((entry) => `container/tools/${entry}`).join(', ')}, so the shared skill libraries cannot be installed for host agents. Reinstall from the npm package, or run agents in the container sandbox, whose image carries them.`,
+    });
+  }
   const target = hostRuntimeToolsDir();
   fs.mkdirSync(target, { recursive: true });
-  for (const entry of ['package.json', 'package-lock.json', 'stubs']) {
+  for (const entry of RUNTIME_TOOLS_SOURCE_ENTRIES) {
     fs.cpSync(path.join(source, entry), path.join(target, entry), {
       recursive: true,
     });
   }
+  return null;
 }
 
 function validateInstalledBins(spec: SkillInstallSpec): string[] {
@@ -514,7 +550,10 @@ export async function installSkillDependency(params: {
     if ('ok' in uvSetup) return uvSetup;
     env = uvSetup.env;
   }
-  if (selection.spec.kind === 'runtime-tools') stageHostRuntimeTools();
+  if (selection.spec.kind === 'runtime-tools') {
+    const staged = stageHostRuntimeTools();
+    if (staged) return staged;
+  }
 
   const argv = buildInstallCommand(selection.spec);
   if (!argv) {

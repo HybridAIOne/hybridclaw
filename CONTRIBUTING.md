@@ -58,7 +58,8 @@ Notes:
 - `npm install` runs the `prepare` script and installs Husky git hooks when the
   checkout is writable.
 - `npm run setup` installs the container runtime dependencies under
-  `container/`.
+  `container/` and the skill libraries under `container/tools/` that the
+  office skill tests load.
 - `npm run build` compiles both the root package and the container runtime.
 - Core setup, build, lint, typecheck, and tests do not install or compile the
   opt-in WhatsApp plugin. Contribute to that GPL-licensed package in

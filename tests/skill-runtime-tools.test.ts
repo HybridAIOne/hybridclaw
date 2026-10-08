@@ -10,7 +10,7 @@ const makeTempDir = useTempDir('hybridclaw-runtime-tools-');
 useCleanMocks({
   unstubAllEnvs: true,
   resetModules: true,
-  unmock: ['node:child_process'],
+  unmock: ['node:child_process', '../src/infra/install-root.ts'],
 });
 
 let dataDir = '';
@@ -38,6 +38,44 @@ function writeFakePackage(nodeModulesDir: string, name: string): void {
     JSON.stringify({ name, version: '1.0.0', main: 'index.js' }),
   );
   fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};\n');
+}
+
+/** An install root that ships `entries` of container/tools and the real skills. */
+function fakeInstallRoot(entries: string[]): string {
+  const root = makeTempDir();
+  fs.symlinkSync(path.join(repoRoot, 'skills'), path.join(root, 'skills'));
+  const tools = path.join(root, 'container', 'tools');
+  fs.mkdirSync(tools, { recursive: true });
+  fs.copyFileSync(
+    path.join(repoRoot, 'container', 'package.json'),
+    path.join(root, 'container', 'package.json'),
+  );
+  for (const entry of entries) {
+    fs.cpSync(
+      path.join(repoRoot, 'container', 'tools', entry),
+      path.join(tools, entry),
+      { recursive: true },
+    );
+  }
+  return root;
+}
+
+async function importInstallerAt(root: string) {
+  const spawnMock = vi.fn(() => exitedProcess());
+  vi.doMock('node:child_process', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('node:child_process')>()),
+    spawn: spawnMock,
+  }));
+  vi.doMock('../src/infra/install-root.ts', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../src/infra/install-root.ts')>()),
+    resolveInstallRoot: () => root,
+    resolveInstallPath: (...segments: string[]) =>
+      path.join(root, ...segments),
+  }));
+  const { setupSkillDependencies } = await import(
+    '../src/skills/skills-install.ts'
+  );
+  return { setupSkillDependencies, spawnMock };
 }
 
 describe('skill libraries for host-sandbox agents', () => {
@@ -113,5 +151,68 @@ describe('skill libraries for host-sandbox agents', () => {
       '/opt/inherited',
     ]);
     expect(hostAgentNodePath().split(path.delimiter)).toHaveLength(2);
+  });
+  test.each([
+    ['package-lock.json', ['package.json', 'stubs']],
+    ['stubs', ['package.json', 'package-lock.json']],
+  ])('skill setup reports an installation without container/tools/%s instead of throwing', async (missing, shipped) => {
+    const { setupSkillDependencies, spawnMock } = await importInstallerAt(
+      fakeInstallRoot(shipped),
+    );
+
+    const result = await setupSkillDependencies({ skillName: 'xlsx' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain(`container/tools/${missing}`);
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(dataDir, 'runtime-tools'))).toBe(false);
+  });
+
+  test('skill setup installs nothing when the libraries already resolve, as on the gateway image NODE_PATH', async () => {
+    const root = fakeInstallRoot(['package.json', 'package-lock.json', 'stubs']);
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(root, 'container', 'tools', 'package.json'),
+        'utf8',
+      ),
+    ) as { dependencies: Record<string, string> };
+    for (const name of Object.keys(manifest.dependencies)) {
+      writeFakePackage(path.join(root, 'node_modules'), name);
+    }
+    const { setupSkillDependencies, spawnMock } =
+      await importInstallerAt(root);
+
+    const result = await setupSkillDependencies({ skillName: 'pptx' });
+
+    expect(result.ok, result.message).toBe(true);
+    expect(result.stdout).toContain('already resolve');
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(dataDir, 'runtime-tools'))).toBe(false);
+  });
+
+  test.each([
+    ['matches', true],
+    ['differs from', false],
+  ])('host agents use the data-dir libraries only while their lockfile %s the packaged one', async (_label, current) => {
+    const target = path.join(dataDir, 'runtime-tools');
+    writeFakePackage(path.join(target, 'node_modules'), 'hybridclaw-fake-tool');
+    const packagedLock = fs.readFileSync(
+      path.join(repoRoot, 'container', 'tools', 'package-lock.json'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(target, 'package-lock.json'),
+      current ? packagedLock : packagedLock.replace('"lockfileVersion"', '"x"'),
+    );
+    const { hasAgentNodeModule, hostAgentNodePath } = await import(
+      '../src/skills/skill-node-modules.ts'
+    );
+
+    expect(hasAgentNodeModule('hybridclaw-fake-tool', 'host')).toBe(current);
+    expect(
+      hostAgentNodePath().split(path.delimiter).includes(
+        path.join(target, 'node_modules'),
+      ),
+    ).toBe(current);
   });
 });

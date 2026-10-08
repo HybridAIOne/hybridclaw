@@ -36,15 +36,16 @@ export async function loadCanvas() {
   if (!canvasPromise) {
     // Render with the canvas build pdfjs-dist itself loads; Path2D objects
     // from a second @napi-rs/canvas copy are rejected at draw time.
-    const pdfJsDir = path.dirname(
-      fileURLToPath(resolveRuntimeModule('pdfjs-dist/package.json')),
-    );
-    canvasPromise = import(
-      resolveRuntimeModule('@napi-rs/canvas', [pdfJsDir]).href
-    ).catch((err) => {
+    canvasPromise = (async () => {
+      const pdfJsDir = path.dirname(
+        fileURLToPath(resolveRuntimeModule('pdfjs-dist/package.json')),
+      );
+      return import(resolveRuntimeModule('@napi-rs/canvas', [pdfJsDir]).href);
+    })().catch((err) => {
       canvasPromise = null;
       throw new Error(
         `@napi-rs/canvas is required for PDF rendering: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
       );
     });
   }

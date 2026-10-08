@@ -214,6 +214,21 @@ test('gateway startup graph does not statically load plugin-owned features', () 
   ).toEqual([]);
 });
 
+// The gateway package does not install these; only the agent runtime
+// (container/) and the skill tool libraries (container/tools/) carry them.
+test('gateway startup graph does not import agent-runtime or skill libraries', () => {
+  const { importers } = collectStartupPackages(GATEWAY_ENTRY);
+  const agentOnly = [
+    '@napi-rs/canvas',
+    'csv-parse',
+    'docx',
+    'iconv-lite',
+    'pdfjs-dist',
+    'xlsx-populate',
+  ];
+  expect(agentOnly.filter((name) => importers.has(name))).toEqual([]);
+});
+
 test('import elision keeps value imports and drops type-only ones', () => {
   const source = [
     "import { AsValue, AsType } from 'pkg-mixed';",

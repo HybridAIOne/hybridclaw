@@ -10,6 +10,9 @@ const repoRoot = process.cwd();
 // The skill libraries are owned by the runtime tools manifest, which the
 // images expose through NODE_PATH; the gateway package does not carry them.
 const runtimeToolsDir = path.join(repoRoot, 'container', 'tools');
+if (!fs.existsSync(path.join(runtimeToolsDir, 'node_modules'))) {
+  throw new Error('container/tools/node_modules is missing; run `npm run setup`.');
+}
 const XlsxPopulate = createRequire(path.join(runtimeToolsDir, 'package.json'))(
   'xlsx-populate',
 );

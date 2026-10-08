@@ -48,7 +48,11 @@ so one run covers all three skills. Host agents resolve these libraries and the
 agent runtime's own dependencies (`pdf-lib`, `pdfjs-dist`, `jszip`,
 `linkedom`) through `NODE_PATH`, as the images do. Until setup has run,
 `hybridclaw skill list` shows those skills with the missing
-`node_module:<name>`. Run it again after an upgrade that changes the lockfile.
+`node_module:<name>`. When an upgrade ships a different lockfile, host agents
+stop loading the old copy and `skill list` shows the libraries as missing again
+until you rerun setup. Distributions that already put the libraries on
+`NODE_PATH`, such as the gateway Docker image, need no setup; the command
+reports that and installs nothing.
 
 ## macOS
 
