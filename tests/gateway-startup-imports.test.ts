@@ -6,9 +6,10 @@ import { expect, test, vi } from 'vitest';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const GATEWAY_ENTRY = path.join(ROOT, 'src/gateway/gateway.ts');
 
-// Optional-channel and platform-specific SDKs: each costs 5-20 MB of heap in
-// every gateway, so they load through `channel-runtime-loaders.ts` or on
-// their own feature path, never from the startup graph.
+// Optional-channel and platform-specific SDKs cost 5-20 MB of heap each, and a
+// broken native addon prebuild would crash startup, so they load through
+// `channel-runtime-loaders.ts` or on their own feature path, never from the
+// startup graph.
 const LAZY_ONLY_PACKAGES = [
   '@modelcontextprotocol/sdk',
   '@slack/bolt',
@@ -20,6 +21,7 @@ const LAZY_ONLY_PACKAGES = [
   'discord.js',
   'imapflow',
   'mailparser',
+  'node-pty',
   'nodemailer',
 ];
 

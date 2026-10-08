@@ -145,7 +145,8 @@ Choose an agent from a user's **Agent** selector. The selection saves immediatel
 and applies to their next message or command, including in group chats and channel
 threads. **Default** removes the assignment and uses the configured default agent.
 Assignments are stored in the
-gateway database, scoped to the configured Teams tenant. If an assigned agent is
+gateway database's channel-agnostic `channel_users` table, scoped to the
+configured Teams tenant. If an assigned agent is
 deleted or archived, the bot asks for an administrator to repair the mapping;
 it does not send that user's turn to another agent.
 

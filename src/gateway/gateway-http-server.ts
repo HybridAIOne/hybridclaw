@@ -10054,7 +10054,7 @@ async function handleApiAdminTerminal(
       cols: body.cols,
       rows: body.rows,
     };
-    sendJson(res, 200, terminalManager.startSession(options));
+    sendJson(res, 200, await terminalManager.startSession(options));
     return;
   }
 
