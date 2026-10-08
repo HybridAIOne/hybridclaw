@@ -52,25 +52,24 @@ afterEach(() => {
 describe('gateway admin fleet topology', () => {
   test('lists HQ and child instance status from the A2A trust ledger', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
     const service = await import('../src/gateway/gateway-fleet-topology.ts');
 
     initDatabase({ quiet: true });
-    const topology = await service.upsertGatewayAdminFleetTopologyInstance(
-      {
-        peerId: 'child-prod',
-        agentCardUrl: 'https://child.example.com/.well-known/agent.json',
-        deliveryUrl: 'https://child.example.com/a2a',
-        publicKeyJwk: peerPublicKeyJwk(),
-        reason: 'unit test',
-      },
-      {
-        fetchImpl: jsonFetch({
-          url: 'https://child.example.com/a2a',
-          version: '0.99.0',
-          hybridclaw: { instanceId: 'child-prod', version: '0.99.0' },
-        }),
-      },
-    );
+    trust.upsertA2ATrustedPublicKeyPeer({
+      peerId: 'child-prod',
+      agentCardUrl: 'https://child.example.com/.well-known/agent.json',
+      deliveryUrl: 'https://child.example.com/a2a',
+      publicKeyJwk: peerPublicKeyJwk(),
+      reason: 'unit test',
+    });
+    const topology = await service.getGatewayAdminFleetTopology({
+      fetchImpl: jsonFetch({
+        url: 'https://child.example.com/a2a',
+        version: '0.99.0',
+        hybridclaw: { instanceId: 'child-prod', version: '0.99.0' },
+      }),
+    });
 
     expect(topology.hq).toMatchObject({
       instanceId: 'hq-dev',
@@ -109,35 +108,5 @@ describe('gateway admin fleet topology', () => {
       latencyMs: null,
       version: null,
     });
-  });
-
-  test('add and remove instance actions are audited', async () => {
-    const { initDatabase, getRecentStructuredAuditForSession } = await import(
-      '../src/memory/db.ts'
-    );
-    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
-    const service = await import('../src/gateway/gateway-fleet-topology.ts');
-
-    initDatabase({ quiet: true });
-    await service.upsertGatewayAdminFleetTopologyInstance(
-      {
-        peerId: 'audited-child',
-        publicKeyJwk: peerPublicKeyJwk(),
-        reason: 'operator add',
-      },
-      { fetchImpl: vi.fn() as unknown as typeof fetch },
-    );
-    await service.deleteGatewayAdminFleetTopologyInstance({
-      peerId: 'audited-child',
-      fetchImpl: vi.fn() as unknown as typeof fetch,
-    });
-    await flushAuditTrail();
-
-    const auditTypes = getRecentStructuredAuditForSession(
-      'a2a:trust-ledger',
-      10,
-    ).map((entry) => entry.event_type);
-    expect(auditTypes).toContain('a2a.trust.operator_override');
-    expect(auditTypes).toContain('a2a.trust.deleted');
   });
 });

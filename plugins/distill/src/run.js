@@ -100,13 +100,6 @@ export function setDistillStage(runPaths, run, stage, status, detail) {
   });
 }
 
-export function nextPendingStage(run) {
-  for (const stage of DISTILL_STAGE_ORDER) {
-    if (run.stages[stage].status !== 'completed') return stage;
-  }
-  return null;
-}
-
 export function renderRunReport(run, profile, extras = {}) {
   const lines = [
     `# Distillation Report — ${profile.displayName}`,

@@ -2,19 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTH_REQUIRED_EVENT,
-  adminEventsUrl,
   buildWebCommandRequestBody,
-  clearStoredToken,
+  discardLegacyTokens,
   dispatchAuthRequired,
   fetchAdminHybridAIBots,
   fetchAgentList,
   installOfficialPlugin,
   installPlugin,
-  readStoredToken,
   registerDistillAgent,
   setAuthReloadHandlerForTest,
   setRuntimeSecret,
-  storeToken,
   TOKEN_STORAGE_KEY,
   unblockSkill,
   updateAdminAgent,
@@ -141,7 +138,7 @@ describe('client command helpers', () => {
       '/admin?token=query-token&__hybridclaw_token_bootstrapped=1&view=models#top',
     );
 
-    expect(readStoredToken()).toBe('');
+    discardLegacyTokens();
     expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.location.pathname).toBe('/admin');
@@ -152,7 +149,7 @@ describe('client command helpers', () => {
   it('removes query tokens from the URL without persisting them', () => {
     window.history.pushState(null, '', '/admin?token=query-token&view=models');
 
-    expect(readStoredToken()).toBe('');
+    discardLegacyTokens();
     expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.location.search).toBe('?view=models');
@@ -161,25 +158,9 @@ describe('client command helpers', () => {
   it('clears legacy localStorage tokens without migrating them', () => {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, 'legacy-token');
 
-    expect(readStoredToken()).toBe('');
+    discardLegacyTokens();
     expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
-  });
-
-  it('does not persist manual tokens in browser storage', () => {
-    storeToken(' manual-token ');
-
-    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
-    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
-
-    clearStoredToken();
-
-    expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
-    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
-  });
-
-  it('does not embed tokens into the admin events stream URL', () => {
-    expect(adminEventsUrl('test-token')).toBe('/api/events');
   });
 
   it('maps local and remote agent list sources', async () => {

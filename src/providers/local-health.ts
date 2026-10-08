@@ -13,11 +13,7 @@ import {
   LOCAL_VLLM_ENABLED,
 } from '../config/config.js';
 import { resolveOllamaApiBase } from './local-discovery.js';
-import type {
-  HealthCheckResult,
-  LocalBackendType,
-  ModelHealthCheckResult,
-} from './local-types.js';
+import type { HealthCheckResult, LocalBackendType } from './local-types.js';
 import { createOnDemandProbe } from './on-demand-probe.js';
 import { isRecord, normalizeBaseUrl } from './utils.js';
 
@@ -99,64 +95,6 @@ export async function checkConnection(
     return {
       backend,
       reachable: false,
-      latencyMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-export async function checkModelConnection(
-  backend: LocalBackendType,
-  baseUrl: string,
-  modelId: string,
-  timeoutMs = LOCAL_HEALTH_CHECK_TIMEOUT_MS,
-  apiKey?: string,
-): Promise<ModelHealthCheckResult> {
-  const startedAt = Date.now();
-  try {
-    if (backend === 'ollama') {
-      await fetchHealthJson(
-        `${resolveOllamaApiBase(baseUrl)}/api/chat`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [{ role: 'user', content: 'ping' }],
-            stream: false,
-            options: { num_predict: 1 },
-          }),
-        },
-        timeoutMs,
-      );
-    } else {
-      await fetchHealthJson(
-        `${normalizeBaseUrl(baseUrl)}/chat/completions`,
-        {
-          method: 'POST',
-          headers: buildOpenAICompatHeaders(apiKey),
-          body: JSON.stringify({
-            model: modelId,
-            messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 1,
-            stream: false,
-          }),
-        },
-        timeoutMs,
-      );
-    }
-
-    return {
-      modelId,
-      backend,
-      usable: true,
-      latencyMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    return {
-      modelId,
-      backend,
-      usable: false,
       latencyMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     };

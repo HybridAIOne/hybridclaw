@@ -53,7 +53,6 @@ import {
 import {
   hasAgentReference,
   escalationChain as resolveOrgChartEscalationChain,
-  managerOf as resolveOrgChartManager,
   peersOf as resolveOrgChartPeers,
 } from './org-chart.js';
 import {
@@ -803,27 +802,9 @@ export function getStoredAgentConfig(
   return registry.get(normalizedId) || null;
 }
 
-export function managerOfAgent(agentId?: string | null): AgentConfig | null {
-  ensureRegistryCurrent();
-  return resolveOrgChartManager(
-    normalizeString(agentId) || DEFAULT_AGENT_ID,
-    currentTeamStructureAgents(),
-  );
-}
-
 export function peersOfAgent(agentId?: string | null): AgentConfig[] {
   ensureRegistryCurrent();
   return resolveOrgChartPeers(
-    normalizeString(agentId) || DEFAULT_AGENT_ID,
-    currentTeamStructureAgents(),
-  );
-}
-
-export function escalationChainForAgent(
-  agentId?: string | null,
-): AgentConfig[] {
-  ensureRegistryCurrent();
-  return resolveOrgChartEscalationChain(
     normalizeString(agentId) || DEFAULT_AGENT_ID,
     currentTeamStructureAgents(),
   );
@@ -867,13 +848,6 @@ function collectAgentDeletionBlockers(agentId: string): string[] {
     }
   }
   return blockers.sort();
-}
-
-export function childAgentsOf(agentId?: string | null): string[] {
-  const normalizedId = normalizeString(agentId);
-  if (!normalizedId) return [];
-  ensureRegistryCurrent();
-  return childAgentIds(Array.from(registry.values()), normalizedId);
 }
 
 function currentTeamStructureAgents(): AgentConfig[] {

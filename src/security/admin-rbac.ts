@@ -77,7 +77,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.scheduler.delete',
   'admin.channels.read',
   'admin.channels.write',
-  'admin.channels.delete',
   'admin.connectors.read',
   'admin.mcp.read',
   'admin.mcp.write',
@@ -92,8 +91,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.a2a.write',
   'admin.a2a.delete',
   'admin.fleet.read',
-  'admin.fleet.write',
-  'admin.fleet.delete',
   'admin.signal.read',
   'admin.signal.write',
   'admin.email_config.fetch',
@@ -212,14 +209,11 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.agents.delete',
     'admin.models.write',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.webhook_targets.write',
     'admin.a2a.write',
     'admin.a2a.delete',
-    'admin.fleet.write',
-    'admin.fleet.delete',
     'admin.signal.write',
   ],
   'admin.config_manager': [
@@ -229,7 +223,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.config.reload',
     'admin.models.write',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.webhook_targets.write',
@@ -269,7 +262,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.scheduler.write',
     'admin.scheduler.delete',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.config.reload',
@@ -277,8 +269,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.webhook_targets.write',
     'admin.a2a.write',
     'admin.a2a.delete',
-    'admin.fleet.write',
-    'admin.fleet.delete',
     'admin.signal.write',
     'admin.policy.write',
     'admin.policy.delete',
@@ -665,13 +655,8 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/msteams/users/personal-agent') {
     return method === 'POST' ? 'admin.agents.write' : null;
   }
-  if (pathname === '/api/admin/channels') {
-    return actionForReadWriteDelete(
-      method,
-      'admin.channels.read',
-      'admin.channels.write',
-      'admin.channels.delete',
-    );
+  if (pathname === '/api/admin/channels' && method === 'GET') {
+    return 'admin.channels.read';
   }
   if (
     (pathname === '/api/admin/msteams/tab-manifest' ||
@@ -769,13 +754,8 @@ export function resolveAdminRbacAction(
   ) {
     return 'admin.a2a.write';
   }
-  if (pathname === '/api/admin/fleet-topology') {
-    return actionForReadWriteDelete(
-      method,
-      'admin.fleet.read',
-      'admin.fleet.write',
-      'admin.fleet.delete',
-    );
+  if (pathname === '/api/admin/fleet-topology' && method === 'GET') {
+    return 'admin.fleet.read';
   }
   if (pathname === '/api/admin/signal/link') {
     if (method === 'GET') return 'admin.signal.read';

@@ -131,52 +131,6 @@ describe('local health checks', () => {
     });
   });
 
-  test('checkModelConnection sends a minimal inference request', async () => {
-    const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
-    const health = await importFreshHealth(homeDir);
-
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const ollamaResult = await health.checkModelConnection(
-      'ollama',
-      'http://127.0.0.1:11434',
-      'llama3.2',
-      5_000,
-    );
-    const ollamaBody = JSON.parse(
-      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body || '{}'),
-    ) as Record<string, unknown>;
-    expect(ollamaBody).toMatchObject({
-      model: 'llama3.2',
-      stream: false,
-      options: { num_predict: 1 },
-    });
-    expect(ollamaResult.usable).toBe(true);
-
-    await health.checkModelConnection(
-      'lmstudio',
-      'http://127.0.0.1:1234/v1',
-      'qwen2.5-coder',
-      5_000,
-    );
-    const lmstudioBody = JSON.parse(
-      String((fetchMock.mock.calls[1]?.[1] as RequestInit).body || '{}'),
-    ) as Record<string, unknown>;
-    expect(lmstudioBody).toMatchObject({
-      model: 'qwen2.5-coder',
-      max_tokens: 1,
-      stream: false,
-    });
-  });
-
   test('checkConnection returns latencyMs > 0 on successful check', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir);
@@ -203,29 +157,6 @@ describe('local health checks', () => {
     expect(result.reachable).toBe(true);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
     expect(typeof result.latencyMs).toBe('number');
-  });
-
-  test('checkModelConnection returns usable=false with error when model not found', async () => {
-    const homeDir = makeTempHome();
-    writeRuntimeConfig(homeDir);
-    const health = await importFreshHealth(homeDir);
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('Not Found', { status: 404 })),
-    );
-
-    const result = await health.checkModelConnection(
-      'ollama',
-      'http://127.0.0.1:11434',
-      'nonexistent-model',
-      5_000,
-    );
-
-    expect(result.usable).toBe(false);
-    expect(result.error).toContain('404');
-    expect(result.modelId).toBe('nonexistent-model');
-    expect(result.backend).toBe('ollama');
   });
 
   test('checkAllBackends updates cached health results', async () => {

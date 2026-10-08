@@ -1,10 +1,8 @@
 import {
   createHash,
-  createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
   type JsonWebKey,
-  type KeyObject,
 } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -112,8 +110,6 @@ let trustedA2APeersByPublicKeyCache: Map<
   SharedTrustedA2AJsonRpcPeer
 > | null = null;
 let cachedInstanceKeypair: A2AInstanceKeypair | null = null;
-let cachedInstancePrivateKey: KeyObject | null = null;
-let cachedInstancePublicKey: KeyObject | null = null;
 
 export interface A2ATrustedWebhookPeer {
   schemaVersion: typeof TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION;
@@ -449,8 +445,6 @@ function writeNewKeypairState(state: A2AInstanceKeypair): void {
 
 function cacheInstanceKeypair(state: A2AInstanceKeypair): A2AInstanceKeypair {
   cachedInstanceKeypair = state;
-  cachedInstancePrivateKey = null;
-  cachedInstancePublicKey = null;
   return state;
 }
 
@@ -491,24 +485,6 @@ export function ensureA2AInstanceKeypair(now = new Date()): A2AInstanceKeypair {
     if (racedState) return cacheInstanceKeypair(racedState);
     throw error;
   }
-}
-
-export function getA2AInstancePrivateKey(): KeyObject {
-  if (cachedInstancePrivateKey) return cachedInstancePrivateKey;
-  cachedInstancePrivateKey = createPrivateKey({
-    key: ensureA2AInstanceKeypair().privateKeyJwk,
-    format: 'jwk',
-  });
-  return cachedInstancePrivateKey;
-}
-
-export function getA2AInstancePublicKey(): KeyObject {
-  if (cachedInstancePublicKey) return cachedInstancePublicKey;
-  cachedInstancePublicKey = createPublicKey({
-    key: ensureA2AInstanceKeypair().publicKeyJwk,
-    format: 'jwk',
-  });
-  return cachedInstancePublicKey;
 }
 
 function exposureVisibleTo(

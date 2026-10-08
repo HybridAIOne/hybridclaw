@@ -2311,9 +2311,6 @@ async function importFreshHealth(options?: {
     deleted: true,
     agentId,
   }));
-  const removeGatewayAdminChannel = vi.fn(() => ({
-    channels: [],
-  }));
   const removeGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
   }));
@@ -2329,9 +2326,6 @@ async function importFreshHealth(options?: {
     defaultModel: 'gpt-5',
     providerStatus: {},
     models: [],
-  }));
-  const upsertGatewayAdminChannel = vi.fn(() => ({
-    channels: [],
   }));
   const upsertGatewayAdminSchedulerJob = vi.fn(() => ({
     jobs: [],
@@ -2816,7 +2810,6 @@ async function importFreshHealth(options?: {
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
-    removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
@@ -2839,7 +2832,6 @@ async function importFreshHealth(options?: {
     updateGatewayAdminAgent,
     uploadGatewayAdminSkillZip,
     upsertGatewayAdminA2ATrustPeer,
-    upsertGatewayAdminChannel,
     upsertGatewayAdminMcpServer,
   }));
   vi.doMock('../src/a2a/a2a-outbox-persistence.js', async () => ({

@@ -3,10 +3,8 @@ import path from 'node:path';
 import {
   getRuntimeAssetRevisionDetailHistory,
   listRuntimeAssetRevisionHistory,
-  type RuntimeConfigChangeMeta,
   type RuntimeConfigRevision,
   type RuntimeConfigRevisionSummary,
-  syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import type { AgentConfig } from './agent-types.js';
@@ -74,22 +72,6 @@ function summarizeRevision(params: {
     diff,
     changeCount: agentTeamStructureDiffCount(diff),
   };
-}
-
-export function syncAgentTeamStructureRevisionState(
-  agents: AgentConfig[],
-  meta?: RuntimeConfigChangeMeta,
-): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
-  const content = serializeAgentTeamStructure(agents, { validate: false });
-  return syncRuntimeAssetRevisionState(
-    'team',
-    AGENT_TEAM_STRUCTURE_ASSET_PATH,
-    meta,
-    {
-      exists: true,
-      content,
-    },
-  );
 }
 
 export function listAgentTeamStructureRevisions(

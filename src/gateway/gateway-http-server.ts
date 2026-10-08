@@ -108,8 +108,6 @@ import {
 import type {
   RuntimeBrowserProviderKind,
   RuntimeConfig,
-  RuntimeDiscordChannelConfig,
-  RuntimeMSTeamsChannelConfig,
 } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
@@ -292,11 +290,7 @@ import {
 } from './gateway-browser-sign-ins.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiDelegate } from './gateway-delegation.js';
-import {
-  deleteGatewayAdminFleetTopologyInstance,
-  getGatewayAdminFleetTopology,
-  upsertGatewayAdminFleetTopologyInstance,
-} from './gateway-fleet-topology.js';
+import { getGatewayAdminFleetTopology } from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
   parsePositiveInteger,
@@ -386,7 +380,6 @@ import {
   normalizeMediaContextItems,
   previewGatewayAdminA2APairing,
   reconnectGatewayAdminTunnel,
-  removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   resolveGatewayChatbotId,
   restoreGatewayAdminAgentMarkdownRevision,
@@ -412,7 +405,6 @@ import {
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
   upsertGatewayAdminA2ATrustPeer,
-  upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import { handleApiShellEnv } from './gateway-shell-env.js';
@@ -421,7 +413,6 @@ import type {
   GatewayAdminA2APairingStartRequest,
   GatewayAdminA2ATrustUpsertRequest,
   GatewayAdminDiscordWebhookTargetRequest,
-  GatewayAdminFleetTopologyUpsertRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
@@ -2182,67 +2173,6 @@ function isMalformedCanonicalSessionId(value: string | undefined): boolean {
     classifySessionKeyShape(String(value || '').trim()) ===
     'canonical_malformed'
   );
-}
-
-function isRuntimeDiscordChannelConfig(
-  value: unknown,
-): value is RuntimeDiscordChannelConfig {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const mode = (value as { mode?: unknown }).mode;
-  return mode === 'off' || mode === 'mention' || mode === 'free';
-}
-
-function isRuntimeMSTeamsChannelConfig(
-  value: unknown,
-): value is RuntimeMSTeamsChannelConfig {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const typed = value as {
-    requireMention?: unknown;
-    replyStyle?: unknown;
-    groupPolicy?: unknown;
-    allowFrom?: unknown;
-    tools?: unknown;
-  };
-  if (
-    typed.requireMention !== undefined &&
-    typeof typed.requireMention !== 'boolean'
-  ) {
-    return false;
-  }
-  if (
-    typed.replyStyle !== undefined &&
-    typed.replyStyle !== 'thread' &&
-    typed.replyStyle !== 'top-level'
-  ) {
-    return false;
-  }
-  if (
-    typed.groupPolicy !== undefined &&
-    typed.groupPolicy !== 'open' &&
-    typed.groupPolicy !== 'allowlist' &&
-    typed.groupPolicy !== 'disabled'
-  ) {
-    return false;
-  }
-  if (
-    typed.allowFrom !== undefined &&
-    !(
-      Array.isArray(typed.allowFrom) &&
-      typed.allowFrom.every((entry) => typeof entry === 'string')
-    )
-  ) {
-    return false;
-  }
-  if (
-    typed.tools !== undefined &&
-    !(
-      Array.isArray(typed.tools) &&
-      typed.tools.every((entry) => typeof entry === 'string')
-    )
-  ) {
-    return false;
-  }
-  return true;
 }
 
 function resolveQueryTokenAuthContext(url: URL): ResolvedAuthContext | null {
@@ -5821,91 +5751,6 @@ async function handleApiAdminSessionDelete(
   );
 }
 
-async function handleApiAdminChannels(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  if ((req.method || 'GET') === 'GET') {
-    sendJson(res, 200, getGatewayAdminChannels());
-    return;
-  }
-
-  if ((req.method || 'GET') === 'DELETE') {
-    const transport = (url.searchParams.get('transport') || '').trim();
-    const guildId = (url.searchParams.get('guildId') || '').trim();
-    const channelId = (url.searchParams.get('channelId') || '').trim();
-    sendJson(
-      res,
-      200,
-      removeGatewayAdminChannel({
-        transport: transport === 'msteams' ? 'msteams' : 'discord',
-        guildId,
-        channelId,
-      }),
-    );
-    return;
-  }
-
-  const body = (await readJsonBody(req)) as {
-    transport?: string;
-    guildId?: string;
-    channelId?: string;
-    config?: unknown;
-  };
-  const transport =
-    typeof body.transport === 'string' && body.transport.trim() === 'msteams'
-      ? 'msteams'
-      : 'discord';
-  if (typeof body.guildId !== 'string' || typeof body.channelId !== 'string') {
-    sendJson(res, 400, {
-      error: 'Expected `guildId` and `channelId`.',
-    });
-    return;
-  }
-
-  if (transport === 'discord' && !isRuntimeDiscordChannelConfig(body.config)) {
-    sendJson(res, 400, {
-      error:
-        'Discord bindings require object `config` with `mode` set to off, mention, or free.',
-    });
-    return;
-  }
-
-  if (transport === 'msteams' && !isRuntimeMSTeamsChannelConfig(body.config)) {
-    sendJson(res, 400, {
-      error:
-        'Teams bindings require object `config` containing Teams channel override fields.',
-    });
-    return;
-  }
-
-  if (transport === 'msteams') {
-    sendJson(
-      res,
-      200,
-      upsertGatewayAdminChannel({
-        transport,
-        guildId: body.guildId,
-        channelId: body.channelId,
-        config: body.config as RuntimeMSTeamsChannelConfig,
-      }),
-    );
-    return;
-  }
-
-  sendJson(
-    res,
-    200,
-    upsertGatewayAdminChannel({
-      transport,
-      guildId: body.guildId,
-      channelId: body.channelId,
-      config: body.config as RuntimeDiscordChannelConfig,
-    }),
-  );
-}
-
 async function handleApiAdminConfig(
   req: IncomingMessage,
   res: ServerResponse,
@@ -6072,53 +5917,13 @@ async function handleApiAdminA2AE2EERequired(
   );
 }
 
-async function handleApiAdminFleetTopology(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const method = req.method || 'GET';
+async function handleApiAdminFleetTopology(res: ServerResponse): Promise<void> {
   try {
-    if (method === 'GET') {
-      sendJson(res, 200, await getGatewayAdminFleetTopology());
-      return;
-    }
-
-    if (method === 'POST' || method === 'PUT') {
-      const body = (await readJsonBody(req).catch(() => ({}))) as
-        | GatewayAdminFleetTopologyUpsertRequest
-        | undefined;
-      sendJson(
-        res,
-        200,
-        await upsertGatewayAdminFleetTopologyInstance(body || {}),
-      );
-      return;
-    }
-
-    if (method === 'DELETE') {
-      const peerId = (url.searchParams.get('peerId') || '').trim();
-      if (!peerId) {
-        sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
-        return;
-      }
-      sendJson(
-        res,
-        200,
-        await deleteGatewayAdminFleetTopologyInstance({ peerId }),
-      );
-      return;
-    }
-
-    sendJson(res, 405, { error: 'Method Not Allowed' });
+    sendJson(res, 200, await getGatewayAdminFleetTopology());
   } catch (error) {
-    sendJson(
-      res,
-      error instanceof GatewayRequestError ? error.statusCode : 400,
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-    );
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -11234,11 +11039,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminScheduler(req, res, url);
             return;
           }
-          if (
-            pathname === '/api/admin/channels' &&
-            (method === 'GET' || method === 'PUT' || method === 'DELETE')
-          ) {
-            await handleApiAdminChannels(req, res, url);
+          if (pathname === '/api/admin/channels' && method === 'GET') {
+            sendJson(res, 200, getGatewayAdminChannels());
             return;
           }
           if (pathname === '/api/admin/msteams/users/personal-agent') {
@@ -11369,14 +11171,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminA2AE2EERequired(req, res);
             return;
           }
-          if (
-            pathname === '/api/admin/fleet-topology' &&
-            (method === 'GET' ||
-              method === 'POST' ||
-              method === 'PUT' ||
-              method === 'DELETE')
-          ) {
-            await handleApiAdminFleetTopology(req, res, url);
+          if (pathname === '/api/admin/fleet-topology' && method === 'GET') {
+            await handleApiAdminFleetTopology(res);
             return;
           }
           if (
