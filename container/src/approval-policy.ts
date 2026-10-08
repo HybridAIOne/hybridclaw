@@ -3249,6 +3249,22 @@ export class TrustedAgentApprovalRuntime {
       });
     }
 
+    if (lowerTool === 'show_slide_samples') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied: 'I will describe the looks in words instead.',
+        reason: 'this only renders sample slides for the user to pick from',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool === 'vision_analyze') {
       return {
         tier: 'green',

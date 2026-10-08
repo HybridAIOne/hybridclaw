@@ -1,5 +1,9 @@
 import { normalizeBrowserSignInHost } from '../security/browser-sign-ins.js';
-import type { BrowserFrame, ToolProgressEvent } from '../types/execution.js';
+import type {
+  BrowserFrame,
+  SlideSamples,
+  ToolProgressEvent,
+} from '../types/execution.js';
 
 const TOOL_NAME_PATTERN = '([a-zA-Z0-9_.-]+)';
 const TOOL_LABEL_PATTERN = '((?:\\s+\\[[^\\]\\r\\n]*\\])*)';
@@ -77,6 +81,46 @@ export function parseBrowserFrameLine(line: string): BrowserFrame | null {
         ? { frame: parsed.frame }
         : {}),
       ...(signInHost ? { signIn: { host: signInHost } } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Written by `show_slide_samples` just before its result line
+// (`SLIDE_SAMPLES_LOG_PREFIX` in container/src/tools/slide-samples.ts).
+const SLIDE_SAMPLES_PREFIX = '[slide-samples] ';
+const SLIDE_FORMATS = new Set(['powerpoint', 'google_slides']);
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function parseSlideSamplesLine(line: string): SlideSamples | null {
+  if (!line.startsWith(SLIDE_SAMPLES_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(
+      line.slice(SLIDE_SAMPLES_PREFIX.length),
+    ) as Record<string, unknown> | null;
+    if (!parsed || !Array.isArray(parsed.looks)) return null;
+    const looks: SlideSamples['looks'] = [];
+    for (const raw of parsed.looks) {
+      const look = (raw ?? {}) as Record<string, unknown>;
+      const title = text(look.title);
+      const image = text(look.image);
+      if (!title || !image) return null;
+      const note = text(look.note);
+      looks.push({ title, ...(note ? { note } : {}), image });
+    }
+    if (looks.length === 0) return null;
+    const formats = (Array.isArray(parsed.formats) ? parsed.formats : [])
+      .map(text)
+      .filter((format) => SLIDE_FORMATS.has(format));
+    const question = text(parsed.question);
+    return {
+      ...(question ? { question } : {}),
+      looks,
+      formats: formats.length > 0 ? formats : ['powerpoint'],
     };
   } catch {
     return null;

@@ -8,7 +8,9 @@ import {
   type BrowserFrameSink,
   remapOutputArtifacts,
   stashBrowserFrameLine,
+  stashSlideSamplesLine,
   takeBrowserFrame,
+  takeSlideSamples,
 } from '../src/infra/container-runner.js';
 import type { ContainerOutput } from '../src/types/container.js';
 
@@ -163,4 +165,49 @@ test('drops a browser frame path that leaves the workspace', () => {
     url: 'https://shop.example/',
     title: 'Shop',
   });
+});
+
+test('attaches sample slides, with host paths, to the slide samples result', () => {
+  const entry: BrowserFrameSink = {
+    browserFrameWorkspace: { path: '/srv/agents/hy/workspace' },
+  };
+  expect(
+    stashSlideSamplesLine(
+      entry,
+      '[slide-samples] {"question":"Which look?","looks":[{"title":"Calm","note":"Light","image":".slide-samples/1/look-1.png"},{"title":"Bold","image":".slide-samples/1/look-2.png"}],"formats":["powerpoint","google_slides"]}',
+    ),
+  ).toBe(true);
+
+  expect(takeSlideSamples(entry, 'bash', 'finish')).toBeUndefined();
+  expect(takeSlideSamples(entry, 'show_slide_samples', 'finish')).toEqual({
+    question: 'Which look?',
+    looks: [
+      {
+        title: 'Calm',
+        note: 'Light',
+        image: '/srv/agents/hy/workspace/.slide-samples/1/look-1.png',
+      },
+      {
+        title: 'Bold',
+        image: '/srv/agents/hy/workspace/.slide-samples/1/look-2.png',
+      },
+    ],
+    formats: ['powerpoint', 'google_slides'],
+  });
+  expect(
+    takeSlideSamples(entry, 'show_slide_samples', 'finish'),
+  ).toBeUndefined();
+});
+
+test('drops sample slides when a picture leaves the workspace', () => {
+  const entry: BrowserFrameSink = {
+    browserFrameWorkspace: { path: '/srv/agents/hy/workspace' },
+  };
+  stashSlideSamplesLine(
+    entry,
+    '[slide-samples] {"looks":[{"title":"Calm","image":".slide-samples/1/look-1.png"},{"title":"Bold","image":"../../secrets.png"}]}',
+  );
+  expect(
+    takeSlideSamples(entry, 'show_slide_samples', 'finish'),
+  ).toBeUndefined();
 });

@@ -107,6 +107,10 @@ import {
   runSkillsList,
   SKILLS_LIST_TOOL_DEFINITION,
 } from './tools/skills-list.js';
+import {
+  runSlideSamplesTool,
+  SLIDE_SAMPLES_TOOL_DEFINITION,
+} from './tools/slide-samples.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
 import { runWorkTool, WORK_TOOL_DEFINITION } from './tools/work.js';
@@ -3620,6 +3624,11 @@ async function executeToolInternal(
       return ok ? text : failTool(text);
     }
 
+    case 'show_slide_samples': {
+      const { ok, text } = await runSlideSamplesTool(args);
+      return ok ? text : failTool(text);
+    }
+
     case 'preferences': {
       const { ok, text } = await runPreferencesTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4227,6 +4236,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   DRAFT_EMAIL_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,
+  SLIDE_SAMPLES_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

@@ -127,3 +127,12 @@ export const APP_CHECKLIST_LINES = [
   'Keep every item: the three-to-five rule does not apply to such a list. Link the file in the reply, such as `[Einkaufsliste Herbstdeko](lists/einkaufsliste-herbstdeko.md)`, and say in one sentence what is on it. The app shows it as a list the user can tick, and writes each tick into the file as `[x]`.',
   'When the user later asks about the list or wants items added or removed, read that file first and edit it in place instead of writing a new one. Keep the ticks it has.',
 ];
+
+/**
+ * The app shows `show_slide_samples` as a card of slide pictures with a
+ * PowerPoint / Google Slides choice; the pick comes back as a chat message.
+ */
+export const APP_SLIDE_DECK_LINES = [
+  "When the user wants a new slide deck, let them pick its look first: design the deck's title slide in two to four clearly different looks, each as a self-contained 1280×720 HTML file with fonts and colours pptxgenjs can reproduce, and call show_slide_samples. Skip this when they gave a template, an existing deck or a clear design.",
+  "After the pick, build the whole deck as a .pptx in that look and link it in the reply. When they asked for Google Slides, import that .pptx with the Google connector's presentation import tool and link the Google Slides address it returns instead. If that tool is missing, say that Google needs Drive access under Connectors and give them the .pptx.",
+];
