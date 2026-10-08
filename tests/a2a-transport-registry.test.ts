@@ -224,13 +224,13 @@ describe('A2A transport adapter registry', () => {
     const adapters = {
       a2a: {
         encode(envelope: A2AEnvelope) {
-        encodeCalled = true;
-        return {
-          jsonrpc: '2.0',
-          method: 'message/send',
-          params: envelope,
-        };
-      },
+          encodeCalled = true;
+          return {
+            jsonrpc: '2.0',
+            method: 'message/send',
+            params: envelope,
+          };
+        },
         decode() {
           return envelope;
         },
