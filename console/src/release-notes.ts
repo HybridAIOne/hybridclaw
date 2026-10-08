@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.0',
+  version: '0.39.1',
   highlights: [
-    'Shared notebook with page history',
-    'Hy keeps notes and checklists',
-    'Edit scheduled tasks from mobile',
-    'Gmail arrivals trigger check-ins',
+    'Import history into another agent',
+    'Skip first-run onboarding',
+    'Scheduled replies reach the main chat',
+    'Agent display names in the console',
   ],
 } as const;
 

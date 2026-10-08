@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## [0.39.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.1) - 2026-10-08
+
+### Added
+
+- **Agent history import**: `hybridclaw agent adopt` transfers another agent's
+  conversations, memory, scheduled tasks, goals and todos into a dedicated
+  agent, with optional thread renaming. The target keeps its persona, becomes
+  the default agent and inherits mailbox bindings. The source workspace stays
+  as a backup; both agents must be idle and admin confirmation is required.
+- **Onboarding opt-out**: Agent configuration accepts `"onboarding": false` to
+  skip first-run hatching and welcome emails, including after a workspace wipe
+  or a reset from defaults carrying the flag.
+
+### Changed
+
+- **Main-chat scheduled replies**: Web tasks created in side chats deliver to
+  their agent's current HybridAI app main chat and run with separate context.
+  `/schedule results` works from both the creating chat and the receiving main
+  chat. Tasks follow the current main chat on each run; agents without one and
+  messaging-channel tasks retain delivery to their creating chat.
+- **Cloud skill defaults**: Seeded cloud sandboxes also disable Hue, Shelly,
+  Fronius and platform-invoice downloads on each gateway boot.
+
+### Fixed
+
+- **Agent names in the console**: Agents configured with only `displayName`
+  show that name throughout the console instead of their internal ID.
+- **Default-agent email routing**: Mailboxes without an explicit agent follow
+  the configured default agent. A successful history import requests a gateway
+  restart after responding so channels pick up the transferred bindings.
+
+### Upgrade Notes
+
+- History import copies workspace files but moves database history and task
+  ownership. Same-named target files are replaced except Markdown memory,
+  which is merged; renamed thread collisions are preserved under another ID.
+  Importing from a second source requires a target reset.
+- If import reports `gatewayRestart: unavailable`, restart the gateway manually.
+  Container restarts require an on-failure restart policy.
+- Side-chat tasks still belong to their creating chat; deleting that chat
+  deletes its tasks even when replies are delivered to the main chat.
+- Cloud deployments intentionally using the newly excluded skills must
+  re-enable them after seeding.
+
 ## [0.39.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.0) - 2026-10-07
 
 ### Added
