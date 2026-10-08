@@ -51,6 +51,11 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
   approvalMode?: ApprovalMode;
   fullAutoNeverApproveTools?: string[];
   scheduleSideEffectsEnabled?: boolean;
+  /**
+   * No one waits on this run (scheduled task, heartbeat, goal loop). It
+   * leaves one agent process free for user turns and waits longer for one.
+   */
+  background?: boolean;
   skillCatalog?: SessionSkillCatalogEntry[];
   allowedTools?: string[];
   blockedTools?: string[];

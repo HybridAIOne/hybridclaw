@@ -183,6 +183,7 @@ export async function runIsolatedScheduledTask(params: {
       channelId,
       blockedTools,
       skillCatalog: buildEligibleSkillCatalog(skills),
+      background: true,
     });
     emitToolExecutionAuditEvents({
       sessionId: activeSessionId,

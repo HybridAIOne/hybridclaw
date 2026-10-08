@@ -22,6 +22,7 @@ export function chatResultForClient(
     status: result.status,
     result: result.result,
     error: result.error,
+    errorCode: result.errorCode,
     toolsUsed: result.toolsUsed,
     sessionId: result.sessionId,
     userMessageId: result.userMessageId,

@@ -49,6 +49,7 @@ import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type {
   AddressEnvelope,
+  AgentErrorCode,
   MediaContextItem,
   OutputPresentationMetadata,
 } from '../types/container.js';
@@ -152,6 +153,7 @@ export interface GatewayChatResult {
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
+  errorCode?: AgentErrorCode;
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;

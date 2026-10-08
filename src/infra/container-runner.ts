@@ -144,6 +144,7 @@ import {
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
   pingWarmRunnerHealthEntry,
+  processLimitForRun,
   rememberStderrLine,
   removeWarmPoolEntry,
   sendWarmWorkerFrame,
@@ -359,8 +360,12 @@ export function isWarmContainerColdStartWithinBudget(): boolean {
   return warmPool.isWithinColdStartBudget();
 }
 
+// Runs past their capacity check whose container is not in the pool yet. They
+// count, or runs that start together all pass the check and overshoot it.
+let startingContainerProcesses = 0;
+
 function getTotalContainerProcessCount(): number {
-  return getTotalWarmProcessCount(pool, warmPool);
+  return getTotalWarmProcessCount(pool, warmPool) + startingContainerProcesses;
 }
 
 function removePoolEntry(entry: PoolEntry): void {
@@ -1123,25 +1128,23 @@ async function runContainerInner(
   const runtimeModel = modelRuntime.model || model;
   const storedRuntimeEnv = readStoredRuntimeEnv();
   enforceWarmContainerPressure();
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  const processLimit = processLimitForRun(
+    MAX_CONCURRENT_CONTAINERS,
+    params.background,
+  );
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     stopWarmEntries(
       warmPool.evictForPressure({
         totalProcessCount: getTotalContainerProcessCount() + 1,
-        maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+        maxProcessCount: processLimit,
       }),
     );
   }
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     for (const entry of collectIdleSessionEvictions({
       pool,
       warmPool,
-      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+      maxProcessCount: processLimit,
     })) {
       logger.info(
         { sessionId: entry.sessionId, agentId: entry.agentId },
@@ -1151,21 +1154,27 @@ async function runContainerInner(
       removePoolEntry(entry);
     }
   }
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     return {
       status: 'error',
       result: null,
       toolsUsed: [],
-      error: `Too many active containers (${getTotalContainerProcessCount()}/${MAX_CONCURRENT_CONTAINERS}). Try again later.`,
+      error: `Too many active containers (${getTotalContainerProcessCount()}/${processLimit}). Try again later.`,
+      errorCode: 'busy',
     };
   }
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveContainerMcpServers();
+  // The container is spawned without another await after this one.
+  const starting = pool.has(sessionId) ? 0 : 1;
+  startingContainerProcesses += starting;
+  let mcpServers: Awaited<ReturnType<typeof resolveContainerMcpServers>>;
+  try {
+    mcpServers = await resolveContainerMcpServers();
+  } finally {
+    startingContainerProcesses -= starting;
+  }
   const existingEntry = pool.get(sessionId);
   const requestId = randomUUID();
 
