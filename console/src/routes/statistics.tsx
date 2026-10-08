@@ -15,6 +15,7 @@ import {
 } from '../components/card';
 import { NativeSelect, NativeSelectOption } from '../components/native-select';
 import { MetricCard, PageHeader } from '../components/ui';
+import { CHANNEL_LABELS, isExternalChannelKind } from '../lib/channels';
 import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
@@ -441,6 +442,11 @@ function compactDestination(value: string): string {
   return `${value.slice(0, 24)}…${value.slice(-12)}`;
 }
 
+const LOCAL_CHANNEL_LABELS: Readonly<Record<string, string>> = {
+  tui: 'TUI',
+  cli: 'CLI',
+};
+
 function formatChannelGroup({
   channelId,
   channelKind,
@@ -454,20 +460,13 @@ function formatChannelGroup({
     return { key: 'unknown', label: 'Unknown' };
   }
   if (channelKind) {
-    const labels: Record<string, string> = {
-      msteams: 'Microsoft Teams',
-      imessage: 'iMessage',
-      whatsapp: 'WhatsApp',
-      tui: 'TUI',
-      line: 'LINE',
-      cli: 'CLI',
-    };
-    const label =
-      labels[channelKind] ??
-      channelKind
-        .split('_')
-        .map((word) => word[0].toUpperCase() + word.slice(1))
-        .join(' ');
+    const label = isExternalChannelKind(channelKind)
+      ? CHANNEL_LABELS[channelKind]
+      : (LOCAL_CHANNEL_LABELS[channelKind] ??
+        channelKind
+          .split('_')
+          .map((word) => word[0].toUpperCase() + word.slice(1))
+          .join(' '));
     return { key: channelKind, label };
   }
   return {

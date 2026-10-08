@@ -42,6 +42,7 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { useFormMutation } from '../hooks/use-form-mutation';
+import { CHANNEL_LABELS, isExternalChannelKind } from '../lib/channels';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { logNavigationError } from '../lib/navigation';
@@ -252,31 +253,14 @@ function buildSchedulerChannelOptions(params: {
   return options;
 }
 
+const LOCAL_CHANNEL_LABELS: Readonly<Record<string, string>> = {
+  tui: 'Local TUI',
+  web: 'Local Web',
+};
+
 function formatSchedulerChannelLabel(channel: string): string {
-  switch (channel) {
-    case 'discord':
-      return 'Discord';
-    case 'slack':
-      return 'Slack';
-    case 'telegram':
-      return 'Telegram';
-    case 'whatsapp':
-      return 'WhatsApp';
-    case 'line':
-      return 'LINE Keep Memo';
-    case 'email':
-      return 'Email';
-    case 'msteams':
-      return 'Microsoft Teams';
-    case 'imessage':
-      return 'iMessage';
-    case 'tui':
-      return 'Local TUI';
-    case 'web':
-      return 'Local Web';
-    default:
-      return channel;
-  }
+  if (isExternalChannelKind(channel)) return CHANNEL_LABELS[channel];
+  return LOCAL_CHANNEL_LABELS[channel] ?? channel;
 }
 
 function buildConfiguredTargetOptions(

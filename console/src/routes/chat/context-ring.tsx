@@ -1,27 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchChatContext } from '../../api/chat';
 import { cx } from '../../lib/cx';
+import { formatCompactNumber } from '../../lib/format';
 import css from './context-ring.module.css';
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 function formatCompact(value: number | null | undefined): string {
-  if (value == null) return 'n/a';
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) {
-    const scaled =
-      abs >= 10_000_000
-        ? (value / 1_000_000).toFixed(0)
-        : (value / 1_000_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}M`;
-  }
-  if (abs >= 1_000) {
-    const scaled =
-      abs >= 10_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1);
-    return `${scaled.replace(/\.0$/, '')}k`;
-  }
-  return String(Math.round(value));
+  return value == null ? 'n/a' : formatCompactNumber(value);
 }
 
 function clampPercent(value: number | null): number {

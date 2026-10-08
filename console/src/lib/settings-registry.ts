@@ -9,6 +9,11 @@ import {
   type AdminConfigSectionOwner,
   adminChannelOwner,
 } from './admin-config-owners';
+import {
+  CHANNEL_CONFIG_SECTIONS,
+  CHANNEL_LABELS,
+  channelFragment,
+} from './channels';
 
 export interface SettingsRegistryEntry extends GeneratedSettingEntry {
   label: string;
@@ -93,20 +98,8 @@ const SECTION_ORDER = [
   'plugins',
   'adaptiveSkills',
   'channelInstructions',
-  'discord',
-  'discordWebhook',
-  'msteams',
-  'slack',
-  'slackWebhook',
-  'telegram',
-  'signal',
-  'threema',
-  'whatsapp',
-  'line',
-  'voice',
+  ...Object.values(CHANNEL_CONFIG_SECTIONS),
   'speech',
-  'imessage',
-  'email',
   'hybridai',
   'codex',
   'openai',
@@ -156,8 +149,12 @@ const SECTION_LABELS: Readonly<Record<string, string>> = {
   xai: 'xAI',
   zai: 'Z.AI',
   minimax: 'MiniMax',
-  msteams: 'Microsoft Teams',
-  imessage: 'iMessage',
+  ...Object.fromEntries(
+    Object.entries(CHANNEL_CONFIG_SECTIONS).map(([kind, section]) => [
+      section,
+      CHANNEL_LABELS[kind as keyof typeof CHANNEL_LABELS],
+    ]),
+  ),
   ui: 'UI',
   mcpServers: 'MCP Servers',
 };
@@ -213,7 +210,7 @@ export function settingsOwnerForPath(
     return { label: 'Routing Evaluator', to: '/admin/routing-evaluator' };
   }
   if (section === 'channelInstructions' && subpage) {
-    return adminChannelOwner(subpage === 'msteams' ? 'teams' : subpage);
+    return adminChannelOwner(channelFragment(subpage));
   }
   return FIELD_OWNERS[path] ?? SECTION_OWNERS[section ?? ''];
 }

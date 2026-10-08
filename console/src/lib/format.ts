@@ -1,3 +1,19 @@
+import type { AdminSecretEntry } from '../api/types';
+
+export function formatSecretLength(
+  entry: Pick<AdminSecretEntry, 'length'>,
+): string {
+  return entry.length === null ? 'unknown length' : `${entry.length} bytes`;
+}
+
+export function formatSecretFingerprint(
+  entry: Pick<AdminSecretEntry, 'fingerprint'>,
+): string {
+  return entry.fingerprint
+    ? `sha256:${entry.fingerprint.sha256_prefix}`
+    : 'no fingerprint';
+}
+
 export function formatCompactNumber(value: number): string {
   return new Intl.NumberFormat('en', {
     notation: 'compact',
@@ -48,7 +64,19 @@ export function formatUsd(value: number): string {
   }).format(value);
 }
 
-export function formatRelativeTime(raw: string): string {
+export function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return '0 B';
+  if (value < 1024) return `${value} B`;
+  let scaled = value / 1024;
+  for (const unit of ['KiB', 'MiB']) {
+    if (scaled < 1024) return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${unit}`;
+    scaled /= 1024;
+  }
+  return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} GiB`;
+}
+
+export function formatRelativeTime(raw: string | null): string {
+  if (!raw) return 'never';
   const timestamp = new Date(raw);
   if (Number.isNaN(timestamp.getTime())) return 'unknown';
   const deltaMs = Date.now() - timestamp.getTime();

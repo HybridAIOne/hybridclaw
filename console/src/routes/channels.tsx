@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { type KeyboardEvent, useEffect, useState } from 'react';
+import type { ExternalChannelKind } from '../../../src/channels/channel';
 import {
   fetchAdminAgents,
   fetchConfig,
@@ -40,24 +41,17 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { useFormMutation } from '../hooks/use-form-mutation';
+import { channelFragment, channelKindFromFragment } from '../lib/channels';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
 import { ChannelPluginNotice } from './channel-plugin-notice';
-import { buildChannelCatalog, type ChannelKind } from './channels-catalog';
+import { buildChannelCatalog } from './channels-catalog';
 
 type SecretSource = 'config' | 'env' | 'runtime-secrets' | null;
 type ChannelInstructionKind = keyof AdminConfig['channelInstructions'];
 
 import { TeamsUsers } from './teams-users';
-
-function channelFragment(kind: ChannelKind): string {
-  return kind === 'msteams' ? 'teams' : kind;
-}
-
-function channelKindFromFragment(fragment: string): string {
-  return fragment === 'teams' ? 'msteams' : fragment;
-}
 
 function isDiscordEnabled(config: AdminConfig): boolean {
   return (
@@ -3741,7 +3735,7 @@ function IMessageChannelEditor(props: {
 }
 
 function renderSelectedEditor(
-  kind: ChannelKind,
+  kind: ExternalChannelKind,
   draft: AdminConfig,
   form: UseFormControllerReturn<AdminConfig>,
   token: string,
@@ -3957,7 +3951,9 @@ export function ChannelsPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [selectedKind, setSelectedKind] = useState<ChannelKind | null>(null);
+  const [selectedKind, setSelectedKind] = useState<ExternalChannelKind | null>(
+    null,
+  );
 
   const configQuery = useQuery({
     queryKey: ['config', auth.token],

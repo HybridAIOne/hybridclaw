@@ -23,7 +23,7 @@ import {
 import { useToast } from '../components/toast';
 import { BooleanPill, PageHeader, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatDateTime } from '../lib/format';
+import { formatBytes, formatDateTime } from '../lib/format';
 
 const LOG_TAIL_BYTES = 128 * 1024;
 const CONFIG_STALE_TIME_MS = 30_000;
@@ -49,20 +49,6 @@ const LOGGING_MODE_SETTINGS = {
     debugModelResponses: boolean;
   }
 >;
-
-function formatBytes(value: number | null): string {
-  if (value == null) return 'missing';
-  if (value < 1024) return `${value} B`;
-  const units = ['KiB', 'MiB', 'GiB'];
-  let next = value / 1024;
-  for (const unit of units) {
-    if (next < 1024 || unit === units.at(-1)) {
-      return `${next.toFixed(next >= 10 ? 0 : 1)} ${unit}`;
-    }
-    next /= 1024;
-  }
-  return `${value} B`;
-}
 
 function fileStatusLabel(file: AdminLogFile): string {
   if (!file.exists) return 'missing';
@@ -295,7 +281,11 @@ export function LogsPage() {
                   </div>
                   <div>
                     <span>Size</span>
-                    <strong>{formatBytes(selectedFile.sizeBytes)}</strong>
+                    <strong>
+                      {selectedFile.sizeBytes === null
+                        ? 'missing'
+                        : formatBytes(selectedFile.sizeBytes)}
+                    </strong>
                   </div>
                   <div>
                     <span>Modified</span>

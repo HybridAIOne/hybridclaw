@@ -237,18 +237,21 @@ export async function throwResponseError(
   throw new HttpResponseError(message, response.status);
 }
 
-export async function requestJson<T>(
+interface RequestOptions {
+  token: string;
+  method?: 'GET' | 'PATCH' | 'PUT' | 'DELETE' | 'POST';
+  body?: unknown;
+  rawBody?: BodyInit;
+  extraHeaders?: HeadersInit;
+  onAuthError?: 'dispatch' | 'ignore';
+  signal?: AbortSignal;
+  cache?: RequestCache;
+}
+
+async function request(
   pathname: string,
-  options: {
-    token: string;
-    method?: 'GET' | 'PATCH' | 'PUT' | 'DELETE' | 'POST';
-    body?: unknown;
-    rawBody?: BodyInit;
-    extraHeaders?: HeadersInit;
-    onAuthError?: 'dispatch' | 'ignore';
-    signal?: AbortSignal;
-  },
-): Promise<T> {
+  options: RequestOptions,
+): Promise<Response> {
   const response = await fetch(pathname, {
     method: options.method || 'GET',
     headers: {
@@ -260,6 +263,7 @@ export async function requestJson<T>(
         ? JSON.stringify(options.body)
         : (options.rawBody ?? undefined),
     signal: options.signal,
+    cache: options.cache,
   });
 
   if (!response.ok) {
@@ -267,6 +271,21 @@ export async function requestJson<T>(
       onAuthError: options.onAuthError,
     });
   }
+  return response;
+}
+
+export async function requestBlob(
+  pathname: string,
+  options: RequestOptions,
+): Promise<Blob> {
+  return (await request(pathname, options)).blob();
+}
+
+export async function requestJson<T>(
+  pathname: string,
+  options: RequestOptions,
+): Promise<T> {
+  const response = await request(pathname, options);
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;
     text?: string;
@@ -527,7 +546,7 @@ function distillCorpusDocumentPath(params: {
   return `/api/admin/distill/corpus/${encodeURIComponent(params.documentId)}?${search.toString()}`;
 }
 
-export async function downloadDistillCorpusDocument(
+export function downloadDistillCorpusDocument(
   token: string,
   params: {
     alias: string;
@@ -535,14 +554,10 @@ export async function downloadDistillCorpusDocument(
     documentId: string;
   },
 ): Promise<Blob> {
-  const response = await fetch(distillCorpusDocumentPath(params), {
-    headers: requestHeaders(token),
+  return requestBlob(distillCorpusDocumentPath(params), {
+    token,
     cache: 'no-store',
   });
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
-  return response.blob();
 }
 
 export function deleteDistillCorpusDocument(
@@ -1144,14 +1159,8 @@ export function fetchMSTeamsTabStatus(
   );
 }
 
-export async function downloadMSTeamsOrgManifest(token: string): Promise<Blob> {
-  const response = await fetch('/api/admin/msteams/tab-manifest', {
-    headers: requestHeaders(token),
-  });
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
-  return response.blob();
+export function downloadMSTeamsOrgManifest(token: string): Promise<Blob> {
+  return requestBlob('/api/admin/msteams/tab-manifest', { token });
 }
 
 export function fetchBrowserPoolHealth(

@@ -14,6 +14,7 @@ import { useAuth } from '../auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
+import { formatUsd } from '../lib/format';
 
 const METRIC_NUMBER_FORMATTER = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 3,
@@ -21,10 +22,6 @@ const METRIC_NUMBER_FORMATTER = new Intl.NumberFormat('en-US', {
 
 function formatDecimal(value: number): string {
   return METRIC_NUMBER_FORMATTER.format(value);
-}
-
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
 }
 
 function surfaceEdits(round: AdminHarnessEvolutionRound): string {

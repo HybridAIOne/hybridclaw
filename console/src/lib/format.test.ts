@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { cacheHitRatio, formatTokenBreakdown, pluralize } from './format';
+import {
+  cacheHitRatio,
+  formatBytes,
+  formatRelativeTime,
+  formatTokenBreakdown,
+  pluralize,
+} from './format';
 
 describe('pluralize', () => {
   it('returns singular when n is 1', () => {
@@ -46,5 +52,26 @@ describe('formatTokenBreakdown', () => {
     expect(cacheHitRatio(100, 250)).toBe(1);
     expect(cacheHitRatio(0, 250)).toBeNull();
     expect(cacheHitRatio(100, 0)).toBeNull();
+  });
+});
+
+describe('formatBytes', () => {
+  it.each([
+    [-1, '0 B'],
+    [Number.NaN, '0 B'],
+    [512, '512 B'],
+    [1536, '1.5 KiB'],
+    [20 * 1024, '20 KiB'],
+    [3 * 1024 ** 2, '3.0 MiB'],
+    [5 * 1024 ** 3, '5.0 GiB'],
+    [2048 * 1024 ** 3, '2048 GiB'],
+  ])('formats %d as %s', (value, expected) => {
+    expect(formatBytes(value)).toBe(expected);
+  });
+});
+
+describe('formatRelativeTime', () => {
+  it.each([null, ''])('treats %j as never', (value) => {
+    expect(formatRelativeTime(value)).toBe('never');
   });
 });

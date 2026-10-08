@@ -1,29 +1,18 @@
+import type { ExternalChannelKind } from '../../../src/channels/channel';
 import type { AdminConfig, GatewayChannelPluginStatus } from '../api/types';
+import { CHANNEL_LABELS } from '../lib/channels';
 import { DEFAULT_AGENT_ID } from '../lib/chat-helpers';
 import { pluralize } from '../lib/format';
 
-export type ChannelKind =
-  | 'discord'
-  | 'discord_webhook'
-  | 'slack'
-  | 'signal'
-  | 'telegram'
-  | 'threema'
-  | 'slack_webhook'
-  | 'voice'
-  | 'whatsapp'
-  | 'email'
-  | 'msteams'
-  | 'imessage'
-  | 'line';
-
 export interface ChannelCatalogItem {
-  kind: ChannelKind;
+  kind: ExternalChannelKind;
   label: string;
   summary: string;
   statusTone: 'active' | 'configured' | 'available';
   statusLabel: string;
 }
+
+type ChannelCatalogEntry = Omit<ChannelCatalogItem, 'label'>;
 
 interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
@@ -73,7 +62,7 @@ export function countTeamsOverrides(config: AdminConfig): number {
 function describeDiscord(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const guildCount = countDiscordGuilds(config);
   const overrideCount = countDiscordOverrides(config);
   const enabled =
@@ -90,7 +79,6 @@ function describeDiscord(
 
   return {
     kind: 'discord',
-    label: 'Discord',
     summary: `${pluralize(guildCount, 'guild default')} · ${pluralize(overrideCount, 'explicit override')}`,
     statusTone,
     statusLabel:
@@ -105,7 +93,7 @@ function describeDiscord(
 function describeWhatsApp(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const linked = options.whatsappLinked === true;
   const enabled =
     config.whatsapp.dmPolicy !== 'disabled' ||
@@ -121,7 +109,6 @@ function describeWhatsApp(
 
   return {
     kind: 'whatsapp',
-    label: 'WhatsApp',
     summary,
     statusTone,
     statusLabel:
@@ -136,7 +123,7 @@ function describeWhatsApp(
 function describeLine(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const linked = options.lineLinked === true;
   const active = config.line.enabled && linked;
   const statusTone = active
@@ -146,7 +133,6 @@ function describeLine(
       : 'available';
   return {
     kind: 'line',
-    label: 'LINE',
     summary: linked
       ? config.line.enabled
         ? 'Personal account · self-chat only'
@@ -162,7 +148,7 @@ function describeLine(
 function describeTelegram(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const tokenConfigured = options.telegramTokenConfigured === true;
   const inboundEnabled =
     config.telegram.dmPolicy !== 'disabled' ||
@@ -182,7 +168,6 @@ function describeTelegram(
 
   return {
     kind: 'telegram',
-    label: 'Telegram',
     summary: `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`,
     statusTone,
     statusLabel:
@@ -197,7 +182,7 @@ function describeTelegram(
 function describeSignal(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const daemonUrlConfigured = options.signalDaemonUrlConfigured === true;
   const accountConfigured = options.signalAccountConfigured === true;
   const cliAvailable = options.signalCliAvailable === true;
@@ -225,7 +210,6 @@ function describeSignal(
 
   return {
     kind: 'signal',
-    label: 'Signal',
     summary: `DM ${config.signal.dmPolicy} · groups ${config.signal.groupPolicy}${cliAvailable ? ' · QR ready' : ''}`,
     statusTone,
     statusLabel:
@@ -240,7 +224,7 @@ function describeSignal(
 function describeThreema(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const secretConfigured = options.threemaSecretConfigured === true;
   const active =
     config.threema.enabled &&
@@ -261,7 +245,6 @@ function describeThreema(
 
   return {
     kind: 'threema',
-    label: 'Threema',
     summary: config.threema.identity
       ? `Gateway ${config.threema.identity} · DM ${config.threema.dmPolicy}`
       : 'No Gateway identity configured yet',
@@ -278,7 +261,7 @@ function describeThreema(
 function describeSlack(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const botTokenConfigured = options.slackBotTokenConfigured === true;
   const appTokenConfigured = options.slackAppTokenConfigured === true;
   const active =
@@ -298,7 +281,6 @@ function describeSlack(
 
   return {
     kind: 'slack',
-    label: 'Slack',
     summary: `DM ${config.slack.dmPolicy} · channels ${config.slack.groupPolicy}`,
     statusTone,
     statusLabel:
@@ -313,7 +295,7 @@ function describeSlack(
 function describeSlackWebhook(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const targetCount = Object.keys(config.slackWebhook.webhooks).length;
   const active =
     config.slackWebhook.enabled &&
@@ -327,7 +309,6 @@ function describeSlackWebhook(
 
   return {
     kind: 'slack_webhook',
-    label: 'Slack Incoming Webhook',
     summary:
       targetCount > 0
         ? `${pluralize(targetCount, 'webhook target')} · outbound only`
@@ -345,7 +326,7 @@ function describeSlackWebhook(
 function describeDiscordWebhook(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const targetCount = Object.keys(config.discordWebhook.webhooks).length;
   const active =
     config.discordWebhook.enabled &&
@@ -359,7 +340,6 @@ function describeDiscordWebhook(
 
   return {
     kind: 'discord_webhook',
-    label: 'Discord Incoming Webhook',
     summary:
       targetCount > 0
         ? `${pluralize(targetCount, 'webhook target')} · outbound only`
@@ -377,7 +357,7 @@ function describeDiscordWebhook(
 function describeVoice(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const authTokenConfigured = options.voiceAuthTokenConfigured === true;
   const realtimeConfigured = options.voiceRealtimeConfigured === true;
   const accountSid = config.voice.twilio.accountSid.trim();
@@ -398,7 +378,6 @@ function describeVoice(
 
   return {
     kind: 'voice',
-    label: 'Voice',
     summary: `Twilio · webhook ${config.voice.webhookPath}${
       realtimeConfigured ? ' · realtime speech ready (web chat works)' : ''
     }`,
@@ -415,7 +394,7 @@ function describeVoice(
 function describeEmail(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const passwordConfigured = options.emailPasswordConfigured === true;
   const defaultMailboxAddress = String(config.email.address || '').trim();
   const accounts = Array.isArray(config.email.accounts)
@@ -474,7 +453,6 @@ function describeEmail(
 
   return {
     kind: 'email',
-    label: 'Email',
     summary:
       mailboxCount > 0
         ? `${mailboxCount} mailbox${mailboxCount === 1 ? '' : 'es'}`
@@ -492,7 +470,7 @@ function describeEmail(
 function describeMSTeams(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const teamCount = countTeams(config);
   const overrideCount = countTeamsOverrides(config);
   const active =
@@ -515,7 +493,6 @@ function describeMSTeams(
 
   return {
     kind: 'msteams',
-    label: 'Microsoft Teams',
     summary: `${pluralize(teamCount, 'team default')} · ${pluralize(overrideCount, 'channel override')}`,
     statusTone,
     statusLabel:
@@ -530,7 +507,7 @@ function describeMSTeams(
 function describeIMessage(
   config: AdminConfig,
   options: ChannelCatalogOptions,
-): ChannelCatalogItem {
+): ChannelCatalogEntry {
   const isRemote = config.imessage.backend === 'bluebubbles';
   const passwordConfigured = options.imessagePasswordConfigured === true;
   const active = isRemote
@@ -545,7 +522,6 @@ function describeIMessage(
 
   return {
     kind: 'imessage',
-    label: 'iMessage',
     summary: `${isRemote ? 'Remote' : 'Local'} backend · DM ${config.imessage.dmPolicy}`,
     statusTone,
     statusLabel: statusTone === 'active' ? 'active' : 'available',
@@ -598,7 +574,12 @@ export function buildChannelCatalog(
     describeMSTeams(config, options),
     describeIMessage(config, options),
   ]
-    .map((item) => applyChannelPluginStatus(item, options))
+    .map((item) =>
+      applyChannelPluginStatus(
+        { ...item, label: CHANNEL_LABELS[item.kind] },
+        options,
+      ),
+    )
     .sort((left, right) => {
       const scoreDelta = scoreStatus(right) - scoreStatus(left);
       return scoreDelta !== 0

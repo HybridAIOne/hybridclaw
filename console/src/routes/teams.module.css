@@ -91,23 +91,6 @@
   font-size: 0.875rem;
 }
 
-.pill,
-.pillOk {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 0.75rem;
-  font-weight: 650;
-  color: var(--muted-foreground);
-  background: var(--muted);
-}
-
-.pillOk {
-  border-color: var(--success, var(--border-strong));
-  color: var(--success, var(--foreground));
-  background: var(--success-soft, var(--muted));
-}
-
 .userTableWrap {
   overflow-x: auto;
 }

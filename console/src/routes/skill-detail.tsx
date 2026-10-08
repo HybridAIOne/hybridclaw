@@ -53,7 +53,13 @@ import { Textarea } from '../components/textarea';
 import { useToast } from '../components/toast';
 import { BooleanPill, SegmentedToggle } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatDateTime, formatRelativeTime } from '../lib/format';
+import {
+  formatBytes,
+  formatDateTime,
+  formatRelativeTime,
+  formatSecretFingerprint,
+  formatSecretLength,
+} from '../lib/format';
 import { renderMarkdown } from '../lib/markdown';
 
 type SkillDetailTab = 'description' | 'tutorial' | 'prompts';
@@ -89,22 +95,6 @@ function formatCredentialRequirement(
   credential: AdminSkill['credentials'][number],
 ): string {
   return `${credential.id} · ${credential.kind}${credential.required ? ' · required' : ''}`;
-}
-
-function formatSecretLength(entry: AdminSecretEntry): string {
-  return entry.length === null ? 'unknown length' : `${entry.length} bytes`;
-}
-
-function formatSecretFingerprint(entry: AdminSecretEntry): string {
-  return entry.fingerprint
-    ? `sha256:${entry.fingerprint.sha256_prefix}`
-    : 'no fingerprint';
-}
-
-function formatSecretRotatedAt(entry: AdminSecretEntry): string {
-  return entry.last_rotated_at
-    ? formatRelativeTime(entry.last_rotated_at)
-    : 'never';
 }
 
 function makeUnsetSecretEntry(name: string): AdminSecretEntry {
@@ -226,13 +216,6 @@ function SkillScreenshotGallery(props: { screenshots: SkillScreenshot[] }) {
       </div>
     </section>
   );
-}
-
-function formatSkillFileSize(sizeBytes: number | null): string {
-  if (sizeBytes === null) return 'directory';
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getDefaultSkillFilePath(
@@ -463,7 +446,10 @@ function SkillPackageFileBrowser(props: { skillName: string }) {
                 >
                   <span className="skill-file-name">{file.path}</span>
                   <span className="skill-file-meta">
-                    {file.kind} · {formatSkillFileSize(file.sizeBytes)}
+                    {file.kind} ·{' '}
+                    {file.sizeBytes === null
+                      ? 'directory'
+                      : formatBytes(file.sizeBytes)}
                   </span>
                 </button>
               ))}
@@ -949,7 +935,9 @@ export function SkillDetailView(props: { skillName: string }) {
                             <>
                               <small>
                                 {formatSecretLength(secretEntry)} · rotated{' '}
-                                {formatSecretRotatedAt(secretEntry)}
+                                {formatRelativeTime(
+                                  secretEntry.last_rotated_at,
+                                )}
                               </small>
                               <code className="skill-credential-fingerprint">
                                 {formatSecretFingerprint(secretEntry)}

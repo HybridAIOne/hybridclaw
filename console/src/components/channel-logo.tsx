@@ -1,19 +1,6 @@
-export function ChannelLogo(props: {
-  kind:
-    | 'discord'
-    | 'discord_webhook'
-    | 'telegram'
-    | 'threema'
-    | 'signal'
-    | 'voice'
-    | 'whatsapp'
-    | 'email'
-    | 'slack'
-    | 'slack_webhook'
-    | 'msteams'
-    | 'imessage'
-    | 'line';
-}) {
+import type { ExternalChannelKind } from '../../../src/channels/channel';
+
+export function ChannelLogo(props: { kind: ExternalChannelKind }) {
   switch (props.kind) {
     case 'discord':
     case 'discord_webhook':
