@@ -220,6 +220,18 @@ jobs:
           HYBRIDCLAW_RUN_CONSOLE_E2E: '1'
         run: npx vitest run --project e2e tests/console-admin.e2e.test.ts
 
+      # node-pty is built only now, after the steps above booted gateways
+      # without it, so the real-PTY terminal cases run instead of skipping. The
+      # bundle is the entrypoint the Docker image runs.
+      - name: Admin terminal e2e with a built node-pty (dist and bundle)
+        env:
+          HYBRIDCLAW_RUN_CLI_E2E: '1'
+        run: |
+          npm rebuild node-pty --ignore-scripts=false --no-audit --fund=false
+          node -e "require('node-pty')"
+          node scripts/bundle-gateway.mjs
+          npx vitest run --project e2e tests/admin-terminal.e2e.test.ts
+
   # The unit suite is CPU-bound on a 4-vCPU runner, so it runs in shards
   # whose blob reports (with coverage) are merged by the coverage job, which
   # enforces the thresholds in vitest.config.ts.

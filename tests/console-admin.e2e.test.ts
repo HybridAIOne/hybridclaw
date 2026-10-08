@@ -7,6 +7,7 @@ import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { LATEST_RELEASE_NOTES } from '../console/src/release-notes.js';
 import { CHANNEL_KINDS } from '../src/channels/channel.js';
+import { brokenNodePty } from './helpers/broken-node-pty.js';
 import {
   getAvailablePort,
   waitForHealth,
@@ -54,9 +55,19 @@ async function startGateway(): Promise<void> {
       hybridai: { baseUrl: 'http://127.0.0.1:9' },
     }),
   );
+  // CI never builds node-pty; break it locally too so the terminal page
+  // renders the same load failure everywhere.
+  const broken = brokenNodePty(root);
   gateway = spawn(
     process.execPath,
-    [CLI, 'gateway', 'start', '--foreground', '--sandbox=host'],
+    [
+      ...broken.nodeArgs,
+      CLI,
+      'gateway',
+      'start',
+      '--foreground',
+      '--sandbox=host',
+    ],
     {
       cwd: root,
       env: {
@@ -66,6 +77,7 @@ async function startGateway(): Promise<void> {
         HYBRIDCLAW_ACCEPT_TRUST: 'true',
         HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
         WEB_API_TOKEN,
+        ...broken.env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -174,6 +186,16 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
       expect(cspViolations).toEqual([]);
     },
   );
+
+  test('the terminal page shows the node-pty rebuild hint when the addon cannot load', async () => {
+    await open('/admin/terminal');
+    await page.getByRole('button', { name: 'Start', exact: true }).click();
+    const banner = page.locator('.terminal-error-banner');
+    await banner.waitFor();
+    await expect(banner.textContent()).resolves.toContain(
+      'npm rebuild node-pty',
+    );
+  });
 
   describe('channels', () => {
     test('lists one labelled card with a logo per external channel kind', async () => {

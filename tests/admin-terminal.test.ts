@@ -64,6 +64,26 @@ class FakeWebSocket {
   }
 }
 
+// admin-terminal.ts loads node-pty through createRequire, which
+// vi.doMock('node-pty') does not reach, so the stub goes on node:module.
+function mockNodePty(load: () => unknown): void {
+  vi.doMock('node:module', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:module')>();
+    const createRequire = (from: string | URL) => {
+      const real = actual.createRequire(from);
+      return Object.assign(
+        (id: string) => (id === 'node-pty' ? load() : real(id)),
+        real,
+      );
+    };
+    return {
+      ...actual,
+      default: { ...actual.default, createRequire },
+      createRequire,
+    };
+  });
+}
+
 describe('admin terminal manager', () => {
   const makeTempDir = useTempDir('hc-admin-terminal-');
   let spawnedPtys: FakePty[] = [];
@@ -82,7 +102,7 @@ describe('admin terminal manager', () => {
   });
 
   test('keeps exited sessions attachable until timeout and closes after replaying exit', async () => {
-    vi.doMock('node-pty', () => ({
+    mockNodePty(() => ({
       spawn: vi.fn(() => {
         const pty = new FakePty();
         spawnedPtys.push(pty);
@@ -145,9 +165,11 @@ describe('admin terminal manager', () => {
     manager.dispose();
   });
 
-  test('a node-pty load failure fails only the session start, not the module import', async () => {
-    vi.doMock('node-pty', () => {
-      throw new Error('node-pty prebuild missing');
+  test('a node-pty load failure fails only the session start, and the next start loads it again', async () => {
+    let built = false;
+    mockNodePty(() => {
+      if (!built) throw new Error('node-pty prebuild missing');
+      return { spawn: vi.fn(() => new FakePty()) };
     });
 
     const { createAdminTerminalManager } = await import(
@@ -158,6 +180,8 @@ describe('admin terminal manager', () => {
     await expect(manager.startSession()).rejects.toMatchObject({
       statusCode: 503,
     });
+    built = true;
+    await expect(manager.startSession()).resolves.toHaveProperty('sessionId');
 
     manager.dispose();
   });
@@ -180,7 +204,7 @@ describe('admin terminal manager', () => {
     vi.doMock('../src/infra/install-root.js', () => ({
       resolveInstallRoot: () => installRoot,
     }));
-    vi.doMock('node-pty', () => ({ spawn: vi.fn(() => new FakePty()) }));
+    mockNodePty(() => ({ spawn: vi.fn(() => new FakePty()) }));
 
     const { createAdminTerminalManager } = await import(
       '../src/gateway/admin-terminal.ts'
