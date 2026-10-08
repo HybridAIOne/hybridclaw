@@ -91,6 +91,10 @@ import {
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  DRAFT_EMAIL_TOOL_DEFINITION,
+  runDraftEmailTool,
+} from './tools/draft-email.js';
+import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
@@ -3603,6 +3607,10 @@ async function executeToolInternal(
       });
       return ok ? text : failTool(text);
     }
+    case 'draft_email': {
+      const { ok, text } = runDraftEmailTool(args);
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4216,6 +4224,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
+  DRAFT_EMAIL_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,
   {

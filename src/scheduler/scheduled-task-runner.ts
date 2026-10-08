@@ -11,9 +11,10 @@ import {
   beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
 } from '../gateway/device-data.js';
+import { replyWithEmailDraft, turnEmailDraft } from '../gateway/email-draft.js';
 import type { ProactiveMessagePayload } from '../gateway/fullauto-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { getSessionById } from '../memory/db.js';
+import { getSessionById, setMessageEmailDraft } from '../memory/db.js';
 import { getJob } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
@@ -241,7 +242,15 @@ export async function runIsolatedScheduledTask(params: {
       enqueueTokenUsage(event);
     }
 
-    if (output.status === 'success' && output.result) {
+    const shown =
+      output.status === 'success' && !isSilentReply(output.result ?? '')
+        ? replyWithEmailDraft(
+            output.result ?? '',
+            turnEmailDraft(output.toolExecutions),
+            { proactive: true },
+          )
+        : { content: output.result ?? '' };
+    if (output.status === 'success' && shown.content) {
       updateWork(runId, (work) => {
         work.completedAt = new Date().toISOString();
         work.artifacts = (output.artifacts ?? []).map((item) => item.path);
@@ -257,7 +266,7 @@ export async function runIsolatedScheduledTask(params: {
           userId: 'assistant',
           username: null,
           agentId,
-          content: output.result,
+          content: shown.content,
           source:
             taskId > 0
               ? `schedule:${task?.event_parent_id ?? taskId}`
@@ -279,11 +288,14 @@ export async function runIsolatedScheduledTask(params: {
         role: 'assistant',
         userId: 'assistant',
         username: null,
-        content: output.result,
+        content: shown.content,
       });
-      if (!isSilentReply(output.result)) {
+      if (shown.emailDraft) {
+        setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
+      }
+      if (!isSilentReply(shown.content)) {
         await onResult({
-          text: output.result,
+          text: shown.content,
           workId: runId,
           storedMessage: {
             sessionId: activeSessionId,

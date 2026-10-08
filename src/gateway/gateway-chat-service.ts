@@ -72,6 +72,7 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
+  setMessageEmailDraft,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -170,6 +171,7 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
+import { replyWithEmailDraft, turnEmailDraft } from './email-draft.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -2791,8 +2793,10 @@ async function handleGatewayMessageInner(
       return attachSessionIdentity(result);
     }
 
+    const emailDraft = turnEmailDraft(toolExecutions);
     const agentResultText =
-      output.result || buildEmptyAgentResponseFallback(output.artifacts);
+      output.result ||
+      (emailDraft ? '' : buildEmptyAgentResponseFallback(output.artifacts));
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2878,6 +2882,10 @@ async function handleGatewayMessageInner(
       },
       'Gateway chat completed successfully',
     );
+    const shown = isSilentReply(resultText)
+      ? { content: resultText }
+      : replyWithEmailDraft(resultText, emailDraft);
+    resultText = shown.content;
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -2905,6 +2913,9 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
+    if (shown.emailDraft) {
+      setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
+    }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -3010,6 +3021,7 @@ async function handleGatewayMessageInner(
         getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
+      ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await continueGoalAfterResult(result);

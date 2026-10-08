@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
@@ -155,6 +156,8 @@ export interface GatewayChatResult {
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
+  /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
+  emailDraft?: MessageEmailDraft;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -365,6 +368,7 @@ export interface GatewayHistoryMessage {
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
   routingTrace?: RoutingTrace;
+  emailDraft?: MessageEmailDraft;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
