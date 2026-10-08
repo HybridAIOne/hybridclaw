@@ -20,24 +20,14 @@
  * into an arbitrary key shape. Audio payloads are opaque and never logged;
  * transcripts are logged as lengths only.
  *
- * NOT the Twilio path: phone calls live in `src/channels/voice/runtime.ts`.
+ * NOT the phone path: calls arrive through transport plugins
+ * (`plugins/twilio-voice`, `plugins/vonage-voice`).
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import WebSocket, * as wsModule from 'ws';
-import type { RealtimeSocketFactory } from '../channels/voice/openai-realtime.js';
-import {
-  type RealtimeBridgeState,
-  RealtimeCallBridge,
-  voiceLanguageCode,
-} from '../channels/voice/realtime-bridge.js';
-import {
-  isRealtimeCredentialConfigured,
-  resolveRealtimeConnection,
-} from '../channels/voice/realtime-credentials.js';
-import { formatTextForVoice } from '../channels/voice/text.js';
 import { getConfigSnapshot } from '../config/config.js';
 import {
   getRuntimeConfig,
@@ -48,6 +38,17 @@ import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
+import type { RealtimeSocketFactory } from '../voice/openai-realtime.js';
+import {
+  type RealtimeBridgeState,
+  RealtimeCallBridge,
+  voiceLanguageCode,
+} from '../voice/realtime-bridge.js';
+import {
+  isRealtimeCredentialConfigured,
+  resolveRealtimeConnection,
+} from '../voice/realtime-credentials.js';
+import { formatTextForVoice } from '../voice/text.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
 

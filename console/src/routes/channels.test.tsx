@@ -223,7 +223,6 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         greeting: '',
         instructions: '',
       },
-      webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
     speech: {
@@ -417,7 +416,6 @@ describe('ChannelsPage', () => {
         authTokenConfigured: false,
         authTokenSource: null,
         realtimeConfigured: false,
-        webhookPath: '/voice',
         maxConcurrentCalls: 8,
       },
       email: {
@@ -1639,7 +1637,7 @@ describe('ChannelsPage', () => {
     ).toBeTruthy();
     expect(screen.getByText('Twilio auth token')).toBeTruthy();
     expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
-    expect(screen.getByLabelText('Webhook path')).toBeTruthy();
+    expect(screen.getByLabelText('Max concurrent calls')).toBeTruthy();
     expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
   });
 
@@ -1655,7 +1653,6 @@ describe('ChannelsPage', () => {
       authTokenConfigured: false,
       authTokenSource: null,
       realtimeConfigured: true,
-      webhookPath: '/voice',
       maxConcurrentCalls: 8,
     };
     useAuthMock.mockReturnValue({

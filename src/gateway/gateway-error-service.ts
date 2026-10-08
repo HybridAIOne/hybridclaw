@@ -48,14 +48,3 @@ export function isWhatsAppAuthLockError(
 ): error is WhatsAppAuthLockError {
   return error instanceof WhatsAppAuthLockError;
 }
-
-export function isVoiceGatewayAbort(
-  error: unknown,
-  abortSignal: AbortSignal,
-): boolean {
-  return (
-    abortSignal.aborted ||
-    (error instanceof Error &&
-      error.message === 'Voice websocket is not connected.')
-  );
-}

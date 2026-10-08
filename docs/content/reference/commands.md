@@ -61,9 +61,9 @@ container mode it also shows the configured image name, resolved image
 version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
-`gateway voice info` reports the current local Twilio voice setup, and
-`gateway voice call <number>` places an outbound call through the configured
-Twilio account.
+With the `twilio-voice` plugin installed, `gateway voice info` reports the
+current local Twilio voice setup, and `gateway voice call <number>` places an
+outbound call through the configured Twilio account.
 Use `--debug-model-responses` only for local troubleshooting; it writes raw
 provider response diagnostics and the last prompt under the HybridClaw data
 directory. Use `--system-prompt=<parts|none>` and `--tools=full|none` for
@@ -329,8 +329,10 @@ Threema uses Gateway Basic mode for outbound text delivery. For the
 step-by-step setup guides, see
 [Channels: Overview](../channels/overview.md) and
 [Connect Your First Channel](../getting-started/first-channel.md).
-Twilio voice is configured through `/admin/channels` or direct `voice.*`
-config keys, then inspected or used for outbound dialing with
+Twilio voice runs as the `twilio-voice` plugin
+(`hybridclaw plugin install twilio-voice`). It is configured through
+`/admin/channels` or direct `voice.*` config keys, then inspected or used for
+outbound dialing with
 `hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see
@@ -853,7 +855,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/thumbs up|down [comment]` or `/thumbs clear` | local and chat channels | Rate the last answer, optionally adding a correction or the expected answer |
 | `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode; delegations the stopped request queued are not started |
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
-| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
+| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call (`twilio-voice` plugin) |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
 
 Task editors use `/schedule list --json` to read the `editor` capabilities,
@@ -931,8 +933,9 @@ gateway refuses further turns for it and pauses its active goal with the reason
   bare `/app` and `/apps` open the Apps gallery
 - local TUI/web sessions support `/context` to inspect context-window usage,
   remaining headroom, and compaction count for the active session
-- local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
-  for local Twilio diagnostics and outbound dialing
+- with the `twilio-voice` plugin installed, local TUI and web chat expose
+  `/voice info` and `/voice call <e164-number>` for local Twilio diagnostics
+  and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config get <key>`, `/config set <key> <value>`,
   `/concierge`, `/auth status <provider>`, and

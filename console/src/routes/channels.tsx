@@ -2454,15 +2454,6 @@ function VoiceChannelEditor(props: {
 
       <div className="field-grid">
         <FormField
-          name="voice.webhookPath"
-          render={({ field }) => (
-            <Field>
-              <FieldLabel>Webhook path</FieldLabel>
-              <Input {...field} placeholder="/voice" />
-            </Field>
-          )}
-        />
-        <FormField
           name="voice.maxConcurrentCalls"
           render={({ field }) => (
             <Field>
@@ -2720,8 +2711,13 @@ function VoiceChannelEditor(props: {
       <ChannelInstructionsField kind="voice" />
 
       <p className="muted-copy">
-        Phone calls use Twilio. Expose the configured webhook path over public
-        HTTPS and WSS so Twilio can reach both the webhook and the audio socket.
+        Twilio calls are answered by the <code>twilio-voice</code> plugin (
+        <code>hybridclaw plugin install twilio-voice</code>). Point the Twilio
+        number&apos;s voice webhook at{' '}
+        <code>
+          https://&lt;public-host&gt;/api/plugin-webhooks/twilio-voice/webhook
+        </code>{' '}
+        and expose the gateway over public HTTPS and WSS.
       </p>
     </>
   );

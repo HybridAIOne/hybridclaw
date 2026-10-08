@@ -1,7 +1,7 @@
 /**
- * Per-conversation bridge between a caller-facing audio transport (Twilio
- * media stream or browser websocket) and an OpenAI realtime session — the
- * speech-to-speech counterpart of `dispatchPromptToHandler`.
+ * Per-conversation bridge between a caller-facing audio transport (a phone
+ * plugin's call audio via `plugin-realtime-voice.ts`, or the browser
+ * websocket) and an OpenAI realtime session.
  *
  * Guarantees barge-in stays coherent (caller speech always clears queued
  * playback and cancels the active model response) and that at most one
@@ -12,17 +12,17 @@
  * feeds spoken out-of-band reassurances (never over caller speech or an
  * active response) and a live activity label for UI surfaces.
  *
- * NOT a transport: callers supply `sendAudio`/`clearPlayback` seams (Twilio
- * framing lives in `media-stream.ts`, browser framing in the gateway) and the
+ * NOT a transport: callers supply `sendAudio`/`clearPlayback` seams (phone
+ * framing lives in the transport plugins, browser framing in the gateway) and the
  * upstream socket in `openai-realtime.ts`; this module never touches raw JSON.
  */
 import type {
   RuntimeSpeechRealtimeConfig,
   RuntimeSpeechTurnDetectionConfig,
   RuntimeVoicePromptConfig,
-} from '../../config/runtime-config.js';
-import { logger } from '../../logger.js';
-import { isRecord } from '../../utils/type-guards.js';
+} from '../config/runtime-config.js';
+import { logger } from '../logger.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   OpenAIRealtimeClient,
   type RealtimeAudioFormat,

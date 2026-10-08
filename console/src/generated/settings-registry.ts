@@ -2878,12 +2878,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: '',
     },
     {
-      path: 'voice.webhookPath',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '/voice',
-    },
-    {
       path: 'web.search.cacheTtlMinutes',
       section: 'web',
       kind: 'number',

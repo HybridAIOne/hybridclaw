@@ -112,7 +112,6 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'mcp',
   'plugin',
   'push',
-  'voice',
   'speech',
   'clear',
   'new',
@@ -293,10 +292,6 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   secret: {
     command: '/secret [list|set|status|unset|route]',
     description: 'Manage stored secrets and URL auth routes',
-  },
-  voice: {
-    command: '/voice [info|call <e164-number>]',
-    description: 'Inspect voice status or place an outbound Twilio call',
   },
   skill: {
     command:
@@ -599,19 +594,6 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'env':
       return parts.length > 1 ? ['env', ...parts.slice(1)] : ['env'];
-
-    case 'voice': {
-      const sub = (parts[1] || '').trim().toLowerCase();
-      if (!sub || sub === 'info' || sub === 'status') {
-        return ['voice', 'info'];
-      }
-      if (sub === 'call') {
-        return parts.length > 2
-          ? ['voice', 'call', ...parts.slice(2)]
-          : ['voice', 'call'];
-      }
-      return null;
-    }
 
     case 'speech':
       return parts.length > 1 ? ['speech', ...parts.slice(1)] : ['speech'];
@@ -1828,47 +1810,6 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'string',
           name: 'value',
           description: 'Plaintext runtime env value',
-        },
-      ],
-    },
-    {
-      name: 'voice',
-      description: 'Inspect voice status or place an outbound Twilio call',
-      tuiOnly: true,
-      tuiMenuEntries: [
-        {
-          id: 'voice.info',
-          label: '/voice info',
-          insertText: '/voice info',
-          description: 'Show current voice config and webhook status',
-        },
-        {
-          id: 'voice.call',
-          label: '/voice call <e164-number>',
-          insertText: '/voice call ',
-          description:
-            'Place an outbound call through the configured Twilio number',
-        },
-      ],
-      options: [
-        {
-          kind: 'subcommand',
-          name: 'info',
-          description: 'Show current voice config and webhook status',
-        },
-        {
-          kind: 'subcommand',
-          name: 'call',
-          description:
-            'Place an outbound call through the configured Twilio number',
-          options: [
-            {
-              kind: 'string',
-              name: 'number',
-              description: 'Destination phone number in E.164 format',
-              required: true,
-            },
-          ],
         },
       ],
     },
@@ -3246,16 +3187,6 @@ export function parseCanonicalSlashCommandArgs(
       }
       if (action === 'set' && name && value) {
         return ['env', 'set', name, value];
-      }
-      return null;
-    }
-
-    case 'voice': {
-      const subcommand = normalizeSubcommand(interaction);
-      if (!subcommand || subcommand === 'info') return ['voice', 'info'];
-      if (subcommand === 'call') {
-        const number = normalizeStringOption(interaction, 'number', true);
-        return number ? ['voice', 'call', number] : null;
       }
       return null;
     }

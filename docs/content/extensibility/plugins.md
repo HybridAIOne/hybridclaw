@@ -26,6 +26,7 @@ hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/transformers-embeddings
 hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
+hybridclaw plugin install ./plugins/twilio-voice
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
 hybridclaw plugin install ./plugins/connector-events
@@ -60,10 +61,12 @@ WhatsApp installs from a pinned external release archive; LINE is bundled with
 HybridClaw as source but keeps its LINEJS dependency closure isolated until the
 plugin is explicitly enabled.
 
-Vonage Voice is also bundled as an install-on-demand plugin. Its webhook
-runtime, credentials, and outbound calling command stay outside the built-in
-Twilio voice channel. Its optional realtime mode reuses the core realtime
-voice engine through the plugin API rather than its own model credentials.
+Twilio Voice and Vonage Voice are also bundled as install-on-demand plugins
+(`hybridclaw plugin install twilio-voice`). Their webhook runtimes, wire
+protocols, and outbound calling commands live in the plugins; the phone-channel
+settings (`voice.*`) and the realtime voice engine stay in core and reach them
+through the plugin API (`getVoiceConfig`, `createRealtimeVoiceSession`) rather
+than their own model credentials.
 
 The optional [Connector Events plugin](../guides/connector-events.md) accepts
 authenticated change notifications from a trusted cloud relay and queues an
@@ -431,7 +434,9 @@ plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
 result so the plugin can deliver the reply through its own transport. The
 request accepts an optional `onToolProgress` callback for live tool activity
-during the turn. `allowedTools` narrows the tools the turn may use (intersected
+during the turn, and an optional `onTextDelta` callback that streams the reply
+text as the model writes it; with `onTextDelta`, deltas and the returned
+`result` never contain the gateway's internal silent-reply token. `allowedTools` narrows the tools the turn may use (intersected
 with the agent's own tool list and enforced at dispatch), and `instructions`
 adds trusted operator text to the system prompt. Never put caller-supplied
 content in `instructions`; send it as `content`.
@@ -448,13 +453,32 @@ speech-to-speech session with `api.createRealtimeVoiceSession(...)`. The core
 realtime engine (configured by `speech.realtime.*`) fronts the conversation,
 consults the full agent through the plugin dispatch pipeline (so approvals,
 audit, and session history behave like any other turn), and persists spoken
-turns as voice transcripts. Transport audio is 16-bit LE mono PCM at 8 kHz;
-model audio arrives as 20 ms frames as soon as the model produces them, with
+turns as voice transcripts. Transport audio is 8 kHz mono, 16-bit LE PCM by
+default or G.711 µ-law with `audioEncoding: 'mulaw'` (both directions, no
+transcoding on the µ-law path); model audio arrives as 20 ms frames as soon as
+the model produces them, with
 a bounded amount in flight, and the optional `clearAudio` callback is invoked
 on barge-in so the transport can drop what the far end has buffered.
 `api.isRealtimeVoiceAvailable()` reports whether realtime
-credentials are configured. The bundled `vonage-voice` plugin's realtime mode
-is the reference implementation.
+credentials are configured. The bundled `vonage-voice` (PCM) and
+`twilio-voice` (µ-law) plugins' realtime modes are the reference
+implementations.
+
+Phone transports share the core phone-channel settings. `api.getVoiceConfig()`
+returns the current `voice.*` config (caller policy, relay language and
+greeting, concurrency) re-read on every call, so console edits apply to the
+next call without a plugin reload; `api.config` stays the registration-time
+snapshot. `api.getPublicBaseUrl()` returns the gateway's publicly reachable
+origin (`ops.gatewayBaseUrl` unless it is loopback or private, else
+`deployment.public_url` in cloud mode) or `null`, and
+`api.formatTextForSpeech(text)` rewrites agent text for a TTS engine (no
+markdown, links, or line structure).
+
+A command registered with `adminAction` (for example
+`adminAction: 'admin.channels.write'`) runs only for local operators — the
+TUI, CLI, or a local web session, or a scoped web token carrying that admin
+action. Channel users get `Command Restricted` before the handler runs. Use it
+for commands with side effects outside the chat, such as placing a call.
 
 Classifier middleware uses one decision shape for routing, inbound prompt
 preparation, and outbound response inspection:

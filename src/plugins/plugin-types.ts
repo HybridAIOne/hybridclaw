@@ -17,6 +17,7 @@ import type {
   ConnectorChange,
   ConnectorChangeResult,
 } from '../scheduler/connector-events.js';
+import type { AdminRbacAction } from '../security/admin-rbac.js';
 import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
@@ -447,6 +448,13 @@ export interface MemoryLayerPlugin {
 export interface PluginCommandDefinition {
   name: string;
   description?: string;
+  /**
+   * Restricts the command to local operators (TUI, CLI, or local web session)
+   * holding this admin action; channel users are refused before the handler
+   * runs. Use it for commands with side effects outside the chat, such as
+   * placing a phone call.
+   */
+  adminAction?: AdminRbacAction;
   handler: (
     args: string[],
     context: {
@@ -498,6 +506,12 @@ export interface PluginDispatchInboundMessageRequest {
     preview?: string;
     durationMs?: number;
   }) => void;
+  /**
+   * Streams reply text as the model produces it. With a streaming dispatch,
+   * deltas and the returned `result` arrive without the gateway's internal
+   * silent-reply token, so a transport can speak or send them verbatim.
+   */
+  onTextDelta?: (delta: string) => void;
   abortSignal?: AbortSignal;
 }
 
@@ -576,7 +590,8 @@ export interface PluginRealtimeVoiceSessionIdentity {
  * A realtime speech-to-speech voice session backed by the core realtime
  * engine (`speech.realtime.*` plus the phone-only `voice.prompt.*`
  * greeting and instructions, and the realtime credentials). Transport audio is
- * 16-bit LE mono PCM at 8 kHz; model audio is delivered as 20 ms frames as
+ * 8 kHz mono in `audioEncoding` (16-bit LE PCM unless set to G.711 `mulaw`,
+ * both directions); model audio is delivered as 20 ms frames as
  * soon as the model produces them, with a bounded amount in flight, and
  * `clearAudio` is invoked on barge-in so the transport can drop what the far
  * end has already buffered.
@@ -584,6 +599,8 @@ export interface PluginRealtimeVoiceSessionIdentity {
 export interface PluginRealtimeVoiceSessionOptions {
   caller: PluginRealtimeVoiceCallerInfo;
   session: PluginRealtimeVoiceSessionIdentity;
+  /** Defaults to `pcm16`; an unknown encoding throws. */
+  audioEncoding?: 'pcm16' | 'mulaw';
   sendAudio: (frame: Buffer) => void;
   /** Drop model audio the far end has buffered but not yet played. */
   clearAudio?: () => void;
@@ -593,7 +610,7 @@ export interface PluginRealtimeVoiceSessionOptions {
 }
 
 export interface PluginRealtimeVoiceSession {
-  /** 16-bit LE mono PCM at 8 kHz from the caller. */
+  /** 8 kHz mono caller audio in the session's `audioEncoding`. */
   handleCallerAudio(frame: Buffer): void;
   handleDtmf(digit: string): void;
   close(): void;
@@ -632,6 +649,17 @@ export interface HybridClawPluginApi {
   readonly config: Readonly<RuntimeConfig>;
   /** Current routing policy; unlike config, refreshed on every call. */
   getRoutingConfig(): Readonly<RuntimeConfig['routing']>;
+  /**
+   * Current phone-channel settings (`voice.*`); unlike config, refreshed on
+   * every call so console edits apply to the next call without a reload.
+   */
+  getVoiceConfig(): Readonly<RuntimeConfig['voice']>;
+  /**
+   * The gateway's publicly reachable HTTP(S) origin for inbound webhooks:
+   * `ops.gatewayBaseUrl` when it is not a loopback or private address, else
+   * `deployment.public_url` in cloud mode; null when neither is public.
+   */
+  getPublicBaseUrl(): string | null;
   readonly pluginConfig: Readonly<Record<string, unknown>>;
   readonly logger: PluginLogger;
   readonly runtime: PluginRuntime;
@@ -657,6 +685,8 @@ export interface HybridClawPluginApi {
   ): Promise<GatewayChatResult>;
   /** Whether realtime voice credentials are configured for this gateway. */
   isRealtimeVoiceAvailable(): boolean;
+  /** Agent reply text rewritten for a TTS engine: no markdown, links, or line structure. */
+  formatTextForSpeech(text: string): string;
   /**
    * Opens a realtime speech-to-speech session for a live call this plugin
    * transports. Throws when realtime voice is not configured. Consulted

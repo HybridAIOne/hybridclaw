@@ -333,3 +333,84 @@ test('live routing reads are immutable and independent of registration snapshots
   expect(routing.tiers[0].models).toEqual(['local/test']);
   expect(Object.isFrozen(routing)).toBe(false);
 });
+
+function createVoiceTransportApi(
+  config: RuntimeConfig,
+  dispatchInboundMessage?: PluginManager['dispatchInboundMessage'],
+) {
+  return createPluginApi({
+    manager: makePluginManagerStub({
+      getConfig: () => config,
+      ...(dispatchInboundMessage ? { dispatchInboundMessage } : {}),
+    }),
+    pluginId: 'twilio-voice',
+    pluginDir: '/tmp/twilio-voice',
+    registrationMode: 'full',
+    config,
+    pluginConfig: {},
+    declaredEnv: [],
+    homeDir: '/tmp/home',
+    cwd: '/tmp/project',
+  });
+}
+
+test('getVoiceConfig and getPublicBaseUrl read the live config, frozen', () => {
+  const config = loadRuntimeConfig();
+  config.ops.gatewayBaseUrl = 'http://127.0.0.1:9090';
+  config.deployment.mode = 'local';
+  const api = createVoiceTransportApi(config);
+
+  config.voice.enabled = true;
+  config.voice.callerPolicy = 'allowlist';
+
+  expect(api.getVoiceConfig()).toMatchObject({
+    enabled: true,
+    callerPolicy: 'allowlist',
+  });
+  expect(Object.isFrozen(api.getVoiceConfig().twilio)).toBe(true);
+  expect(api.getPublicBaseUrl()).toBeNull();
+  config.ops.gatewayBaseUrl = 'https://voice.example.com/';
+  expect(api.getPublicBaseUrl()).toBe('https://voice.example.com');
+});
+
+test('formatTextForSpeech rewrites markdown for TTS', () => {
+  const api = createVoiceTransportApi(loadRuntimeConfig());
+
+  expect(api.formatTextForSpeech('**Yes**. See [docs](https://x.test).')).toBe(
+    'Yes. See docs.',
+  );
+});
+
+test.each([
+  {
+    deltas: ['__MESSAGE_', 'SEND_HANDLED__'],
+    result: '__MESSAGE_SEND_HANDLED__',
+    spoken: '',
+  },
+  { deltas: ['Sent ', 'it.'], result: 'Sent it.', spoken: 'Sent it.' },
+])(
+  'streaming plugin dispatch hides a silent reply: $result',
+  async ({ deltas, result, spoken }) => {
+    const streamed: string[] = [];
+    const api = createVoiceTransportApi(
+      loadRuntimeConfig(),
+      async (_pluginId, request) => {
+        for (const delta of deltas) request.onTextDelta?.(delta);
+        return { status: 'success', result, toolsUsed: [] };
+      },
+    );
+
+    const dispatched = await api.dispatchInboundMessage({
+      sessionId: 'agent:main:channel:voice:chat:dm:peer:CA1',
+      guildId: null,
+      channelId: 'voice:CA1',
+      userId: '+15550001111',
+      username: null,
+      content: 'send it',
+      onTextDelta: (delta) => streamed.push(delta),
+    });
+
+    expect(streamed.join('')).toBe(spoken);
+    expect(dispatched.result).toBe(spoken);
+  },
+);

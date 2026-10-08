@@ -621,7 +621,6 @@ export interface GatewayStatus {
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
     realtimeConfigured: boolean;
-    webhookPath: string;
     maxConcurrentCalls: number;
   };
   whatsapp?: {

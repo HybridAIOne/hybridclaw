@@ -2413,8 +2413,6 @@ async function importFreshHealth(options?: {
   );
   const handleIMessageWebhook = vi.fn(async () => {});
   const handleMSTeamsWebhook = vi.fn(async () => {});
-  const handleVoiceWebhook = vi.fn(async () => false);
-  const handleVoiceUpgrade = vi.fn(() => false);
   const claimQueuedProactiveMessages = vi.fn(() => [
     { id: 1, text: 'queued message' },
   ]);
@@ -2698,10 +2696,6 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/channels/imessage/runtime.js', () => ({
     handleIMessageWebhook,
   }));
-  vi.doMock('../src/channels/voice/runtime.js', () => ({
-    handleVoiceUpgrade,
-    handleVoiceWebhook,
-  }));
   vi.doMock('../src/gateway/msteams-users.js', () => ({
     getAdminMSTeamsUsers: vi.fn(() => ({ users: [], defaultAgentId: 'main' })),
     updateAdminMSTeamsUser: vi.fn(() => ({ status: 200 })),
@@ -2950,7 +2944,7 @@ async function importFreshHealth(options?: {
     };
   });
   const realtimeResolvedProvider = options?.realtimeResolvedProvider ?? null;
-  vi.doMock('../src/channels/voice/realtime-credentials.js', () => ({
+  vi.doMock('../src/voice/realtime-credentials.js', () => ({
     resolveRealtimeConnection: vi.fn(() =>
       realtimeResolvedProvider
         ? {
@@ -3166,8 +3160,6 @@ async function importFreshHealth(options?: {
     resolveGatewayChatbotId,
     resolveModelRuntimeCredentials,
     handleIMessageWebhook,
-    handleVoiceUpgrade,
-    handleVoiceWebhook,
     handleMSTeamsWebhook,
     runMessageToolAction,
     normalizeDiscordToolAction,
@@ -3222,7 +3214,6 @@ useCleanMocks({
     '../src/providers/factory.js',
     '../src/channels/imessage/runtime.js',
     '../src/channels/msteams/runtime.js',
-    '../src/channels/voice/runtime.js',
     '../src/channels/message/tool-actions.js',
     '../src/channels/discord/tool-actions.js',
     '../src/gateway/media-upload-quota.ts',
@@ -3307,36 +3298,6 @@ describe('gateway HTTP server', () => {
       refreshProviderHealth: false,
     });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
-  });
-
-  test('routes voice webhooks using the configured webhookPath', async () => {
-    const homeDir = makeTempDocsRoot('hybridclaw-voice-http-');
-    process.env.HOME = homeDir;
-    writeRuntimeConfig(homeDir, (config) => {
-      const voice = config.voice as Record<string, unknown>;
-      voice.webhookPath = '/telephony';
-    });
-
-    const state = await importFreshHealth();
-    state.handleVoiceWebhook.mockImplementationOnce(async (_req, res) => {
-      res.statusCode = 202;
-      res.end('voice-webhook');
-      return true;
-    });
-    const req = makeRequest({
-      method: 'POST',
-      url: '/telephony/webhook',
-      headers: { host: 'voice.example.com' },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await vi.waitFor(() =>
-      expect(state.handleVoiceWebhook).toHaveBeenCalledTimes(1),
-    );
-
-    expect(res.statusCode).toBe(202);
-    expect(res.body).toBe('voice-webhook');
   });
 
   test('issues a local web-session cookie for loopback console pages when WEB_API_TOKEN is unset', async () => {

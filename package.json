@@ -44,6 +44,7 @@
     "plugins/connector-events/",
     "plugins/media-tools/",
     "plugins/line/",
+    "plugins/twilio-voice/",
     "plugins/vonage-voice/",
     "plugins/tier-router/",
     "plugins/transformers-embeddings/",

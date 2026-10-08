@@ -1116,7 +1116,6 @@ test('getGatewayStatus includes voice Twilio credential status', async () => {
     draft.voice.twilio.accountSid = 'AC123';
     draft.voice.twilio.fromNumber = '+14155550123';
     draft.voice.twilio.authToken = '';
-    draft.voice.webhookPath = '/voice';
     draft.voice.maxConcurrentCalls = 8;
   });
   initDatabase({ quiet: true });
@@ -1130,7 +1129,6 @@ test('getGatewayStatus includes voice Twilio credential status', async () => {
     authTokenConfigured: true,
     authTokenSource: 'runtime-secrets',
     realtimeConfigured: expect.any(Boolean),
-    webhookPath: '/voice',
     maxConcurrentCalls: 8,
   });
 });

@@ -86,12 +86,6 @@ import {
   getSignalLinkState,
   startSignalLink,
 } from '../channels/signal/pairing.js';
-import { resolveRealtimeConnection } from '../channels/voice/realtime-credentials.js';
-import {
-  handleVoiceUpgrade,
-  handleVoiceWebhook,
-} from '../channels/voice/runtime.js';
-import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
 import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
@@ -211,6 +205,7 @@ import {
 } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { uuidV5 } from '../utils/uuid-v5.js';
+import { resolveRealtimeConnection } from '../voice/realtime-credentials.js';
 import { handleWorkToolRoute, withWorkHistory } from '../work/work-routes.js';
 import {
   AdminTerminalCapacityError,
@@ -10667,9 +10662,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    const voicePaths = resolveVoiceWebhookPaths(
-      getRuntimeConfig().voice.webhookPath,
-    );
     if (pathname === '/.well-known/agent.json' && method === 'GET') {
       const origin = resolveA2AAgentCardOrigin(req);
       if (!origin) {
@@ -10693,15 +10685,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       );
       return;
     }
-    if (
-      method === 'POST' &&
-      (pathname === voicePaths.webhookPath ||
-        pathname === voicePaths.actionPath)
-    ) {
-      dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
-      return;
-    }
-
     if (pathname === '/a2a/pairing/requests') {
       dispatchWebhookRoute(res, () =>
         handleA2APairingRequestInbound(req, res, url),
@@ -12094,10 +12077,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       !isLoopbackWebRequest(req)
     ) {
       writeUpgradeError(socket, 404, 'Not Found');
-      return;
-    }
-
-    if (handleVoiceUpgrade(req, socket, head, url)) {
       return;
     }
 

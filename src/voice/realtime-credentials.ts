@@ -12,12 +12,12 @@
  * and speech backends use, so realtime voice works with whichever credential
  * the operator already has, with no provider setting to discover.
  *
- * Shared by the Twilio phone path and the web console path so the two
+ * Shared by plugin phone calls and the web console path so the two
  * surfaces cannot drift on provider selection or error wording.
  */
-import { readHybridAIApiKey } from '../../auth/hybridai-auth.js';
-import { HYBRIDAI_BASE_URL, OPENAI_API_KEY } from '../../config/config.js';
-import type { RuntimeSpeechRealtimeProvider } from '../../config/runtime-config.js';
+import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { HYBRIDAI_BASE_URL, OPENAI_API_KEY } from '../config/config.js';
+import type { RuntimeSpeechRealtimeProvider } from '../config/runtime-config.js';
 
 export const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime';
 

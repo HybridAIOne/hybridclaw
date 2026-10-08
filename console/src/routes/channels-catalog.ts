@@ -378,7 +378,7 @@ function describeVoice(
 
   return {
     kind: 'voice',
-    summary: `Twilio · webhook ${config.voice.webhookPath}${
+    summary: `Twilio · twilio-voice plugin${
       realtimeConfigured ? ' · realtime speech ready (web chat works)' : ''
     }`,
     statusTone,

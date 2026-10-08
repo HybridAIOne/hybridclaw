@@ -1,15 +1,19 @@
 /**
- * Plugin capabilities preserve immutable registration snapshots. Routing is read
- * explicitly from live configuration so saved policy changes apply on each turn;
- * plugins never receive a mutable reference to gateway configuration.
+ * Plugin capabilities preserve immutable registration snapshots. Routing and
+ * phone-channel (`voice.*`) settings are read explicitly from live
+ * configuration so saved edits apply on the next turn or call; plugins never
+ * receive a mutable reference to gateway configuration.
  */
 import path from 'node:path';
+import { stripSilentToken } from '../agent/silent-reply.js';
+import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import {
   type RuntimeConfig,
   runtimeConfigPath,
 } from '../config/runtime-config.js';
+import { resolvePublicGatewayBaseUrl } from '../gateway/gateway-url-utils.js';
 import { notifySessionPhones } from '../gateway/mobile-push.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -26,6 +30,7 @@ import {
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
 import type { McpServerConfig } from '../types/models.js';
+import { formatTextForVoice } from '../voice/text.js';
 import {
   unsetPluginConfigValue,
   writePluginConfigValue,
@@ -138,6 +143,12 @@ export function createPluginApi(params: {
     getRoutingConfig() {
       return deepFreezeClone(params.manager.getRoutingConfig());
     },
+    getVoiceConfig() {
+      return deepFreezeClone(params.manager.getConfig().voice);
+    },
+    getPublicBaseUrl() {
+      return resolvePublicGatewayBaseUrl(params.manager.getConfig());
+    },
     logger: pluginLogger,
     runtime,
     media: createPluginMediaHost({
@@ -186,13 +197,35 @@ export function createPluginApi(params: {
     registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void {
       params.manager.registerWebsocketWebhook(params.pluginId, webhook);
     },
-    dispatchInboundMessage(
+    async dispatchInboundMessage(
       request: PluginDispatchInboundMessageRequest,
     ): Promise<import('../gateway/gateway-types.js').GatewayChatResult> {
-      return params.manager.dispatchInboundMessage(params.pluginId, request);
+      const onTextDelta = request.onTextDelta;
+      if (!onTextDelta) {
+        return params.manager.dispatchInboundMessage(params.pluginId, request);
+      }
+      const silentFilter = createSilentReplyStreamFilter();
+      const result = await params.manager.dispatchInboundMessage(
+        params.pluginId,
+        {
+          ...request,
+          onTextDelta: (delta) => {
+            const visible = silentFilter.push(delta);
+            if (visible) onTextDelta(visible);
+          },
+        },
+      );
+      const tail = silentFilter.flush();
+      if (tail) onTextDelta(tail);
+      return typeof result.result === 'string'
+        ? { ...result, result: stripSilentToken(result.result) }
+        : result;
     },
     isRealtimeVoiceAvailable(): boolean {
       return isPluginRealtimeVoiceAvailable();
+    },
+    formatTextForSpeech(text: string): string {
+      return formatTextForVoice(text);
     },
     createRealtimeVoiceSession(
       options: PluginRealtimeVoiceSessionOptions,

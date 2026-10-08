@@ -364,8 +364,11 @@ saved revision history directly.
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
   milliseconds and is clamped to a minimum of `1000`
-- `voice.*` for the Twilio phone channel, including webhook path, concurrency,
-  and Twilio number/account settings; `voice.mode` selects `relay`
+- `voice.*` for the phone channel, served by the `twilio-voice` plugin
+  (`hybridclaw plugin install twilio-voice`; caller policy and prompt settings
+  are shared with the `vonage-voice` plugin), including concurrency and Twilio
+  number/account settings; the plugin's webhook paths are fixed under
+  `/api/plugin-webhooks/twilio-voice/`. `voice.mode` selects `relay`
   (ConversationRelay, `voice.relay.*` voice/STT options) or `realtime`
   (speech-to-speech over Twilio Media Streams, driven by the shared
   `speech.realtime.*` settings below). The auth

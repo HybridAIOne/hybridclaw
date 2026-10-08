@@ -789,7 +789,7 @@ function normalizeToolResult(value: unknown): string {
 export class PluginManager {
   private readonly homeDir: string;
   private readonly cwd: string;
-  private readonly getConfig: () => RuntimeConfig;
+  readonly getConfig: () => RuntimeConfig;
   private readonly logger: PluginLogger;
   private initializing: Promise<void> | null = null;
   private initialized = false;

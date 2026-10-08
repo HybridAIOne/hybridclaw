@@ -23,6 +23,15 @@ const LAZY_ONLY_PACKAGES = [
   'nodemailer',
 ];
 
+// Transports that ship as plugins (#1801): their wire-protocol code must not
+// reappear in the gateway graph. Twilio voice lives in plugins/twilio-voice;
+// core keeps only the shared realtime engine in src/voice/.
+const PLUGIN_OWNED_PROTOCOL_MARKERS = [
+  'x-twilio-signature',
+  'api.twilio.com',
+  '<ConversationRelay',
+];
+
 function packageName(specifier: string): string {
   const parts = specifier.split('/');
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
@@ -113,6 +122,7 @@ function runtimeImportSpecifiers(file: string, source: string): string[] {
 function collectStartupPackages(entry: string): {
   importers: Map<string, string>;
   unresolved: string[];
+  files: Set<string>;
 } {
   const importers = new Map<string, string>();
   const unresolved: string[] = [];
@@ -137,7 +147,7 @@ function collectStartupPackages(entry: string): {
       }
     }
   }
-  return { importers, unresolved };
+  return { importers, unresolved, files: seen };
 }
 
 test('gateway startup graph does not statically load optional channel SDKs', () => {
@@ -148,6 +158,18 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
   const leaked = LAZY_ONLY_PACKAGES.filter((name) => importers.has(name)).map(
     (name) => `${name} (imported by ${importers.get(name)})`,
   );
+  expect(leaked).toEqual([]);
+});
+
+test('gateway startup graph carries no plugin-owned transport protocol code', () => {
+  const { files } = collectStartupPackages(GATEWAY_ENTRY);
+
+  const leaked = [...files].flatMap((file) => {
+    const source = fs.readFileSync(file, 'utf8');
+    return PLUGIN_OWNED_PROTOCOL_MARKERS.filter((marker) =>
+      source.includes(marker),
+    ).map((marker) => `${path.relative(ROOT, file)} (${marker})`);
+  });
   expect(leaked).toEqual([]);
 });
 

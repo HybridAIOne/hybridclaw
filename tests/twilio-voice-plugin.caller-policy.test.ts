@@ -5,8 +5,8 @@ import {
   isCallerAllowed,
   normalizeCallerAllowList,
   normalizeCallerIdentity,
-} from '../src/channels/voice/caller-policy.js';
-import * as pluginPolicy from '../plugins/vonage-voice/src/caller-policy.js';
+} from '../plugins/twilio-voice/src/caller-policy.js';
+import * as vonagePolicy from '../plugins/vonage-voice/src/caller-policy.js';
 
 const LISTED = '+4915123456789';
 // Twilio sends `From` as `+<digits>`, Vonage as bare digits; the caller here
@@ -77,7 +77,7 @@ test('an unset or unrecognised policy stays on the open default', () => {
     expect(
       isCallerAllowed({ callerPolicy, allowFrom: undefined, from: CALLER }),
     ).toBe(true);
-    expect(pluginPolicy.isCallerAllowed({ callerPolicy, from: CALLER })).toBe(
+    expect(vonagePolicy.isCallerAllowed({ callerPolicy, from: CALLER })).toBe(
       true,
     );
   }
@@ -110,7 +110,7 @@ test('normalizeCallerAllowList dedupes, canonicalizes, and keeps the wildcard', 
   ]);
 });
 
-test('the vonage plugin mirror agrees with the core implementation', () => {
+test('the vonage plugin mirror agrees with the twilio plugin', () => {
   const cases = [
     { callerPolicy: 'open' as const, allowFrom: [], from: CALLER },
     { callerPolicy: 'disabled' as const, allowFrom: [LISTED], from: CALLER },
@@ -120,7 +120,7 @@ test('the vonage plugin mirror agrees with the core implementation', () => {
     { callerPolicy: 'allowlist' as const, allowFrom: [LISTED], from: '' },
   ];
   for (const params of cases) {
-    expect(pluginPolicy.isCallerAllowed(params)).toBe(isCallerAllowed(params));
+    expect(vonagePolicy.isCallerAllowed(params)).toBe(isCallerAllowed(params));
   }
 });
 

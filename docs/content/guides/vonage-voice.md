@@ -6,9 +6,10 @@ sidebar_position: 8
 
 # Vonage Voice Plugin
 
-Vonage Voice is an install-on-demand channel plugin. The built-in `voice`
-channel remains the Twilio ConversationRelay integration; enabling Vonage does
-not add provider keys or secrets to the core runtime config.
+Vonage Voice is an install-on-demand channel plugin, like the
+[Twilio Voice plugin](./twilio-voice.md); both carry calls on the `voice`
+channel. Enabling Vonage does not add provider keys or secrets to the core
+runtime config.
 
 ## Install
 
@@ -30,7 +31,7 @@ credential flow. Do not put either secret in plugin config.
 Optional settings are `mode` (`turn` or `realtime`) and
 `maxConcurrentCalls`. Everything that describes the phone conversation rather
 than the transport lives in the core `voice.*` config, shared with the Twilio
-channel and editable in the web console under Channels → Voice: the caller
+plugin and editable in the web console under Channels → Voice: the caller
 policy, and for turn mode the `voice.relay.language`,
 `voice.relay.welcomeGreeting`, and `voice.relay.interruptible` settings.
 
@@ -61,8 +62,8 @@ instant barge-in, using the gateway's realtime voice engine — the same
 credential (`OPENAI_API_KEY` or the HybridAI provider) that power the Twilio
 realtime mode and the web console voice mode. `voice.prompt.greeting` and
 `voice.prompt.instructions` apply on top for phone calls only, so a call
-can open in another language or persona than the web voice. The Twilio channel itself can
-stay disabled. Answered calls where no realtime credential is configured are
+can open in another language or persona than the web voice. The Twilio plugin is
+not needed. Answered calls where no realtime credential is configured are
 declined with a spoken notice instead of connecting silently.
 
 The answer webhook connects the call's audio to a plugin websocket at
@@ -80,7 +81,7 @@ not delivered.
 Caller gating is a property of the phone channel rather than of a transport, so
 Vonage applies the core `voice.callerPolicy` and `voice.allowFrom` settings —
 the same way it shares `speech.realtime.*`. Set them once and both the Twilio
-channel and this plugin honour them; see
+plugin and this plugin honour them; see
 [Twilio Voice](./twilio-voice.md#restrict-who-can-call) for the semantics.
 
 Refused callers hear a short spoken message and the call ends before the

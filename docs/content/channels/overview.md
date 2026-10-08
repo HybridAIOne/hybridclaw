@@ -28,7 +28,7 @@ If you are still in first-run onboarding mode, start with
 | Fax | Fax-to-email inbound PDFs and guarded outbound PDF fax delivery | `hybridclaw channels email setup ...` + `fax-send` skill | [Fax](./fax.md) |
 | WhatsApp | Linked-device QR pairing and phone-based DM tests | `hybridclaw channels whatsapp setup ...` | [WhatsApp](./whatsapp.md) |
 | LINE | Unofficial personal-account QR login and self-chat only | `hybridclaw channels line setup` | [LINE](./line.md) |
-| Twilio Voice | Phone calls (turn-based relay or realtime speech-to-speech) over a public HTTPS/WSS endpoint | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
+| Twilio Voice | Phone calls (turn-based relay or realtime speech-to-speech) over a public HTTPS/WSS endpoint; install-on-demand `twilio-voice` plugin | `/admin/channels` | [Twilio Voice](../guides/twilio-voice.md) |
 | iMessage | Local Mac runtime or remote BlueBubbles relay | `hybridclaw channels imessage setup ...` | [iMessage](./imessage.md) |
 | Microsoft Teams | Entra/Azure bot registration and HTTPS webhook delivery | `hybridclaw auth login msteams ...` | [Microsoft Teams](./msteams.md) |
 
@@ -37,8 +37,9 @@ credentials. Slack Incoming Webhook and Discord Incoming Webhook are
 outbound-only and use `channel add` or `channels <kind> setup` to store
 encrypted webhook URLs. Most other transports use `channels ... setup` because
 they save channel-specific runtime config, pairing state, or a transport token
-directly. Twilio voice is currently configured from `/admin/channels` or direct
-config edits because it also depends on public webhook and relay URL settings.
+directly. Twilio voice is configured from `/admin/channels` or direct config
+edits, after `hybridclaw plugin install twilio-voice`, because it also depends
+on public webhook and relay URL settings.
 
 ## Auto-Connect Conditions
 

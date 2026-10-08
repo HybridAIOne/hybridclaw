@@ -711,7 +711,6 @@ export interface RuntimeVoiceConfig {
    */
   callerPolicy: VoiceCallerPolicy;
   allowFrom: string[];
-  webhookPath: string;
   maxConcurrentCalls: number;
 }
 
@@ -1861,7 +1860,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     callerPolicy: 'open',
     allowFrom: [],
-    webhookPath: '/voice',
     maxConcurrentCalls: 8,
   },
   speech: {
@@ -4245,7 +4243,6 @@ function normalizeVoiceConfig(
         { allowEmpty: true },
       ),
     },
-    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
     maxConcurrentCalls: normalizeInteger(
       raw.maxConcurrentCalls,
       fallback.maxConcurrentCalls,

@@ -53,7 +53,10 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { isAdminActionClaimed } from '../security/admin-rbac.js';
+import {
+  type AdminRbacAction,
+  isAdminActionClaimed,
+} from '../security/admin-rbac.js';
 import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
@@ -75,13 +78,16 @@ let gatewayServiceInitializing: Promise<void> | null = null;
 
 // Plugin config is runtime config: a scoped caller (a phone's token) also needs
 // the action the config admin route asks for.
-function isLocalSession(req: GatewayCommandRequest): boolean {
+function isLocalSession(
+  req: GatewayCommandRequest,
+  action: AdminRbacAction = 'admin.config.write',
+): boolean {
   return (
     req.guildId === null &&
     (req.channelId === 'web' ||
       req.channelId === 'tui' ||
       req.channelId === 'cli') &&
-    isAdminActionClaimed(req.adminActions, 'admin.config.write')
+    isAdminActionClaimed(req.adminActions, action)
   );
 }
 
@@ -1216,6 +1222,15 @@ export async function tryHandlePluginDefinedGatewayCommand(params: {
   const pluginCommand = params.pluginManager?.findCommand(params.command);
   if (!pluginCommand) {
     return null;
+  }
+  if (
+    pluginCommand.adminAction &&
+    !isLocalSession(params.req, pluginCommand.adminAction)
+  ) {
+    return badCommand(
+      'Command Restricted',
+      `\`${params.command}\` is only available from local TUI/web sessions.`,
+    );
   }
   try {
     return normalizePluginCommandResult(
