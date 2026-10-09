@@ -34,7 +34,7 @@ export const TAKE_OVER_CONNECT_PATH = '/api/browser/take-over/connect';
 export const TAKE_OVER_FINISH_PATH = '/api/browser/take-over/finish';
 export const TAKE_OVER_STREAM_PATH = '/api/browser/take-over/stream';
 
-// Grok Bot's "Teach a task" records up to 10 minutes; so does this.
+// A recording of how the user does a task runs for up to 10 minutes.
 const TAKE_OVER_TTL_MS = 10 * 60_000;
 const STREAM_TOKEN_TTL_MS = 60_000;
 const MAX_TAKE_OVERS = 8;
