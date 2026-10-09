@@ -210,6 +210,45 @@ describe('plugin CLI commands of bundled plugins that are not installed', () => 
   }, 120_000);
 });
 
+// A disabled plugin's `enabled: false` entry is not "not installed": the
+// hint must be the enable command, whether the plugin is bundled or a home
+// install, no plugin code may run, and following the hint must work.
+describe('plugin CLI commands of disabled plugins', () => {
+  test.each([
+    ['bundled', 'distill', ['coworker', '--help'], /^Usage: hybridclaw coworker /m],
+    ['home-installed', 'echo', ['echo-args', 'x'], /^\["x"\]$/m],
+  ])('a %s plugin names the enable command, and enabling it runs the command', async (_kind, pluginId, args, ranPattern) => {
+    const home = makeTempDir();
+    const markerDir = path.join(home, 'markers');
+    fs.mkdirSync(markerDir, { recursive: true });
+    const echo = FIXTURE_PLUGINS.find((plugin) => plugin.id === 'echo');
+    if (!echo) throw new Error('missing echo fixture');
+    writeFixturePlugin(
+      path.join(home, '.hybridclaw', 'plugins'),
+      markerDir,
+      echo,
+    );
+    fs.writeFileSync(
+      path.join(home, '.hybridclaw', 'config.json'),
+      JSON.stringify({ plugins: { list: [{ id: pluginId, enabled: false }] } }),
+    );
+
+    const disabled = await cli(home, args);
+    expect(disabled.code).toBe(1);
+    expect(disabled.stderr).toContain(`"${pluginId}"`);
+    expect(disabled.stderr).toContain(`hybridclaw plugin enable ${pluginId}`);
+    expect(disabled.stderr).not.toContain('plugin install');
+    expect(fs.readdirSync(markerDir)).toEqual([]);
+
+    expect(await cli(home, ['plugin', 'enable', pluginId])).toMatchObject({
+      code: 0,
+    });
+    const enabled = await cli(home, args);
+    expect(enabled.code).toBe(0);
+    expect(enabled.stdout).toMatch(ranPattern);
+  }, 180_000);
+});
+
 // Project plugins (`<cwd>/.hybridclaw/plugins`) never provide CLI commands:
 // running `hybridclaw <name>` inside an untrusted checkout must not execute
 // that checkout's plugin code, and must not replace an installed plugin.

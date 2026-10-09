@@ -53,6 +53,7 @@ test('installing a bundled plugin by id enables the packaged copy instead of cop
     pluginId: 'distill',
     pluginDir: BUNDLED_DISTILL_DIR,
     alreadyInstalled: false,
+    enabledInPlace: true,
   });
   expect(fs.existsSync(path.join(homeDir, 'plugins', 'distill'))).toBe(false);
   expect(state.current().plugins.list).toEqual([
@@ -107,6 +108,7 @@ test('a stale home copy from an older release is replaced by the bundled referen
   expect(result).toMatchObject({
     pluginDir: BUNDLED_DISTILL_DIR,
     replacedExistingInstall: true,
+    enabledInPlace: true,
   });
   expect(fs.existsSync(homeCopy)).toBe(false);
   expect(await discoveredDistillDir(homeDir, cwd, state)).toBe(
@@ -131,4 +133,84 @@ test('a bare id resolves to the bundled plugin even when the cwd has plugins/<id
   expect(state.current().plugins.list).toEqual([
     { id: 'distill', enabled: true, config: {} },
   ]);
+});
+
+function writeHomeCopyFixture(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'hybridclaw.plugin.yaml'),
+    'id: fixture-plugin\nversion: 1.0.0\nentrypoint: index.js\n',
+  );
+  fs.writeFileSync(
+    path.join(dir, 'index.js'),
+    "export default { id: 'fixture-plugin', register() {} };\n",
+  );
+  return dir;
+}
+
+// The guidance after install must match what the install did: a bundled
+// plugin loads only through the plugins.list[] entry the install wrote, so
+// calling that entry optional invites deleting the install itself.
+test.each([
+  ['install', 'bundled', true],
+  ['install', 'home copy', false],
+  ['reinstall', 'bundled', true],
+  ['reinstall', 'home copy', false],
+] as const)('%s of a %s plugin reports where it loads from', async (verb, _kind, inPlace) => {
+  const homeDir = makeTempDir();
+  const cwd = makeTempDir();
+  const state = runtimeConfigState();
+  const source = inPlace
+    ? 'distill'
+    : writeHomeCopyFixture(path.join(makeTempDir(), 'fixture-plugin'));
+  const { installPlugin, reinstallPlugin } = await import(
+    '../src/plugins/plugin-install.js'
+  );
+  const { formatPluginInstallGuidance } = await import(
+    '../src/plugins/plugin-formatting.js'
+  );
+  const run = verb === 'install' ? installPlugin : reinstallPlugin;
+
+  const result = await run(source, { homeDir, cwd, ...state });
+  const guidance = formatPluginInstallGuidance(result, '/cfg/config.json');
+
+  expect(result.enabledInPlace).toBe(inPlace);
+  expect(state.current().plugins.list.length > 0).toBe(inPlace);
+  expect(guidance.some((line) => line.includes(result.pluginDir))).toBe(true);
+  expect(
+    guidance.some((line) =>
+      line.includes(`hybridclaw plugin uninstall ${result.pluginId}`),
+    ),
+  ).toBe(inPlace);
+  if (inPlace) {
+    expect(guidance.join('\n')).not.toMatch(/no config entry is required/i);
+  }
+});
+
+test.each([
+  [true, []],
+  [true, ['apiKey']],
+  [false, []],
+  [false, ['apiKey']],
+] as const)('guidance with enabledInPlace=%s and required keys %j wraps paths and names every need', async (enabledInPlace, requiredConfigKeys) => {
+  const { formatPluginInstallGuidance } = await import(
+    '../src/plugins/plugin-formatting.js'
+  );
+  const lines = formatPluginInstallGuidance(
+    {
+      pluginId: 'example',
+      pluginDir: '/plugins/example',
+      enabledInPlace,
+      requiresEnv: ['EXAMPLE_TOKEN'],
+      requiredConfigKeys: [...requiredConfigKeys],
+    },
+    '/cfg/config.json',
+    (value) => `<${value}>`,
+  );
+  expect(lines.some((line) => line.includes('</plugins/example>'))).toBe(true);
+  expect(lines.some((line) => line.includes('EXAMPLE_TOKEN'))).toBe(true);
+  for (const key of requiredConfigKeys) {
+    expect(lines.some((line) => line.includes(key))).toBe(true);
+  }
+  expect(lines.some((line) => line.includes('</cfg/config.json>'))).toBe(true);
 });

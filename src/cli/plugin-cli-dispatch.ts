@@ -8,12 +8,14 @@
  * nothing. Plugin-manager logs go to stderr at error level so the command's
  * stdout stays its own. Project plugins (`<cwd>/.hybridclaw/plugins`) never
  * provide CLI commands, so running a command inside an untrusted checkout
- * cannot execute that checkout's code. A name only a bundled plugin that is
- * not installed declares fails with the install command. Returns false when
- * no manifest declares the name; it never falls through to a different command.
+ * cannot execute that checkout's code. A name only a disabled plugin declares
+ * fails with the enable command, and one only a bundled plugin that is not
+ * installed declares fails with the install command. Returns false when no
+ * manifest declares the name; it never falls through to a different command.
  */
 import path from 'node:path';
 import pino from 'pino';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import type { PluginManager } from '../plugins/plugin-manager.js';
 import type { PluginCandidate } from '../plugins/plugin-types.js';
 
@@ -31,6 +33,33 @@ async function discoverCliCommandPlugins(
   return (await manager.discoverPlugins()).filter(
     (candidate) => (candidate.manifest.cliCommands?.length ?? 0) > 0,
   );
+}
+
+function declaresCliCommand(candidate: PluginCandidate, name: string): boolean {
+  return (
+    candidate.manifest.cliCommands?.some((command) => command.name === name) ??
+    false
+  );
+}
+
+// `enabled: false` in plugins.list[] is the disabled state; discovering with
+// those entries switched on finds what they would load, from any source.
+async function findDisabledCliCommandOwner(
+  manager: PluginManager,
+  name: string,
+): Promise<string | null> {
+  const config = structuredClone(getRuntimeConfig());
+  const disabled = config.plugins.list.filter(
+    (entry) => entry.enabled === false,
+  );
+  if (disabled.length === 0) return null;
+  for (const entry of disabled) entry.enabled = true;
+  const disabledIds = new Set(disabled.map((entry) => entry.id));
+  const owner = (await manager.discoverPlugins(config)).find(
+    (candidate) =>
+      disabledIds.has(candidate.id) && declaresCliCommand(candidate, name),
+  );
+  return owner?.id ?? null;
 }
 
 async function findBundledCliCommandOwner(
@@ -59,10 +88,15 @@ export async function runPluginCliCommand(
 ): Promise<boolean> {
   const manager = await createCliPluginManager();
   const owners = (await discoverCliCommandPlugins(manager)).filter(
-    (candidate) =>
-      candidate.manifest.cliCommands?.some((command) => command.name === name),
+    (candidate) => declaresCliCommand(candidate, name),
   );
   if (owners.length === 0) {
+    const disabledOwner = await findDisabledCliCommandOwner(manager, name);
+    if (disabledOwner) {
+      throw new Error(
+        `\`${name}\` is provided by the "${disabledOwner}" plugin, which is disabled. Enable it with \`hybridclaw plugin enable ${disabledOwner}\`.`,
+      );
+    }
     const bundledOwner = await findBundledCliCommandOwner(name);
     if (!bundledOwner) return false;
     throw new Error(

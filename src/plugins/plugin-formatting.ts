@@ -1,3 +1,4 @@
+import type { InstallPluginResult } from './plugin-install.js';
 import type { PluginAvailableSummary, PluginSummary } from './plugin-types.js';
 
 function formatList(values: string[]): string {
@@ -85,4 +86,44 @@ export function formatPluginCatalogList(params: {
       filterAvailablePluginSummaryList(params.available, params.installed),
     ),
   ].join('\n');
+}
+
+/**
+ * Where an installed plugin loads from and the config it still needs, shared
+ * by `plugin install` and `plugin reinstall` in the CLI and the gateway.
+ * `code` wraps paths and commands for the caller's output format.
+ */
+export function formatPluginInstallGuidance(
+  result: Pick<
+    InstallPluginResult,
+    | 'pluginId'
+    | 'pluginDir'
+    | 'enabledInPlace'
+    | 'requiresEnv'
+    | 'requiredConfigKeys'
+  >,
+  configPath: string,
+  code: (value: string) => string = (value) => value,
+): string[] {
+  const { pluginId, requiredConfigKeys } = result;
+  const lines = [
+    result.enabledInPlace
+      ? `Plugin ${code(pluginId)} loads from the bundled copy at ${code(result.pluginDir)} through its ${code('plugins.list[]')} entry in ${code(configPath)}; ${code(`hybridclaw plugin uninstall ${pluginId}`)} removes that entry.`
+      : `Plugin ${code(pluginId)} will auto-discover from ${code(result.pluginDir)}.`,
+  ];
+  if (result.requiresEnv.length > 0) {
+    lines.push(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
+  }
+  if (requiredConfigKeys.length > 0) {
+    lines.push(
+      result.enabledInPlace
+        ? `Set required config keys on that entry: ${requiredConfigKeys.join(', ')}`
+        : `Add a ${code('plugins.list[]')} override in ${code(configPath)} to set required config keys: ${requiredConfigKeys.join(', ')}`,
+    );
+  } else if (!result.enabledInPlace) {
+    lines.push(
+      `No config entry is required unless you want plugin overrides in ${code(configPath)}.`,
+    );
+  }
+  return lines;
 }

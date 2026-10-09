@@ -1437,6 +1437,7 @@ async function importFreshCli(options?: {
     uninstallPlugin,
   }));
   vi.doMock('../src/plugins/plugin-config.js', () => ({
+    isInstalledPluginDisabled: vi.fn(async () => false),
     readPluginConfigEntry,
     readPluginConfigValue,
     setPluginEnabled,

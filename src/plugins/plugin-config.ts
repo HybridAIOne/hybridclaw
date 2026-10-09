@@ -264,6 +264,30 @@ export async function unsetPluginConfigValue(
   };
 }
 
+/**
+ * True when only `enabled: false` keeps an installed plugin from loading, so
+ * enabling it is a config change. A bundled plugin goes through
+ * `plugin install` instead, which enables it in place or copies its deps.
+ */
+export async function isInstalledPluginDisabled(
+  pluginId: string,
+): Promise<boolean> {
+  const normalizedPluginId = normalizePluginId(pluginId);
+  const config = cloneConfig(getRuntimeConfig());
+  const entry = findPluginEntry(config, normalizedPluginId);
+  if (entry?.enabled !== false) return false;
+  entry.enabled = true;
+  const manager = new PluginManager({
+    homeDir: DEFAULT_RUNTIME_HOME_DIR,
+    cwd: process.cwd(),
+    getRuntimeConfig: () => config,
+  });
+  const candidate = (await manager.discoverPlugins(config)).find(
+    (discovered) => discovered.id === normalizedPluginId,
+  );
+  return candidate !== undefined && candidate.source !== 'bundled';
+}
+
 export async function setPluginEnabled(
   pluginId: string,
   enabled: boolean,

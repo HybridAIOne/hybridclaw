@@ -5,6 +5,7 @@ import {
   filterAvailablePluginSummaryList,
   formatAvailablePluginSummaryList,
   formatPluginCatalogList,
+  formatPluginInstallGuidance,
   formatPluginSummaryList,
 } from '../plugins/plugin-formatting.js';
 import type { InstallPluginResult } from '../plugins/plugin-install.js';
@@ -403,7 +404,14 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
     const installed = manager
       .listPluginSummary()
       .some((plugin) => plugin.id === pluginId);
-    if (sub === 'enable' && !installed) {
+    const { isInstalledPluginDisabled, setPluginEnabled } = await import(
+      '../plugins/plugin-config.js'
+    );
+    if (
+      sub === 'enable' &&
+      !installed &&
+      !(await isInstalledPluginDisabled(pluginId))
+    ) {
       const installSource = resolvePluginEnableInstallSource(pluginId);
       if (!installSource) {
         throw new Error(
@@ -416,7 +424,6 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       );
       if (!installedPlugin) return;
 
-      const { setPluginEnabled } = await import('../plugins/plugin-config.js');
       await setPluginEnabled(pluginId, true);
       console.log(
         `${green('[ok]')} Installed plugin ${installedPlugin.pluginId} to ${installedPlugin.pluginDir}.`,
@@ -431,7 +438,6 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       return;
     }
 
-    const { setPluginEnabled } = await import('../plugins/plugin-config.js');
     const enabled = sub === 'enable';
     const result = await setPluginEnabled(pluginId, enabled);
     console.log(
@@ -479,22 +485,13 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       );
     }
     printDependencyInstallSummary(result);
-    console.log(
-      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
-    );
+    for (const line of formatPluginInstallGuidance(
+      result,
+      runtimeConfigPath(),
+    )) {
+      console.log(line);
+    }
     printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
-    if (result.requiresEnv.length > 0) {
-      console.log(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
-    }
-    if (result.requiredConfigKeys.length > 0) {
-      console.log(
-        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
-      );
-    } else {
-      console.log(
-        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
-      );
-    }
     console.log('Restart the gateway to load plugin changes:');
     console.log('  hybridclaw gateway restart --foreground');
     console.log('  hybridclaw gateway status');
@@ -554,22 +551,13 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       );
     }
     printDependencyInstallSummary(result);
-    console.log(
-      `Plugin ${result.pluginId} will auto-discover from ${result.pluginDir}.`,
-    );
+    for (const line of formatPluginInstallGuidance(
+      result,
+      runtimeConfigPath(),
+    )) {
+      console.log(line);
+    }
     printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
-    if (result.requiresEnv.length > 0) {
-      console.log(`Required runtime secrets: ${result.requiresEnv.join(', ')}`);
-    }
-    if (result.requiredConfigKeys.length > 0) {
-      console.log(
-        `Add a plugins.list[] override in ${runtimeConfigPath()} to set required config keys: ${result.requiredConfigKeys.join(', ')}`,
-      );
-    } else {
-      console.log(
-        `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
-      );
-    }
     console.log('Restart the gateway to load plugin changes:');
     console.log('  hybridclaw gateway restart --foreground');
     console.log('  hybridclaw gateway status');

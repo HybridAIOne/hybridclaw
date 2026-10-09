@@ -34,6 +34,7 @@ import {
   filterAvailablePluginSummaryList,
   formatAvailablePluginSummaryList,
   formatPluginCatalogList,
+  formatPluginInstallGuidance,
   formatPluginSummaryList,
 } from '../plugins/plugin-formatting.js';
 import {
@@ -72,6 +73,8 @@ import { rememberPendingApproval } from './pending-approvals.js';
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
+
+const markdownCode = (value: string): string => `\`${value}\``;
 
 // Plugin config is runtime config: a scoped caller (a phone's token) also needs
 // the action the config admin route asks for.
@@ -893,17 +896,15 @@ export async function handlePluginGatewayCommand(params: {
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
         ...depsSatisfiedLines,
         ...buildDependencyInstallLines(result),
-        `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...formatPluginInstallGuidance(
+          result,
+          runtimeConfigPath(),
+          markdownCode,
+        ),
         ...buildMissingBinaryGuidanceLines(
           result.pluginId,
           result.missingRequiredBins,
         ),
-        ...(result.requiresEnv.length > 0
-          ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
-          : []),
-        result.requiredConfigKeys.length > 0
-          ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-          : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
         reloadResult.message,
       ];
       return infoCommand('Plugin Installed', lines.join('\n'));
@@ -924,17 +925,15 @@ export async function handlePluginGatewayCommand(params: {
               ? `Plugin \`${result.pluginId}\` is already present at \`${result.pluginDir}\`.`
               : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
             ...buildDependencyInstallLines(result),
-            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...formatPluginInstallGuidance(
+              result,
+              runtimeConfigPath(),
+              markdownCode,
+            ),
             ...buildMissingBinaryGuidanceLines(
               result.pluginId,
               result.missingRequiredBins,
             ),
-            ...(result.requiresEnv.length > 0
-              ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
-              : []),
-            result.requiredConfigKeys.length > 0
-              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
             reloadResult.message,
           ];
           return infoCommand('Plugin Installed', lines.join('\n'));
@@ -1006,17 +1005,15 @@ export async function handlePluginGatewayCommand(params: {
           : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
         ...reinstallDepsSatisfiedLines,
         ...buildDependencyInstallLines(result),
-        `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+        ...formatPluginInstallGuidance(
+          result,
+          runtimeConfigPath(),
+          markdownCode,
+        ),
         ...buildMissingBinaryGuidanceLines(
           result.pluginId,
           result.missingRequiredBins,
         ),
-        ...(result.requiresEnv.length > 0
-          ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
-          : []),
-        result.requiredConfigKeys.length > 0
-          ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-          : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
         reloadResult.message,
       ];
       return infoCommand('Plugin Reinstalled', lines.join('\n'));
@@ -1037,17 +1034,15 @@ export async function handlePluginGatewayCommand(params: {
               ? `Reinstalled plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`
               : `Installed plugin \`${result.pluginId}\` to \`${result.pluginDir}\`.`,
             ...buildDependencyInstallLines(result),
-            `Plugin \`${result.pluginId}\` will auto-discover from \`${result.pluginDir}\`.`,
+            ...formatPluginInstallGuidance(
+              result,
+              runtimeConfigPath(),
+              markdownCode,
+            ),
             ...buildMissingBinaryGuidanceLines(
               result.pluginId,
               result.missingRequiredBins,
             ),
-            ...(result.requiresEnv.length > 0
-              ? [`Required runtime secrets: ${result.requiresEnv.join(', ')}`]
-              : []),
-            result.requiredConfigKeys.length > 0
-              ? `Add a \`plugins.list[]\` override in \`${runtimeConfigPath()}\` to set required config keys: ${result.requiredConfigKeys.join(', ')}`
-              : `No config entry is required unless you want plugin overrides in \`${runtimeConfigPath()}\`.`,
             reloadResult.message,
           ];
           return infoCommand('Plugin Reinstalled', lines.join('\n'));
