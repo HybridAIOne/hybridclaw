@@ -1140,7 +1140,7 @@ async function handleGatewayMessageInner(
     scopeRun = await resolveScopeRun(
       session,
       agentId,
-      pluginManager?.getMemoryLayerToolNames(),
+      session.scope ? pluginManager?.getMemoryLayerToolNames() : undefined,
     );
   } catch (error) {
     activeGatewayRequest.release();

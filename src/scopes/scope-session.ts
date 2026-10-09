@@ -15,6 +15,7 @@ import {
   getRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import { isDatabaseInitialized } from '../memory/database.js';
 import {
   getOrCreateSession,
   getSessionById,
@@ -96,6 +97,8 @@ export function bindRequestedScope(params: {
 
 /** The scope a run in this session uses, or null for an unscoped session. */
 export function sessionScopeId(sessionId: string): string | null {
+  // Without a database no session, and so no scope, exists yet.
+  if (!isDatabaseInitialized()) return null;
   return getSessionById(sessionId)?.scope || null;
 }
 
