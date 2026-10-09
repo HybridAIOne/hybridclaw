@@ -50,6 +50,10 @@ function createLazyTransport(host) {
   };
 }
 
+// A plugin reload re-registers while core keeps the live transport, whose
+// pairing prompt the console must still see, so the state is per process.
+const PAIRING_STATE_KEY = Symbol.for('hybridclaw.line.pairingState');
+
 /** @type {HybridClawPluginDefinition} */
 const plugin = {
   id: 'line',
@@ -60,7 +64,8 @@ const plugin = {
     const store = createLineAuthStore(
       path.join(api.runtime.homeDir, 'credentials', 'line'),
     );
-    const pairing = createLinePairingState();
+    globalThis[PAIRING_STATE_KEY] ??= createLinePairingState();
+    const pairing = globalThis[PAIRING_STATE_KEY];
     api.registerChannelTransport({
       kind: 'line',
       create: (host) =>

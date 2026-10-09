@@ -25,7 +25,7 @@ function createPluginChannelDescriptor(
     kind,
     matchesTarget: (target) =>
       getChannelTransport(kind)?.matchesTarget(target) ??
-      getPluginChannelCoreFacts(kind).storedTargets.test(target),
+      getPluginChannelCoreFacts(kind).isStoredTarget(target),
     supportsProactive: true,
     sendProactive: async (...args) =>
       (await import('./proactive.js')).sendPluginChannelProactive(

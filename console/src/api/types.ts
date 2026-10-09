@@ -28,6 +28,7 @@ export interface GatewayChannelPluginStatus {
   pluginId: string;
   installSource: string;
   transportAvailable: boolean;
+  loadFailed: boolean;
 }
 
 export interface GatewayStatus {

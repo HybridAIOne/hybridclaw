@@ -3,9 +3,9 @@
  * reporting only what the transport knows.
  *
  * Target resolution asks each registered transport in catalog order. Without
- * the plugin, a stored id of that channel still resolves to it, so the send
- * fails with the install hint instead of reaching email; anything else stays
- * unresolved so the caller can try other channels.
+ * the plugin, the channel's catalog address syntax still resolves to it, so the
+ * send fails with the install hint instead of reaching email or Signal;
+ * anything else stays unresolved so the caller can try other channels.
  * Sender overrides are rejected, and socket acceptance is never reported as
  * delivery.
  */
@@ -33,7 +33,7 @@ export function resolvePluginChannelTarget(
     const registration = getChannelTransport(kind);
     const channelId = registration
       ? registration.normalizeTarget(trimmed)
-      : getPluginChannelCoreFacts(kind).storedTargets.test(trimmed)
+      : getPluginChannelCoreFacts(kind).claimsToolTarget(trimmed)
         ? trimmed
         : null;
     if (channelId) return { kind, channelId };

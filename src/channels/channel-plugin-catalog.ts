@@ -7,6 +7,7 @@
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import { equalStringSets } from '../utils/string-list-equality.js';
 import type { ChannelKind } from './channel.js';
+import { isWhatsAppJid, normalizeWhatsAppTarget } from './whatsapp/phone.js';
 
 export interface ChannelPluginCatalogEntry {
   channel: ChannelKind;
@@ -45,30 +46,37 @@ export type PluginChannelKind = keyof typeof CHANNEL_PLUGIN_CATALOG;
 export interface PluginChannelCoreFacts {
   isEnabled(config: RuntimeConfig): boolean;
   configChanged(next: RuntimeConfig, prev: RuntimeConfig): boolean;
-  /** Channel ids that sessions and schedules already store for this channel. */
-  storedTargets: RegExp;
+  /** Whether sessions and schedules store `id` as this channel's id. */
+  isStoredTarget(id: string): boolean;
+  /** Message-tool targets this channel claims while its plugin is absent. */
+  claimsToolTarget(target: string): boolean;
 }
 
 // The `whatsapp` and `line` config sections and the channel ids stored in
 // sessions are released data, so core keeps these facts while the plugin is
-// absent. `storedTargets` only keeps such ids classified (failing with the
+// absent. `isStoredTarget` only keeps such ids classified (failing with the
 // install hint) instead of falling through to email (decided 2026-10-08 in the
 // #1801 transport registration change); a loaded plugin's `matchesTarget`
-// decides whenever it is registered.
+// decides whenever it is registered. `claimsToolTarget` keeps the message-tool
+// address syntax 0.39.1 routed to the channel (WhatsApp: `whatsapp:` and bare
+// phone numbers) failing with the install hint instead of reaching Signal.
 const PLUGIN_CHANNEL_CORE_FACTS: Record<
   PluginChannelKind,
   PluginChannelCoreFacts
 > = {
   line: {
-    storedTargets: /^line:/i,
+    isStoredTarget: (id) => /^line:/i.test(id),
+    claimsToolTarget: (target) => /^line:/i.test(target),
     isEnabled: (config) => config.line.enabled,
     configChanged: (next, prev) =>
       next.line.enabled !== prev.line.enabled ||
       next.line.textChunkLimit !== prev.line.textChunkLimit,
   },
   whatsapp: {
-    storedTargets:
-      /^(?:whatsapp:)?[\d:-]+@(?:s\.whatsapp\.net|g\.us|lid|hosted|hosted\.lid)$/i,
+    isStoredTarget: isWhatsAppJid,
+    // A malformed `whatsapp:` target still fails with the install hint.
+    claimsToolTarget: (target) =>
+      /^whatsapp:/i.test(target) || normalizeWhatsAppTarget(target) !== null,
     isEnabled: (config) =>
       config.whatsapp.dmPolicy !== 'disabled' ||
       config.whatsapp.groupPolicy !== 'disabled',

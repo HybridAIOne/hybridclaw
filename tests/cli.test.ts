@@ -863,6 +863,7 @@ async function importFreshCli(options?: {
     }
     return { listPluginSummary };
   });
+  const shutdownPluginManager = vi.fn(async () => {});
   const runPluginCliCommand = vi.fn(
     async (_name: string, _args: string[]) => false,
   );
@@ -1453,7 +1454,7 @@ async function importFreshCli(options?: {
   }));
   vi.doMock('../src/plugins/plugin-manager.js', () => ({
     ensurePluginManagerInitialized,
-    shutdownPluginManager: vi.fn(async () => {}),
+    shutdownPluginManager,
   }));
   vi.doMock('../src/cli/plugin-cli-dispatch.js', () => ({
     runPluginCliCommand,
@@ -1493,6 +1494,7 @@ async function importFreshCli(options?: {
     ensureHostRuntimeReady,
     getWhatsAppAuthStatus,
     resetWhatsAppAuthState,
+    shutdownPluginManager,
     createWhatsAppPairingSession,
     checkPlugin,
     installPlugin,
@@ -3613,8 +3615,12 @@ describe('CLI hybridai commands', () => {
   });
 
   it('runs auth whatsapp reset through the reset flow', async () => {
-    const { cli, getWhatsAppAuthStatus, resetWhatsAppAuthState } =
-      await importFreshCli();
+    const {
+      cli,
+      getWhatsAppAuthStatus,
+      resetWhatsAppAuthState,
+      shutdownPluginManager,
+    } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     getWhatsAppAuthStatus.mockResolvedValueOnce({
@@ -3632,6 +3638,8 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       'Linked WhatsApp account cleared. Re-run `hybridclaw channels whatsapp setup` to pair again.',
     );
+    // Plugin services must not keep the one-shot CLI process alive.
+    expect(shutdownPluginManager).toHaveBeenCalledTimes(1);
   });
 
   it('prints authenticated hybridai status', async () => {

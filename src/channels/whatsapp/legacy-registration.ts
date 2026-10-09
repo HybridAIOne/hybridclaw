@@ -36,8 +36,8 @@ import {
   isWhatsAppJid,
   jidToPhone,
   normalizePhoneNumber,
+  normalizeWhatsAppTarget,
   normalizeWhatsAppUserIdentity,
-  phoneToJid,
 } from './phone.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from './self-chat.js';
 
@@ -65,22 +65,6 @@ export interface WhatsAppTransportHost
 interface LegacyWhatsAppRegistration {
   kind: string;
   create(host: WhatsAppTransportHost): ChannelTransportInstance;
-}
-
-const WHATSAPP_PREFIX_RE = /^whatsapp:/i;
-
-function normalizeWhatsAppTarget(rawTarget: string): string | null {
-  const withoutPrefix = String(rawTarget || '')
-    .trim()
-    .replace(WHATSAPP_PREFIX_RE, '')
-    .trim();
-  if (!withoutPrefix) return null;
-  const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
-  if (canonicalJid) return canonicalJid;
-  if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
-  if (/[a-z]/i.test(withoutPrefix)) return null;
-  const normalizedPhone = normalizePhoneNumber(withoutPrefix);
-  return normalizedPhone ? phoneToJid(normalizedPhone) : null;
 }
 
 async function whatsappDoctorChecks({

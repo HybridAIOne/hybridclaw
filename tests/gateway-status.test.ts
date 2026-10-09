@@ -1043,6 +1043,7 @@ test('getGatewayStatus reports plugin channels without their plugins as unlinked
     installSource:
       getChannelPluginCatalogEntry('whatsapp')?.installSource,
     transportAvailable: false,
+    loadFailed: false,
   });
   expect(status.whatsapp).toEqual({
     enabled: expect.any(Boolean),

@@ -503,6 +503,7 @@ export interface GatewayChannelPluginStatus {
   pluginId: string;
   installSource: string;
   transportAvailable: boolean;
+  loadFailed: boolean;
 }
 
 /** `whatsapp`, `line`, …: one entry per catalog plugin channel. */

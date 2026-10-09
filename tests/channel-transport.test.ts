@@ -6,6 +6,7 @@ import {
   getChannelPluginCatalogEntryByPluginId,
 } from '../src/channels/channel-plugin-catalog.js';
 import {
+  describeMissingChannelTransport,
   diffChannelPluginTransportAvailability,
   getChannelPluginStatuses,
   getChannelTransport,
@@ -102,6 +103,40 @@ test('rejects a registration that skips required hooks', () => {
   expect(hasChannelTransport('whatsapp')).toBe(false);
 });
 
+test.each([
+  {
+    name: 'a misspelled matchesTarget',
+    hooks: {
+      matchTarget: () => false,
+      normalizeTarget: () => null,
+      getAuthStatus: async () => ({ linked: false }),
+      resetAuth: async () => '/tmp/unused',
+    },
+    missing: 'matchesTarget',
+  },
+  {
+    name: 'only optional hooks',
+    hooks: { getPairingState: () => null, describeSend: () => null },
+    missing: 'matchesTarget, normalizeTarget, getAuthStatus, resetAuth',
+  },
+  {
+    name: 'an undefined required hook',
+    hooks: { getAuthStatus: undefined },
+    missing: 'matchesTarget, normalizeTarget, getAuthStatus, resetAuth',
+  },
+])(
+  'a WhatsApp registration with $name is refused, not adapted as legacy',
+  ({ hooks, missing }) => {
+    expect(() =>
+      registerChannelTransport({
+        ...createTransportRegistration(),
+        ...hooks,
+      } as never),
+    ).toThrow(`Channel transport "whatsapp" is missing ${missing}.`);
+    expect(hasChannelTransport('whatsapp')).toBe(false);
+  },
+);
+
 test('resolving an unknown kind throws instead of returning nothing', () => {
   expect(() => getChannelTransport('telegram')).toThrow(
     'Unknown channel transport kind "telegram"',
@@ -133,6 +168,7 @@ test('channel plugin catalog reports transport availability generically', () => 
     installSource:
       getChannelPluginCatalogEntry('whatsapp')?.installSource,
     transportAvailable: false,
+    loadFailed: false,
   });
 
   registerChannelTransport(createTransportRegistration());
@@ -186,6 +222,7 @@ test('channel plugin catalog resolves the bundled LINE plugin', () => {
     pluginId: 'line',
     installSource: 'line',
     transportAvailable: false,
+    loadFailed: false,
   });
 });
 
@@ -252,4 +289,47 @@ test('plugin manager shutdown unregisters its channel transports', async () => {
 
   await manager.shutdown();
   expect(hasChannelTransport('whatsapp')).toBe(false);
+});
+
+test('an installed catalog plugin that failed to load asks for reinstall, not install', async () => {
+  const cwd = await makeTempDir();
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'line');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: line\nname: LINE\nversion: 0.1.0\nkind: channel\nentrypoint: index.js\n',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.js'),
+    "export default { id: 'line', register(api) { api.registerChannelTransport({ kind: 'line', create() {} }); } };\n",
+  );
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  const manager = new PluginManager({
+    cwd,
+    homeDir: path.join(cwd, 'home'),
+    getRuntimeConfig: () => config,
+  });
+
+  await manager.ensureInitialized();
+  expect(getChannelPluginStatuses()).toContainEqual(
+    expect.objectContaining({
+      channel: 'line',
+      transportAvailable: false,
+      loadFailed: true,
+    }),
+  );
+  expect(() => requireChannelTransport('line')).toThrow(
+    'LINE transport plugin failed to load (see `hybridclaw plugin list`). Reinstall it with: hybridclaw plugin reinstall line',
+  );
+  expect(describeMissingChannelTransport('whatsapp')).toContain(
+    'is not installed. Install it with: hybridclaw plugin install',
+  );
+
+  // After the plugin is gone, the next load reports it as not installed.
+  await manager.shutdown();
+  expect(describeMissingChannelTransport('line')).toBe(
+    'LINE transport plugin is not installed. Install it with: hybridclaw plugin install line',
+  );
 });

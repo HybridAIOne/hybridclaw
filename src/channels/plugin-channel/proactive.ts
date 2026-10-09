@@ -8,11 +8,13 @@ import { logger } from '../../logger.js';
 import type { ArtifactMetadata } from '../../types/execution.js';
 import type { ProactiveDeliveryOutcome } from '../channel-descriptor.js';
 import {
-  getChannelPluginInstallCommand,
   getPluginChannelName,
   type PluginChannelKind,
 } from '../channel-plugin-catalog.js';
-import { getChannelTransport } from '../channel-transport.js';
+import {
+  describeMissingChannelTransport,
+  getChannelTransport,
+} from '../channel-transport.js';
 import { sendPluginChannelText } from './runtime.js';
 
 export async function sendPluginChannelProactive(
@@ -27,7 +29,7 @@ export async function sendPluginChannelProactive(
   if (!registration) {
     logger.warn(
       { source, channelId },
-      `Proactive ${name} message suppressed: transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`,
+      `Proactive ${name} message suppressed: ${describeMissingChannelTransport(kind)}`,
     );
     return { status: 'failed', reason: 'transport plugin is not installed' };
   }

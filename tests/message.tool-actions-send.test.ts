@@ -3,6 +3,7 @@ import { expect, test, vi } from 'vitest';
 async function importFreshMessageToolActions(
   a2aLocalMode = false,
   channelsRunning = true,
+  whatsappPluginLoaded = true,
 ) {
   vi.resetModules();
 
@@ -312,8 +313,10 @@ async function importFreshMessageToolActions(
   const module = await import('../src/channels/message/tool-actions.js');
   // The released WhatsApp plugin registers the create-only shape; core's
   // compat adapter supplies the target, auth, and send-description hooks.
-  (await import('../src/channels/channel-transport.js')).registerChannelTransport(
-    {
+  if (whatsappPluginLoaded) {
+    (
+      await import('../src/channels/channel-transport.js')
+    ).registerChannelTransport({
       kind: 'whatsapp',
       create: () => ({
         init: async () => {},
@@ -321,8 +324,8 @@ async function importFreshMessageToolActions(
         sendText: sendToWhatsAppChat,
         sendMedia: sendWhatsAppMediaToChat,
       }),
-    } as never,
-  );
+    } as never);
+  }
   const loaders = await import('../src/channels/channel-runtime-loaders.js');
   if (channelsRunning) {
     await loaders.discordRuntimeLoader.load();
@@ -440,6 +443,30 @@ test('send action normalizes WhatsApp phone numbers before delivery', async () =
     transport: 'whatsapp',
   });
 });
+
+test.each([
+  '+491701234567',
+  'whatsapp:+491701234567',
+  'whatsapp:+49 170 1234567',
+  '491701234567@s.whatsapp.net',
+])(
+  'send action keeps WhatsApp target %s on WhatsApp when its plugin is absent',
+  async (channelId) => {
+    const state = await importFreshMessageToolActions(false, true, false);
+
+    await expect(
+      state.runMessageToolAction({
+        action: 'send',
+        channelId,
+        content: 'meant for WhatsApp',
+      }),
+    ).rejects.toThrow(
+      'WhatsApp transport plugin is not installed. Install it with: hybridclaw plugin install',
+    );
+    expect(state.sendToSignalChat).not.toHaveBeenCalled();
+    expect(state.sendToWhatsAppChat).not.toHaveBeenCalled();
+  },
+);
 
 test('send action routes Telegram targets through Telegram transport', async () => {
   const state = await importFreshMessageToolActions();

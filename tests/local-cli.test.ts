@@ -62,6 +62,7 @@ async function importFreshCli(
       }
       return {};
     },
+    shutdownPluginManager: async () => {},
     PluginManager: class {
       async discoverPlugins() {
         return [];

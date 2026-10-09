@@ -133,3 +133,54 @@ test('the legacy WhatsApp host keeps the auth, pairing, and phone helpers', asyn
     ),
   ).toBe('+5551234567');
 });
+
+test.each([
+  {
+    name: 'throws synchronously',
+    fail: () => {
+      throw new Error('plugin bug');
+    },
+  },
+  { name: 'rejects', fail: async () => Promise.reject(new Error('plugin bug')) },
+])('a plugin whose status hook $name never hides another channel', async ({
+  fail,
+}) => {
+  const { getPluginChannelGatewayStatuses } = await import(
+    '../src/channels/plugin-channel/status.js'
+  );
+  registerChannelTransport({
+    kind: 'whatsapp',
+    create: () => createFakeTransportInstance(),
+    matchesTarget: () => false,
+    normalizeTarget: () => null,
+    getAuthStatus: async () => ({ linked: true, jid: '15550100200@s.whatsapp.net' }),
+    resetAuth: async () => '/tmp/unused',
+  });
+  registerChannelTransport({
+    kind: 'line',
+    create: () => createFakeTransportInstance(),
+    matchesTarget: () => false,
+    normalizeTarget: () => null,
+    getAuthStatus: fail as never,
+    resetAuth: async () => '/tmp/unused',
+    getPairingState: () => {
+      throw new Error('plugin bug');
+    },
+  });
+
+  const statuses = await getPluginChannelGatewayStatuses({
+    whatsapp: { dmPolicy: 'pairing', groupPolicy: 'disabled' },
+    line: { enabled: true },
+  } as never);
+  expect(statuses.whatsapp).toMatchObject({
+    linked: true,
+    jid: '15550100200@s.whatsapp.net',
+  });
+  expect(statuses.line).toEqual({
+    enabled: true,
+    linked: false,
+    pairingQrText: null,
+    pairingUpdatedAt: null,
+    pairingError: null,
+  });
+});

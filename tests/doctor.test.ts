@@ -1301,6 +1301,7 @@ test('checkSkills warns on enabled skills with zero observations after sessions 
 
 test('checkChannels distinguishes intentionally disabled channels from missing setup', async () => {
   vi.doMock('../src/config/config.js', () => ({
+    DB_PATH: '/nonexistent/hybridclaw.db',
     DISCORD_TOKEN: '',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID: '',
@@ -1334,6 +1335,7 @@ test('checkChannels distinguishes intentionally disabled channels from missing s
 
 test('checkChannels reports a missing WhatsApp plugin when the channel is expected', async () => {
   vi.doMock('../src/config/config.js', () => ({
+    DB_PATH: '/nonexistent/hybridclaw.db',
     DISCORD_TOKEN: '',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID: '',
@@ -1358,11 +1360,14 @@ test('checkChannels reports a missing WhatsApp plugin when the channel is expect
   const [result] = await checkChannels();
 
   expect(result.severity).toBe('error');
-  expect(result.message).toContain('WhatsApp plugin not installed');
+  expect(result.message).toContain(
+    'WhatsApp transport plugin is not installed. Install it with: hybridclaw plugin install',
+  );
 });
 
 test('checkChannels reports a missing LINE plugin when the channel is expected', async () => {
   vi.doMock('../src/config/config.js', () => ({
+    DB_PATH: '/nonexistent/hybridclaw.db',
     DISCORD_TOKEN: '',
     EMAIL_PASSWORD: '',
     MSTEAMS_APP_ID: '',
@@ -1388,7 +1393,9 @@ test('checkChannels reports a missing LINE plugin when the channel is expected',
   const [result] = await checkChannels();
 
   expect(result.severity).toBe('error');
-  expect(result.message).toContain('LINE plugin not installed');
+  expect(result.message).toContain(
+    'LINE transport plugin is not installed. Install it with: hybridclaw plugin install line',
+  );
 });
 
 test('runDoctor rolls back prior fixes and skips later fixes after a failure', async () => {

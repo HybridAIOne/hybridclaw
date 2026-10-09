@@ -73,6 +73,17 @@ export function isWhatsAppJid(channelId: string): boolean {
   );
 }
 
+/** A message-tool target (JID, `whatsapp:` prefix, or phone number) as a JID. */
+export function normalizeWhatsAppTarget(rawTarget: string): string | null {
+  const withoutPrefix = stripWhatsAppPrefix(rawTarget);
+  if (!withoutPrefix) return null;
+  const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
+  if (canonicalJid) return canonicalJid;
+  if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
+  if (/[a-z]/i.test(withoutPrefix)) return null;
+  return phoneToJid(withoutPrefix);
+}
+
 export function isGroupJid(jid: string): boolean {
   return WHATSAPP_GROUP_JID_RE.test(stripWhatsAppPrefix(jid));
 }

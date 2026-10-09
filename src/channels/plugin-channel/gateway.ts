@@ -24,12 +24,15 @@ import { logger } from '../../logger.js';
 import { memoryService } from '../../memory/memory-service.js';
 import { ensurePluginManagerInitialized } from '../../plugins/plugin-manager.js';
 import {
-  getChannelPluginInstallCommand,
   getPluginChannelCoreFacts,
   getPluginChannelName,
   type PluginChannelKind,
 } from '../channel-plugin-catalog.js';
-import { getChannelTransport } from '../channel-transport.js';
+import { getChannelCapabilities } from '../channel-registry.js';
+import {
+  describeMissingChannelTransport,
+  getChannelTransport,
+} from '../channel-transport.js';
 import { buildResponseText } from '../discord/delivery.js';
 import { initPluginChannel, sendPluginChannelMedia } from './runtime.js';
 
@@ -63,7 +66,7 @@ export async function startPluginChannelIntegration(
   const registration = getChannelTransport(kind);
   if (!registration) {
     logger.warn(
-      `${name} integration disabled: transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`,
+      `${name} integration disabled: ${describeMissingChannelTransport(kind)}`,
     );
     return false;
   }
@@ -156,7 +159,18 @@ export async function startPluginChannelIntegration(
                 ),
               );
             }
-            for (const artifact of result.artifacts || []) {
+            const artifacts = result.artifacts || [];
+            if (
+              artifacts.length > 0 &&
+              !getChannelCapabilities(kind).attachments
+            ) {
+              logger.warn(
+                { channelId, artifactCount: artifacts.length },
+                `${name} does not support artifact delivery`,
+              );
+              return;
+            }
+            for (const artifact of artifacts) {
               try {
                 await sendPluginChannelMedia(kind, {
                   jid: channelId,

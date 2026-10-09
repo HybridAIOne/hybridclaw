@@ -5,7 +5,9 @@
  * prompt, doctor findings, and prompt hints.
  *
  * Kinds come from the official channel plugin catalog; registering or
- * resolving any other kind throws instead of falling back. NOT the channel
+ * resolving any other kind throws instead of falling back. A catalog plugin
+ * that is installed but failed to load is remembered, so a missing transport
+ * asks for `plugin reinstall` rather than an `install` that would fail. NOT the channel
  * runtime (`plugin-channel/runtime.ts` owns live instances) and NOT a delivery
  * receipt: send results only carry the transport's message IDs.
  */
@@ -14,6 +16,7 @@ import type { MediaContextItem } from '../types/container.js';
 import type { ChannelKind } from './channel.js';
 import {
   getChannelPluginCatalogEntry,
+  getChannelPluginCatalogEntryByPluginId,
   getChannelPluginInstallCommand,
   getOfficialChannelPluginCatalogEntries,
   getPluginChannelName,
@@ -180,16 +183,37 @@ export interface ChannelTransportRegistration {
   }): ChannelTransportSendDescription;
 }
 
+const transports = new Map<string, ChannelTransportRegistration>();
+// Catalog kinds whose plugin is installed but failed to load in this process;
+// `plugin install` refuses an existing plugin dir, so these need `reinstall`.
+const failedPluginKinds = new Set<PluginChannelKind>();
+
+export function markChannelPluginLoadFailed(pluginId: string): void {
+  const channel = getChannelPluginCatalogEntryByPluginId(pluginId)?.channel;
+  if (channel && isPluginChannelKind(channel)) failedPluginKinds.add(channel);
+}
+
+export function clearChannelPluginLoadFailures(): void {
+  failedPluginKinds.clear();
+}
+
+/** Why a catalog channel has no transport, with the command that fixes it. */
+export function describeMissingChannelTransport(
+  kind: PluginChannelKind,
+): string {
+  const name = getPluginChannelName(kind);
+  if (failedPluginKinds.has(kind)) {
+    return `${name} transport plugin failed to load (see \`hybridclaw plugin list\`). Reinstall it with: hybridclaw plugin reinstall ${getChannelPluginCatalogEntry(kind)?.installSource}`;
+  }
+  return `${name} transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`;
+}
+
 export class ChannelTransportMissingError extends Error {
   constructor(kind: PluginChannelKind) {
-    super(
-      `${getPluginChannelName(kind)} transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`,
-    );
+    super(describeMissingChannelTransport(kind));
     this.name = 'ChannelTransportMissingError';
   }
 }
-
-const transports = new Map<string, ChannelTransportRegistration>();
 
 function requirePluginChannelKind(kind: string): PluginChannelKind {
   if (!isPluginChannelKind(kind)) {
@@ -208,10 +232,19 @@ const REQUIRED_REGISTRATION_MEMBERS = [
   'resetAuth',
 ] as const;
 
+// Any of these marks a registration as written against the current contract.
+const CONTRACT_MEMBERS = [
+  ...REQUIRED_REGISTRATION_MEMBERS.filter((member) => member !== 'create'),
+  'getPairingState',
+  'doctorChecks',
+  'messageToolHints',
+  'describeSend',
+] as const;
+
 function normalizeRegistration(
   registration: ChannelTransportRegistration,
 ): ChannelTransportRegistration {
-  if (typeof registration.matchesTarget === 'function') {
+  if (CONTRACT_MEMBERS.some((member) => member in registration)) {
     const missing = REQUIRED_REGISTRATION_MEMBERS.filter(
       (member) => typeof registration[member] !== 'function',
     );
@@ -236,14 +269,13 @@ function normalizeRegistration(
 export function registerChannelTransport(
   registration: ChannelTransportRegistration,
 ): ChannelTransportRegistration {
-  requirePluginChannelKind(registration.kind);
-  if (transports.has(registration.kind)) {
-    throw new Error(
-      `Channel transport "${registration.kind}" is already registered.`,
-    );
+  const kind = requirePluginChannelKind(registration.kind);
+  if (transports.has(kind)) {
+    throw new Error(`Channel transport "${kind}" is already registered.`);
   }
   const normalized = normalizeRegistration(registration);
-  transports.set(registration.kind, normalized);
+  transports.set(kind, normalized);
+  failedPluginKinds.delete(kind);
   return normalized;
 }
 
@@ -276,6 +308,8 @@ export interface ChannelPluginStatus {
   pluginId: string;
   installSource: string;
   transportAvailable: boolean;
+  /** Installed but failed to load: `plugin reinstall` fixes it, not install. */
+  loadFailed: boolean;
 }
 
 export function getChannelPluginStatuses(): ChannelPluginStatus[] {
@@ -284,6 +318,9 @@ export function getChannelPluginStatuses(): ChannelPluginStatus[] {
     pluginId: entry.pluginId,
     installSource: entry.installSource,
     transportAvailable: hasChannelTransport(entry.channel),
+    loadFailed:
+      isPluginChannelKind(entry.channel) &&
+      failedPluginKinds.has(entry.channel),
   }));
 }
 

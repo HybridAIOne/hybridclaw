@@ -436,14 +436,19 @@ type-only so they are erased from emitted JavaScript.
 
 While a channel plugin is registered, its `matchesTarget` decides which ids
 belong to the channel. Without the plugin, core still recognizes the ids that
-sessions already store for that channel (a catalog pattern such as `line:`),
-so they fail with the install command instead of reaching another channel.
+sessions already store for that channel (a catalog pattern such as `line:`)
+and the message-tool address syntax the channel used to own (WhatsApp:
+`whatsapp:` targets and bare phone numbers), so they fail with the install
+command instead of reaching another channel. When the plugin is installed but
+failed to load, that message names `hybridclaw plugin reinstall` instead.
 
 The released WhatsApp plugin (0.1.x) still registers only `{ kind, create }`
 and expects auth, pairing, and phone helpers on its host. Core adapts that one
-registration through `src/channels/whatsapp/legacy-registration.ts` until the
-plugin ships the full contract; any other create-only registration is refused
-with a `hybridclaw plugin reinstall` hint.
+registration through `src/channels/whatsapp/legacy-registration.ts`, and the
+SDK keeps exporting its `WhatsAppTransportHost` type, until the plugin ships
+the full contract. A registration that names any contract hook must supply all
+required ones; any other create-only registration is refused with a
+`hybridclaw plugin reinstall` hint.
 
 Keep `register(api)` synchronous and cheap. If a transport has large or
 license-sensitive dependencies, register a lightweight instance and dynamically

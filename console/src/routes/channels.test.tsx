@@ -15,6 +15,8 @@ const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
 const installOfficialPluginMock =
   vi.fn<(token: string, pluginId: string) => Promise<AdminCommandResult>>();
+const reinstallPluginMock =
+  vi.fn<(token: string, source: string) => Promise<AdminCommandResult>>();
 const saveConfigMock = vi.fn();
 const saveDiscordWebhookTargetMock = vi.fn();
 const saveSlackWebhookTargetMock = vi.fn();
@@ -32,6 +34,8 @@ vi.mock('../api/client', () => ({
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
   installOfficialPlugin: (token: string, pluginId: string) =>
     installOfficialPluginMock(token, pluginId),
+  reinstallPlugin: (token: string, source: string) =>
+    reinstallPluginMock(token, source),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
   saveDiscordWebhookTarget: (...args: unknown[]) =>
     saveDiscordWebhookTargetMock(...args),
@@ -354,6 +358,7 @@ describe('ChannelsPage', () => {
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
     installOfficialPluginMock.mockReset();
+    reinstallPluginMock.mockReset();
     saveConfigMock.mockReset();
     saveDiscordWebhookTargetMock.mockReset();
     saveSlackWebhookTargetMock.mockReset();
@@ -992,6 +997,112 @@ describe('ChannelsPage', () => {
         'line',
       );
     });
+  });
+
+  it('offers a reinstall for a channel plugin that is installed but failed to load', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'line',
+          pluginId: 'line',
+          installSource: 'line',
+          transportAvailable: false,
+          loadFailed: true,
+        },
+      ],
+    });
+    reinstallPluginMock.mockResolvedValue({
+      kind: 'info',
+      title: 'Plugin Reinstalled',
+      text: 'ok',
+    });
+
+    renderChannelsPage();
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /LINE.*plugin failed to load/i,
+      }),
+    );
+    screen.getByText('LINE plugin failed to load');
+    expect(
+      screen.queryByRole('button', { name: 'Install LINE plugin' }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Reinstall LINE plugin' }),
+    );
+
+    await waitFor(() => {
+      expect(reinstallPluginMock).toHaveBeenCalledWith('test-token', 'line');
+    });
+    expect(installOfficialPluginMock).not.toHaveBeenCalled();
+  });
+
+  it('renders the QR SVG and PIN the LINE plugin reports while pairing', async () => {
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: makeConfig(),
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultAgentId: 'main',
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      channelPlugins: [
+        {
+          channel: 'line',
+          pluginId: 'line',
+          installSource: 'line',
+          transportAvailable: true,
+          loadFailed: false,
+        },
+      ],
+      line: {
+        enabled: true,
+        linked: false,
+        pairingQrText: 'text QR fallback',
+        pairingQrSvg: '<svg><title>line qr</title></svg>',
+        pairingUrl: 'https://line.me/R/au/q/example',
+        pincode: '482913',
+        pairingUpdatedAt: new Date().toISOString(),
+        pairingError: null,
+      },
+    });
+
+    renderChannelsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /LINE/ }));
+    const qr = (await screen.findByRole('img', {
+      name: 'LINE pairing QR',
+    })) as HTMLImageElement;
+    expect(decodeURIComponent(qr.src)).toContain(
+      '<svg><title>line qr</title></svg>',
+    );
+    expect(screen.queryByText('text QR fallback')).toBeNull();
+    screen.getByText('Confirm PIN: 482913');
+    expect(screen.queryByText(/plugin not installed/i)).toBeNull();
   });
 
   it('shows Discord as available when the token is not configured', async () => {

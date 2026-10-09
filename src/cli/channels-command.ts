@@ -1,11 +1,13 @@
 import readline from 'node:readline/promises';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
-  getChannelPluginInstallCommand,
   getPluginChannelName,
   type PluginChannelKind,
 } from '../channels/channel-plugin-catalog.js';
-import { getChannelTransport } from '../channels/channel-transport.js';
+import {
+  describeMissingChannelTransport,
+  getChannelTransport,
+} from '../channels/channel-transport.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import {
   DISCORD_WEBHOOK_DEFAULT_TARGET,
@@ -1873,9 +1875,7 @@ async function pairPluginChannel(
   const name = getPluginChannelName(kind);
   const registration = getChannelTransport(kind);
   if (!registration) {
-    console.error(
-      `${name} transport plugin is not installed. Install it with: ${getChannelPluginInstallCommand(kind)}`,
-    );
+    console.error(describeMissingChannelTransport(kind));
     process.exitCode = 1;
     return false;
   }

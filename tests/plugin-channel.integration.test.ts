@@ -184,11 +184,16 @@ test('0.39.1 WhatsApp and LINE pairings keep working through plugin registration
     linked: false,
     mid: null,
   });
-});
+}, 60_000);
+
+const REINSTALL_LINE =
+  'LINE transport plugin failed to load (see `hybridclaw plugin list`). Reinstall it with: hybridclaw plugin reinstall line';
 
 test('a stale create-only LINE plugin fails loudly with the reinstall command', async () => {
   const dataDir = seed039DataDir({ linePlugin: 'legacy' });
   const core = await loadCore(dataDir);
+  const { logger } = await import('../src/logger.js');
+  const warn = vi.spyOn(logger, 'warn');
 
   expect(
     core.manager.getLoadedPlugins().find((plugin) => plugin.id === 'line'),
@@ -208,12 +213,31 @@ test('a stale create-only LINE plugin fails loudly with the reinstall command', 
     status: 'failed',
     reason: 'transport plugin is not installed',
   });
+  // Every user-facing surface points at `reinstall`: `plugin install line`
+  // refuses because the plugin directory already exists.
   await expect(
     core.status.checkPluginChannels(core.getRuntimeConfig()),
-  ).resolves.toContainEqual({
-    severity: 'error',
-    message: 'LINE plugin not installed',
-  });
+  ).resolves.toContainEqual({ severity: 'error', message: REINSTALL_LINE });
+  expect(() => core.transports.requireChannelTransport('line')).toThrow(
+    REINSTALL_LINE,
+  );
+  const toolTarget = core.toolSend.resolvePluginChannelTarget(lineTarget);
+  expect(toolTarget).toEqual({ kind: 'line', channelId: lineTarget });
+  await expect(
+    core.toolSend.sendPluginChannelToolMessage({
+      ...(toolTarget as NonNullable<typeof toolTarget>),
+      content: 'note',
+      filePath: null,
+      hasComponents: false,
+      from: undefined,
+    }),
+  ).rejects.toThrow(REINSTALL_LINE);
+  await expect(core.gateway.startPluginChannelIntegration('line')).resolves.toBe(
+    false,
+  );
+  expect(warn).toHaveBeenCalledWith(
+    `LINE integration disabled: ${REINSTALL_LINE}`,
+  );
   // The pairing file is untouched, so a reinstall resumes the old session.
   expect(
     JSON.parse(
@@ -223,4 +247,48 @@ test('a stale create-only LINE plugin fails loudly with the reinstall command', 
       ),
     ),
   ).toHaveProperty(['.hybridclaw:profileMid'], SELF_MID);
-});
+}, 60_000);
+
+test('a live plugin reload after reinstalling LINE brings the channel back without a restart', async () => {
+  const dataDir = seed039DataDir({ linePlugin: 'legacy' });
+  const core = await loadCore(dataDir);
+  expect(core.transports.hasChannelTransport('line')).toBe(false);
+
+  // `hybridclaw plugin reinstall line` replaces the plugin tree in place.
+  const linePluginDir = path.join(dataDir, 'plugins', 'line');
+  fs.rmSync(linePluginDir, { recursive: true, force: true });
+  copyPlugin(path.join(ROOT, 'plugins/line'), linePluginDir);
+
+  const pluginService = await import('../src/gateway/gateway-plugin-service.js');
+  const changes: unknown[] = [];
+  pluginService.setChannelPluginAvailabilityListener(async (next) => {
+    changes.push(...next);
+  });
+  try {
+    await expect(pluginService.reloadPluginRuntime()).resolves.toMatchObject({
+      ok: true,
+    });
+  } finally {
+    pluginService.setChannelPluginAvailabilityListener(null);
+  }
+
+  expect(changes).toEqual([{ channel: 'line', available: true }]);
+  await expect(
+    core.transports.requireChannelTransport('line').getAuthStatus(),
+  ).resolves.toEqual({ linked: true, mid: SELF_MID });
+  expect(core.transports.describeMissingChannelTransport('line')).toContain(
+    'hybridclaw plugin install line',
+  );
+  // The released create-only WhatsApp plugin is re-adapted on every reload.
+  expect(
+    core.transports
+      .requireChannelTransport('whatsapp')
+      .normalizeTarget('whatsapp:+49 170 1234567'),
+  ).toBe('491701234567@s.whatsapp.net');
+  await expect(
+    core.status.getPluginChannelGatewayStatuses(core.getRuntimeConfig()),
+  ).resolves.toMatchObject({
+    line: { linked: true, mid: SELF_MID },
+    whatsapp: { linked: true, jid: '491701234567:7@s.whatsapp.net' },
+  });
+}, 60_000);

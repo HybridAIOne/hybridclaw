@@ -2399,19 +2399,25 @@ async function handleAuthLineCommand(normalizedArgs: string[]): Promise<void> {
 }
 
 async function resetPluginChannelAuth(kind: PluginChannelKind): Promise<void> {
-  const { ensurePluginManagerInitialized } = await import(
-    '../plugins/plugin-manager.js'
-  );
+  const { ensurePluginManagerInitialized, shutdownPluginManager } =
+    await import('../plugins/plugin-manager.js');
   await ensurePluginManagerInitialized();
-  const registration = requireChannelTransport(kind);
-  const name = getPluginChannelName(kind);
-  const { linked } = await registration.getAuthStatus();
-  console.log(`Reset ${name} auth state at ${await registration.resetAuth()}.`);
-  console.log(
-    linked
-      ? `Linked ${name} account cleared. Re-run \`hybridclaw channels ${kind} setup\` to pair again.`
-      : `No linked ${name} account was present. Run \`hybridclaw channels ${kind} setup\` when you are ready to pair.`,
-  );
+  try {
+    const registration = requireChannelTransport(kind);
+    const name = getPluginChannelName(kind);
+    const { linked } = await registration.getAuthStatus();
+    console.log(
+      `Reset ${name} auth state at ${await registration.resetAuth()}.`,
+    );
+    console.log(
+      linked
+        ? `Linked ${name} account cleared. Re-run \`hybridclaw channels ${kind} setup\` to pair again.`
+        : `No linked ${name} account was present. Run \`hybridclaw channels ${kind} setup\` when you are ready to pair.`,
+    );
+  } finally {
+    // Plugin services would otherwise keep this one-shot CLI process alive.
+    await shutdownPluginManager();
+  }
 }
 
 async function handleAuthWhatsAppCommand(

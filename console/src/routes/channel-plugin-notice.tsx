@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { installOfficialPlugin } from '../api/client';
+import { installOfficialPlugin, reinstallPlugin } from '../api/client';
 import type { GatewayChannelPluginStatus } from '../api/types';
 import { Button } from '../components/button';
 import { useToast } from '../components/toast';
@@ -12,12 +12,14 @@ export function ChannelPluginNotice(props: {
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  // An installed plugin that failed to load is already present, so only a
+  // reinstall replaces it; the linked account stays in the data dir.
+  const reinstall = props.plugin.loadFailed;
   const installMutation = useMutation({
     mutationFn: async () => {
-      const result = await installOfficialPlugin(
-        props.token,
-        props.plugin.pluginId,
-      );
+      const result = reinstall
+        ? await reinstallPlugin(props.token, props.plugin.installSource)
+        : await installOfficialPlugin(props.token, props.plugin.pluginId);
       if (result.kind === 'error') throw new Error(result.text);
       return result;
     },
@@ -28,20 +30,26 @@ export function ChannelPluginNotice(props: {
       void queryClient.invalidateQueries({
         queryKey: ['plugins', props.token],
       });
-      toast.success(`${props.channelLabel} plugin installed.`);
+      toast.success(
+        `${props.channelLabel} plugin ${reinstall ? 'reinstalled' : 'installed'}.`,
+      );
     },
     onError: (error) => {
-      toast.error('Plugin installation failed', getErrorMessage(error));
+      toast.error(
+        `Plugin ${reinstall ? 'reinstall' : 'installation'} failed`,
+        getErrorMessage(error),
+      );
     },
   });
 
   return (
     <aside className="channel-plugin-notice" aria-label="Plugin required">
       <div>
-        <strong>{props.channelLabel} plugin not installed</strong>
+        <strong>{`${props.channelLabel} plugin ${reinstall ? 'failed to load' : 'not installed'}`}</strong>
         <span>
-          Install the {props.channelLabel} transport plugin and its required
-          dependencies on this gateway.
+          {reinstall
+            ? `The installed ${props.channelLabel} plugin could not be loaded. Reinstall it; the linked account is kept.`
+            : `Install the ${props.channelLabel} transport plugin and its required dependencies on this gateway.`}
         </span>
       </div>
       <Button
@@ -50,8 +58,8 @@ export function ChannelPluginNotice(props: {
         onClick={() => installMutation.mutate()}
       >
         {installMutation.isPending
-          ? 'Installing plugin...'
-          : `Install ${props.channelLabel} plugin`}
+          ? `${reinstall ? 'Reinstalling' : 'Installing'} plugin...`
+          : `${reinstall ? 'Reinstall' : 'Install'} ${props.channelLabel} plugin`}
       </Button>
     </aside>
   );

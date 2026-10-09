@@ -40,8 +40,11 @@ Existing linked sessions are preserved. The plugin uses the same
 
 The plugin owns the LINE credential store, pairing prompt, and `line:` target
 syntax. A LINE plugin installed before 0.2.0 registered only its transport and
-no longer loads; `hybridclaw doctor` reports it and the plugin list shows the
-fix. Update it in place, keeping the linked session:
+no longer loads. `hybridclaw plugin list`, the console Channels page, LINE
+sends, and, while LINE is enabled, `hybridclaw doctor` and the gateway log
+report it with the fix. `hybridclaw plugin install line` refuses because the
+plugin is already installed, so update it in place, keeping the linked
+session (the console's **Reinstall LINE plugin** button does the same):
 
 ```bash
 hybridclaw plugin reinstall line --yes

@@ -547,11 +547,14 @@ function applyChannelPluginStatus(
     (entry) => entry.channel === item.kind,
   );
   if (!plugin || plugin.transportAvailable) return item;
+  const problem = plugin.loadFailed
+    ? 'plugin failed to load'
+    : 'plugin not installed';
   return {
     ...item,
-    summary: 'Plugin not installed',
+    summary: `${problem[0].toUpperCase()}${problem.slice(1)}`,
     statusTone: 'available',
-    statusLabel: 'plugin not installed',
+    statusLabel: problem,
   };
 }
 
