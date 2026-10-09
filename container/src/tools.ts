@@ -91,6 +91,11 @@ import {
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  runShowDashboard,
+  SHOW_DASHBOARD_DEFINITION,
+  SHOW_DASHBOARD_TOOL,
+} from './tools/dashboard.js';
+import {
   DRAFT_EMAIL_TOOL_DEFINITION,
   runDraftEmailTool,
 } from './tools/draft-email.js';
@@ -2281,6 +2286,25 @@ function writeWorkspaceFile(userPath: string, contents: string): void {
   fs.writeFileSync(filePath, contents);
 }
 
+/** A workspace file's text, or '' when there is none. */
+function readWorkspaceText(userPath: string): string {
+  try {
+    if (TASK_SANDBOX_FS_ENABLED) {
+      const sandboxPath = resolveTaskSandboxPath(userPath);
+      if (!sandboxPath) return '';
+      const copied = copyTaskSandboxFileToTemp(sandboxPath);
+      try {
+        return fs.readFileSync(copied.localPath, 'utf-8');
+      } finally {
+        fs.rmSync(copied.tempDir, { recursive: true, force: true });
+      }
+    }
+    return fs.readFileSync(safeJoin(userPath), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
@@ -3052,6 +3076,16 @@ async function executeToolInternal(
     case DRAFT_TRANSFER_TOOL: {
       try {
         return runDraftTransfer(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case SHOW_DASHBOARD_TOOL: {
+      try {
+        return runShowDashboard(args, writeWorkspaceFile, readWorkspaceText);
       } catch (err) {
         return failTool(
           `Error: ${err instanceof Error ? err.message : String(err)}`,
@@ -3978,6 +4012,7 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_take_over':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
     case 'browser_snapshot':
@@ -4358,6 +4393,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
+  SHOW_DASHBOARD_DEFINITION,
   {
     type: 'function',
     function: {

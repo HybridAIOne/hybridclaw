@@ -223,7 +223,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
   );
   expect(prompt).toContain(
-    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. Never emit the real token in prose or tool arguments.',
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. When a page asks the user to sign in, use `browser_sign_in`, which fills or asks for the sign-in the user saved for that site; never ask for a password in chat. When the user wants to drive your browser or show you how to do something there, use `browser_take_over`. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -759,6 +759,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(web).not.toContain('call `show_widget`');
   expect(mobile).toContain('call `draft_transfer`');
   expect(web).not.toContain('call `draft_transfer`');
+  expect(mobile).toContain('call `show_dashboard`');
+  expect(web).not.toContain('call `show_dashboard`');
 });
 
 test('the mobile client prompt leaves out coding, document-building and browser detail', () => {
