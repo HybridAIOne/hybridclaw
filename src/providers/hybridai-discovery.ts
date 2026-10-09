@@ -13,6 +13,7 @@ import {
   MissingRequiredEnvVarError,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import { MODEL_METADATA_USD_TO_EUR } from './model-metadata.js';
 import {
   formatHybridAIModelForCatalog,
   stripHybridAIModelPrefix,
@@ -278,6 +279,7 @@ export interface HybridAIDiscoveryStore {
   getModelPricingUsdPerToken: (
     model: string,
   ) => { input: number | null; output: number | null } | null;
+  getModelFreeTier: (model: string) => boolean;
 }
 
 interface HybridAIDiscoveryState {
@@ -293,6 +295,8 @@ interface HybridAIDiscoveryState {
   zoneModelKeyLookup: HybridAIModelKeyLookup;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   pricingModelKeyLookup: HybridAIModelKeyLookup;
+  freeTierByModel: Map<string, boolean>;
+  freeTierModelKeyLookup: HybridAIModelKeyLookup;
 }
 
 const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
@@ -308,7 +312,32 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   zoneModelKeyLookup: buildHybridAIModelKeyLookup([]),
   pricingByModel: new Map(),
   pricingModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  freeTierByModel: new Map(),
+  freeTierModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
+
+// HybridAI lists `pricing` in OpenRouter's shape but in EUR per token, the
+// price its wallet charges; the catalog keeps USD like every other provider.
+function readHybridAIPricingUsdPerToken(
+  entry: Record<string, unknown>,
+): DiscoveredModelPricingUsdPerToken | null {
+  const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+  if (!pricing) return null;
+  const usd = <T extends number | null | undefined>(eur: T): T =>
+    (typeof eur === 'number'
+      ? eur * MODEL_METADATA_USD_TO_EUR.usdPerEur
+      : eur) as T;
+  return {
+    input: usd(pricing.input),
+    output: usd(pricing.output),
+    ...(pricing.cacheRead !== undefined
+      ? { cacheRead: usd(pricing.cacheRead) }
+      : {}),
+    ...(pricing.cacheWrite !== undefined
+      ? { cacheWrite: usd(pricing.cacheWrite) }
+      : {}),
+  };
+}
 
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   const discoveryStore = createDiscoveryStore(
@@ -353,6 +382,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const zones = new Map<string, ModelRoutingZone>();
     const destinations = new Map<string, HybridAIDestination>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
+    const freeTierByModel = new Map<string, boolean>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
@@ -394,10 +424,12 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         normalized,
         destination?.zone ?? normalizeModelRoutingZone(entry.zone),
       );
-      const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+      const pricing = readHybridAIPricingUsdPerToken(entry);
       if (pricing) {
         pricingByModel.set(normalized, pricing);
       }
+      // The wallet never pays for a free-tier model, whatever its price.
+      if (entry.free_tier === true) freeTierByModel.set(normalized, true);
     }
 
     lastError = null;
@@ -418,6 +450,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       zoneModelKeyLookup: buildHybridAIModelKeyLookup(zones.keys()),
       pricingByModel,
       pricingModelKeyLookup: buildHybridAIModelKeyLookup(pricingByModel.keys()),
+      freeTierByModel,
+      freeTierModelKeyLookup: buildHybridAIModelKeyLookup(
+        freeTierByModel.keys(),
+      ),
     };
   }
 
@@ -513,6 +549,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.pricingByModel.get(normalized) ?? null;
     },
+    getModelFreeTier: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.freeTierByModel,
+        state.freeTierModelKeyLookup,
+      );
+      return state.freeTierByModel.get(normalized) === true;
+    },
   };
 }
 
@@ -560,6 +605,11 @@ export function getDiscoveredHybridAIModelPricingUsdPerToken(
   model: string,
 ): { input: number | null; output: number | null } | null {
   return defaultHybridAIDiscoveryStore.getModelPricingUsdPerToken(model);
+}
+
+/** Whether HybridAI's wallet never pays for this model (`free_tier`). */
+export function isDiscoveredHybridAIFreeTierModel(model: string): boolean {
+  return defaultHybridAIDiscoveryStore.getModelFreeTier(model);
 }
 
 export function getDiscoveredHybridAIModelDestination(

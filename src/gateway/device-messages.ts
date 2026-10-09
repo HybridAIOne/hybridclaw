@@ -8,6 +8,7 @@
 
 import type { ServerResponse } from 'node:http';
 import { getSessionAssistantMessage } from '../memory/db.js';
+import { taskCostFromRoutingTrace } from '../usage/task-cost.js';
 import { workForMessage } from '../work/work-store.js';
 import { readDeviceActivity } from './device-activity.js';
 import { sendJson } from './gateway-http-utils.js';
@@ -53,6 +54,8 @@ export function handleDeviceMessageRoute(
     });
     return;
   }
+  // What the reply cost, for a reply the phone did not see finish.
+  const cost = taskCostFromRoutingTrace(message.routingTrace);
   sendJson(res, 200, {
     work: workForMessage(sessionId, message.id),
     id: message.id,
@@ -64,6 +67,7 @@ export function handleDeviceMessageRoute(
     source: message.source ?? null,
     // The email the reply showed as a card; its text is in `content` too.
     ...(message.emailDraft ? { emailDraft: message.emailDraft } : {}),
+    ...(cost ? { cost } : {}),
     // SQLite stores UTC without a zone.
     createdAt: `${message.created_at.replace(' ', 'T')}Z`,
   });

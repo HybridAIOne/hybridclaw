@@ -69,6 +69,38 @@ describe('hybridai discovery', () => {
     );
   });
 
+  test('reads HybridAI prices as euros and marks free-tier models', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'gpt-paid',
+                  pricing: { prompt: '0.000002', completion: '0.00001' },
+                },
+                {
+                  id: 'gpt-free',
+                  free_tier: true,
+                  pricing: { prompt: '0.0000005', completion: '0.000002' },
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    const { createHybridAIDiscoveryStore } = await importFreshDiscovery();
+    const store = createHybridAIDiscoveryStore();
+    await store.discoverModels({ force: true });
+    const pricing = store.getModelPricingUsdPerToken('hybridai/gpt-paid');
+    expect(pricing?.input).toBeCloseTo(0.000002 * 1.1712, 12);
+    expect(pricing?.output).toBeCloseTo(0.00001 * 1.1712, 12);
+    expect(store.getModelFreeTier('hybridai/gpt-free')).toBe(true);
+    expect(store.getModelFreeTier('gpt-paid')).toBe(false);
+  });
+
   test('reads HybridAI context windows from context_length', async () => {
     vi.stubGlobal(
       'fetch',

@@ -248,6 +248,7 @@ import {
   openChatStreamTurn,
   rejoinChatStreamTurn,
 } from './chat-stream-turns.js';
+import { runCostEstimateToolAction } from './cost-estimate.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -11420,6 +11421,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiTodo(req, res);
+            return;
+          }
+          if (pathname === '/api/cost-estimate' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await runCostEstimateToolAction(await readJsonBody(req)),
+            );
             return;
           }
           if (pathname === '/api/track' && method === 'POST') {
