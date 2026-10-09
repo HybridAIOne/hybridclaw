@@ -2898,6 +2898,24 @@ export class TrustedAgentApprovalRuntime {
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
 
+    if (lowerTool === 'draft_transfer') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'show a bank transfer for the user to make',
+        consequenceIfDenied:
+          'I will give the transfer details in text instead.',
+        reason:
+          'this only writes a new file under transfers/ for the app to show; nothing is paid',
+        commandPreview: normalizePreview(String(args.name ?? '')),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool === 'show_widget') {
       return {
         tier: 'green',

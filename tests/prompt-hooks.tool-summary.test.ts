@@ -755,6 +755,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('call `show_widget`');
   expect(mobile).toContain('`hy.ask(');
   expect(web).not.toContain('call `show_widget`');
+  expect(mobile).toContain('call `draft_transfer`');
+  expect(web).not.toContain('call `draft_transfer`');
 });
 
 test('the mobile client prompt leaves out coding, document-building and browser detail', () => {
