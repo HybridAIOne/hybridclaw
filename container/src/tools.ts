@@ -98,6 +98,7 @@ import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
+import { PROOF_TOOL_DEFINITION, runProofTool } from './tools/proof.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -3649,6 +3650,10 @@ async function executeToolInternal(
       const { ok, text } = runDraftEmailTool(args);
       return ok ? text : failTool(text);
     }
+    case 'proof': {
+      const { ok, text } = runProofTool(args);
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4268,6 +4273,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
+  PROOF_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,
   SLIDE_SAMPLES_TOOL_DEFINITION,
