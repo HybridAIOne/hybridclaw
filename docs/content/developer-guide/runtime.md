@@ -489,9 +489,14 @@ Session behavior matches the routing rules above:
   the rest, so the message is not answered twice
 - a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
   line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
-  `userMessageId`, `assistantMessageId`, and `artifacts`. Tool
+  `userMessageId`, `assistantMessageId`, and `artifacts`, plus `emailDraft`
+  and `sessionTitle` when the turn has them. Tool
   arguments and outputs, usage, prompts, and routing are left out; the `tool`
   lines already reported each call
+- the first turn of a session starts its auxiliary title request once routing
+  has accepted the turn, so it runs alongside the model call. The success `result` carries `sessionTitle` only when
+  the title was ready before the reply; the turn never waits for it. The title
+  is stored once it arrives, and only when the turn succeeded
 
 ## Persistent Browser Profiles
 

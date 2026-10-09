@@ -109,7 +109,7 @@ import {
 import { recordRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
 import { buildSessionContext } from '../session/session-context.js';
-import { maybeAutoTitleSession } from '../session/session-title.js';
+import { startSessionTitle } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
@@ -1274,15 +1274,18 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
-  // Each success path returns after scheduling title work, so one turn enqueues
-  // at most one title request.
-  const autoTitleParams = () => ({
-    sessionId: req.sessionId,
-    agentId,
-    chatbotId,
-    model,
-    isFirstTurn: turnIndex === 1,
-  });
+  // The title only needs the user's message. It is requested once routing
+  // has accepted the turn (a privacy rejection sends nothing), runs alongside
+  // the reply, and is stored only by a success path: one request per turn.
+  const startTitle = (userContent: string) =>
+    startSessionTitle({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      model,
+      userContent,
+      isFirstTurn: turnIndex === 1 && !session.title,
+    });
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
@@ -1362,10 +1365,7 @@ async function handleGatewayMessageInner(
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
-      maybeAutoTitleSession({
-        ...autoTitleParams(),
-        userContent: routingUserContent,
-      });
+      startTitle(routingUserContent)?.persist();
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
@@ -1743,6 +1743,9 @@ async function handleGatewayMessageInner(
     return attachSessionIdentity(result);
   }
 
+  const titleRequest = startTitle(
+    buildStoredUserTurnContent(userTurnContent, media),
+  );
   const fetchedHistory = memoryService.getConversationHistory(
     req.sessionId,
     HISTORY_FETCH_LIMIT,
@@ -3053,6 +3056,7 @@ async function handleGatewayMessageInner(
     }
 
     tail.mark('pluginMemoryHooks');
+    const sessionTitle = titleRequest?.readyTitle();
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
@@ -3087,14 +3091,12 @@ async function handleGatewayMessageInner(
       ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
       ...(costEstimate ? { costEstimate } : {}),
       ...receiptOf(toolExecutions),
+      ...(sessionTitle ? { sessionTitle } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await continueGoalAfterResult(result);
     tail.mark('postTurn');
-    maybeAutoTitleSession({
-      ...autoTitleParams(),
-      userContent: storedUserContent,
-    });
+    titleRequest?.persist();
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,

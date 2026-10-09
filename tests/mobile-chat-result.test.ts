@@ -124,6 +124,10 @@ describe('chatResultForClient', () => {
       },
     ],
     [
+      'the first reply of a new chat',
+      { ...skillsListTurn(), sessionTitle: 'Weekend Trip Plan' },
+    ],
+    [
       'a failed turn',
       {
         status: 'error',
@@ -143,6 +147,7 @@ describe('chatResultForClient', () => {
         'userMessageId',
         'assistantMessageId',
         'artifacts',
+        'sessionTitle',
       ] as const;
       const slim = chatResultForClient('mobile', result);
       for (const field of read) expect(slim[field]).toEqual(result[field]);
