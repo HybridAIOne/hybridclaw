@@ -227,6 +227,18 @@ import {
   verifyLaunchToken,
 } from './auth-token.js';
 import {
+  consumeTakeOverStreamToken,
+  handleApiTakeOver,
+  handleApiTakeOverRuntime,
+  handleTakeOverUpgrade,
+  TAKE_OVER_CLOSE_PATH,
+  TAKE_OVER_CONNECT_PATH,
+  TAKE_OVER_FINISH_PATH,
+  TAKE_OVER_OPEN_PATH,
+  TAKE_OVER_STATUS_PATH,
+  TAKE_OVER_STREAM_PATH,
+} from './browser-take-over.js';
+import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
@@ -11261,6 +11273,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            (pathname === TAKE_OVER_CONNECT_PATH ||
+              pathname === TAKE_OVER_FINISH_PATH) &&
+            method === 'POST'
+          ) {
+            await handleApiTakeOver(
+              req,
+              res,
+              pathname,
+              resolveAdminSecretAuditContext(req, authContext),
+            );
+            return;
+          }
+          if (
             pathname === SIGN_INS_PATH ||
             pathname.startsWith(`${SIGN_INS_PATH}/`)
           ) {
@@ -11470,6 +11495,22 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiShellEnv(res, hasGatewayApiAuth(req));
             return;
           }
+          if (
+            (pathname === TAKE_OVER_OPEN_PATH ||
+              pathname === TAKE_OVER_STATUS_PATH ||
+              pathname === TAKE_OVER_CLOSE_PATH) &&
+            method === 'POST'
+          ) {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiTakeOverRuntime(req, res, pathname);
+            return;
+          }
           if (pathname === BROWSER_SIGN_IN_LOOKUP_PATH && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {
@@ -11652,6 +11693,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       !isLoopbackWebRequest(req)
     ) {
       writeUpgradeError(socket, 404, 'Not Found');
+      return;
+    }
+
+    if (url.pathname === TAKE_OVER_STREAM_PATH) {
+      // Only the single-use token `/api/browser/take-over/connect` minted for
+      // a caller allowed to control the browser.
+      const takeOverId = consumeTakeOverStreamToken(
+        (url.searchParams.get('token') || '').trim(),
+      );
+      if (!takeOverId) {
+        writeUpgradeError(socket, 401, 'Unauthorized');
+        return;
+      }
+      handleTakeOverUpgrade(req, socket, head, takeOverId);
       return;
     }
 

@@ -3937,6 +3937,7 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_take_over':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
     case 'browser_snapshot':

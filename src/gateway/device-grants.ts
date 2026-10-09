@@ -74,6 +74,10 @@ export const OWNER_DEVICE_TOKEN_ACTIONS = [
   'system_files.write',
   'chat.history',
   'openai.api',
+  // 2026-10-09 (product owner): the owner takes over the agent's browser for
+  // sign-ins, 2FA and showing it a task once. Their phone sees and drives the
+  // browser, with the sites the agent is signed in to; other phones don't.
+  'browser.control',
 ] as const satisfies readonly AdminRbacAction[];
 
 // A token with this claim is the owner's: notifications and chats bound to the

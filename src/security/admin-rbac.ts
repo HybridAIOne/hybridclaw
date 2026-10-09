@@ -62,6 +62,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'system_files.write',
   'voice.session',
   'sign_ins.manage',
+  'browser.control',
   'status.read',
   'agents.read',
   'apps.read',
@@ -144,6 +145,9 @@ export type AdminRbacAction = (typeof ADMIN_RBAC_ACTIONS)[number];
 const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   NOTES_RUNTIME_PATH,
   '/api/browser/sign-in',
+  '/api/browser/take-over',
+  '/api/browser/take-over/close',
+  '/api/browser/take-over/status',
   '/api/browser/tool',
   '/api/delegate',
   '/api/device-data',
@@ -553,6 +557,14 @@ export function resolveAdminRbacAction(
   }
   if (pathname.startsWith('/api/sign-ins/') && method === 'DELETE') {
     return 'sign_ins.manage';
+  }
+  // The user drives the agent's browser; see `browser-take-over.ts`.
+  if (
+    (pathname === '/api/browser/take-over/connect' ||
+      pathname === '/api/browser/take-over/finish') &&
+    method === 'POST'
+  ) {
+    return 'browser.control';
   }
   if (pathname === '/api/command' && method === 'POST') {
     return 'chat.send';
