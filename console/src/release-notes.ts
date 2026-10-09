@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.6',
+  version: '0.39.7',
   highlights: [
-    'Reconnect to a running chat turn safely',
-    'Browser providers run as bundled plugins',
-    'Clearer channel setup and upgrade guidance',
-    'For you brief edits confirm after saving',
+    'Side chats with their own memory and connectors',
+    'Dashboards and event-triggered tasks',
+    'Take over the browser from the Hy app',
+    'Receipts, costs and personal data controls',
   ],
 } as const;
 

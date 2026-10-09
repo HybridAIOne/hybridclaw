@@ -2,22 +2,72 @@
 
 ## Unreleased
 
+## [0.39.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.7) - 2026-10-09
+
 ### Added
 
-- **Always-allow rules**: `/approvals rules` lists the action kinds an agent
-  may run without asking (from `yes for agent` and `yes for all`), with what
-  each covers and when it was granted, and `revoke` removes one. A revoke
-  applies from the running worker's next tool call. Approval events name the
-  rule that paused the call (`rule.pausedBy`) and what an always-allow would
-  cover, so apps can show both on their approval cards.
-- **Event triggers**: "When something arrives, do this", set up in chat with
-  the new `trigger` tool or `/schedule add --on mail|slack|webhook`. New mail
-  (relayed, plus a regular look), Slack channel messages and calls to a
-  trigger's secret `/api/triggers/<token>` address queue a reply-only run;
-  mail is reread with connected tools, while Slack messages and webhook bodies
-  reach the model fenced as outside data. `list --json` shows each `trigger`.
-  The `connector-events` owner binding also accepts `outlook`, `mailbox` and
-  `slack` changes. See the event triggers guide.
+- **Scoped side chats**: Group chats into scopes with their own memory, notes,
+  transcripts and selected connectors. The main chat can search across scopes.
+  Manage them with `/api/scopes` and choose a scope when starting a chat.
+- **Dashboards**: Build figures, charts and tables from connected data, with the
+  query behind each figure. Refresh with `/dashboard refresh` or schedule a
+  daily or weekly refresh with `/dashboard schedule`.
+- **Event triggers**: Set up tasks in chat with `trigger` or
+  `/schedule add --on mail|slack|webhook`. New mail, Slack channel messages and
+  calls to a trigger's secret webhook address queue a reply-only run. Manage
+  triggers with the existing schedule commands.
+- **Browser takeover**: Take control of the agent's browser from the Hy app to
+  sign in, complete a security check or demonstrate a task, then save the
+  demonstration as a routine. Requires host sandbox mode.
+- **Inbox cleanup**: Preview bulk mail in sender groups, archive the groups
+  approved on a card and undo for 30 days. Each archive requires approval;
+  the tool never deletes mail. Requires a connected IMAP mailbox.
+- **Personal data controls**: Inspect, edit and delete individual memories;
+  list, archive and delete owned phone chats; export data as a ZIP archive.
+  Shared cloud memory remains read-only.
+- **Receipts and task costs**: Replies carry receipts derived from tool calls,
+  including failures and evidence of confirmation. The `proof` tool records
+  confirmation emails, pages or screenshots; unchecked actions remain
+  unconfirmed. Replies also expose model cost and request counts, with
+  `estimate_cost` available before larger tasks.
+- **Always-allow controls**: `/approvals rules` lists persistent grants and
+  `revoke` removes one, effective from the running worker's next tool call.
+  Approval events name the rule that paused the action and what a persistent
+  grant would cover.
+
+### Changed
+
+- **Approval and app notices**: `/api/chat` accepts structured approval answers
+  and tagged app notices. These reach the agent without appearing in restored
+  chat history; ordinary user messages remain visible.
+- **Office skill libraries**: Shared document and spreadsheet libraries use
+  the locked skill runtime instead of gateway dependencies. Docker images and
+  the desktop app carry them; host installs can set them up with one command.
+
+### Fixed
+
+- **Voice calls**: Phones can call into their existing chats again. Chat access
+  uses the authenticated operator identity; unavailable chat summaries no
+  longer prevent the call from starting.
+- **Email draft cards**: Drafts require a sender, recipient and subject.
+  Scheduled drafts retain their card when delivered to the main chat.
+- **New chat titles**: A new chat's title arrives with its first reply, without
+  waiting for a history reload.
+- **Skill execution**: Agent login shells preserve the worker's tool path;
+  desktop and host agents resolve skill libraries and PDF dependencies from
+  their runtime. Concurrent skill-library setup is refused with a clear hint.
+
+### Upgrade Notes
+
+- For npm installs using host sandbox mode, run `hybridclaw skill setup xlsx`
+  once to install the shared DOCX, XLSX and PPTX libraries. Rerun after an
+  upgrade changes the tool lockfile. Docker and desktop runtimes need no setup.
+- Update companion apps to use the new scope, data-control, browser takeover,
+  receipt, cost and structured approval fields. Custom callers of `draft_email`
+  must supply `from`, `to`, `subject` and `body`.
+- Scopes partition workspace memory and selected connector tools. Browser
+  profiles and sign-ins remain shared, and messaging-channel reads are not
+  partitioned. Host mode does not provide filesystem sandbox isolation.
 
 ## [0.39.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.6) - 2026-10-09
 
