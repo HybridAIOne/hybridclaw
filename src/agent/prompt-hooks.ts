@@ -45,6 +45,7 @@ import {
   AFTER_FILE_CHANGE_LINES,
   APP_ARTIFACT_LINES,
   APP_CHECKLIST_LINES,
+  APP_DASHBOARD_LINES,
   APP_DELEGATION_LINES,
   APP_DOCUMENT_LINES,
   APP_PICTURE_LINES,
@@ -770,6 +771,7 @@ function buildRuntimeHook(context: PromptHookContext): string {
           ...APP_SLIDE_DECK_LINES,
           ...APP_WIDGET_LINES,
           ...APP_TRANSFER_LINES,
+          ...APP_DASHBOARD_LINES,
           'When the user asks what you can access or which services are connected, call `hybridai__list_connectors` for their accounts and `device_data` for what their phone shares, whichever you have, and answer from what they return instead of guessing from your tool names. The user connects both under Connectors in the app.',
           ...APP_PICTURE_LINES,
         ]

@@ -96,6 +96,10 @@ import {
   stopTokenUsageBuffer,
 } from '../usage/token-usage-buffer.js';
 import { dispatchA2AInboxItemToGateway } from './a2a-inbox-dispatch.js';
+import {
+  startDashboardRefresher,
+  stopDashboardRefresher,
+} from './dashboard-command.js';
 import { validateGatewayPromptEnvDefaults } from './gateway-chat-service.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
@@ -108,6 +112,7 @@ import { migrateConfigSchedulerJobsToDatabase } from './gateway-scheduled-task-s
 import {
   getGatewayStatus,
   resumeEnabledFullAutoSessions,
+  runDashboardRefresh,
 } from './gateway-service.js';
 import {
   getInFlightTurnCount,
@@ -485,6 +490,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     }
     await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
+    stopDashboardRefresher();
     stopMemoryConsolidationScheduler();
     await runShutdownStep('flush audit trail', flushAuditTrail);
     // Every database writer is stopped by now; checkpoint and close so no
@@ -724,6 +730,7 @@ async function main(): Promise<void> {
     }),
   );
   startOrRestartMemoryConsolidationScheduler();
+  startDashboardRefresher(runDashboardRefresh);
   proactiveFlushTimer = setInterval(() => {
     void flushQueuedProactiveMessages().catch((err) => {
       logger.warn({ err }, 'Failed to flush queued proactive messages');
