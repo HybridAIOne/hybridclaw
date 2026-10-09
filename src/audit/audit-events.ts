@@ -125,12 +125,12 @@ function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
   return out;
 }
 
-const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipients', 'toRecipients'];
+export const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipients', 'toRecipients'];
 
 // The domains of the addresses under `keys`, as "@aa.com": the audit redacts
 // the addresses themselves, and a receipt still says where a mail went, and
 // who sent the email that proved it (`proof`'s `from`).
-function addressDomains(
+export function addressDomains(
   args: Record<string, unknown>,
   keys: readonly string[],
 ): string[] {
@@ -248,6 +248,9 @@ export function emitToolExecutionAuditEvents(input: {
         approvalTier: effectiveTier,
         approvalBaseTier: effectiveBaseTier,
         approvalDecision: effectiveDecision,
+        ...(typeof execution.writeIntent === 'boolean'
+          ? { writeIntent: execution.writeIntent }
+          : {}),
         reason: effectiveReason,
         anomaly,
       },

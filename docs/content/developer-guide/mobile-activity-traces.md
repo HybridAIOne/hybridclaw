@@ -42,6 +42,31 @@ Network/authentication failures show Retry, not an empty history. Both apps chec
 message/session identity, protocol version, ordering, page boundaries, field
 sizes and durations. Account/persona changes invalidate in-flight responses.
 
+## Receipt: what the reply read, sent and changed
+
+The trace says what ran; the receipt says what came of it. The turn's `result`
+line (`client: "mobile"`), `GET /api/chat/message`, and the first activity page
+(`activityOffset=0`) carry `receipt`, built from the turn's tool calls and never
+from the reply's words (`src/gateway/turn-receipt.ts`):
+
+- `version: 1`, `items` (at most 30, in call order) and `more` (left out).
+- Each item: `kind` (`read`, `sent` or `changed`), `tool`, `service`, `target`
+  (a subject, title, page, file or search, without addresses or credentials),
+  `to` (recipient domains), `count` (identical reads in a row), `ok`,
+  `blocked` (the policy or the user stopped it), `error`, and `proof`.
+- The approval policy's own classification (`writeIntent`, now recorded on
+  `autonomy.decision`) sorts reads from changes. A call with recipients, or a
+  `message` send, is `sent`. Calls waiting for approval, the agent's own cards
+  and bookkeeping (`proof`, `draft_email`, `show_widget`…) are left out.
+- `proof` is set for a successful send or change outside the sandbox
+  (connector, `message`, browser) and follows the `/receipts` rule: a
+  connector's own success counts; anything else needs a `proof` call after a
+  matching check in the same turn, or it is `unconfirmed`.
+- A stored reply finds its run through the `turn.end` audit row that names the
+  message. A turn that read, sent and changed nothing has an empty `items`
+  list, so the app can say so; replies from before the audit recorded them
+  have no `receipt`.
+
 ## Access and data handling
 
 Trace retrieval uses the existing `chat.send` permission and checks the session's

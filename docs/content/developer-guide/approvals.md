@@ -557,6 +557,18 @@ Notes:
   `agent`, `all`, or `no`) instead of `content`. The agent reads the matching
   reply text, but history leaves the answer out, as it does for `/approve`, so
   no client has to recognize answers by their wording.
+- `yes for agent` and `yes for all` trust the action's kind (its action key,
+  such as `bash:delete` or `network:api.example.com`), not only the one call.
+  `/approvals rules` lists these grants with what each covers and when it was
+  granted; `/approvals rules revoke <number|action>` removes one, and the
+  running worker asks again from its next tool call. `--json` returns
+  `{version: 1, rules: [{actionKey, scope, category, target?, label, intent?,
+  grantedAt?}]}` for apps.
+- Every approval event names its `rule`: `{actionKey, category, target?,
+  label, pausedBy}`, where `pausedBy` is why it asked (`risky`, `ask_mode`,
+  `protected`, `unusual`, or `workspace_policy`) and `category`/`target` say
+  what a `yes for agent` would cover. `allowAgent` is false when it cannot be
+  kept.
 - For pinned-sensitive red actions, `session`, `agent`, and `all` degrade to a
   one-time approval instead of creating durable trust.
 

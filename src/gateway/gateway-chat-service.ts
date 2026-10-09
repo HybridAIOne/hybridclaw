@@ -126,6 +126,7 @@ import {
   type ArtifactMetadata,
   normalizeEscalationTarget,
   type PendingApproval,
+  type ToolExecution,
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryAccess } from '../types/memory.js';
@@ -255,6 +256,7 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import { turnReceiptFromExecutions } from './turn-receipt.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
 import { userTurnSource } from './user-turn-source.js';
@@ -409,6 +411,14 @@ async function routeEscalationApproval(params: {
       },
     });
   }
+}
+
+// What the turn read, sent and changed, for the client to show beside the
+// reply (`turn-receipt.ts`).
+function receiptOf(
+  toolExecutions: ToolExecution[],
+): Pick<GatewayChatResult, 'receipt'> {
+  return { receipt: turnReceiptFromExecutions(toolExecutions) };
 }
 
 /**
@@ -2810,6 +2820,7 @@ async function handleGatewayMessageInner(
         errorCode: output.errorCode,
         userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
+        ...receiptOf(toolExecutions),
       };
       captureGatewayChatResultError({
         message: errorMessage,
@@ -3070,6 +3081,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
       ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
       ...(costEstimate ? { costEstimate } : {}),
+      ...receiptOf(toolExecutions),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await continueGoalAfterResult(result);

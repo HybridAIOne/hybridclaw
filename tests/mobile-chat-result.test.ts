@@ -175,4 +175,33 @@ describe('chatResultForClient', () => {
     expect(slim.length).toBeLessThan(400);
     expect(slim).not.toContain('skill-0');
   });
+
+  it('keeps the receipt, which the phone shows beside the reply', () => {
+    const receipt = {
+      version: 1 as const,
+      more: 0,
+      items: [
+        {
+          kind: 'read' as const,
+          tool: 'skills_list',
+          service: null,
+          target: 'skills',
+          to: [],
+          count: 1,
+          ok: true,
+          blocked: false,
+          error: null,
+          proof: null,
+        },
+      ],
+    };
+    const slim = chatResultForClient('mobile', {
+      ...skillsListTurn(),
+      receipt,
+    });
+    expect(slim.receipt).toEqual(receipt);
+    expect(chatResultForClient('mobile', skillsListTurn())).not.toHaveProperty(
+      'receipt',
+    );
+  });
 });

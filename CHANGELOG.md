@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Always-allow rules**: `/approvals rules` lists the action kinds an agent
+  may run without asking (from `yes for agent` and `yes for all`), with what
+  each covers and when it was granted, and `revoke` removes one. A revoke
+  applies from the running worker's next tool call. Approval events name the
+  rule that paused the call (`rule.pausedBy`) and what an always-allow would
+  cover, so apps can show both on their approval cards.
 - **Event triggers**: "When something arrives, do this", set up in chat with
   the new `trigger` tool or `/schedule add --on mail|slack|webhook`. New mail
   (relayed, plus a regular look), Slack channel messages and calls to a

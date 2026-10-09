@@ -5,6 +5,8 @@
  * late tool calls record no pending approval. NOT the policy
  * (`approval-policy.ts`).
  */
+
+import { approvalRuleFor } from '../shared/approval-rules.js';
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ApprovalPrelude,
@@ -70,6 +72,7 @@ export function buildPendingApproval(
       Number.isFinite(approval.expiresAtMs)
         ? approval.expiresAtMs
         : null,
+    rule: approvalRuleFor(approval.actionKey, approval.pausedBy || 'risky'),
     ...(approval.escalationTarget
       ? { escalationTarget: approval.escalationTarget }
       : {}),
@@ -93,6 +96,7 @@ export function buildApprovalRequiredToolExecution(params: {
     blockedReason: approval.reason,
     approvalTier: approval.tier,
     approvalBaseTier: approval.baseTier,
+    writeIntent: approval.writeIntent,
     autonomyLevel: approval.autonomyLevel,
     stakes: approval.stakes,
     stakesScore: approval.stakesScore,
@@ -128,6 +132,7 @@ export function buildApprovalDeniedToolExecution(params: {
     blockedReason: approval.reason,
     approvalTier: approval.tier,
     approvalBaseTier: approval.baseTier,
+    writeIntent: approval.writeIntent,
     autonomyLevel: approval.autonomyLevel,
     stakes: approval.stakes,
     stakesScore: approval.stakesScore,
