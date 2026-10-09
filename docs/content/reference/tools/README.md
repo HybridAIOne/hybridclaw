@@ -30,6 +30,16 @@ without revealing them to the model. See
 [Website sign-ins](../../getting-started/authentication.md#website-sign-ins)
 for storage, device permissions, and the client sign-in flow.
 
+`browser_take_over` hands the open page to the owner, who drives it from the
+Hy app, and waits up to 10 minutes. The gateway relays agent-browser's stream
+(frames out; mouse, keyboard and touch in) to the phone over
+`/api/browser/take-over/stream`, which needs the owner-only `browser.control`
+action and host sandbox mode. While the user drives, a page script records
+clicks, choices and typed values; passwords, one-time codes, card fields and
+sign-in names are recorded only as "typed". The steps reach the model only when
+the user picks "Remember how I did that", and the agent then saves them as a
+mini skill.
+
 ## Sending Local Files Through Tools
 
 For MCP tools, plugin tools, and `http_request`, use `<file-base64:path>` as

@@ -20,6 +20,10 @@ import {
   recordBrowserSnapshotRefs,
   resetBrowserPage,
 } from './browser-checkout.js';
+import {
+  runBrowserTakeOver,
+  TAKE_OVER_TOOL_NAME,
+} from './browser-take-over.js';
 import { captureAuxiliaryRuntimeContext } from './model-context.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
@@ -1131,13 +1135,22 @@ async function callGatewayInteractiveEscalation(
   pathSuffix: string,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const baseUrl = resolveGatewayInteractiveEscalationUrl();
-  if (!baseUrl) {
+  if (!resolveGatewayInteractiveEscalationUrl()) {
     throw new Error(
       'gatewayBaseUrl is not configured; cannot park browser interaction.',
     );
   }
-  const url = `${baseUrl}${pathSuffix}`;
+  return postToGateway(`/api/interactive-escalations${pathSuffix}`, payload);
+}
+
+/** A POST to one of the gateway's agent routes; throws with its error. */
+async function postToGateway(
+  pathname: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) throw new Error('gatewayBaseUrl is not configured.');
+  const url = `${base}${pathname}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -2474,6 +2487,7 @@ const BROWSER_FRAME_TOOLS = new Set([
   'browser_back',
   'browser_upload',
   'browser_resume_interaction',
+  TAKE_OVER_TOOL_NAME,
 ]);
 const BROWSER_FRAME_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'frames');
 const BROWSER_FRAME_KEEP = 24;
@@ -2721,6 +2735,24 @@ async function runBrowserTool(
 ): Promise<string> {
   try {
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
+    if (name === TAKE_OVER_TOOL_NAME) {
+      if (usesGatewayManagedBrowser()) {
+        return failure(
+          'Taking over works only with the browser in this sandbox (browser provider "local").',
+        );
+      }
+      return success(
+        await runBrowserTakeOver(gatewayBrowserSessionId || sessionId, args, {
+          browser: (command, commandArgs) =>
+            runAgentBrowser(effectiveSessionId, command, commandArgs, {
+              timeoutMs: 15_000,
+            }),
+          gateway: postToGateway,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          now: Date.now,
+        }),
+      );
+    }
     if (shouldUseGatewayManagedBrowser(name)) {
       return await executeGatewayManagedBrowserTool(
         name,
@@ -3623,6 +3655,25 @@ async function runBrowserTool(
 }
 
 export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: TAKE_OVER_TOOL_NAME,
+      description:
+        'Hand the open browser page to the user, who drives it from their phone, and wait until they are done (up to 10 minutes). Use it when the user asks to take over, to do something in your browser themselves, or to show you how to do a task; and when a page needs a person: a sign-in nothing is saved for and the user would rather type, a 2FA or identity check, a CAPTCHA. Open the page first with browser_navigate. Before calling, say in one short sentence that the browser is theirs. The result says whether the user handed it back, or showed you a task to remember, with the steps they took.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: {
+            type: 'string',
+            description:
+              'What the user should do, in a few words in their language, shown on their phone. Example: "Sign in to example.com".',
+          },
+        },
+        required: ['reason'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

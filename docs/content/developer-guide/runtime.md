@@ -132,6 +132,10 @@ replacement, including when a gateway-owned browser window survives. Refresh
 the snapshot before using element refs after a restart. Checkout actions require
 one-time approval in every mode; see [Browser checkout](./approvals.md#action-reference).
 
+A take-over (`browser_take_over`) lives in gateway memory and in the waiting
+tool call. The worker restores its viewport when the take-over ends; a worker
+replaced mid-take-over loses it, and the gateway drops it after 10 minutes.
+
 ### Shell Execution
 
 Bash commands run asynchronously so tool activity heartbeats and worker signal
