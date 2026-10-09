@@ -72,6 +72,10 @@ export const OWNER_DEVICE_TOKEN_ACTIONS = [
   'system_files.read',
   // 2026-10-04 (product owner): edit Markdown and reset shipped defaults.
   'system_files.write',
+  // 2026-10-09 (product owner): Privacy & data lists what Hy remembers and
+  // lets the owner correct or delete a single memory.
+  'data_controls.read',
+  'data_controls.write',
   'chat.history',
   'openai.api',
 ] as const satisfies readonly AdminRbacAction[];

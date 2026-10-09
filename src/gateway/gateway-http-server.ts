@@ -249,6 +249,10 @@ import {
   rejoinChatStreamTurn,
 } from './chat-stream-turns.js';
 import { runCostEstimateToolAction } from './cost-estimate.js';
+import {
+  DATA_CONTROLS_PATH,
+  handleDataControlsRoute,
+} from './data-controls.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -10533,6 +10537,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === SYSTEM_FILES_PATH) {
             await handleSystemFilesRoute(req, res, method, url);
+            return;
+          }
+          if (
+            pathname === DATA_CONTROLS_PATH ||
+            pathname.startsWith(`${DATA_CONTROLS_PATH}/`)
+          ) {
+            await handleDataControlsRoute(req, res, method, pathname);
             return;
           }
           if (pathname.startsWith('/api/push/')) {
