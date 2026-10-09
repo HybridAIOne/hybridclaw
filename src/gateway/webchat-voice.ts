@@ -43,6 +43,10 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  bindRequestedScope,
+  deletedScopeError,
+} from '../scopes/scope-session.js';
+import {
   buildSessionKey,
   classifySessionKeyShape,
 } from '../session/session-key.js';
@@ -145,6 +149,7 @@ interface ClientFrame {
   client?: unknown;
   language?: unknown;
   timeZone?: unknown;
+  scope?: unknown;
 }
 
 function sendFrame(ws: WebSocket, frame: Record<string, unknown>): void {
@@ -308,6 +313,20 @@ export class WebchatVoiceConnection {
     const language = voiceLanguageCode(frame.language) ?? undefined;
     const userId = this.identity.userId || sessionId;
     const username = this.identity.username || 'web';
+    // A call can begin a side chat: it takes the frame's scope as a first
+    // message would, and a chat whose scope is gone takes no call.
+    const scopeError =
+      bindRequestedScope({
+        sessionId,
+        guildId: null,
+        channelId: 'web',
+        agentId,
+        requestedScope: frame.scope,
+      }) ?? deletedScopeError(sessionId, agentId);
+    if (scopeError) {
+      this.fail(scopeError.error, 1008, scopeError.errorCode);
+      return;
+    }
     this.starting = true;
     if (this.startTimer) clearTimeout(this.startTimer);
     this.startTimer = setTimeout(() => {
@@ -415,8 +434,12 @@ export class WebchatVoiceConnection {
     });
   }
 
-  private fail(message: string, code: number): void {
-    sendFrame(this.ws, { type: 'error', message });
+  private fail(message: string, code: number, errorCode?: string): void {
+    sendFrame(this.ws, {
+      type: 'error',
+      message,
+      ...(errorCode ? { errorCode } : {}),
+    });
     if (this.ws.readyState === WebSocket.OPEN) {
       this.ws.close(code, message.slice(0, 120));
     }

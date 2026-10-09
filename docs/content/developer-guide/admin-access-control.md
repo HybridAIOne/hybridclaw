@@ -75,7 +75,8 @@ as a turn of its own afterwards. When its stream of a turn breaks off, it
 sends the same request body to `POST /api/chat/rejoin`: while that turn runs,
 the answer is the turn's stream from its first line, as a resend to
 `/api/chat` would get; once it has ended, a 404, and no new turn starts. The
-reply is then in `GET /api/history`. `chat.send` also covers
+reply is then in `GET /api/history`. It manages the user's scopes under
+`/api/scopes` (see [Scopes](./runtime.md#scopes)). `chat.send` also covers
 `POST /api/media/upload`, so a phone can send a photo or document with a
 message: the file lands in the uploaded-media cache for a day, and the turn
 names it in `media`. Chatting is not administration: a slash command such as

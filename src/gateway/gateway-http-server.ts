@@ -134,10 +134,18 @@ import {
 import { memoryService } from '../memory/memory-service.js';
 import {
   findPluginLoadError,
+  listLoadedMemoryLayerToolNames,
   listLoadedPluginCommands,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import { runPreferenceTool } from '../preferences/preferences.js';
+import { handleScopesRoute, isScopesPath } from '../scopes/scope-routes.js';
+import {
+  matchScopeRuntimeToken,
+  type RuntimeScope,
+  scopedRuntimeRequestError,
+} from '../scopes/scope-runtime-auth.js';
+import { bindRequestedScope, sessionScopeId } from '../scopes/scope-session.js';
 import {
   type AdminRbacAction,
   adminActionClaimList,
@@ -2171,14 +2179,38 @@ function resolveApiChatSecretCommandGuardResult(
   };
 }
 
+// A new chat takes the request's scope before anything runs in it, commands
+// the app sends ahead of the first message included.
+function resolveApiChatScopeBindingResult(
+  chatRequest: GatewayChatRequest,
+): GatewayChatResult | null {
+  const scopeError = bindRequestedScope({
+    sessionId: chatRequest.sessionId,
+    guildId: chatRequest.guildId,
+    channelId: chatRequest.channelId,
+    agentId: chatRequest.agentId,
+    requestedScope: chatRequest.scope,
+  });
+  if (!scopeError) return null;
+  return {
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    sessionId: chatRequest.sessionId,
+    ...scopeError,
+  };
+}
+
 async function resolveApiChatLocalCommandResult(
   chatRequest: GatewayChatRequest,
   adminActions: string[] | undefined,
 ): Promise<GatewayChatResult | null> {
-  return (
+  const result =
+    resolveApiChatScopeBindingResult(chatRequest) ||
     resolveApiChatSecretCommandGuardResult(chatRequest) ||
-    (await resolveApiChatSlashCommandResult(chatRequest, adminActions))
-  );
+    (await resolveApiChatSlashCommandResult(chatRequest, adminActions));
+  const scope = result && sessionScopeId(result.sessionId || '');
+  return result && scope ? { ...result, scope } : result;
 }
 
 function isMalformedCanonicalSessionId(value: string | undefined): boolean {
@@ -2349,6 +2381,16 @@ function resolveAuthContext(
   ) {
     return { kind: 'apiToken', payload: { ...AGENT_RUNTIME_TOKEN_CLAIMS } };
   }
+  const runtimeScope =
+    opts?.allowApiTokens !== false && bearer
+      ? matchScopeRuntimeToken(bearer, GATEWAY_API_TOKEN)
+      : null;
+  if (runtimeScope) {
+    return {
+      kind: 'apiToken',
+      payload: { ...AGENT_RUNTIME_TOKEN_CLAIMS, runtimeScope },
+    };
+  }
   if (opts?.allowApiTokens !== false && bearer && isApiTokenString(bearer)) {
     const verified = verifyApiToken(bearer);
     if (verified) {
@@ -2388,7 +2430,9 @@ function hasGatewayApiAuth(req: IncomingMessage): boolean {
   const authHeader = req.headers.authorization || '';
   return (
     hasBearerToken(authHeader, GATEWAY_API_TOKEN) ||
-    hasBearerToken(authHeader, deriveAgentRuntimeToken(GATEWAY_API_TOKEN))
+    hasBearerToken(authHeader, deriveAgentRuntimeToken(GATEWAY_API_TOKEN)) ||
+    // A scoped worker's token; its callbacks pass `scopedRuntimeRequestError`.
+    matchScopeRuntimeToken(extractBearerToken(req), GATEWAY_API_TOKEN) !== null
   );
 }
 
@@ -3437,6 +3481,7 @@ async function handleApiChat(
     ...(approval ? { approval } : {}),
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
+    ...(body.scope !== undefined ? { scope: body.scope } : {}),
     chatbotId: body.chatbotId,
     enableRag: body.enableRag,
     model: body.model,
@@ -10546,6 +10591,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
       void (async () => {
         try {
+          const runtimeScope = authContext.payload?.runtimeScope as
+            | RuntimeScope
+            | undefined;
+          if (runtimeScope) {
+            const refusal = await scopedRuntimeRequestError({
+              req,
+              pathname,
+              scope: runtimeScope,
+              memoryToolNames: listLoadedMemoryLayerToolNames(),
+            });
+            if (refusal) {
+              sendJson(res, 403, { error: refusal });
+              return;
+            }
+          }
           const operatorId = resolveWebNotificationOperator(
             authContext.kind,
             normalizeOptionalString(authContext.payload?.sub) ||
@@ -11391,6 +11451,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res, operatorId, authContext);
+            return;
+          }
+          if (isScopesPath(pathname)) {
+            await handleScopesRoute(req, res, url);
             return;
           }
           if (pathname === '/api/chat/rejoin' && method === 'POST') {

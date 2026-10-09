@@ -31,6 +31,11 @@ export interface ExecutorRequest extends SessionAttachmentAccess {
   addressEnvelope?: AddressEnvelope;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
+  /**
+   * A scoped chat's run: its worker gets the scope's runtime token, so its
+   * gateway callbacks act only on that scope's chats.
+   */
+  runtimeScope?: { agentId: string; scopeId: string };
   skipContainerSystemPrompt?: boolean;
   maxTokens?: number;
   maxWallClockMs?: number | null;

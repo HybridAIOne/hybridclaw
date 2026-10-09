@@ -183,3 +183,39 @@ test('the export holds chats, memories and workspace documents, not hidden files
   );
   expect(names.some((name) => name.includes('.env'))).toBe(false);
 });
+
+test("deleting a scoped chat removes its transcript from the scope", async () => {
+  const ctx = await setup();
+  const { createScope } = await import('../src/scopes/scope-store.ts');
+  const { bindRequestedScope } = await import('../src/scopes/scope-session.ts');
+  const work = createScope({ agentId: 'hy', name: 'Work', connectors: [] });
+  bindRequestedScope({
+    sessionId: 'ios-work',
+    guildId: null,
+    channelId: 'web',
+    agentId: 'hy',
+    requestedScope: work.id,
+  });
+  ctx.say('ios-work', 'user', 'About the invoice');
+  const transcript = path.join(
+    ctx.workspace,
+    'scopes',
+    work.id,
+    '.session-transcripts',
+    'ios-work.jsonl',
+  );
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, '{}\n');
+  const chat = (await ctx.snapshot()).chats.find(
+    (candidate: { id: string }) => candidate.id === 'ios-work',
+  );
+
+  const deleted = await ctx.call('/api/data-controls/chats/delete', {
+    id: chat.id,
+    revision: chat.revision,
+    confirmation: 'delete',
+  });
+
+  expect(deleted.status).toBe(200);
+  expect(fs.existsSync(transcript)).toBe(false);
+});

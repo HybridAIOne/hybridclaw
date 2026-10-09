@@ -15,6 +15,7 @@ import {
   getRecentMessages,
   getSessionById,
 } from '../../memory/db.js';
+import { scopeWorkspaceDir } from '../../scopes/scope-paths.js';
 import {
   discordRuntimeLoader,
   emailRuntimeLoader,
@@ -84,7 +85,11 @@ function resolveMessageToolSessionWorkspaceRoot(
   if (!session) return null;
 
   const { agentId } = resolveAgentForRequest({ session });
-  return path.resolve(agentWorkspaceDir(agentId));
+  return path.resolve(
+    session.scope
+      ? scopeWorkspaceDir(agentId, session.scope)
+      : agentWorkspaceDir(agentId),
+  );
 }
 
 function resolveMessageToolSendFilePath(

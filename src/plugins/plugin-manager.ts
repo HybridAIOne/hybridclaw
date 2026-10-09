@@ -1692,6 +1692,12 @@ export class PluginManager {
     }
   }
 
+  /** Tools of plugins that keep memory, which a scoped chat must not use. */
+  getMemoryLayerToolNames(): string[] {
+    const pluginIds = new Set(this.memoryLayers.map((entry) => entry.pluginId));
+    return [...pluginIds].flatMap((id) => this.getPluginToolNames(id));
+  }
+
   private getPluginToolNames(pluginId: string): string[] {
     return Array.from(this.tools.values())
       .filter((entry) => entry.pluginId === pluginId)
@@ -2748,6 +2754,10 @@ export function matchLoadedPluginAdminRoute(
   pathname: string,
 ): PluginAdminRouteMatch | null {
   return singleton?.adminRoutes.match(method, pathname) ?? null;
+}
+
+export function listLoadedMemoryLayerToolNames(): string[] {
+  return singleton?.getMemoryLayerToolNames() ?? [];
 }
 
 export function listLoadedPluginCommands(): PluginCommandSummary[] {

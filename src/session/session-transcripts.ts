@@ -1,12 +1,17 @@
 /**
  * Agent-local transcripts retain chat and full tool exchanges for retrieval.
  * They are searchable evidence, not instructions or the gateway audit trail.
+ * A scoped session's transcript lives in its scope's workspace, where only
+ * that scope's chats (and the main chat) search it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { sessionTranscriptFilename } from '../../container/shared/tool-history.js';
 import { agentWorkspaceDir, ensureAgentDirs } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { isRealScopeDir, scopeWorkspaceDir } from '../scopes/scope-paths.js';
+import { sessionScopeId } from '../scopes/scope-session.js';
+import { getScope } from '../scopes/scope-store.js';
 import type { ChatMessage } from '../types/api.js';
 import { sanitizeToolHistory } from './tool-history.js';
 
@@ -29,7 +34,18 @@ export function appendSessionTranscript(
 ): void {
   try {
     ensureAgentDirs(agentId);
-    const workspace = agentWorkspaceDir(agentId);
+    const scopeId = sessionScopeId(entry.sessionId);
+    const workspace = scopeId
+      ? scopeWorkspaceDir(agentId, scopeId)
+      : agentWorkspaceDir(agentId);
+    if (scopeId) {
+      // A deleted scope's workspace stays erased.
+      if (!getScope(agentId, scopeId)) throw new Error('Scope was deleted.');
+      fs.mkdirSync(workspace, { recursive: true });
+      if (!isRealScopeDir(agentId, scopeId)) {
+        throw new Error('Scope workspace is not where it belongs.');
+      }
+    }
     const transcriptDir = path.join(workspace, TRANSCRIPTS_DIR_NAME);
     fs.mkdirSync(transcriptDir, { recursive: true });
     if (fs.lstatSync(transcriptDir).isSymbolicLink()) {

@@ -21,9 +21,9 @@ import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
 import { resolveWorkspaceRelativePath } from '../gateway/gateway-utils.js';
-import { agentWorkspaceDir } from '../infra/ipc.js';
 import { getSessionById } from '../memory/db.js';
 import { createJob, deleteJob, getJob } from '../memory/jobs.js';
+import { sessionWorkspaceDir } from '../scopes/scope-paths.js';
 import {
   DAY_NAMES,
   defaultTimezone,
@@ -453,7 +453,7 @@ export function resultTracked(
     if ((item.results?.length ?? 0) >= 100) {
       throw new TrackError('A goal holds at most 100 saved results.');
     }
-    const workspace = agentWorkspaceDir(session.agent_id);
+    const workspace = sessionWorkspaceDir(session);
     const file = resolveWorkspaceRelativePath(workspace, fields.path);
     if (!file)
       throw new TrackError('A result must name an existing workspace file.');

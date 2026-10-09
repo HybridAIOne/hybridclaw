@@ -7963,6 +7963,8 @@ function resolveBootstrapAutostartContext(params: {
   );
   const requestedAgentId = String(params.agentId || '').trim();
   const existingSession = memoryService.getSessionById(requestedSessionId);
+  // Hatching and opening turns belong to the agent workspace, not a scope.
+  if (existingSession?.scope) return null;
   if (
     existingSession &&
     !params.allowExistingSessionMessages &&
@@ -12322,6 +12324,16 @@ export async function handleGatewayCommand(
             sub === 'trace'
               ? 'Usage: `export trace [sessionId|all|--all] [--turn <n>|--run <runId>]`'
               : 'Usage: `export session [sessionId]`',
+          );
+        }
+        // A scoped chat exports only its scope's chats.
+        if (
+          session.scope &&
+          (exportAllTraces || !canSeeSession(targetSessionId, session))
+        ) {
+          return badCommand(
+            'Export Failed',
+            'A scoped chat exports only chats of its scope.',
           );
         }
         if (exportAllTraces) {

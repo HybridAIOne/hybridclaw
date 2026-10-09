@@ -489,14 +489,57 @@ Session behavior matches the routing rules above:
   the rest, so the message is not answered twice
 - a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
   line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
-  `userMessageId`, `assistantMessageId`, and `artifacts`, plus `emailDraft`
-  and `sessionTitle` when the turn has them. Tool
+  `userMessageId`, `assistantMessageId`, and `artifacts`, plus `emailDraft`,
+  `sessionTitle` and the chat's `scope` when the turn has them. Tool
   arguments and outputs, usage, prompts, and routing are left out; the `tool`
   lines already reported each call
 - the first turn of a session starts its auxiliary title request once routing
   has accepted the turn, so it runs alongside the model call. The success `result` carries `sessionTitle` only when
   the title was ready before the reply; the turn never waits for it. The title
   is stored once it arrives, and only when the turn succeeded
+
+## Scopes
+
+A scope is a named compartment for side chats ("Work", "Family"). A scoped
+chat knows who the user is (name, language, timezone) and what its scope's
+chats learned, nothing from the main chat, unscoped chats or other scopes. The
+main chat sees everything, every scope included. Scopes live in the `scopes`
+table, never in a file the agent can edit, and only the user makes them:
+
+- `GET /api/scopes?agentId=<id>` → `{ "scopes": [Scope] }`
+- `POST /api/scopes` with `{ "agentId", "name", "connectors": [] }` → `Scope`
+  (201). Names have 1–40 characters and are unique per agent, ignoring case
+  (409, `errorCode: "scope_exists"`).
+- `PATCH /api/scopes/<id>` with `{ "agentId", "name"?, "connectors"? }`
+- `DELETE /api/scopes/<id>?agentId=<id>` → `{ "deleted": true }`, and the
+  scope's workspace (memory, notes, transcripts) is erased.
+
+`Scope` is `{ id: "s_<12 hex>", name, connectors, createdAt }`. `connectors`
+holds platform connector ids as `/api/v1/connectors/directory` names them,
+plus `"device"` for the phone's on-device data. The routes need `chat.send`,
+like `/api/chat`.
+
+`/api/chat` (and a voice call's `start` frame) takes `scope`. A session takes
+it once, from the first request that names it, as long as it had no model
+turn; commands the app sends first count. Later requests' `scope` is ignored,
+the main chat (`main-…`) is never scoped, an unknown id answers
+`errorCode: "unknown_scope"` and a chat whose scope was deleted answers
+`scope_deleted` without running anything. Results of a scoped chat carry
+`scope`.
+
+Every run of a scoped chat (turns, the pre-compaction flush, its isolated
+scheduled tasks and its subagents) uses `<agent workspace>/scopes/<id>/`: its
+prompt files, daily notes, transcripts and the worker's `/workspace` mount.
+AGENTS, SOUL, IDENTITY, TOOLS and the approval policy are copied in when they
+change; USER.md keeps only the name, language and timezone. Nightly
+consolidation runs per scope. A scoped chat gets no canonical cross-chat
+context, no memory plugin context or tools, only connector tools of its scope
+and public catalog tools (`hybridai__*__*` blocked, its services exempted;
+all of them when the directory cannot be read), and `device_data` only with
+`"device"`. Its worker gets a runtime token bound to the scope, so its gateway
+callbacks act only for that scope's chats. Scoped chats do not use the warm
+pool. The main chat's `memory` search and `session_search` also read
+`scopes/*/`.
 
 ## Persistent Browser Profiles
 

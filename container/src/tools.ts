@@ -89,6 +89,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
+import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
   runShowDashboard,
@@ -3254,7 +3255,7 @@ async function executeToolInternal(
           typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
         if (!query)
           return failTool('Error: query is required for memory search');
-        const files = listMemoryFiles();
+        const files = [...listMemoryFiles(), ...scopeMemoryFiles(safeJoin)];
         const matches: string[] = [];
         for (const rel of files) {
           const abs = safeJoin(rel);
@@ -3772,8 +3773,14 @@ async function executeToolInternal(
       const includeCurrent = args.include_current === true;
       const roleFilter = parseRoleFilter(args.role_filter);
 
-      const transcriptDir = safeJoin(SESSION_TRANSCRIPTS_DIR);
-      if (!fs.existsSync(transcriptDir)) {
+      // The main chat's workspace holds the scopes' transcripts too.
+      const transcriptDirs = [
+        SESSION_TRANSCRIPTS_DIR,
+        ...scopeTranscriptDirs(safeJoin, SESSION_TRANSCRIPTS_DIR),
+      ]
+        .map((dir) => safeJoin(dir))
+        .filter((dir) => fs.existsSync(dir));
+      if (transcriptDirs.length === 0) {
         return JSON.stringify(
           {
             success: true,
@@ -3789,23 +3796,25 @@ async function executeToolInternal(
 
       // Newest first: readdir order is arbitrary, and past the cap the
       // recent sessions are the ones worth searching.
-      const files = fs
-        .readdirSync(transcriptDir)
-        .filter((name) => name.endsWith('.jsonl'))
-        .map((name) => ({
-          name,
+      const files = transcriptDirs
+        .flatMap((dir) =>
+          fs
+            .readdirSync(dir)
+            .filter((name) => name.endsWith('.jsonl'))
+            .map((name) => path.join(dir, name)),
+        )
+        .map((filePath) => ({
+          filePath,
           mtimeMs:
-            fs.statSync(path.join(transcriptDir, name), {
-              throwIfNoEntry: false,
-            })?.mtimeMs ?? 0,
+            fs.statSync(filePath, { throwIfNoEntry: false })?.mtimeMs ?? 0,
         }))
         .sort((left, right) => right.mtimeMs - left.mtimeMs)
         .slice(0, SESSION_SEARCH_MAX_FILES)
-        .map((entry) => entry.name);
+        .map((entry) => entry.filePath);
 
       const candidates: SessionSearchCandidate[] = [];
-      for (const filename of files) {
-        const filePath = path.join(transcriptDir, filename);
+      for (const filePath of files) {
+        const filename = path.basename(filePath);
         const rows = collectTranscriptRows(filePath);
         if (rows.length === 0) continue;
 

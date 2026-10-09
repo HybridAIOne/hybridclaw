@@ -34,6 +34,8 @@ export interface Session {
   reset_at: string | null;
   title: string | null;
   title_source: SessionTitleSource | null;
+  /** The scope (`s_<hex>`) the chat started in; it never changes. */
+  scope?: string | null;
 }
 
 export type SessionTitleSource = 'auto';
