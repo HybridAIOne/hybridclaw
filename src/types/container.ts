@@ -128,11 +128,16 @@ export interface ContainerOutput {
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
+  /** What kind of error, for clients that word it themselves. */
+  errorCode?: AgentErrorCode;
   effectiveUserPrompt?: string;
   sideEffects?: {
     delegations?: DelegationSideEffect[];
   };
 }
+
+/** `busy`: every agent process was taken, so the turn never started. */
+export type AgentErrorCode = 'busy';
 
 export type OutputSegmentKind =
   | 'draft'

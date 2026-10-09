@@ -277,6 +277,20 @@ export function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   );
 }
 
+/**
+ * Background runs (scheduled tasks, heartbeats, goal loops) stop one process
+ * short of the limit. A user's turn then always finds a free process unless
+ * other user turns hold them all.
+ */
+export function processLimitForRun(
+  maxProcessCount: number,
+  background: boolean | undefined,
+): number {
+  return background && maxProcessCount > 1
+    ? maxProcessCount - 1
+    : maxProcessCount;
+}
+
 export function getTotalWarmProcessCount<T extends WarmRunnerEntry>(
   pool: Map<string, T>,
   warmPool: WarmProcessPool<T>,

@@ -986,8 +986,8 @@ test('OPENING.md runs once per session and attributes usage to the invoking Team
   );
   const { ensureBootstrapFiles } = await import('../src/workspace.ts');
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
-  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
-    '../src/memory/msteams-users.ts'
+  const { observeChannelUser, listChannelUsers } = await import(
+    '../src/memory/channel-users.ts'
   );
   const { flushTokenUsageBuffer } = await import(
     '../src/usage/token-usage-buffer.ts'
@@ -995,7 +995,12 @@ test('OPENING.md runs once per session and attributes usage to the invoking Team
 
   initDatabase({ quiet: true });
   for (const userId of ['user-a', 'user-b']) {
-    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+    observeChannelUser({
+      channelKind: 'msteams',
+      tenantId: 'tenant-a',
+      userId,
+      isMessage: false,
+    });
   }
   ensureBootstrapFiles('main');
 
@@ -1100,7 +1105,7 @@ test('OPENING.md runs once per session and attributes usage to the invoking Team
   ]);
   await flushTokenUsageBuffer();
   const users = new Map(
-    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+    listChannelUsers('msteams', 'tenant-a').map((user) => [user.userId, user]),
   );
   expect(users.get('user-a')?.totalTokens).toBe(15);
   expect(users.get('user-b')?.totalTokens).toBe(30);

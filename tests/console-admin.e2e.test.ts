@@ -1,4 +1,5 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,7 @@ import { type Browser, chromium, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { LATEST_RELEASE_NOTES } from '../console/src/release-notes.js';
 import { CHANNEL_KINDS } from '../src/channels/channel.js';
+import { brokenNodePty } from './helpers/broken-node-pty.js';
 import {
   getAvailablePort,
   waitForHealth,
@@ -22,6 +24,7 @@ const RUN = process.env.HYBRIDCLAW_RUN_CONSOLE_E2E === '1';
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const CLI = path.join(REPO, 'dist', 'cli.js');
 const WEB_API_TOKEN = 'e2e-console-token';
+const AUTH_SECRET = 'e2e-console-auth-secret';
 const STARTUP_TIMEOUT_MS = 45_000;
 const STOP_TIMEOUT_MS = 10_000;
 
@@ -44,7 +47,9 @@ async function startGateway(): Promise<void> {
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(home);
   fs.mkdirSync(dataDir);
-  const port = await getAvailablePort();
+  const port = await getAvailablePort(
+    Number(process.env.HYBRIDCLAW_E2E_PORT) || undefined,
+  );
   baseUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(
     path.join(dataDir, 'config.json'),
@@ -54,19 +59,37 @@ async function startGateway(): Promise<void> {
       hybridai: { baseUrl: 'http://127.0.0.1:9' },
     }),
   );
+  const env = {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    HYBRIDCLAW_DATA_DIR: dataDir,
+    HYBRIDCLAW_ACCEPT_TRUST: 'true',
+    HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
+    HYBRIDCLAW_AUTH_SECRET: AUTH_SECRET,
+    WEB_API_TOKEN,
+  };
+  // The Distill page is served by the install-on-demand distill plugin.
+  execFileSync(process.execPath, [CLI, 'plugin', 'install', './plugins/distill'], {
+    cwd: REPO,
+    env,
+    stdio: 'ignore',
+  });
+  // CI never builds node-pty; break it locally too so the terminal page
+  // renders the same load failure everywhere.
+  const broken = brokenNodePty(root);
   gateway = spawn(
     process.execPath,
-    [CLI, 'gateway', 'start', '--foreground', '--sandbox=host'],
+    [
+      ...broken.nodeArgs,
+      CLI,
+      'gateway',
+      'start',
+      '--foreground',
+      '--sandbox=host',
+    ],
     {
       cwd: root,
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: home,
-        HYBRIDCLAW_DATA_DIR: dataDir,
-        HYBRIDCLAW_ACCEPT_TRUST: 'true',
-        HYBRIDAI_API_KEY: 'hai-e2e-placeholder',
-        WEB_API_TOKEN,
-      },
+      env: { ...env, ...broken.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -174,6 +197,16 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
       expect(cspViolations).toEqual([]);
     },
   );
+
+  test('the terminal page shows the node-pty rebuild hint when the addon cannot load', async () => {
+    await open('/admin/terminal');
+    await page.getByRole('button', { name: 'Start', exact: true }).click();
+    const banner = page.locator('.terminal-error-banner');
+    await banner.waitFor();
+    await expect(banner.textContent()).resolves.toContain(
+      'npm rebuild node-pty',
+    );
+  });
 
   describe('channels', () => {
     test('lists one labelled card with a logo per external channel kind', async () => {
@@ -493,6 +526,55 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
   });
 
   describe('distill', () => {
+    // A launch token as the hosted platform issues it; /auth/callback turns
+    // it into a session cookie that holds only `actions`.
+    function scopedLaunchUrl(actions: string, next: string): string {
+      const segment = (value: unknown) =>
+        Buffer.from(JSON.stringify(value)).toString('base64url');
+      const unsigned = `${segment({ alg: 'HS256', typ: 'JWT' })}.${segment({
+        sub: 'operator@example.com',
+        actions,
+        exp: Math.floor(Date.now() / 1000) + 600,
+      })}`;
+      const signature = createHmac('sha256', AUTH_SECRET)
+        .update(unsigned)
+        .digest('base64url');
+      return `${baseUrl}/auth/callback?token=${unsigned}.${signature}&next=${encodeURIComponent(next)}`;
+    }
+
+    function setDistillEnabled(enabled: boolean) {
+      return api('/api/command', {
+        method: 'POST',
+        body: {
+          sessionId: 'e2e-console-plugins',
+          guildId: null,
+          channelId: 'web',
+          args: ['plugin', enabled ? 'enable' : 'disable', 'distill'],
+        },
+      });
+    }
+
+    test('without the plugin, the page says to install it, for a scoped session too', async () => {
+      const hint = 'Distill is a plugin. Install it with';
+      await setDistillEnabled(false);
+      const scopedContext = await browser.newContext();
+      try {
+        await open('/admin/distill');
+        await page.getByText(hint).waitFor();
+
+        const scopedPage = await scopedContext.newPage();
+        await scopedPage.goto(
+          scopedLaunchUrl('admin.distill.read', '/admin/distill'),
+        );
+        await scopedPage.getByText(hint).waitFor();
+      } finally {
+        await scopedContext.close();
+        await setDistillEnabled(true);
+      }
+      await open('/admin/distill');
+      await page.getByRole('button', { name: 'Save Subject' }).waitFor();
+    });
+
     test('an uploaded source shows its size and its corpus document downloads intact', async () => {
       const sourceText = `${'The e2e subject writes short, plain sentences. '.repeat(30)}\n`;
       await open('/admin/distill');

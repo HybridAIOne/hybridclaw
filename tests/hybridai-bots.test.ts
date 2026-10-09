@@ -13,6 +13,7 @@ async function importFreshBots() {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
     delete process.env.HOME;
@@ -348,4 +349,24 @@ test('fetchHybridAIAccountChatbotId fails when /bot-management/me omits a user i
   await expect(fetchHybridAIAccountChatbotId()).rejects.toThrow(
     'HybridAI /api/v1/bot-management/me did not include a user id.',
   );
+});
+
+test.each([
+  'fetchHybridAIBots',
+  'fetchHybridAIAccountChatbotId',
+] as const)('%s rejects a missing API key without sending a request', async (fetcher) => {
+  vi.stubEnv('HYBRIDAI_API_KEY', '');
+  vi.stubEnv('API_KEY', '');
+  const fetchSpy = vi.fn();
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const bots = await importFreshBots();
+  const { MissingRequiredEnvVarError } = await import(
+    '../src/config/config.ts'
+  );
+
+  await expect(bots[fetcher]()).rejects.toBeInstanceOf(
+    MissingRequiredEnvVarError,
+  );
+  expect(fetchSpy).not.toHaveBeenCalled();
 });

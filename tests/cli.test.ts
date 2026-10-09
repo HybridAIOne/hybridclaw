@@ -863,6 +863,9 @@ async function importFreshCli(options?: {
     }
     return { listPluginSummary };
   });
+  const runPluginCliCommand = vi.fn(
+    async (_name: string, _args: string[]) => false,
+  );
   const initDatabase = vi.fn();
   const isDatabaseInitialized = vi.fn(() => false);
   const initAgentRegistry = vi.fn();
@@ -1452,6 +1455,10 @@ async function importFreshCli(options?: {
     ensurePluginManagerInitialized,
     shutdownPluginManager: vi.fn(async () => {}),
   }));
+  vi.doMock('../src/cli/plugin-cli-dispatch.js', () => ({
+    runPluginCliCommand,
+    printPluginCliCommandUsage: vi.fn(async () => {}),
+  }));
   vi.doMock('../src/update.ts', () => ({
     printUpdateUsage,
     runUpdateCommand,
@@ -1465,6 +1472,7 @@ async function importFreshCli(options?: {
   const cli = await import('../src/cli.ts');
   return {
     cli,
+    runPluginCliCommand,
     clearHybridAICredentials,
     logoutHybridAI,
     getAnthropicAuthStatus,
@@ -1667,6 +1675,7 @@ useCleanMocks({
     '../src/plugins/plugin-install.js',
     '../src/plugins/plugin-config.js',
     '../src/plugins/plugin-manager.js',
+    '../src/cli/plugin-cli-dispatch.js',
     '../src/update.ts',
     '../src/cli/help.js',
   ],
@@ -4802,8 +4811,29 @@ describe('CLI hybridai commands', () => {
     expect(errorSpy).toHaveBeenCalledWith('Unknown help topic: unknown-topic');
   });
 
+  it('runs a plugin-registered CLI command instead of printing usage', async () => {
+    const { cli, runPluginCliCommand } = await importFreshCli();
+    runPluginCliCommand.mockResolvedValueOnce(true);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+
+    await cli.main(['coworker', 'status', '--alias', 'maya']);
+
+    expect(runPluginCliCommand).toHaveBeenCalledWith('coworker', [
+      'status',
+      '--alias',
+      'maya',
+    ]);
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Usage: hybridclaw <command>'),
+    );
+  });
+
   it('prints main usage and exits for an unknown command', async () => {
-    const { cli } = await importFreshCli();
+    const { cli, runPluginCliCommand } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const exitSpy = vi
       .spyOn(process, 'exit')
@@ -4811,6 +4841,7 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['unknown-command']);
 
+    expect(runPluginCliCommand).toHaveBeenCalledWith('unknown-command', []);
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Usage: hybridclaw <command>'),

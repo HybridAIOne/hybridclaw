@@ -8,19 +8,22 @@ const ORIGINAL_HOME = process.env.HOME;
 let tempHome: string;
 
 type DistillModules = {
-  collectors: typeof import('../src/distill/collectors.js');
-  corpus: typeof import('../src/distill/corpus.js');
-  masking: typeof import('../src/distill/masking.js');
-  paths: typeof import('../src/distill/paths.js');
+  collectors: typeof import('../plugins/distill/src/collectors.js');
+  corpus: typeof import('../plugins/distill/src/corpus.js');
+  masking: typeof import('../plugins/distill/src/masking.js');
+  paths: typeof import('../plugins/distill/src/paths.js');
 };
 
 async function loadDistill(): Promise<DistillModules> {
   vi.resetModules();
+  vi.doMock('@hybridaione/hybridclaw/plugin-sdk', () =>
+    import('../src/plugins/plugin-sdk.ts'),
+  );
   return {
-    collectors: await import('../src/distill/collectors.js'),
-    corpus: await import('../src/distill/corpus.js'),
-    masking: await import('../src/distill/masking.js'),
-    paths: await import('../src/distill/paths.js'),
+    collectors: await import('../plugins/distill/src/collectors.js'),
+    corpus: await import('../plugins/distill/src/corpus.js'),
+    masking: await import('../plugins/distill/src/masking.js'),
+    paths: await import('../plugins/distill/src/paths.js'),
   };
 }
 

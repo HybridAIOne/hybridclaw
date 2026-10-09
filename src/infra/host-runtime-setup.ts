@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   containerBootstrapScriptPath,
+  isSourceCheckout,
   resolveInstallRoot,
 } from './install-root.js';
 
@@ -78,13 +79,6 @@ function detectMissingContainerDependencies(installRoot: string): string[] {
     }
   }
   return missing;
-}
-
-function isSourceCheckout(installRoot: string): boolean {
-  // Same probe as scripts/postinstall-container.mjs: the published tarball
-  // ships no top-level src/, and this also covers git-less source trees
-  // (tarball/zip downloads), which the bootstrap script refuses to touch.
-  return fs.existsSync(path.join(installRoot, 'src'));
 }
 
 function formatMissingDependencyMessage(

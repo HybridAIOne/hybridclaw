@@ -19,6 +19,14 @@ vi.mock('../api/client', () => ({
   downloadDistillCorpusDocument: (...args: unknown[]) =>
     downloadDistillCorpusDocumentMock(...args),
   fetchDistill: (...args: unknown[]) => fetchDistillMock(...args),
+  HttpResponseError: class HttpResponseError extends Error {
+    constructor(
+      message: string,
+      readonly status: number,
+    ) {
+      super(message);
+    }
+  },
   recordDistillConsent: (...args: unknown[]) =>
     recordDistillConsentMock(...args),
   registerDistillAgent: (...args: unknown[]) =>
@@ -174,6 +182,17 @@ describe('DistillPage', () => {
       warnings: [],
       flagged: [],
     });
+  });
+
+  it.each([
+    [404, 'hybridclaw plugin install distill'],
+    [500, 'boom'],
+  ])('explains a %i from the distill API', async (status, text) => {
+    const { HttpResponseError } = await import('../api/client');
+    fetchDistillMock.mockRejectedValue(new HttpResponseError('boom', status));
+    renderWithProviders(<DistillPage />);
+
+    expect(await screen.findByText(new RegExp(text))).toBeTruthy();
   });
 
   it('starts a run with manually entered source paths', async () => {

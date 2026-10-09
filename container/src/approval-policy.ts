@@ -2815,6 +2815,9 @@ export class TrustedAgentApprovalRuntime {
   // Clients read the intent's opening words "place an order on" to show a
   // checkout card; keep them stable.
   private classifyBrowserPurchase(checkout: CheckoutAction): ClassifiedAction {
+    if (checkout.kind === 'cancellation') {
+      return this.classifyBrowserCancellation(checkout);
+    }
     const site = checkout.host || 'this website';
     const button = checkout.label
       ? ` (button "${checkout.label}")`
@@ -2826,6 +2829,36 @@ export class TrustedAgentApprovalRuntime {
       consequenceIfDenied:
         'Nothing is bought. I stop before this step and tell you where I got to.',
       reason: 'this step places an order or pays, which spends your money',
+      commandPreview: normalizePreview(
+        [checkout.label || 'click', checkout.url].filter(Boolean).join(' · '),
+      ),
+      pathHints: [],
+      hostHints: checkout.host ? [checkout.host] : [],
+      writeIntent: true,
+      promotableRed: false,
+      stickyYellow: true,
+      explicitApprovalRequired: true,
+      pinned: true,
+    };
+  }
+
+  // Sending a cancellation ends a contract, and the site confirms it at once.
+  // Like an order, every one asks, in every mode.
+  private classifyBrowserCancellation(
+    checkout: CheckoutAction,
+  ): ClassifiedAction {
+    const site = checkout.host || 'this website';
+    const button = checkout.label
+      ? ` (button "${checkout.label}")`
+      : ' (a button I could not read on the cancellation page)';
+    return {
+      tier: 'red',
+      actionKey: `browser_cancellation:${checkout.host || 'unknown'}`,
+      intent: `cancel a contract on ${site}${button}`,
+      consequenceIfDenied:
+        'Nothing is cancelled. I stop before this step and tell you where I got to.',
+      reason:
+        'this step cancels a contract or subscription, which I cannot take back',
       commandPreview: normalizePreview(
         [checkout.label || 'click', checkout.url].filter(Boolean).join(' · '),
       ),
@@ -2865,12 +2898,30 @@ export class TrustedAgentApprovalRuntime {
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
 
+    if (lowerTool === 'show_widget') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'show a widget in the chat',
+        consequenceIfDenied: 'I will answer in text instead.',
+        reason:
+          'this only writes a new file under widgets/ for the app to show and sends nothing',
+        commandPreview: normalizePreview(String(args.title ?? '')),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (
       lowerTool === 'read' ||
       lowerTool === 'glob' ||
       lowerTool === 'grep' ||
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
+      lowerTool === 'draft_email' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&
@@ -2884,7 +2935,9 @@ export class TrustedAgentApprovalRuntime {
         reason:
           lowerTool === 'work'
             ? 'this only records or retrieves local work provenance'
-            : 'this is a read-only operation',
+            : lowerTool === 'draft_email'
+              ? 'this only shows the user a draft; nothing is sent'
+              : 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
@@ -3211,6 +3264,22 @@ export class TrustedAgentApprovalRuntime {
           'I will avoid contacting that host and use existing local context only.',
         commandPreview: normalizePreview(rawUrl),
       });
+    }
+
+    if (lowerTool === 'show_slide_samples') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied: 'I will describe the looks in words instead.',
+        reason: 'this only renders sample slides for the user to pick from',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
     }
 
     if (lowerTool === 'vision_analyze') {

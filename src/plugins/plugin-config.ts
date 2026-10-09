@@ -82,16 +82,29 @@ function ensurePluginEntry(
   return entry;
 }
 
-function cleanupPluginEntry(
+// A bare enabled entry is redundant for a plugin discovered from the runtime
+// home, but it is the install itself for a bundled plugin enabled in place.
+async function cleanupPluginEntry(
   config: RuntimeConfig,
   pluginId: string,
   entry: RuntimePluginConfigEntry,
-): void {
+  runtime?: PluginConfigRuntimeOverride,
+): Promise<void> {
   const hasConfigKeys = Object.keys(entry.config || {}).length > 0;
   if (hasConfigKeys || entry.enabled === false || entry.path) return;
-  config.plugins.list = config.plugins.list.filter(
-    (candidate) => candidate !== entry && candidate.id !== pluginId,
+  const withoutEntry = cloneConfig(config);
+  withoutEntry.plugins.list = withoutEntry.plugins.list.filter(
+    (candidate) => candidate.id !== pluginId,
   );
+  const manager = new PluginManager({
+    homeDir: runtime?.homeDir || DEFAULT_RUNTIME_HOME_DIR,
+    cwd: runtime?.cwd || process.cwd(),
+    getRuntimeConfig: () => withoutEntry,
+  });
+  const stillDiscovered = (await manager.discoverPlugins(withoutEntry)).some(
+    (candidate) => candidate.id === pluginId,
+  );
+  if (stillDiscovered) config.plugins.list = withoutEntry.plugins.list;
 }
 
 async function validatePluginOverride(
@@ -237,7 +250,7 @@ export async function unsetPluginConfigValue(
   const entry = ensurePluginEntry(nextConfig, normalizedPluginId);
   const previousValue = entry.config?.[normalizedKey];
   delete entry.config[normalizedKey];
-  cleanupPluginEntry(nextConfig, normalizedPluginId, entry);
+  await cleanupPluginEntry(nextConfig, normalizedPluginId, entry, runtime);
   await validatePluginOverride(normalizedPluginId, nextConfig, runtime);
   saveRuntimeConfig(nextConfig);
   return {
@@ -275,7 +288,7 @@ export async function setPluginEnabled(
   const previousEnabled = existing ? existing.enabled !== false : true;
   const entry = existing ?? ensurePluginEntry(nextConfig, normalizedPluginId);
   entry.enabled = enabled;
-  cleanupPluginEntry(nextConfig, normalizedPluginId, entry);
+  await cleanupPluginEntry(nextConfig, normalizedPluginId, entry);
   if (enabled) {
     await validatePluginOverride(normalizedPluginId, nextConfig);
   }

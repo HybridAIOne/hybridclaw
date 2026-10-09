@@ -216,6 +216,7 @@ import {
   createAdminTerminalManager,
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
+import { WIDGET_MIME_TYPE } from './app-widgets.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -290,16 +291,6 @@ import {
 } from './gateway-browser-sign-ins.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
 import { handleApiDelegate } from './gateway-delegation.js';
-import {
-  deleteGatewayAdminDistillCorpusDocument,
-  getGatewayAdminDistill,
-  getGatewayAdminDistillCorpusDocument,
-  recordGatewayAdminDistillConsent,
-  registerGatewayAdminDistillAgent,
-  runGatewayAdminDistillPipeline,
-  uploadGatewayAdminDistillSource,
-  upsertGatewayAdminDistillSubject,
-} from './gateway-distill-service.js';
 import { getGatewayAdminFleetTopology } from './gateway-fleet-topology.js';
 import { handleApiHttpRequest } from './gateway-http-proxy.js';
 import {
@@ -314,6 +305,11 @@ import {
 } from './gateway-local-context-settings.js';
 import { GatewayLocalModelService } from './gateway-local-model-service.js';
 import { getGatewayAdminLogs } from './gateway-log-service.js';
+import {
+  handleGatewayPluginAdminRoute,
+  isUnservedPluginAdminPath,
+  resolvePluginAdminRouteAction,
+} from './gateway-plugin-admin-routes.js';
 import {
   getGatewayAdminPlugins,
   handleGatewayPluginWebhook,
@@ -511,6 +507,7 @@ import {
 import { TurnTailTimer } from './turn-tail-timing.js';
 import {
   handleWebNotificationRoute,
+  resolvePresenceOperator,
   resolveWebNotificationOperator,
 } from './web-notification-routes.js';
 import {
@@ -2103,11 +2100,30 @@ async function resolveApiChatSlashCommandResult(
       guildId: chatRequest.guildId,
       channelId: chatRequest.channelId,
       args,
+      ...(chatRequest.media?.length ? { media: chatRequest.media } : {}),
       userId: chatRequest.userId,
       username: chatRequest.username,
       client: chatRequest.client,
       adminActions,
     });
+    // A lone command that hands over to the agent, such as `/import review`:
+    // the turn runs with the command's message and instructions instead.
+    const continuation = gatewayCommandResult.continueWith;
+    if (
+      continuation &&
+      gatewayCommandResult.kind !== 'error' &&
+      slashCommands.length === 1
+    ) {
+      chatRequest.content = continuation.content;
+      chatRequest.instructions = [
+        chatRequest.instructions?.trim(),
+        continuation.instructions,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      chatRequest.media = [];
+      return null;
+    }
     sessionId = gatewayCommandResult.sessionId || sessionId;
     sessionKey = gatewayCommandResult.sessionKey || sessionKey;
     mainSessionKey = gatewayCommandResult.mainSessionKey || mainSessionKey;
@@ -2522,7 +2538,13 @@ function enforceAdminRouteRbac(
   pathname: string,
   method: string,
 ): boolean {
-  const action = resolveAdminRbacAction(pathname, method);
+  const action =
+    resolveAdminRbacAction(pathname, method) ??
+    resolvePluginAdminRouteAction(pathname, method);
+  if (!action && isUnservedPluginAdminPath(pathname, method)) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return false;
+  }
   if (authContext.kind === 'apiToken') {
     if (!action && hasFullApiTokenWildcard(authContext)) return true;
     if (!action) {
@@ -3818,7 +3840,10 @@ async function handleApiChatStream(
     streamedTextBeforeNextTool = '';
   };
 
+  // The last browser frame says whether the turn ends waiting for a sign-in.
+  let waitingForSignIn = false;
   const onToolProgress = (event: ToolProgressEvent): void => {
+    if (event.browser) waitingForSignIn = Boolean(event.browser.signIn);
     if (event.phase === 'start') {
       pushStreamedTextDraft();
       traceBuilder.startTool(event.toolName, event.preview, event.toolCallId);
@@ -3838,6 +3863,7 @@ async function handleApiChatStream(
       preview: event.preview,
       durationMs: event.durationMs,
       ...(event.browser ? { browser: event.browser } : {}),
+      ...(event.slideSamples ? { slideSamples: event.slideSamples } : {}),
     });
   };
 
@@ -3947,6 +3973,7 @@ async function handleApiChatStream(
       chatRequest,
       filteredResult,
       streamedApprovalId,
+      waitingForSignIn,
     );
     sendEvent({
       type: 'result',
@@ -7332,149 +7359,6 @@ function handleApiAdminAgentScoreboard(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminAgentScoreboard());
 }
 
-const MAX_DISTILL_SOURCE_UPLOAD_BYTES = 20 * 1024 * 1024;
-const ADMIN_DISTILL_CORPUS_PATH_PREFIX = '/api/admin/distill/corpus/';
-
-async function handleApiAdminDistill(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const method = req.method || 'GET';
-  const pathname = url.pathname;
-
-  if (pathname.startsWith(ADMIN_DISTILL_CORPUS_PATH_PREFIX)) {
-    const rawDocumentId = pathname.slice(
-      ADMIN_DISTILL_CORPUS_PATH_PREFIX.length,
-    );
-    let documentId = rawDocumentId;
-    try {
-      documentId = decodeURIComponent(rawDocumentId);
-    } catch {
-      sendJson(res, 400, { error: 'Invalid corpus document id.' });
-      return;
-    }
-
-    if (method === 'GET') {
-      const download = getGatewayAdminDistillCorpusDocument({
-        agentId: url.searchParams.get('agentId') || undefined,
-        alias: url.searchParams.get('alias') || undefined,
-        documentId,
-      });
-      const body = Buffer.from(download.content, 'utf-8');
-      res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${download.filename.replace(/"/g, '')}"`,
-        'Cache-Control': 'no-store',
-        'Content-Length': String(body.length),
-        'X-Content-Type-Options': 'nosniff',
-      });
-      res.end(body);
-      return;
-    }
-
-    if (method === 'DELETE') {
-      sendJson(res, 200, {
-        subject: deleteGatewayAdminDistillCorpusDocument({
-          agentId: url.searchParams.get('agentId') || undefined,
-          alias: url.searchParams.get('alias') || undefined,
-          documentId,
-        }),
-      });
-      return;
-    }
-
-    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
-    return;
-  }
-
-  if (pathname === '/api/admin/distill' && method === 'GET') {
-    sendJson(res, 200, getGatewayAdminDistill());
-    return;
-  }
-
-  if (pathname === '/api/admin/distill/subjects' && method === 'POST') {
-    const body = await readJsonBody(req);
-    sendJson(res, 201, {
-      subject: upsertGatewayAdminDistillSubject(
-        body && typeof body === 'object' ? body : {},
-      ),
-    });
-    return;
-  }
-
-  if (pathname === '/api/admin/distill/consent' && method === 'POST') {
-    const body = await readJsonBody(req);
-    sendJson(res, 201, {
-      subject: recordGatewayAdminDistillConsent(
-        body && typeof body === 'object' ? body : {},
-      ),
-    });
-    return;
-  }
-
-  if (pathname === '/api/admin/distill/register' && method === 'POST') {
-    const body = await readJsonBody(req);
-    sendJson(res, 201, {
-      subject: registerGatewayAdminDistillAgent(
-        body && typeof body === 'object' ? body : {},
-      ),
-    });
-    return;
-  }
-
-  if (pathname === '/api/admin/distill/runs' && method === 'POST') {
-    const body = await readJsonBody(req);
-    sendJson(
-      res,
-      200,
-      runGatewayAdminDistillPipeline(
-        body && typeof body === 'object' ? body : {},
-      ),
-    );
-    return;
-  }
-
-  if (pathname === '/api/admin/distill/sources/upload' && method === 'POST') {
-    const encodedFilename = normalizeHeaderValue(
-      req.headers['x-hybridclaw-filename'],
-    );
-    if (!encodedFilename) {
-      sendJson(res, 400, {
-        error: 'Missing `X-Hybridclaw-Filename` header.',
-      });
-      return;
-    }
-    let filename = encodedFilename;
-    try {
-      filename = decodeURIComponent(encodedFilename);
-    } catch {
-      sendJson(res, 400, {
-        error: 'Invalid `X-Hybridclaw-Filename` header.',
-      });
-      return;
-    }
-    const buffer = await readRequestBody(req, MAX_DISTILL_SOURCE_UPLOAD_BYTES);
-    sendJson(
-      res,
-      201,
-      await uploadGatewayAdminDistillSource({
-        agentId: url.searchParams.get('agentId') || undefined,
-        alias: url.searchParams.get('alias') || undefined,
-        kind: url.searchParams.get('kind') || undefined,
-        filename,
-        buffer,
-      }),
-    );
-    return;
-  }
-
-  sendJson(res, pathname === '/api/admin/distill' ? 405 : 404, {
-    error:
-      pathname === '/api/admin/distill' ? 'Method Not Allowed' : 'Not Found',
-  });
-}
-
 const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 async function handleApiAdminSkillUpload(
@@ -10085,6 +9969,7 @@ async function maybeCaptureChatArtifacts(
   try {
     for (const artifact of result.artifacts ?? []) {
       if (!artifact.mimeType?.toLowerCase().includes('html')) continue;
+      if (artifact.mimeType.toLowerCase() === WIDGET_MIME_TYPE) continue;
       if (!artifact.path) continue;
       let html: string;
       try {
@@ -10196,7 +10081,7 @@ async function handleApiAdminTerminal(
       cols: body.cols,
       rows: body.rows,
     };
-    sendJson(res, 200, terminalManager.startSession(options));
+    sendJson(res, 200, await terminalManager.startSession(options));
     return;
   }
 
@@ -10771,7 +10656,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               });
               return;
             }
-            await handleWebNotificationRoute(req, res, pathname, operatorId);
+            await handleWebNotificationRoute(
+              req,
+              res,
+              pathname,
+              operatorId,
+              resolvePresenceOperator(authContext.kind, operatorId),
+            );
             return;
           }
           if (pathname === DEVICE_MESSAGE_PATH && method === 'GET') {
@@ -11444,13 +11335,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOutputGuardPreview(req, res);
             return;
           }
-          if (
-            pathname === '/api/admin/distill' ||
-            pathname.startsWith('/api/admin/distill/')
-          ) {
-            await handleApiAdminDistill(req, res, url);
-            return;
-          }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
             return;
@@ -11738,6 +11622,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/discord/action' && method === 'POST') {
             await handleApiMessageAction(req, res);
+            return;
+          }
+          if (
+            isAdminPath(pathname) &&
+            (await handleGatewayPluginAdminRoute(req, res, url))
+          ) {
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

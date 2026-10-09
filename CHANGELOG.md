@@ -2,6 +2,155 @@
 
 ## Unreleased
 
+## [0.39.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.4) - 2026-10-09
+
+### Added
+
+- **Inline chat widgets**: In the Hy app, the assistant can show interactive
+  calculators, quizzes, comparisons and other small views directly below a
+  reply. Widgets stay with their reply and out of the Apps gallery.
+
+### Fixed
+
+- **Voice conversation context**: Web and app calls use the agent's display
+  name and the user's name, and summarize the existing chat while the call
+  rings. Greeting and microphone processing wait until the realtime service
+  acknowledges the summary. Failed summaries or setup timeouts end the call.
+- **Voice time answers**: Current time and date questions consult the agent
+  with a fresh clock. Calls use the device timezone when supplied, otherwise
+  the user's configured timezone.
+- **Tool discovery recovery**: Chats can correct missing or invalid
+  tool-discovery actions instead of ending with a technical error. The
+  existing two-correction limit and rejected-batch checks still apply.
+- **Phone calendar range**: Shared calendars can cover the past month through
+  a year ahead. Large calendar reads show the nearest entries and guide the
+  assistant to query by day or month for the rest.
+
+### Upgrade Notes
+
+- Continuing a chat with existing history by voice requires a working
+  `auxiliaryModels.compression` model. Check that configuration before relying
+  on voice continuation after upgrading.
+- Update the Hy app to display inline widgets and share the extended calendar
+  range. Device timezone support also requires the companion app update.
+
+## [0.39.3](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.3) - 2026-10-08
+
+### Added
+
+- **Memory import**: `/import` stages ChatGPT or Claude exports, OpenClaw or
+  Hermes memory, pasted text and documents about the user. `/import review <id>`
+  lets the agent merge useful information into its memory through its normal
+  tools and approval policy. Conversation digests retain the user's messages;
+  agent settings, keys and skills are excluded.
+- **Email draft cards**: `draft_email` gives companion apps a structured draft
+  to review, edit, send or discard. Drafts stay with the reply and conversation
+  history; preparing a draft sends nothing.
+- **Slide design previews**: In companion apps, `show_slide_samples` presents
+  two to four sample title slides and a PowerPoint or Google Slides choice
+  before the agent builds a new deck.
+- **Money-saving skill**: The bundled German workflow compares prices, finds
+  subscriptions, prepares cancellations and supplier switches, and helps with
+  travel refund claims. Final browser cancellation actions require explicit
+  approval in every automation mode.
+
+### Changed
+
+- **Phone notifications**: Phones stay quiet while the owner uses web chat on a
+  computer. Unread alerts ring when the last active page becomes hidden, idle
+  or stops reporting. Approval and browser sign-in alerts explain what the
+  assistant is waiting for.
+- **Human distillation plugin**: The `distill` plugin owns `hybridclaw coworker`
+  and the console Distill page. Bundled plugins without dependencies enable in
+  place and upgrade with HybridClaw. Plugin CLI commands are dispatched from
+  manifests; project plugins cannot provide or replace CLI commands.
+- **Teams user storage**: Teams users, email addresses and agent assignments
+  move to the shared `channel_users` table on first start. The previous table
+  remains available for older 0.39.x binaries but is not kept in sync.
+- **Bot command syntax**: `/bot <name>` shows usage; switching a chatbot
+  requires `/bot set <name>`.
+
+### Fixed
+
+- **User turns under background load**: Scheduled tasks, heartbeats and goal
+  continuations leave one agent process available when the process limit is
+  greater than one. Concurrent starts count toward the limit before spawning;
+  host background runs wait longer for capacity, and busy replies carry a
+  structured error code for apps.
+- **HybridAI goal completion**: The goal judge follows the session's model and
+  chatbot, including on installs whose only provider is HybridAI.
+- **Linux local providers**: Agent containers resolve `host.docker.internal`
+  on native Linux Docker so bridge-accessible local model servers and gateway
+  callbacks work in the default sandbox.
+- **Gateway startup and terminal recovery**: A missing or broken `node-pty`
+  addon affects only the admin terminal, which reports HTTP 503. Rebuilding
+  the addon restores the terminal without restarting the gateway.
+- **Runtime diagnostics**: Packaged installs are not reported as stale builds
+  based on shipped source timestamps. Bot commands explain a missing HybridAI
+  API key instead of reporting the service as unreachable.
+
+### Upgrade Notes
+
+- To keep using human distillation, run `hybridclaw plugin install distill`
+  and restart the gateway, or use `/plugin install distill` from a console or
+  local TUI session to load it without a restart. Existing subjects, consent,
+  corpora, runs and scoped `admin.distill.*` tokens remain usable.
+- Restart the gateway after upgrading Teams user storage. If rolling back to
+  an older 0.39.x binary, re-check assignments changed since the upgrade because
+  the old and new user tables are not synchronized.
+- Replace chatbot-switching shorthand with `/bot set <name>`.
+- Linux local model servers must listen on the Docker bridge address or all
+  interfaces; a server bound only to host loopback remains unreachable from a
+  bridge-networked container.
+- Companion app updates are needed to display draft cards and slide choices.
+  Phone alerts deferred while using a computer are held in memory and are lost
+  if the gateway restarts before delivery.
+
+## [0.39.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.2) - 2026-10-08
+
+### Added
+
+- **Boost approval questions**: Premium HybridAI tools ask before spending a
+  boost, including in full-auto mode. A user answer repeats the same tool call
+  with the choice; unanswered or expired offers spend nothing. Boost approvals
+  never create durable trust.
+- **App Library pages**: Hy is guided to write long reports, plans, comparisons
+  and small interactive tools as self-contained HTML pages saved in the app's
+  Library. Pages support HTTPS pictures returned by tools and layouts suited
+  to phones; follow-up edits update the same file.
+
+### Changed
+
+- **Console consistency**: Channel names, file sizes, compact numbers and secret
+  metadata use shared formatting across pages.
+- **Admin API cleanup**: Channel and fleet-topology admin routes are read-only.
+  Unused write handlers and their RBAC actions have been removed.
+- **Runtime defaults**: Removed undocumented behavior-anomaly tuning,
+  leak-scan event filtering and config-revision debugging environment variables.
+  The built-in defaults apply.
+
+### Fixed
+
+- **App background task delivery**: Scheduled replies from hidden `feed-…` and
+  `ideas-…` data chats stay in those chats so the apps can read their JSON results
+  without posting them into the agent's main chat.
+- **Console font loading**: Fonts, including KaTeX fonts, ship as files so the
+  console's content security policy permits them to load.
+- **Console log selection**: Clicking a log file keeps it selected while its
+  contents load.
+
+### Upgrade Notes
+
+- Replace `PUT`/`DELETE /api/admin/channels` calls with channel configuration
+  edits. Replace `POST`/`PUT`/`DELETE /api/admin/fleet-topology` calls with the A2A
+  trust routes. Tokens listing `admin.channels.delete`, `admin.fleet.write` or
+  `admin.fleet.delete` still parse, but those entries grant no permission.
+- Remove `HYBRIDCLAW_BEHAVIOR_ANOMALY_MIN_TRAJECTORIES`,
+  `HYBRIDCLAW_BEHAVIOR_ANOMALY_EPSILON`,
+  `HYBRIDCLAW_BEHAVIOR_ANOMALY_CACHE_TTL_MS`, `HYBRIDCLAW_LEAK_SCAN_EVENT_TYPES`
+  and `HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC` from custom environments; they
+  no longer affect runtime behavior.
+
 ## [0.39.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.1) - 2026-10-08
 
 ### Added

@@ -189,6 +189,10 @@ vi.mock('../../auth', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+vi.mock('./use-computer-presence', () => ({
+  useComputerPresence: () => {},
+}));
+
 vi.mock('./use-chat-stream', () => ({
   useChatStream: (...args: unknown[]) => useChatStreamMock(...args),
 }));

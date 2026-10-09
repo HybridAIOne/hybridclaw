@@ -7,11 +7,11 @@ import { closeDatabase, initDatabase } from '../src/memory/database.js';
 import { DATABASE_SCHEMA_VERSION } from '../src/memory/schema/migrations.js';
 import { getOrCreateSession } from '../src/memory/sessions.js';
 import {
-  getMSTeamsUserAgent,
-  listMSTeamsUsers,
-  observeMSTeamsUser,
-  setMSTeamsUserAgent,
-} from '../src/memory/msteams-users.js';
+  getChannelUserMapping,
+  listChannelUsers,
+  observeChannelUser,
+  setChannelUserAgent,
+} from '../src/memory/channel-users.js';
 import {
   recordUsageEvent,
   recordUsageEventBatch,
@@ -58,15 +58,18 @@ afterEach(() => {
 });
 
 function observe(userId = 'user-a', tenantId = 'tenant-a', isMessage = true) {
-  observeMSTeamsUser({
+  observeChannelUser({
+    channelKind: 'msteams',
     tenantId,
     userId,
-    teamsUserId: `29:${userId}`,
-    entraObjectId: userId,
     displayName: 'Example User',
+    profile: { teamsUserId: `29:${userId}`, entraObjectId: userId },
     isMessage,
   });
 }
+
+const listMSTeamsUsers = (tenantId: string) =>
+  listChannelUsers('msteams', tenantId);
 
 describe('Teams user routing and attribution', () => {
   test('persists observed identities and mappings across reopen; commands do not add messages', () => {
@@ -80,8 +83,7 @@ describe('Teams user routing and attribution', () => {
     expect(listMSTeamsUsers('tenant-a')).toEqual([
       expect.objectContaining({
         userId: 'user-a',
-        teamsUserId: '29:user-a',
-        entraObjectId: 'user-a',
+        profile: { teamsUserId: '29:user-a', entraObjectId: 'user-a' },
         agentId: 'sales',
         messageCount: 1,
       }),
@@ -97,10 +99,11 @@ describe('Teams user routing and attribution', () => {
 
   test('keeps case-sensitive Teams IDs separate for mappings and usage', () => {
     for (const userId of ['29:User-A', '29:user-a']) {
-      observeMSTeamsUser({
+      observeChannelUser({
+        channelKind: 'msteams',
         tenantId: 'tenant-a',
         userId,
-        teamsUserId: userId,
+        profile: { teamsUserId: userId },
         isMessage: true,
       });
     }
@@ -159,8 +162,17 @@ describe('Teams user routing and attribution', () => {
     ]) {
       expect(updateAdminMSTeamsUser(input).status).toBe(400);
     }
-    setMSTeamsUserAgent('tenant-a', 'user-a', 'sales');
-    expect(getMSTeamsUserAgent('tenant-b', 'user-a')).toBeNull();
+    setChannelUserAgent(
+      { channelKind: 'msteams', tenantId: 'tenant-a', userId: 'user-a' },
+      'sales',
+    );
+    expect(
+      getChannelUserMapping({
+        channelKind: 'msteams',
+        tenantId: 'tenant-b',
+        userId: 'user-a',
+      }),
+    ).toBeNull();
     getAgentById.mockReturnValue({ id: 'sales', archived: true });
     expect(
       updateAdminMSTeamsUser({ userId: 'user-a', agentId: 'sales' }).status,
@@ -293,7 +305,7 @@ describe('Teams user routing and attribution', () => {
     closeDatabase();
     const db = new Database(dbPath);
     db.exec(
-      'DROP TABLE msteams_users; DROP INDEX idx_usage_events_channel_user; ALTER TABLE usage_events DROP COLUMN user_id; ALTER TABLE usage_events DROP COLUMN channel_kind; ALTER TABLE usage_events DROP COLUMN tenant_id;',
+      'DROP TABLE channel_users; DROP INDEX idx_usage_events_channel_user; ALTER TABLE usage_events DROP COLUMN user_id; ALTER TABLE usage_events DROP COLUMN channel_kind; ALTER TABLE usage_events DROP COLUMN tenant_id;',
     );
     if (version === 57) {
       db.exec(

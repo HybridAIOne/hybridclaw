@@ -91,6 +91,10 @@ import {
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  DRAFT_EMAIL_TOOL_DEFINITION,
+  runDraftEmailTool,
+} from './tools/draft-email.js';
+import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
@@ -103,8 +107,17 @@ import {
   runSkillsList,
   SKILLS_LIST_TOOL_DEFINITION,
 } from './tools/skills-list.js';
+import {
+  runSlideSamplesTool,
+  SLIDE_SAMPLES_TOOL_DEFINITION,
+} from './tools/slide-samples.js';
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
+import {
+  runShowWidget,
+  SHOW_WIDGET_DEFINITION,
+  SHOW_WIDGET_TOOL,
+} from './tools/widget.js';
 import { runWorkTool, WORK_TOOL_DEFINITION } from './tools/work.js';
 import type {
   DelegationSideEffect,
@@ -2231,6 +2244,32 @@ function safeJoin(userPath: string): string {
   throw new Error(`Path escapes workspace: ${userPath}`);
 }
 
+function writeWorkspaceFile(userPath: string, contents: string): void {
+  if (TASK_SANDBOX_FS_ENABLED) {
+    const sandboxPath = resolveTaskSandboxPath(userPath);
+    if (!sandboxPath) {
+      failTool(`Error: Path escapes workspace: ${userPath}`);
+    }
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
+    );
+    const localPath = path.join(
+      tempDir,
+      path.posix.basename(sandboxPath) || 'file',
+    );
+    try {
+      fs.writeFileSync(localPath, contents, 'utf-8');
+      writeTempFileToTaskSandbox(localPath, sandboxPath);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    return;
+  }
+  const filePath = safeJoin(userPath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents);
+}
+
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
@@ -2985,30 +3024,18 @@ async function executeToolInternal(
     }
 
     case 'write': {
-      if (TASK_SANDBOX_FS_ENABLED) {
-        const sandboxPath = resolveTaskSandboxPath(args.path);
-        if (!sandboxPath) {
-          return failTool(`Error: Path escapes workspace: ${args.path}`);
-        }
-        const tempDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'hybridclaw-taskfs-write-'),
-        );
-        const localPath = path.join(
-          tempDir,
-          path.posix.basename(sandboxPath) || 'file',
-        );
-        try {
-          fs.writeFileSync(localPath, args.contents, 'utf-8');
-          writeTempFileToTaskSandbox(localPath, sandboxPath);
-        } finally {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-      } else {
-        const filePath = safeJoin(args.path);
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, args.contents);
-      }
+      writeWorkspaceFile(args.path, args.contents);
       return `Wrote ${args.contents.length} bytes to ${args.path}`;
+    }
+
+    case SHOW_WIDGET_TOOL: {
+      try {
+        return runShowWidget(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     case 'edit': {
@@ -3603,12 +3630,21 @@ async function executeToolInternal(
       });
       return ok ? text : failTool(text);
     }
+    case 'draft_email': {
+      const { ok, text } = runDraftEmailTool(args);
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
         baseUrl: gatewayBaseUrl,
         apiToken: gatewayApiToken,
         sessionId: currentSessionId,
       });
+      return ok ? text : failTool(text);
+    }
+
+    case 'show_slide_samples': {
+      const { ok, text } = await runSlideSamplesTool(args);
       return ok ? text : failTool(text);
     }
 
@@ -4216,8 +4252,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
+  DRAFT_EMAIL_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,
+  SLIDE_SAMPLES_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
@@ -4259,6 +4297,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  SHOW_WIDGET_DEFINITION,
   {
     type: 'function',
     function: {
@@ -4607,7 +4646,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'device_data',
       description:
-        'Read what the user’s phone shares through the companion app: their calendar for the coming days, reminders that are due, a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts), and their contacts (names, companies, email addresses, phone numbers, birthdays, relationships such as sister or manager). Call it before answering anything about the user’s schedule, what is due, how they slept, moved or trained, or who someone is and how to reach them; do not say you cannot see their calendar, health data or contacts without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
+        'Read what the user’s phone shares through the companion app: their calendar from the past month to a year ahead, reminders that are due, a health summary of the last week (steps, exercise, sleep, resting heart rate, workouts), and their contacts (names, companies, email addresses, phone numbers, birthdays, relationships such as sister or manager). Call it before answering anything about the user’s schedule, what is due, how they slept, moved or trained, or who someone is and how to reach them; do not say you cannot see their calendar, health data or contacts without calling it first. Returns only the sources the user connected, each with the time the phone last updated it. Read-only.',
       parameters: {
         type: 'object',
         properties: {
@@ -4619,7 +4658,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           query: {
             type: 'string',
             description:
-              'Words to look for, such as a name, company, email address, relationship (`sister`) or birthday month (`Oct`). Returns only the entries that contain every word. Needed to read `contacts`, which is too long to list whole.',
+              'Words to look for, such as a name, company, email address, relationship (`sister`), birthday month (`Oct`), or a calendar day (`14 Nov`) or month (`Nov 2026`). Returns only the entries that contain every word. Needed to read `contacts`, which is too long to list whole, and the later days of a long calendar.',
           },
         },
         required: [],

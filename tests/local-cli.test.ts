@@ -62,6 +62,11 @@ async function importFreshCli(
       }
       return {};
     },
+    PluginManager: class {
+      async discoverPlugins() {
+        return [];
+      }
+    },
   }));
   return import('../src/cli.ts');
 }

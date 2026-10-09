@@ -6,9 +6,10 @@ import { expect, test, vi } from 'vitest';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const GATEWAY_ENTRY = path.join(ROOT, 'src/gateway/gateway.ts');
 
-// Optional-channel and platform-specific SDKs: each costs 5-20 MB of heap in
-// every gateway, so they load through `channel-runtime-loaders.ts` or on
-// their own feature path, never from the startup graph.
+// Optional-channel and platform-specific SDKs cost 5-20 MB of heap each, and a
+// broken native addon prebuild would crash startup, so they load through
+// `channel-runtime-loaders.ts` or on their own feature path, never from the
+// startup graph.
 const LAZY_ONLY_PACKAGES = [
   '@modelcontextprotocol/sdk',
   '@slack/bolt',
@@ -20,7 +21,19 @@ const LAZY_ONLY_PACKAGES = [
   'discord.js',
   'imapflow',
   'mailparser',
+  'node-pty',
   'nodemailer',
+];
+
+// Optional features that ship as plugins (AGENTS.md §3.4). Core must not
+// import them, nor regrow them under `src/`: human distillation moved to
+// `plugins/distill` (#1801) and reaches the gateway only through
+// `registerAdminRoute` / `registerCliCommand`.
+const PLUGIN_ONLY_MODULES = [
+  'plugins/',
+  'src/distill/',
+  'src/gateway/gateway-distill-service.ts',
+  'src/cli/coworker-command.ts',
 ];
 
 function packageName(specifier: string): string {
@@ -112,7 +125,7 @@ function runtimeImportSpecifiers(file: string, source: string): string[] {
 
 function collectStartupPackages(entry: string): {
   importers: Map<string, string>;
-  files: Set<string>;
+  modules: string[];
   unresolved: string[];
 } {
   const importers = new Map<string, string>();
@@ -140,7 +153,7 @@ function collectStartupPackages(entry: string): {
   }
   return {
     importers,
-    files: new Set([...seen].map((file) => path.relative(ROOT, file))),
+    modules: [...seen].map((file) => path.relative(ROOT, file)),
     unresolved,
   };
 }
@@ -157,13 +170,24 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
 });
 
 test('gateway startup graph builds no plugin channel transport host', () => {
-  const { files } = collectStartupPackages(GATEWAY_ENTRY);
+  const { modules } = collectStartupPackages(GATEWAY_ENTRY);
 
   // The transport host (media, session, and QR helpers) loads only when a
   // channel plugin's transport is first created.
-  expect(files.has('src/channels/plugin-channel/host.ts')).toBe(false);
+  expect(modules).not.toContain('src/channels/plugin-channel/host.ts');
   expect(
-    [...files].filter((file) => file.startsWith('src/channels/line/')),
+    modules.filter((file) => file.startsWith('src/channels/line/')),
+  ).toEqual([]);
+});
+
+test('gateway startup graph does not statically load plugin-owned features', () => {
+  const { modules } = collectStartupPackages(GATEWAY_ENTRY);
+
+  expect(modules.length).toBeGreaterThan(100);
+  expect(
+    modules.filter((file) =>
+      PLUGIN_ONLY_MODULES.some((prefix) => file.startsWith(prefix)),
+    ),
   ).toEqual([]);
 });
 

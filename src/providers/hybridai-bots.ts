@@ -163,10 +163,11 @@ async function fetchHybridAIBotManagementPayload(
       .trim()
       .replace(/\/+$/g, '') || HYBRIDAI_BASE_URL;
   const url = `${baseUrl}${route}`;
+  const apiKey = getHybridAIApiKey();
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { Authorization: `Bearer ${getHybridAIApiKey()}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(HYBRIDAI_BOT_FETCH_TIMEOUT_MS),
     });
   } catch (error) {
