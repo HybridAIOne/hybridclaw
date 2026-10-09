@@ -71,7 +71,11 @@ While a turn of its own runs, it adds to it with `POST /api/chat/steer`
 the text to the model at its next step and stores it as a user message;
 `{ "accepted": false }` means nothing happened (no turn of its own runs there,
 the turn is finishing, or the text is a `/` command), and the phone sends it
-as a turn of its own afterwards. `chat.send` also covers
+as a turn of its own afterwards. When its stream of a turn breaks off, it
+sends the same request body to `POST /api/chat/rejoin`: while that turn runs,
+the answer is the turn's stream from its first line, as a resend to
+`/api/chat` would get; once it has ended, a 404, and no new turn starts. The
+reply is then in `GET /api/history`. `chat.send` also covers
 `POST /api/media/upload`, so a phone can send a photo or document with a
 message: the file lands in the uploaded-media cache for a day, and the turn
 names it in `media`. Chatting is not administration: a slash command such as

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ChatStreamTurn,
   openChatStreamTurn,
+  rejoinChatStreamTurn,
 } from '../src/gateway/chat-stream-turns.js';
 
 class FakeResponse extends EventEmitter {
@@ -114,6 +115,30 @@ describe('chat stream turns', () => {
     expect(resend.res.writableEnded).toBe(true);
     expect(first.res.types()).toEqual(['accepted', 'text']);
     expect(first.res.writableEnded).toBe(false);
+  });
+
+  it('rejoins a running turn without ever starting one', () => {
+    const first = open('rejoin');
+    first.turn?.send({ type: 'text', delta: 'Working' });
+    first.res.drop();
+
+    const back = new FakeResponse();
+    expect(
+      rejoinChatStreamTurn(back as unknown as ServerResponse, 'rejoin'),
+    ).toBe(true);
+    expect(back.types()).toEqual(['accepted', 'text']);
+    first.turn?.send({ type: 'result', result: { status: 'success' } });
+    first.turn?.end();
+    expect(back.types()).toEqual(['accepted', 'text', 'result']);
+    expect(back.writableEnded).toBe(true);
+
+    // Ended: nothing to join, and the response is the caller's to answer.
+    const late = new FakeResponse();
+    expect(
+      rejoinChatStreamTurn(late as unknown as ServerResponse, 'rejoin'),
+    ).toBe(false);
+    expect(late.statusCode).toBe(0);
+    expect(late.body).toBe('');
   });
 
   it('streams live lines to every connection of the turn', () => {

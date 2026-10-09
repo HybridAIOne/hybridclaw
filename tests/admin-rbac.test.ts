@@ -201,6 +201,9 @@ describe('admin RBAC role bundles', () => {
       'chat.send',
     );
     expect(resolveAdminRbacAction('/api/chat/steer', 'GET')).toBeNull();
+    expect(resolveAdminRbacAction('/api/chat/rejoin', 'POST')).toBe(
+      'chat.send',
+    );
     expect(resolveAdminRbacAction('/api/media/upload', 'POST')).toBe(
       'chat.send',
     );
