@@ -58,6 +58,7 @@ const SUBAGENT_BLOCKED_TOOLS = [
   'draft_email',
   'estimate_cost',
   'draft_transfer',
+  'inbox_cleanup',
   'track',
   'memory',
   'browser_await_two_factor',

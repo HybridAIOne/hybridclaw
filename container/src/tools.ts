@@ -104,6 +104,11 @@ import {
   runEstimateCostTool,
 } from './tools/estimate-cost.js';
 import {
+  INBOX_CLEANUP_TOOL,
+  INBOX_CLEANUP_TOOL_DEFINITION,
+  runInboxCleanup,
+} from './tools/inbox-cleanup.js';
+import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
@@ -3689,6 +3694,15 @@ async function executeToolInternal(
       const { ok, text } = runDraftEmailTool(args);
       return ok ? text : failTool(text);
     }
+    case INBOX_CLEANUP_TOOL: {
+      try {
+        return await runInboxCleanup(args, mcpClientManager);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     case 'trigger': {
       if (args.action !== 'list') {
         if (!scheduleSideEffectsEnabled)
@@ -4345,6 +4359,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   TODO_TOOL_DEFINITION,
   TRIGGER_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
+  INBOX_CLEANUP_TOOL_DEFINITION,
   PROOF_TOOL_DEFINITION,
   ESTIMATE_COST_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
