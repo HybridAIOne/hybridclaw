@@ -104,6 +104,8 @@ export function finishRoutingTraceAttempt(params: {
   tokensEstimated?: boolean;
   costUsd?: number;
   costSource?: 'reported' | 'estimated';
+  /** Model requests behind the attempt; an auxiliary call is one. */
+  modelCalls?: number;
 }): void {
   const state = scope.getStore();
   if (!state || state.closed) return;
@@ -134,6 +136,14 @@ export function finishRoutingTraceAttempt(params: {
   attempt.cacheReadTokens = finite(params.cacheReadTokens);
   attempt.cacheWriteTokens = finite(params.cacheWriteTokens);
   attempt.tokensEstimated = params.tokensEstimated ?? false;
+  const modelCalls =
+    params.modelCalls ?? (attempt.kind === 'auxiliary' ? 1 : undefined);
+  if (
+    typeof modelCalls === 'number' &&
+    Number.isSafeInteger(modelCalls) &&
+    modelCalls >= 0
+  )
+    attempt.modelCalls = modelCalls;
   const explicit = finite(params.costUsd);
   const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
   const estimated =

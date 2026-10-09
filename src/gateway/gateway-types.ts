@@ -68,6 +68,8 @@ import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { TaskCost, TaskCostEstimate } from '../usage/task-cost.js';
+import type { GatewayApprovalAnswer } from './approval-answer.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export type GatewayMessageComponents = NonNullable<
@@ -169,6 +171,10 @@ export interface GatewayChatResult {
   assistantMessageId?: number;
   /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
   emailDraft?: MessageEmailDraft;
+  /** What the turn cost the user, from its routing trace (`src/usage/task-cost.ts`). */
+  cost?: TaskCost;
+  /** What the task the reply asks about will likely cost (`estimate_cost`). */
+  costEstimate?: TaskCostEstimate;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -259,6 +265,18 @@ export interface GatewayChatRequestBody {
    * call instead of calling tools silently.
    */
   toolStatus?: boolean;
+  /**
+   * Answers a pending approval, as its card's button does. The gateway sends
+   * the agent the reply text for it in place of `content`, and history leaves
+   * the answer out instead of showing it as a message from the user.
+   */
+  approval?: GatewayApprovalAnswer;
+  /**
+   * `content` is the client's own note to the agent, not something the user
+   * wrote, such as "I saved my sign-in for example.com. Please continue." The
+   * agent reads it as usual; history leaves it out.
+   */
+  appNotice?: boolean;
 }
 
 export interface GatewayChatRequest {
@@ -293,6 +311,8 @@ export interface GatewayChatRequest {
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
+  approval?: GatewayChatRequestBody['approval'];
+  appNotice?: GatewayChatRequestBody['appNotice'];
   agentId?: GatewayChatRequestBody['agentId'];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];

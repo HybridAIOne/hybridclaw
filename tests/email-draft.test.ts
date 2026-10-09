@@ -1,7 +1,10 @@
 import { expect, test, vi } from 'vitest';
 
 import { normalizeEmailDraft } from '../container/shared/email-draft.js';
-import { runDraftEmailTool } from '../container/src/tools/draft-email.js';
+import {
+  DRAFT_EMAIL_TOOL_DEFINITION,
+  runDraftEmailTool,
+} from '../container/src/tools/draft-email.js';
 import {
   replyWithEmailDraft,
   turnEmailDraft,
@@ -40,24 +43,55 @@ function call(args: unknown, extra: Partial<ToolExecution> = {}): ToolExecution 
 }
 
 test('the tool accepts a complete draft and refuses one it cannot show', () => {
-  expect(normalizeEmailDraft({ ...draft, cc: [], subject: '  ' })).toEqual({
-    draft: {
-      from: draft.from,
-      to: draft.to,
-      body: draft.body,
-      source: draft.source,
-    },
+  expect(normalizeEmailDraft({ ...draft, cc: [], bcc: null })).toEqual({
+    draft,
   });
   expect(runDraftEmailTool(draft).ok).toBe(true);
   for (const args of [
     {},
-    { body: '   ' },
-    { body: 'Hi', to: 'franziska@example.com' },
-    { body: 'Hi', to: ['Franziska <franziska@example.com>'] },
-    { body: 'Hi', subject: 'Demo\nBcc: wrong@example.com' },
+    { ...draft, body: '   ' },
+    { ...draft, to: 'franziska@example.com' },
+    { ...draft, to: ['Franziska <franziska@example.com>'] },
+    { ...draft, subject: 'Demo\nBcc: wrong@example.com' },
   ]) {
     expect(runDraftEmailTool(args).ok).toBe(false);
   }
+});
+
+test('every draft needs from, to and subject, and the refusal says how to fix it', () => {
+  expect(DRAFT_EMAIL_TOOL_DEFINITION.function.parameters.required).toEqual([
+    'from',
+    'to',
+    'subject',
+    'body',
+  ]);
+  const newEmail = {
+    from: 'pat@example.com',
+    to: ['pat@example.com'],
+    subject: 'Friday',
+    body: 'See you then.',
+  };
+  expect(normalizeEmailDraft(newEmail)).toEqual({ draft: newEmail });
+  const { from: _from, ...withoutFrom } = newEmail;
+  for (const args of [withoutFrom, { ...newEmail, from: '  ' }]) {
+    const refused = runDraftEmailTool(args);
+    expect(refused.ok).toBe(false);
+    expect(refused.text).toContain('"from" is required');
+    expect(refused.text).toContain('Sent folder');
+  }
+  for (const from of ['Pat <pat@example.com>', 'pat', 'a@b@example.com']) {
+    expect(normalizeEmailDraft({ ...newEmail, from }).error).toContain(
+      '"from" must be one plain email address',
+    );
+  }
+  for (const to of [undefined, []]) {
+    expect(normalizeEmailDraft({ ...newEmail, to }).error).toContain(
+      '"to" is required',
+    );
+  }
+  expect(normalizeEmailDraft({ ...newEmail, subject: ' ' }).error).toContain(
+    '"subject" is required',
+  );
 });
 
 test('a turn shows its last successful draft, never a refused or blocked one', () => {
@@ -71,20 +105,22 @@ test('a turn shows its last successful draft, never a refused or blocked one', (
     ])?.body,
   ).toBe(draft.body);
   expect(turnEmailDraft([call({ body: '' })])).toBeNull();
+  expect(turnEmailDraft([call({ ...draft, from: undefined })])).toBeNull();
   expect(turnEmailDraft(undefined)).toBeNull();
 });
 
 test('the stored reply carries the draft as fenced text, the card keeps the reply', () => {
-  const shown = replyWithEmailDraft('I drafted a reply.', {
+  const code = {
+    from: 'pat@example.com',
+    to: ['sam@example.com'],
+    subject: 'Re: Friday',
     body: 'See ```code``` here',
-  });
+  };
+  const shown = replyWithEmailDraft('I drafted a reply.', code);
   expect(shown.content).toBe(
-    'I drafted a reply.\n\n**Email draft (not sent)**\n````text\nSee ```code``` here\n````',
+    'I drafted a reply.\n\n**Email draft (not sent)**\n````text\nFrom: pat@example.com\nTo: sam@example.com\nSubject: Re: Friday\n\nSee ```code``` here\n````',
   );
-  expect(shown.emailDraft).toEqual({
-    body: 'See ```code``` here',
-    reply: 'I drafted a reply.',
-  });
+  expect(shown.emailDraft).toEqual({ ...code, reply: 'I drafted a reply.' });
   expect(
     replyWithEmailDraft('', draft, { proactive: true }).emailDraft,
   ).toMatchObject({ reply: '', proactive: true });

@@ -4,6 +4,7 @@ import type { SkillInstallSpec } from '../src/skills/skills-install-spec.js';
 import {
   normalizeInstallSpecs,
   parseInstallSpecList,
+  SKILL_INSTALL_KINDS,
 } from '../src/skills/skills-install-spec.js';
 
 const mocks = vi.hoisted(() => ({
@@ -252,5 +253,16 @@ describe('platform-aware dependency recipes', () => {
         'example',
       ]),
     ).toMatchObject([{ os: ['linux'], arch: ['arm64'] }]);
+  });
+
+  test('keeps every declared install kind and drops unknown ones', () => {
+    expect(
+      normalizeInstallSpecs(
+        [...SKILL_INSTALL_KINDS, 'apt'].map((kind) => ({
+          kind: kind.toUpperCase(),
+        })),
+        () => [],
+      ).map((spec) => spec.kind),
+    ).toEqual([...SKILL_INSTALL_KINDS]);
   });
 });

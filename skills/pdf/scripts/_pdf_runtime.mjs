@@ -1,22 +1,51 @@
+import { realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 let pdfJsPromise = null;
 let canvasPromise = null;
 
+// pdfjs-dist and @napi-rs/canvas ship with the agent runtime (container/),
+// not the gateway package. import() ignores NODE_PATH and cannot see
+// container/node_modules from skills/, so resolve through require: this
+// script's node_modules chain, the packaged runtime beside skills/, NODE_PATH.
+const SCRIPT_DIR = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
+const RUNTIME_MODULE_LOOKUP = [
+  SCRIPT_DIR,
+  path.resolve(SCRIPT_DIR, '..', '..', '..', 'container'),
+];
+
+export function resolveRuntimeModule(specifier, lookup = RUNTIME_MODULE_LOOKUP) {
+  return pathToFileURL(
+    createRequire(import.meta.url).resolve(specifier, { paths: lookup }),
+  );
+}
+
 export async function loadPdfJs() {
   if (!pdfJsPromise) {
-    pdfJsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+    pdfJsPromise = import(
+      resolveRuntimeModule('pdfjs-dist/legacy/build/pdf.mjs').href
+    );
   }
   return pdfJsPromise;
 }
 
 export async function loadCanvas() {
   if (!canvasPromise) {
-    canvasPromise = import('@napi-rs/canvas').catch((err) => {
+    // Render with the canvas build pdfjs-dist itself loads; Path2D objects
+    // from a second @napi-rs/canvas copy are rejected at draw time.
+    canvasPromise = (async () => {
+      const pdfJsDir = path.dirname(
+        fileURLToPath(resolveRuntimeModule('pdfjs-dist/package.json')),
+      );
+      return import(resolveRuntimeModule('@napi-rs/canvas', [pdfJsDir]).href);
+    })().catch((err) => {
       canvasPromise = null;
       throw new Error(
         `@napi-rs/canvas is required for PDF rendering: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
       );
     });
   }

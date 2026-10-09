@@ -167,20 +167,15 @@ describe('runtime tools manifest', () => {
     ).toEqual([]);
   });
 
-  test('npm pins match the gateway package.json where both carry a package', () => {
-    const packageJson = JSON.parse(
-      readRepoFile('package.json'),
-    ) as Record<string, Record<string, string>>;
-    const shared = [...inventory.npm].filter(
-      ([name]) => packageJson.dependencies?.[name] !== undefined,
-    );
-    expect(shared.length).toBeGreaterThan(0);
-    for (const [name, version] of shared) {
-      expect(
-        { name, version: packageJson.dependencies[name] },
-        `${name} is pinned to ${version} in ${RUNTIME_TOOLS_DIR}/package.json`,
-      ).toEqual({ name, version });
-    }
+  test('the gateway package.json carries none of the skill tool libraries', () => {
+    const packageJson = JSON.parse(readRepoFile('package.json')) as {
+      dependencies: Record<string, string>;
+    };
+    expect(
+      [...inventory.npm.keys()].filter(
+        (name) => packageJson.dependencies[name] !== undefined,
+      ),
+    ).toEqual([]);
   });
 
   test('requirements.txt is the hashed resolution of requirements.in', () => {

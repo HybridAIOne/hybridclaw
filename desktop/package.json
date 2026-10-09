@@ -55,6 +55,9 @@
           "container/package.json",
           "container/package-lock.json",
           "container/npm-shrinkwrap.json",
+          "container/tools/package.json",
+          "container/tools/package-lock.json",
+          "container/tools/stubs/**/*",
           "container/tsconfig.json",
           "container/shared/**/*",
           "container/src/**/*",
@@ -88,6 +91,10 @@
       {
         "from": "build/runtime-deps/container-node_modules",
         "to": "hybridclaw-runtime/container/node_modules"
+      },
+      {
+        "from": "build/runtime-deps/tools-node_modules",
+        "to": "hybridclaw-runtime/container/tools/node_modules"
       },
       {
         "from": "build/runtime-bin",

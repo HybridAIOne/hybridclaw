@@ -230,7 +230,7 @@ should verify no broken references.
 
 ```bash
 npm install                          # install deps + Husky hooks
-npm run setup                        # install container/ deps
+npm run setup                        # install container/ and container/tools/ deps
 npm run build                        # compile root + container TypeScript
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # tsc --noEmit with unused detection

@@ -438,6 +438,32 @@ describe('SkillsPage', () => {
     expect(tryLink.getAttribute('target')).toBe('_blank');
   });
 
+  it.each([
+    [
+      {
+        id: 'node-libs',
+        kind: 'runtime-tools' as const,
+        label: 'Install libs',
+      },
+      'Install libs',
+    ],
+    [
+      { id: 'node-libs', kind: 'runtime-tools' as const },
+      'runtime-tools: node-libs',
+    ],
+  ])(
+    'lists a runtime-tools install spec on the detail page',
+    async (spec, shown) => {
+      fetchSkillsMock.mockResolvedValue(
+        makeResponse([makeSkill({ install: [spec] })]),
+      );
+
+      renderWithProviders(<SkillDetailView skillName="pdf" />);
+
+      expect(await screen.findByText(shown)).toBeTruthy();
+    },
+  );
+
   it('shows credential secret state and can set or delete values', async () => {
     fetchSkillsMock.mockResolvedValue(
       makeResponse([

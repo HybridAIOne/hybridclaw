@@ -182,7 +182,8 @@ npm run test:unit
 ```
 
 `npm run setup` installs the container package dependencies used by the default
-sandbox image build and related local workflows.
+sandbox image build and related local workflows, plus the `container/tools/`
+skill libraries the images expose through `NODE_PATH`.
 
 ## After Installation
 

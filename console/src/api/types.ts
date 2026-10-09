@@ -6,6 +6,7 @@ import type {
   GatewayStatus as RuntimeGatewayStatus,
 } from '../../../src/gateway/gateway-types.js';
 import type { LocalModelMetrics } from '../../../src/inference/local-model-metrics.js';
+import type { SkillInstallKind } from '../../../src/skills/skills-install-spec.js';
 export const LOG_LEVELS = [
   'fatal',
   'error',
@@ -1833,7 +1834,7 @@ export interface AdminSkill {
   relatedSkills: string[];
   install: Array<{
     id?: string;
-    kind: 'brew' | 'uv' | 'npm' | 'node' | 'go' | 'download';
+    kind: SkillInstallKind;
     label?: string;
     bins?: string[];
     formula?: string;

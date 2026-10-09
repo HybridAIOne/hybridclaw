@@ -680,6 +680,7 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
 import { storeTurnMessages } from './turn-storage.js';
+import { isHiddenUserSource } from './user-turn-source.js';
 
 export { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 
@@ -3608,6 +3609,7 @@ export function recordSuccessfulTurn(opts: {
   userMedia?: readonly MediaContextItem[];
   /** The dynamic context the user message was sent with, for replay. */
   userDynamicContext?: string | null;
+  userSource?: string | null;
   /** Notes the user sent while the turn ran, in the order the model saw them. */
   steerNotes?: readonly string[];
   resultText: string;
@@ -3779,6 +3781,7 @@ export function recordErrorTurn(opts: {
   userContent: string;
   userMedia?: readonly MediaContextItem[];
   userDynamicContext?: string | null;
+  userSource?: string | null;
   steerNotes?: readonly string[];
   error: string;
   tools: ErrorTurnToolRecord[];
@@ -8659,7 +8662,10 @@ export function getGatewayHistory(
   const history = page.history
     .filter((message) => {
       if (message.role === 'user') {
-        return !isDelegationResultsMessage(message.content);
+        return (
+          !isHiddenUserSource(message.source) &&
+          !isDelegationResultsMessage(message.content)
+        );
       }
       if (message.role !== 'assistant') return true;
       return (
