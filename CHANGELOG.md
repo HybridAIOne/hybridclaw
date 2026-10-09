@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+## [0.39.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.6) - 2026-10-09
+
+### Added
+
+- **Chat stream reconnection**: `POST /api/chat/rejoin` reconnects to the
+  caller's running turn and replays its stream. If the turn has ended or never
+  started, it returns 404 without starting another turn or repeating tools.
+
+### Changed
+
+- **Browser provider plugins**: `managed-cloud`, `browser-use-cloud`,
+  `camofox` and `mac-cua` ship as bundled plugins. The selected provider's
+  legacy settings move into plugin config once on upgrade. An unavailable
+  provider fails with an install hint instead of using the local browser.
+- **Channel plugins**: WhatsApp and LINE share one transport contract, with
+  consistent setup, pairing, status and send handling. Existing WhatsApp
+  plugins retain compatibility; installed LINE 0.1.0 plugins need reinstalling.
+
+### Fixed
+
+- **For you brief edits**: Chat edits require an explicit request, preserve
+  unrelated topics and edition timing, and confirm only after saving succeeds.
+  Briefs use `feed-brief` and are limited to 1,000 characters. These rules live
+  in the preferences tool instead of an instruction appended by companion apps.
+- **Plugin guidance**: Install and reinstall messages explain how bundled
+  plugins load through their config entries. Disabled commands point to
+  `plugin enable`, which also re-enables disabled home-installed plugins.
+- **Channel failure handling**: Stale LINE plugins show the reinstall command
+  across the CLI, console, doctor and sends. Missing WhatsApp plugins report
+  the install command for phone-number targets instead of routing elsewhere.
+  LINE pairing prompts survive plugin reloads.
+- **Browser upgrade behavior**: Unset legacy Browser Use size, timeout and
+  pricing placeholders are discarded so plugin defaults apply. Stealth
+  approval remains required after switching browser providers.
+
+### Upgrade Notes
+
+- For installed LINE 0.1.0 plugins, run `hybridclaw plugin reinstall line`, or
+  use **Reinstall LINE plugin** on the console Channels page. Existing pairing
+  and config are retained.
+- Browser settings live under `plugins.list[].config`; use
+  `hybridclaw plugin config <id> <key> <value>`. Only the previously selected
+  provider's settings migrate; settings for unselected providers are dropped.
+  Keep a config backup if you intend to switch providers. Store browser secrets
+  as `BROWSER_USE_API_KEY` or `MANAGED_BROWSER_POOL_TOKEN` if you used custom
+  secret names.
+- For camofox, run `hybridclaw plugin install camofox`, then
+  `npx camoufox-js fetch` in `~/.hybridclaw/plugins/camofox` before browsing.
+- Replace `hybridclaw browser-pool doctor` with
+  `hybridclaw gateway browser-pool doctor` or `/browser-pool doctor`.
+  Replace `hybridclaw doctor cua-mac` with `/mac-cua doctor`.
+  `/api/admin/browser-pool/health` and `/api/admin/browser-pool/start` are removed;
+  use the managed-cloud plugin's commands instead.
+- Update the Hy app to use chat-stream reconnection and omit the repeated
+  brief instructions from user messages.
+
 ## [0.39.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.5) - 2026-10-09
 
 ### Added

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.5',
+  version: '0.39.6',
   highlights: [
-    'Prepare bank transfers as app cards',
-    'Messages to named recipients ask first',
-    'Twilio voice runs as a bundled plugin',
-    'Observability recovers from failing events',
+    'Reconnect to a running chat turn safely',
+    'Browser providers run as bundled plugins',
+    'Clearer channel setup and upgrade guidance',
+    'For you brief edits confirm after saving',
   ],
 } as const;
 
