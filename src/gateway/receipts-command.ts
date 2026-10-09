@@ -10,11 +10,19 @@
  * `scheduled-task-access.ts` draws; a messaging-channel chat sees only its own
  * and its own tasks'. Companion apps list them with `--json`, answered in one
  * line that survives a chat relay (`chatSafeJson`).
+ *
+ * Each receipt says whether the action really worked (`proof`): a connector's
+ * own tool reports that itself, and anything else, such as an order placed in
+ * the browser, needs a `proof` the model recorded after it in the same turn.
+ * That proof counts only when a matching check ran between the two: a mail
+ * read for a confirmation email, a screenshot for a screenshot, a browser call
+ * for a page. Otherwise the receipt says it could not be confirmed.
  */
 
 import {
   getSessionById,
   listActionAuditEntries,
+  listRunToolAuditEntries,
   listSessionIdsForAgentChannel,
   listSessionInstancesForKey,
 } from '../memory/db.js';
@@ -49,6 +57,22 @@ const MAX_RECIPIENTS = 10;
  */
 export type ReceiptAllowance = 'you' | 'earlier' | 'full' | 'policy';
 
+/**
+ * Whether the action really worked. `confirmed`: a check after it showed so;
+ * `evidence` says which: the confirmation `email` (from a domain, with its
+ * subject), a `screenshot` of the page (`path`, in the agent's home), the
+ * `page` itself, or the connected `service`, whose tool reported success.
+ * `unconfirmed`: nothing showed it; `summary` is why, when the model said.
+ */
+export interface ReceiptProof {
+  status: 'confirmed' | 'unconfirmed';
+  evidence: 'email' | 'screenshot' | 'page' | 'service' | null;
+  summary: string | null;
+  from: string | null;
+  subject: string | null;
+  path: string | null;
+}
+
 export interface Receipt {
   id: string;
   workId: string | null;
@@ -70,6 +94,9 @@ export interface Receipt {
   allowed: ReceiptAllowance;
   ok: boolean;
   error: string | null;
+  // Null for a failed action and for one that stays in the sandbox, such as
+  // a file it wrote.
+  proof: ReceiptProof | null;
 }
 
 function short(value: unknown): string | null {
@@ -111,6 +138,163 @@ function serviceOf(tool: string): string | null {
   if (parts.length >= 3) return parts[1];
   if (parts.length === 2) return parts[0];
   return tool.startsWith('browser') ? 'browser' : null;
+}
+
+// Tools whose work stays in the sandbox: the file itself is the evidence.
+const LOCAL_TOOLS = new Set(['write', 'edit', 'delete', 'bash']);
+const MAIL_READ = /mail|message|inbox|thread/i;
+const MAIL_WRITE =
+  /send|reply|draft|forward|delete|trash|move|label|modify|update|create|archive|mark/i;
+
+interface RunCall {
+  index: number;
+  tool: string;
+  args: Record<string, unknown>;
+  senders: string[];
+  ok: boolean;
+  result: string;
+}
+
+// `run-7:tool:3` is the third tool call of its run.
+function callIndex(toolCallId: unknown): number | null {
+  const match = /:tool:(\d+)$/.exec(String(toolCallId ?? ''));
+  return match ? Number(match[1]) : null;
+}
+
+function argumentsOf(call: Record<string, unknown>): Record<string, unknown> {
+  return call.arguments && typeof call.arguments === 'object'
+    ? (call.arguments as Record<string, unknown>)
+    : {};
+}
+
+function domains(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map(short)
+        .filter((domain): domain is string => Boolean(domain))
+        .slice(0, MAX_RECIPIENTS)
+    : [];
+}
+
+// The tool calls of each run, by `session\0run`, in order.
+function runCalls(
+  runs: { sessionId: string; runId: string }[],
+): Map<string, RunCall[]> {
+  const byRun = new Map<string, Map<number, RunCall>>();
+  for (const entry of listRunToolAuditEntries(runs)) {
+    const payload = payloadOf(entry);
+    const index = callIndex(payload.toolCallId);
+    if (index == null) continue;
+    const key = `${entry.session_id}\u0000${entry.run_id}`;
+    const calls = byRun.get(key) ?? new Map<number, RunCall>();
+    byRun.set(key, calls);
+    const call = calls.get(index) ?? {
+      index,
+      tool: String(payload.toolName ?? ''),
+      args: {},
+      senders: [],
+      ok: false,
+      result: '',
+    };
+    calls.set(index, call);
+    if (entry.event_type === 'tool.call') {
+      call.args = argumentsOf(payload);
+      call.senders = domains(payload.senderDomains);
+    } else {
+      call.ok = payload.isError !== true && payload.blocked !== true;
+      call.result = String(payload.resultFull ?? payload.resultSummary ?? '');
+    }
+  }
+  return new Map(
+    [...byRun].map(([key, calls]) => [
+      key,
+      [...calls.values()].sort((a, b) => a.index - b.index),
+    ]),
+  );
+}
+
+// The copy of the screenshot the `proof` tool made, from its own answer.
+function proofPath(result: string): string | null {
+  try {
+    const value = JSON.parse(result) as { path?: unknown };
+    return typeof value.path === 'string' &&
+      /^receipts\/[^/]+$/.test(value.path)
+      ? value.path
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const UNCONFIRMED: ReceiptProof = {
+  status: 'unconfirmed',
+  evidence: null,
+  summary: null,
+  from: null,
+  subject: null,
+  path: null,
+};
+
+/**
+ * The proof for the action at `index` of its run: the first `proof` call after
+ * it, believed only when a matching check ran in between; else what the
+ * action's own tool reported.
+ */
+function proofFor(
+  tool: string,
+  index: number | null,
+  calls: RunCall[],
+): ReceiptProof | null {
+  if (LOCAL_TOOLS.has(tool)) return null;
+  const proof =
+    index == null
+      ? undefined
+      : calls.find(
+          (call) => call.index > index && call.tool === 'proof' && call.ok,
+        );
+  if (!proof || index == null) {
+    return tool.includes('__') || tool === 'message'
+      ? { ...UNCONFIRMED, status: 'confirmed', evidence: 'service' }
+      : UNCONFIRMED;
+  }
+  const summary = short(proof.args.summary);
+  if (proof.args.confirmed !== true) return { ...UNCONFIRMED, summary };
+  const between = calls.filter(
+    (call) => call.ok && call.index > index && call.index < proof.index,
+  );
+  const evidence = proof.args.evidence;
+  if (evidence === 'email') {
+    const read = between.some(
+      (call) =>
+        call.tool !== 'message' &&
+        MAIL_READ.test(call.tool) &&
+        !MAIL_WRITE.test(call.tool),
+    );
+    if (!read) return UNCONFIRMED;
+    return {
+      ...UNCONFIRMED,
+      status: 'confirmed',
+      evidence,
+      summary,
+      from: proof.senders[0] ?? null,
+      subject: short(proof.args.subject),
+    };
+  }
+  if (evidence === 'screenshot') {
+    const path = proofPath(proof.result);
+    if (!path || !between.some((call) => call.tool === 'browser_screenshot'))
+      return UNCONFIRMED;
+    return { ...UNCONFIRMED, status: 'confirmed', evidence, summary, path };
+  }
+  if (evidence === 'page') {
+    // A click that returns the page it led to shows it too.
+    const read =
+      tool.startsWith('browser_') ||
+      between.some((call) => call.tool.startsWith('browser_'));
+    if (!read) return UNCONFIRMED;
+    return { ...UNCONFIRMED, status: 'confirmed', evidence, summary };
+  }
+  return UNCONFIRMED;
 }
 
 function payloadOf(entry: StructuredAuditEntry): Record<string, unknown> {
@@ -175,6 +359,12 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     const rows = calls.get(key);
     if (rows) rows[entry.event_type] = payload;
   }
+  const runs = runCalls(
+    [...meta.values()].map(({ session, runId }) => ({
+      sessionId: session,
+      runId,
+    })),
+  );
   const receipts: Receipt[] = [];
   for (const key of order) {
     const rows = calls.get(key) ?? {};
@@ -184,10 +374,7 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     const info = meta.get(key);
     if (!call || !result || !info || result.blocked === true) continue;
     const tool = String(call.toolName ?? result.toolName ?? '');
-    const args =
-      call.arguments && typeof call.arguments === 'object'
-        ? (call.arguments as Record<string, unknown>)
-        : {};
+    const args = argumentsOf(call);
     const ok = result.isError !== true;
     const at = new Date(info.at);
     receipts.push({
@@ -199,12 +386,7 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
       tool,
       service: serviceOf(tool),
       action: short(rows['escalation.decision']?.proposedAction),
-      to: Array.isArray(call.recipientDomains)
-        ? call.recipientDomains
-            .map(short)
-            .filter((domain): domain is string => Boolean(domain))
-            .slice(0, MAX_RECIPIENTS)
-        : [],
+      to: domains(call.recipientDomains),
       subject: short(args.subject),
       title: short(args.summary ?? args.title),
       when: startTime(args),
@@ -212,6 +394,13 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
       allowed: allowance(decision?.approvalDecision),
       ok,
       error: ok ? null : short(result.resultSummary),
+      proof: ok
+        ? proofFor(
+            tool,
+            callIndex(call.toolCallId),
+            runs.get(`${info.session}\u0000${info.runId}`) ?? [],
+          )
+        : null,
     });
   }
   return receipts;
@@ -232,7 +421,16 @@ function line(receipt: Receipt): string {
     full: 'full autonomy',
     policy: 'no approval needed',
   }[receipt.allowed];
-  const outcome = receipt.ok ? who : `failed: ${receipt.error ?? 'error'}`;
+  const proof = receipt.proof
+    ? receipt.proof.status === 'unconfirmed'
+      ? " · couldn't confirm it worked"
+      : receipt.proof.evidence === 'service'
+        ? ''
+        : ` · confirmed by ${receipt.proof.evidence}${receipt.proof.summary ? `: ${receipt.proof.summary}` : ''}`
+    : '';
+  const outcome = receipt.ok
+    ? `${who}${proof}`
+    : `failed: ${receipt.error ?? 'error'}`;
   const task = receipt.task != null ? ` · task #${receipt.task}` : '';
   return `${receipt.at} — ${what}${details.length > 0 ? ` (${details.join(', ')})` : ''} · ${outcome}${task}`;
 }
