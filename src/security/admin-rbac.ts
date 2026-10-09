@@ -504,6 +504,10 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
   }
+  // Command discovery reveals only the menu, not chats or model output.
+  if (pathname === '/api/chat/commands' && method === 'GET') {
+    return 'chat.send';
+  }
   // The rest of the caller's own running turn; it never starts one, and the
   // turn is named by the caller and the request.
   if (pathname === '/api/chat/rejoin' && method === 'POST') {
