@@ -68,7 +68,6 @@ describe('SIDEBAR_NAV_GROUPS', () => {
         label: 'Labs',
         defaultCollapsed: true,
         items: [
-          { to: '/admin/harness-evolution', label: 'Harness Evolution' },
           { to: '/admin/distill', label: 'Distill' },
           { to: '/admin/routing-evaluator', label: 'Routing Evaluator' },
           { to: '/admin/local-models', label: 'Local Models' },

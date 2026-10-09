@@ -362,6 +362,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
         'cron',
         'todo',
         'draft_email',
+        'draft_transfer',
         'track',
         'memory',
         'browser_await_two_factor',

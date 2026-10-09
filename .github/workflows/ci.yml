@@ -208,6 +208,7 @@ jobs:
       - name: CLI binary e2e
         env:
           HYBRIDCLAW_RUN_CLI_E2E: '1'
+          HYBRIDCLAW_RUN_TWILIO_E2E: '1'
         run: npx vitest run --project e2e
 
       # node-pty stays unbuilt here (no Linux prebuild, --ignore-scripts), so

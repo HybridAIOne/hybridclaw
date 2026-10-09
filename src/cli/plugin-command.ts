@@ -495,8 +495,8 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
         `No config entry is required unless you want plugin overrides in ${runtimeConfigPath()}.`,
       );
     }
-    console.log('Restart the gateway to load plugin changes:');
-    console.log('  hybridclaw gateway restart --foreground');
+    console.log('Load the new plugin into a running gateway:');
+    console.log('  hybridclaw gateway plugin reload');
     console.log('  hybridclaw gateway status');
     return;
   }

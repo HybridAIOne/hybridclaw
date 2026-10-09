@@ -6,10 +6,10 @@
  */
 
 import { isSilentReply } from '../agent/silent-reply.js';
-import type { RealtimeHistoryMessage } from '../channels/voice/openai-realtime.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { truncateHeadTailText } from '../session/token-efficiency.js';
+import type { RealtimeHistoryMessage } from '../voice/openai-realtime.js';
 import { formatCurrentTime } from '../workspace.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 

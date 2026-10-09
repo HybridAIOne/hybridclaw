@@ -46,6 +46,11 @@ const requiredExactPaths = [
   'plugins/mac-cua/src/index.js',
   'plugins/managed-cloud/hybridclaw.plugin.yaml',
   'plugins/managed-cloud/src/index.js',
+  // Twilio voice moved out of core; upgraded installs enable it from here.
+  'plugins/twilio-voice/hybridclaw.plugin.yaml',
+  'plugins/twilio-voice/package.json',
+  'plugins/twilio-voice/src/index.js',
+  'plugins/twilio-voice/src/runtime.js',
   'plugins/vonage-voice/hybridclaw.plugin.yaml',
   'plugins/vonage-voice/package.json',
   'plugins/vonage-voice/src/index.js',

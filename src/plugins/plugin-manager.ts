@@ -56,6 +56,7 @@ import {
   restoreLocalClassifiers,
   snapshotLocalClassifiers,
 } from '../routing/local-classifiers.js';
+import { ADMIN_RBAC_ACTIONS } from '../security/admin-rbac.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
@@ -809,7 +810,7 @@ export class PluginManager {
   private readonly homeDir: string;
   private readonly cwd: string;
   private readonly includeProjectPlugins: boolean;
-  private readonly getConfig: () => RuntimeConfig;
+  readonly getConfig: () => RuntimeConfig;
   private readonly logger: PluginLogger;
   private initializing: Promise<void> | null = null;
   private initialized = false;
@@ -1440,6 +1441,15 @@ export class PluginManager {
     if (this.commands.has(command.name)) {
       throw new Error(
         `Plugin command "${command.name}" is already registered.`,
+      );
+    }
+    const { adminAction } = command;
+    if (
+      adminAction !== undefined &&
+      !ADMIN_RBAC_ACTIONS.includes(adminAction)
+    ) {
+      throw new Error(
+        `Plugin command "${command.name}" declares unknown adminAction "${String(adminAction)}".`,
       );
     }
     this.commands.set(command.name, { pluginId, command });

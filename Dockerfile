@@ -181,6 +181,7 @@ COPY --link --from=builder /app/plugins/browser-use-cloud ./plugins/browser-use-
 COPY --link --from=builder /app/plugins/camofox ./plugins/camofox
 COPY --link --from=builder /app/plugins/mac-cua ./plugins/mac-cua
 COPY --link --from=builder /app/plugins/managed-cloud ./plugins/managed-cloud
+COPY --link --from=builder /app/plugins/twilio-voice ./plugins/twilio-voice
 COPY --link SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090

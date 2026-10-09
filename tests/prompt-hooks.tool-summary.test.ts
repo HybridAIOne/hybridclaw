@@ -534,7 +534,9 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
     expect(prompt).toContain(
       'Use the `message` tool for sending or reading messages on active communication channels: email.',
     );
-    expect(prompt).toContain('Email: send and read email.');
+    expect(prompt).toContain(
+      "Email: send and read email in the agent's own mailbox.",
+    );
     expect(prompt).not.toContain('WhatsApp: send messages');
     expect(prompt).toContain(
       'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',
@@ -755,6 +757,8 @@ test('buildSystemPromptFromHooks trims channel and browser guidance for the mobi
   expect(mobile).toContain('call `show_widget`');
   expect(mobile).toContain('`hy.ask(');
   expect(web).not.toContain('call `show_widget`');
+  expect(mobile).toContain('call `draft_transfer`');
+  expect(web).not.toContain('call `draft_transfer`');
 });
 
 test('the mobile client prompt leaves out coding, document-building and browser detail', () => {

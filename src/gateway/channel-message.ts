@@ -6,7 +6,6 @@
 import fs from 'node:fs';
 import type { AttachmentBuilder } from 'discord.js';
 import type { ReplyFn } from '../channels/discord/runtime.js';
-import { normalizeVoiceUserTextForGateway } from '../channels/voice/text.js';
 import { logger } from '../logger.js';
 import {
   type ArtifactMetadata,
@@ -342,17 +341,13 @@ export async function executeTextChannelGatewayTurn(params: {
   onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
   resultTransform?: (result: GatewayChatResult) => GatewayChatResult;
 }): Promise<GatewayChatResult | null> {
-  const normalizedContent =
-    params.source === 'voice'
-      ? normalizeVoiceUserTextForGateway(params.content)
-      : params.content;
   const handledSlashCommands = await runTextChannelSlashCommands({
     sessionId: params.sessionId,
     guildId: params.guildId,
     channelId: params.channelId,
     userId: params.userId,
     username: params.username,
-    content: normalizedContent,
+    content: params.content,
     reply: params.reply,
   });
   if (handledSlashCommands) {
@@ -366,7 +361,7 @@ export async function executeTextChannelGatewayTurn(params: {
       channelId: params.channelId,
       userId: params.userId,
       username: params.username,
-      content: normalizedContent,
+      content: params.content,
       media: params.media,
       abortSignal: params.abortSignal,
       onTextDelta: params.onTextDelta,

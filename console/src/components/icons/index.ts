@@ -20,7 +20,6 @@ export { Flask } from './Flask';
 export { Gateway } from './Gateway';
 export { Github } from './Github';
 export { Hand } from './Hand';
-export { Harness } from './Harness';
 export { HybridClaw } from './HybridClaw';
 export { Jobs } from './Jobs';
 export { Lightbulb } from './Lightbulb';

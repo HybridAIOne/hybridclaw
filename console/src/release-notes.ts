@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.4',
+  version: '0.39.5',
   highlights: [
-    'Try interactive widgets inside chat',
-    'Voice calls continue with chat context',
-    'Voice time answers use a fresh clock',
-    'Phone calendars cover a full year ahead',
+    'Prepare bank transfers as app cards',
+    'Messages to named recipients ask first',
+    'Twilio voice runs as a bundled plugin',
+    'Observability recovers from failing events',
   ],
 } as const;
 

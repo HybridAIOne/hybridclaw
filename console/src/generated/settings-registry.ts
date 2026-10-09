@@ -2686,7 +2686,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'version',
       section: 'version',
       kind: 'number',
-      defaultValue: 40,
+      defaultValue: 41,
     },
     {
       path: 'voice.allowFrom',
@@ -2789,12 +2789,6 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       section: 'voice',
       kind: 'string',
       defaultValue: '',
-    },
-    {
-      path: 'voice.webhookPath',
-      section: 'voice',
-      kind: 'string',
-      defaultValue: '/voice',
     },
     {
       path: 'web.search.cacheTtlMinutes',

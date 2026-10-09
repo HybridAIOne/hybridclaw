@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "targetRoot": "/tmp/hc-evolve-agent",
+  "entries": [
+    {
+      "id": "f12-2-8719d45873ce",
+      "round": 2,
+      "surface": "long_term_memory",
+      "path": "long_term_memory/stderr-debugging.md",
+      "prediction": "remember-stderr passes once memory mentions stderr",
+      "verifier": "node check-memory.mjs",
+      "rollbackScope": "long_term_memory/stderr-debugging.md",
+      "rationale": null,
+      "beforeHash": "55ded36e4777dd8a58ac6c11a91f71c78559c01f5109a1bccbdb0bf24810f830",
+      "afterHash": "55ded36e4777dd8a58ac6c11a91f71c78559c01f5109a1bccbdb0bf24810f830",
+      "createdAt": "2026-10-08T18:31:00.362Z"
+    }
+  ]
+}

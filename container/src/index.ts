@@ -9,6 +9,10 @@ import path from 'node:path';
 import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
+import {
+  setApprovalEmailSender,
+  setUserMailContext,
+} from './approval-review.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
 import {
@@ -2222,6 +2226,10 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     );
     tools = tools.filter((tool) => !blocked.has(tool.function.name));
   }
+  setUserMailContext({
+    toolNames: tools.map((tool) => tool.function.name),
+    client: input.client,
+  });
   tools = tools.map((tool) => {
     if (tool.function.name !== 'message') return tool;
     return {
@@ -2327,6 +2335,7 @@ async function main(): Promise<void> {
     firstInput.agentId,
     firstInput.browserAllowPrivateNetwork,
   );
+  setApprovalEmailSender(firstInput.emailSender);
   setWebSearchConfig(firstInput.webSearch);
   setModelContext({
     provider: firstInput.provider,
@@ -2498,6 +2507,7 @@ async function main(): Promise<void> {
       input.agentId,
       input.browserAllowPrivateNetwork,
     );
+    setApprovalEmailSender(input.emailSender);
     setWebSearchConfig(input.webSearch);
     setModelContext({
       provider: input.provider,

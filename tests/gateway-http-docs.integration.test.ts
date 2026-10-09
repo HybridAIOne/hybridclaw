@@ -81,10 +81,7 @@ describe('gateway docs HTTP integration', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain(
-      '<code>https://&lt;public-host&gt;&lt;voice.webhookPath&gt;/webhook</code>',
-    );
-    expect(html).toContain(
-      '<code>wss://&lt;public-host&gt;&lt;voice.webhookPath&gt;/relay</code>',
+      '<code>https://&lt;public-host&gt;/api/plugin-webhooks/twilio-voice/webhook</code>',
     );
     expect(html).not.toContain('&amp;lt;public-host');
   });

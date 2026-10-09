@@ -93,6 +93,7 @@ function makeConfig(): AdminConfig {
       allowPrivateNetwork: false,
       local: { profileDir: '', headed: false },
     },
+    adaptiveSkills: { enabled: true, autoApplyEnabled: false },
   } as unknown as AdminConfig;
 }
 
@@ -213,6 +214,23 @@ describe('ConfigPage', () => {
         .getByRole('link', { name: 'Open Providers →' })
         .getAttribute('href'),
     ).toBe('/admin/models');
+  });
+
+  it('edits adaptive skills settings in place', async () => {
+    renderConfigPage();
+
+    await screen.findByLabelText('Settings sections');
+    fireEvent.click(screen.getByRole('button', { name: 'Adaptive Skills' }));
+    expect(screen.queryByRole('link', { name: /^Open .* →$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('switch', { name: 'Auto Apply Enabled' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(saveConfigMock).toHaveBeenCalledTimes(1));
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      'admin-token',
+      expect.objectContaining({
+        adaptiveSkills: expect.objectContaining({ autoApplyEnabled: true }),
+      }),
+    );
   });
 
   it('loads a linkable section and query from the URL', async () => {

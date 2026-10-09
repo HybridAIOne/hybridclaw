@@ -23,6 +23,7 @@ import {
 } from '../agent/local-tool-config.js';
 import { mergeAllowedToolNames } from '../agent/tool-policy.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveEmailSenderAddress } from '../channels/email/sender-address.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   BROWSER_ALLOW_PRIVATE_NETWORK,
@@ -1033,6 +1034,7 @@ async function runHostProcessInner(
     client: params.client,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
     activeMessageChannels: collectActiveMessageToolChannelKinds(),
+    emailSender: resolveEmailSenderAddress(agentId),
     skillCatalog: params.skillCatalog,
     localToolMode: modelRuntime.isLocal
       ? resolveLocalToolMode(agentId)

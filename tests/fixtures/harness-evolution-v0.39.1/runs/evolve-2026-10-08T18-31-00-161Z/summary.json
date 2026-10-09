@@ -1,0 +1,207 @@
+{
+  "runId": "evolve-2026-10-08T18-31-00-161Z",
+  "targetRoot": "/tmp/hc-evolve-agent",
+  "suite": {
+    "id": "stderr-memory-smoke",
+    "name": "stderr memory smoke",
+    "sourcePath": "/tmp/hc-evolve-fixture/scenarios.json",
+    "tasks": [
+      {
+        "id": "remember-stderr",
+        "command": "node /tmp/hc-evolve-fixture/check-memory.mjs /tmp/hc-evolve-agent",
+        "riskReferences": {
+          "nistAiRmf": [],
+          "nistGaiProfile": [],
+          "owaspLlmTop10": []
+        }
+      }
+    ],
+    "costBudgetUsd": 0.05,
+    "riskCoverageRequirements": {
+      "requireNistAiRmfCore": false,
+      "requireNistGaiProfile": false,
+      "requireOwaspLlmTop10": false
+    },
+    "riskCoverage": {
+      "requirements": {
+        "requireNistAiRmfCore": false,
+        "requireNistGaiProfile": false,
+        "requireOwaspLlmTop10": false
+      },
+      "nistAiRmf": {
+        "covered": [],
+        "missing": [
+          "govern",
+          "map",
+          "measure",
+          "manage"
+        ],
+        "coveredCount": 0,
+        "totalCount": 4,
+        "taskIdsByRisk": {
+          "govern": [],
+          "map": [],
+          "measure": [],
+          "manage": []
+        }
+      },
+      "nistGaiProfile": {
+        "covered": [],
+        "missing": [
+          "cbrn_information_or_capabilities",
+          "confabulation",
+          "dangerous_violent_or_hateful_content",
+          "data_privacy",
+          "environmental_impacts",
+          "harmful_bias_or_homogenization",
+          "human_ai_configuration",
+          "information_integrity",
+          "information_security",
+          "intellectual_property",
+          "obscene_degrading_or_abusive_content",
+          "value_chain_and_component_integration"
+        ],
+        "coveredCount": 0,
+        "totalCount": 12,
+        "taskIdsByRisk": {
+          "cbrn_information_or_capabilities": [],
+          "confabulation": [],
+          "dangerous_violent_or_hateful_content": [],
+          "data_privacy": [],
+          "environmental_impacts": [],
+          "harmful_bias_or_homogenization": [],
+          "human_ai_configuration": [],
+          "information_integrity": [],
+          "information_security": [],
+          "intellectual_property": [],
+          "obscene_degrading_or_abusive_content": [],
+          "value_chain_and_component_integration": []
+        }
+      },
+      "owaspLlmTop10": {
+        "covered": [],
+        "missing": [
+          "LLM01:2025",
+          "LLM02:2025",
+          "LLM03:2025",
+          "LLM04:2025",
+          "LLM05:2025",
+          "LLM06:2025",
+          "LLM07:2025",
+          "LLM08:2025",
+          "LLM09:2025",
+          "LLM10:2025"
+        ],
+        "coveredCount": 0,
+        "totalCount": 10,
+        "taskIdsByRisk": {
+          "LLM01:2025": [],
+          "LLM02:2025": [],
+          "LLM03:2025": [],
+          "LLM04:2025": [],
+          "LLM05:2025": [],
+          "LLM06:2025": [],
+          "LLM07:2025": [],
+          "LLM08:2025": [],
+          "LLM09:2025": [],
+          "LLM10:2025": []
+        }
+      },
+      "findings": []
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "metrics": {
+        "taskCount": 1,
+        "rolloutCount": 1,
+        "successCount": 0,
+        "passAt1": 0,
+        "succPerMtok": 0,
+        "totalTokens": 1,
+        "totalCostUsd": 0
+      },
+      "attributionScore": 1,
+      "editsPerSurface": {
+        "system_prompt": 0,
+        "tools_yaml": 0,
+        "tools": 0,
+        "middleware": 0,
+        "sub_agents": 0,
+        "config": 0,
+        "long_term_memory": 1
+      },
+      "manifestPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-1/f12-manifest.json",
+      "reportPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-1/f114-debugger-report.md",
+      "evolveAgent": {
+        "source": "evolve_agent",
+        "editCount": 1,
+        "outputPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-1/evolve-agent-output.md",
+        "provider": "vllm",
+        "model": "vllm/fake-evolver",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 5,
+          "totalTokens": 15
+        }
+      },
+      "improvedBest": false,
+      "gitCommit": null
+    },
+    {
+      "round": 2,
+      "metrics": {
+        "taskCount": 1,
+        "rolloutCount": 1,
+        "successCount": 1,
+        "passAt1": 1,
+        "succPerMtok": 1000000,
+        "totalTokens": 1,
+        "totalCostUsd": 0
+      },
+      "attributionScore": 1,
+      "editsPerSurface": {
+        "system_prompt": 0,
+        "tools_yaml": 0,
+        "tools": 0,
+        "middleware": 0,
+        "sub_agents": 0,
+        "config": 0,
+        "long_term_memory": 1
+      },
+      "manifestPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-2/f12-manifest.json",
+      "reportPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-2/f114-debugger-report.md",
+      "evolveAgent": {
+        "source": "evolve_agent",
+        "editCount": 1,
+        "outputPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/round-2/evolve-agent-output.md",
+        "provider": "vllm",
+        "model": "vllm/fake-evolver",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 5,
+          "totalTokens": 15
+        }
+      },
+      "improvedBest": true,
+      "gitCommit": null
+    }
+  ],
+  "bestPassAt1": 1,
+  "bestRound": 2,
+  "costGate": {
+    "ok": true,
+    "totalCostUsd": 0,
+    "budgetUsd": 0.05,
+    "reason": null
+  },
+  "seedDelta": {
+    "mode": "fresh_seed",
+    "changedSurfaceCount": 0,
+    "changedSurfaces": [],
+    "fileCount": 0,
+    "notes": []
+  },
+  "summaryPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/summary.json"
+}

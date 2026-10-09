@@ -12,6 +12,11 @@ workspace, runs an eval suite, distills failures into an F11.4-style debugger
 report, asks the evolve-agent for F12-governed edits, applies only allowed
 workspace edits, and records the result for review.
 
+The loop is part of the unshipped [eval harness](./eval-harness.md): it runs
+from a source checkout with `npm run eval -- harness-evolve`, after
+`npm install`. Installed releases have no `harness-evolve` command, and the
+gateway and admin console do not read its run artifacts.
+
 Use it when you want to measure whether changes to memory, tools, middleware,
 sub-agents, config, or prompts actually improve task success. Do not use it as
 a blind production optimizer. The loop is useful only when the eval suite
@@ -59,18 +64,20 @@ blocked before writes are applied.
 ## Commands
 
 ```bash
-hybridclaw harness-evolve init --target <dir>
-hybridclaw harness-evolve validate-seed --target <dir>
-hybridclaw harness-evolve run --target <dir> --suite <suite.json>
-hybridclaw harness-evolve status --summary <runs/.../summary.json>
-hybridclaw harness-evolve contract
+npm run eval -- harness-evolve init --target <dir>
+npm run eval -- harness-evolve validate-seed --target <dir>
+npm run eval -- harness-evolve run --target <dir> --suite <suite.json>
+npm run eval -- harness-evolve list --target <dir>
+npm run eval -- harness-evolve status --summary <runs/.../summary.json>
+npm run eval -- harness-evolve manifest --manifest <runs/.../round-N/f12-manifest.json>
+npm run eval -- harness-evolve contract
 ```
 
 `run` defaults to 10 rounds and three rollouts per task. Use `--rounds` and
 `--k` for shorter local checks:
 
 ```bash
-hybridclaw harness-evolve run \
+npm run eval -- harness-evolve run \
   --target /tmp/hc-evolve-agent \
   --suite /tmp/hc-evals/scenarios.json \
   --rounds 2 \
@@ -78,9 +85,22 @@ hybridclaw harness-evolve run \
   --fresh-seed
 ```
 
-Add `--dry-run` to test eval execution, metrics, summaries, and admin display
-without applying evolve-agent edits. Add `--commit` only when the target
+Add `--dry-run` to test eval execution, metrics, and summaries without applying evolve-agent edits. Add `--commit` only when the target
 workspace is a Git checkout and you want one commit per confirmed round.
+
+Relative `--target`, `--suite`, `--summary`, and `--manifest` paths resolve
+against the directory you ran `npm run eval` from.
+
+The evolve-agent uses the `auxiliaryModels.eval_judge` model when one is
+configured. Otherwise it uses a healthy local backend or remote auxiliary
+fallback, and then the configured default model (`hybridai.defaultModel`), so
+a HybridAI-only setup works without extra configuration. The remote fallback
+comes first: with Anthropic credentials and no `eval_judge` model, the
+evolve-agent runs on `anthropic/claude-haiku-4-5`, not on an Anthropic default
+model. Set `auxiliaryModels.eval_judge` to choose the model yourself.
+
+Add `--help` to any subcommand to print its flags. A subcommand rejects flags
+that belong to another one.
 
 ## Eval Suite Format
 
@@ -159,9 +179,9 @@ cat > /tmp/hc-evals/scenarios.json <<'EOF'
 }
 EOF
 
-hybridclaw harness-evolve init --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve validate-seed --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve run \
+npm run eval -- harness-evolve init --target /tmp/hc-evolve-agent
+npm run eval -- harness-evolve validate-seed --target /tmp/hc-evolve-agent
+npm run eval -- harness-evolve run \
   --target /tmp/hc-evolve-agent \
   --suite /tmp/hc-evals/scenarios.json \
   --rounds 2 \
@@ -172,7 +192,7 @@ hybridclaw harness-evolve run \
 After the run, copy the printed `summaryPath` into:
 
 ```bash
-hybridclaw harness-evolve status --summary <summaryPath>
+npm run eval -- harness-evolve status --summary <summaryPath>
 ```
 
 Check the status output for `pass@1`, `Succ/Mtok`, `Seed delta`, per-surface
@@ -237,9 +257,9 @@ edits. Useful edits for this workflow usually look like:
 Run the loop against a copy of the target workspace:
 
 ```bash
-hybridclaw harness-evolve init --target /tmp/hc-pdf-dog-agent
-hybridclaw harness-evolve validate-seed --target /tmp/hc-pdf-dog-agent
-hybridclaw harness-evolve run \
+npm run eval -- harness-evolve init --target /tmp/hc-pdf-dog-agent
+npm run eval -- harness-evolve validate-seed --target /tmp/hc-pdf-dog-agent
+npm run eval -- harness-evolve run \
   --target /tmp/hc-pdf-dog-agent \
   --suite /tmp/hc-pdf-dog-eval/scenarios.json \
   --rounds 5 \
@@ -251,19 +271,30 @@ Inspect the F12 manifest before promoting any edit. The harness can improve
 workspace instructions and helper tools, but product code changes still need
 normal review and tests.
 
-## Admin Console
+## Inspecting Runs
 
-The admin console can inspect completed harness evolution runs through
-`/admin/harness-evolution`. The API is allowlist-gated. Set
-`HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` to a comma-separated list of target roots
-that the gateway may read:
+Every run writes its artifacts under the target workspace's `runs/` directory.
+Inspect them from the same checkout:
 
 ```bash
-HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS=/tmp/hc-evolve-agent hybridclaw gateway restart
+npm run eval -- harness-evolve list --target /tmp/hc-evolve-agent
+npm run eval -- harness-evolve status --summary <summaryPath>
+npm run eval -- harness-evolve manifest --manifest <manifestPath>
 ```
 
-The page shows run summaries, round metrics, pass@1 trajectory, seed delta,
-evolve-agent source, and F12 manifest entries.
+`list` shows every run with its suite, round count, best pass@1, cost, and
+summary path, and names any incomplete run directory (a run that failed or
+was interrupted before writing its summary). A run whose rounds never beat the
+best pass@1 already recorded in the target's `H_best.json` shows as
+`no new best`. `status` renders round metrics, the pass@1 trajectory, seed
+delta, risk coverage, per-round manifest paths, and where each round's edits
+came from (the evolve-agent with its provider and model, the debugger report,
+or a dry run). `manifest` prints the F12 entries for one round. Both read runs
+written by `hybridclaw harness-evolve` in v0.39.
+
+Installs from v0.39 or earlier that still run `hybridclaw harness-evolve` get
+an error that points here. The `/admin/harness-evolution` console page is
+gone; use `list` and `status` instead.
 
 ## Candidate External Benchmarks
 

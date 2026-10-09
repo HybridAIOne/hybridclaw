@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import type { RealtimeSocket } from '../src/channels/voice/openai-realtime.js';
+import type { RealtimeSocket } from '../src/voice/openai-realtime.js';
 import {
   buildRealtimeInstructions,
   RealtimeCallBridge,
@@ -8,7 +8,7 @@ import {
   resolvePhoneRealtimeConfig,
   voiceLanguageCode,
   voiceLanguageName,
-} from '../src/channels/voice/realtime-bridge.js';
+} from '../src/voice/realtime-bridge.js';
 
 const REALTIME_CONFIG = {
   provider: 'openai' as const,

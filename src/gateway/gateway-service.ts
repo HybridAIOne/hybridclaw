@@ -129,15 +129,7 @@ import {
   SLACK_WEBHOOK_DEFAULT_TARGET,
   slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
-import {
-  isRealtimeCredentialConfigured,
-  resolveRealtimeConnection,
-} from '../channels/voice/realtime-credentials.js';
-import {
-  createTwilioOutboundCall,
-  normalizeTwilioPhoneNumber,
-  resolveVoiceCallWebhookUrl,
-} from '../channels/voice/twilio-manager.js';
+import { readTwilioVoicePluginState } from '../channels/voice/twilio-voice-plugin-state.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import {
@@ -473,6 +465,10 @@ import {
 } from '../utils/normalized-strings.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  isRealtimeCredentialConfigured,
+  resolveRealtimeConnection,
+} from '../voice/realtime-credentials.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -1240,9 +1236,8 @@ function legacyVoiceRealtimeKeyHint(key: string): string | null {
 }
 
 /**
- * Status lines for the realtime speech engine (`speech.realtime.*`), shared
- * by `/speech` and the realtime section of `/voice info`. The prefix keeps
- * both surfaces' labels aligned ("Realtime provider: …").
+ * Status lines for the realtime speech engine (`speech.realtime.*`) shown by
+ * `/speech`; the prefix labels them ("Realtime provider: …").
  */
 function buildSpeechRealtimeStatusLines(prefix: string): string[] {
   const realtimeConfig = getRuntimeConfig().speech.realtime;
@@ -4613,8 +4608,8 @@ export async function getGatewayStatus(
       realtimeConfigured: isRealtimeCredentialConfigured(
         runtimeConfig.speech.realtime.provider,
       ),
-      webhookPath: runtimeConfig.voice.webhookPath,
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
+      pluginLoaded: readTwilioVoicePluginState().loaded,
     },
     whatsapp: {
       ...whatsappAuth,
@@ -10915,122 +10910,6 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `env list`, `env set <name> <value>`, `env unset <name>`, or `env show <name>`',
         );
-      }
-
-      case 'voice': {
-        if (
-          !isLocalOperator(
-            req,
-            parseLowerArg(req.args, 1) === 'call'
-              ? 'admin.channels.write'
-              : 'admin.config.read',
-          )
-        ) {
-          return badCommand(
-            'Voice Command Restricted',
-            '`voice` can place outbound calls and is only available from local TUI/web sessions.',
-          );
-        }
-
-        const voiceConfig = getRuntimeConfig().voice;
-        const sub = parseLowerArg(req.args, 1);
-        const publicWebhook = resolveVoiceCallWebhookUrl(
-          voiceConfig.webhookPath,
-        );
-
-        if (!sub || sub === 'info' || sub === 'status') {
-          return infoCommand(
-            'Voice',
-            [
-              `Enabled: ${voiceConfig.enabled ? 'on' : 'off'}`,
-              `Provider: ${voiceConfig.provider}`,
-              `Mode: ${voiceConfig.mode}`,
-              `Account SID: ${voiceConfig.twilio.accountSid.trim() ? 'configured' : 'unset'}`,
-              `From number: ${voiceConfig.twilio.fromNumber.trim() || '(unset)'}`,
-              `Auth token: ${String(TWILIO_AUTH_TOKEN || '').trim() ? 'configured' : 'unset'}`,
-              publicWebhook.url
-                ? `Webhook: ${publicWebhook.url}`
-                : `Webhook: unavailable (${publicWebhook.error})`,
-              ...buildSpeechRealtimeStatusLines('Realtime '),
-              'Usage: `voice call <e164-number>`; realtime speech settings live under `speech`',
-            ].join('\n'),
-          );
-        }
-
-        if (sub === 'call') {
-          if (!voiceConfig.enabled) {
-            return badCommand(
-              'Voice Disabled',
-              'Enable `voice.enabled` before using `voice call`.',
-            );
-          }
-
-          if (voiceConfig.provider !== 'twilio') {
-            return badCommand(
-              'Voice Provider Unsupported',
-              `\`voice call\` currently supports only the Twilio provider, but configured provider is \`${voiceConfig.provider}\`.`,
-            );
-          }
-
-          const to = normalizeTwilioPhoneNumber(req.args.slice(2).join(' '));
-          if (!to) {
-            return badCommand('Usage', 'Usage: `voice call <e164-number>`');
-          }
-
-          const accountSid = voiceConfig.twilio.accountSid.trim();
-          if (!accountSid) {
-            return badCommand(
-              'Voice Not Configured',
-              'Set `voice.twilio.accountSid` before using `voice call`.',
-            );
-          }
-
-          const from = normalizeTwilioPhoneNumber(
-            voiceConfig.twilio.fromNumber,
-          );
-          if (!from) {
-            return badCommand(
-              'Voice Not Configured',
-              'Set `voice.twilio.fromNumber` to an E.164 number like `+14155550123` before using `voice call`.',
-            );
-          }
-
-          const authToken = String(TWILIO_AUTH_TOKEN || '').trim();
-          if (!authToken) {
-            return badCommand(
-              'Voice Not Configured',
-              'Store `TWILIO_AUTH_TOKEN` in the encrypted secret store before using `voice call`.',
-            );
-          }
-
-          if (!publicWebhook.url) {
-            return badCommand(
-              'Voice Webhook Not Public',
-              publicWebhook.error ||
-                'Set `ops.gatewayBaseUrl` to a public URL before using `voice call`.',
-            );
-          }
-
-          try {
-            const call = await createTwilioOutboundCall({
-              accountSid,
-              authToken,
-              from,
-              to,
-              url: publicWebhook.url,
-            });
-            return plainCommand(
-              `Calling ${call.to} from ${call.from} via Twilio (Call SID: ${call.sid}, status: ${call.status}).`,
-            );
-          } catch (error) {
-            return badCommand(
-              'Voice Call Failed',
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-        }
-
-        return badCommand('Usage', 'Usage: `voice [info|call <e164-number>]`');
       }
 
       case 'speech': {
