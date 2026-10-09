@@ -7,13 +7,13 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   calculateEvolutionMetrics,
   initializeHarnessWorkspace,
-  listHarnessEvolutionRuns,
   renderEvolutionChart,
   resolveHarnessSurfacePath,
   runHarnessEvolutionLoop,
   validateBashOnlySeed,
   writeHarnessSurfaceFile,
 } from '../eval-harness/src/harness-evolution.ts';
+import { listHarnessEvolutionRuns } from '../eval-harness/src/harness-evolution-runs.ts';
 import {
   makeStdiolessChildProcess,
   settleCatchingUncaught,

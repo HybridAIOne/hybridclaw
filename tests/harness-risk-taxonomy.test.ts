@@ -6,10 +6,10 @@ import { describe, expect, test } from 'vitest';
 import {
   initializeHarnessWorkspace,
   loadEvolutionEvalSuite,
-  readHarnessEvolutionSummary,
   renderEvolutionChart,
   runHarnessEvolutionLoop,
 } from '../eval-harness/src/harness-evolution.ts';
+import { readHarnessEvolutionSummary } from '../eval-harness/src/harness-evolution-runs.ts';
 import {
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,

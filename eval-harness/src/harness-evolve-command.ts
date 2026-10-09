@@ -11,43 +11,50 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { parsePositiveInteger } from '../../src/utils/number-normalization.js';
 
+const OPTIONS = {
+  target: { type: 'string' },
+  suite: { type: 'string' },
+  summary: { type: 'string' },
+  manifest: { type: 'string' },
+  rounds: { type: 'string' },
+  k: { type: 'string' },
+  'fresh-seed': { type: 'boolean' },
+  'dry-run': { type: 'boolean' },
+  commit: { type: 'boolean' },
+} as const;
+
+type FlagName = keyof typeof OPTIONS;
 type Flags = {
-  target?: string;
-  suite?: string;
-  summary?: string;
-  manifest?: string;
-  rounds?: string;
-  k?: string;
-  'fresh-seed'?: boolean;
-  'dry-run'?: boolean;
-  commit?: boolean;
-};
+  [Name in FlagName]?: (typeof OPTIONS)[Name]['type'] extends 'string'
+    ? string
+    : boolean;
+} & { help?: boolean };
 
 const PATH_FLAGS = ['target', 'suite', 'summary', 'manifest'] as const;
 
-function parseFlags(args: string[]): Flags {
+// Each subcommand accepts only its own flags, so `init --commit` fails
+// instead of being silently ignored.
+function parseFlags(args: string[], allowed: readonly FlagName[]): Flags {
   const { values } = parseArgs({
     args,
     strict: true,
     options: {
-      target: { type: 'string' },
-      suite: { type: 'string' },
-      summary: { type: 'string' },
-      manifest: { type: 'string' },
-      rounds: { type: 'string' },
-      k: { type: 'string' },
-      'fresh-seed': { type: 'boolean' },
-      'dry-run': { type: 'boolean' },
-      commit: { type: 'boolean' },
+      ...Object.fromEntries(allowed.map((name) => [name, OPTIONS[name]])),
+      help: { type: 'boolean', short: 'h' },
     },
   });
-  // `npm run` starts in the repo root; INIT_CWD is where the user ran it.
-  const base = process.env.INIT_CWD || process.cwd();
+  const flags = values as Flags;
+  // `npm run eval` starts in the repo root; INIT_CWD is where the user ran
+  // it. Any other launcher may pass on an unrelated INIT_CWD.
+  const base =
+    process.env.npm_lifecycle_event === 'eval' && process.env.INIT_CWD
+      ? process.env.INIT_CWD
+      : process.cwd();
   for (const flag of PATH_FLAGS) {
-    const value = values[flag]?.trim();
-    if (value) values[flag] = path.resolve(base, value);
+    const value = flags[flag]?.trim();
+    if (value) flags[flag] = path.resolve(base, value);
   }
-  return values;
+  return flags;
 }
 
 function requireFlag(
@@ -68,15 +75,18 @@ function positiveIntegerFlag(
 }
 
 const loadEvolution = () => import('./harness-evolution.js');
+const loadRuns = () => import('./harness-evolution-runs.js');
 
 interface Subcommand {
   args: string;
+  flags: readonly FlagName[];
   run: (flags: Flags, usage: string) => Promise<void>;
 }
 
 const SUBCOMMANDS: Record<string, Subcommand> = {
   init: {
     args: '--target <dir>',
+    flags: ['target'],
     run: async (flags, usage) => {
       requireFlag(flags.target, usage);
       const { initializeHarnessWorkspace } = await loadEvolution();
@@ -88,6 +98,7 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   'validate-seed': {
     args: '--target <dir>',
+    flags: ['target'],
     run: async (flags, usage) => {
       requireFlag(flags.target, usage);
       const { validateBashOnlySeed } = await loadEvolution();
@@ -105,6 +116,15 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   run: {
     args: '--target <dir> --suite <suite.json> [--rounds N] [--k N] [--fresh-seed] [--dry-run] [--commit]',
+    flags: [
+      'target',
+      'suite',
+      'rounds',
+      'k',
+      'fresh-seed',
+      'dry-run',
+      'commit',
+    ],
     run: async (flags, usage) => {
       requireFlag(flags.target, usage);
       requireFlag(flags.suite, usage);
@@ -126,16 +146,17 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   list: {
     args: '--target <dir>',
+    flags: ['target'],
     run: async (flags, usage) => {
       requireFlag(flags.target, usage);
-      const { listHarnessEvolutionRuns } = await loadEvolution();
+      const { listHarnessEvolutionRuns } = await loadRuns();
       const { targetRoot, runs, incompleteRunIds } = listHarnessEvolutionRuns(
         flags.target,
       );
       console.log(`Harness evolution runs in ${targetRoot}: ${runs.length}`);
       for (const run of runs) {
         console.log(
-          `${run.runId}  ${run.suiteName}  rounds=${run.roundCount}  best pass@1=${run.bestPassAt1} (round ${run.bestRound ?? 'none'})  cost=${run.totalCostUsd} USD  ${run.createdAt}`,
+          `${run.runId}  ${run.suiteName}  rounds=${run.roundCount}  ${run.bestRound === null ? `no new best (prior pass@1=${run.bestPassAt1})` : `best pass@1=${run.bestPassAt1} (round ${run.bestRound})`}  cost=${run.totalCostUsd} USD  ${run.createdAt}`,
         );
         console.log(`  summary: ${run.summaryPath}`);
       }
@@ -148,10 +169,11 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   status: {
     args: '--summary <runs/.../summary.json>',
+    flags: ['summary'],
     run: async (flags, usage) => {
       requireFlag(flags.summary, usage);
-      const { readHarnessEvolutionSummary, renderEvolutionChart } =
-        await loadEvolution();
+      const { readHarnessEvolutionSummary } = await loadRuns();
+      const { renderEvolutionChart } = await loadEvolution();
       console.log(
         renderEvolutionChart(readHarnessEvolutionSummary(flags.summary)),
       );
@@ -159,9 +181,10 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   manifest: {
     args: '--manifest <runs/.../round-N/f12-manifest.json>',
+    flags: ['manifest'],
     run: async (flags, usage) => {
       requireFlag(flags.manifest, usage);
-      const { readHarnessEvolutionManifest } = await loadEvolution();
+      const { readHarnessEvolutionManifest } = await loadRuns();
       console.log(
         JSON.stringify(readHarnessEvolutionManifest(flags.manifest), null, 2),
       );
@@ -169,6 +192,7 @@ const SUBCOMMANDS: Record<string, Subcommand> = {
   },
   contract: {
     args: '',
+    flags: [],
     run: async () => {
       const { EVOLVE_AGENT_SYSTEM_PROMPT, EVOLVE_AGENT_TOOLS } =
         await loadEvolution();
@@ -206,7 +230,8 @@ async function renderUsage(): Promise<string> {
     `  - Target coworker workspaces expose ${surfaces.length} editable surfaces:`,
     `    ${surfaces.join(', ')}.`,
     '  - Relative paths resolve against the directory the command ran from.',
-    '  - run calls the auxiliaryModels.eval_judge model, else the default model.',
+    '  - run calls the auxiliaryModels.eval_judge model, else the auxiliary fallback chain, then the default model.',
+    '  - Add --help to a subcommand to print only its usage.',
     '  - Fresh evolution refuses non-minimal seeds; production coworkers can use run without --fresh-seed.',
     '  - Suites may tag tasks with risks.nistAiRmf, risks.nistGaiProfile, and risks.owaspLlmTop10,',
     '    then require coverage with riskCoverage.requireNistAiRmfCore,',
@@ -227,5 +252,10 @@ export async function runHarnessEvolveCommand(args: string[]): Promise<void> {
       `Unknown harness-evolve subcommand: ${sub}. Use ${Object.keys(SUBCOMMANDS).join(', ')}.`,
     );
   }
-  await SUBCOMMANDS[sub].run(parseFlags(rest), subcommandUsage(sub));
+  const flags = parseFlags(rest, SUBCOMMANDS[sub].flags);
+  if (flags.help) {
+    console.log(`Usage: npm run eval -- ${subcommandUsage(sub)}`);
+    return;
+  }
+  await SUBCOMMANDS[sub].run(flags, subcommandUsage(sub));
 }

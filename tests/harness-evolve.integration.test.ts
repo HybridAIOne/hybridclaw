@@ -41,11 +41,15 @@ interface ModelCall {
   url: string;
   model?: string;
   chatbotId?: string;
+  authorization?: string;
   systemPrompt: string;
 }
 
-// Plays the evolve agent behind an OpenAI-style chat endpoint. HybridAI's
-// health probe (bot list, model list) gets a 200 so the provider is healthy.
+const EVOLVE_REPLY = `\`\`\`json\n${JSON.stringify({ f12Edits: [MEMORY_EDIT] })}\n\`\`\``;
+
+// Plays the evolve agent behind the OpenAI-style, Anthropic, and Ollama chat
+// endpoints. Every other GET (HybridAI bot/model lists, Anthropic model
+// discovery) gets an empty 200 list, so health probes see a live provider.
 async function startFakeModelServer(): Promise<{
   origin: string;
   calls: ModelCall[];
@@ -58,22 +62,48 @@ async function startFakeModelServer(): Promise<{
     });
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      if (!req.url?.endsWith('/chat/completions')) {
+      const url = req.url ?? '';
+      if (url === '/api/tags') {
+        res.end(JSON.stringify({ models: [{ name: 'fake-evolver' }] }));
+        return;
+      }
+      const isChat = /\/(chat\/completions|messages|api\/chat)$/.test(url);
+      if (req.method !== 'POST' || !isChat) {
         res.end(JSON.stringify({ object: 'list', data: [] }));
         return;
       }
       const parsed = JSON.parse(body || '{}') as {
         model?: string;
         chatbot_id?: string;
+        system?: string;
         messages?: Array<{ content?: string }>;
       };
       calls.push({
-        url: req.url,
+        url,
         model: parsed.model,
         chatbotId: parsed.chatbot_id,
-        systemPrompt: String(parsed.messages?.[0]?.content || ''),
+        authorization: req.headers.authorization,
+        systemPrompt: String(parsed.system ?? parsed.messages?.[0]?.content ?? ''),
       });
-      const content = `\`\`\`json\n${JSON.stringify({ f12Edits: [MEMORY_EDIT] })}\n\`\`\``;
+      if (url.endsWith('/messages')) {
+        res.end(
+          JSON.stringify({
+            content: [{ type: 'text', text: EVOLVE_REPLY }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }),
+        );
+        return;
+      }
+      if (url.endsWith('/api/chat')) {
+        res.end(
+          JSON.stringify({
+            message: { role: 'assistant', content: EVOLVE_REPLY },
+            prompt_eval_count: 10,
+            eval_count: 5,
+          }),
+        );
+        return;
+      }
       res.end(
         JSON.stringify({
           id: 'chatcmpl-test',
@@ -84,7 +114,7 @@ async function startFakeModelServer(): Promise<{
             {
               index: 0,
               finish_reason: 'stop',
-              message: { role: 'assistant', content },
+              message: { role: 'assistant', content: EVOLVE_REPLY },
             },
           ],
           usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
@@ -118,6 +148,20 @@ function hybridaiOnlyConfig(origin: string) {
       defaultModel: 'gpt-5',
       defaultChatbotId: 'bot_test',
     },
+  };
+}
+
+// The default model on another provider, still with no `eval_judge` model.
+// HybridAI points at a closed port, so only that provider can answer.
+function defaultModelConfig(provider: 'anthropic' | 'ollama', origin: string) {
+  return {
+    hybridai: {
+      baseUrl: 'http://127.0.0.1:9',
+      defaultModel: `${provider}/fake-evolver`,
+    },
+    ...(provider === 'anthropic'
+      ? { anthropic: { enabled: true, baseUrl: `${origin}/v1` } }
+      : { local: { backends: { ollama: { enabled: true, baseUrl: origin } } } }),
   };
 }
 
@@ -247,6 +291,7 @@ describe('npm run eval -- harness-evolve', () => {
     const status = await harnessEvolve(fixture, ['status', '--summary', summaryPath]);
     expect(status.code).toBe(0);
     expect(status.stdout).toContain('long_term_memory:1');
+    expect(status.stdout).toContain('edits from: evolve_agent via vllm vllm/fake-evolver');
 
     const manifest = await harnessEvolve(fixture, [
       'manifest',
@@ -356,6 +401,125 @@ describe('npm run eval -- harness-evolve', () => {
     expect(summaryPathOf(run.stdout).startsWith(path.join(fixture.dir, 'agent', 'runs'))).toBe(true);
   }, 180_000);
 
+  test('labels a run that does not beat the best of an earlier run', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), vllmJudgeConfig(model.origin));
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target])).code).toBe(0);
+    expect((await harnessEvolve(fixture, runArgs(fixture, '--rounds', '2'))).code).toBe(0);
+
+    // The memory edit is already in place, so this run starts at pass@1=1.
+    const rerun = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '1'));
+    expect(rerun.code, rerun.stderr).toBe(0);
+    expect(rerun.stdout).toContain('Best: no round beat the prior best (pass@1=1)');
+
+    const list = await harnessEvolve(fixture, ['list', '--target', fixture.target]);
+    expect(list.stdout).toMatch(/rounds=1 {2}no new best \(prior pass@1=1\)/);
+    expect(list.stdout).toMatch(/rounds=2 {2}best pass@1=1 \(round 2\)/);
+  }, 180_000);
+
+  // Without `eval_judge` the auxiliary chain runs: a healthy local model, then
+  // the fixed remote fallback for each provider with credentials, and only then
+  // the default model. So an Anthropic user gets the fixed Anthropic fallback.
+  test.each([
+    ['anthropic', '/v1/messages', 'claude-haiku-4-5', { ANTHROPIC_API_KEY: 'test-key' }],
+    ['ollama', '/api/chat', 'fake-evolver', {}],
+  ] as const)('without eval_judge, a %s default model setup reaches %s', async (provider, url, sentModel, env) => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), defaultModelConfig(provider, model.origin));
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target], env)).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '1', '--fresh-seed'), env);
+
+    expect(run.code, run.stderr).toBe(0);
+    expect(model.calls).toEqual([
+      expect.objectContaining({ url, model: sentModel, systemPrompt: EVOLVE_AGENT_SYSTEM_PROMPT }),
+    ]);
+    expect(run.stdout).toMatch(new RegExp(`edits from: evolve_agent via ${provider} `));
+    expect(readMemory(fixture.target)).toMatch(/stderr/);
+  }, 120_000);
+
+  test('uses a HybridAI API key from the encrypted credential store', async () => {
+    const model = await startFakeModelServer();
+    const fixture = writeFixture(makeTempDir(), hybridaiOnlyConfig(model.origin));
+    const storeScript = path.join(fixture.dir, 'store-key.mts');
+    fs.writeFileSync(
+      storeScript,
+      [
+        `import { saveRuntimeSecrets } from ${JSON.stringify(path.join(ROOT, 'src/security/runtime-secrets.ts'))};`,
+        "saveRuntimeSecrets({ HYBRIDAI_API_KEY: 'test-key' });",
+      ].join('\n'),
+    );
+    const stored = await runCli(process.execPath, [TSX_CLI, storeScript], {
+      cwd: fixture.dir,
+      env: cliEnv(fixture),
+    });
+    expect(stored.code, stored.stderr).toBe(0);
+    const credentials = fs.readFileSync(path.join(fixture.dataDir, 'credentials.json'), 'utf-8');
+    expect(credentials).not.toContain('test-key');
+
+    expect((await harnessEvolve(fixture, ['init', '--target', fixture.target])).code).toBe(0);
+    const run = await harnessEvolve(fixture, runArgs(fixture, '--rounds', '1', '--fresh-seed'));
+
+    expect(run.code, run.stderr).toBe(0);
+    expect(model.calls).toEqual([
+      expect.objectContaining({ model: 'gpt-5', authorization: 'Bearer test-key' }),
+    ]);
+  }, 120_000);
+
+  // Artifacts from a real `hybridclaw harness-evolve run` on v0.39.1, with the
+  // target path replaced by a placeholder that the test points at a copy.
+  test('lists and reads runs written by hybridclaw v0.39.1', async () => {
+    const fixture = writeFixture(makeTempDir(), {});
+    const source = path.join(ROOT, 'tests', 'fixtures', 'harness-evolution-v0.39.1');
+    fs.cpSync(source, fixture.target, { recursive: true });
+    const runDir = path.join(fixture.target, 'runs', 'evolve-2026-10-08T18-31-00-161Z');
+    for (const file of ['summary.json', 'list-entry.json', 'round-1/f12-manifest.json', 'round-2/f12-manifest.json']) {
+      const filePath = path.join(runDir, file);
+      const text = fs.readFileSync(filePath, 'utf-8');
+      fs.writeFileSync(filePath, text.replaceAll('/tmp/hc-evolve-agent', fixture.target));
+    }
+
+    const list = await harnessEvolve(fixture, ['list', '--target', fixture.target]);
+    expect(list.code, list.stderr).toBe(0);
+    expect(list.stdout).toMatch(/^evolve-2026-10-08T18-31-00-161Z {2}stderr memory smoke {2}rounds=2 {2}best pass@1=1 \(round 2\)/m);
+    expect(list.stdout).toContain(`summary: ${path.join(runDir, 'summary.json')}`);
+
+    const status = await harnessEvolve(fixture, ['status', '--summary', path.join(runDir, 'summary.json')]);
+    expect(status.code, status.stderr).toBe(0);
+    expect(status.stdout).toContain('Best: round 2 pass@1=1');
+    expect(status.stdout).toContain('edits from: evolve_agent via vllm vllm/fake-evolver');
+
+    const manifest = await harnessEvolve(fixture, ['manifest', '--manifest', path.join(runDir, 'round-2', 'f12-manifest.json')]);
+    expect(manifest.code, manifest.stderr).toBe(0);
+    expect(JSON.parse(manifest.stdout).entries).toEqual([
+      expect.objectContaining({ surface: 'long_term_memory', path: MEMORY_EDIT.relativePath }),
+    ]);
+  }, 60_000);
+
+  test('ignores an INIT_CWD it did not get from `npm run eval`', async () => {
+    const fixture = writeFixture(makeTempDir(), {});
+    const elsewhere = makeTempDir();
+    const result = await runCli(
+      process.execPath,
+      [TSX_CLI, HARNESS_CLI, 'harness-evolve', 'init', '--target', 'agent'],
+      { cwd: fixture.dir, env: cliEnv(fixture, { INIT_CWD: elsewhere }) },
+    );
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(fs.existsSync(path.join(fixture.dir, 'agent', 'system_prompt.md'))).toBe(true);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  }, 60_000);
+
+  test.each([['run', '--help'], ['init', '-h'], ['status', '--summary', 'x', '--help']])(
+    'prints subcommand usage for %j',
+    async (...args) => {
+      const result = await harnessEvolve(writeFixture(makeTempDir(), {}), args);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).toMatch(new RegExp(`^Usage: npm run eval -- harness-evolve ${args[0]} --`));
+    },
+    60_000,
+  );
+
   test('contract prints the evolve-agent prompt and tool schema', async () => {
     const result = await harnessEvolve(writeFixture(makeTempDir(), {}), ['contract']);
     expect(result.code).toBe(0);
@@ -384,6 +548,9 @@ describe('npm run eval -- harness-evolve', () => {
   test.each([
     [['bogus'], /Unknown harness-evolve subcommand: bogus/],
     [['list', '--nope'], /Unknown option '--nope'/],
+    [['init', '--target', 'x', '--commit'], /Unknown option '--commit'/],
+    [['run', '--target', 'x', '--suite', 'y', '--manifest', 'z'], /Unknown option '--manifest'/],
+    [['status', '--target', 'x'], /Unknown option '--target'/],
     [['run', '--target', 'x'], /Usage: harness-evolve run/],
     [['run', '--target', 'x', '--suite', 'y', '--k', '0'], /--k must be a positive integer/],
   ])('rejects %j', async (args, message) => {

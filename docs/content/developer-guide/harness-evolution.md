@@ -94,7 +94,13 @@ against the directory you ran `npm run eval` from.
 The evolve-agent uses the `auxiliaryModels.eval_judge` model when one is
 configured. Otherwise it uses a healthy local backend or remote auxiliary
 fallback, and then the configured default model (`hybridai.defaultModel`), so
-a HybridAI-only setup works without extra configuration.
+a HybridAI-only setup works without extra configuration. The remote fallback
+comes first: with Anthropic credentials and no `eval_judge` model, the
+evolve-agent runs on `anthropic/claude-haiku-4-5`, not on an Anthropic default
+model. Set `auxiliaryModels.eval_judge` to choose the model yourself.
+
+Add `--help` to any subcommand to print its flags. A subcommand rejects flags
+that belong to another one.
 
 ## Eval Suite Format
 
@@ -278,9 +284,17 @@ npm run eval -- harness-evolve manifest --manifest <manifestPath>
 
 `list` shows every run with its suite, round count, best pass@1, cost, and
 summary path, and names any incomplete run directory (a run that failed or
-was interrupted before writing its summary). `status` renders round metrics, the pass@1 trajectory, seed
-delta, risk coverage, and per-round manifest paths. `manifest` prints the F12
-entries for one round.
+was interrupted before writing its summary). A run whose rounds never beat the
+best pass@1 already recorded in the target's `H_best.json` shows as
+`no new best`. `status` renders round metrics, the pass@1 trajectory, seed
+delta, risk coverage, per-round manifest paths, and where each round's edits
+came from (the evolve-agent with its provider and model, the debugger report,
+or a dry run). `manifest` prints the F12 entries for one round. Both read runs
+written by `hybridclaw harness-evolve` in v0.39.
+
+Installs from v0.39 or earlier that still run `hybridclaw harness-evolve` get
+an error that points here. The `/admin/harness-evolution` console page is
+gone; use `list` and `status` instead.
 
 ## Candidate External Benchmarks
 
