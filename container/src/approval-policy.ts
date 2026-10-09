@@ -2943,6 +2943,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
       lowerTool === 'draft_email' ||
+      lowerTool === 'estimate_cost' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&

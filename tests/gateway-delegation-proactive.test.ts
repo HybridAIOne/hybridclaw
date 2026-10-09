@@ -363,6 +363,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
         'trigger',
         'todo',
         'draft_email',
+        'estimate_cost',
         'draft_transfer',
         'track',
         'memory',

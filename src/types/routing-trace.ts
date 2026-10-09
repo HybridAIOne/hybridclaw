@@ -23,6 +23,8 @@ export interface RoutingTraceAttempt {
   tokensEstimated: boolean;
   costUsd: number | null;
   costSource: 'reported' | 'estimated' | 'unknown';
+  /** Model requests the attempt made; absent in traces before 2026-10-09. */
+  modelCalls?: number;
 }
 
 export interface RoutingTrace {
@@ -72,7 +74,9 @@ export function parseRoutingTrace(raw: string | null): RoutingTrace | null {
         !['reported', 'estimated', 'unknown'].includes(attempt.costSource) ||
         typeof attempt.tokensEstimated !== 'boolean' ||
         !Number.isFinite(attempt.durationMs) ||
-        attempt.durationMs < 0
+        attempt.durationMs < 0 ||
+        (attempt.modelCalls !== undefined &&
+          (!Number.isSafeInteger(attempt.modelCalls) || attempt.modelCalls < 0))
       )
         return null;
       for (const key of [
