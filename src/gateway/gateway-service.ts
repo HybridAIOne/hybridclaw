@@ -478,7 +478,6 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
-import { APPROVAL_ANSWER_SOURCE } from './approval-answer.js';
 import {
   handleApprovalsCommand,
   resolveSessionApprovalMode,
@@ -681,6 +680,7 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 import { handleTimezoneCommand } from './timezone-command.js';
 import { storeTurnMessages } from './turn-storage.js';
+import { isHiddenUserSource } from './user-turn-source.js';
 
 export { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 
@@ -8663,7 +8663,7 @@ export function getGatewayHistory(
     .filter((message) => {
       if (message.role === 'user') {
         return (
-          message.source !== APPROVAL_ANSWER_SOURCE &&
+          !isHiddenUserSource(message.source) &&
           !isDelegationResultsMessage(message.content)
         );
       }

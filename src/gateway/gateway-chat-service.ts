@@ -159,7 +159,6 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { DRAFT_TRANSFER_TOOL, SHOW_WIDGET_TOOL } from './app-widgets.js';
-import { APPROVAL_ANSWER_SOURCE } from './approval-answer.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -257,6 +256,7 @@ import {
 } from './show-mode.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
+import { userTurnSource } from './user-turn-source.js';
 
 // 500 rows (owner call, 2026-09-21): a safety cap for sessions whose memory
 // plugin replaces built-in compaction; the token budget bounds the prompt.
@@ -1336,7 +1336,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: routingUserContent,
         userMedia: blockedMedia,
-        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
+        userSource: userTurnSource(req),
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -2031,7 +2031,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         userMedia: media,
-        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
+        userSource: userTurnSource(req),
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -2735,7 +2735,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         userMedia: media,
-        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
+        userSource: userTurnSource(req),
         userDynamicContext: dynamicContext,
         steerNotes,
         error: errorMessage,
@@ -2931,7 +2931,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       userMedia: media,
-      userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
+      userSource: userTurnSource(req),
       userDynamicContext: dynamicContext,
       steerNotes,
       resultText,
@@ -3120,7 +3120,7 @@ async function handleGatewayMessageInner(
           canonicalScopeId: canonicalContextScope,
           userContent: buildStoredUserTurnContent(userTurnContent, media),
           userMedia: media,
-          userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
+          userSource: userTurnSource(req),
           userDynamicContext:
             agentStage === 'pre-agent' ? null : dynamicContext,
           error: errorMsg,

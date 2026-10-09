@@ -3429,6 +3429,7 @@ async function handleApiChat(
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
+    ...(body.appNotice === true ? { appNotice: true } : {}),
   };
   if (rejoin) {
     if (
