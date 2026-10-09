@@ -7,7 +7,10 @@ import {
   recordAuditEvent,
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
-import { SHOW_WIDGET_TOOL } from '../gateway/app-widgets.js';
+import {
+  DRAFT_TRANSFER_TOOL,
+  SHOW_WIDGET_TOOL,
+} from '../gateway/app-widgets.js';
 import {
   beginDeviceDataTurn,
   blockDeviceDataToolUnlessShared,
@@ -121,7 +124,7 @@ export async function runIsolatedScheduledTask(params: {
     taskId: taskId > 0 ? taskId : null,
   });
   const blockedTools = blockDeviceDataToolUnlessShared(
-    ['cron', SHOW_WIDGET_TOOL],
+    ['cron', SHOW_WIDGET_TOOL, DRAFT_TRANSFER_TOOL],
     owner,
   );
   const { messages, skills } = buildConversationContext({

@@ -133,6 +133,8 @@ const ingestState: ObservabilityIngestState = {
 let timer: ReturnType<typeof setInterval> | null = null;
 let flushInProgress = false;
 let flushGeneration = 0;
+// Halved after each HTTP 500 so one event the server cannot store is isolated and skipped.
+let failingBatchMaxEvents: number | null = null;
 const transientObservabilityWarnLimiter = new SlidingWindowRateLimiter(
   OBSERVABILITY_TRANSIENT_WARN_WINDOW_MS,
 );
@@ -396,6 +398,7 @@ function prepareBatch(
   config: ResolvedIngestConfig,
   rows: StructuredAuditEntry[],
   currentCursor: number,
+  maxEvents: number,
 ): PreparedBatch {
   const selectedEvents: Record<string, unknown>[] = [];
   const droppedEventIds: number[] = [];
@@ -404,7 +407,7 @@ function prepareBatch(
   const batchId = `batch_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
   for (const row of rows) {
-    if (selectedEvents.length >= config.batchMaxEvents) break;
+    if (selectedEvents.length >= maxEvents) break;
     if (selectedEvents.length >= PLATFORM_MAX_EVENTS) break;
 
     const nextEvent = mapAuditRowToEvent(config, row);
@@ -822,7 +825,12 @@ async function flushObservability(reason: string): Promise<void> {
       const rows = getStructuredAuditAfterId(cursor, fetchLimit);
       if (rows.length === 0) break;
 
-      const batch = prepareBatch(config, rows, cursor);
+      const batch = prepareBatch(
+        config,
+        rows,
+        cursor,
+        failingBatchMaxEvents ?? config.batchMaxEvents,
+      );
       if (batch.droppedEventIds.length > 0) {
         setObservabilityOffset(streamKey, batch.droppedUntilEventId);
         cursor = batch.droppedUntilEventId;
@@ -920,7 +928,27 @@ async function flushObservability(reason: string): Promise<void> {
             'Observability ingest paused; fix configuration/token and restart gateway',
           );
         }
+        if (result.statusCode === 500) {
+          if (batch.eventCount === 1) {
+            setObservabilityOffset(streamKey, batch.lastEventId);
+            cursor = batch.lastEventId;
+            ingestState.lastCursor = cursor;
+            failingBatchMaxEvents = null;
+            logger.warn(
+              { streamKey, droppedEventId: batch.lastEventId },
+              'Dropped observability event the server failed to ingest',
+            );
+          } else {
+            failingBatchMaxEvents = Math.ceil(batch.eventCount / 2);
+          }
+        }
         break;
+      }
+
+      if (failingBatchMaxEvents !== null) {
+        const doubled = failingBatchMaxEvents * 2;
+        failingBatchMaxEvents =
+          doubled >= config.batchMaxEvents ? null : doubled;
       }
 
       setObservabilityOffset(streamKey, batch.lastEventId);
@@ -957,6 +985,7 @@ async function flushObservability(reason: string): Promise<void> {
 
 export function startObservabilityIngest(): void {
   stopObservabilityIngest();
+  failingBatchMaxEvents = null;
   ingestState.paused = false;
   ingestState.reason = null;
   ingestState.lastError = null;

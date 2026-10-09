@@ -114,6 +114,11 @@ import {
 import { runTodoTool, TODO_TOOL_DEFINITION } from './tools/todo.js';
 import { runTrackTool, TRACK_TOOL_DEFINITION } from './tools/track.js';
 import {
+  DRAFT_TRANSFER_DEFINITION,
+  DRAFT_TRANSFER_TOOL,
+  runDraftTransfer,
+} from './tools/transfer.js';
+import {
   runShowWidget,
   SHOW_WIDGET_DEFINITION,
   SHOW_WIDGET_TOOL,
@@ -3038,6 +3043,16 @@ async function executeToolInternal(
       }
     }
 
+    case DRAFT_TRANSFER_TOOL: {
+      try {
+        return runDraftTransfer(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'edit': {
       let tempDirToCleanup: string | null = null;
       try {
@@ -4298,6 +4313,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   SHOW_WIDGET_DEFINITION,
+  DRAFT_TRANSFER_DEFINITION,
   {
     type: 'function',
     function: {

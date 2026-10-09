@@ -20,7 +20,7 @@ async function loadCredentials(params: {
     readHybridAIApiKey:
       params.readHybridAI ?? (() => params.hybridaiKey ?? null),
   }));
-  return import('../src/channels/voice/realtime-credentials.js');
+  return import('../src/voice/realtime-credentials.js');
 }
 
 test('openai provider connects to api.openai.com with OPENAI_API_KEY', async () => {

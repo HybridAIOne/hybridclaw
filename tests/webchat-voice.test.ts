@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import type { RealtimeSocket } from '../src/channels/voice/openai-realtime.js';
+import type { RealtimeSocket } from '../src/voice/openai-realtime.js';
 
 const REALTIME_CONFIG = {
   provider: 'openai' as const,

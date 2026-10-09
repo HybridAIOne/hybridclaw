@@ -14,6 +14,7 @@ import {
   getOfficialChannelPluginCatalogEntries,
   snapshotChannelPluginTransportAvailability,
 } from '../channels/channel-plugin-catalog.js';
+import { resolveLegacyTwilioVoiceWebhookPath } from '../channels/voice/twilio-voice-compat.js';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
@@ -54,7 +55,6 @@ import {
   shutdownPluginManager,
 } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
-import { isAdminActionClaimed } from '../security/admin-rbac.js';
 import type { MediaContextItem } from '../types/container.js';
 import { isRecord } from '../utils/type-guards.js';
 import { consumeCommandApproval } from './command-approval-trust.js';
@@ -70,23 +70,15 @@ import type {
   GatewayModelCatalogEntry,
 } from './gateway-types.js';
 import { rememberPendingApproval } from './pending-approvals.js';
+import {
+  isLocalSession,
+  refuseRestrictedPluginCommand,
+} from './plugin-command-access.js';
 
 let gatewayServiceInitialized = false;
 let gatewayServiceInitializing: Promise<void> | null = null;
 
 const markdownCode = (value: string): string => `\`${value}\``;
-
-// Plugin config is runtime config: a scoped caller (a phone's token) also needs
-// the action the config admin route asks for.
-function isLocalSession(req: GatewayCommandRequest): boolean {
-  return (
-    req.guildId === null &&
-    (req.channelId === 'web' ||
-      req.channelId === 'tui' ||
-      req.channelId === 'cli') &&
-    isAdminActionClaimed(req.adminActions, 'admin.config.write')
-  );
-}
 
 function formatPluginConfigValue(value: unknown): string {
   if (value === undefined) return '(not set)';
@@ -1212,6 +1204,12 @@ export async function tryHandlePluginDefinedGatewayCommand(params: {
   if (!pluginCommand) {
     return null;
   }
+  const refused = refuseRestrictedPluginCommand(
+    params.command,
+    pluginCommand,
+    params.req,
+  );
+  if (refused) return refused;
   try {
     return normalizePluginCommandResult(
       await pluginCommand.handler(params.req.args.slice(1), {
@@ -1299,7 +1297,10 @@ export async function handleGatewayPluginWebhook(
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  if (!isPluginInboundWebhookPath(url.pathname)) {
+  const pluginPathname = isPluginInboundWebhookPath(url.pathname)
+    ? url.pathname
+    : resolveLegacyTwilioVoiceWebhookPath(url.pathname);
+  if (!pluginPathname) {
     sendWebhookJson(res, 404, { error: 'Not Found' });
     return;
   }
@@ -1319,7 +1320,7 @@ export async function handleGatewayPluginWebhook(
   try {
     const handled = await pluginManager.handleInboundWebhook({
       method: req.method || 'GET',
-      pathname: url.pathname,
+      pathname: pluginPathname,
       url,
       req,
       res,

@@ -61,9 +61,9 @@ container mode it also shows the configured image name, resolved image
 version, and short image id when available.
 `hybridclaw tui --resume <sessionId>` and `hybridclaw --resume <sessionId>`
 reopen an earlier TUI session by canonical session id.
-`gateway voice info` reports the current local Twilio voice setup, and
-`gateway voice call <number>` places an outbound call through the configured
-Twilio account.
+With the `twilio-voice` plugin installed, `gateway voice info` reports the
+current local Twilio voice setup, and `gateway voice call <number>` places an
+outbound call through the configured Twilio account.
 Use `--debug-model-responses` only for local troubleshooting; it writes raw
 provider response diagnostics and the last prompt under the HybridClaw data
 directory. Use `--system-prompt=<parts|none>` and `--tools=full|none` for
@@ -101,42 +101,9 @@ token. Approve the code in **Credentials → Devices**; the resulting API token 
 scoped to `chat.send`, `agents.read`, and `artifacts.read` and can be revoked in
 **Credentials → API tokens**. See [device pairing](../guides/web-notifications.md#pairing-a-device).
 
-## Harness Evolution Workflows
+## OpenAI-Compatible API
 
-`hybridclaw harness-evolve` runs controlled eval-driven evolution loops against
-one target coworker workspace. It initializes or validates a bash-only seed,
-runs a command-backed eval suite, asks the evolve-agent for F12-governed edits,
-and records round summaries plus manifests for review.
-
-```bash
-hybridclaw harness-evolve init --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve validate-seed --target /tmp/hc-evolve-agent
-hybridclaw harness-evolve contract
-hybridclaw harness-evolve run \
-  --target /tmp/hc-evolve-agent \
-  --suite /tmp/hc-evals/scenarios.json \
-  --rounds 2 \
-  --k 1 \
-  --fresh-seed
-hybridclaw harness-evolve status --summary /tmp/hc-evolve-agent/runs/<run-id>/summary.json
-```
-
-- editable surfaces are limited to `system_prompt.md`, `tools.yaml`, `tools/`,
-  `middleware/`, `sub_agents/`, `config/`, and `long_term_memory/`
-- eval suites are JSON files, or skill directories containing
-  `evals/scenarios.json`
-- each task command is split into argv and run without a shell; wrap pipes,
-  redirects, and multi-command checks in a script file
-- `--dry-run` exercises eval execution and summaries without applying edits
-- `--commit` creates Git commits for confirmed rounds in a Git-backed target
-  workspace
-- the admin console reads completed runs from `/admin/harness-evolution` when
-  `HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` allowlists the target root
-
-See [Harness Evolution](../developer-guide/harness-evolution.md) for an example
-suite and benchmark-adaptation guidance.
-
-The same loopback surface is available directly from the running gateway:
+The running gateway serves an OpenAI-compatible loopback API:
 
 ```bash
 curl http://127.0.0.1:9090/v1/models
@@ -329,8 +296,10 @@ Threema uses Gateway Basic mode for outbound text delivery. For the
 step-by-step setup guides, see
 [Channels: Overview](../channels/overview.md) and
 [Connect Your First Channel](../getting-started/first-channel.md).
-Twilio voice is configured through `/admin/channels` or direct `voice.*`
-config keys, then inspected or used for outbound dialing with
+Twilio voice runs as the `twilio-voice` plugin
+(`hybridclaw plugin install twilio-voice`). It is configured through
+`/admin/channels` or direct `voice.*` config keys, then inspected or used for
+outbound dialing with
 `hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
 Local TUI/web sessions can also write channel config and secrets with
 `/config set ...` and `/secret set ...`; see
@@ -886,7 +855,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/thumbs up|down [comment]` or `/thumbs clear` | local and chat channels | Rate the last answer, optionally adding a correction or the expected answer |
 | `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode; delegations the stopped request queued are not started |
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
-| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
+| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call (`twilio-voice` plugin) |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
 
 Task editors use `/schedule list --json` to read the `editor` capabilities,
@@ -964,8 +933,9 @@ gateway refuses further turns for it and pauses its active goal with the reason
   bare `/app` and `/apps` open the Apps gallery
 - local TUI/web sessions support `/context` to inspect context-window usage,
   remaining headroom, and compaction count for the active session
-- local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
-  for local Twilio diagnostics and outbound dialing
+- with the `twilio-voice` plugin installed, local TUI and web chat expose
+  `/voice info` and `/voice call <e164-number>` for local Twilio diagnostics
+  and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
   `/config reload`, `/config get <key>`, `/config set <key> <value>`,
   `/concierge`, `/auth status <provider>`, and

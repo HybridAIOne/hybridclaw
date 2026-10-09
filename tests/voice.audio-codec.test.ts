@@ -4,7 +4,7 @@ import {
   muLawEncodeSample,
   muLawToPcm16,
   pcm16ToMuLaw,
-} from '../src/channels/voice/audio-codec.js';
+} from '../src/voice/audio-codec.js';
 
 test('known G.711 anchor points', () => {
   expect(muLawEncodeSample(0)).toBe(0xff);

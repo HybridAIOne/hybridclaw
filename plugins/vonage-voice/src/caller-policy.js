@@ -3,9 +3,9 @@
  * `voice.allowFrom` settings so the phone channel behaves the same whichever
  * transport carries the call — the same way `speech.realtime.*` is shared.
  *
- * Kept as a local mirror of `src/channels/voice/caller-policy.ts` because
- * plugins load from the workspace plugin directory and cannot import gateway
- * internals, matching the existing per-channel duplication of these helpers.
+ * Kept as a local mirror of `plugins/twilio-voice/src/caller-policy.js`
+ * because plugins load from the workspace plugin directory and cannot import
+ * each other or gateway internals.
  */
 export function normalizeCallerIdentity(value) {
   const digits = String(value ?? '').replace(/\D/g, '');

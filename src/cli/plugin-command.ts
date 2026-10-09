@@ -492,8 +492,8 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
       console.log(line);
     }
     printMissingBinaryGuidance(result.pluginId, result.missingRequiredBins);
-    console.log('Restart the gateway to load plugin changes:');
-    console.log('  hybridclaw gateway restart --foreground');
+    console.log('Load the new plugin into a running gateway:');
+    console.log('  hybridclaw gateway plugin reload');
     console.log('  hybridclaw gateway status');
     return;
   }

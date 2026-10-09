@@ -17,6 +17,7 @@ import { resolveInstallRoot } from '../infra/install-root.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { expandHomePath } from '../utils/path.js';
+import { isPackagedPluginId } from './packaged-plugin-ids.js';
 import {
   allRequiredBinsAvailable,
   checkPluginDependencies,
@@ -386,6 +387,11 @@ function resolvePluginSource(input: string, cwd: string): PluginSource {
   }
   if (looksLikeLocalPath(input)) {
     throw new Error(`Plugin path not found: ${input}`);
+  }
+  if (isPackagedPluginId(PACKAGE_ROOT, input)) {
+    throw new Error(
+      `Plugin ${input} ships with HybridClaw but is missing from this install (${path.join(PACKAGE_ROOT, 'plugins', input)}); it is never fetched from npm.`,
+    );
   }
   return {
     kind: 'npm-spec',

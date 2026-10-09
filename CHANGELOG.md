@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## [0.39.5](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.5) - 2026-10-09
+
+### Added
+
+- **Bank transfer cards**: In the Hy app, `draft_transfer` prepares a SEPA
+  transfer with validated bank details for a card with copyable fields and a
+  GiroCode. It creates a draft only; the user completes the payment in their
+  banking app.
+
+### Changed
+
+- **Twilio voice plugin**: Phone calls run through the bundled `twilio-voice`
+  plugin. Existing enabled voice configs activate it once on upgrade; settings
+  and stored tokens carry over. Voice settings apply to the next call without
+  a reload, and gateway status reports whether the plugin is loaded.
+- **Harness evolution**: The evolution loop moves to the source-checkout eval
+  harness. Its console page, admin API and token action are removed. CLI
+  commands point to the replacement, and Adaptive Skills settings remain
+  editable in the console.
+
+### Fixed
+
+- **Message and email approvals**: Messages to named recipients and message
+  edits, deletions, pins and thread creation require approval in `auto` and
+  `ask` modes; `full` mode still permits them. Email uses the user's connected
+  account when available. Mobile sessions without one ask the user to connect
+  mail. Permitted sends from the agent's mailbox include email review details
+  and require a subject before approval.
+- **Observability export recovery**: Repeated HTTP 500 responses shrink the
+  failing batch until a single event is isolated and skipped with a warning,
+  allowing later events to export. Transport failures and HTTP 502/503/504
+  responses continue retrying without skipping events.
+- **Harness evolution runs**: HybridAI-only setups can use the default model
+  without an eval-judge override. First runs with `--commit`, relative paths,
+  flag validation and reporting of runs that do not beat the prior best are
+  more reliable.
+
+### Upgrade Notes
+
+- Update the Hy app to display transfer cards and email approval details.
+- For Twilio, point the number's voice webhook at
+  `https://<host>/api/plugin-webhooks/twilio-voice/webhook`. The default
+  `/voice/webhook` URL retains a temporary compatibility route, marked for
+  removal after v0.41. Custom `voice.webhookPath` values are removed and their
+  old URLs stop answering; update those numbers immediately. New voice setups
+  require `hybridclaw plugin install twilio-voice`. Plugin reloads end live
+  calls, so schedule plugin changes outside call hours.
+- Replace `hybridclaw harness-evolve` with
+  `npm run eval -- harness-evolve <init|validate-seed|run|list|status|manifest|contract>`
+  from a source checkout. Use `list`, `status` and `manifest` to inspect existing
+  runs. `/api/admin/harness-evolution`, `/admin/harness-evolution` and
+  `admin.harness_evolution.read` are removed;
+  `HYBRIDCLAW_HARNESS_EVOLUTION_ROOTS` is ignored.
+
 ## [0.39.4](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.4) - 2026-10-09
 
 ### Added
