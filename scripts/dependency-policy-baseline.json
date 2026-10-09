@@ -5,7 +5,7 @@
     "container/package-lock.json": "39bdd474375c1e3760560d0d999e4c6d471c41a95525cd24511fac49ae0a0547",
     "container/npm-shrinkwrap.json": "39bdd474375c1e3760560d0d999e4c6d471c41a95525cd24511fac49ae0a0547",
     "plugins/brevo-email/package-lock.json": "11293bb72d817999d3bbd5ef4625a0ab78468bd6857ae31b44dd7c7cec4ec6a6",
-    "plugins/line/package-lock.json": "7c2d0b77e804b0603e26e31123fff0d6826410a41a27200b55d32ce5d05102c6",
+    "plugins/line/package-lock.json": "b27265ce9a87433471f1f628433db9971f04771ea733727b44f79452bbc93cbf",
     "container/tools/package-lock.json": "3e83b32631665041bce0032e637805cae7184817dc40ed916357a4cd330b4d06",
     "plugins/transformers-embeddings/package-lock.json": "4893f74df0202670eb34766f75d201c26af7f42f2745b02cb9b38fc8e9dfc089",
     "plugins/camofox/package-lock.json": "fe7793bf612911f76938147f0c3718f0bdc9aad15bae04ac5f8b7d6f603df8c9"

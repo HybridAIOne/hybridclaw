@@ -19,25 +19,29 @@ export type { BrowserProviderRegistration } from '../browser/provider-factory.js
 export type { BrowserProviderHost } from '../browser/provider-host.js';
 export type { ChannelInfo } from '../channels/channel.js';
 export type {
+  ChannelTransportAuthStatus,
+  ChannelTransportDoctorFinding,
+  ChannelTransportHost,
   ChannelTransportInstance,
   ChannelTransportMediaSendParams,
   ChannelTransportMessageContext,
   ChannelTransportMessageHandler,
   ChannelTransportPairingSession,
+  ChannelTransportPairingState,
   ChannelTransportRegistration,
   ChannelTransportReplyFn,
+  ChannelTransportSendDescription,
   ChannelTransportSendResult,
-  LineChannelTransportRegistration,
-  WhatsAppChannelTransportRegistration,
 } from '../channels/channel-transport.js';
-export type { LineTransportHost } from '../channels/line/transport-host.js';
 export {
   readWebhookBody,
   readWebhookJsonBody,
   sendWebhookJson,
   WebhookHttpError,
 } from '../channels/webhook-http.js';
-export type { WhatsAppTransportHost } from '../channels/whatsapp/transport-host.js';
+// compat: remove after v0.41 — hybridclaw-whatsapp 0.1.x types its transport
+// against this host, so its source must keep typechecking until it migrates.
+export type { WhatsAppTransportHost } from '../channels/whatsapp/legacy-registration.js';
 export { parseValueFlag } from '../cli/common.js';
 export { DATA_DIR } from '../config/config.js';
 export type {

@@ -180,6 +180,17 @@ test('gateway startup graph does not statically load optional channel SDKs', () 
   expect(leaked).toEqual([]);
 });
 
+test('gateway startup graph builds no plugin channel transport host', () => {
+  const { modules } = collectStartupPackages(GATEWAY_ENTRY);
+
+  // The transport host (media, session, and QR helpers) loads only when a
+  // channel plugin's transport is first created.
+  expect(modules).not.toContain('src/channels/plugin-channel/host.ts');
+  expect(
+    modules.filter((file) => file.startsWith('src/channels/line/')),
+  ).toEqual([]);
+});
+
 test('gateway startup graph carries no plugin-owned transport protocol code', () => {
   const { modules } = collectStartupPackages(GATEWAY_ENTRY);
 

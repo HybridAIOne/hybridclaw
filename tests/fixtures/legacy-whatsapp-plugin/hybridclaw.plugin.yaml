@@ -1,0 +1,8 @@
+id: whatsapp
+name: WhatsApp (legacy contract fixture)
+version: 0.1.1
+kind: channel
+description: Stands in for the released hybridclaw-whatsapp 0.1.x plugin, which registers only { kind, create } against the retired WhatsApp host.
+entrypoint: index.js
+requires:
+  node: 22.x

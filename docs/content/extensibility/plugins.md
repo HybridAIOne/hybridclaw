@@ -429,23 +429,38 @@ long-running provider jobs such as video generation fit in one call.
 
 ### Channel transport plugins
 
-A channel plugin can supply a core-owned channel facade through
-`api.registerChannelTransport(...)`. The channel kind remains one of
-HybridClaw's closed `ChannelKind` values; a plugin does not create arbitrary
-new kinds.
+A channel plugin supplies a transport for one of the install-on-demand channel
+kinds listed in `src/channels/channel-plugin-catalog.ts` through
+`api.registerChannelTransport(...)`. Registering any other kind throws; a
+plugin does not create arbitrary new kinds or take over a built-in channel.
 
-```ts
-import type {
-  HybridClawPluginDefinition,
-  WhatsAppTransportHost,
-} from '@hybridaione/hybridclaw/plugin-sdk';
+The registration is everything core knows about the channel. Core owns the
+config section, the generic runtime, gateway turns, proactive delivery, and
+the message tool; it asks the registration for the channel-specific facts:
 
-const plugin: HybridClawPluginDefinition = {
-  id: 'whatsapp',
+| Member | Required | Used by |
+|---|---|---|
+| `create(host)` | yes | The runtime, once per transport instance |
+| `matchesTarget(target)` | yes | Session, scheduler, and proactive target classification |
+| `normalizeTarget(target)` | yes | Message-tool targets: `null` if not yours, throw if yours but malformed |
+| `getAuthStatus()` | yes | Gateway status, doctor, sends; returns `linked` plus fields gateway status publishes |
+| `resetAuth()` | yes | `hybridclaw auth <kind> reset` and `channels <kind> setup --reset`; returns the cleared directory |
+| `getPairingState()` | no | The admin console pairing prompt (`pairingQrText`, `updatedAt`, `error`, extra fields) |
+| `doctorChecks({ enabled })` | no | `hybridclaw doctor` findings |
+| `messageToolHints({ channelId })` | no | Channel-specific lines in the agent prompt |
+| `describeSend({ target, auth })` | no | `sentFrom`, `recipient`, and `note` on message-tool results |
+
+```js
+import path from 'node:path';
+
+export default {
+  id: 'line',
   register(api) {
+    // The plugin owns its credentials; keep the 0.39.1 path so pairings survive.
+    const authDir = path.join(api.runtime.homeDir, 'credentials', 'line');
     api.registerChannelTransport({
-      kind: 'whatsapp',
-      create(host: WhatsAppTransportHost) {
+      kind: 'line',
+      create(host) {
         return {
           async init(handler) {},
           async shutdown() {},
@@ -453,30 +468,51 @@ const plugin: HybridClawPluginDefinition = {
           async sendMedia(params) {},
         };
       },
+      matchesTarget: (target) => target.startsWith('line:'),
+      normalizeTarget: (target) => (target.startsWith('line:') ? target : null),
+      getAuthStatus: async () => ({ linked: false, mid: null }),
+      resetAuth: async () => authDir,
     });
   },
 };
-
-export default plugin;
 ```
 
 Installed plugins are loaded from an isolated snapshot with only their own
 `node_modules` available. Plugin runtime code must not import HybridClaw core
-modules. Core services, configuration, logging, auth paths and locks, media
-helpers, and other capabilities are passed as values on the transport host.
-Core SDK imports should be type-only so they are erased from emitted JavaScript.
+modules. Core services (configuration for the channel's section, logging,
+media and text helpers, session keys, rate limiting, QR rendering) are passed
+as values on the `ChannelTransportHost`; credential storage, locks, pairing
+state, and target syntax belong to the plugin. Core SDK imports should be
+type-only so they are erased from emitted JavaScript.
+
+While a channel plugin is registered, its `matchesTarget` decides which ids
+belong to the channel. Without the plugin, core still recognizes the ids that
+sessions already store for that channel (a catalog pattern such as `line:`)
+and the message-tool address syntax the channel used to own (WhatsApp:
+`whatsapp:` targets and bare phone numbers), so they fail with the install
+command instead of reaching another channel. When the plugin is installed but
+failed to load, that message names `hybridclaw plugin reinstall` instead.
+
+The released WhatsApp plugin (0.1.x) still registers only `{ kind, create }`
+and expects auth, pairing, and phone helpers on its host. Core adapts that one
+registration through `src/channels/whatsapp/legacy-registration.ts`, and the
+SDK keeps exporting its `WhatsAppTransportHost` type, until the plugin ships
+the full contract. A registration that names any contract hook must supply all
+required ones; any other create-only registration is refused with a
+`hybridclaw plugin reinstall` hint.
 
 Keep `register(api)` synchronous and cheap. If a transport has large or
 license-sensitive dependencies, register a lightweight instance and dynamically
 import the implementation when `init`, send, or pairing is first used. The
 plugin manager rolls back transport registrations when registration fails and
-unregisters them during shutdown; the core facade retains an active instance
+unregisters them during shutdown; the core runtime retains an active instance
 long enough to shut it down cleanly.
 
 Install-on-demand channel plugins also need an entry in
 `src/channels/channel-plugin-catalog.ts`. The catalog is core-owned because a
 plugin that is not installed cannot expose its own manifest. Each entry maps a
-closed channel kind to its plugin id and install source. Gateway status derives
+closed channel kind to its plugin id and install source, plus the enablement
+and restart rules for the channel's core-owned config section. Gateway status derives
 transport availability from that catalog, and the admin Channels page uses the
 same metadata to show a generic install action. Adding another plugin-backed
 channel should require a catalog entry, not channel-specific install UI.

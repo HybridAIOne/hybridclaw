@@ -4,7 +4,7 @@ const LINE_AGENT_REPLY_PREFIX_RE = /^\[HybridClaw\](?:\s|$)/i;
  * Filters a LINE talk event down to the self-chat messages the agent should
  * handle and normalizes it into handler dispatch parameters.
  *
- * @param {import('@hybridaione/hybridclaw/plugin-sdk').LineTransportHost} host
+ * @param {import('./host.js').LineTransportHost} host
  * @param {{
  *   message: import('@jsr/evex__linejs').TalkMessage;
  *   selfMid: string;

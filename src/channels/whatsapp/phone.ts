@@ -1,3 +1,5 @@
+import { normalizePhoneNumber as normalizeE164PhoneNumber } from '../../utils/phone-number.js';
+
 const WHATSAPP_PREFIX_RE = /^whatsapp:/i;
 const WHATSAPP_USER_JID_RE =
   /^(\d+)(?::\d+)?@(s\.whatsapp\.net|lid|hosted|hosted\.lid)$/i;
@@ -15,15 +17,7 @@ function stripWhatsAppPrefix(value: string): string {
 }
 
 export function normalizePhoneNumber(raw: string): string | null {
-  const candidate = stripWhatsAppPrefix(raw);
-  if (!candidate || candidate.includes('@')) return null;
-
-  const digits = candidate.replace(/[^\d+]/g, '');
-  if (!digits) return null;
-
-  const normalizedDigits = digits.startsWith('+') ? digits.slice(1) : digits;
-  if (!E164_DIGITS_RE.test(normalizedDigits)) return null;
-  return `+${normalizedDigits}`;
+  return normalizeE164PhoneNumber(stripWhatsAppPrefix(raw));
 }
 
 export function phoneToJid(phone: string): string | null {
@@ -77,6 +71,17 @@ export function isWhatsAppJid(channelId: string): boolean {
     WHATSAPP_USER_JID_RE.test(candidate) ||
     WHATSAPP_GROUP_JID_RE.test(candidate)
   );
+}
+
+/** A message-tool target (JID, `whatsapp:` prefix, or phone number) as a JID. */
+export function normalizeWhatsAppTarget(rawTarget: string): string | null {
+  const withoutPrefix = stripWhatsAppPrefix(rawTarget);
+  if (!withoutPrefix) return null;
+  const canonicalJid = canonicalizeWhatsAppUserJid(withoutPrefix);
+  if (canonicalJid) return canonicalJid;
+  if (isWhatsAppJid(withoutPrefix)) return withoutPrefix;
+  if (/[a-z]/i.test(withoutPrefix)) return null;
+  return phoneToJid(withoutPrefix);
 }
 
 export function isGroupJid(jid: string): boolean {

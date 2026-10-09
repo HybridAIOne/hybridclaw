@@ -1196,6 +1196,18 @@ export function installOfficialPlugin(
   ]);
 }
 
+export function reinstallPlugin(
+  token: string,
+  source: string,
+): Promise<AdminCommandResult> {
+  return runAdminCommand(token, 'web-admin-plugins', [
+    'plugin',
+    'reinstall',
+    source,
+    '--yes',
+  ]);
+}
+
 export function installPlugin(
   token: string,
   source: string,

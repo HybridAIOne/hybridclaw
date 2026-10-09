@@ -1,13 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
-import { WhatsAppAuthLockError } from '../src/channels/whatsapp/auth.js';
 import {
   formatAgentErrorReply,
   formatChannelGatewayErrorReply,
   formatGatewayErrorReply,
   isDefaultChannelInterruptedReply,
   isDiscordInvalidTokenError,
-  isWhatsAppAuthLockError,
 } from '../src/gateway/gateway-error-service.js';
 
 describe('gateway error service', () => {
@@ -38,12 +36,5 @@ describe('gateway error service', () => {
       isDiscordInvalidTokenError(new Error('Discord rejected invalid token')),
     ).toBe(true);
     expect(isDiscordInvalidTokenError(new Error('network failed'))).toBe(false);
-
-    const lockError = new WhatsAppAuthLockError('locked', {
-      lockPath: '/tmp/whatsapp.lock',
-      ownerPid: 123,
-    });
-    expect(isWhatsAppAuthLockError(lockError)).toBe(true);
-    expect(isWhatsAppAuthLockError(new Error('locked'))).toBe(false);
   });
 });

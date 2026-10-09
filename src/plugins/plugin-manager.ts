@@ -32,6 +32,8 @@ import {
 } from '../channels/channel-registry.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import {
+  clearChannelPluginLoadFailures,
+  markChannelPluginLoadFailed,
   registerChannelTransport,
   unregisterChannelTransport,
 } from '../channels/channel-transport.js';
@@ -922,6 +924,7 @@ export class PluginManager {
         unregisterChannelTransport(entry.transport.kind);
       }
       this.channelTransports = [];
+      clearChannelPluginLoadFailures();
       clearEmbeddingProviders();
       clearBrowserProviders();
       clearLocalClassifiers();
@@ -962,6 +965,7 @@ export class PluginManager {
       unregisterChannelTransport(entry.transport.kind);
     }
     this.channelTransports = [];
+    clearChannelPluginLoadFailures();
     clearEmbeddingProviders();
     clearBrowserProviders();
     clearLocalClassifiers();
@@ -1332,6 +1336,7 @@ export class PluginManager {
       },
       'Plugin failed to load',
     );
+    markChannelPluginLoadFailed(pluginId);
     if (this.plugins.some((plugin) => plugin.id === pluginId)) return;
     this.plugins.push({
       id: pluginId,

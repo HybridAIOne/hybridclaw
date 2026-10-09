@@ -50,9 +50,6 @@ async function importWithChannelMocks() {
     sendEmailAttachmentTo: vi.fn(),
     sendToEmail: vi.fn(),
   }));
-  vi.doMock('../src/channels/line/auth.js', () => ({
-    getLineAuthStatus: vi.fn(async () => ({ linked: false })),
-  }));
   vi.doMock('../src/channels/signal/runtime.js', () => ({
     sendToSignalChat: vi.fn(),
   }));
@@ -68,13 +65,6 @@ async function importWithChannelMocks() {
   }));
   vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
     sendToDiscordWebhookTarget: vi.fn(),
-  }));
-  vi.doMock('../src/channels/whatsapp/runtime.js', () => ({
-    sendToWhatsAppChat: vi.fn(),
-    sendWhatsAppMediaToChat: vi.fn(),
-  }));
-  vi.doMock('../src/channels/line/runtime.js', () => ({
-    sendToLineSelfChat: vi.fn(),
   }));
 
   const db = await import('../src/memory/db.ts');

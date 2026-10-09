@@ -1,9 +1,13 @@
 /**
  * Official channel-plugin catalog — the source of truth for install-on-demand
- * transports. Entries are curated code provenance, not runtime availability.
+ * transports. Entries are curated code provenance plus the core-owned config
+ * facts (enablement, restart triggers) a channel needs while its plugin is
+ * absent; they say nothing about runtime availability.
  */
+import type { RuntimeConfig } from '../config/runtime-config.js';
+import { equalStringSets } from '../utils/string-list-equality.js';
 import type { ChannelKind } from './channel.js';
-import { hasChannelTransport } from './channel-transport.js';
+import { isWhatsAppJid, normalizeWhatsAppTarget } from './whatsapp/phone.js';
 
 export interface ChannelPluginCatalogEntry {
   channel: ChannelKind;
@@ -15,13 +19,6 @@ export interface OfficialChannelPluginCatalogEntry
   extends ChannelPluginCatalogEntry {
   name: string;
   description: string;
-}
-
-export interface ChannelPluginStatus {
-  channel: ChannelKind;
-  pluginId: string;
-  installSource: string;
-  transportAvailable: boolean;
 }
 
 // Official web-install allowlist (owner call, 2026-08-25): third-party catalog
@@ -44,11 +41,82 @@ const CHANNEL_PLUGIN_CATALOG = {
   Record<ChannelKind, Omit<OfficialChannelPluginCatalogEntry, 'channel'>>
 >;
 
+export type PluginChannelKind = keyof typeof CHANNEL_PLUGIN_CATALOG;
+
+export interface PluginChannelCoreFacts {
+  isEnabled(config: RuntimeConfig): boolean;
+  configChanged(next: RuntimeConfig, prev: RuntimeConfig): boolean;
+  /** Whether sessions and schedules store `id` as this channel's id. */
+  isStoredTarget(id: string): boolean;
+  /** Message-tool targets this channel claims while its plugin is absent. */
+  claimsToolTarget(target: string): boolean;
+}
+
+// The `whatsapp` and `line` config sections and the channel ids stored in
+// sessions are released data, so core keeps these facts while the plugin is
+// absent. `isStoredTarget` only keeps such ids classified (failing with the
+// install hint) instead of falling through to email (decided 2026-10-08 in the
+// #1801 transport registration change); a loaded plugin's `matchesTarget`
+// decides whenever it is registered. `claimsToolTarget` keeps the message-tool
+// address syntax 0.39.1 routed to the channel (WhatsApp: `whatsapp:` and bare
+// phone numbers) failing with the install hint instead of reaching Signal.
+const PLUGIN_CHANNEL_CORE_FACTS: Record<
+  PluginChannelKind,
+  PluginChannelCoreFacts
+> = {
+  line: {
+    isStoredTarget: (id) => /^line:/i.test(id),
+    claimsToolTarget: (target) => /^line:/i.test(target),
+    isEnabled: (config) => config.line.enabled,
+    configChanged: (next, prev) =>
+      next.line.enabled !== prev.line.enabled ||
+      next.line.textChunkLimit !== prev.line.textChunkLimit,
+  },
+  whatsapp: {
+    isStoredTarget: isWhatsAppJid,
+    // A malformed `whatsapp:` target still fails with the install hint.
+    claimsToolTarget: (target) =>
+      /^whatsapp:/i.test(target) || normalizeWhatsAppTarget(target) !== null,
+    isEnabled: (config) =>
+      config.whatsapp.dmPolicy !== 'disabled' ||
+      config.whatsapp.groupPolicy !== 'disabled',
+    configChanged: ({ whatsapp: next }, { whatsapp: prev }) =>
+      next.dmPolicy !== prev.dmPolicy ||
+      next.groupPolicy !== prev.groupPolicy ||
+      !equalStringSets(next.allowFrom, prev.allowFrom) ||
+      !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+      next.debounceMs !== prev.debounceMs ||
+      next.ackReaction !== prev.ackReaction ||
+      next.textChunkLimit !== prev.textChunkLimit ||
+      next.mediaMaxMb !== prev.mediaMaxMb ||
+      next.sendReadReceipts !== prev.sendReadReceipts,
+  },
+};
+
+export const PLUGIN_CHANNEL_KINDS = Object.keys(
+  CHANNEL_PLUGIN_CATALOG,
+) as PluginChannelKind[];
+
+export function isPluginChannelKind(kind: string): kind is PluginChannelKind {
+  return Object.hasOwn(CHANNEL_PLUGIN_CATALOG, kind);
+}
+
+export function getPluginChannelCoreFacts(
+  kind: PluginChannelKind,
+): PluginChannelCoreFacts {
+  return PLUGIN_CHANNEL_CORE_FACTS[kind];
+}
+
+export function getPluginChannelName(kind: PluginChannelKind): string {
+  return CHANNEL_PLUGIN_CATALOG[kind].name;
+}
+
 export function getChannelPluginCatalogEntry(
   channel: ChannelKind,
 ): ChannelPluginCatalogEntry | undefined {
-  const entry =
-    CHANNEL_PLUGIN_CATALOG[channel as keyof typeof CHANNEL_PLUGIN_CATALOG];
+  const entry = isPluginChannelKind(channel)
+    ? CHANNEL_PLUGIN_CATALOG[channel]
+    : undefined;
   return entry
     ? {
         channel,
@@ -88,45 +156,4 @@ export function getChannelPluginInstallCommand(channel: ChannelKind): string {
     );
   }
   return `hybridclaw plugin install ${entry.installSource}`;
-}
-
-export function getChannelPluginStatuses(): ChannelPluginStatus[] {
-  return getOfficialChannelPluginCatalogEntries().map((entry) => ({
-    channel: entry.channel,
-    pluginId: entry.pluginId,
-    installSource: entry.installSource,
-    transportAvailable: hasChannelTransport(entry.channel),
-  }));
-}
-
-export interface ChannelPluginAvailabilityChange {
-  channel: ChannelKind;
-  available: boolean;
-}
-
-export type ChannelPluginAvailabilitySnapshot = ReadonlyMap<
-  ChannelKind,
-  boolean
->;
-
-export function snapshotChannelPluginTransportAvailability(): ChannelPluginAvailabilitySnapshot {
-  return new Map(
-    Object.keys(CHANNEL_PLUGIN_CATALOG).map((channel) => [
-      channel as ChannelKind,
-      hasChannelTransport(channel as ChannelKind),
-    ]),
-  );
-}
-
-export function diffChannelPluginTransportAvailability(
-  before: ChannelPluginAvailabilitySnapshot,
-  after: ChannelPluginAvailabilitySnapshot,
-): ChannelPluginAvailabilityChange[] {
-  const changes: ChannelPluginAvailabilityChange[] = [];
-  for (const [channel, available] of after) {
-    if ((before.get(channel) ?? false) !== available) {
-      changes.push({ channel, available });
-    }
-  }
-  return changes;
 }

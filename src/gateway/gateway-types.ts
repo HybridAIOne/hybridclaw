@@ -24,7 +24,9 @@ import type {
   ChannelTargetKind,
   SkillConfigChannelKind,
 } from '../channels/channel.js';
+import type { PluginChannelKind } from '../channels/channel-plugin-catalog.js';
 import type { DiscordWebhookSendResult } from '../channels/discord-webhook/delivery.js';
+import type { PluginChannelGatewayStatus } from '../channels/plugin-channel/status.js';
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
@@ -501,9 +503,12 @@ export interface GatewayChannelPluginStatus {
   pluginId: string;
   installSource: string;
   transportAvailable: boolean;
+  loadFailed: boolean;
 }
 
-export interface GatewayStatus {
+/** `whatsapp`, `line`, …: one entry per catalog plugin channel. */
+export interface GatewayStatus
+  extends Partial<Record<PluginChannelKind, PluginChannelGatewayStatus>> {
   status: 'ok';
   localModelsSupported?: boolean;
   webAuthConfigured: boolean;
@@ -641,24 +646,6 @@ export interface GatewayStatus {
     maxConcurrentCalls: number;
     /** The `twilio-voice` plugin is enabled and loaded without an error. */
     pluginLoaded: boolean;
-  };
-  whatsapp?: {
-    linked: boolean;
-    jid: string | null;
-    pairingQrText: string | null;
-    pairingUpdatedAt: string | null;
-    pairingError: string | null;
-  };
-  line?: {
-    enabled: boolean;
-    linked: boolean;
-    mid: string | null;
-    pairingQrText: string | null;
-    pairingQrSvg: string | null;
-    pairingUrl: string | null;
-    pincode: string | null;
-    pairingUpdatedAt: string | null;
-    pairingError: string | null;
   };
   signal?: {
     enabled: boolean;

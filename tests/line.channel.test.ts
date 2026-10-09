@@ -1,50 +1,43 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 // The LINE transport lives in the bundled install-on-demand plugin; its
 // linejs-free modules are imported directly so the suite runs without the
 // plugin's dependency closure installed.
-import { prepareLineTextChunks } from '../plugins/line/src/delivery.js';
-import { processInboundLineSelfMessage } from '../plugins/line/src/inbound.js';
-import { DEFAULT_AGENT_ID } from '../src/agents/agent-types.js';
-import { normalizeNativeAgentAddressingText } from '../src/channels/agent-addressing.js';
 import {
-  registerChannelTransport,
-  unregisterChannelTransport,
-} from '../src/channels/channel-transport.js';
-import {
-  acquireLineAuthLock,
-  getLineAuthStatus,
-  LINE_AUTH_STORAGE_KEY,
-  LINE_PROFILE_MID_STORAGE_KEY,
+  createLineAuthStore,
+  LINE_STORAGE_KEYS,
   LineAuthLockError,
-  lineAuthLockPath,
-  lineAuthStoragePath,
-  resetLineAuthState,
-} from '../src/channels/line/auth.js';
-import {
-  createLinePairingSession,
-  initLine,
-  isLineTransportInstalled,
-  LINE_PLUGIN_INSTALL_COMMAND,
-  LineTransportMissingError,
-  sendToLineSelfChat,
-  shutdownLine,
-} from '../src/channels/line/runtime.js';
+} from '../plugins/line/src/auth.js';
+import { prepareLineTextChunks } from '../plugins/line/src/delivery.js';
+import { createLineHost } from '../plugins/line/src/host.js';
+import { processInboundLineSelfMessage } from '../plugins/line/src/inbound.js';
+import linePlugin from '../plugins/line/src/index.js';
+import { createLinePairingState } from '../plugins/line/src/pairing-state.js';
 import {
   buildLineChannelId,
   isLineChannelId,
   normalizeLineChannelId,
-  normalizeLineUserMid,
-} from '../src/channels/line/target.js';
-import type { LineTransportHost } from '../src/channels/line/transport-host.js';
+  normalizeLineMessageTarget,
+} from '../plugins/line/src/target.js';
+import { DEFAULT_AGENT_ID } from '../src/agents/agent-types.js';
+import { normalizeNativeAgentAddressingText } from '../src/channels/agent-addressing.js';
+import { resolveChannelTargetKind } from '../src/channels/channel-descriptors.js';
+import {
+  type ChannelTransportHost,
+  type ChannelTransportRegistration,
+  registerChannelTransport,
+  unregisterChannelTransport,
+} from '../src/channels/channel-transport.js';
+import type { HybridClawPluginApi } from '../src/plugins/plugin-sdk.js';
 import { buildSessionKey } from '../src/session/session-key.js';
+import { useTempDir } from './test-utils.js';
 
 const SELF_MID = `u${'a'.repeat(32)}`;
 const OTHER_MID = `u${'b'.repeat(32)}`;
+const makeTempDir = useTempDir('hybridclaw-line-plugin-');
 
-function makeHost(): LineTransportHost {
+function makeBaseHost(): ChannelTransportHost {
   return {
     defaultAgentId: DEFAULT_AGENT_ID,
     logger: {
@@ -53,34 +46,32 @@ function makeHost(): LineTransportHost {
       error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-    } as unknown as LineTransportHost['logger'],
+    },
     getConfig: () => ({ enabled: true, textChunkLimit: 5_000 }),
-    auth: {
-      authDir: '/tmp/unused',
-      storageKeys: {
-        authToken: LINE_AUTH_STORAGE_KEY,
-        profileMid: LINE_PROFILE_MID_STORAGE_KEY,
-        sync: '.hybridclaw:sync',
-      },
-      acquireLock: vi.fn(async () => () => {}),
-      ensureStoragePath: vi.fn(async () => '/tmp/unused/storage.json'),
-    },
-    pairing: {
-      clear: vi.fn(),
-      setError: vi.fn(),
-      setPincode: vi.fn(),
-      setQr: vi.fn(),
-    },
-    target: {
-      normalizeUserMid: normalizeLineUserMid,
-      buildChannelId: buildLineChannelId,
-      normalizeChannelId: normalizeLineChannelId,
-    },
-    text: {
-      normalizeNativeAgentAddressingText,
-    },
+    text: { normalizeNativeAgentAddressingText },
     buildSessionKey,
-  };
+    renderQrSvg: (input: string) => `<svg data-input="${input}"/>`,
+  } as unknown as ChannelTransportHost;
+}
+
+function makeHost(authDir = '/tmp/unused') {
+  return createLineHost(
+    makeBaseHost(),
+    createLineAuthStore(authDir),
+    createLinePairingState(),
+  );
+}
+
+function registerPlugin(homeDir: string): ChannelTransportRegistration {
+  const registered: ChannelTransportRegistration[] = [];
+  linePlugin.register({
+    runtime: { homeDir },
+    registerChannelTransport(transport: ChannelTransportRegistration) {
+      registered.push(transport);
+    },
+  } as unknown as HybridClawPluginApi);
+  expect(registered).toHaveLength(1);
+  return registered[0] as ChannelTransportRegistration;
 }
 
 function makeMessage(params?: {
@@ -91,29 +82,15 @@ function makeMessage(params?: {
 }) {
   const from = params?.from ?? SELF_MID;
   const to = params?.to ?? SELF_MID;
-  const text = params?.text ?? 'hello';
   return {
     from: { id: from, type: 'USER' },
     to: { id: to, type: 'USER' },
-    text,
-    raw: {
-      id: '123',
-      from,
-      to,
-      contentType: params?.contentType ?? 'NONE',
-    },
+    text: params?.text ?? 'hello',
+    raw: { id: '123', from, to, contentType: params?.contentType ?? 'NONE' },
   } as Parameters<typeof processInboundLineSelfMessage>[1]['message'];
 }
 
-function makeTempAuthDir(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-line-auth-')),
-    'auth',
-  );
-}
-
-afterEach(async () => {
-  await shutdownLine();
+afterEach(() => {
   unregisterChannelTransport('line');
   vi.restoreAllMocks();
 });
@@ -126,6 +103,10 @@ test('normalizes only explicit LINE user-MID channel ids', () => {
   expect(isLineChannelId(`line:${SELF_MID}`)).toBe(true);
   expect(isLineChannelId(SELF_MID)).toBe(false);
   expect(normalizeLineChannelId('line:self')).toBeNull();
+  expect(normalizeLineMessageTarget('telegram:123')).toBeNull();
+  expect(() => normalizeLineMessageTarget('line:self')).toThrow(
+    'LINE send targets must use `line:<linked-user-mid>`.',
+  );
 });
 
 test('accepts only unprefixed text sent from the linked account to itself', () => {
@@ -143,30 +124,16 @@ test('accepts only unprefixed text sent from the linked account to itself', () =
   });
   expect(accepted?.sessionId).toContain('channel:line:chat:dm');
 
-  expect(
-    processInboundLineSelfMessage(host, {
-      message: makeMessage({ to: OTHER_MID }),
-      selfMid: SELF_MID,
-    }),
-  ).toBeNull();
-  expect(
-    processInboundLineSelfMessage(host, {
-      message: makeMessage({ from: OTHER_MID }),
-      selfMid: SELF_MID,
-    }),
-  ).toBeNull();
-  expect(
-    processInboundLineSelfMessage(host, {
-      message: makeMessage({ text: '[HybridClaw] reflected reply' }),
-      selfMid: SELF_MID,
-    }),
-  ).toBeNull();
-  expect(
-    processInboundLineSelfMessage(host, {
-      message: makeMessage({ contentType: 'IMAGE' }),
-      selfMid: SELF_MID,
-    }),
-  ).toBeNull();
+  for (const message of [
+    makeMessage({ to: OTHER_MID }),
+    makeMessage({ from: OTHER_MID }),
+    makeMessage({ text: '[HybridClaw] reflected reply' }),
+    makeMessage({ contentType: 'IMAGE' }),
+  ]) {
+    expect(
+      processInboundLineSelfMessage(host, { message, selfMid: SELF_MID }),
+    ).toBeNull();
+  }
 });
 
 test('chunks LINE text without dropping content', () => {
@@ -178,29 +145,29 @@ test('chunks LINE text without dropping content', () => {
 });
 
 test('persists linked LINE status and enforces single-process auth ownership', async () => {
-  const authDir = makeTempAuthDir();
-  fs.mkdirSync(authDir, { recursive: true });
+  const store = createLineAuthStore(path.join(makeTempDir(), 'auth'));
+  fs.mkdirSync(store.authDir, { recursive: true });
   fs.writeFileSync(
-    lineAuthStoragePath(authDir),
+    store.storagePath,
     JSON.stringify({
-      [LINE_AUTH_STORAGE_KEY]: 'test-token',
-      [LINE_PROFILE_MID_STORAGE_KEY]: SELF_MID,
+      [LINE_STORAGE_KEYS.authToken]: 'test-token',
+      [LINE_STORAGE_KEYS.profileMid]: SELF_MID,
     }),
   );
-  await expect(getLineAuthStatus(authDir)).resolves.toEqual({
+  await expect(store.getStatus()).resolves.toEqual({
     linked: true,
     mid: SELF_MID,
   });
 
-  const release = await acquireLineAuthLock(authDir, 'test');
-  expect(fs.existsSync(lineAuthLockPath(authDir))).toBe(true);
-  await expect(acquireLineAuthLock(authDir, 'second')).rejects.toBeInstanceOf(
+  const release = await store.acquireLock('test');
+  expect(fs.existsSync(store.lockPath)).toBe(true);
+  await expect(store.acquireLock('second')).rejects.toBeInstanceOf(
     LineAuthLockError,
   );
   release();
 
-  await resetLineAuthState(authDir);
-  await expect(getLineAuthStatus(authDir)).resolves.toEqual({
+  await expect(store.reset()).resolves.toBe(store.authDir);
+  await expect(store.getStatus()).resolves.toEqual({
     linked: false,
     mid: null,
   });
@@ -210,10 +177,7 @@ test('transport rejects outbound LINE sends to any account except self', async (
   vi.resetModules();
   const sendMessage = vi.fn(async () => {});
   const client = {
-    base: {
-      profile: { displayName: 'Test' },
-      talk: { sendMessage },
-    },
+    base: { profile: { displayName: 'Test' }, talk: { sendMessage } },
   };
   const manager = {
     getClient: vi.fn(() => client),
@@ -249,77 +213,89 @@ test('transport rejects outbound LINE sends to any account except self', async (
   expect(manager.stop).toHaveBeenCalledTimes(1);
 });
 
-test('reports actionable errors when the LINE transport is not installed', async () => {
-  expect(isLineTransportInstalled()).toBe(false);
-  await expect(initLine(vi.fn(async () => {}))).rejects.toBeInstanceOf(
-    LineTransportMissingError,
+test('the plugin reads a LINE pairing written by HybridClaw 0.39.1', async () => {
+  const homeDir = makeTempDir();
+  // 0.39.1 core wrote LINE credentials here with these exact storage keys.
+  const authDir = path.join(homeDir, 'credentials', 'line');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(authDir, 'storage.json'),
+    JSON.stringify({
+      '.hybridclaw:authToken': 'test-token',
+      '.hybridclaw:profileMid': SELF_MID,
+      '.hybridclaw:sync': '{}',
+    }),
   );
-  await expect(sendToLineSelfChat(`line:${SELF_MID}`, 'hello')).rejects.toThrow(
-    LINE_PLUGIN_INSTALL_COMMAND,
+
+  const registration = registerPlugin(homeDir);
+  await expect(registration.getAuthStatus()).resolves.toEqual({
+    linked: true,
+    mid: SELF_MID,
+  });
+  await expect(registration.doctorChecks?.({ enabled: true })).resolves.toEqual(
+    [{ severity: 'ok', message: 'LINE linked' }],
   );
+  await expect(registration.doctorChecks?.({ enabled: false })).resolves.toEqual(
+    [],
+  );
+  await expect(registration.resetAuth()).resolves.toBe(authDir);
+  await expect(registration.getAuthStatus()).resolves.toEqual({
+    linked: false,
+    mid: null,
+  });
 });
 
-test('runtime facade drives the registered transport and retains it for shutdown', async () => {
-  const pairingSession = {
-    start: vi.fn(async () => {}),
-    waitForConnection: vi.fn(async () => ({ id: SELF_MID })),
-    stop: vi.fn(async () => {}),
-  };
-  const instance = {
-    init: vi.fn(async () => {}),
-    shutdown: vi.fn(async () => {}),
-    sendText: vi.fn(async () => {}),
-    sendMedia: vi.fn(async () => {}),
-    createPairingSession: vi.fn(async () => pairingSession),
-  };
-  const create = vi.fn(() => instance);
-  registerChannelTransport({ kind: 'line', create });
-
-  const handler = vi.fn(async () => {});
-  await initLine(handler);
-  await sendToLineSelfChat(`line:${SELF_MID}`, 'hello');
-  await expect(createLinePairingSession()).resolves.toBe(pairingSession);
-
-  expect(create).toHaveBeenCalledTimes(1);
-  expect(instance.init).toHaveBeenCalledTimes(1);
-  expect(instance.sendText).toHaveBeenCalledWith(`line:${SELF_MID}`, 'hello');
-
-  const wrappedHandler = instance.init.mock.calls[0]?.[0] as (
-    ...args: unknown[]
-  ) => Promise<void>;
-  const reply = vi.fn(async () => {});
-  const context = {
-    abortSignal: new AbortController().signal,
-    batchedMessages: [],
-    rawMessage: {},
-    chatJid: `line:${SELF_MID}`,
-    senderJid: SELF_MID,
-    isGroup: false,
-  };
-  await wrappedHandler(
-    'session',
-    null,
-    `line:${SELF_MID}`,
-    SELF_MID,
-    'Test User',
-    'hello',
-    [],
-    reply,
-    context,
+test('the pairing prompt carries a host-rendered QR SVG and the PIN', () => {
+  const pairing = createLinePairingState();
+  const host = createLineHost(
+    makeBaseHost(),
+    createLineAuthStore('/tmp/unused'),
+    pairing,
   );
-  expect(handler).toHaveBeenCalledWith(
-    'session',
-    null,
-    `line:${SELF_MID}`,
-    SELF_MID,
-    'Test User',
-    'hello',
-    [],
-    reply,
-    context,
-  );
+  host.pairing.setQr({ text: 'qr-text', url: 'https://line.example/qr' });
+  host.pairing.setPincode('1234');
+  expect(pairing.get()).toMatchObject({
+    pairingQrText: 'qr-text',
+    pairingQrSvg: '<svg data-input="https://line.example/qr"/>',
+    pairingUrl: 'https://line.example/qr',
+    pincode: '1234',
+    error: null,
+  });
+  host.pairing.clear();
+  expect(pairing.get().pairingQrText).toBeNull();
+});
 
-  unregisterChannelTransport('line');
-  await shutdownLine();
-  expect(instance.shutdown).toHaveBeenCalledTimes(1);
+test('the registration answers target and prompt questions for core', () => {
+  const registration = registerPlugin(makeTempDir());
+  expect(registration.getPairingState?.()).toMatchObject({
+    pairingQrText: null,
+    updatedAt: null,
+    error: null,
+  });
+  expect(registration.matchesTarget(`line:${SELF_MID}`)).toBe(true);
+  expect(registration.matchesTarget('491234@s.whatsapp.net')).toBe(false);
+  expect(registration.normalizeTarget(` LINE:${SELF_MID} `)).toBe(
+    `line:${SELF_MID}`,
+  );
+  expect(
+    registration.messageToolHints?.({ channelId: `line:${SELF_MID}` })[0],
+  ).toContain(`line:${SELF_MID}`);
+});
+
+test('the registered LINE plugin decides which line: ids are targets', () => {
+  const malformed = 'line:self';
+  // Without the plugin, stored line: ids stay LINE's (and fail with the
+  // install hint) instead of falling through to another channel.
+  expect(resolveChannelTargetKind(malformed)).toBe('line');
+  registerChannelTransport(registerPlugin(makeTempDir()));
+  expect(resolveChannelTargetKind(`line:${SELF_MID}`)).toBe('line');
+  expect(resolveChannelTargetKind(malformed)).toBeUndefined();
+});
+
+test('core refuses the retired create-only LINE registration', () => {
+  expect(() =>
+    registerChannelTransport({ kind: 'line', create: vi.fn() } as never),
+  ).toThrow(
+    'Channel transport "line" uses the retired create-only contract. Update the plugin: hybridclaw plugin reinstall line',
+  );
 });

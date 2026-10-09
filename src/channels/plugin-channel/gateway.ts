@@ -1,7 +1,11 @@
 /**
- * line gateway integration preserves transport-specific replies and proactive delivery.
- * The descriptor selects targets and lifecycle; this module connects the runtime
- * to execution without starting it on import or owning queue policy.
+ * Plugin channel gateway integration — connects a catalog channel's transport
+ * to the gateway turn pipeline: slash commands, agent turns, replies, and
+ * artifact delivery. One implementation serves every plugin channel kind.
+ *
+ * A missing plugin, a disabled config section, or a credential lock held by
+ * another process leaves the channel off with a log line; it never starts on
+ * import and never decides queue or proactive policy.
  */
 import { isSilentReply, stripSilentToken } from '../../agent/silent-reply.js';
 import { getConfigSnapshot } from '../../config/config.js';
@@ -19,18 +23,34 @@ import { resolveTextChannelSlashCommands } from '../../gateway/text-channel-comm
 import { logger } from '../../logger.js';
 import { memoryService } from '../../memory/memory-service.js';
 import { ensurePluginManagerInitialized } from '../../plugins/plugin-manager.js';
-import { buildResponseText } from '../discord/delivery.js';
-import { getLineAuthStatus, LineAuthLockError } from './auth.js';
 import {
-  initLine,
-  isLineTransportInstalled,
-  LINE_PLUGIN_INSTALL_HINT,
-} from './runtime.js';
+  getPluginChannelCoreFacts,
+  getPluginChannelName,
+  type PluginChannelKind,
+} from '../channel-plugin-catalog.js';
+import { getChannelCapabilities } from '../channel-registry.js';
+import {
+  describeMissingChannelTransport,
+  getChannelTransport,
+} from '../channel-transport.js';
+import { buildResponseText } from '../discord/delivery.js';
+import { initPluginChannel, sendPluginChannelMedia } from './runtime.js';
 
-export async function startLineIntegration(): Promise<boolean> {
-  const lineConfig = getConfigSnapshot().line;
-  if (!lineConfig.enabled) {
-    logger.info('LINE integration disabled: line.enabled=false');
+function isCredentialLockError(
+  error: unknown,
+): error is Error & { lockPath: string; ownerPid?: number | null } {
+  return (
+    error instanceof Error &&
+    typeof (error as { lockPath?: unknown }).lockPath === 'string'
+  );
+}
+
+export async function startPluginChannelIntegration(
+  kind: PluginChannelKind,
+): Promise<boolean> {
+  const name = getPluginChannelName(kind);
+  if (!getPluginChannelCoreFacts(kind).isEnabled(getConfigSnapshot())) {
+    logger.info(`${name} integration disabled: channel is off in config`);
     return false;
   }
 
@@ -39,26 +59,28 @@ export async function startLineIntegration(): Promise<boolean> {
   } catch (error) {
     logger.warn(
       { error },
-      'LINE integration disabled: plugin manager failed to initialize',
+      `${name} integration disabled: plugin manager failed to initialize`,
     );
     return false;
   }
-  if (!isLineTransportInstalled()) {
+  const registration = getChannelTransport(kind);
+  if (!registration) {
     logger.warn(
-      `LINE integration disabled: transport plugin is not installed. ${LINE_PLUGIN_INSTALL_HINT}`,
+      `${name} integration disabled: ${describeMissingChannelTransport(kind)}`,
     );
     return false;
   }
 
-  const auth = await getLineAuthStatus();
+  const auth = await registration.getAuthStatus();
   if (!auth.linked) {
-    logger.warn(
-      'LINE integration is awaiting unofficial personal-account QR login; using it may cause LINE account restrictions.',
+    logger.info(
+      `${name} integration starting in pairing mode: no linked account found`,
     );
   }
 
   try {
-    await initLine(
+    await initPluginChannel(
+      kind,
       withInFlightTurn(
         async (
           sessionId,
@@ -106,7 +128,7 @@ export async function startLineIntegration(): Promise<boolean> {
                   );
                 },
                 abortSignal: context.abortSignal,
-                source: 'line',
+                source: kind,
               }),
             );
             if (result.status === 'error') {
@@ -137,16 +159,36 @@ export async function startLineIntegration(): Promise<boolean> {
                 ),
               );
             }
-            if ((result.artifacts || []).length > 0) {
+            const artifacts = result.artifacts || [];
+            if (
+              artifacts.length > 0 &&
+              !getChannelCapabilities(kind).attachments
+            ) {
               logger.warn(
-                { channelId, artifactCount: result.artifacts?.length || 0 },
-                'LINE self-chat does not support artifact delivery',
+                { channelId, artifactCount: artifacts.length },
+                `${name} does not support artifact delivery`,
               );
+              return;
+            }
+            for (const artifact of artifacts) {
+              try {
+                await sendPluginChannelMedia(kind, {
+                  jid: channelId,
+                  filePath: artifact.path,
+                  mimeType: artifact.mimeType,
+                  filename: artifact.filename,
+                });
+              } catch (error) {
+                logger.warn(
+                  { error, channelId, artifactPath: artifact.path },
+                  `Failed to send ${name} artifact`,
+                );
+              }
             }
           } catch (error) {
             logger.error(
               { error, sessionId, channelId },
-              'LINE message handling failed',
+              `${name} message handling failed`,
             );
             await reply(formatChannelGatewayErrorReply(error));
           }
@@ -154,21 +196,21 @@ export async function startLineIntegration(): Promise<boolean> {
       ),
     );
   } catch (error) {
-    if (error instanceof LineAuthLockError) {
+    if (isCredentialLockError(error)) {
       logger.warn(
-        { lockPath: error.lockPath, ownerPid: error.ownerPid },
-        'LINE integration disabled: auth state is locked by another HybridClaw process',
+        { lockPath: error.lockPath, ownerPid: error.ownerPid ?? null },
+        `${name} integration disabled: auth state is locked by another HybridClaw process`,
       );
       return false;
     }
-    logger.error({ error }, 'LINE integration failed to start');
+    logger.error({ error }, `${name} integration failed to start`);
     return false;
   }
 
   logger.info(
     auth.linked
-      ? 'LINE self-chat integration started inside gateway'
-      : 'LINE self-chat integration started in pairing mode inside gateway',
+      ? `${name} integration started inside gateway`
+      : `${name} integration started in pairing mode inside gateway`,
   );
   return true;
 }

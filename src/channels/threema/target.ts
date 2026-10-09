@@ -1,5 +1,5 @@
+import { normalizePhoneNumber } from '../../utils/phone-number.js';
 import { normalizeEmailAddress } from '../email/allowlist.js';
-import { normalizePhoneNumber } from '../whatsapp/phone.js';
 
 const THREEMA_PREFIX_RE = /^threema:/i;
 const THREEMA_PHONE_PREFIX_RE = /^phone:/i;

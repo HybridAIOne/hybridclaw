@@ -1,17 +1,28 @@
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
+import {
+  hasChannelTransport,
+  registerChannelTransport,
+  unregisterChannelTransport,
+} from '../src/channels/channel-transport.js';
 import { WHATSAPP_SELF_CHAT_ADVISORY } from '../src/channels/whatsapp/self-chat.js';
+import {
+  createFakeTransportInstance,
+  legacyWhatsAppRegistration,
+} from './helpers/fake-channel-transport.js';
 import { useCleanMocks } from './test-utils.js';
 
 const state = vi.hoisted(() => ({
   linked: true,
-  installed: true,
   dmPolicy: 'disabled',
   groupPolicy: 'disabled',
   heartbeat: { enabled: true, channel: '' },
   lastChannel: null as string | null,
+  pluginLoads: 0,
 }));
 
 vi.mock('../src/config/config.js', () => ({
+  // Any existing file: the session DB read itself is mocked below.
+  DB_PATH: process.execPath,
   DISCORD_TOKEN: '',
   EMAIL_PASSWORD: '',
   MSTEAMS_APP_ID: '',
@@ -23,23 +34,36 @@ vi.mock('../src/config/config.js', () => ({
     msteams: { enabled: false },
     email: { enabled: false },
     whatsapp: { dmPolicy: state.dmPolicy, groupPolicy: state.groupPolicy },
+    line: { enabled: false },
     heartbeat: state.heartbeat,
   }),
 }));
-vi.mock('../src/channels/whatsapp/auth.js', () => ({
+vi.mock('../src/channels/whatsapp/auth.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   getWhatsAppAuthStatus: async () => ({ linked: state.linked }),
 }));
-vi.mock('../src/channels/whatsapp/runtime.js', () => ({
-  isWhatsAppTransportInstalled: () => state.installed,
-}));
+// Loading plugins is what registers the installed WhatsApp transport, so the
+// advisory only appears when doctor decides to load them.
 vi.mock('../src/plugins/plugin-manager.js', () => ({
-  ensurePluginManagerInitialized: async () => ({}),
+  ensurePluginManagerInitialized: async () => {
+    state.pluginLoads += 1;
+    if (!hasChannelTransport('whatsapp')) {
+      registerChannelTransport(
+        legacyWhatsAppRegistration(createFakeTransportInstance()),
+      );
+    }
+    return {};
+  },
 }));
 vi.mock('../src/memory/db.js', () => ({
   getMostRecentSessionChannelId: () => state.lastChannel,
 }));
 
 useCleanMocks();
+beforeEach(() => {
+  unregisterChannelTransport('whatsapp');
+  state.pluginLoads = 0;
+});
 
 it.each([
   [true, 'disabled', true, '1234567@s.whatsapp.net', null, true],
@@ -65,8 +89,22 @@ it.each([
     expect(result.severity).toBe(warn ? 'warn' : 'ok');
     expect(result.message.includes(WHATSAPP_SELF_CHAT_ADVISORY)).toBe(warn);
     expect(result.fixable).toBeFalsy();
+    if (warn) expect(state.pluginLoads).toBe(1);
   },
 );
+
+it('does not load plugins when nothing points at a plugin channel', async () => {
+  Object.assign(state, {
+    linked: true,
+    dmPolicy: 'disabled',
+    groupPolicy: 'disabled',
+    heartbeat: { enabled: true, channel: 'tui' },
+    lastChannel: '1234567@s.whatsapp.net',
+  });
+  const { checkChannels } = await import('../src/doctor/checks/channels.js');
+  await checkChannels();
+  expect(state.pluginLoads).toBe(0);
+});
 
 it.each([
   ['123456-789@g.us', null],
@@ -78,7 +116,6 @@ it.each([
   async (channel, lastChannel) => {
     Object.assign(state, {
       linked: true,
-      installed: true,
       dmPolicy: 'disabled',
       groupPolicy: 'allowlist',
       heartbeat: { enabled: true, channel },

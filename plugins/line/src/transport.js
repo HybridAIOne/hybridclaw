@@ -3,7 +3,7 @@ import { sendChunkedLineText } from './delivery.js';
 import { processInboundLineSelfMessage } from './inbound.js';
 
 /**
- * @typedef {import('@hybridaione/hybridclaw/plugin-sdk').LineTransportHost} LineTransportHost
+ * @typedef {import('./host.js').LineTransportHost} LineTransportHost
  * @typedef {import('@hybridaione/hybridclaw/plugin-sdk').ChannelTransportInstance} ChannelTransportInstance
  * @typedef {import('@hybridaione/hybridclaw/plugin-sdk').ChannelTransportMessageHandler} ChannelTransportMessageHandler
  */

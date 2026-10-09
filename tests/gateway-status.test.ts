@@ -1023,6 +1023,38 @@ test('getGatewayStatus includes the configured default agent id', async () => {
   expect(status.defaultAgentId).toBe('charly');
 });
 
+test('getGatewayStatus reports plugin channels without their plugins as unlinked', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const status = await getGatewayStatus();
+
+  expect(status.channelPlugins).toContainEqual({
+    channel: 'whatsapp',
+    pluginId: 'whatsapp',
+    installSource:
+      getChannelPluginCatalogEntry('whatsapp')?.installSource,
+    transportAvailable: false,
+    loadFailed: false,
+  });
+  expect(status.whatsapp).toEqual({
+    enabled: expect.any(Boolean),
+    linked: false,
+    pairingQrText: null,
+    pairingUpdatedAt: null,
+    pairingError: null,
+  });
+  expect(status.line).toMatchObject({ enabled: false, linked: false });
+});
+
 test('getGatewayStatus includes the current WhatsApp pairing QR text', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1040,17 +1072,18 @@ test('getGatewayStatus includes the current WhatsApp pairing QR text', async () 
   const { getGatewayStatus } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  // The released WhatsApp plugin registers the create-only shape.
+  const { registerChannelTransport } = await import(
+    '../src/channels/channel-transport.ts'
+  );
+  registerChannelTransport({ kind: 'whatsapp', create: vi.fn() } as never);
 
   initDatabase({ quiet: true });
   const status = await getGatewayStatus();
 
-  expect(status.channelPlugins).toContainEqual({
-    channel: 'whatsapp',
-    pluginId: 'whatsapp',
-    installSource:
-      getChannelPluginCatalogEntry('whatsapp')?.installSource,
-    transportAvailable: false,
-  });
+  expect(status.channelPlugins).toContainEqual(
+    expect.objectContaining({ channel: 'whatsapp', transportAvailable: true }),
+  );
   expect(status.whatsapp).toMatchObject({
     linked: false,
     jid: null,
