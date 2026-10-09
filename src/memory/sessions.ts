@@ -679,8 +679,9 @@ export function forkSessionBranch(
          last_active,
          reset_count,
          reset_at,
-         legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+         legacy_session_id,
+         scope
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
       )
       .run(
         nextSessionId,
@@ -702,6 +703,7 @@ export function forkSessionBranch(
         nowIso,
         sourceSession.reset_count,
         sourceSession.reset_at,
+        sourceSession.scope ?? null,
       );
     getSessionDatabase()
       .prepare(
@@ -803,8 +805,9 @@ export function createFreshSessionInstance(
          last_active,
          reset_count,
          reset_at,
-         legacy_session_id
-       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         legacy_session_id,
+         scope
+       ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         nextSessionId,
@@ -828,6 +831,8 @@ export function createFreshSessionInstance(
         previousSession.reset_count + 1,
         nowIso,
         previousSession.legacy_session_id || null,
+        // A chat keeps its scope through every reset, settings reset included.
+        previousSession.scope ?? null,
       );
     getSessionDatabase()
       .prepare(
@@ -1047,6 +1052,31 @@ export function setSessionTitle(sessionId: string, title: string): void {
       'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
     )
     .run(normalizedTitle, 'auto', resolvedSessionId);
+}
+
+/**
+ * Gives a session its scope, once: a session that already has one keeps it,
+ * and so does a chat that has had a model turn (it started unscoped).
+ * Returns the scope the session has afterwards.
+ */
+export function setSessionScopeOnce(
+  sessionId: string,
+  scopeId: string,
+): string | null {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  getSessionDatabase()
+    .prepare(
+      `UPDATE sessions SET scope = ?
+       WHERE id = ? AND scope IS NULL AND message_count = 0`,
+    )
+    .run(scopeId, resolvedSessionId);
+  return (
+    queryOne<{ scope: string | null }>(
+      getSessionDatabase(),
+      'SELECT scope FROM sessions WHERE id = ?',
+      resolvedSessionId,
+    )?.scope ?? null
+  );
 }
 
 export function getAllSessions(options?: {

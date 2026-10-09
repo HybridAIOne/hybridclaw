@@ -26,7 +26,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 74;
+export const DATABASE_SCHEMA_VERSION = 75;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4039,6 +4039,29 @@ export function runMigrations(
       quiet,
     });
     recordMigration(database, 74, 'Persist email drafts shown with replies');
+  }
+  if (currentVersion < 75) {
+    // Scopes: side chats with their own memory and connectors. A session
+    // keeps the scope it started with; the scope row may be deleted later.
+    addColumnIfMissing({
+      database,
+      table: 'sessions',
+      column: 'scope',
+      ddl: 'scope TEXT',
+      quiet,
+    });
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS scopes (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL,
+        connectors_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        UNIQUE (agent_id, name_key)
+      );
+    `);
+    recordMigration(database, 75, 'Scope side chats');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {

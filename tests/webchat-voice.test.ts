@@ -92,7 +92,24 @@ const persistVoiceTranscript = vi.fn();
 const loadVoiceHistory = vi.fn(async () => [] as Array<{ role: 'user' | 'assistant'; text: string }>);
 const consultInstructions = vi.fn((timeZone?: string) => `Clock context for ${timeZone ?? 'unknown timezone'}`);
 
+const bindRequestedScope = vi.fn(
+  (_params: Record<string, unknown>) =>
+    null as { errorCode: string; error: string } | null,
+);
+const deletedScopeError = vi.fn(
+  (_sessionId: string, _agentId: string) =>
+    null as { errorCode: string; error: string } | null,
+);
+
+function mockScopeSession(): void {
+  vi.doMock('../src/scopes/scope-session.js', () => ({
+    bindRequestedScope,
+    deletedScopeError,
+  }));
+}
+
 function mockVoiceContext() {
+  mockScopeSession();
   vi.doMock('../src/gateway/webchat-voice-context.js', () => ({
     loadWebchatVoiceHistory: loadVoiceHistory, voiceConsultInstructions: consultInstructions,
   }));
@@ -208,6 +225,11 @@ afterEach(() => {
   loadVoiceHistory.mockReset();
   loadVoiceHistory.mockResolvedValue([]);
   consultInstructions.mockClear();
+  bindRequestedScope.mockReset();
+  bindRequestedScope.mockReturnValue(null);
+  deletedScopeError.mockReset();
+  deletedScopeError.mockReturnValue(null);
+  vi.doUnmock('../src/scopes/scope-session.js');
   vi.doUnmock('../src/gateway/webchat-voice-context.js');
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/config/runtime-config.js');
@@ -336,6 +358,53 @@ test("a call from the phone app consults as the app's chat", async () => {
   expect(handleGatewayMessage).toHaveBeenCalledWith(
     expect.objectContaining({ sessionId, client: 'mobile' }),
   );
+});
+
+test('a call that begins a side chat gives it the frame scope', async () => {
+  const { browser, realtime } = await createConnection();
+  const sessionId = 'ios-0123456789abcdef';
+
+  await browser.clientFrame({
+    type: 'start',
+    sessionId,
+    agentId: 'main',
+    client: 'mobile',
+    scope: 's_0123456789ab',
+  });
+  realtime.open();
+
+  expect(bindRequestedScope).toHaveBeenCalledWith({
+    sessionId,
+    guildId: null,
+    channelId: 'web',
+    agentId: 'main',
+    requestedScope: 's_0123456789ab',
+  });
+  expect(browser.sentOfType('ready')[0].sessionId).toBe(sessionId);
+});
+
+test.each([
+  ['an unknown scope', 'unknown_scope', 'bind'],
+  ['a deleted scope', 'scope_deleted', 'deleted'],
+])('a call into %s is refused before anything runs', async (_label, errorCode, check) => {
+  const refusal = { errorCode, error: 'No such scope.' };
+  if (check === 'bind') bindRequestedScope.mockReturnValue(refusal);
+  else deletedScopeError.mockReturnValue(refusal);
+  const { browser, realtime } = await createConnection();
+
+  await browser.clientFrame({
+    type: 'start',
+    sessionId: 'ios-0123456789abcdef',
+    agentId: 'main',
+    scope: 's_0123456789ab',
+  });
+
+  expect(browser.sentOfType('error')).toEqual([
+    { type: 'error', message: 'No such scope.', errorCode },
+  ]);
+  expect(browser.closeCode).toBe(1008);
+  expect(loadVoiceHistory).not.toHaveBeenCalled();
+  expect(realtime.url).toBe('');
 });
 
 test('an unknown client is not passed on to consults', async () => {

@@ -50,7 +50,10 @@ import {
   short,
 } from './receipt-proof.js';
 import { chatSafeJson } from './schedule-command.js';
-import { listManageableScheduledTasks } from './scheduled-task-access.js';
+import {
+  canSeeSession,
+  listManageableScheduledTasks,
+} from './scheduled-task-access.js';
 
 const USAGE =
   'Usage: `/receipts [--limit <n>]` lists what the agent did outside its sandbox for you, such as mails it sent, and who allowed each. Add `--json` for a machine-readable answer.';
@@ -172,7 +175,7 @@ function visibleSessions(requester: Session): Map<string, number | null> {
   }
   if (requester.channel_id === 'web' && requester.agent_id) {
     for (const id of listSessionIdsForAgentChannel(requester.agent_id, 'web')) {
-      sessions.set(id, null);
+      if (canSeeSession(id, requester)) sessions.set(id, null);
     }
   }
   for (const task of listManageableScheduledTasks(requester).tasks) {

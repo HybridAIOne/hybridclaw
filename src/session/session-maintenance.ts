@@ -19,6 +19,11 @@ import {
   type PluginManager,
 } from '../plugins/plugin-manager.js';
 import { resolveTaskModelPolicy } from '../providers/task-routing.js';
+import {
+  isScopeRunError,
+  resolveScopeRun,
+  scopeRunAgentParams,
+} from '../scopes/scope-run.js';
 import { loadSkills } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import type { CompactionResult } from '../types/memory.js';
@@ -107,16 +112,18 @@ function buildSystemPrompt(
   sessionSummary?: string | null,
   extra?: string,
   promptMode: PromptMode = 'minimal',
+  workspaceDir?: string,
 ): string {
   return buildSystemPromptFromHooks({
     agentId,
+    workspaceDir,
     sessionSummary,
-    skills: loadSkills(agentId, undefined),
+    skills: loadSkills(agentId, undefined, workspaceDir),
     purpose: 'memory-flush',
     promptMode,
     extraSafetyText: extra,
     runtimeInfo: {
-      workspacePath: agentWorkspaceDir(agentId),
+      workspacePath: workspaceDir ?? agentWorkspaceDir(agentId),
     },
     allowedTools: ['memory'],
   });
@@ -163,6 +170,13 @@ export async function runPreCompactionMemoryFlush(params: {
   );
   if (!transcript) return;
 
+  // A scoped chat's notes go to its scope; a deleted scope keeps nothing.
+  const scopeRun = await resolveScopeRun(
+    memoryService.getSessionById(params.sessionId),
+    params.agentId,
+  );
+  if (isScopeRunError(scopeRun)) return;
+
   const now = new Date();
   const dateStamp = formatDateStampInLocalTimezone(now);
 
@@ -183,6 +197,8 @@ export async function runPreCompactionMemoryFlush(params: {
     params.agentId,
     params.sessionSummary,
     'Pre-compaction memory flush turn. The session is near auto-compaction; write durable memory to disk.',
+    'minimal',
+    scopeRun?.workspaceDir,
   );
 
   const messages: ChatMessage[] = [];
@@ -225,6 +241,7 @@ export async function runPreCompactionMemoryFlush(params: {
       agentId: params.agentId,
       channelId: params.channelId,
       allowedTools: ['memory'],
+      ...scopeRunAgentParams(scopeRun),
     });
     if (output.status === 'error') {
       logger.warn(
@@ -241,7 +258,7 @@ export async function runPreCompactionMemoryFlush(params: {
         channelId: params.channelId,
         context: 'memory flush',
       });
-    if (pluginManager) {
+    if (pluginManager && !scopeRun) {
       await pluginManager.notifyMemoryFlush({
         sessionId: params.sessionId,
         agentId: params.agentId,

@@ -108,6 +108,11 @@ import {
 } from '../providers/model-routing.js';
 import { recordRoutingLatency } from '../routing/latency.js';
 import { selectRoutingPolicy } from '../routing/policy.js';
+import {
+  isScopeRunError,
+  resolveScopeRun,
+  scopeRunAgentParams,
+} from '../scopes/scope-run.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
@@ -696,7 +701,7 @@ async function handleGatewayMessageInner(
     agentId: req.agentId,
     surface: 'chat',
   });
-  const pluginMemoryBehavior = pluginManager
+  let pluginMemoryBehavior = pluginManager
     ? await pluginManager.getMemoryLayerBehavior()
     : { replacesBuiltInMemory: false };
   const runId = makeAuditRunId('turn');
@@ -758,6 +763,7 @@ async function handleGatewayMessageInner(
     sessionId: req.sessionId,
     sessionKey: session.session_key,
     mainSessionKey: session.main_session_key,
+    ...(session.scope ? { scope: session.scope } : {}),
   });
   const fanoutSource = source.includes('.fanout');
   const shouldUpdateActiveAgent =
@@ -1127,9 +1133,36 @@ async function handleGatewayMessageInner(
       activeGatewayRequest.release();
     }
   }
+  // A scoped chat runs in its scope's workspace with its connector limits,
+  // and never reaches memory kept for the user as a whole.
+  let scopeRun: Awaited<ReturnType<typeof resolveScopeRun>>;
+  try {
+    scopeRun = await resolveScopeRun(
+      session,
+      agentId,
+      pluginManager?.getMemoryLayerToolNames(),
+    );
+  } catch (error) {
+    activeGatewayRequest.release();
+    throw error;
+  }
+  if (isScopeRunError(scopeRun)) {
+    activeGatewayRequest.release();
+    return attachSessionIdentity({
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      agentId,
+      ...scopeRun,
+    });
+  }
+  if (scopeRun) pluginMemoryBehavior = { replacesBuiltInMemory: false };
+  const memoryPluginManager = scopeRun ? null : pluginManager;
+  const workspacePathOverride =
+    scopeRun?.workspaceDir ?? req.workspacePathOverride;
   const media = normalizeMediaContextItems(req.media);
   const workspacePath = path.resolve(
-    req.workspacePathOverride || agentWorkspaceDir(agentId),
+    workspacePathOverride || agentWorkspaceDir(agentId),
   );
   const approvalMode = autoApproveTools
     ? 'full'
@@ -1144,14 +1177,14 @@ async function handleGatewayMessageInner(
       : FULLAUTO_NEVER_APPROVE_TOOLS;
   const workspaceDisplayPath =
     req.workspaceDisplayRootOverride?.trim() || workspacePath;
-  const workspaceBootstrap = req.workspacePathOverride
+  const workspaceBootstrap = workspacePathOverride
     ? {
         workspacePath,
         workspaceInitialized: false,
         onboardingTransition: undefined,
       }
     : ensureBootstrapFiles(agentId);
-  const startupBootstrapFile = req.workspacePathOverride
+  const startupBootstrapFile = workspacePathOverride
     ? null
     : resolveStartupBootstrapFile(agentId);
   if (
@@ -1241,7 +1274,10 @@ async function handleGatewayMessageInner(
   const effectiveUserTurnContent = userTurnContent;
   let effectiveUserTurnContentExpanded = contextRefResult.message;
   const effectiveUserTurnContentStripped = contextRefResult.strippedMessage;
-  const canonicalContextScope = resolveCanonicalContextScope(session);
+  // Canonical memory spans the user's chats; a scoped chat keeps out of it.
+  const canonicalContextScope = scopeRun
+    ? ''
+    : resolveCanonicalContextScope(session);
   if (isFullAutoEnabled(session)) {
     syncFullAutoRuntimeContext(req.sessionId, {
       guildId: req.guildId,
@@ -1788,8 +1824,8 @@ async function handleGatewayMessageInner(
     content: contextRefResult.originalMessage,
     created_at: new Date(startedAt).toISOString(),
   });
-  const pluginPromptDetails = pluginManager
-    ? await pluginManager.collectPromptContextDetails({
+  const pluginPromptDetails = memoryPluginManager
+    ? await memoryPluginManager.collectPromptContextDetails({
         sessionId: req.sessionId,
         userId: req.userId,
         agentId,
@@ -1875,7 +1911,7 @@ async function handleGatewayMessageInner(
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
   const blockedTools = blockAppOnlyToolsUnlessApp(
-    blockDeviceDataToolUnlessShared(undefined, req.userId),
+    blockDeviceDataToolUnlessShared(scopeRun?.blockedTools, req.userId),
     req.client,
   );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
@@ -1892,6 +1928,7 @@ async function handleGatewayMessageInner(
     dynamicContext,
   } = buildConversationContext({
     agentId,
+    ...(scopeRun ? { workspaceDir: scopeRun.workspaceDir } : {}),
     sessionSummary: mergedSessionSummary,
     retrievedContext: pluginMemoryBehavior.replacesBuiltInMemory
       ? null
@@ -2212,8 +2249,9 @@ async function handleGatewayMessageInner(
         reasoningEffort: req.reasoningEffort,
         agentId,
         addressEnvelope: req.addressEnvelope,
-        workspacePathOverride: req.workspacePathOverride,
+        workspacePathOverride,
         workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+        runtimeScope: scopeRunAgentParams(scopeRun).runtimeScope,
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,
@@ -2333,8 +2371,9 @@ async function handleGatewayMessageInner(
         reasoningEffort: req.reasoningEffort,
         agentId,
         addressEnvelope: req.addressEnvelope,
-        workspacePathOverride: req.workspacePathOverride,
+        workspacePathOverride,
         workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
+        runtimeScope: scopeRunAgentParams(scopeRun).runtimeScope,
         skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
         maxTokens: req.maxTokens,
         maxWallClockMs: req.maxWallClockMs,
@@ -2992,14 +3031,14 @@ async function handleGatewayMessageInner(
       userContent: storedUserContent,
       resultText,
     });
-    if (pluginManager) {
-      await pluginManager.notifyMemoryWrites({
+    if (memoryPluginManager) {
+      await memoryPluginManager.notifyMemoryWrites({
         sessionId: req.sessionId,
         agentId,
         channelId: req.channelId,
         toolExecutions,
       });
-      void pluginManager
+      void memoryPluginManager
         .notifyTurnComplete({
           sessionId: req.sessionId,
           userId: req.userId,
@@ -3013,6 +3052,8 @@ async function handleGatewayMessageInner(
             'Plugin turn-complete hooks failed',
           );
         });
+    }
+    if (pluginManager) {
       void pluginManager
         .notifyAgentEnd({
           sessionId: req.sessionId,

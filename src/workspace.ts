@@ -21,6 +21,10 @@ import { resolveAgentConfig } from './agents/agent-registry.js';
 import { resolveInstallPath } from './infra/install-root.js';
 import { agentWorkspaceDir } from './infra/ipc.js';
 import { logger } from './logger.js';
+import {
+  isPlainFileUnder,
+  SCOPE_EXCLUDED_PROMPT_FILES,
+} from './scopes/scope-paths.js';
 import { truncateHeadTailText } from './session/token-efficiency.js';
 import {
   readWorkspaceTemplate,
@@ -425,7 +429,7 @@ function shouldLoadBootstrapContextFile(params: {
   return !isEmptyHeartbeatContext(content);
 }
 
-function readUserMarkdown(wsDir: string): string | null {
+export function readUserMarkdown(wsDir: string): string | null {
   const userPath = path.join(wsDir, 'USER.md');
   if (!fs.existsSync(userPath)) return null;
   try {
@@ -531,7 +535,7 @@ function markdownFieldPattern(fieldName: string): RegExp {
   );
 }
 
-function readMarkdownField(content: string, fieldName: string): string {
+export function readMarkdownField(content: string, fieldName: string): string {
   const value = cleanMarkdownInline(
     content.match(markdownFieldPattern(fieldName))?.[2],
   );
@@ -1017,17 +1021,22 @@ export function resetWorkspace(agentId: string): ResetWorkspaceResult {
  * `omitChannelGuidance` drops the AGENTS.md "Group Chats" section and the
  * USER.md "Helpful Links", for clients such as the mobile app that neither
  * join group channels, set channels up, nor open relative links.
+ * `workspaceDir` loads a scope's workspace instead: no symlink is followed
+ * there, and the agent's own setup files are left out.
  */
 export function loadStaticBootstrapFiles(
   agentId: string,
-  options: { omitChannelGuidance?: boolean } = {},
+  options: { omitChannelGuidance?: boolean; workspaceDir?: string } = {},
 ): ContextFile[] {
-  const wsDir = agentWorkspaceDir(agentId);
+  const wsDir = options.workspaceDir ?? agentWorkspaceDir(agentId);
   const files: ContextFile[] = [];
 
   for (const filename of WORKSPACE_BOOTSTRAP_FILES) {
     const filePath = path.join(wsDir, filename);
-    if (!fs.existsSync(filePath)) continue;
+    if (options.workspaceDir) {
+      if (SCOPE_EXCLUDED_PROMPT_FILES.has(filename)) continue;
+      if (!isPlainFileUnder(wsDir, filename)) continue;
+    } else if (!fs.existsSync(filePath)) continue;
 
     try {
       // Sample enough UTF-8 bytes at each end for the existing character cap.
@@ -1089,17 +1098,27 @@ export function hasActionableHeartbeatFile(agentId: string): boolean {
 
 export function loadDailyMemoryFile(
   agentId: string,
-  options: { now?: Date; contextFiles?: ContextFile[] } = {},
+  options: {
+    now?: Date;
+    contextFiles?: ContextFile[];
+    workspaceDir?: string;
+  } = {},
 ): ContextFile | null {
-  const wsDir = agentWorkspaceDir(agentId);
-  const files = options.contextFiles ?? loadStaticBootstrapFiles(agentId);
+  const wsDir = options.workspaceDir ?? agentWorkspaceDir(agentId);
+  const files =
+    options.contextFiles ??
+    loadStaticBootstrapFiles(agentId, { workspaceDir: options.workspaceDir });
   const userTimezone = resolveUserTimezoneFromContextFiles(files);
   const todayMemoryName = `memory/${currentDateStampInTimezone(
     userTimezone,
     options.now,
   )}.md`;
   const todayMemoryPath = path.join(wsDir, todayMemoryName);
-  if (fs.existsSync(todayMemoryPath)) {
+  if (
+    options.workspaceDir
+      ? isPlainFileUnder(wsDir, todayMemoryName)
+      : fs.existsSync(todayMemoryPath)
+  ) {
     try {
       const raw = readDailyMemoryFile(todayMemoryPath);
       if (raw == null) {
@@ -1140,10 +1159,13 @@ export function loadRecentDailyMemoryFiles(
     contextFiles?: ContextFile[];
     lookbackDays?: number;
     historyMaxChars?: number;
+    workspaceDir?: string;
   } = {},
 ): ContextFile[] {
-  const wsDir = agentWorkspaceDir(agentId);
-  const files = options.contextFiles ?? loadStaticBootstrapFiles(agentId);
+  const wsDir = options.workspaceDir ?? agentWorkspaceDir(agentId);
+  const files =
+    options.contextFiles ??
+    loadStaticBootstrapFiles(agentId, { workspaceDir: options.workspaceDir });
   const userTimezone = resolveUserTimezoneFromContextFiles(files);
   const now = options.now ?? new Date();
   const lookbackDays = Math.max(
@@ -1152,7 +1174,11 @@ export function loadRecentDailyMemoryFiles(
   );
   const result: ContextFile[] = [];
 
-  const today = loadDailyMemoryFile(agentId, { now, contextFiles: files });
+  const today = loadDailyMemoryFile(agentId, {
+    now,
+    contextFiles: files,
+    workspaceDir: options.workspaceDir,
+  });
   if (today) result.push(today);
 
   let remaining = Math.max(
@@ -1173,7 +1199,12 @@ export function loadRecentDailyMemoryFiles(
     if (seen.has(name)) continue;
     seen.add(name);
     const filePath = path.join(wsDir, name);
-    if (!fs.existsSync(filePath)) continue;
+    if (
+      options.workspaceDir
+        ? !isPlainFileUnder(wsDir, name)
+        : !fs.existsSync(filePath)
+    )
+      continue;
     try {
       const raw = readDailyMemoryFile(filePath);
       const content = raw?.trim() || '';

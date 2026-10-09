@@ -1,8 +1,9 @@
 /**
  * Which sessions a chat may see: its own (across resets of the same chat),
- * and among web chats every chat of the same agent. Messaging-channel
- * sessions stay isolated so one peer cannot list or change another peer's
- * schedules or read another peer's audit trail. Cron task access follows the
+ * and among web chats every chat of the same agent; a scoped web chat only
+ * those of its scope. Messaging-channel sessions stay isolated so one peer
+ * cannot list or change another peer's schedules or read another peer's
+ * audit trail. Cron task access follows the
  * session the task was created in; a task's results are also readable from
  * the agent's main chat its web replies are delivered to.
  *
@@ -31,6 +32,8 @@ export function canSeeSession(sessionId: string, requester: Session): boolean {
   if (isSameChat(sessionId, requester)) return true;
   if (requester.channel_id !== 'web' || !requester.agent_id) return false;
   const owner = getSessionById(sessionId);
+  // A scoped chat sees only its scope's chats; the others see every web chat.
+  if (requester.scope && owner?.scope !== requester.scope) return false;
   return owner?.channel_id === 'web' && owner.agent_id === requester.agent_id;
 }
 
@@ -63,8 +66,8 @@ export function canManageScheduledTask(
 /**
  * `hiddenCount` is how many of the agent's tasks a web chat may not manage,
  * so `cron list` can say they exist instead of "No scheduled tasks." and the
- * model does not create a duplicate. Messaging sessions always get 0: a peer
- * must not learn that other peers have schedules.
+ * model does not create a duplicate. Messaging sessions and scoped chats
+ * always get 0: they must not learn what other chats have scheduled.
  */
 export function listManageableScheduledTasks(requester: Session): {
   tasks: ScheduledTask[];
@@ -85,6 +88,7 @@ export function listManageableScheduledTasks(requester: Session): {
       tasks.push(task);
     } else if (
       requester.agent_id &&
+      !requester.scope &&
       getSessionById(task.session_id)?.agent_id === requester.agent_id
     ) {
       hiddenCount += 1;

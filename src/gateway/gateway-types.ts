@@ -42,6 +42,7 @@ import type {
   McpOAuthStartResult,
   McpOAuthStatus,
 } from '../mcp/mcp-oauth.js';
+import type { ScopeErrorCode } from '../scopes/scope-session.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type {
   SkillInstallSpec,
@@ -166,7 +167,9 @@ export interface GatewayChatResult {
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
-  errorCode?: AgentErrorCode;
+  errorCode?: AgentErrorCode | ScopeErrorCode;
+  /** The scope of a scoped session (`s_<hex>`). */
+  scope?: string;
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
@@ -234,6 +237,8 @@ export interface GatewayChatRequestBody {
   content: string;
   media?: GatewayMediaItem[];
   agentId?: string | null;
+  /** The scope a new chat starts in; a session never changes scope. */
+  scope?: string | null;
   chatbotId?: string | null;
   model?: string | null;
   reasoningEffort?: ReasoningEffort;
@@ -317,6 +322,8 @@ export interface GatewayChatRequest {
   approval?: GatewayChatRequestBody['approval'];
   appNotice?: GatewayChatRequestBody['appNotice'];
   agentId?: GatewayChatRequestBody['agentId'];
+  /** Bound before the request runs (`bindRequestedScope`); turns read the session's. */
+  scope?: GatewayChatRequestBody['scope'];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
   model?: GatewayChatRequestBody['model'];

@@ -527,6 +527,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/history' && method === 'GET') {
     return 'chat.history';
   }
+  // 2026-10-09 (product owner): the user's scopes go with chatting, so phone
+  // tokens manage them; the agent runtime's token cannot.
+  if (pathname === '/api/scopes' || pathname.startsWith('/api/scopes/')) {
+    return 'chat.send';
+  }
   if (pathname === NOTES_PATH) {
     if (method === 'GET') return 'notes.read';
     if (method === 'POST') return 'notes.write';

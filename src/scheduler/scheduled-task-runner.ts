@@ -22,6 +22,11 @@ import { getSessionById, setMessageEmailDraft } from '../memory/db.js';
 import { getJob } from '../memory/jobs.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import {
+  isScopeRunError,
+  resolveScopeRun,
+  scopeRunAgentParams,
+} from '../scopes/scope-run.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { scheduledRunSessionKey } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
@@ -123,12 +128,24 @@ export async function runIsolatedScheduledTask(params: {
     runSessionId: activeSessionId,
     taskId: taskId > 0 ? taskId : null,
   });
+  // A task made in a scoped chat runs in its scope, with the scope's limits.
+  const scopeRun = await resolveScopeRun(taskSession, agentId);
+  if (isScopeRunError(scopeRun)) {
+    onError(new Error(scopeRun.error));
+    return;
+  }
   const blockedTools = blockDeviceDataToolUnlessShared(
-    ['cron', SHOW_WIDGET_TOOL, DRAFT_TRANSFER_TOOL],
+    [
+      'cron',
+      SHOW_WIDGET_TOOL,
+      DRAFT_TRANSFER_TOOL,
+      ...(scopeRun?.blockedTools ?? []),
+    ],
     owner,
   );
   const { messages, skills } = buildConversationContext({
     agentId,
+    ...(scopeRun ? { workspaceDir: scopeRun.workspaceDir } : {}),
     preferenceUserId: owner ?? null,
     history: [],
     currentUserContent: prompt,
@@ -141,7 +158,7 @@ export async function runIsolatedScheduledTask(params: {
       channelId,
       guildId: null,
       sessionContext,
-      workspacePath,
+      workspacePath: scopeRun?.workspaceDir ?? workspacePath,
     },
     blockedTools,
   });
@@ -190,6 +207,7 @@ export async function runIsolatedScheduledTask(params: {
       agentId,
       channelId,
       blockedTools,
+      ...scopeRunAgentParams(scopeRun),
       skillCatalog: buildEligibleSkillCatalog(skills),
       background: true,
     });

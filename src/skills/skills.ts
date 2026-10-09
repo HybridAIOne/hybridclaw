@@ -2121,19 +2121,24 @@ export function loadSkillCatalogs(): {
 export function loadSkills(
   agentId: string,
   channelKind?: SkillConfigChannelKind,
+  /** A scope's workspace, where its chats find the skill files. */
+  workspaceDirOverride?: string,
 ): Skill[] {
   return withSpanSync(
     'hybridclaw.skills.load',
     { 'hybridclaw.agent_id': agentId },
-    () => loadSkillsInner(agentId, channelKind),
+    () => loadSkillsInner(agentId, channelKind, workspaceDirOverride),
   );
 }
 
 function loadSkillsInner(
   agentId: string,
   channelKind?: SkillConfigChannelKind,
+  workspaceDirOverride?: string,
 ): Skill[] {
-  const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
+  const workspaceDir = path.resolve(
+    workspaceDirOverride ?? agentWorkspaceDir(agentId),
+  );
   fs.mkdirSync(workspaceDir, { recursive: true });
   const skillPolicy = readSkillPolicyStateForWorkspace(workspaceDir);
   const configuredSkills = resolveAgentConfig(agentId).skills;
