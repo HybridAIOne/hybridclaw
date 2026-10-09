@@ -4286,16 +4286,15 @@ const DASHBOARD_REFRESH_TIMEOUT_MS = 180_000;
 
 /**
  * One agent run that fetches a dashboard's figures again (`/dashboard
- * refresh`). It runs in a session of its own, so no chat sees it, with only
- * the read tools the dashboard's queries name and `show_dashboard`.
+ * refresh`, or its schedule). It runs in a session of its own, so no chat
+ * sees it, with only the read tools the dashboard's queries name and
+ * `show_dashboard`.
  */
-async function runDashboardRefresh(
-  chat: Session,
+export async function runDashboardRefresh(
   run: DashboardRefreshRun,
 ): Promise<{ error?: string }> {
   const { model, chatbotId } = resolveAgentForRequest({
     agentId: run.agentId,
-    session: chat,
   });
   const session = memoryService.getOrCreateSession(
     buildSessionKey(run.agentId, 'dashboard', 'refresh', run.dashboard.id),
@@ -12499,7 +12498,7 @@ export async function handleGatewayCommand(
         return handleDashboardCommand(
           req,
           resolveSessionAgentId(session),
-          (run) => runDashboardRefresh(session, run),
+          runDashboardRefresh,
         );
 
       case 'preferences':

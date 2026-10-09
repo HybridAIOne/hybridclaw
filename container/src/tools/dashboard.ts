@@ -10,8 +10,12 @@
  */
 import {
   DASHBOARD_MIME_TYPE,
+  DASHBOARD_SCHEDULE_FILE,
   dashboardFilePath,
+  dashboardRefresh,
   normalizeDashboard,
+  readDashboardSchedules,
+  withDashboardRefresh,
 } from '../../shared/dashboard.js';
 import type { ToolDefinition } from '../types.js';
 
@@ -20,13 +24,28 @@ export const SHOW_DASHBOARD_TOOL = 'show_dashboard';
 export function runShowDashboard(
   args: Record<string, unknown>,
   writeFile: (relativePath: string, contents: string) => void,
+  readFile: (relativePath: string) => string,
   now = new Date(),
 ): string {
+  const refresh = dashboardRefresh(args.refresh);
   const checked = normalizeDashboard(args, now);
   if (checked.error !== undefined) throw new Error(checked.error);
   const { dashboard } = checked;
   const relativePath = dashboardFilePath(dashboard.id);
   writeFile(relativePath, `${JSON.stringify(dashboard, null, 2)}\n`);
+  // The schedule lives beside the dashboards, so a refresh that leaves
+  // `refresh` out keeps it.
+  if (refresh) {
+    const schedules = withDashboardRefresh(
+      readDashboardSchedules(readFile(DASHBOARD_SCHEDULE_FILE)),
+      dashboard.id,
+      refresh,
+    );
+    writeFile(
+      DASHBOARD_SCHEDULE_FILE,
+      `${JSON.stringify(schedules, null, 2)}\n`,
+    );
+  }
   return JSON.stringify({
     success: true,
     id: dashboard.id,
@@ -97,6 +116,12 @@ export const SHOW_DASHBOARD_DEFINITION: ToolDefinition = {
           type: 'string',
           description:
             'The scope in a few words, such as `Girokonto · 1.–9. Oktober`.',
+        },
+        refresh: {
+          type: 'string',
+          enum: ['daily', 'weekly', 'off'],
+          description:
+            "Only when the user asks to keep it current: `daily` fetches the figures every morning at 7, `weekly` on Monday mornings, in the user's time zone; `off` stops that. Leave out to keep the dashboard's schedule.",
         },
         panels: {
           type: 'array',

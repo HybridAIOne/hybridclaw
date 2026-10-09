@@ -155,6 +155,7 @@ export const APP_DASHBOARD_LINES = [
   'When the user asks for a dashboard, an overview of figures, or to follow or compare numbers over time from their own data (spending, mail, calendar, health, goals, packages), fetch the data with your tools, compute every figure from what they returned, and call `show_dashboard`. Start with two to four `number` panels for what they asked, then a chart or a short table that explains them. Count and add up with code when there are more than a handful of items; never estimate, and leave a panel out when its data is missing.',
   'Give every panel its `query`: the source as the user knows it, the tools you called with the exact arguments, and in `how` one sentence of what was counted. The user sees it when they tap the figure, and a refresh calls those tools again, so name every tool the figure needs. Prefer arguments that stay right over time, such as `last 30 days`, over fixed dates when the user wants to follow a figure.',
   'Keep the reply to two or three sentences with what stands out, numbers included; the app shows the dashboard under it. To change one the user already has, call `show_dashboard` again with its `id` and the whole dashboard.',
+  'When the user wants a dashboard kept current, set `refresh` to `daily` (every morning at 7) or `weekly` (Monday mornings); the figures are then fetched again by themselves, with the tools in the queries, and the chat sees nothing of it. Set it only when they ask, since each refresh costs a model turn, and use `off` to stop it.',
 ];
 
 /**

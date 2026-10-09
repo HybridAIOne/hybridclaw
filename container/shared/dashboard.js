@@ -9,6 +9,14 @@
 
 export const DASHBOARD_MIME_TYPE = 'application/vnd.hybridai.dashboard+json';
 export const DASHBOARD_DIRECTORY = 'dashboards';
+/** Which dashboards refresh by themselves, and when: `{ [id]: 'daily' | 'weekly' }`. */
+export const DASHBOARD_SCHEDULE_FILE = `${DASHBOARD_DIRECTORY}/.refresh.json`;
+/**
+ * `daily`: every morning at 7 in the user's time zone; `weekly`: Monday
+ * morning at 7. Each run is a model turn, so nothing more often.
+ */
+export const DASHBOARD_REFRESH_SCHEDULES = ['daily', 'weekly'];
+export const DASHBOARD_REFRESH_HOUR = 7;
 
 const TITLE_MAX = 80;
 const SUBTITLE_MAX = 160;
@@ -213,6 +221,44 @@ export function normalizeDashboard(args, now = new Date()) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** The schedule file's contents, keeping only known ids and schedules. */
+export function readDashboardSchedules(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  const schedules = {};
+  if (!isObject(raw)) return schedules;
+  for (const [id, every] of Object.entries(raw)) {
+    if (dashboardId(id) === id && DASHBOARD_REFRESH_SCHEDULES.includes(every))
+      schedules[id] = every;
+  }
+  return schedules;
+}
+
+/**
+ * `refresh` as the tool or a command gives it: a schedule, `off`, or nothing
+ * to keep what there is. Throws on anything else.
+ */
+export function dashboardRefresh(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === 'off' || DASHBOARD_REFRESH_SCHEDULES.includes(value))
+    return value;
+  throw new Error(
+    `"refresh" must be one of ${[...DASHBOARD_REFRESH_SCHEDULES, 'off'].join(', ')}.`,
+  );
+}
+
+/** The schedules with one dashboard's set to `refresh` (`off` removes it). */
+export function withDashboardRefresh(schedules, id, refresh) {
+  const next = { ...schedules };
+  if (refresh === 'off') delete next[id];
+  else if (refresh) next[id] = refresh;
+  return next;
 }
 
 /** Every tool a dashboard's queries name, once each, in order. */

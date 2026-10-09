@@ -1,6 +1,11 @@
 export declare const DASHBOARD_MIME_TYPE =
   'application/vnd.hybridai.dashboard+json';
 export declare const DASHBOARD_DIRECTORY = 'dashboards';
+export declare const DASHBOARD_SCHEDULE_FILE = 'dashboards/.refresh.json';
+export type DashboardRefreshSchedule = 'daily' | 'weekly';
+export declare const DASHBOARD_REFRESH_SCHEDULES: DashboardRefreshSchedule[];
+export declare const DASHBOARD_REFRESH_HOUR: number;
+export type DashboardSchedules = Record<string, DashboardRefreshSchedule>;
 
 /** The tools a figure came from and, in one sentence, what was counted. */
 export interface DashboardQuery {
@@ -57,3 +62,14 @@ export declare function normalizeDashboard(
   | { dashboard: Dashboard; error?: undefined }
   | { error: string; dashboard?: undefined };
 export declare function dashboardQueryTools(dashboard: Dashboard): string[];
+export declare function readDashboardSchedules(
+  text: string,
+): DashboardSchedules;
+export declare function dashboardRefresh(
+  value: unknown,
+): DashboardRefreshSchedule | 'off' | undefined;
+export declare function withDashboardRefresh(
+  schedules: DashboardSchedules,
+  id: string,
+  refresh: DashboardRefreshSchedule | 'off' | undefined,
+): DashboardSchedules;

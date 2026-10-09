@@ -152,4 +152,27 @@ describe.sequential('container show_dashboard tool', () => {
     expect(ragged.output).toContain('one cell for each of the 2 columns');
     expect(fs.existsSync(path.join(workspaceRoot, 'dashboards'))).toBe(false);
   });
+
+  test('keeps a refresh schedule beside the dashboards until it is changed', async () => {
+    const { executeToolWithMetadata } = await load();
+    const schedule = path.join(workspaceRoot, 'dashboards/.refresh.json');
+    const call = (extra: Record<string, unknown>) =>
+      executeToolWithMetadata(
+        'show_dashboard',
+        JSON.stringify({ title: 'Geld im Oktober', panels, ...extra }),
+      );
+
+    await call({ refresh: 'daily' });
+    expect(JSON.parse(fs.readFileSync(schedule, 'utf-8'))).toEqual({
+      'geld-im-oktober': 'daily',
+    });
+    // A refresh run leaves `refresh` out and keeps the schedule.
+    await call({});
+    expect(JSON.parse(fs.readFileSync(schedule, 'utf-8'))).toEqual({
+      'geld-im-oktober': 'daily',
+    });
+    await call({ refresh: 'off' });
+    expect(JSON.parse(fs.readFileSync(schedule, 'utf-8'))).toEqual({});
+    expect((await call({ refresh: 'hourly' })).isError).toBe(true);
+  });
 });

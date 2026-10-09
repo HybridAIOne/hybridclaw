@@ -168,3 +168,58 @@ test('a refresh that writes nothing reports why', async () => {
 
   expect((await send('/dashboard refresh nothing --json')).kind).toBe('error');
 });
+
+test('a schedule refreshes a dashboard once its figures are older than the morning', async () => {
+  const { send, file } = await load();
+  const { dashboardRefreshDue, refreshDueDashboards } = await import(
+    '../src/gateway/dashboard-command.ts'
+  );
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(dashboard));
+
+  expect((await send('/dashboard schedule post hourly --json')).kind).toBe(
+    'error',
+  );
+  expect((await send('/dashboard schedule post daily --json')).json).toMatchObject(
+    { refresh: 'daily', dashboard: { id: 'post' } },
+  );
+  expect(
+    ((await send('/dashboard list --json')).json.dashboards as unknown[])[0],
+  ).toMatchObject({ id: 'post', refresh: 'daily' });
+
+  runAgentMock.mockResolvedValue({
+    status: 'error',
+    result: null,
+    error: 'Connector unavailable',
+    toolExecutions: [],
+  });
+  // Figures from October 1 are older than this morning's 7:00.
+  const morning = new Date('2026-10-09T08:00:00Z');
+  const runner = vi.fn(async () => ({ error: 'Connector unavailable' }));
+  expect(refreshDueDashboards(runner, morning)).toEqual(['main:post']);
+  await vi.waitFor(() => expect(runner).toHaveBeenCalledTimes(1));
+  // A failed one waits an hour before it is tried again.
+  expect(refreshDueDashboards(runner, morning)).toEqual([]);
+  expect(
+    refreshDueDashboards(runner, new Date(Date.now() + 61 * 60_000)),
+  ).toEqual(['main:post']);
+
+  expect((await send('/dashboard schedule post off --json')).json).not.toHaveProperty(
+    'refresh',
+  );
+  expect(refreshDueDashboards(runner, new Date(Date.now() + 3 * 3600_000))).toEqual(
+    [],
+  );
+
+  // Due: older than 7:00 on the day, or on the last Monday for weekly, in the
+  // user's zone. 2026-10-09 is a Friday; 05:30Z is 07:30 in Berlin.
+  const berlin = 'Europe/Berlin';
+  const friday = new Date('2026-10-09T05:30:00Z');
+  expect(dashboardRefreshDue('daily', '2026-10-09T04:00:00Z', friday, berlin)).toBe(true);
+  expect(dashboardRefreshDue('daily', '2026-10-09T05:10:00Z', friday, berlin)).toBe(false);
+  // Before 7 the last morning was yesterday's.
+  const early = new Date('2026-10-09T04:30:00Z');
+  expect(dashboardRefreshDue('daily', '2026-10-08T06:00:00Z', early, berlin)).toBe(false);
+  expect(dashboardRefreshDue('weekly', '2026-10-05T06:00:00Z', friday, berlin)).toBe(false);
+  expect(dashboardRefreshDue('weekly', '2026-10-05T04:00:00Z', friday, berlin)).toBe(true);
+});

@@ -7,20 +7,35 @@
  * Companion apps use `--json`, answered in one line that survives a chat relay
  * (`chatSafeJson`); a refresh answers at once and the app asks `show` until
  * it is done.
+ *
+ * `schedule <id> daily|weekly|off` makes a dashboard refresh by itself, every
+ * morning at 7 or on Monday mornings in the user's time zone; `show_dashboard`
+ * can set the same. The gateway looks every ten minutes for dashboards whose
+ * figures are older than their last such morning (`refreshDueDashboards`).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 import {
   DASHBOARD_DIRECTORY,
+  DASHBOARD_REFRESH_HOUR,
+  DASHBOARD_SCHEDULE_FILE,
   type Dashboard,
+  type DashboardRefreshSchedule,
+  type DashboardSchedules,
   dashboardFilePath,
   dashboardId,
   dashboardQueryTools,
+  dashboardRefresh,
   normalizeDashboard,
+  readDashboardSchedules,
+  withDashboardRefresh,
 } from '../../container/shared/dashboard.js';
+import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
+import { listAgents } from '../agents/agent-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { readUserTimezone } from '../workspace.js';
 import { SHOW_DASHBOARD_TOOL } from './app-widgets.js';
 import { badCommand, plainCommand } from './gateway-command-results.js';
 import type {
@@ -30,7 +45,11 @@ import type {
 import { chatSafeJson } from './schedule-command.js';
 
 const USAGE =
-  'Usage: `/dashboard list` lists your dashboards, `/dashboard show <id>` shows one, `/dashboard refresh <id>` fetches its figures again. Add `--json` for a machine-readable answer.';
+  'Usage: `/dashboard list` lists your dashboards, `/dashboard show <id>` shows one, `/dashboard refresh <id>` fetches its figures again, `/dashboard schedule <id> daily|weekly|off` keeps it current by itself. Add `--json` for a machine-readable answer.';
+
+const REFRESH_CHECK_MS = 10 * 60_000;
+// A scheduled refresh that failed waits this long before the next try.
+const SCHEDULED_RETRY_MS = 60 * 60_000;
 
 // Tools a refresh may call when a query names them: they only read.
 const LOCAL_READ_TOOLS = new Set([
@@ -78,6 +97,7 @@ export type DashboardRefreshRunner = (
 
 interface RefreshState {
   running: boolean;
+  startedAt: number;
   error?: string;
 }
 
@@ -112,7 +132,7 @@ function listDashboards(agentId: string): Dashboard[] {
     return [];
   }
   return names
-    .filter((name) => name.endsWith('.json'))
+    .filter((name) => name.endsWith('.json') && !name.startsWith('.'))
     .map((name) => readDashboard(agentId, name.slice(0, -'.json'.length)))
     .filter((dashboard): dashboard is Dashboard => dashboard !== null)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -147,7 +167,7 @@ function startRefresh(
   }
   const allowedTools = [...readTools, SHOW_DASHBOARD_TOOL];
   const startedAt = new Date();
-  refreshes.set(key, { running: true });
+  refreshes.set(key, { running: true, startedAt: startedAt.getTime() });
   void runner({
     agentId,
     dashboard,
@@ -160,7 +180,11 @@ function startRefresh(
         after !== null && new Date(after.updatedAt) >= startedAt
           ? undefined
           : (outcome.error ?? 'The figures could not be fetched again.');
-      refreshes.set(key, { running: false, error: written });
+      refreshes.set(key, {
+        running: false,
+        startedAt: startedAt.getTime(),
+        error: written,
+      });
     })
     .catch((error: unknown) => {
       logger.warn(
@@ -169,13 +193,139 @@ function startRefresh(
       );
       refreshes.set(key, {
         running: false,
+        startedAt: startedAt.getTime(),
         error: 'The figures could not be fetched again.',
       });
     });
   return null;
 }
 
-function summary(dashboard: Dashboard, state: RefreshState | undefined) {
+function readSchedules(agentId: string): DashboardSchedules {
+  try {
+    return readDashboardSchedules(
+      fs.readFileSync(
+        path.join(agentWorkspaceDir(agentId), DASHBOARD_SCHEDULE_FILE),
+        'utf-8',
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeSchedules(agentId: string, schedules: DashboardSchedules): void {
+  const file = path.join(agentWorkspaceDir(agentId), DASHBOARD_SCHEDULE_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(schedules, null, 2)}\n`);
+}
+
+/** `2026-10-09 07:00` for an instant, in a time zone; such keys sort by time. */
+function localKey(instant: Date, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(instant)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+/**
+ * Whether a dashboard's figures are older than its last scheduled morning:
+ * 7:00 today (or yesterday before 7) for `daily`, the last Monday at 7:00 for
+ * `weekly`, in the user's time zone. Compared as local times, so no offset
+ * arithmetic is needed.
+ */
+export function dashboardRefreshDue(
+  every: DashboardRefreshSchedule,
+  updatedAt: string,
+  now: Date,
+  timeZone: string,
+): boolean {
+  const updated = new Date(updatedAt);
+  if (Number.isNaN(updated.getTime())) return true;
+  const hour = `${String(DASHBOARD_REFRESH_HOUR).padStart(2, '0')}:00`;
+  const today = localKey(now, timeZone);
+  const day = new Date(`${today.slice(0, 10)}T00:00:00Z`);
+  if (today.slice(11) < hour) day.setUTCDate(day.getUTCDate() - 1);
+  if (every === 'weekly') {
+    // Back to Monday (getUTCDay: 0 is Sunday).
+    day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+  }
+  const slot = `${day.toISOString().slice(0, 10)} ${hour}`;
+  return localKey(updated, timeZone) < slot;
+}
+
+/**
+ * Starts a refresh for every scheduled dashboard whose figures are due,
+ * across the agents of this gateway. A failed one waits an hour.
+ */
+export function refreshDueDashboards(
+  runner: DashboardRefreshRunner,
+  now = new Date(),
+): string[] {
+  const started: string[] = [];
+  for (const agent of listAgents()) {
+    const schedules = readSchedules(agent.id);
+    const ids = Object.keys(schedules);
+    if (ids.length === 0) continue;
+    const timeZone = resolveEffectiveTimezone(
+      readUserTimezone(agent.id) ?? undefined,
+    );
+    for (const id of ids) {
+      const dashboard = readDashboard(agent.id, id);
+      if (!dashboard) continue;
+      if (
+        !dashboardRefreshDue(schedules[id], dashboard.updatedAt, now, timeZone)
+      )
+        continue;
+      const state = refreshes.get(`${agent.id}:${id}`);
+      if (state?.running) continue;
+      if (state && now.getTime() - state.startedAt < SCHEDULED_RETRY_MS)
+        continue;
+      if (startRefresh(agent.id, dashboard, runner) === null) {
+        started.push(`${agent.id}:${id}`);
+      }
+    }
+  }
+  return started;
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startDashboardRefresher(runner: DashboardRefreshRunner): void {
+  stopDashboardRefresher();
+  const check = () => {
+    try {
+      const started = refreshDueDashboards(runner);
+      if (started.length > 0) {
+        logger.info({ dashboards: started }, 'Scheduled dashboard refresh');
+      }
+    } catch (error) {
+      logger.warn({ error }, 'Scheduled dashboard refresh check failed');
+    }
+  };
+  refreshTimer = setInterval(check, REFRESH_CHECK_MS);
+  refreshTimer.unref?.();
+}
+
+export function stopDashboardRefresher(): void {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+function summary(
+  dashboard: Dashboard,
+  state: RefreshState | undefined,
+  refresh: DashboardRefreshSchedule | undefined,
+) {
   return {
     id: dashboard.id,
     title: dashboard.title,
@@ -183,6 +333,7 @@ function summary(dashboard: Dashboard, state: RefreshState | undefined) {
     updatedAt: dashboard.updatedAt,
     panels: dashboard.panels.length,
     refreshing: state?.running ?? false,
+    ...(refresh ? { refresh } : {}),
   };
 }
 
@@ -192,19 +343,21 @@ function show(
   json: boolean,
 ): GatewayCommandResult {
   const state = refreshes.get(`${agentId}:${dashboard.id}`);
+  const refresh = readSchedules(agentId)[dashboard.id];
   if (json) {
     return plainCommand(
       chatSafeJson({
         version: 1,
         dashboard,
         refreshing: state?.running ?? false,
+        ...(refresh ? { refresh } : {}),
         ...(state?.error ? { error: state.error } : {}),
       }),
     );
   }
   const lines = [
     `**${dashboard.title}**${dashboard.subtitle ? ` · ${dashboard.subtitle}` : ''}`,
-    `Updated ${dashboard.updatedAt}${state?.running ? ' · refreshing' : ''}`,
+    `Updated ${dashboard.updatedAt}${state?.running ? ' · refreshing' : ''}${refresh ? ` · refreshes ${refresh}` : ''}`,
     ...dashboard.panels.map((panel) =>
       panel.kind === 'number'
         ? `- ${panel.title}: ${panel.value}${panel.unit ? ` ${panel.unit}` : ''}`
@@ -228,11 +381,16 @@ export function handleDashboardCommand(
   if (action === 'list' && operands.length === 0) {
     const dashboards = listDashboards(agentId);
     if (json) {
+      const schedules = readSchedules(agentId);
       return plainCommand(
         chatSafeJson({
           version: 1,
           dashboards: dashboards.map((dashboard) =>
-            summary(dashboard, refreshes.get(`${agentId}:${dashboard.id}`)),
+            summary(
+              dashboard,
+              refreshes.get(`${agentId}:${dashboard.id}`),
+              schedules[dashboard.id],
+            ),
           ),
         }),
       );
@@ -259,6 +417,26 @@ export function handleDashboardCommand(
       const refused = startRefresh(agentId, dashboard, runner);
       if (refused) return badCommand('Dashboard', refused);
     }
+    return show(agentId, dashboard, json);
+  }
+
+  if (action === 'schedule' && operands.length === 2) {
+    const id = dashboardId(operands[0]);
+    const dashboard = id ? readDashboard(agentId, id) : null;
+    if (!dashboard) {
+      return badCommand('Dashboard', `No dashboard \`${operands[0]}\`.`);
+    }
+    let refresh: ReturnType<typeof dashboardRefresh>;
+    try {
+      refresh = dashboardRefresh(operands[1].toLowerCase());
+    } catch {
+      return badCommand('Usage', USAGE);
+    }
+    if (!refresh) return badCommand('Usage', USAGE);
+    writeSchedules(
+      agentId,
+      withDashboardRefresh(readSchedules(agentId), dashboard.id, refresh),
+    );
     return show(agentId, dashboard, json);
   }
 
