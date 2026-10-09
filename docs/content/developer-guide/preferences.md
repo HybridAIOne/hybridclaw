@@ -53,8 +53,13 @@ being silently replaced.
 `preferences` uses `get`, or `set` with a stable `key`, `text`, and optional
 `kind` (`instruction`, `brief`, `neutral`). A request such as “less crypto,
 more cycling” is saved as an explicit preference. To revise the brief, use
-`kind=brief` and `key=feed-brief`. Clearing uses `kind=neutral` on the existing
-key. The gateway derives identity from the running turn. Anonymous or
+`kind=brief` and `key=feed-brief` with the complete revised brief, at most
+1,000 characters like the apps' brief editor; the tool rejects other keys or
+longer text. Only an explicit request changes the brief, not a question,
+reading a story or a one-off story request. Hy confirms only after the tool
+succeeds and otherwise says the change could not be saved. These rules live in
+the tool description and preference context, so the apps no longer append them
+to each message. Clearing uses `kind=neutral` on the existing key. The gateway derives identity from the running turn. Anonymous or
 conflicting turn identities fail closed. A scheduled prompt uses the verified
 task owner before the running-turn tool grant is established.
 
