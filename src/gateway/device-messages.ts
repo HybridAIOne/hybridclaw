@@ -12,6 +12,7 @@ import { taskCostFromRoutingTrace } from '../usage/task-cost.js';
 import { workForMessage } from '../work/work-store.js';
 import { readDeviceActivity } from './device-activity.js';
 import { sendJson } from './gateway-http-utils.js';
+import { turnReceiptForMessage } from './turn-receipt.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 
 export const DEVICE_MESSAGE_PATH = '/api/chat/message';
@@ -51,6 +52,8 @@ export function handleDeviceMessageRoute(
         message.id,
         Number(rawOffset),
       ),
+      // What the reply read, sent and changed, on the first page.
+      ...(rawOffset === '0' ? receiptOf(message.session_id, message.id) : {}),
     });
     return;
   }
@@ -68,7 +71,13 @@ export function handleDeviceMessageRoute(
     // The email the reply showed as a card; its text is in `content` too.
     ...(message.emailDraft ? { emailDraft: message.emailDraft } : {}),
     ...(cost ? { cost } : {}),
+    ...receiptOf(message.session_id, message.id),
     // SQLite stores UTC without a zone.
     createdAt: `${message.created_at.replace(' ', 'T')}Z`,
   });
+}
+
+function receiptOf(sessionId: string, messageId: number) {
+  const receipt = turnReceiptForMessage(sessionId, messageId);
+  return receipt ? { receipt } : {};
 }

@@ -803,6 +803,7 @@ async function executePreparedToolCall(
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
       approvalBaseTier: approval.baseTier,
+      writeIntent: approval.writeIntent,
       autonomyLevel: approval.autonomyLevel,
       stakes: approval.stakes,
       stakesScore: approval.stakesScore,

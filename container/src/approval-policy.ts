@@ -252,6 +252,8 @@ export interface ToolApprovalEvaluation {
   implicitDelayMs?: number;
   hostHints: string[];
   anomaly?: BehaviorAnomalyScore;
+  /** Whether the call changes or sends something, as classified; a receipt sorts by it. */
+  writeIntent?: boolean;
 }
 
 export interface ToolCallContext {
@@ -1585,6 +1587,7 @@ function buildEvaluation(
         ? YELLOW_IMPLICIT_DELAY_MS
         : undefined,
     hostHints: classified.hostHints,
+    writeIntent: classified.writeIntent,
   };
 }
 
@@ -1654,6 +1657,7 @@ function buildPipelineFailureEvaluation(
     pinned: context.pinnedByPolicy === true,
     ...(context.anomaly ? { anomaly: context.anomaly } : {}),
     hostHints: classified.hostHints,
+    writeIntent: classified.writeIntent,
   };
 }
 

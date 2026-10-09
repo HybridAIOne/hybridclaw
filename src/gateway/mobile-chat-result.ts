@@ -1,8 +1,8 @@
 /**
  * The `result` line of a streamed `/api/chat` turn, cut to what the client
  * reads. The iOS and Android apps (`client: "mobile"`) read only the reply,
- * its status and error, the stored message ids, files and email draft; each tool
- * call already reached them as a `tool` line.
+ * its status and error, the stored message ids, files, email draft and
+ * receipt; each tool call already reached them as a `tool` line.
  *
  * Wire-only: the caller has used the full result (artifact capture,
  * notifications, activity trace) before it sends this one. NOT show-mode
@@ -32,5 +32,7 @@ export function chatResultForClient(
     ...(result.emailDraft ? { emailDraft: result.emailDraft } : {}),
     ...(result.cost ? { cost: result.cost } : {}),
     ...(result.costEstimate ? { costEstimate: result.costEstimate } : {}),
+    // What the turn read, sent and changed, shown beside the reply.
+    ...(result.receipt ? { receipt: result.receipt } : {}),
   };
 }
