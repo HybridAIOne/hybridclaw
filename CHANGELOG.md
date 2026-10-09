@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.39.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.8) - 2026-10-10
+
+### Fixed
+
+- **Phone command discovery**: Paired and owner phones can load the chat command
+  menu with their existing tokens, fixing todos, goals and other command-backed
+  screens failing to load while Chat still works. Access is limited to command
+  metadata; model-backed suggestions and unrelated routes remain restricted.
+
 ## [0.39.7](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.7) - 2026-10-09
 
 ### Added
