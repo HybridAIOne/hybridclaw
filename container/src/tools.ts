@@ -128,6 +128,7 @@ import {
   DRAFT_TRANSFER_TOOL,
   runDraftTransfer,
 } from './tools/transfer.js';
+import { runTriggerTool, TRIGGER_TOOL_DEFINITION } from './tools/trigger.js';
 import {
   runShowWidget,
   SHOW_WIDGET_DEFINITION,
@@ -3688,6 +3689,29 @@ async function executeToolInternal(
       const { ok, text } = runDraftEmailTool(args);
       return ok ? text : failTool(text);
     }
+    case 'trigger': {
+      if (args.action !== 'list') {
+        if (!scheduleSideEffectsEnabled)
+          return failTool('Error: triggers cannot be changed in this run.');
+        if (CHANNELS_WITHOUT_PROACTIVE_DELIVERY.has(gatewayChannelId))
+          return failTool(
+            'Error: a trigger cannot be set up from a heartbeat run.',
+          );
+      }
+      const { ok, text } = await runTriggerTool(
+        args,
+        {
+          baseUrl: gatewayBaseUrl,
+          apiToken: gatewayApiToken,
+          sessionId: currentSessionId,
+        },
+        {
+          tz: resolveCronTimezone() || undefined,
+          channelId: gatewayChannelId || undefined,
+        },
+      );
+      return ok ? text : failTool(text);
+    }
     case 'proof': {
       const { ok, text } = runProofTool(args);
       return ok ? text : failTool(text);
@@ -4319,6 +4343,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
+  TRIGGER_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
   PROOF_TOOL_DEFINITION,
   ESTIMATE_COST_TOOL_DEFINITION,

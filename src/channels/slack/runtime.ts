@@ -46,6 +46,7 @@ import {
   normalizeSlackUserId,
   parseSlackChannelTarget,
 } from './target.js';
+import { slackTriggerCandidate } from './triggers.js';
 
 const MAX_SEEN_EVENTS = 2_000;
 const MAX_ACTIVE_SLACK_SESSIONS = 2_000;
@@ -738,6 +739,9 @@ async function handleIncomingSlackEvent(
   if (rememberSeenEvent(eventKey)) {
     return;
   }
+  void queueSlackTriggers(event).catch((err: unknown) => {
+    logger.warn({ err }, 'Slack trigger could not be queued');
+  });
 
   if (mayHaveAppMentionTwin(event)) {
     const pendingEvent = {
@@ -759,6 +763,52 @@ async function handleIncomingSlackEvent(
   }
 
   await processIncomingSlackEvent(event, messageHandler);
+}
+
+const channelNames = new Map<string, string>();
+
+async function resolveSlackChannelName(
+  channelId: string,
+): Promise<string | undefined> {
+  const cached = channelNames.get(channelId);
+  if (cached || !app) return cached;
+  const response = await app.client.conversations.info({
+    channel: channelId,
+  });
+  const name = trimValue(
+    (response.channel as { name?: string } | undefined)?.name,
+  );
+  if (name) {
+    if (channelNames.size >= 500) channelNames.clear();
+    channelNames.set(channelId, name);
+  }
+  return name || undefined;
+}
+
+/** A channel message the bot may hear starts matching Slack triggers. */
+async function queueSlackTriggers(event: SlackMessageEvent): Promise<void> {
+  const candidate = slackTriggerCandidate(
+    event,
+    botUserId || null,
+    getRuntimeConfig().slack,
+  );
+  if (!candidate) return;
+  // Loaded on use: the scheduler is not part of the Slack transport.
+  const { hasTriggers, queueSlackTriggerMessage } = await import(
+    '../../scheduler/event-triggers.js'
+  );
+  if (!hasTriggers('slack')) return;
+  const [channelName, user] = await Promise.all([
+    resolveSlackChannelName(candidate.channelId).catch(() => undefined),
+    resolveSlackDisplayName(candidate.userId),
+  ]);
+  queueSlackTriggerMessage({
+    channelId: candidate.channelId,
+    channelName,
+    ts: candidate.ts,
+    user,
+    text: candidate.text,
+  });
 }
 
 async function processIncomingSlackEvent(

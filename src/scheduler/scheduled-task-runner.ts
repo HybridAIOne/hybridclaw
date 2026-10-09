@@ -125,7 +125,13 @@ export async function runIsolatedScheduledTask(params: {
     taskId: taskId > 0 ? taskId : null,
   });
   const blockedTools = blockDeviceDataToolUnlessShared(
-    ['cron', SHOW_WIDGET_TOOL, DRAFT_TRANSFER_TOOL, SHOW_DASHBOARD_TOOL],
+    [
+      'cron',
+      'trigger',
+      SHOW_WIDGET_TOOL,
+      DRAFT_TRANSFER_TOOL,
+      SHOW_DASHBOARD_TOOL,
+    ],
     owner,
   );
   const { messages, skills } = buildConversationContext({

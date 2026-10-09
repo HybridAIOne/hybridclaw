@@ -520,6 +520,10 @@ import {
   renderTextChannelCommandResult,
   resolveTextChannelSlashCommands,
 } from './text-channel-commands.js';
+import {
+  handleTriggerWebhook,
+  isTriggerWebhookPath,
+} from './trigger-webhook.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import {
   handleWebNotificationRoute,
@@ -10407,6 +10411,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         );
         return;
       }
+      if (isTriggerWebhookPath(pathname)) {
+        dispatchWebhookRoute(res, () =>
+          handleTriggerWebhook(req, res, pathname),
+        );
+        return;
+      }
       if (pathname === '/api/artifact' && method === 'GET') {
         void handleApiArtifact(req, res, url).catch((err: unknown) => {
           if (res.writableEnded) return;
@@ -11448,6 +11458,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/work' && method === 'POST')
             return await handleWorkToolRoute(req, res, hasGatewayApiAuth(req));
+          if (pathname === '/api/trigger' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            const { runTriggerToolAction } = await import(
+              './trigger-tool-service.js'
+            );
+            sendJson(res, 200, runTriggerToolAction(await readJsonBody(req)));
+            return;
+          }
           if (pathname === '/api/todo' && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {
               sendJson(res, 401, {

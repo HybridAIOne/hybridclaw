@@ -23,6 +23,7 @@ import {
   getJob,
   updateScheduledTask,
 } from '../memory/jobs.js';
+import { describeTrigger } from '../scheduler/event-triggers.js';
 import { rearmScheduler } from '../scheduler/scheduler.js';
 import { todoOwningTask } from '../todos/todo-store.js';
 import { trackedOwningTask } from '../tracking/track-store.js';
@@ -79,6 +80,7 @@ function refuseOwnedTask(taskId: number): void {
 }
 
 function scheduleText(task: ScheduledTask): string {
+  if (task.trigger) return `trigger: runs ${describeTrigger(task.trigger)}`;
   if (task.run_at) return `at ${task.run_at}`;
   if (task.every_ms) {
     const secs = task.every_ms / 1000;
@@ -239,6 +241,12 @@ export function runScheduledTaskToolAction(
       );
     }
     refuseOwnedTask(taskId);
+    if (job.trigger) {
+      throw new GatewayRequestError(
+        409,
+        `Task #${taskId} is a trigger; remove it with the \`trigger\` tool and add it again to change it.`,
+      );
+    }
 
     // A patch schedule field (cronExpr/runAt/everyMs) replaces the stored
     // schedule wholesale; everything else defaults to the stored job so an

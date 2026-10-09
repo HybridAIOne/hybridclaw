@@ -53,6 +53,7 @@ import { firstNumber } from './gateway-utils.js';
 // (2026-10-08), and so is a cost estimate (2026-10-09).
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
+  'trigger',
   'todo',
   'draft_email',
   'estimate_cost',
