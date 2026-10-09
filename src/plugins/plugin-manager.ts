@@ -19,6 +19,11 @@ import {
   type MiddlewareOutcome,
   type MiddlewarePhase,
 } from '../agent/middleware.js';
+import {
+  clearBrowserProviders,
+  restoreBrowserProviders,
+  snapshotBrowserProviders,
+} from '../browser/provider-factory.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import {
   listChannels,
@@ -258,6 +263,7 @@ type PluginRegistrationSnapshot = {
   channelTransports: RegisteredChannelTransport[];
   localClassifiers: ReturnType<typeof snapshotLocalClassifiers>;
   embeddingProviders: ReturnType<typeof snapshotEmbeddingProviders>;
+  browserProviders: ReturnType<typeof snapshotBrowserProviders>;
   tools: Map<string, RegisteredTool>;
   commands: Map<string, RegisteredCommand>;
   adminRoutes: ReturnType<PluginAdminRouteRegistry['snapshot']>;
@@ -917,6 +923,7 @@ export class PluginManager {
       }
       this.channelTransports = [];
       clearEmbeddingProviders();
+      clearBrowserProviders();
       clearLocalClassifiers();
       this.cleanupImportSnapshots();
       return;
@@ -956,6 +963,7 @@ export class PluginManager {
     }
     this.channelTransports = [];
     clearEmbeddingProviders();
+    clearBrowserProviders();
     clearLocalClassifiers();
 
     this.cleanupImportSnapshots();
@@ -1620,6 +1628,7 @@ export class PluginManager {
       channelTransports: [...this.channelTransports],
       localClassifiers: snapshotLocalClassifiers(),
       embeddingProviders: snapshotEmbeddingProviders(),
+      browserProviders: snapshotBrowserProviders(),
       tools: new Map(this.tools),
       commands: new Map(this.commands),
       adminRoutes: this.adminRoutes.snapshot(),
@@ -1655,6 +1664,7 @@ export class PluginManager {
       registerChannelTransport(entry.transport);
     }
     restoreEmbeddingProviders(snapshot.embeddingProviders);
+    restoreBrowserProviders(snapshot.browserProviders);
     restoreLocalClassifiers(snapshot.localClassifiers);
     this.channels = [...snapshot.channels];
     this.tools = new Map(snapshot.tools);
@@ -2738,6 +2748,11 @@ export function matchLoadedPluginAdminRoute(
 export function listLoadedPluginCommands(): PluginCommandSummary[] {
   if (!singleton) return [];
   return singleton.listRegisteredCommands();
+}
+
+export function findPluginLoadError(pluginId: string): string | undefined {
+  return singleton?.listPluginSummary().find((plugin) => plugin.id === pluginId)
+    ?.error;
 }
 
 export async function shutdownPluginManager(): Promise<void> {

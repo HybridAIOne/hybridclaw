@@ -73,10 +73,11 @@ export class LocalBrowserProvider implements BrowserProvider {
       opts.profileDirHint,
     );
     const playwright = await loadPlaywright(this.options.playwright);
+    const headed = opts.headed ?? this.options.headed ?? false;
     const context = await playwright.chromium.launchPersistentContext(
       profileDir,
       {
-        headless: !(opts.headed ?? this.options.headed ?? false),
+        headless: !headed,
         timeout: opts.timeoutMs,
         args: [...BROWSER_PROFILE_CHROMIUM_ARGS],
       },
@@ -88,6 +89,7 @@ export class LocalBrowserProvider implements BrowserProvider {
       opts.metering,
       this.options.allowPrivateNetwork,
     );
+    session.headed = headed;
     this.contexts.set(session, context);
     return session;
   }

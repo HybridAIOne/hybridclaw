@@ -45,9 +45,14 @@ function windows(...ids: number[]) {
 
 async function createDriver() {
   const { StdioMacCuaDriver } = await import(
-    '../src/browser/mac-cua-driver.js'
+    '../plugins/mac-cua/src/driver.js'
   );
-  return new StdioMacCuaDriver('cua-driver', ['mcp']);
+  // The host loads the gateway's MCP SDK, which the doMock calls replace.
+  const { createBrowserProviderHost } = await import(
+    '../src/browser/provider-host.js'
+  );
+  const host = createBrowserProviderHost({ allowPrivateNetwork: false });
+  return new StdioMacCuaDriver('cua-driver', ['mcp'], host.mcp.load);
 }
 
 async function startSession() {

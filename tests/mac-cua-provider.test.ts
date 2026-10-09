@@ -5,10 +5,13 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-import type {
-  MacCuaDriver,
-  MacCuaEnvironmentState,
-} from '../src/browser/mac-cua-driver.js';
+type MacCuaEnvironmentState = {
+  cursorX: number;
+  cursorY: number;
+  frontmostBundleId: string;
+  activeSpaceId: number;
+};
+type MacCuaDriver = Record<string, unknown>;
 import type { BrowserSession } from '../src/browser/provider.js';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -19,6 +22,14 @@ let tempRoot = '';
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-mac-cua-'));
   return tempRoot;
+}
+
+// Built per test so vi.doMock() calls made earlier in the test apply to it.
+async function testHost() {
+  const { createBrowserProviderHost } = await import(
+    '../src/browser/provider-host.js'
+  );
+  return createBrowserProviderHost({ allowPrivateNetwork: false });
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -122,7 +133,7 @@ afterEach(() => {
 
 test('mac-cua real driver defaults to MCP args when config args are empty', async () => {
   const { resolveMacCuaDriverCommand } = await import(
-    '../src/browser/mac-cua-driver.js'
+    '../plugins/mac-cua/src/driver.js'
   );
 
   expect(resolveMacCuaDriverCommand({ args: [] })).toEqual({
@@ -145,11 +156,12 @@ test('mac-cua real driver defaults to MCP args when config args are empty', asyn
 
 test('mac-cua provider starts the selected operator browser in background-safe mode', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   const audit = vi.fn();
   const provider = new MacCuaBrowserProvider({
+    host: await testHost(),
     browser: 'safari',
     driver,
     audit,
@@ -224,10 +236,10 @@ test('mac-cua provider starts the selected operator browser in background-safe m
 
 test('mac-cua provider supports safe key presses for form submission', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.press?.('Enter');
@@ -270,7 +282,7 @@ const SAFARI_TREE = [
 
 test('mac-cua query resolves to the page element, not the first ancestor', async () => {
   const { resolveMacCuaQueryElementIndex } = await import(
-    '../src/browser/mac-cua-window-state.js'
+    '../plugins/mac-cua/src/window-state.js'
   );
 
   // A `query` filter keeps every ancestor, so [0] AXApplication comes first;
@@ -298,7 +310,7 @@ test('mac-cua query resolves to the page element, not the first ancestor', async
 
 test('mac-cua finds the browser history buttons, not page buttons', async () => {
   const { findMacCuaHistoryButton } = await import(
-    '../src/browser/mac-cua-window-state.js'
+    '../plugins/mac-cua/src/window-state.js'
   );
 
   expect(findMacCuaHistoryButton(SAFARI_TREE, 'back')).toEqual({
@@ -327,10 +339,10 @@ test('mac-cua finds the browser history buttons, not page buttons', async () => 
 
 test('mac-cua back and forward press the toolbar buttons instead of Cmd+[ and Cmd+]', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.back();
@@ -345,7 +357,7 @@ test('mac-cua back and forward press the toolbar buttons instead of Cmd+[ and Cm
 
 test('mac-cua reads the page URL from the address field', async () => {
   const { findMacCuaAddressBarUrl } = await import(
-    '../src/browser/mac-cua-window-state.js'
+    '../plugins/mac-cua/src/window-state.js'
   );
 
   expect(findMacCuaAddressBarUrl(SAFARI_TREE)).toBe(
@@ -363,7 +375,7 @@ test('mac-cua reads the page URL from the address field', async () => {
 
 test('mac-cua page snapshot lists page elements with refs and leaves field values out', async () => {
   const { renderMacCuaPageSnapshot } = await import(
-    '../src/browser/mac-cua-window-state.js'
+    '../plugins/mac-cua/src/window-state.js'
   );
 
   const page = renderMacCuaPageSnapshot(SAFARI_TREE);
@@ -401,10 +413,10 @@ test.each([
   ["a[href*='dashboard']", "a[href*='dashboard']"],
 ])('mac-cua provider reads the label out of selector %s', async (selector, query) => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.click(selector);
@@ -418,10 +430,10 @@ test.each([
 
 test('mac-cua provider resolves fill queries to editable elements', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.fill('Ask anything', 'hello');
@@ -435,7 +447,7 @@ test('mac-cua provider resolves fill queries to editable elements', async () => 
 
 test('mac-cua provider snapshots the page and frames it without re-probing', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = {
     ...createMockDriver(),
@@ -447,7 +459,7 @@ test('mac-cua provider snapshots the page and frames it without re-probing', asy
       url: 'https://hybridai.one/admin_workspace',
     })),
   };
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   const page = await session.nativeSnapshot?.({ interactiveOnly: true });
@@ -482,10 +494,10 @@ test('mac-cua provider snapshots the page and frames it without re-probing', asy
 
 test('mac-cua provider blocks unsupported key presses', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(session.press?.('Meta+Q')).rejects.toThrow(
@@ -500,10 +512,10 @@ test.each([
   ['chrome' as const, 'com.google.Chrome'],
 ])('mac-cua provider smoke starts %s in background-safe mode', async (browser, bundleId) => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ browser, driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser, driver });
   const session = await provider.launchSession({});
 
   await session.screenshot();
@@ -517,7 +529,7 @@ test.each([
 
 test('mac-cua provider prefers AX element refs and records driver pixel fallback events', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   const audit = vi.fn();
@@ -530,7 +542,7 @@ test('mac-cua provider prefers AX element refs and records driver pixel fallback
     }
     return { target };
   });
-  const provider = new MacCuaBrowserProvider({ driver, audit });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver, audit });
   const session = await provider.launchSession({
     metering: {
       sessionId: 'session-cua-fallback',
@@ -598,11 +610,11 @@ test('mac-cua provider authorizes SecretRef fills and forwards refs without clea
   initDatabase({ quiet: true, dbPath: path.join(root, 'audit.db') });
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   const audit = vi.fn();
-  const provider = new MacCuaBrowserProvider({ driver, audit });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver, audit });
   const session = await provider.launchSession({
     metering: {
       sessionId: 'session-cua-secret',
@@ -651,10 +663,10 @@ test('mac-cua provider audits and disposes SecretHandle fills', async () => {
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({
     metering: {
       sessionId: 'session-cua-handle',
@@ -711,14 +723,14 @@ test('mac-cua provider resumes 2FA through native OTP set_value when AX selector
     '../src/security/secret-handles.js'
   );
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
     detected: true,
     signals: ['one-time-code'],
   });
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
   const handle = createSecretHandle(
     { source: 'store', id: 'OPERATOR_RETURN_test' },
@@ -748,7 +760,7 @@ test('mac-cua provider tolerates the controlled browser becoming frontmost', asy
     '../src/security/secret-handles.js'
   );
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver({
     before: {
@@ -768,7 +780,7 @@ test('mac-cua provider tolerates the controlled browser becoming frontmost', asy
     detected: true,
     signals: ['one-time-code'],
   });
-  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser: 'safari', driver });
   const session = await provider.launchSession({});
   const handle = createSecretHandle(
     { source: 'store', id: 'OPERATOR_RETURN_test' },
@@ -795,7 +807,7 @@ test('mac-cua provider tolerates the controlled browser becoming frontmost on a 
     '../src/security/secret-handles.js'
   );
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver({
     before: {
@@ -815,7 +827,7 @@ test('mac-cua provider tolerates the controlled browser becoming frontmost on a 
     detected: true,
     signals: ['one-time-code'],
   });
-  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser: 'safari', driver });
   const session = await provider.launchSession({});
   const handle = createSecretHandle(
     { source: 'store', id: 'OPERATOR_RETURN_test' },
@@ -842,7 +854,7 @@ test('mac-cua provider falls back to focus and type when native OTP set_value ca
     '../src/security/secret-handles.js'
   );
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
@@ -850,7 +862,7 @@ test('mac-cua provider falls back to focus and type when native OTP set_value ca
     signals: ['one-time-code'],
   });
   driver.fillTwoFactorInput.mockResolvedValueOnce(false);
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
   const handle = createSecretHandle(
     { source: 'store', id: 'OPERATOR_RETURN_test' },
@@ -875,10 +887,10 @@ test('mac-cua provider falls back to focus and type when native OTP set_value ca
 
 test('mac-cua provider blocks shell-injection typed payloads before driver input', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(
@@ -896,11 +908,11 @@ test.each([
   ':(){:|:&};:',
 ])('mac-cua provider blocks unsafe typed payload pattern: %s', async (text) => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   const audit = vi.fn();
-  const provider = new MacCuaBrowserProvider({ driver, audit });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver, audit });
   const session = await provider.launchSession({
     metering: {
       sessionId: 'session-cua-unsafe',
@@ -927,10 +939,10 @@ test.each([
 
 test('mac-cua provider rejects caller-supplied point selectors', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(session.click('point:12,34')).rejects.toThrow(
@@ -942,7 +954,7 @@ test('mac-cua provider rejects caller-supplied point selectors', async () => {
 
 test('mac-cua provider rejects background-safe violations', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver({
     before: {
@@ -958,7 +970,7 @@ test('mac-cua provider rejects background-safe violations', async () => {
       activeSpaceId: 1,
     },
   });
-  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser: 'safari', driver });
   const session = await provider.launchSession({});
 
   await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
@@ -966,7 +978,7 @@ test('mac-cua provider rejects background-safe violations', async () => {
 
 test('mac-cua provider rejects unrelated app activation on a different Space', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver({
     before: {
@@ -982,7 +994,7 @@ test('mac-cua provider rejects unrelated app activation on a different Space', a
       activeSpaceId: 2,
     },
   });
-  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser: 'safari', driver });
   const session = await provider.launchSession({});
 
   await expect(session.click('@e1')).rejects.toThrow(/background-safe/u);
@@ -990,7 +1002,7 @@ test('mac-cua provider rejects unrelated app activation on a different Space', a
 
 test('mac-cua provider tolerates cursor-only changes in background-safe mode', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver({
     before: {
@@ -1006,7 +1018,7 @@ test('mac-cua provider tolerates cursor-only changes in background-safe mode', a
       activeSpaceId: 1,
     },
   });
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(session.screenshot()).resolves.toBeInstanceOf(Buffer);
@@ -1014,10 +1026,10 @@ test('mac-cua provider tolerates cursor-only changes in background-safe mode', a
 
 test('mac-cua provider preserves the background-safe state across a simulated 60-second drive sequence', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   for (let elapsedMs = 0; elapsedMs < 60_000; elapsedMs += 10_000) {
@@ -1034,10 +1046,10 @@ test('mac-cua provider preserves the background-safe state across a simulated 60
 
 test('mac-cua provider rejects unsupported navigation waits', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(
@@ -1052,11 +1064,11 @@ test('mac-cua provider rejects unsupported navigation waits', async () => {
 
 test('mac-cua provider blocks navigation when address-bar AX value is not allowed', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.getAddressBarValue.mockResolvedValueOnce('file:///etc/passwd');
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(session.navigate('https://example.com/login')).rejects.toThrow(
@@ -1068,7 +1080,7 @@ test('mac-cua provider blocks navigation when address-bar AX value is not allowe
 
 test('mac-cua provider emits F14 waypoint events from AX two-factor detection and explicit resume', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
@@ -1076,7 +1088,7 @@ test('mac-cua provider emits F14 waypoint events from AX two-factor detection an
     signals: ['one-time-code'],
   });
   const audit = vi.fn();
-  const provider = new MacCuaBrowserProvider({ driver, audit });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver, audit });
   const session = await provider.launchSession({
     metering: {
       sessionId: 'session-cua-2fa',
@@ -1114,7 +1126,7 @@ test('mac-cua provider emits F14 waypoint events from AX two-factor detection an
 
 test('mac-cua provider exposes AX two-factor detection to gateway parking', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.detectTwoFactorWaypoint.mockResolvedValueOnce({
@@ -1122,7 +1134,7 @@ test('mac-cua provider exposes AX two-factor detection to gateway parking', asyn
     signals: ['one-time-code'],
     selectors: ['@e24@window:7'],
   });
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.navigate('https://example.com/login');
@@ -1140,11 +1152,11 @@ test('mac-cua provider exposes AX two-factor detection to gateway parking', asyn
 
 test('mac-cua provider confirms the controlled window before sending navigation keys', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.ensureSessionWindow.mockResolvedValueOnce(true);
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.navigate('https://example.com/');
@@ -1175,11 +1187,11 @@ test.each([
   run,
 }) => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.ensureSessionWindow.mockResolvedValueOnce(true);
-  const provider = new MacCuaBrowserProvider({ browser: 'safari', driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), browser: 'safari', driver });
   const session = await provider.launchSession({});
 
   await expect(run(session)).rejects.toThrow(
@@ -1232,7 +1244,7 @@ test.each([
   checks,
 }) => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.ensureSessionWindow
@@ -1241,7 +1253,7 @@ test.each([
   driver.pressKey.mockRejectedValueOnce(
     new Error('mac-cua driver tool press_key failed'),
   );
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   const navigation = session.navigate('https://example.com/');
@@ -1257,7 +1269,7 @@ test.each([
 
 test('mac-cua provider does not replay a click in a window reopened mid-action', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
   driver.ensureSessionWindow
@@ -1266,7 +1278,7 @@ test('mac-cua provider does not replay a click in a window reopened mid-action',
   driver.click.mockRejectedValueOnce(
     new Error('mac-cua driver tool click failed'),
   );
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await expect(session.click('@e9')).rejects.toThrow(
@@ -1277,10 +1289,10 @@ test('mac-cua provider does not replay a click in a window reopened mid-action',
 
 test('mac-cua provider waypoints do not touch the controlled window', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const driver = createMockDriver();
-  const provider = new MacCuaBrowserProvider({ driver });
+  const provider = new MacCuaBrowserProvider({ host: await testHost(), driver });
   const session = await provider.launchSession({});
 
   await session.waypoint?.('browser_await_two_factor', { modality: 'totp' });
@@ -1290,9 +1302,10 @@ test('mac-cua provider waypoints do not touch the controlled window', async () =
 
 test('mac-cua provider advertises F13 and F14 parity only after readiness passes', async () => {
   const { MacCuaBrowserProvider } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   const readyProvider = new MacCuaBrowserProvider({
+    host: await testHost(),
     driver: createMockDriver(),
   });
   expect(readyProvider.getCapabilities()).toEqual({
@@ -1303,7 +1316,7 @@ test('mac-cua provider advertises F13 and F14 parity only after readiness passes
 
 test('mac-cua key chord guard hard-blocks destructive browser shortcuts', async () => {
   const { assertSafeMacCuaKeyChord } = await import(
-    '../src/browser/mac-cua-provider.js'
+    '../plugins/mac-cua/src/provider.js'
   );
   expect(() => assertSafeMacCuaKeyChord('q', ['cmd', 'shift'])).toThrow(
     /destructive/u,

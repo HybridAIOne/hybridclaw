@@ -1,33 +1,18 @@
-/**
- * Pure parsers for cua-driver `list_windows` and `get_window_state` payloads.
- *
- * They only read driver output. Deciding which window a session may control
- * (and refusing the operator's own windows) stays in mac-cua-driver.ts.
- */
-import type { MacCuaTarget } from './mac-cua-driver.js';
-
-export function normalizePositiveInteger(value: unknown): number | null {
+export function normalizePositiveInteger(value) {
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
-export function normalizeWindowId(value: unknown): number | null {
+export function normalizeWindowId(value) {
   if (!Array.isArray(value)) return null;
-  const candidates: Array<{
-    id: number;
-    onCurrentSpace: boolean;
-    layer: number;
-    area: number;
-  }> = [];
+  const candidates = [];
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const record = entry as Record<string, unknown>;
+    const record = entry;
     const id = normalizePositiveInteger(record.window_id);
     if (id === null) continue;
     const bounds =
-      record.bounds && typeof record.bounds === 'object'
-        ? (record.bounds as Record<string, unknown>)
-        : {};
+      record.bounds && typeof record.bounds === 'object' ? record.bounds : {};
     const width = Number(bounds.width);
     const height = Number(bounds.height);
     candidates.push({
@@ -50,23 +35,8 @@ export function normalizeWindowId(value: unknown): number | null {
   return candidates[0]?.id ?? null;
 }
 
-export function windowStateTree(record: Record<string, unknown>): string {
+export function windowStateTree(record) {
   return String(record.tree_markdown || record.markdown || '');
-}
-
-/** One element of a cua-driver `get_window_state` tree. */
-export interface MacCuaAxNode {
-  index: number | null;
-  role: string;
-  title: string;
-  value: string;
-  description: string;
-  help: string;
-  id: string;
-  disabled: boolean;
-  parent: MacCuaAxNode | null;
-  /** Inside a web page, not the browser's own toolbar, tabs or menus. */
-  inPage: boolean;
 }
 
 // `  - [23] AXLink "Dashboard" = "value" (description) help="…" id=… DISABLED actions=[…]`
@@ -76,13 +46,8 @@ const AX_NODE_LINE_RE = /^(\s*)- (?:\[(\d+)\] )?(\S+)(.*)$/u;
 const AX_NODE_ATTRS_RE =
   /^(?: "(?<title>[\s\S]*?)")?(?: = "(?<value>[\s\S]*?)")?(?: \((?<description>[\s\S]*?)\))?(?: help="(?<help>[\s\S]*?)")?(?: id=(?<id>\S*))?(?<disabled> DISABLED)?(?: actions=\[[^\]]*\])?\s*$/u;
 
-export function parseMacCuaAxTree(markdown: string): MacCuaAxNode[] {
-  const rows: Array<{
-    depth: number;
-    index: number | null;
-    role: string;
-    rest: string;
-  }> = [];
+export function parseMacCuaAxTree(markdown) {
+  const rows = [];
   for (const line of markdown.split(/\r?\n/u)) {
     const match = line.match(AX_NODE_LINE_RE);
     if (match) {
@@ -97,8 +62,8 @@ export function parseMacCuaAxTree(markdown: string): MacCuaAxNode[] {
       if (last) last.rest += ` ${line.trim()}`;
     }
   }
-  const nodes: MacCuaAxNode[] = [];
-  const ancestors: Array<{ depth: number; node: MacCuaAxNode }> = [];
+  const nodes = [];
+  const ancestors = [];
   for (const row of rows) {
     while (
       ancestors.length > 0 &&
@@ -108,7 +73,7 @@ export function parseMacCuaAxTree(markdown: string): MacCuaAxNode[] {
     }
     const parent = ancestors[ancestors.length - 1]?.node ?? null;
     const attrs = row.rest.match(AX_NODE_ATTRS_RE)?.groups;
-    const node: MacCuaAxNode = {
+    const node = {
       index: row.index,
       role: row.role,
       // An unknown attribute layout still yields the first quoted label.
@@ -129,12 +94,12 @@ export function parseMacCuaAxTree(markdown: string): MacCuaAxNode[] {
   return nodes;
 }
 
-function normalizeLabel(text: string): string {
+function normalizeLabel(text) {
   return text.replace(/\s+/gu, ' ').trim();
 }
 
 /** What the element is called, the way a person reading the page would say it. */
-function axNodeName(node: MacCuaAxNode): string {
+function axNodeName(node) {
   return normalizeLabel(
     node.title ||
       node.description ||
@@ -172,9 +137,7 @@ const EDITABLE_ROLES = new Set([
 // Text inside a link or button sits a few levels down (link > group > text).
 const MAX_ANCESTOR_STEPS = 4;
 
-export type MacCuaQueryPurpose = 'click' | 'fill';
-
-function labelMatchStrength(node: MacCuaAxNode, needle: string): number {
+function labelMatchStrength(node, needle) {
   let best = 0;
   for (const text of [node.title, node.value, node.description, node.help]) {
     const label = normalizeLabel(text).toLowerCase();
@@ -186,11 +149,8 @@ function labelMatchStrength(node: MacCuaAxNode, needle: string): number {
   return best;
 }
 
-function actionableSelfOrAncestor(
-  node: MacCuaAxNode,
-  roles: ReadonlySet<string>,
-): MacCuaAxNode | null {
-  let current: MacCuaAxNode | null = node;
+function actionableSelfOrAncestor(node, roles) {
+  let current = node;
   for (let step = 0; current?.inPage && step <= MAX_ANCESTOR_STEPS; step += 1) {
     if (current.index !== null && roles.has(current.role)) return current;
     current = current.parent;
@@ -207,21 +167,21 @@ function actionableSelfOrAncestor(
  * indexed line of a filtered tree is the application, not the match.
  */
 export function resolveMacCuaQueryElementIndex(
-  markdown: string,
-  query: string,
-  purpose: MacCuaQueryPurpose = 'click',
-): number | null {
+  markdown,
+  query,
+  purpose = 'click',
+) {
   const needle = normalizeLabel(query).toLowerCase();
   if (!needle) return null;
   const roles = purpose === 'fill' ? EDITABLE_ROLES : CLICKABLE_ROLES;
-  let best: { index: number; rank: number } | null = null;
+  let best = null;
   for (const node of parseMacCuaAxTree(markdown)) {
     if (!node.inPage) continue;
     const strength = labelMatchStrength(node, needle);
     if (strength === 0) continue;
     const target = actionableSelfOrAncestor(node, roles);
-    let rank: number;
-    let index: number | null;
+    let rank;
+    let index;
     if (target) {
       // Any match that names an actionable element beats a bare one; among
       // those, a closer label wins, then the element itself over its parent.
@@ -241,24 +201,19 @@ export function resolveMacCuaQueryElementIndex(
   return best?.index ?? null;
 }
 
-export type MacCuaHistoryDirection = 'back' | 'forward';
-
 // Safari gives its history buttons stable ids; Chromium browsers only a
 // localized label, so the labels cover English and German.
-const HISTORY_BUTTON_IDS: Record<MacCuaHistoryDirection, string> = {
+const HISTORY_BUTTON_IDS = {
   back: 'BackButton',
   forward: 'ForwardButton',
 };
-const HISTORY_BUTTON_LABELS: Record<MacCuaHistoryDirection, string[]> = {
+const HISTORY_BUTTON_LABELS = {
   back: ['back', 'zurück'],
   forward: ['forward', 'vorwärts', 'weiter'],
 };
 
 /** The browser's own Back or Forward toolbar button, outside the page. */
-export function findMacCuaHistoryButton(
-  markdown: string,
-  direction: MacCuaHistoryDirection,
-): { index: number; disabled: boolean } | null {
+export function findMacCuaHistoryButton(markdown, direction) {
   const buttons = parseMacCuaAxTree(markdown).filter(
     (node) => !node.inPage && node.role === 'AXButton' && node.index !== null,
   );
@@ -272,7 +227,7 @@ export function findMacCuaHistoryButton(
     : null;
 }
 
-function toHttpUrl(value: string): string | null {
+function toHttpUrl(value) {
   const raw = value.trim();
   if (!raw || /\s/u.test(raw)) return null;
   // Chromium's omnibox may drop the scheme ("example.com/path").
@@ -293,7 +248,7 @@ function toHttpUrl(value: string): string | null {
  * The page URL from the browser's address field. It needs no page JavaScript,
  * which Safari blocks unless "Allow JavaScript from Apple Events" is on.
  */
-export function findMacCuaAddressBarUrl(markdown: string): string | null {
+export function findMacCuaAddressBarUrl(markdown) {
   for (const node of parseMacCuaAxTree(markdown)) {
     if (node.inPage || !EDITABLE_ROLES.has(node.role)) continue;
     const url = toHttpUrl(node.value);
@@ -302,7 +257,7 @@ export function findMacCuaAddressBarUrl(markdown: string): string | null {
   return null;
 }
 
-const SNAPSHOT_ROLE_NAMES: Record<string, string> = {
+const SNAPSHOT_ROLE_NAMES = {
   AXLink: 'link',
   AXButton: 'button',
   AXMenuButton: 'button',
@@ -324,15 +279,7 @@ const SNAPSHOT_ROLE_NAMES: Record<string, string> = {
 const SNAPSHOT_TEXT_ROLES = new Set(['AXHeading', 'AXStaticText', 'AXImage']);
 const DEFAULT_SNAPSHOT_MAX_CHARS = 12_000;
 
-export interface MacCuaPageSnapshot {
-  snapshot: string;
-  truncated: boolean;
-  elementCount: number;
-  /** `e23` → what the element is, for the checkout guard. */
-  refs: Record<string, { role: string; name: string }>;
-}
-
-function rendersInSnapshot(node: MacCuaAxNode): boolean {
+function rendersInSnapshot(node) {
   return (
     (node.index !== null && CLICKABLE_ROLES.has(node.role)) ||
     SNAPSHOT_TEXT_ROLES.has(node.role)
@@ -340,7 +287,7 @@ function rendersInSnapshot(node: MacCuaAxNode): boolean {
 }
 
 // "Dashboard" inside link "Dashboard" says nothing new.
-function repeatsAncestorLabel(node: MacCuaAxNode, label: string): boolean {
+function repeatsAncestorLabel(node, label) {
   for (let current = node.parent; current?.inPage; current = current.parent) {
     if (rendersInSnapshot(current) && axNodeName(current) === label) {
       return true;
@@ -354,13 +301,10 @@ function repeatsAncestorLabel(node: MacCuaAxNode, label: string): boolean {
  * (`@e23`), plus headings and text unless only interactive elements are
  * asked for. Typed field values are left out; they can hold secrets.
  */
-export function renderMacCuaPageSnapshot(
-  markdown: string,
-  opts: { interactiveOnly?: boolean; maxChars?: number } = {},
-): MacCuaPageSnapshot {
+export function renderMacCuaPageSnapshot(markdown, opts = {}) {
   const maxChars = opts.maxChars ?? DEFAULT_SNAPSHOT_MAX_CHARS;
-  const lines: string[] = [];
-  const refs: MacCuaPageSnapshot['refs'] = {};
+  const lines = [];
+  const refs = {};
   let length = 0;
   let truncated = false;
   for (const node of parseMacCuaAxTree(markdown)) {
@@ -369,15 +313,13 @@ export function renderMacCuaPageSnapshot(
       SNAPSHOT_ROLE_NAMES[node.role] ||
       node.role.replace(/^AX/u, '').toLowerCase();
     const name = axNodeName(node);
-    let line: string | null = null;
+    let line = null;
     if (node.index !== null && CLICKABLE_ROLES.has(node.role)) {
       const value =
         node.role === 'AXComboBox' && node.value
           ? ` = ${JSON.stringify(normalizeLabel(node.value))}`
           : '';
-      line = `- ${role}${name ? ` ${JSON.stringify(name)}` : ''}${value}${
-        node.disabled ? ' (disabled)' : ''
-      } [ref=e${node.index}]`;
+      line = `- ${role}${name ? ` ${JSON.stringify(name)}` : ''}${value}${node.disabled ? ' (disabled)' : ''} [ref=e${node.index}]`;
       refs[`e${node.index}`] = { role, name };
     } else if (
       !opts.interactiveOnly &&
@@ -403,19 +345,13 @@ export function renderMacCuaPageSnapshot(
   };
 }
 
-export function firstEditableElementSelector(
-  record: Record<string, unknown>,
-  windowId?: string | number,
-): string | null {
+export function firstEditableElementSelector(record, windowId) {
   const target = firstEditableElementTarget(record, windowId);
-  if (!target || target.kind !== 'ax') return null;
+  if (target?.kind !== 'ax') return null;
   return `@e${target.elementIndex}${target.windowId ? `@window:${target.windowId}` : ''}`;
 }
 
-export function firstEditableElementTarget(
-  record: Record<string, unknown>,
-  windowId?: string | number,
-): MacCuaTarget | null {
+export function firstEditableElementTarget(record, windowId) {
   const tree = String(record.tree_markdown || record.markdown || '');
   for (const line of tree.split(/\r?\n/u)) {
     const indexMatch = line.match(/\[element_index\s+(\d+)\]/u);

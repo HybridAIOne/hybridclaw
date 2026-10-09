@@ -1,48 +1,13 @@
+/**
+ * mac-cua browser provider — drives the operator's own macOS browser through
+ * the Cua Driver's accessibility tree, in a window it opens for the agent.
+ * There is no DOM: sessions expose `nativeSnapshot` and AX refs instead of
+ * `evaluate`, and every navigation, typed payload, and key chord passes the
+ * guards below before it reaches the driver. macOS only.
+ */
 import { Buffer } from 'node:buffer';
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { buildCuaMacResults } from '../doctor/checks/cua-mac.js';
-import {
-  assertSecretResolveAllowed,
-  recordSecretResolved,
-  recordSecretUnsafeEscaped,
-} from '../gateway/gateway-secret-injection.js';
-import {
-  isSecretHandle,
-  unsafeEscapeSecretHandle,
-} from '../security/secret-handles.js';
-import { hardenSecretRef, type SecretRef } from '../security/secret-refs.js';
-import {
-  type MacCuaDriver,
-  type MacCuaEnvironmentState,
-  type MacCuaScreenshotMode,
-  type MacCuaScreenshotResult,
-  type MacCuaTarget,
-  resolveMacCuaDriverCommand,
-  StdioMacCuaDriver,
-} from './mac-cua-driver.js';
-import { normalizeScrollDelta } from './playwright-utils.js';
-import type {
-  BrowserEvaluateFunction,
-  BrowserFillInput,
-  BrowserNativeSnapshot,
-  BrowserProvider,
-  BrowserProviderCapabilities,
-  BrowserSession,
-  BrowserSessionMeteringContext,
-  BrowserTwoFactorCodeFillResult,
-  BrowserTwoFactorState,
-  BrowserWaypointEvent,
-  BrowserWaypointOptions,
-  ClickOptions,
-  HistoryNavigationOptions,
-  NavigateOptions,
-  ScreenshotOptions,
-  ScrollOptions,
-  SessionOptions,
-  WaitOptions,
-} from './provider.js';
-import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
+import { resolveMacCuaDriverCommand, StdioMacCuaDriver } from './driver.js';
+import { buildCuaMacResults } from './readiness.js';
 
 export const MAC_CUA_BROWSERS = {
   safari: 'com.apple.Safari',
@@ -50,30 +15,7 @@ export const MAC_CUA_BROWSERS = {
   firefox: 'org.mozilla.firefox',
   brave: 'com.brave.Browser',
   arc: 'company.thebrowser.Browser',
-} as const;
-
-export type MacCuaBrowserName = keyof typeof MAC_CUA_BROWSERS;
-
-export interface MacCuaProviderOptions {
-  browser?: MacCuaBrowserName;
-  driver?: MacCuaDriver;
-  driverCommand?: string;
-  driverArgs?: string[];
-  screenshotMode?: MacCuaScreenshotMode;
-  allowPrivateNetwork?: boolean;
-  audit?: typeof recordAuditEvent;
-  driverTimeoutMs?: number;
-}
-
-type ActiveMacCuaSession = {
-  sessionId: string;
-  metering: BrowserSessionMeteringContext | undefined;
-  runId: string;
 };
-
-// What an action needs from the controlled window: 'loads' brings its own
-// page (navigate), 'current' acts on the open page, 'none' never touches it.
-type MacCuaPageUse = 'loads' | 'current' | 'none';
 
 const SHELL_INJECTION_PATTERNS = [
   /\b(?:curl|wget)\b[\s\S]{0,240}\|\s*(?:bash|sh)\b/iu,
@@ -116,7 +58,7 @@ const DESTRUCTIVE_KEY_CHORDS = new Set([
   'cmd+option+shift+q',
 ]);
 
-function normalizeKeyChord(key: string, modifiers: string[]): string {
+function normalizeKeyChord(key, modifiers) {
   const normalizedModifiers = modifiers
     .map((modifier) => modifier.trim().toLowerCase())
     .filter(Boolean)
@@ -124,10 +66,7 @@ function normalizeKeyChord(key: string, modifiers: string[]): string {
   return [...normalizedModifiers, key.trim().toLowerCase()].join('+');
 }
 
-export function assertSafeMacCuaKeyChord(
-  key: string,
-  modifiers: string[],
-): void {
+export function assertSafeMacCuaKeyChord(key, modifiers) {
   if (DESTRUCTIVE_KEY_CHORDS.has(normalizeKeyChord(key, modifiers))) {
     throw new Error(
       `mac-cua blocked destructive browser key chord: ${[...modifiers, key].join('+')}`,
@@ -135,13 +74,13 @@ export function assertSafeMacCuaKeyChord(
   }
 }
 
-export function assertSafeMacCuaTypedPayload(text: string): void {
+export function assertSafeMacCuaTypedPayload(text) {
   if (SHELL_INJECTION_PATTERNS.some((pattern) => pattern.test(text))) {
     throw new Error('mac-cua blocked unsafe typed payload');
   }
 }
 
-function normalizeSafeMacCuaPressKey(key: string): string {
+function normalizeSafeMacCuaPressKey(key) {
   const normalized = String(key || '')
     .trim()
     .toLowerCase();
@@ -152,7 +91,7 @@ function normalizeSafeMacCuaPressKey(key: string): string {
   throw new Error(`mac-cua blocked unsupported key press: ${key}`);
 }
 
-function parseMacCuaTarget(selector: string): MacCuaTarget {
+function parseMacCuaTarget(selector) {
   const raw = selector.trim();
   const elementMatch = raw.match(
     /^(?:@?e|ax:|element:)(\d+)(?:@(?:window:)?([A-Za-z0-9_.:-]+))?$/u,
@@ -182,7 +121,7 @@ function parseMacCuaTarget(selector: string): MacCuaTarget {
 // Models write Playwright selectors (`text=Dashboard`, `a:has-text("Pay")`,
 // getByRole('link', { name: 'Pay' })). The AX tree knows labels, not CSS, so
 // the label inside is the query.
-function selectorQueryText(selector: string): string {
+function selectorQueryText(selector) {
   const quoted = selector.match(
     /(?:^text=|:has-text\(|:contains\(|getByText\(|\bname\s*[:=])\s*(["'`])([\s\S]*?)\1/u,
   );
@@ -194,14 +133,12 @@ function selectorQueryText(selector: string): string {
     .trim();
 }
 
-function driverPayloadForText(value: string): { text: string } {
+function driverPayloadForText(value) {
   assertSafeMacCuaTypedPayload(value);
   return { text: value };
 }
 
-function assertNoUnsupportedNavigationWait(
-  opts?: NavigateOptions | HistoryNavigationOptions,
-): void {
+function assertNoUnsupportedNavigationWait(opts) {
   if (!opts) return;
   if (opts.waitUntil || opts.timeoutMs !== undefined) {
     throw new Error(
@@ -210,7 +147,7 @@ function assertNoUnsupportedNavigationWait(
   }
 }
 
-function resolveUrlHost(url: string | null, selector: string): string {
+function resolveUrlHost(url, selector) {
   if (!url) {
     throw new Error(
       `browser.fill(${selector}) SecretRef requires a resolvable browser URL for host-scoped secret policy evaluation.`,
@@ -224,49 +161,57 @@ function resolveUrlHost(url: string | null, selector: string): string {
     return parsed.hostname;
   } catch (error) {
     throw new Error(
-      `browser.fill(${selector}) SecretRef requires a resolvable browser URL for host-scoped secret policy evaluation: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `browser.fill(${selector}) SecretRef requires a resolvable browser URL for host-scoped secret policy evaluation: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-function decodeDriverScreenshot(result: MacCuaScreenshotResult): Buffer {
+function decodeDriverScreenshot(result) {
   try {
     return Buffer.from(result.dataBase64, 'base64');
   } catch (error) {
     throw new Error(
-      `mac-cua driver returned an invalid screenshot payload: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `mac-cua driver returned an invalid screenshot payload: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-class MacCuaBrowserSession implements BrowserSession {
-  private awaitingTwoFactor = false;
-  private lastTwoFactorState: BrowserTwoFactorState | null = null;
-  private lastPage: { url: string; title: string } | null = null;
+class MacCuaBrowserSession {
+  // The operator's own browser window on the gateway's desktop.
+  headed = true;
+  awaitingTwoFactor = false;
+  lastTwoFactorState = null;
+  lastPage = null;
 
   constructor(
-    private readonly driver: MacCuaDriver,
-    private readonly sessionId: string,
-    private readonly browserName: MacCuaBrowserName,
-    private readonly bundleId: string,
-    private readonly metering: BrowserSessionMeteringContext | undefined,
-    private readonly runId: string,
-    private readonly screenshotMode: MacCuaScreenshotMode,
-    private readonly allowPrivateNetwork: boolean | undefined,
-    private readonly audit: typeof recordAuditEvent,
-  ) {}
+    driver,
+    sessionId,
+    browserName,
+    bundleId,
+    metering,
+    runId,
+    screenshotMode,
+    host,
+    audit,
+  ) {
+    this.driver = driver;
+    this.sessionId = sessionId;
+    this.browserName = browserName;
+    this.bundleId = bundleId;
+    this.metering = metering;
+    this.runId = runId;
+    this.screenshotMode = screenshotMode;
+    this.host = host;
+    this.audit = audit;
+  }
 
-  async evaluate<T>(_fn: BrowserEvaluateFunction<T>): Promise<T> {
+  async evaluate(_fn) {
     throw new Error(
       'MacCuaBrowserProvider does not support DOM evaluate; use screenshot/AX targeting instead.',
     );
   }
 
-  async screenshot(opts?: ScreenshotOptions): Promise<Buffer> {
+  async screenshot(opts) {
     const bytes = await this.runAction('screenshot', async () =>
       decodeDriverScreenshot(
         await this.driver.screenshot(this.sessionId, {
@@ -279,13 +224,13 @@ class MacCuaBrowserSession implements BrowserSession {
     return bytes;
   }
 
-  async navigate(url: string, opts?: NavigateOptions): Promise<void> {
+  async navigate(url, opts) {
     await this.runAction(
       'navigate',
       async () => {
         assertNoUnsupportedNavigationWait(opts);
-        const parsed = await assertBrowserNavigationUrl(url, {
-          allowPrivateNetwork: this.allowPrivateNetwork,
+        const parsed = await this.host.navigation.assertUrl(url, {
+          allowPrivateNetwork: this.host.allowPrivateNetwork,
         });
         await this.keyChord('l', ['cmd']);
         await this.driver.typeTextChars(this.sessionId, {
@@ -299,8 +244,8 @@ class MacCuaBrowserSession implements BrowserSession {
             'mac-cua driver did not return an address-bar AX value before navigation commit.',
           );
         }
-        await assertBrowserNavigationUrl(addressBarValue, {
-          allowPrivateNetwork: this.allowPrivateNetwork,
+        await this.host.navigation.assertUrl(addressBarValue, {
+          allowPrivateNetwork: this.host.allowPrivateNetwork,
         });
         await this.driver.pressKey(this.sessionId, 'return');
       },
@@ -308,28 +253,28 @@ class MacCuaBrowserSession implements BrowserSession {
     );
   }
 
-  async back(opts?: HistoryNavigationOptions): Promise<void> {
+  async back(opts) {
     await this.runAction('back', async () => {
       assertNoUnsupportedNavigationWait(opts);
       await this.driver.pressHistoryButton(this.sessionId, 'back');
     });
   }
 
-  async forward(opts?: HistoryNavigationOptions): Promise<void> {
+  async forward(opts) {
     await this.runAction('forward', async () => {
       assertNoUnsupportedNavigationWait(opts);
       await this.driver.pressHistoryButton(this.sessionId, 'forward');
     });
   }
 
-  async reload(opts?: HistoryNavigationOptions): Promise<void> {
+  async reload(opts) {
     await this.runAction('reload', async () => {
       assertNoUnsupportedNavigationWait(opts);
       await this.keyChord('r', ['cmd']);
     });
   }
 
-  async click(selector: string, _opts?: ClickOptions): Promise<void> {
+  async click(selector, _opts) {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('click', async () => {
       const target = await this.resolveActionTarget(
@@ -341,14 +286,14 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  async press(key: string): Promise<void> {
+  async press(key) {
     const normalizedKey = normalizeSafeMacCuaPressKey(key);
     await this.runAction('press', async () => {
       await this.driver.pressKey(this.sessionId, normalizedKey);
     });
   }
 
-  async fill(selector: string, value: BrowserFillInput): Promise<void> {
+  async fill(selector, value) {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('fill', async () => {
       const payload = this.buildFillPayload(selector, value);
@@ -368,9 +313,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  async fillTwoFactorCode(
-    value: BrowserFillInput,
-  ): Promise<BrowserTwoFactorCodeFillResult> {
+  async fillTwoFactorCode(value) {
     const state = await this.inspectTwoFactorChallenge();
     const selector = state.selectors?.[0];
     let strategy = selector ? 'ax-selector' : 'native-focus';
@@ -423,18 +366,15 @@ class MacCuaBrowserSession implements BrowserSession {
     return { ...(selector ? { selector } : {}), strategy, submitted: true };
   }
 
-  private buildFillPayload(
-    selector: string,
-    value: BrowserFillInput,
-  ): { text: string } | { secretRef: SecretRef } {
+  buildFillPayload(selector, value) {
     if (typeof value === 'string') return driverPayloadForText(value);
-    if (isSecretHandle(value)) {
+    if (this.host.secrets.isHandle(value)) {
       try {
         return driverPayloadForText(
-          unsafeEscapeSecretHandle(value, {
+          this.host.secrets.unsafeEscape(value, {
             reason: `fill browser field ${selector}`,
             audit: (handle, reason) => {
-              recordSecretUnsafeEscaped({
+              this.host.secrets.recordUnsafeEscaped({
                 sessionId: this.metering?.sessionId,
                 runId: this.runId,
                 skillName: this.metering?.skillName,
@@ -451,14 +391,14 @@ class MacCuaBrowserSession implements BrowserSession {
         value.dispose();
       }
     }
-    const hardened = hardenSecretRef(value);
+    const hardened = this.host.secrets.hardenRef(value);
     return {
       secretRef: { source: hardened.source, id: hardened.id },
     };
   }
 
-  async scroll(opts: ScrollOptions): Promise<void> {
-    const delta = normalizeScrollDelta(opts);
+  async scroll(opts) {
+    const delta = this.host.playwright.normalizeScrollDelta(opts);
     await this.runAction('scroll', async () => {
       const target = opts.selector
         ? await this.resolveActionTarget(
@@ -474,7 +414,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
+  async waitForSelector(selector, opts) {
     const requestedTarget = parseMacCuaTarget(selector);
     await this.runAction('wait_for_selector', async () => {
       const target = await this.resolveActionTarget(
@@ -486,9 +426,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  async nativeSnapshot(opts?: {
-    interactiveOnly?: boolean;
-  }): Promise<BrowserNativeSnapshot> {
+  async nativeSnapshot(opts) {
     const readPage = this.driver.readPage?.bind(this.driver);
     if (!readPage) {
       throw new Error(
@@ -510,10 +448,7 @@ class MacCuaBrowserSession implements BrowserSession {
     };
   }
 
-  async liveFrame(opts: {
-    image: boolean;
-    quality: number;
-  }): Promise<{ url: string; title: string; image?: Buffer }> {
+  async liveFrame(opts) {
     // The action before already probed the window, 2FA and the URL; doing
     // that again would add seconds to every click.
     const image = opts.image
@@ -539,7 +474,7 @@ class MacCuaBrowserSession implements BrowserSession {
     return { ...page, ...(image ? { image } : {}) };
   }
 
-  async inspectTwoFactorChallenge(): Promise<BrowserTwoFactorState> {
+  async inspectTwoFactorChallenge() {
     if (this.awaitingTwoFactor && this.lastTwoFactorState?.detected) {
       return this.lastTwoFactorState;
     }
@@ -550,10 +485,7 @@ class MacCuaBrowserSession implements BrowserSession {
     return state;
   }
 
-  async waypoint(
-    event: BrowserWaypointEvent,
-    opts?: BrowserWaypointOptions,
-  ): Promise<void> {
+  async waypoint(event, opts) {
     await this.runAction(
       event,
       async () => {
@@ -568,16 +500,12 @@ class MacCuaBrowserSession implements BrowserSession {
     );
   }
 
-  private async keyChord(key: string, modifiers: string[]): Promise<void> {
+  async keyChord(key, modifiers) {
     assertSafeMacCuaKeyChord(key, modifiers);
     await this.driver.keyChord(this.sessionId, { key, modifiers });
   }
 
-  private async resolveActionTarget(
-    action: string,
-    selector: string,
-    requestedTarget: MacCuaTarget,
-  ): Promise<MacCuaTarget> {
+  async resolveActionTarget(action, selector, requestedTarget) {
     if (requestedTarget.kind === 'point') {
       throw new Error(
         'mac-cua pixel targeting is only allowed as an AX-resolution fallback.',
@@ -599,11 +527,7 @@ class MacCuaBrowserSession implements BrowserSession {
     return resolved.target;
   }
 
-  private async runAction<T>(
-    action: string,
-    run: () => Promise<T>,
-    page: MacCuaPageUse = 'current',
-  ): Promise<T> {
+  async runAction(action, run, page = 'current') {
     const before = await this.driver.getEnvironmentState();
     try {
       const result = await this.runInSessionWindow(action, run, page);
@@ -623,11 +547,7 @@ class MacCuaBrowserSession implements BrowserSession {
   // window reach whichever window has focus: check, and reopen, before every
   // action. Only navigation reruns in the new window (once); other actions
   // would act on its blank start page, so they fail and ask for a navigate.
-  private async runInSessionWindow<T>(
-    action: string,
-    run: () => Promise<T>,
-    page: MacCuaPageUse,
-  ): Promise<T> {
+  async runInSessionWindow(action, run, page) {
     if (page === 'none') return await run();
     const reopened = await this.driver.ensureSessionWindow(this.sessionId);
     if (reopened && page === 'current') throw this.windowReopenedError(action);
@@ -647,16 +567,13 @@ class MacCuaBrowserSession implements BrowserSession {
     }
   }
 
-  private windowReopenedError(action: string): Error {
+  windowReopenedError(action) {
     return new Error(
       `mac-cua ${this.browserName} window was closed, so a new one was opened; navigate to the page again before retrying ${action}.`,
     );
   }
 
-  private assertBackgroundSafe(
-    before: MacCuaEnvironmentState | undefined,
-    after: MacCuaEnvironmentState | undefined,
-  ): void {
+  assertBackgroundSafe(before, after) {
     if (!before || !after) return;
     if (after.frontmostBundleId === this.bundleId) return;
     if (
@@ -670,11 +587,7 @@ class MacCuaBrowserSession implements BrowserSession {
     );
   }
 
-  private recordAction(
-    action: string,
-    status: 'ok' | 'error',
-    error?: unknown,
-  ): void {
+  recordAction(action, status, error) {
     if (!this.metering?.sessionId) return;
     this.audit({
       sessionId: this.metering.sessionId,
@@ -693,7 +606,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  private recordScreenshotTaken(opts?: ScreenshotOptions): void {
+  recordScreenshotTaken(opts) {
     if (!this.metering?.sessionId) return;
     this.audit({
       sessionId: this.metering.sessionId,
@@ -712,11 +625,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  private recordWaypoint(
-    event: BrowserWaypointEvent,
-    opts?: BrowserWaypointOptions,
-    detection?: { action: string; signals?: string[] },
-  ): void {
+  recordWaypoint(event, opts, detection) {
     if (!this.metering?.sessionId) return;
     this.audit({
       sessionId: this.metering.sessionId,
@@ -741,12 +650,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  private recordPixelFallback(
-    action: string,
-    selector: string,
-    target: MacCuaTarget,
-    reason: string,
-  ): void {
+  recordPixelFallback(action, selector, target, reason) {
     if (!this.metering?.sessionId) return;
     this.audit({
       sessionId: this.metering.sessionId,
@@ -764,7 +668,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  private async recordDetectedTwoFactor(action: string): Promise<void> {
+  async recordDetectedTwoFactor(action) {
     if (this.awaitingTwoFactor || !this.driver.detectTwoFactorWaypoint) return;
     if (
       action === 'browser_await_two_factor' ||
@@ -783,7 +687,7 @@ class MacCuaBrowserSession implements BrowserSession {
     );
   }
 
-  private async detectCurrentTwoFactorState(): Promise<BrowserTwoFactorState> {
+  async detectCurrentTwoFactorState() {
     if (!this.driver.detectTwoFactorWaypoint) return { detected: false };
     const result = await this.driver.detectTwoFactorWaypoint(this.sessionId);
     const url = await this.driver
@@ -806,7 +710,7 @@ class MacCuaBrowserSession implements BrowserSession {
     };
   }
 
-  private recordCredentialFilled(selector: string, ref: SecretRef): void {
+  recordCredentialFilled(selector, ref) {
     if (!this.metering?.sessionId) return;
     this.audit({
       sessionId: this.metering.sessionId,
@@ -825,10 +729,7 @@ class MacCuaBrowserSession implements BrowserSession {
     });
   }
 
-  private async assertSecretFillAllowed(
-    selector: string,
-    ref: SecretRef,
-  ): Promise<void> {
+  async assertSecretFillAllowed(selector, ref) {
     const skillName = this.metering?.skillName?.trim();
     if (!skillName) {
       throw new Error(
@@ -839,7 +740,7 @@ class MacCuaBrowserSession implements BrowserSession {
       await this.driver.getCurrentUrl(this.sessionId),
       selector,
     );
-    assertSecretResolveAllowed({
+    this.host.secrets.assertResolveAllowed({
       sessionId: this.metering?.sessionId,
       agentId: this.metering?.agentId,
       skillName,
@@ -849,7 +750,7 @@ class MacCuaBrowserSession implements BrowserSession {
       host,
       selector,
     });
-    recordSecretResolved({
+    this.host.secrets.recordResolved({
       sessionId: this.metering?.sessionId,
       runId: this.runId,
       skillName,
@@ -862,22 +763,16 @@ class MacCuaBrowserSession implements BrowserSession {
   }
 }
 
-export class MacCuaBrowserProvider implements BrowserProvider {
-  private readonly activeSessions = new WeakMap<
-    MacCuaBrowserSession,
-    ActiveMacCuaSession
-  >();
-  private readonly driver: MacCuaDriver;
-  private readonly browserName: MacCuaBrowserName;
-  private readonly bundleId: string;
-  private readonly screenshotMode: MacCuaScreenshotMode;
-  private readonly audit: typeof recordAuditEvent;
+export class MacCuaBrowserProvider {
+  activeSessions = new WeakMap();
 
-  constructor(private readonly options: MacCuaProviderOptions = {}) {
+  constructor(options) {
+    this.options = options;
+    this.host = options.host;
     this.browserName = options.browser || 'chrome';
     this.bundleId = MAC_CUA_BROWSERS[this.browserName];
     this.screenshotMode = options.screenshotMode || 'som';
-    this.audit = options.audit || recordAuditEvent;
+    this.audit = options.audit || this.host.audit.record;
     if (options.driver) {
       this.driver = options.driver;
     } else {
@@ -891,12 +786,13 @@ export class MacCuaBrowserProvider implements BrowserProvider {
       this.driver = new StdioMacCuaDriver(
         driverCommand.command,
         driverCommand.args,
+        this.host.mcp.load,
         options.driverTimeoutMs,
       );
     }
   }
 
-  async launchSession(opts: SessionOptions): Promise<BrowserSession> {
+  async launchSession(opts) {
     this.assertReadyForRealDriver();
     if (opts.profileDirHint) {
       throw new Error(
@@ -904,7 +800,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
       );
     }
     const runId =
-      opts.metering?.auditRunId || makeAuditRunId('mac-cua-browser');
+      opts.metering?.auditRunId || this.host.audit.makeRunId('mac-cua-browser');
     const launched = await this.driver.startBrowserSession({
       bundleId: this.bundleId,
       backgroundSafe: true,
@@ -917,7 +813,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
       opts.metering,
       runId,
       this.screenshotMode,
-      this.options.allowPrivateNetwork,
+      this.host,
       this.audit,
     );
     this.activeSessions.set(session, {
@@ -929,12 +825,12 @@ export class MacCuaBrowserProvider implements BrowserProvider {
     return session;
   }
 
-  getCapabilities(): BrowserProviderCapabilities {
+  getCapabilities() {
     this.assertReadyForRealDriver();
-    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
+    return this.host.capabilities;
   }
 
-  async closeSession(session: BrowserSession): Promise<void> {
+  async closeSession(session) {
     if (!(session instanceof MacCuaBrowserSession)) {
       throw new Error('MacCuaBrowserProvider can only close its own sessions');
     }
@@ -947,10 +843,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
     this.recordSessionEnded(active);
   }
 
-  private recordSessionStarted(
-    metering: BrowserSessionMeteringContext | undefined,
-    runId: string,
-  ): void {
+  recordSessionStarted(metering, runId) {
     if (!metering?.sessionId) return;
     this.audit({
       sessionId: metering.sessionId,
@@ -965,7 +858,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
     });
   }
 
-  private recordSessionEnded(active: ActiveMacCuaSession): void {
+  recordSessionEnded(active) {
     if (!active.metering?.sessionId) return;
     this.audit({
       sessionId: active.metering.sessionId,
@@ -980,7 +873,7 @@ export class MacCuaBrowserProvider implements BrowserProvider {
     });
   }
 
-  private assertReadyForRealDriver(): void {
+  assertReadyForRealDriver() {
     if (this.options.driver) return;
     const blocking = buildCuaMacResults().find(
       (result) => result.severity !== 'ok',

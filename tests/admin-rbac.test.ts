@@ -292,6 +292,30 @@ test('commands carry the claims of a scoped caller and nothing for an unscoped o
   expect(isAdminActionClaimed(['*'], 'admin.config.write')).toBe(true);
 });
 
+// The browser-pool admin routes moved into the managed-cloud plugin's
+// `/browser-pool doctor` (#1801); tokens minted before keep working.
+describe('removed browser-pool admin actions', () => {
+  test.each([
+    ['/api/admin/browser-pool/health', 'GET'],
+    ['/api/admin/browser-pool/start', 'POST'],
+  ])('%s %s maps to no admin action', (pathname, method) => {
+    expect(resolveAdminRbacAction(pathname, method)).toBeNull();
+  });
+
+  test('a token that still claims them keeps its other actions', () => {
+    const payload = {
+      actions: [
+        'admin.browser_pool.read',
+        'admin.browser_pool.start',
+        'admin.config.read',
+      ],
+    };
+
+    expect(isAdminActionAllowed(payload, 'admin.config.read')).toBe(true);
+    expect(isAdminActionAllowed(payload, 'admin.config.write')).toBe(false);
+  });
+});
+
 test.each([
   ['/api/admin/channels', 'GET', 'admin.channels.read'],
   ['/api/admin/channels', 'PUT', null],

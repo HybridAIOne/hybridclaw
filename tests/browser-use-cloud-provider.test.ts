@@ -5,7 +5,9 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
-import type { BrowserUseCloudPlaywrightModule } from '../src/browser/browser-use-cloud-provider.js';
+type BrowserUseCloudPlaywrightModule = {
+  chromium: { connectOverCDP(endpointURL: string): Promise<unknown> };
+};
 
 let tempRoot = '';
 const ORIGINAL_HOME = process.env.HOME;
@@ -17,6 +19,16 @@ const ORIGINAL_MISSING_BROWSER_SECRET = process.env.MISSING_BROWSER_SECRET;
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-browser-cloud-'));
   return tempRoot;
+}
+
+// Built after vi.resetModules() so the host shares the test's db and audit.
+async function testHost(
+  overrides: { secretAudit?: (...args: unknown[]) => void } = {},
+) {
+  const { createBrowserProviderHost } = await import(
+    '../src/browser/provider-host.js'
+  );
+  return createBrowserProviderHost({ allowPrivateNetwork: false, ...overrides });
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -163,7 +175,7 @@ afterEach(async () => {
   restoreEnvVar('MISSING_BROWSER_SECRET', ORIGINAL_MISSING_BROWSER_SECRET);
 });
 
-test('browser-use cloud provider launches via stored SecretRef and emits audit plus session usage', async () => {
+test('browser-use cloud provider launches with the API key credential and emits audit plus session usage', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
@@ -176,7 +188,7 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
     '../src/security/runtime-secrets.js'
   );
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
@@ -199,7 +211,8 @@ test('browser-use cloud provider launches via stored SecretRef and emits audit p
     ),
   );
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'BROWSER_USE_API_KEY' },
+    host: await testHost(),
+    getApiKey: () => 'bu_test_key',
     baseUrl: 'https://api.browser-use.test/api/v4',
     browser: {
       timeoutMinutes: 5,
@@ -265,7 +278,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
     '../src/memory/db.js'
   );
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveBrowserUseSecrets({
@@ -300,14 +313,14 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
     );
   const secretAudit = vi.fn();
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_API_KEY' },
+    host: await testHost({ secretAudit }),
+    getApiKey: () => 'api-key',
     fetch: fetchMock,
     playwright: mock.playwright,
     pricing: {
       browserUsdPerMinute: 0.001,
       actionUsd: 0.0005,
     },
-    secretAudit,
   });
 
   const session = await provider.launchSession({
@@ -365,7 +378,7 @@ test('browser-use cloud provider records estimated close usage when cloud stop f
     '../src/memory/db.js'
   );
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
@@ -389,7 +402,8 @@ test('browser-use cloud provider records estimated close usage when cloud stop f
     )
     .mockRejectedValueOnce(new Error('stop failed'));
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -421,7 +435,7 @@ test('browser-use cloud provider reports both stop and browser close failures', 
 
   const { initDatabase } = await import('../src/memory/db.js');
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
@@ -443,7 +457,8 @@ test('browser-use cloud provider reports both stop and browser close failures', 
     )
     .mockRejectedValueOnce(new Error('stop failed'));
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -464,10 +479,11 @@ test('browser-use cloud provider reports both stop and browser close failures', 
 
 test('browser-use cloud provider rejects local profile path hints', async () => {
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   const mock = createMockPlaywright();
   const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
     fetch: vi.fn(),
     playwright: mock.playwright,
   });
@@ -482,12 +498,13 @@ test('browser-use cloud provider rejects local profile path hints', async () => 
 
 test('browser-use cloud provider refuses to start unmetered sessions', async () => {
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   const mock = createMockPlaywright();
   const fetchMock = vi.fn();
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -499,13 +516,57 @@ test('browser-use cloud provider refuses to start unmetered sessions', async () 
   expect(mock.connectOverCDP).not.toHaveBeenCalled();
 });
 
+test('browser-use cloud provider drops trailing slashes from the API base URL', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  const fetchMock = vi.fn(async () => {
+    throw new Error('offline');
+  });
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    baseUrl: `https://api.browser-use.test/api/v4${'/'.repeat(50_000)}`,
+    getApiKey: () => 'test-key',
+    fetch: fetchMock,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: { sessionId: 'session-slashes', agentId: 'agent' },
+    }),
+  ).rejects.toThrow(/offline/u);
+  expect(fetchMock).toHaveBeenCalledWith(
+    'https://api.browser-use.test/api/v4/browsers',
+    expect.anything(),
+  );
+});
+
+test('browser-use cloud provider names the credential when the API key is unset', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  const fetchMock = vi.fn();
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    getApiKey: () => undefined,
+    fetch: fetchMock,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: { sessionId: 'session-no-key', agentId: 'agent' },
+    }),
+  ).rejects.toThrow(/hybridclaw secret set BROWSER_USE_API_KEY/u);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test('browser-use cloud provider rejects non-websocket CDP URLs and stops the cloud session', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   vi.resetModules();
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
   const mock = createMockPlaywright();
@@ -528,7 +589,8 @@ test('browser-use cloud provider rejects non-websocket CDP URLs and stops the cl
       }),
     );
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -551,13 +613,51 @@ test('browser-use cloud provider rejects non-websocket CDP URLs and stops the cl
   );
 });
 
+// The gateway launches with timeoutMs 60s; that bounds the launch, not the
+// remote session, which would otherwise end after one minute.
+test('browser-use cloud provider leaves the session lifetime to timeoutMinutes alone', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
+  vi.resetModules();
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  const mock = createMockPlaywright();
+  const fetchMock = vi.fn(async () =>
+    jsonResponse(
+      { id: 'cloud-session-launch', status: 'active', cdpUrl: 'https://x.test' },
+      201,
+    ),
+  );
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    getApiKey: () => 'bu_test_key',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      timeoutMs: 60_000,
+      metering: { sessionId: 'session-launch', agentId: 'agent-launch' },
+    }),
+  ).rejects.toThrow(/ws:\/\//u);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    'https://api.browser-use.com/api/v4/browsers',
+    expect.objectContaining({ method: 'POST', body: '{}' }),
+  );
+});
+
 test('browser-use cloud provider stops cloud session when CDP connection fails', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   vi.resetModules();
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
   const mock = createMockPlaywright();
@@ -581,7 +681,8 @@ test('browser-use cloud provider stops cloud session when CDP connection fails',
       }),
     );
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -618,7 +719,7 @@ test('browser-use cloud provider rejects unresolved fill SecretRefs', async () =
 
   const { initDatabase } = await import('../src/memory/db.js');
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
@@ -644,7 +745,8 @@ test('browser-use cloud provider rejects unresolved fill SecretRefs', async () =
       }),
     );
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -673,7 +775,7 @@ test('browser-use cloud provider closes CDP handle and stops cloud session when 
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   vi.resetModules();
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
   const mock = createMockPlaywright();
@@ -697,7 +799,8 @@ test('browser-use cloud provider closes CDP handle and stops cloud session when 
       }),
     );
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -726,7 +829,7 @@ test('browser-use cloud provider rejects malformed successful API payloads', asy
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   vi.resetModules();
   const { BrowserUseCloudProvider } = await import(
-    '../src/browser/browser-use-cloud-provider.js'
+    '../plugins/browser-use-cloud/src/provider.js'
   );
   await saveBrowserUseSecrets({ TEST_BROWSER_PASSWORD: 'api-key' });
   const mock = createMockPlaywright();
@@ -734,7 +837,8 @@ test('browser-use cloud provider rejects malformed successful API payloads', asy
     .fn()
     .mockResolvedValueOnce(jsonResponse({ status: 'active' }));
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'store', id: 'TEST_BROWSER_PASSWORD' },
+    host: await testHost(),
+    getApiKey: () => 'secret-password',
     fetch: fetchMock,
     playwright: mock.playwright,
   });

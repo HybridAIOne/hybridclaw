@@ -92,27 +92,6 @@ function makeConfig(): AdminConfig {
       provider: 'local',
       allowPrivateNetwork: false,
       local: { profileDir: '', headed: false },
-      camofox: { profileDir: '', headed: false },
-      managedCloud: {
-        endpointUrl: 'http://127.0.0.1:8787',
-        poolTokenRef: undefined,
-        defaultTenantId: '',
-        pricing: { actionUsd: 0 },
-      },
-      browserUseCloud: {
-        apiKeyRef: undefined,
-        projectId: '',
-        profileId: '',
-        region: '',
-        keepAlive: false,
-        pricing: { browserUsdPerMinute: 0, actionUsd: 0 },
-      },
-      macCua: {
-        browser: 'chrome',
-        driverCommand: '',
-        driverArgs: [],
-        screenshotMode: 'som',
-      },
     },
     adaptiveSkills: { enabled: true, autoApplyEnabled: false },
   } as unknown as AdminConfig;

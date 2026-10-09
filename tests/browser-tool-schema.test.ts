@@ -85,7 +85,20 @@ test('browser provider log label follows gateway context and defaults to local',
   setBrowserGatewayContext('', '', 'mac-cua', 'session-1', 'main');
   expect(getBrowserProviderLogLabel()).toBe('mac-cua');
   expect(usesGatewayManagedBrowser()).toBe(true);
+
+  setBrowserGatewayContext('', '', 'local', 'session-1', 'main');
+  expect(usesGatewayManagedBrowser()).toBe(false);
 });
+
+// Plugin providers run in the gateway; the sandbox cannot run their code, so
+// it must never drive its own local browser for them.
+test.each(['camofox', 'browser-use-cloud', 'browserbase'])(
+  'a %s browser provider routes browser tools through the gateway',
+  (provider) => {
+    setBrowserGatewayContext('', '', provider, 'session-1', 'main');
+    expect(usesGatewayManagedBrowser()).toBe(true);
+  },
+);
 
 test('managed browser resume reuses the parked suspended session id', async () => {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -209,17 +222,18 @@ test('mac-cua browser tools route through the gateway provider', async () => {
 });
 
 test.each([
-  { provider: 'mac-cua', headed: true },
-  { provider: 'managed-cloud', headed: false },
+  { provider: 'mac-cua', gatewayHeaded: true, headed: true },
+  { provider: 'managed-cloud', gatewayHeaded: undefined, headed: false },
 ])('gateway browser_navigate reports headed=$headed for $provider', async ({
   provider,
+  gatewayHeaded,
   headed,
 }) => {
   vi.stubGlobal(
     'fetch',
     vi.fn(
       async () =>
-        new Response(JSON.stringify({ success: true }), {
+        new Response(JSON.stringify({ success: true, headed: gatewayHeaded }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),

@@ -175,6 +175,12 @@ COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 COPY --link --from=builder /app/plugins/distill ./plugins/distill
 COPY --link --from=builder /app/plugins/media-tools ./plugins/media-tools
 COPY --link --from=builder /app/plugins/transformers-embeddings ./plugins/transformers-embeddings
+# Browser provider plugins: an upgraded config that selected one enables it,
+# so its source must be here (camofox fetches its dependencies on install).
+COPY --link --from=builder /app/plugins/browser-use-cloud ./plugins/browser-use-cloud
+COPY --link --from=builder /app/plugins/camofox ./plugins/camofox
+COPY --link --from=builder /app/plugins/mac-cua ./plugins/mac-cua
+COPY --link --from=builder /app/plugins/managed-cloud ./plugins/managed-cloud
 COPY --link --from=builder /app/plugins/twilio-voice ./plugins/twilio-voice
 COPY --link SECURITY.md TRUST_MODEL.md ./
 

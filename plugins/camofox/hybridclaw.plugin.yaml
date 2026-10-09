@@ -1,0 +1,30 @@
+id: camofox
+name: Camofox Browser
+version: 0.1.0
+kind: tool
+description: Stealth Firefox (camoufox-js) browser provider on the gateway host. Select with browser.provider = camofox.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    profileRoot:
+      type: string
+    headed:
+      type: boolean
+      default: false
+    launchOptions:
+      type: object
+      default: {}
+configUiHints:
+  profileRoot:
+    label: Profile root
+    help: Persistent browser profile directory. Defaults to the shared browser profile root.
+  headed:
+    label: Headed
+    help: Show the Camofox window instead of running headless.
+  launchOptions:
+    label: Launch options
+    help: camoufox-js launch options such as os, locale, proxy, or block_webrtc.

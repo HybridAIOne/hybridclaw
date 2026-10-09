@@ -108,12 +108,11 @@ files (AGENTS.md §3.3) instead of adding hand copies.
 
 **One path, one writer.** Every gateway reader resolves the file through one
 helper. Today they pass a workspace to `resolveWorkspacePolicyPath`
-(`src/policy/policy-store.ts:383`), with two exceptions:
-
-- The `hybridclaw policy` CLI edits `./.hybridclaw/policy.yaml` in its own
-  working directory (`src/policy/policy-cli.ts`).
-- The camofox stealth check falls back to the process working directory
-  (`src/browser/camofox-provider.ts:137`).
+(`src/policy/policy-store.ts:383`), including the browser stealth check that
+plugin providers reach through `src/browser/provider-host.ts`, which passes the
+agent's workspace. The one exception is the `hybridclaw policy` CLI, which
+edits `./.hybridclaw/policy.yaml` in its own working directory
+(`src/policy/policy-cli.ts`).
 
 Writes go through one module that serializes them and replaces the file
 atomically with `writeMemoryFileAtomic` (`container/shared/memory-file.js`).

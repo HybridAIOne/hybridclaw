@@ -64,8 +64,6 @@ import {
   removeEdge,
   restoreEdgeRevision,
 } from '../board/card-store.js';
-import { startLocalManagedBrowserPool } from '../browser/managed-browser-pool-launcher.js';
-import { checkManagedBrowserPoolHealth } from '../browser/managed-cloud-doctor.js';
 import type {
   BrowserFillInput,
   BrowserProvider,
@@ -100,10 +98,7 @@ import {
   refreshRuntimeSecretsFromEnv,
   WEB_API_TOKEN,
 } from '../config/config.js';
-import type {
-  RuntimeBrowserProviderKind,
-  RuntimeConfig,
-} from '../config/runtime-config.js';
+import type { RuntimeConfig } from '../config/runtime-config.js';
 import {
   getRuntimeConfig,
   onRuntimeConfigChange,
@@ -137,7 +132,10 @@ import {
   setMessageActivityTrace,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
+import {
+  findPluginLoadError,
+  listLoadedPluginCommands,
+} from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import { runPreferenceTool } from '../preferences/preferences.js';
 import {
@@ -651,43 +649,12 @@ type ApiAdminPolicyRequestBody = {
 
 type GatewayBrowserSessionEntry = {
   provider: BrowserProvider;
-  providerKind: RuntimeBrowserProviderKind;
   configSignature: string;
   session: BrowserSession;
   skillName: string;
 };
 
 const gatewayBrowserSessions = new Map<string, GatewayBrowserSessionEntry>();
-
-async function handleApiAdminBrowserPoolHealth(
-  res: ServerResponse,
-): Promise<void> {
-  const browserConfig = getRuntimeConfig().browser;
-  if (browserConfig.provider !== 'managed-cloud') {
-    sendJson(res, 200, {
-      ok: false,
-      status: 'disabled',
-      endpointUrl: browserConfig.managedCloud.endpointUrl,
-      nodeCount: 0,
-      healthyNodeCount: 0,
-      message: 'Browser provider is not managed-cloud.',
-    });
-    return;
-  }
-  const health = await checkManagedBrowserPoolHealth(
-    browserConfig.managedCloud.endpointUrl,
-  );
-  sendJson(res, 200, {
-    ...health,
-    status: health.ok ? 'online' : 'offline',
-  });
-}
-
-async function handleApiAdminBrowserPoolStart(
-  res: ServerResponse,
-): Promise<void> {
-  sendJson(res, 200, await startLocalManagedBrowserPool());
-}
 
 function normalizeGatewayBrowserSessionId(value: unknown): string {
   const normalized = String(value || '').trim();
@@ -722,7 +689,7 @@ function getGatewayBrowserActionSelector(
   args: Record<string, unknown>,
 ): string {
   return getGatewayBrowserSelector(args, {
-    allowAtRef: isMacCuaGatewaySession(active),
+    allowAtRef: isNativeGatewaySession(active),
   });
 }
 
@@ -732,7 +699,7 @@ async function getGatewayBrowserResumeSelector(
 ): Promise<string> {
   const explicitSelector = getGatewayBrowserActionSelector(active, args);
   if (explicitSelector) return explicitSelector;
-  if (!isMacCuaGatewaySession(active)) return '';
+  if (!isNativeGatewaySession(active)) return '';
   const state = await active.session.inspectTwoFactorChallenge?.();
   return state?.selectors?.[0] || '';
 }
@@ -767,13 +734,15 @@ function unsupportedGatewayBrowserTool(toolName: string): never {
   );
 }
 
-function isMacCuaGatewaySession(active: GatewayBrowserSessionEntry): boolean {
-  return active.providerKind === 'mac-cua';
+// A browser driven from outside through the OS accessibility tree has no DOM
+// to evaluate; it reads pages with nativeSnapshot and clicks by text or ref.
+function isNativeGatewaySession(active: GatewayBrowserSessionEntry): boolean {
+  return typeof active.session.nativeSnapshot === 'function';
 }
 
-// mac-cua cannot wait for a page load: a navigate returns once Return is
-// pressed. Give the page a moment before the frame.
-const MAC_CUA_FRAME_SETTLE_MS = 500;
+// A native browser cannot wait for a page load: a navigate returns once Return
+// is pressed. Give the page a moment before the frame.
+const NATIVE_FRAME_SETTLE_MS = 500;
 const BROWSER_FRAME_JPEG_QUALITY = 55;
 
 /**
@@ -791,7 +760,7 @@ async function sendGatewayBrowserFrame(
     sendJson(res, 200, { success: true });
     return;
   }
-  if (isMacCuaGatewaySession(active)) await sleep(MAC_CUA_FRAME_SETTLE_MS);
+  if (isNativeGatewaySession(active)) await sleep(NATIVE_FRAME_SETTLE_MS);
   const frame = await active.session.liveFrame({
     image: args.image === true,
     quality: BROWSER_FRAME_JPEG_QUALITY,
@@ -820,7 +789,7 @@ function writeGatewayBrowserUploadFiles(args: Record<string, unknown>): {
   if (payloads.length === 0) {
     throw new GatewayRequestError(
       400,
-      'browser_upload requires filePayloads when using managed-cloud.',
+      'browser_upload requires filePayloads when the browser runs in the gateway.',
     );
   }
   const dir = path.join(
@@ -892,7 +861,7 @@ async function readGatewayBrowserTwoFactorPageState(
   selectors: string[];
   nativeDetection?: BrowserTwoFactorState;
 }> {
-  if (isMacCuaGatewaySession(active)) {
+  if (isNativeGatewaySession(active)) {
     const nativeDetection = await active.session.inspectTwoFactorChallenge?.();
     return {
       url: nativeDetection?.url || 'about:blank',
@@ -1065,7 +1034,9 @@ async function getGatewayBrowserSession(
     }
     gatewayBrowserSessions.delete(sessionId);
   }
-  const provider = createBrowserProvider(browserConfig);
+  const provider = createBrowserProvider(browserConfig, {
+    pluginLoadError: findPluginLoadError(browserConfig.provider),
+  });
   const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
     headed: opts?.headed,
@@ -1079,7 +1050,6 @@ async function getGatewayBrowserSession(
   });
   const entry = {
     provider,
-    providerKind: browserConfig.provider,
     configSignature,
     session,
     skillName,
@@ -1123,7 +1093,7 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId, {
       headed: args.headed === true || args.headful === true,
     });
-    if (isMacCuaGatewaySession(active)) {
+    if (isNativeGatewaySession(active)) {
       await active.session.navigate(url);
       const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
@@ -1133,7 +1103,11 @@ async function handleApiBrowserTool(
         agentId,
         args,
         pageState,
-        fields: { url, title: pageState.title },
+        fields: {
+          url,
+          title: pageState.title,
+          headed: active.session.headed === true,
+        },
       });
       return;
     }
@@ -1152,7 +1126,11 @@ async function handleApiBrowserTool(
       sessionId,
       agentId,
       args,
-      fields: { url: pageState.url || url, title: pageState.title },
+      fields: {
+        url: pageState.url || url,
+        title: pageState.title,
+        headed: active.session.headed === true,
+      },
     });
     return;
   }
@@ -1289,7 +1267,7 @@ async function handleApiBrowserTool(
       return;
     }
     if (text) {
-      if (isMacCuaGatewaySession(active)) {
+      if (isNativeGatewaySession(active)) {
         await active.session.click(text, { timeoutMs: 30_000 });
         await sendGatewayBrowserActionJson(res, {
           active,
@@ -1344,10 +1322,10 @@ async function handleApiBrowserTool(
       return;
     }
     if (coordinate) {
-      if (isMacCuaGatewaySession(active)) {
+      if (isNativeGatewaySession(active)) {
         throw new GatewayRequestError(
           400,
-          'mac-cua clicks page elements, not coordinates: pass the visible text (text: "Dashboard") or a ref from browser_snapshot (ref: "@e23").',
+          'This browser clicks page elements, not coordinates: pass the visible text (text: "Dashboard") or a ref from browser_snapshot (ref: "@e23").',
         );
       }
       const clicked = await active.session.evaluate(
@@ -1483,7 +1461,7 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_back') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
+    if (isNativeGatewaySession(active)) {
       await active.session.back();
       const pageState = await readGatewayBrowserTwoFactorPageState(active);
       await sendGatewayBrowserActionJson(res, {
@@ -1519,7 +1497,7 @@ async function handleApiBrowserTool(
     const active = await getGatewayBrowserSession(sessionId, agentId);
     const key = String(args.key || '').trim();
     if (!key) throw new GatewayRequestError(400, 'browser_press requires key.');
-    if (isMacCuaGatewaySession(active)) {
+    if (isNativeGatewaySession(active)) {
       if (!active.session.press) unsupportedGatewayBrowserTool(toolName);
       await active.session.press(key);
       await sendGatewayBrowserActionJson(res, {
@@ -1559,7 +1537,7 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_get_images') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
+    if (isNativeGatewaySession(active)) {
       unsupportedGatewayBrowserTool(toolName);
     }
     const images = await active.session.evaluate(() =>
@@ -1582,7 +1560,7 @@ async function handleApiBrowserTool(
 
   if (toolName === 'browser_network') {
     const active = await getGatewayBrowserSession(sessionId, agentId);
-    if (isMacCuaGatewaySession(active)) {
+    if (isNativeGatewaySession(active)) {
       unsupportedGatewayBrowserTool(toolName);
     }
     const filter = String(args.filter || '').trim();
@@ -1620,7 +1598,7 @@ async function handleApiBrowserTool(
     if (!selector) {
       throw new GatewayRequestError(
         400,
-        'browser_upload requires a CSS selector when using managed-cloud.',
+        'browser_upload requires a CSS selector when the browser runs in the gateway.',
       );
     }
     const upload = writeGatewayBrowserUploadFiles(args);
@@ -1728,7 +1706,7 @@ async function handleApiBrowserTool(
       } else {
         throw new GatewayRequestError(
           400,
-          'browser_resume_interaction requires selector for code injection with managed-cloud.',
+          'browser_resume_interaction requires selector for code injection when the browser runs in the gateway.',
         );
       }
       await active.session.waypoint?.(waypoint, {
@@ -11032,20 +11010,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
-            return;
-          }
-          if (
-            pathname === '/api/admin/browser-pool/health' &&
-            method === 'GET'
-          ) {
-            await handleApiAdminBrowserPoolHealth(res);
-            return;
-          }
-          if (
-            pathname === '/api/admin/browser-pool/start' &&
-            method === 'POST'
-          ) {
-            await handleApiAdminBrowserPoolStart(res);
             return;
           }
           if (

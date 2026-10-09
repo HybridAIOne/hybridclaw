@@ -104,8 +104,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.config.read',
   'admin.config.write',
   'admin.config.reload',
-  'admin.browser_pool.read',
-  'admin.browser_pool.start',
   'admin.webhook_targets.write',
   'admin.a2a.read',
   'admin.a2a.write',
@@ -180,7 +178,6 @@ const ADMIN_READ_ACTIONS = [
   'admin.connectors.read',
   'admin.mcp.read',
   'admin.config.read',
-  'admin.browser_pool.read',
   'admin.a2a.read',
   'admin.fleet.read',
   'admin.signal.read',
@@ -212,7 +209,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.sessions.delete',
     'admin.scheduler.write',
     'admin.scheduler.delete',
-    'admin.browser_pool.start',
     'admin.distill.write',
     'admin.distill.delete',
     'admin.jobs.write',
@@ -281,7 +277,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.config.reload',
-    'admin.browser_pool.start',
     'admin.webhook_targets.write',
     'admin.a2a.write',
     'admin.a2a.delete',
@@ -721,12 +716,6 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/config/reload' && method === 'POST') {
     return 'admin.config.reload';
-  }
-  if (pathname === '/api/admin/browser-pool/health' && method === 'GET') {
-    return 'admin.browser_pool.read';
-  }
-  if (pathname === '/api/admin/browser-pool/start' && method === 'POST') {
-    return 'admin.browser_pool.start';
   }
   if (
     (pathname === '/api/admin/slack-webhook-targets' ||

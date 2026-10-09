@@ -1,0 +1,39 @@
+id: mac-cua
+name: mac-cua Browser
+version: 0.1.0
+kind: tool
+description: Drives the operator's own macOS browser through the Cua Driver accessibility tree. macOS only. Select with browser.provider = mac-cua.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    browser:
+      type: string
+      enum: [safari, chrome, firefox, brave, arc]
+      default: chrome
+    driverCommand:
+      type: string
+    driverArgs:
+      type: array
+      items:
+        type: string
+        minLength: 1
+      default: []
+    screenshotMode:
+      type: string
+      enum: [som, vision, ax]
+      default: som
+configUiHints:
+  browser:
+    label: Browser
+  driverCommand:
+    label: Driver command
+    help: Path to cua-driver. Defaults to HYBRIDAI_CUA_DRIVER_BIN or cua-driver on PATH.
+  driverArgs:
+    label: Driver arguments
+    help: Leave empty for the default `mcp --no-daemon-relaunch`.
+  screenshotMode:
+    label: Screenshot mode

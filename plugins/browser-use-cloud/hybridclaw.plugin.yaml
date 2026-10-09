@@ -1,0 +1,63 @@
+id: browser-use-cloud
+name: Browser Use Cloud
+version: 0.1.0
+kind: tool
+description: Remote Chromium sessions from the Browser Use Cloud API, driven over CDP from the gateway. Select with browser.provider = browser-use-cloud.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+credentials:
+  - BROWSER_USE_API_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    baseUrl:
+      type: string
+      pattern: '^https?://'
+    browser:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        profileId:
+          type: [string, 'null']
+        proxyCountryCode:
+          type: [string, 'null']
+        timeoutMinutes:
+          type: integer
+          minimum: 1
+          maximum: 240
+        browserScreenWidth:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        browserScreenHeight:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        allowResizing:
+          type: boolean
+        enableRecording:
+          type: boolean
+    pricing:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        browserUsdPerMinute:
+          type: number
+          minimum: 0
+        actionUsd:
+          type: number
+          minimum: 0
+configUiHints:
+  baseUrl:
+    label: API base URL
+    placeholder: https://api.browser-use.com/api/v4
+  browser:
+    label: Session options
+    help: Browser Use Cloud session settings such as profileId, proxyCountryCode, or timeoutMinutes.
+  pricing:
+    label: Pricing
+    help: Overrides browserUsdPerMinute and actionUsd for usage metering.

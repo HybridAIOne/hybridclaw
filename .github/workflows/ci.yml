@@ -221,6 +221,11 @@ jobs:
           HYBRIDCLAW_RUN_CONSOLE_E2E: '1'
         run: npx vitest run --project e2e tests/console-admin.e2e.test.ts
 
+      - name: Browser provider plugins e2e (real gateways, local pool and API fakes)
+        env:
+          HYBRIDCLAW_RUN_BROWSER_PLUGIN_E2E: '1'
+        run: npx vitest run --project e2e tests/browser-provider-plugins.e2e.test.ts
+
       - name: Teams webhook e2e (built gateway, fake Bot Connector and model)
         env:
           HYBRIDCLAW_RUN_MSTEAMS_E2E: '1'

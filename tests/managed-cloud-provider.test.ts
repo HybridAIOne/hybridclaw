@@ -4,7 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
-import type { ManagedCloudPlaywrightModule } from '../src/browser/managed-cloud-provider.js';
+type ManagedCloudPlaywrightModule = {
+  chromium: {
+    connectOverCDP(
+      endpointURL: string,
+      options?: { headers?: Record<string, string> },
+    ): Promise<unknown>;
+  };
+};
 
 let tempRoot = '';
 const ORIGINAL_HOME = process.env.HOME;
@@ -13,6 +20,14 @@ const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-managed-browser-'));
   return tempRoot;
+}
+
+// Built after vi.resetModules() so the host shares the test's db and audit.
+async function testHost() {
+  const { createBrowserProviderHost } = await import(
+    '../src/browser/provider-host.js'
+  );
+  return createBrowserProviderHost({ allowPrivateNetwork: false });
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -162,6 +177,19 @@ afterEach(() => {
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
 });
 
+test.each([
+  ['http://pool.example:8787', 'http://pool.example:8787'],
+  ['http://pool.example:8787///', 'http://pool.example:8787'],
+  [`http://pool.example/${'/'.repeat(50_000)}`, 'http://pool.example'],
+  ['', 'http://127.0.0.1:8787'],
+])('managed cloud endpoint %# drops trailing slashes', async (input, expected) => {
+  const { normalizeManagedCloudEndpointUrl } = await import(
+    '../plugins/managed-cloud/src/provider.js'
+  );
+
+  expect(normalizeManagedCloudEndpointUrl(input)).toBe(expected);
+});
+
 test('managed cloud browser provider leases, navigates, screenshots, audits, meters, and closes', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
@@ -176,7 +204,7 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     '../src/audit/audit-trail.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
   await saveManagedBrowserSecrets({
@@ -215,8 +243,9 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
       }),
     );
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     endpointUrl: 'https://managed-browser.example',
-    poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
+    getPoolToken: () => 'pool-token',
     fetch: fetchMock,
     playwright: mock.playwright,
     pricing: {
@@ -324,7 +353,7 @@ test('managed cloud browser provider falls back to agent id when tenant id is bl
 
   const { initDatabase } = await import('../src/memory/db.js');
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
 
@@ -349,6 +378,7 @@ test('managed cloud browser provider falls back to agent id when tenant id is bl
       }),
     );
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     endpointUrl: 'https://managed-browser.example',
     defaultTenantId: '   ',
     fetch: fetchMock,
@@ -388,7 +418,7 @@ test('managed cloud browser provider returns guard denials before page navigatio
     '../src/memory/db.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
@@ -411,6 +441,7 @@ test('managed cloud browser provider returns guard denials before page navigatio
       }),
     );
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -448,7 +479,7 @@ test('managed cloud browser provider audits session loss on CDP disconnect', asy
     '../src/memory/db.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
@@ -472,6 +503,7 @@ test('managed cloud browser provider audits session loss on CDP disconnect', asy
       }),
     );
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -517,7 +549,7 @@ test('managed cloud browser provider supports upload, pdf, console, and waypoint
     '../src/memory/db.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
@@ -550,8 +582,9 @@ test('managed cloud browser provider supports upload, pdf, console, and waypoint
     );
 
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     endpointUrl: 'https://managed-browser.example',
-    poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
+    getPoolToken: () => 'pool-token',
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -609,11 +642,12 @@ test('managed cloud browser provider supports upload, pdf, console, and waypoint
 
 test('managed cloud browser provider rejects unmetered sessions', async () => {
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   const mock = createMockPlaywright();
   const fetchMock = vi.fn();
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -635,7 +669,7 @@ test('managed cloud browser provider keeps F13 credential injection opaque', asy
     '../src/memory/db.js'
   );
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
   const { flushAuditTrail } = await import('../src/audit/audit-trail.js');
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
@@ -652,6 +686,7 @@ test('managed cloud browser provider keeps F13 credential injection opaque', asy
     }),
   );
   const provider = new ManagedCloudBrowserProvider({
+    host: await testHost(),
     fetch: fetchMock,
     playwright: mock.playwright,
   });
@@ -694,9 +729,11 @@ test('managed cloud browser provider keeps F13 credential injection opaque', asy
 
 test('managed cloud browser provider advertises F13 and F14 hook parity', async () => {
   const { ManagedCloudBrowserProvider } = await import(
-    '../src/browser/managed-cloud-provider.js'
+    '../plugins/managed-cloud/src/provider.js'
   );
-  const capabilities = new ManagedCloudBrowserProvider().getCapabilities();
+  const capabilities = new ManagedCloudBrowserProvider({
+    host: await testHost(),
+  }).getCapabilities();
   expect(capabilities).toEqual({
     credentialInjection: 'opaque-handle',
     waypointEvents: ['browser_await_two_factor', 'browser_resume_interaction'],

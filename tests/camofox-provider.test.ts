@@ -4,16 +4,20 @@ import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
 
+import { normalizeCamofoxLaunchOptions } from '../plugins/camofox/src/launch-options.js';
+import { CamofoxProvider } from '../plugins/camofox/src/provider.js';
 import { getBrowserProfileDir } from '../src/browser/browser-login.js';
-import {
-  type CamofoxModule,
-  CamofoxProvider,
-} from '../src/browser/camofox-provider.js';
+import { createBrowserProviderHost } from '../src/browser/provider-host.js';
 import {
   createMockBrowserContext,
   createMockBrowserPage,
 } from './helpers/mock-browser.js';
 
+type CamofoxModule = {
+  Camoufox(options: Record<string, unknown>): Promise<unknown>;
+};
+
+const host = createBrowserProviderHost({ allowPrivateNetwork: false });
 let tempRoot = '';
 const ORIGINAL_TEST_BROWSER_PASSWORD = process.env.TEST_BROWSER_PASSWORD;
 
@@ -75,6 +79,7 @@ test('camofox provider launches a persistent profile with stealth launch options
   const profileDir = getBrowserProfileDir(dataDir);
   const mock = createMockCamofox();
   const provider = new CamofoxProvider({
+    host,
     dataDir,
     camofox: mock.camofox,
     stealthPolicy: () => undefined,
@@ -96,6 +101,7 @@ test('camofox provider launches a persistent profile with stealth launch options
     timeoutMs: 5_000,
   });
   const screenshot = await session.screenshot({ fullPage: true });
+  expect(session.headed).toBe(true);
   await provider.closeSession(session);
 
   expect(mock.Camoufox).toHaveBeenCalledWith({
@@ -119,6 +125,7 @@ test('camofox provider rejects profile hints outside the browser profile root', 
   const dataDir = path.join(root, 'data');
   const mock = createMockCamofox();
   const provider = new CamofoxProvider({
+    host,
     dataDir,
     camofox: mock.camofox,
     stealthPolicy: () => undefined,
@@ -136,6 +143,7 @@ test('camofox provider rejects unsafe navigation schemes', async () => {
   const root = makeTempRoot();
   const mock = createMockCamofox();
   const provider = new CamofoxProvider({
+    host,
     profileRoot: path.join(root, 'browser-profiles'),
     camofox: mock.camofox,
     stealthPolicy: () => undefined,
@@ -164,6 +172,7 @@ test('camofox provider enforces per-host stealth policy before navigation', asyn
     }
   });
   const provider = new CamofoxProvider({
+    host,
     profileRoot: path.join(root, 'browser-profiles'),
     camofox: mock.camofox,
     stealthPolicy,
@@ -194,6 +203,7 @@ test('camofox provider uses browser secret fill policy for SecretRef values', as
   const root = makeTempRoot();
   const mock = createMockCamofox();
   const provider = new CamofoxProvider({
+    host,
     profileRoot: path.join(root, 'browser-profiles'),
     camofox: mock.camofox,
     stealthPolicy: () => undefined,
@@ -228,6 +238,7 @@ test('camofox provider enforces launch timeout without forwarding it to Camoufox
         }),
     );
     const provider = new CamofoxProvider({
+      host,
       profileRoot: path.join(root, 'browser-profiles'),
       camofox: { Camoufox },
       stealthPolicy: () => undefined,
@@ -249,4 +260,64 @@ test('camofox provider enforces launch timeout without forwarding it to Camoufox
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('camofox provider without its dependencies names the plugin install step', async () => {
+  const root = makeTempRoot();
+  // The bundled plugin copy ships without node_modules.
+  vi.doMock('camoufox-js', () => {
+    throw new Error("Cannot find package 'camoufox-js'");
+  });
+  try {
+    const provider = new CamofoxProvider({
+      host,
+      profileRoot: path.join(root, 'browser-profiles'),
+      installDir: path.join(root, 'home', 'plugins', 'camofox'),
+      stealthPolicy: () => undefined,
+    });
+
+    const launch = provider.launchSession({ timeoutMs: 1_000 });
+
+    await expect(launch).rejects.toThrow('hybridclaw plugin install camofox');
+    await expect(launch).rejects.toThrow(
+      `npx camoufox-js fetch\` in ${path.join(root, 'home', 'plugins', 'camofox')}`,
+    );
+  } finally {
+    vi.doUnmock('camoufox-js');
+  }
+});
+
+test('camofox launch options keep supported camoufox-js settings', () => {
+  const env = { CAMOFOX_TEST: 'enabled', CAMOFOX_FLAG: true, CAMOFOX_COUNT: 2 };
+  expect(
+    normalizeCamofoxLaunchOptions({
+      os: ['linux', 'macos'],
+      block_webrtc: true,
+      humanize: 1.25,
+      locale: ['de-DE', 'en-US'],
+      window: [1366, 768],
+      webgl_config: ['Apple', 'Apple GPU'],
+      env,
+    }),
+  ).toEqual({
+    os: ['linux', 'macos'],
+    block_webrtc: true,
+    humanize: 1.25,
+    locale: ['de-DE', 'en-US'],
+    window: [1366, 768],
+    webgl_config: ['Apple', 'Apple GPU'],
+    env,
+  });
+});
+
+test.each([
+  [{ stealth_magic: true }, /stealth_magic is not a supported Camofox launch option/u],
+  [{ timeout: 15_000 }, /timeout is managed by HybridClaw/u],
+  [{ user_data_dir: '/tmp/x' }, /user_data_dir is managed by HybridClaw/u],
+  [{ os: 'beos' }, /launchOptions\.os must be/u],
+  [{ window: [1366] }, /launchOptions\.window must be a two-item number tuple/u],
+  [{ exclude_addons: ['UBO', 'other'] }, /must be an array containing only "UBO"/u],
+  [{ proxy: { server: '' } }, /launchOptions\.proxy\.server must be a non-empty string/u],
+])('camofox launch options reject %j', (launchOptions, error) => {
+  expect(() => normalizeCamofoxLaunchOptions(launchOptions)).toThrow(error);
 });

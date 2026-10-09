@@ -10,6 +10,13 @@ export {
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 export { recordAuditEvent } from '../audit/audit-events.js';
+export type {
+  BrowserProvider,
+  BrowserSession,
+  SessionOptions as BrowserSessionOptions,
+} from '../browser/provider.js';
+export type { BrowserProviderRegistration } from '../browser/provider-factory.js';
+export type { BrowserProviderHost } from '../browser/provider-host.js';
 export type { ChannelInfo } from '../channels/channel.js';
 export type {
   ChannelTransportInstance,

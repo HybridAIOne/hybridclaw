@@ -32,6 +32,11 @@ export function setup(): void {
       '  HYBRIDCLAW_RUN_CONSOLE_E2E=1                                    \u2192 admin console in a browser',
     );
   }
+  if (process.env.HYBRIDCLAW_RUN_BROWSER_PLUGIN_E2E !== '1') {
+    skipped.push(
+      '  HYBRIDCLAW_RUN_BROWSER_PLUGIN_E2E=1                             \u2192 browser provider plugins',
+    );
+  }
 
   if (!msteamsE2e) {
     skipped.push(

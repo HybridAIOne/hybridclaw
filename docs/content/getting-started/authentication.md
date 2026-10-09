@@ -510,7 +510,6 @@ Current built-in SecretRef surfaces include:
 - `imessage.password`
 - `voice.twilio.authToken`
 - `local.backends.vllm.apiKey`
-- `browser.browserUseCloud.apiKeyRef`
 - `web.search.searxngBearerTokenRef`
 - `agents.list[].webSearch.searxngBearerTokenRef`
 

@@ -1,0 +1,38 @@
+id: managed-cloud
+name: Managed Cloud Browser
+version: 0.1.0
+kind: tool
+description: Chromium workers leased from an operator-run HybridClaw browser pool (infra/managed-browser), with the pool's navigation guard. Select with browser.provider = managed-cloud.
+entrypoint: src/index.js
+requires:
+  node: '>=22'
+credentials:
+  - MANAGED_BROWSER_POOL_TOKEN
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    endpointUrl:
+      type: string
+      pattern: '^https?://'
+      default: http://127.0.0.1:8787
+    defaultTenantId:
+      type: string
+    pricing:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        actionUsd:
+          type: number
+          minimum: 0
+configUiHints:
+  endpointUrl:
+    label: Pool endpoint
+    placeholder: http://127.0.0.1:8787
+  defaultTenantId:
+    label: Default tenant
+    help: Pool tenant for leases; defaults to the agent id.
+  pricing:
+    label: Pricing
+    help: actionUsd charged per browser action in usage metering.

@@ -994,13 +994,6 @@ function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
   }
 }
 
-function isBrowserStealthRequested(): boolean {
-  return (
-    normalizeText(process.env.HYBRIDCLAW_BROWSER_PROVIDER).toLowerCase() ===
-    'camofox'
-  );
-}
-
 function inferBashHttpMethod(command: string): string {
   const explicit = command.match(/\b(?:-X|--request)\s+([A-Za-z]+)/i);
   if (explicit?.[1]) return explicit[1].toUpperCase();
@@ -2105,6 +2098,9 @@ export class TrustedAgentApprovalRuntime {
   private sessionId = '';
   // The bound session's key: pending approvals load, save, and resolve for it only.
   private sessionHash = '';
+  // The request's browser.provider. A warm or long-lived worker outlives a
+  // provider switch, so its spawn environment is not evidence.
+  private browserProvider = '';
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
   private mcpToolBehaviorResolver: McpToolBehaviorResolver | null = null;
@@ -2171,6 +2167,10 @@ export class TrustedAgentApprovalRuntime {
       decision: outcome.decision,
       stakesScore,
     };
+  }
+
+  setBrowserProvider(provider: string | undefined): void {
+    this.browserProvider = normalizeText(provider).toLowerCase();
   }
 
   /** Loads the session's persisted state; call before each turn. */
@@ -3212,7 +3212,10 @@ export class TrustedAgentApprovalRuntime {
       });
     }
 
-    if (lowerTool === 'browser_navigate' && isBrowserStealthRequested()) {
+    if (
+      lowerTool === 'browser_navigate' &&
+      this.browserProvider === 'camofox'
+    ) {
       const rawUrl = normalizeText(args.url);
       const target = parseUrlNetworkTarget(rawUrl);
       if (!target && isAllowedHostlessBrowserNavigation(rawUrl)) {

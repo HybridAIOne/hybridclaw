@@ -257,81 +257,36 @@ describe('config reload integration', () => {
     );
   });
 
-  it('reloadRuntimeConfig normalizes supported Camofox launch options', () => {
+  // compat: remove after v0.41 together with migrateLegacyBrowserPluginConfig.
+  it('reloadRuntimeConfig moves the selected legacy browser provider into its plugin', () => {
     writeConfig({
       browser: {
         provider: 'camofox',
         camofox: {
+          profileRoot: '',
           headed: true,
-          launchOptions: {
-            os: ['linux', 'macos'],
-            block_webrtc: true,
-            humanize: 1.25,
-            locale: ['de-DE', 'en-US'],
-            window: [1366, 768],
-            webgl_config: ['Apple', 'Apple GPU'],
-            env: {
-              CAMOFOX_TEST: 'enabled',
-              CAMOFOX_FLAG: true,
-              CAMOFOX_COUNT: 2,
-            },
-          },
+          launchOptions: { os: ['linux'], block_webrtc: true },
         },
+        macCua: { browser: 'safari', driverArgs: [] },
       },
     });
 
     const cfg = configMod.reloadRuntimeConfig('test');
-    expect(cfg.browser).toMatchObject({
+    expect(cfg.browser).toEqual({
       provider: 'camofox',
-      camofox: {
-        headed: true,
-        launchOptions: {
-          os: ['linux', 'macos'],
-          block_webrtc: true,
-          humanize: 1.25,
-          locale: ['de-DE', 'en-US'],
-          window: [1366, 768],
-          webgl_config: ['Apple', 'Apple GPU'],
-          env: {
-            CAMOFOX_TEST: 'enabled',
-            CAMOFOX_FLAG: true,
-            CAMOFOX_COUNT: 2,
-          },
+      allowPrivateNetwork: false,
+      local: { profileRoot: '', headed: false },
+    });
+    expect(cfg.plugins.list).toEqual([
+      {
+        id: 'camofox',
+        enabled: true,
+        config: {
+          headed: true,
+          launchOptions: { os: ['linux'], block_webrtc: true },
         },
       },
-    });
-  });
-
-  it('reloadRuntimeConfig rejects unsupported Camofox launch option keys', () => {
-    writeConfig({
-      browser: {
-        camofox: {
-          launchOptions: {
-            stealth_magic: true,
-          },
-        },
-      },
-    });
-
-    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
-      /browser\.camofox\.launchOptions\.stealth_magic is not a supported Camofox launch option/u,
-    );
-  });
-
-  it('reloadRuntimeConfig rejects Camofox launch options managed by HybridClaw', () => {
-    writeConfig({
-      browser: {
-        camofox: {
-          launchOptions: {
-            timeout: 15_000,
-          },
-        },
-      },
-    });
-
-    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
-      /browser\.camofox\.launchOptions\.timeout is managed by HybridClaw/u,
-    );
+    ]);
   });
 
   it('reloadRuntimeConfig normalizes trajectory retention policy', () => {

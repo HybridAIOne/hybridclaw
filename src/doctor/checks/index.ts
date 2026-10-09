@@ -3,7 +3,6 @@ import { checkBrowserUse } from './browser-use.js';
 import { checkChannels } from './channels.js';
 import { checkConfig } from './config.js';
 import { checkCredentials } from './credentials.js';
-import { checkCuaMac } from './cua-mac.js';
 import { checkDatabase } from './database.js';
 import { checkDisk } from './disk.js';
 import { checkDocker } from './docker.js';
@@ -56,11 +55,6 @@ export function doctorChecks(): DoctorCheck[] {
       category: 'browser-use',
       label: 'Browser use',
       run: checkBrowserUse,
-    },
-    {
-      category: 'cua-mac',
-      label: 'Mac CUA',
-      run: checkCuaMac,
     },
     {
       category: 'docker',

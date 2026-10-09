@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-managed-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw browser provider backed by an operator-run managed browser pool",
+  "engines": {
+    "node": "22.x"
+  }
+}

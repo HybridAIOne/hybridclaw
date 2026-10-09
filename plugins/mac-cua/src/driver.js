@@ -1,138 +1,24 @@
 /**
- * cua-driver MCP adapter — the only module that speaks the cua-driver stdio
- * protocol and holds the (pid, window_id) each mac-cua session controls.
- *
- * It opens a dedicated browser window per session and never adopts one the
- * operator already has open. cua-driver posts keys to the pid; window_id only
- * pre-focuses, so keys sent to a closed window land in whichever window has
- * focus. Callers confirm the window with ensureSessionWindow first.
- * NOT the policy layer: key-chord and payload guards, background-safe
- * checks, and audit live in mac-cua-provider.ts.
+ * The upstream Cua Driver (`cua-driver mcp`) over MCP stdio. Each browser
+ * session owns one window it opened itself, keyed `<pid>:<windowId>`, so the
+ * agent never drives a window the operator already had open. The MCP SDK
+ * comes from the gateway through the provider host.
  */
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type {
-  CallToolResult,
-  CallToolResultSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { SecretRef } from '../security/secret-refs.js';
-import { sleep } from '../utils/sleep.js';
 import {
   findMacCuaAddressBarUrl,
   findMacCuaHistoryButton,
   firstEditableElementSelector,
   firstEditableElementTarget,
-  type MacCuaHistoryDirection,
-  type MacCuaPageSnapshot,
-  type MacCuaQueryPurpose,
   normalizePositiveInteger,
   normalizeWindowId,
   renderMacCuaPageSnapshot,
   resolveMacCuaQueryElementIndex,
   windowStateTree,
-} from './mac-cua-window-state.js';
-import type { ScreenshotOptions, WaitOptions } from './provider.js';
+} from './window-state.js';
 
-export type MacCuaScreenshotMode = 'som' | 'vision' | 'ax';
-
-export interface MacCuaEnvironmentState {
-  cursorX: number;
-  cursorY: number;
-  frontmostBundleId: string;
-  activeSpaceId?: string | number | null;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-export type MacCuaTarget =
-  | { kind: 'ax'; elementIndex: number; windowId?: string | number }
-  | { kind: 'point'; x: number; y: number }
-  | { kind: 'query'; query: string };
-
-export interface MacCuaResolvedTarget {
-  target: MacCuaTarget;
-  pixelFallback?: {
-    reason: string;
-  };
-}
-
-export interface MacCuaScreenshotResult {
-  dataBase64: string;
-  mimeType?: string;
-}
-
-export interface MacCuaDriver {
-  startBrowserSession(params: {
-    bundleId: string;
-    backgroundSafe: true;
-  }): Promise<{ sessionId: string; windowId?: string | number }>;
-  stopBrowserSession(sessionId: string): Promise<void>;
-  keyChord(
-    sessionId: string,
-    params: { key: string; modifiers: string[] },
-  ): Promise<void>;
-  pressKey(sessionId: string, key: string): Promise<void>;
-  pressHistoryButton(
-    sessionId: string,
-    direction: MacCuaHistoryDirection,
-  ): Promise<void>;
-  typeTextChars(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void>;
-  click(sessionId: string, target: MacCuaTarget): Promise<void>;
-  setValue(
-    sessionId: string,
-    target: MacCuaTarget,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void>;
-  scroll(
-    sessionId: string,
-    params: { target?: MacCuaTarget; deltaX: number; deltaY: number },
-  ): Promise<void>;
-  screenshot(
-    sessionId: string,
-    opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
-  ): Promise<MacCuaScreenshotResult>;
-  waitForElement(
-    sessionId: string,
-    target: MacCuaTarget,
-    opts?: WaitOptions,
-  ): Promise<void>;
-  resolveTarget(
-    sessionId: string,
-    target: MacCuaTarget,
-    purpose?: MacCuaQueryPurpose,
-  ): Promise<MacCuaResolvedTarget>;
-  readPage?(
-    sessionId: string,
-    opts?: { interactiveOnly?: boolean },
-  ): Promise<MacCuaPageSnapshot & { url: string | null }>;
-  getAddressBarValue(sessionId: string): Promise<string | null>;
-  getCurrentUrl(sessionId: string): Promise<string | null>;
-  detectTwoFactorWaypoint?(
-    sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }>;
-  fillTwoFactorInput?(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<boolean>;
-  focusTwoFactorInput?(sessionId: string): Promise<boolean>;
-  getEnvironmentState(): Promise<MacCuaEnvironmentState>;
-  /**
-   * Opens a new dedicated window when the session's window is gone and
-   * returns true; the old page state is lost with it.
-   */
-  ensureSessionWindow(sessionId: string): Promise<boolean>;
-  getWindowTitle(sessionId: string): Promise<string>;
-}
-
-type DriverSession = {
-  bundleId: string;
-  pid: number;
-  windowId: number;
-  lastTypedText?: string;
-  /** Page JavaScript failed once (Safari blocks it by default); use AX. */
-  pageScriptBlocked?: boolean;
-};
 
 const DEFAULT_DRIVER_TIMEOUT_MS = 60_000;
 const NEW_WINDOW_TIMEOUT_MS = 5_000;
@@ -146,7 +32,7 @@ const CUA_MCP_CLIENT_INFO = {
   version: process.env.npm_package_version || '0.0.0',
 };
 
-function defaultDriverCommand(): { command: string; args: string[] } {
+function defaultDriverCommand() {
   const configured = process.env.HYBRIDAI_CUA_DRIVER_BIN?.trim();
   return {
     command: configured || 'cua-driver',
@@ -154,10 +40,7 @@ function defaultDriverCommand(): { command: string; args: string[] } {
   };
 }
 
-export function resolveMacCuaDriverCommand(options?: {
-  command?: string;
-  args?: string[];
-}): { command: string; args: string[] } {
+export function resolveMacCuaDriverCommand(options) {
   const fallback = defaultDriverCommand();
   return {
     command: options?.command || fallback.command,
@@ -166,29 +49,15 @@ export function resolveMacCuaDriverCommand(options?: {
   };
 }
 
-function scrollDirectionFromDelta(
-  deltaX: number,
-  deltaY: number,
-): 'up' | 'down' | 'left' | 'right' {
+function scrollDirectionFromDelta(deltaX, deltaY) {
   if (Math.abs(deltaX) > Math.abs(deltaY)) {
     return deltaX < 0 ? 'left' : 'right';
   }
   return deltaY < 0 ? 'up' : 'down';
 }
 
-interface CuaMcpToolResult {
-  data: unknown;
-  images: string[];
-  structuredContent: Record<string, unknown> | null;
-  isError: boolean;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
@@ -205,9 +74,9 @@ function withTimeout<T>(
   });
 }
 
-function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
-  const images: string[] = [];
-  const textChunks: string[] = [];
+function normalizeMcpToolResult(result) {
+  const images = [];
+  const textChunks = [];
   for (const part of result.content || []) {
     if (part.type === 'text') {
       textChunks.push(part.text || '');
@@ -216,10 +85,10 @@ function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
     }
   }
   const text = textChunks.filter(Boolean).join('\n');
-  let data: unknown = text;
+  let data = text;
   if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
     try {
-      data = JSON.parse(text) as unknown;
+      data = JSON.parse(text);
     } catch {
       data = text;
     }
@@ -228,7 +97,7 @@ function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
     result.structuredContent &&
     typeof result.structuredContent === 'object' &&
     !Array.isArray(result.structuredContent)
-      ? (result.structuredContent as Record<string, unknown>)
+      ? result.structuredContent
       : null;
   return {
     data,
@@ -238,23 +107,21 @@ function normalizeMcpToolResult(result: CallToolResult): CuaMcpToolResult {
   };
 }
 
-export class StdioMacCuaDriver implements MacCuaDriver {
-  private client: Client | null = null;
-  private transport: StdioClientTransport | null = null;
-  private callToolResultSchema: typeof CallToolResultSchema | null = null;
-  private startPromise: Promise<void> | null = null;
-  private readonly sessions = new Map<string, DriverSession>();
+export class StdioMacCuaDriver {
+  client = null;
+  transport = null;
+  callToolResultSchema = null;
+  startPromise = null;
+  sessions = new Map();
 
-  constructor(
-    private readonly command: string,
-    private readonly args: string[] = [],
-    private readonly timeoutMs = DEFAULT_DRIVER_TIMEOUT_MS,
-  ) {}
+  constructor(command, args, loadMcp, timeoutMs = DEFAULT_DRIVER_TIMEOUT_MS) {
+    this.command = command;
+    this.args = args;
+    this.loadMcp = loadMcp;
+    this.timeoutMs = timeoutMs;
+  }
 
-  async startBrowserSession(params: {
-    bundleId: string;
-    backgroundSafe: true;
-  }): Promise<{ sessionId: string; windowId?: string | number }> {
+  async startBrowserSession(params) {
     const { pid, windowId } = await this.openDedicatedWindow(params.bundleId);
     const sessionId = `${pid}:${windowId}`;
     this.sessions.set(sessionId, { bundleId: params.bundleId, pid, windowId });
@@ -264,7 +131,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  async ensureSessionWindow(sessionId: string): Promise<boolean> {
+  async ensureSessionWindow(sessionId) {
     const session = this.requireSession(sessionId);
     if (await this.findSessionWindow(session)) return false;
     // The sessionId stays the caller's handle; only its target moves.
@@ -274,22 +141,19 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return true;
   }
 
-  async getWindowTitle(sessionId: string): Promise<string> {
+  async getWindowTitle(sessionId) {
     const window = await this.findSessionWindow(this.requireSession(sessionId));
     return typeof window?.title === 'string' ? window.title : '';
   }
 
-  async stopBrowserSession(sessionId: string): Promise<void> {
+  async stopBrowserSession(sessionId) {
     this.sessions.delete(sessionId);
     if (this.sessions.size === 0) {
       await this.closeMcpSession();
     }
   }
 
-  async keyChord(
-    sessionId: string,
-    params: { key: string; modifiers: string[] },
-  ): Promise<void> {
+  async keyChord(sessionId, params) {
     const session = this.requireSession(sessionId);
     await this.callTool('hotkey', {
       pid: session.pid,
@@ -298,7 +162,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
-  async pressKey(sessionId: string, key: string): Promise<void> {
+  async pressKey(sessionId, key) {
     const session = this.requireSession(sessionId);
     await this.callTool('press_key', {
       pid: session.pid,
@@ -310,10 +174,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
   // cua-driver has no bracket keys, so Cmd+[ cannot go back. Pressing the
   // toolbar button also acts on this window only, where keys go to whichever
   // window has focus.
-  async pressHistoryButton(
-    sessionId: string,
-    direction: MacCuaHistoryDirection,
-  ): Promise<void> {
+  async pressHistoryButton(sessionId, direction) {
     const session = this.requireSession(sessionId);
     // Reading the tree also refreshes cua-driver's element indices.
     const button = findMacCuaHistoryButton(
@@ -333,10 +194,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
-  async typeTextChars(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void> {
+  async typeTextChars(sessionId, payload) {
     const session = this.requireSession(sessionId);
     if ('secretRef' in payload) {
       throw new Error(
@@ -357,7 +215,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     }
   }
 
-  async click(sessionId: string, target: MacCuaTarget): Promise<void> {
+  async click(sessionId, target) {
     const session = this.requireSession(sessionId);
     await this.callTool('click', {
       pid: session.pid,
@@ -366,11 +224,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
-  async setValue(
-    sessionId: string,
-    target: MacCuaTarget,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<void> {
+  async setValue(sessionId, target, payload) {
     const session = this.requireSession(sessionId);
     if ('secretRef' in payload) {
       throw new Error(
@@ -385,10 +239,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
-  async scroll(
-    sessionId: string,
-    params: { target?: MacCuaTarget; deltaX: number; deltaY: number },
-  ): Promise<void> {
+  async scroll(sessionId, params) {
     const session = this.requireSession(sessionId);
     await this.callTool('scroll', {
       pid: session.pid,
@@ -400,10 +251,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     });
   }
 
-  async screenshot(
-    sessionId: string,
-    opts: ScreenshotOptions & { mode: MacCuaScreenshotMode },
-  ): Promise<MacCuaScreenshotResult> {
+  async screenshot(sessionId, opts) {
     const session = this.requireSession(sessionId);
     const result =
       opts.mode === 'ax'
@@ -434,20 +282,12 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  async waitForElement(
-    sessionId: string,
-    target: MacCuaTarget,
-    opts?: WaitOptions,
-  ): Promise<void> {
+  async waitForElement(sessionId, target, opts) {
     await this.resolveTarget(sessionId, target);
     void opts;
   }
 
-  async resolveTarget(
-    sessionId: string,
-    target: MacCuaTarget,
-    purpose: MacCuaQueryPurpose = 'click',
-  ): Promise<MacCuaResolvedTarget> {
+  async resolveTarget(sessionId, target, purpose = 'click') {
     const session = this.requireSession(sessionId);
     if (target.kind === 'point') return { target };
     if (target.kind === 'ax') return { target };
@@ -473,10 +313,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     }
   }
 
-  async readPage(
-    sessionId: string,
-    opts?: { interactiveOnly?: boolean },
-  ): Promise<MacCuaPageSnapshot & { url: string | null }> {
+  async readPage(sessionId, opts) {
     const tree = await this.readWindowTree(sessionId);
     return {
       ...renderMacCuaPageSnapshot(tree, opts),
@@ -484,11 +321,11 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  async getAddressBarValue(sessionId: string): Promise<string | null> {
+  async getAddressBarValue(sessionId) {
     return this.requireSession(sessionId).lastTypedText || null;
   }
 
-  async getCurrentUrl(sessionId: string): Promise<string | null> {
+  async getCurrentUrl(sessionId) {
     const session = this.requireSession(sessionId);
     if (!session.pageScriptBlocked) {
       try {
@@ -513,7 +350,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     }
   }
 
-  private async readWindowTree(sessionId: string): Promise<string> {
+  async readWindowTree(sessionId) {
     const session = this.requireSession(sessionId);
     return windowStateTree(
       await this.callToolRecord('get_window_state', {
@@ -523,9 +360,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     );
   }
 
-  async detectTwoFactorWaypoint(
-    sessionId: string,
-  ): Promise<{ detected: boolean; signals?: string[]; selectors?: string[] }> {
+  async detectTwoFactorWaypoint(sessionId) {
     const session = this.requireSession(sessionId);
     const record = await this.callToolRecord('get_window_state', {
       pid: session.pid,
@@ -547,9 +382,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  private async findTwoFactorInputTarget(
-    sessionId: string,
-  ): Promise<MacCuaTarget | null> {
+  async findTwoFactorInputTarget(sessionId) {
     const session = this.requireSession(sessionId);
     for (const query of [
       'one-time-code',
@@ -572,17 +405,14 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return null;
   }
 
-  async fillTwoFactorInput(
-    sessionId: string,
-    payload: { text: string } | { secretRef: SecretRef },
-  ): Promise<boolean> {
+  async fillTwoFactorInput(sessionId, payload) {
     const target = await this.findTwoFactorInputTarget(sessionId);
     if (!target) return false;
     await this.setValue(sessionId, target, payload);
     return true;
   }
 
-  async focusTwoFactorInput(sessionId: string): Promise<boolean> {
+  async focusTwoFactorInput(sessionId) {
     const target = await this.findTwoFactorInputTarget(sessionId);
     if (!target) {
       return false;
@@ -591,7 +421,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return true;
   }
 
-  async getEnvironmentState(): Promise<MacCuaEnvironmentState> {
+  async getEnvironmentState() {
     const [cursorText, apps, windows] = await Promise.all([
       this.callToolText('get_cursor_position', {}),
       this.callToolRecord('list_apps', {}),
@@ -602,7 +432,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     );
     const activeApp = Array.isArray(apps.apps)
       ? apps.apps.find(
-          (app): app is Record<string, unknown> =>
+          (app) =>
             Boolean(app) &&
             typeof app === 'object' &&
             !Array.isArray(app) &&
@@ -621,15 +451,13 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     };
   }
 
-  private requireSession(sessionId: string): DriverSession {
+  requireSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error('mac-cua driver session is not active.');
     return session;
   }
 
-  private async findSessionWindow(
-    session: DriverSession,
-  ): Promise<Record<string, unknown> | undefined> {
+  async findSessionWindow(session) {
     return (await this.listWindowRecords(session.pid)).find(
       (entry) => normalizePositiveInteger(entry.window_id) === session.windowId,
     );
@@ -637,9 +465,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
 
   // Never adopt a window the operator already has open: it may hold the
   // HybridClaw chat itself or unrelated work. Open a dedicated one instead.
-  private async openDedicatedWindow(
-    bundleId: string,
-  ): Promise<{ pid: number; windowId: number }> {
+  async openDedicatedWindow(bundleId) {
     const record =
       (await this.openWindowInRunningBrowser(bundleId)) ||
       (await this.callToolRecord('launch_app', {
@@ -658,11 +484,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return { pid, windowId };
   }
 
-  private toDriverTarget(target: MacCuaTarget): {
-    element_index?: number;
-    x?: number;
-    y?: number;
-  } {
+  toDriverTarget(target) {
     if (target.kind === 'point') return { x: target.x, y: target.y };
     if (target.kind === 'ax') return { element_index: target.elementIndex };
     throw new Error(
@@ -670,13 +492,11 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     );
   }
 
-  private async openWindowInRunningBrowser(
-    bundleId: string,
-  ): Promise<Record<string, unknown> | null> {
+  async openWindowInRunningBrowser(bundleId) {
     const apps = await this.callToolRecord('list_apps', {});
     const app = Array.isArray(apps.apps)
       ? apps.apps.find(
-          (entry): entry is Record<string, unknown> =>
+          (entry) =>
             Boolean(entry) &&
             typeof entry === 'object' &&
             !Array.isArray(entry) &&
@@ -713,16 +533,14 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     );
   }
 
-  private async listWindowRecords(
-    pid: number,
-  ): Promise<Record<string, unknown>[]> {
+  async listWindowRecords(pid) {
     const windows = await this.callToolRecord('list_windows', {
       pid,
       on_screen_only: false,
     });
     return Array.isArray(windows.windows)
       ? windows.windows.filter(
-          (entry): entry is Record<string, unknown> =>
+          (entry) =>
             Boolean(entry) &&
             typeof entry === 'object' &&
             !Array.isArray(entry),
@@ -730,8 +548,8 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       : [];
   }
 
-  private async listWindowIds(pid: number): Promise<Set<number>> {
-    const ids = new Set<number>();
+  async listWindowIds(pid) {
+    const ids = new Set();
     for (const entry of await this.listWindowRecords(pid)) {
       const id = normalizePositiveInteger(entry.window_id);
       if (id !== null) ids.add(id);
@@ -739,10 +557,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return ids;
   }
 
-  private async callToolRecord(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  async callToolRecord(tool, args) {
     const result = await this.callTool(tool, args);
     const payload =
       result.structuredContent ||
@@ -756,26 +571,20 @@ export class StdioMacCuaDriver implements MacCuaDriver {
         `mac-cua driver tool ${tool} returned non-object output.`,
       );
     }
-    return payload as Record<string, unknown>;
+    return payload;
   }
 
-  private async callToolText(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<string> {
+  async callToolText(tool, args) {
     const result = await this.callTool(tool, args);
     return typeof result.data === 'string' ? result.data : '';
   }
 
-  private async callTool(
-    tool: string,
-    args: Record<string, unknown>,
-  ): Promise<CuaMcpToolResult> {
+  async callTool(tool, args) {
     await this.ensureMcpSession();
     if (!this.client || !this.callToolResultSchema) {
       throw new Error('mac-cua MCP client is not connected.');
     }
-    const result = (await withTimeout(
+    const result = await withTimeout(
       this.client.callTool(
         {
           name: tool,
@@ -785,7 +594,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
       ),
       this.timeoutMs,
       `mac-cua driver tool ${tool}`,
-    )) as CallToolResult;
+    );
     const normalized = normalizeMcpToolResult(result);
     if (normalized.isError) {
       const message =
@@ -801,22 +610,19 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     return normalized;
   }
 
-  private async ensureMcpSession(): Promise<void> {
+  async ensureMcpSession() {
     if (this.client) return;
     if (this.startPromise) {
       await this.startPromise;
       return;
     }
     this.startPromise = (async () => {
-      const [
-        { Client },
-        { getDefaultEnvironment, StdioClientTransport },
-        { CallToolResultSchema },
-      ] = await Promise.all([
-        import('@modelcontextprotocol/sdk/client/index.js'),
-        import('@modelcontextprotocol/sdk/client/stdio.js'),
-        import('@modelcontextprotocol/sdk/types.js'),
-      ]);
+      const {
+        Client,
+        getDefaultEnvironment,
+        StdioClientTransport,
+        CallToolResultSchema,
+      } = await this.loadMcp();
       const transport = new StdioClientTransport({
         command: this.command,
         args: this.args,
@@ -843,7 +649,7 @@ export class StdioMacCuaDriver implements MacCuaDriver {
     }
   }
 
-  private async closeMcpSession(): Promise<void> {
+  async closeMcpSession() {
     const client = this.client;
     const transport = this.transport;
     this.client = null;

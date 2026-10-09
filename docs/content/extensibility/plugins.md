@@ -30,6 +30,10 @@ hybridclaw plugin install twilio-voice
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
 hybridclaw plugin install ./plugins/connector-events
+hybridclaw plugin install managed-cloud
+hybridclaw plugin install browser-use-cloud
+hybridclaw plugin install camofox
+hybridclaw plugin install mac-cua
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -151,6 +155,9 @@ in a hand-edited config are dropped when the plugin loads.
 - `vonage-voice` provides signed inbound and outbound phone calls through
   Vonage Voice without adding Vonage configuration to the core voice channel —
   turn-based by default, or realtime speech-to-speech with `mode: realtime`.
+- `managed-cloud`, `browser-use-cloud`, `camofox`, and `mac-cua` register
+  browser providers selected with `browser.provider`; see
+  [Browser Provider Plugins](../reference/configuration.md#browser-provider-plugins).
 - `distill` adds human distillation: the `hybridclaw coworker` CLI and the
   admin console Distill page (`/api/admin/distill`). It ships in the npm
   package but loads only once installed (`hybridclaw plugin install distill`);
@@ -322,6 +329,7 @@ Currently wired runtime surfaces:
 
 - memory layers
 - memory embedding providers (`registerEmbeddingProvider`)
+- browser providers (`registerBrowserProvider`)
 - prompt hooks
 - classifier middleware with `pre_send` and `post_receive` hooks
 - plugin tools
@@ -344,6 +352,46 @@ Plugin handler failures are logged and do not prevent reset or deletion.
 Provider registration is typed and stored by the manager, but providers are
 not yet routed into the broader runtime in the same way as memory layers,
 plugin tools, and plugin commands.
+
+### Browser providers
+
+`api.registerBrowserProvider({ kind, create(host) })` supplies a
+`browser.provider` kind other than the built-in `local`. The gateway calls
+`create(host)` when a chat opens a browser session and drives the returned
+`BrowserProvider` from its browser tool route; the sandbox never runs plugin
+browser code. `host` carries the gateway capabilities a provider must reuse
+instead of copying: the private-network navigation guard
+(`host.navigation.assertUrl` with `host.allowPrivateNetwork`), the shared
+Playwright session and secret-handle form fill (`host.playwright`), profile
+directory confinement, audit and usage recording, the workspace stealth policy,
+secret-policy checks for native drivers, and the gateway's MCP SDK. A session
+that reads pages through the OS accessibility tree implements
+`nativeSnapshot`; the gateway then routes clicks by text or ref instead of DOM
+evaluation. Set `session.headed` when the session shows a window on the
+gateway host; the gateway reports it to the agent.
+
+Register the provider with the plugin's own config and credentials in the
+closure. A plugin reload re-registers it; the gateway rebuilds open sessions of
+that kind on their next call only when the plugin or its config changed, so
+reloading another plugin keeps them open. A `browser.provider` that no plugin
+registers fails with an install hint, or with the plugin's load error when it
+failed to load; it never falls back to `local`.
+
+```js
+export default {
+  id: 'example-browser',
+  register(api) {
+    api.registerBrowserProvider({
+      kind: 'example-browser',
+      create: (host) =>
+        new ExampleBrowserProvider({
+          host,
+          getApiKey: () => api.getCredential('EXAMPLE_BROWSER_API_KEY'),
+        }),
+    });
+  },
+};
+```
 
 ### Phone notifications
 

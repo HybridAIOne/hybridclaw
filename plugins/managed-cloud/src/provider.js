@@ -1,173 +1,51 @@
+/**
+ * Managed-cloud browser provider — leases Chromium workers from an
+ * operator-run HybridClaw browser pool (`infra/managed-browser`) and drives
+ * them over CDP. Every navigation passes the core private-network guard and
+ * then the pool's tenant navigation guard; leases are audited and metered.
+ * NOT Browser Use Cloud (a third-party API without HybridClaw's guard).
+ */
 import { Buffer } from 'node:buffer';
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
-import { recordUsageEvent } from '../memory/db.js';
-import {
-  type SecretHandle,
-  withSecretHeader,
-} from '../security/secret-handles.js';
-import {
-  hardenSecretRef,
-  resolveSecretHandleInput,
-  type SecretRef,
-} from '../security/secret-refs.js';
-import {
-  fillBrowserField,
-  loadPlaywrightModule,
-  noopSecretAudit,
-  normalizeScrollDelta,
-  type PlaywrightContextShape,
-  type PlaywrightPageShape,
-  type PlaywrightSecretFillLocator,
-  toNavigationOptions,
-} from './playwright-utils.js';
-import type {
-  BrowserConsoleMessage,
-  BrowserEvaluateFunction,
-  BrowserFillInput,
-  BrowserProvider,
-  BrowserProviderCapabilities,
-  BrowserSession,
-  BrowserSessionMeteringContext,
-  BrowserWaypointEvent,
-  BrowserWaypointOptions,
-  ClickOptions,
-  ConsoleMessageOptions,
-  HistoryNavigationOptions,
-  NavigateOptions,
-  PdfOptions,
-  ScreenshotOptions,
-  ScrollOptions,
-  SessionOptions,
-  WaitOptions,
-} from './provider.js';
-import { DEFAULT_BROWSER_PROVIDER_CAPABILITIES } from './provider.js';
-
-type ManagedCloudFetch = (
-  input: string,
-  init?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-    signal?: AbortSignal;
-  },
-) => Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text(): Promise<string>;
-}>;
-
-type ManagedCloudPage = PlaywrightPageShape & {
-  locator(selector: string): PlaywrightSecretFillLocator & {
-    evaluate<TArg>(
-      fn: (element: Element, arg: TArg) => void,
-      arg: TArg,
-    ): Promise<void>;
-  };
-};
-
-type ManagedCloudBrowser = {
-  contexts(): PlaywrightContextShape<ManagedCloudPage>[];
-  close(): Promise<void>;
-};
-
-export type ManagedCloudPlaywrightModule = {
-  chromium: {
-    connectOverCDP(
-      endpointURL: string,
-      options?: { headers?: Record<string, string> },
-    ): Promise<ManagedCloudBrowser>;
-  };
-};
-
-export interface ManagedCloudBrowserPricing {
-  actionUsd: number;
-}
-
-export interface ManagedCloudBrowserProviderOptions {
-  endpointUrl?: string;
-  poolTokenRef?: SecretRef;
-  defaultTenantId?: string;
-  allowPrivateNetwork?: boolean;
-  fetch?: ManagedCloudFetch;
-  playwright?: ManagedCloudPlaywrightModule;
-  pricing?: Partial<ManagedCloudBrowserPricing>;
-  secretAudit?: (handle: SecretHandle, reason: string) => void;
-}
-
-interface ManagedCloudLeaseResponse {
-  leaseId: string;
-  nodeId: string;
-  cdpUrl: string;
-  startedAt: string | null;
-  expiresAt: string | null;
-  costUsd: number | null;
-}
-
-interface ManagedCloudNavigationResponse {
-  verdict: 'allow' | 'deny';
-  url: string;
-  reason: string | null;
-  matchedRule: unknown;
-}
-
-interface ManagedCloudReleaseResponse {
-  leaseId: string;
-  endedAt: string | null;
-  costUsd: number | null;
-}
-
-interface ActiveManagedCloudSession {
-  lease: ManagedCloudLeaseResponse;
-  browser: ManagedCloudBrowser;
-  metering: RequiredMeteringContext;
-  accruedCostUsd: number;
-  runId: string;
-}
-
-type RequiredMeteringContext = BrowserSessionMeteringContext & {
-  sessionId: string;
-  agentId: string;
-  tenantId: string;
-};
 
 const DEFAULT_ENDPOINT_URL = 'http://127.0.0.1:8787';
-const DEFAULT_PRICING: ManagedCloudBrowserPricing = {
+const DEFAULT_PRICING = {
   actionUsd: 0,
 };
 
-export function normalizeManagedCloudEndpointUrl(endpointUrl?: string): string {
-  return (endpointUrl || DEFAULT_ENDPOINT_URL).replace(/\/+$/u, '');
+/** The pool's bearer header, or none for a pool without a token. */
+export function poolAuthHeaders(poolToken) {
+  return poolToken ? { Authorization: `Bearer ${poolToken}` } : {};
 }
 
-function toRecord(payload: unknown, context: string): Record<string, unknown> {
+export function normalizeManagedCloudEndpointUrl(endpointUrl) {
+  // A scan instead of /\/+$/, which backtracks polynomially on many slashes.
+  const url = endpointUrl || DEFAULT_ENDPOINT_URL;
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end -= 1;
+  return url.slice(0, end);
+}
+
+function toRecord(payload, context) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error(
       `Managed browser ${context} returned a non-object response.`,
     );
   }
-  return payload as Record<string, unknown>;
+  return payload;
 }
 
-function readOptionalString(
-  record: Record<string, unknown>,
-  key: string,
-): string | null {
+function readOptionalString(record, key) {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function readOptionalCost(
-  record: Record<string, unknown>,
-  key: string,
-): number | null {
+function readOptionalCost(record, key) {
   const value = record[key];
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function normalizeLeaseResponse(payload: unknown): ManagedCloudLeaseResponse {
+function normalizeLeaseResponse(payload) {
   const record = toRecord(payload, 'pool lease');
   const leaseId = readOptionalString(record, 'leaseId');
   const nodeId = readOptionalString(record, 'nodeId');
@@ -193,10 +71,7 @@ function normalizeLeaseResponse(payload: unknown): ManagedCloudLeaseResponse {
   };
 }
 
-function normalizeNavigationResponse(
-  payload: unknown,
-  fallbackUrl: string,
-): ManagedCloudNavigationResponse {
+function normalizeNavigationResponse(payload, fallbackUrl) {
   const record = toRecord(payload, 'navigation guard');
   const verdict = readOptionalString(record, 'verdict');
   if (verdict !== 'allow' && verdict !== 'deny') {
@@ -212,14 +87,11 @@ function normalizeNavigationResponse(
   };
 }
 
-function normalizeReleaseResponse(
-  payload: unknown,
-  leaseId: string,
-): ManagedCloudReleaseResponse {
+function normalizeReleaseResponse(payload, leaseId) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return { leaseId, endedAt: null, costUsd: null };
   }
-  const record = payload as Record<string, unknown>;
+  const record = payload;
   return {
     leaseId: readOptionalString(record, 'leaseId') || leaseId,
     endedAt: readOptionalString(record, 'endedAt'),
@@ -227,37 +99,34 @@ function normalizeReleaseResponse(
   };
 }
 
-async function loadPlaywright(
-  injected?: ManagedCloudPlaywrightModule,
-): Promise<ManagedCloudPlaywrightModule> {
-  return await loadPlaywrightModule(
-    injected,
+async function loadPlaywright(host, injected) {
+  if (injected) return injected;
+  return await host.playwright.load(
     (cause) =>
       `Playwright is not available for managed browser cloud CDP connection. Cause: ${cause}`,
   );
 }
 
-class ManagedCloudBrowserSession implements BrowserSession {
-  private sessionLostRecorded = false;
-  private readonly consoleLog: BrowserConsoleMessage[] = [];
+class ManagedCloudBrowserSession {
+  sessionLostRecorded = false;
+  consoleLog = [];
 
   constructor(
-    private readonly page: ManagedCloudPage,
-    private readonly lease: ManagedCloudLeaseResponse,
-    private readonly metering: RequiredMeteringContext,
-    private readonly runId: string,
-    private readonly recordAction: (name: string) => void,
-    private readonly checkNavigation: (
-      url: string,
-      action: string,
-      method?: string,
-    ) => Promise<ManagedCloudNavigationResponse>,
-    private readonly allowPrivateNetwork: boolean | undefined,
-    private readonly secretAudit?: (
-      handle: SecretHandle,
-      reason: string,
-    ) => void,
+    page,
+    lease,
+    metering,
+    runId,
+    recordAction,
+    checkNavigation,
+    host,
   ) {
+    this.page = page;
+    this.lease = lease;
+    this.metering = metering;
+    this.runId = runId;
+    this.recordAction = recordAction;
+    this.checkNavigation = checkNavigation;
+    this.host = host;
     this.page.on?.('console', (message) => {
       this.consoleLog.push({
         level: message.type(),
@@ -270,20 +139,20 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
+  async evaluate(fn) {
     return await this.runSessionAction('evaluate', () =>
       this.page.evaluate(fn),
     );
   }
 
-  async screenshot(opts?: ScreenshotOptions): Promise<Buffer> {
+  async screenshot(opts) {
     const bytes = await this.runSessionAction('screenshot', () =>
       this.page.screenshot({
         fullPage: opts?.fullPage,
         type: opts?.type,
       }),
     );
-    recordAuditEvent({
+    this.host.audit.record({
       sessionId: this.metering.sessionId,
       runId: this.runId,
       event: {
@@ -298,10 +167,10 @@ class ManagedCloudBrowserSession implements BrowserSession {
     return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   }
 
-  async navigate(url: string, opts?: NavigateOptions): Promise<void> {
+  async navigate(url, opts) {
     await this.runSessionAction('navigate', async () => {
-      const parsed = await assertBrowserNavigationUrl(url, {
-        allowPrivateNetwork: this.allowPrivateNetwork,
+      const parsed = await this.host.navigation.assertUrl(url, {
+        allowPrivateNetwork: this.host.allowPrivateNetwork,
       });
       const guard = await this.checkNavigation(
         parsed.toString(),
@@ -313,52 +182,55 @@ class ManagedCloudBrowserSession implements BrowserSession {
           `Managed browser navigation blocked by guard: ${guard.reason || guard.verdict}`,
         );
       }
-      await this.page.goto(guard.url, toNavigationOptions(opts));
+      await this.page.goto(
+        guard.url,
+        this.host.playwright.toNavigationOptions(opts),
+      );
     });
   }
 
-  async back(opts?: HistoryNavigationOptions): Promise<void> {
+  async back(opts) {
     await this.runSessionAction('back', async () => {
-      await this.page.goBack(toNavigationOptions(opts));
+      await this.page.goBack(this.host.playwright.toNavigationOptions(opts));
       await this.auditHistoryNavigation('back');
     });
   }
 
-  async forward(opts?: HistoryNavigationOptions): Promise<void> {
+  async forward(opts) {
     await this.runSessionAction('forward', async () => {
-      await this.page.goForward(toNavigationOptions(opts));
+      await this.page.goForward(this.host.playwright.toNavigationOptions(opts));
       await this.auditHistoryNavigation('forward');
     });
   }
 
-  async reload(opts?: HistoryNavigationOptions): Promise<void> {
+  async reload(opts) {
     await this.runSessionAction('reload', async () => {
-      await this.page.reload(toNavigationOptions(opts));
+      await this.page.reload(this.host.playwright.toNavigationOptions(opts));
       await this.auditHistoryNavigation('reload');
     });
   }
 
-  async click(selector: string, opts?: ClickOptions): Promise<void> {
+  async click(selector, opts) {
     await this.runSessionAction('click', () =>
       this.page.click(selector, { timeout: opts?.timeoutMs }),
     );
   }
 
-  async fill(selector: string, value: BrowserFillInput): Promise<void> {
+  async fill(selector, value) {
     await this.runSessionAction('fill', () =>
-      fillBrowserField(
+      this.host.playwright.fillField(
         this.page,
         selector,
         value,
-        this.secretAudit,
+        this.host.secretAudit,
         this.metering,
       ),
     );
   }
 
-  async scroll(opts: ScrollOptions): Promise<void> {
+  async scroll(opts) {
     await this.runSessionAction('scroll', async () => {
-      const delta = normalizeScrollDelta(opts);
+      const delta = this.host.playwright.normalizeScrollDelta(opts);
       if (opts.selector) {
         await this.page
           .locator(opts.selector)
@@ -371,7 +243,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
+  async waitForSelector(selector, opts) {
     await this.runSessionAction('wait_for_selector', () =>
       this.page.waitForSelector(selector, {
         state: opts?.state,
@@ -380,7 +252,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     );
   }
 
-  async upload(selector: string, files: string[]): Promise<void> {
+  async upload(selector, files) {
     await this.runSessionAction('upload', async () => {
       if (typeof this.page.setInputFiles !== 'function') {
         throw new Error(
@@ -391,7 +263,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  async pdf(opts?: PdfOptions): Promise<Buffer> {
+  async pdf(opts) {
     return await this.runSessionAction('pdf', async () => {
       if (typeof this.page.pdf !== 'function') {
         throw new Error(
@@ -406,9 +278,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  async consoleMessages(
-    opts?: ConsoleMessageOptions,
-  ): Promise<BrowserConsoleMessage[]> {
+  async consoleMessages(opts) {
     return await this.runSessionAction('console_messages', async () => {
       const limit =
         typeof opts?.limit === 'number' && Number.isFinite(opts.limit)
@@ -420,12 +290,9 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  async waypoint(
-    event: BrowserWaypointEvent,
-    opts?: BrowserWaypointOptions,
-  ): Promise<void> {
+  async waypoint(event, opts) {
     await this.runSessionAction(event, async () => {
-      recordAuditEvent({
+      this.host.audit.record({
         sessionId: this.metering.sessionId,
         runId: this.runId,
         event: {
@@ -444,10 +311,7 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  private async runSessionAction<T>(
-    action: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
+  async runSessionAction(action, operation) {
     this.recordAction(action);
     try {
       return await operation();
@@ -457,10 +321,10 @@ class ManagedCloudBrowserSession implements BrowserSession {
     }
   }
 
-  private recordSessionLost(action: string, error: unknown): void {
+  recordSessionLost(action, error) {
     if (this.sessionLostRecorded || !isLikelySessionLostError(error)) return;
     this.sessionLostRecorded = true;
-    recordAuditEvent({
+    this.host.audit.record({
       sessionId: this.metering.sessionId,
       runId: this.runId,
       event: {
@@ -475,11 +339,11 @@ class ManagedCloudBrowserSession implements BrowserSession {
     });
   }
 
-  private async auditHistoryNavigation(action: string): Promise<void> {
+  async auditHistoryNavigation(action) {
     const url = this.page.url();
     if (!url || url === 'about:blank') return;
-    const parsed = await assertBrowserNavigationUrl(url, {
-      allowPrivateNetwork: this.allowPrivateNetwork,
+    const parsed = await this.host.navigation.assertUrl(url, {
+      allowPrivateNetwork: this.host.allowPrivateNetwork,
     });
     const guard = await this.checkNavigation(parsed.toString(), action, 'GET');
     if (guard.verdict !== 'allow') {
@@ -490,25 +354,19 @@ class ManagedCloudBrowserSession implements BrowserSession {
   }
 }
 
-function isLikelySessionLostError(error: unknown): boolean {
+function isLikelySessionLostError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return /(?:target closed|browser has been closed|context.*closed|websocket|socket hang up|econnreset|econnrefused|connection.*closed|cdp)/iu.test(
     message,
   );
 }
 
-export class ManagedCloudBrowserProvider implements BrowserProvider {
-  private readonly activeSessions = new WeakMap<
-    ManagedCloudBrowserSession,
-    ActiveManagedCloudSession
-  >();
-  private readonly endpointUrl: string;
-  private readonly pricing: ManagedCloudBrowserPricing;
-  private cachedAuthHeaders: Record<string, string> | null = null;
+export class ManagedCloudBrowserProvider {
+  activeSessions = new WeakMap();
 
-  constructor(
-    private readonly options: ManagedCloudBrowserProviderOptions = {},
-  ) {
+  constructor(options) {
+    this.options = options;
+    this.host = options.host;
     this.endpointUrl = normalizeManagedCloudEndpointUrl(options.endpointUrl);
     this.pricing = {
       ...DEFAULT_PRICING,
@@ -516,7 +374,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     };
   }
 
-  async launchSession(opts: SessionOptions): Promise<BrowserSession> {
+  async launchSession(opts) {
     if (opts.profileDirHint) {
       throw new Error(
         'ManagedCloudBrowserProvider does not accept local profileDirHint paths; profile persistence is owned by the managed pool.',
@@ -524,9 +382,12 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     }
     const metering = this.resolveMetering(opts);
     const lease = await this.createLease(metering, opts);
-    let browser: ManagedCloudBrowser | null = null;
+    let browser = null;
     try {
-      const playwright = await loadPlaywright(this.options.playwright);
+      const playwright = await loadPlaywright(
+        this.host,
+        this.options.playwright,
+      );
       const authHeaders = this.authHeaders();
       browser =
         Object.keys(authHeaders).length > 0
@@ -541,7 +402,8 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         );
       }
       const page = context.pages()[0] || (await context.newPage());
-      const runId = metering.auditRunId ?? makeAuditRunId('managed_browser');
+      const runId =
+        metering.auditRunId ?? this.host.audit.makeRunId('managed_browser');
       const session = new ManagedCloudBrowserSession(
         page,
         lease,
@@ -550,8 +412,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         (name) => this.recordActionUsage(metering, name),
         (url, action, method) =>
           this.checkNavigation(lease, metering, runId, url, action, method),
-        this.options.allowPrivateNetwork,
-        this.options.secretAudit,
+        this.host,
       );
 
       const startingCostUsd = lease.costUsd ?? 0;
@@ -560,7 +421,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
         costUsd: startingCostUsd,
         toolCalls: 0,
       });
-      recordAuditEvent({
+      this.host.audit.record({
         sessionId: metering.sessionId,
         runId,
         event: {
@@ -591,11 +452,11 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     }
   }
 
-  getCapabilities(): BrowserProviderCapabilities {
-    return DEFAULT_BROWSER_PROVIDER_CAPABILITIES;
+  getCapabilities() {
+    return this.host.capabilities;
   }
 
-  async closeSession(session: BrowserSession): Promise<void> {
+  async closeSession(session) {
     if (!(session instanceof ManagedCloudBrowserSession)) {
       throw new Error(
         'ManagedCloudBrowserProvider can only close its own sessions',
@@ -613,7 +474,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     const release =
       releaseResult.status === 'fulfilled' ? releaseResult.value : null;
     this.recordCloseUsage(active, release);
-    recordAuditEvent({
+    this.host.audit.record({
       sessionId: active.metering.sessionId,
       runId: active.runId,
       event: {
@@ -627,7 +488,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     });
     this.activeSessions.delete(session);
 
-    const errors: unknown[] = [];
+    const errors = [];
     if (releaseResult.status === 'rejected') errors.push(releaseResult.reason);
     if (closeResult.status === 'rejected') errors.push(closeResult.reason);
     if (errors.length === 1) throw errors[0];
@@ -639,7 +500,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     }
   }
 
-  private resolveMetering(opts: SessionOptions): RequiredMeteringContext {
+  resolveMetering(opts) {
     const metering = opts.metering;
     const sessionId = metering?.sessionId?.trim();
     const agentId = metering?.agentId?.trim();
@@ -661,30 +522,11 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     };
   }
 
-  private authHeaders(): Record<string, string> {
-    if (this.cachedAuthHeaders) return this.cachedAuthHeaders;
-    if (!this.options.poolTokenRef) return {};
-    const ref = hardenSecretRef(this.options.poolTokenRef);
-    const handle = resolveSecretHandleInput(ref, {
-      path: 'ManagedCloudBrowserProvider.poolTokenRef',
-      required: true,
-      sinkKind: 'http',
-    });
-    if (!handle) {
-      throw new Error('Managed browser pool token did not resolve.');
-    }
-    const header = withSecretHeader(handle, 'Authorization', {
-      prefix: 'Bearer',
-      audit: this.options.secretAudit || noopSecretAudit,
-    });
-    this.cachedAuthHeaders = { [header.name]: header.value };
-    return this.cachedAuthHeaders;
+  authHeaders() {
+    return poolAuthHeaders(this.options.getPoolToken?.());
   }
 
-  private async createLease(
-    metering: RequiredMeteringContext,
-    opts: SessionOptions,
-  ): Promise<ManagedCloudLeaseResponse> {
+  async createLease(metering, opts) {
     const timeoutMs = opts.timeoutMs;
     const ttlSeconds =
       typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
@@ -703,14 +545,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     return normalizeLeaseResponse(payload);
   }
 
-  private async checkNavigation(
-    lease: ManagedCloudLeaseResponse,
-    metering: RequiredMeteringContext,
-    runId: string,
-    url: string,
-    action: string,
-    method = 'GET',
-  ): Promise<ManagedCloudNavigationResponse> {
+  async checkNavigation(lease, metering, runId, url, action, method = 'GET') {
     const guard = normalizeNavigationResponse(
       await this.requestJson(
         `/leases/${encodeURIComponent(lease.leaseId)}/navigation`,
@@ -727,7 +562,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
       ),
       url,
     );
-    recordAuditEvent({
+    this.host.audit.record({
       sessionId: metering.sessionId,
       runId,
       event: {
@@ -747,9 +582,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     return guard;
   }
 
-  private async releaseLease(
-    leaseId: string,
-  ): Promise<ManagedCloudReleaseResponse> {
+  async releaseLease(leaseId) {
     const payload = await this.requestJson(
       `/leases/${encodeURIComponent(leaseId)}`,
       {
@@ -759,10 +592,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     return normalizeReleaseResponse(payload, leaseId);
   }
 
-  private async requestJson(
-    path: string,
-    init: { method: string; body?: string },
-  ): Promise<unknown> {
+  async requestJson(path, init) {
     const requestFetch = this.options.fetch || fetch;
     const response = await requestFetch(`${this.endpointUrl}${path}`, {
       method: init.method,
@@ -774,10 +604,10 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
       signal: AbortSignal.timeout(30_000),
     });
     const text = await response.text();
-    let payload: unknown = null;
+    let payload = null;
     if (text.trim()) {
       try {
-        payload = JSON.parse(text) as unknown;
+        payload = JSON.parse(text);
       } catch {
         payload = null;
       }
@@ -790,10 +620,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     return payload;
   }
 
-  private recordActionUsage(
-    metering: RequiredMeteringContext,
-    actionName: string,
-  ): void {
+  recordActionUsage(metering, actionName) {
     if (this.pricing.actionUsd <= 0) return;
     this.recordUsage(metering, {
       model: `managed-cloud-browser/action:${actionName}`,
@@ -802,10 +629,7 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     });
   }
 
-  private recordCloseUsage(
-    active: ActiveManagedCloudSession,
-    release: ManagedCloudReleaseResponse | null,
-  ): void {
+  recordCloseUsage(active, release) {
     const sessionCostUsd = release?.costUsd ?? active.accruedCostUsd;
     const deltaUsd = Math.max(0, sessionCostUsd - active.accruedCostUsd);
     if (deltaUsd <= 0) return;
@@ -816,15 +640,8 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     });
   }
 
-  private recordUsage(
-    metering: RequiredMeteringContext,
-    params: {
-      model: string;
-      costUsd: number;
-      toolCalls: number;
-    },
-  ): void {
-    recordUsageEvent({
+  recordUsage(metering, params) {
+    this.host.usage.record({
       sessionId: metering.sessionId,
       agentId: metering.agentId,
       model: params.model,

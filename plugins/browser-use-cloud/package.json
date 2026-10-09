@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-browser-use-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw browser provider backed by Browser Use Cloud sessions",
+  "engines": {
+    "node": "22.x"
+  }
+}

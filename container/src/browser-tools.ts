@@ -2240,11 +2240,10 @@ function failure(message: string): string {
   return JSON.stringify({ success: false, error: message }, null, 2);
 }
 
+// Every provider but `local` is gateway code (a core or plugin provider), so
+// the sandbox drives it through /api/browser/tool instead of its own browser.
 export function usesGatewayManagedBrowser(): boolean {
-  return (
-    gatewayBrowserProvider === 'managed-cloud' ||
-    gatewayBrowserProvider === 'mac-cua'
-  );
+  return gatewayBrowserProvider !== '' && gatewayBrowserProvider !== 'local';
 }
 
 export function getBrowserProviderLogLabel(): string {
@@ -2304,7 +2303,7 @@ async function callGatewayManagedBrowser(
 ): Promise<Record<string, unknown>> {
   if (!gatewayBaseUrl || !gatewayApiToken) {
     throw new Error(
-      'managed-cloud browser provider requires gatewayBaseUrl and gatewayApiToken',
+      `${gatewayBrowserProvider} browser provider requires gatewayBaseUrl and gatewayApiToken`,
     );
   }
   const response = await fetch(
@@ -2430,9 +2429,8 @@ async function executeGatewayManagedBrowserTool(
       url: payload.url || args.url || '',
       title: payload.title || '',
       session_id: effectiveSessionId,
-      // mac-cua drives a visible window of the operator's own browser;
-      // managed-cloud browsers run remotely with no local window.
-      headed: gatewayBrowserProvider === 'mac-cua',
+      // Whether the gateway's session shows a window on its host.
+      headed: payload.headed === true,
     });
   }
 
@@ -2597,15 +2595,18 @@ async function observeBrowserPage(sessionId: string): Promise<void> {
 }
 
 /**
- * The same live view for mac-cua, whose browser the gateway drives: it reads
- * the operator's browser window there and hands back a JPEG. The image is
- * dropped unsaved when frames are paused for a typed secret.
+ * The same live view for a browser the gateway drives: the gateway reads its
+ * window and hands back a JPEG, or nothing when the provider has no live
+ * frames. The image is dropped unsaved when frames are paused for a typed
+ * secret.
  */
 async function observeGatewayBrowserPage(): Promise<void> {
   try {
     const payload = await callGatewayManagedBrowser('browser_frame', {
       image: liveFramesEnabled(),
     });
+    // No url: this provider's sessions have no live frames.
+    if (!payload.url) return;
     recordBrowserPage({ url: payload.url, title: payload.title });
     if (!liveFramesEnabled()) return;
     const current = currentBrowserPage();
@@ -2697,7 +2698,7 @@ export async function executeBrowserTool(
   if (BROWSER_FRAME_TOOLS.has(name) && result?.success === true) {
     if (!shouldUseGatewayManagedBrowser(name)) {
       await observeBrowserPage(sessionKey);
-    } else if (gatewayBrowserProvider === 'mac-cua') {
+    } else {
       await observeGatewayBrowserPage();
     }
   }

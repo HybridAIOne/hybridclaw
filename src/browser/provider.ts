@@ -72,6 +72,8 @@ export const DEFAULT_BROWSER_PROVIDER_CAPABILITIES: BrowserProviderCapabilities 
   };
 
 export interface BrowserSession {
+  /** A visible window on the gateway host (the gateway reports it to the agent). */
+  readonly headed?: boolean;
   /**
    * Runs in the browser renderer context, not Node.js. Implementations should
    * restrict this path because page state may include cookies and localStorage.

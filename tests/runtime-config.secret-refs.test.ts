@@ -371,56 +371,85 @@ describe('runtime config secret refs', () => {
     });
   });
 
-  test('canonicalizes legacy browser cloud env refs to stored refs', async () => {
+  // compat: remove after v0.41 together with migrateLegacyBrowserPluginConfig.
+  test.each([
+    {
+      provider: 'managed-cloud',
+      section: {
+        endpointUrl: 'https://pool.example',
+        poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
+        defaultTenantId: '',
+      },
+      pluginConfig: { endpointUrl: 'https://pool.example' },
+      secretWarning: false,
+    },
+    {
+      provider: 'browser-use-cloud',
+      section: {
+        apiKeyRef: { source: 'store', id: 'TEAM_BROWSER_USE_KEY' },
+        baseUrl: '',
+        browser: { timeoutMinutes: 5 },
+      },
+      pluginConfig: { browser: { timeoutMinutes: 5 } },
+      secretWarning: true,
+    },
+  ])('moves a selected legacy $provider section and its secret ref into the bundled plugin', async ({
+    provider,
+    section,
+    pluginConfig,
+    secretWarning,
+  }) => {
     const homeDir = makeTempHome();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const legacyKey =
+      provider === 'managed-cloud' ? 'managedCloud' : 'browserUseCloud';
     writeRawRuntimeConfig(homeDir, (config) => {
-      const browser = config.browser as Record<string, unknown>;
-      const browserUseCloud = browser.browserUseCloud as Record<
-        string,
-        unknown
-      >;
-      browserUseCloud.apiKeyRef = {
-        source: 'env',
-        id: 'BROWSER_USE_API_KEY',
+      config.browser = {
+        provider,
+        [legacyKey]: section,
+        macCua: { browser: 'safari' },
       };
     });
 
     const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+    const loaded = runtimeConfig.getRuntimeConfig();
 
-    expect(
-      runtimeConfig.getRuntimeConfig().browser.browserUseCloud.apiKeyRef,
-    ).toEqual({
-      source: 'store',
-      id: 'BROWSER_USE_API_KEY',
+    expect(loaded.browser).toEqual({
+      provider,
+      allowPrivateNetwork: false,
+      local: { profileRoot: '', headed: false },
     });
-    expect(warn).toHaveBeenCalledWith(
-      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    expect(loaded.plugins.list).toEqual([
+      { id: provider, enabled: true, config: pluginConfig },
+    ]);
+    const secretWarned = warn.mock.calls.some(([message]) =>
+      String(message).includes('hybridclaw secret set'),
     );
+    expect(secretWarned).toBe(secretWarning);
   });
 
-  test('rejects malformed legacy browser cloud env refs clearly', async () => {
+  test.each([
+    {
+      label: 'the local browser was selected',
+      browser: {
+        provider: 'local',
+        managedCloud: { endpointUrl: 'https://pool.example' },
+      },
+    },
+    {
+      // Migrated before, then the operator removed the plugin's entry.
+      label: 'no legacy section is left to import',
+      browser: { provider: 'mac-cua' },
+    },
+  ])('enables no vendor browser plugin when $label', async ({ browser }) => {
     const homeDir = makeTempHome();
     writeRawRuntimeConfig(homeDir, (config) => {
-      const browser = config.browser as Record<string, unknown>;
-      const browserUseCloud = browser.browserUseCloud as Record<
-        string,
-        unknown
-      >;
-      browserUseCloud.apiKeyRef = {
-        source: 'env',
-        id: 42,
-      };
+      config.browser = browser;
     });
 
     const runtimeConfig = await importFreshRuntimeConfig(homeDir);
 
-    expect(runtimeConfig.getRuntimeConfigLoadError()?.message).toBe(
-      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
-    );
-    expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
-      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
-    );
+    expect(runtimeConfig.getRuntimeConfig().plugins.list).toEqual([]);
   });
 
   test('preserves secret refs on unrelated config updates', async () => {

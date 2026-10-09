@@ -45,13 +45,6 @@ import styles from './config.module.css';
 
 const ENUM_OPTIONS: Readonly<Record<string, ReadonlyArray<string>>> = {
   'container.sandboxMode': ['container', 'host'],
-  'browser.provider': [
-    'local',
-    'camofox',
-    'managed-cloud',
-    'browser-use-cloud',
-    'mac-cua',
-  ],
   'deployment.mode': ['local', 'cloud'],
   'memory.queryMode': ['hybrid', 'semantic', 'keyword'],
   'sessionReset.defaultPolicy.mode': ['off', 'daily', 'idle', 'both'],

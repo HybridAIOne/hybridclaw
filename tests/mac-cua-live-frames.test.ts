@@ -160,3 +160,36 @@ test('a mac-cua snapshot feeds its refs to the checkout guard, not the model', a
     url: 'https://shop.example/checkout',
   });
 });
+
+// Every plugin browser routes through the gateway, which answers browser_frame
+// without a page when the provider has no live frames (managed-cloud).
+test('a gateway browser without live frames emits no frame', async () => {
+  const bodies = stubGateway((toolName) =>
+    toolName === 'browser_frame'
+      ? { success: true }
+      : {
+          success: true,
+          url: 'https://example.com/',
+          title: 'Example',
+          snapshot: '',
+        },
+  );
+  const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const tools = await import('../container/src/browser-tools.js');
+  tools.setBrowserGatewayContext(
+    'http://127.0.0.1:4317',
+    'test-token',
+    'managed-cloud',
+    'sess-cloud',
+    'main',
+  );
+
+  await tools.executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/' },
+    'chat',
+  );
+
+  expect(bodies.map((body) => body.toolName)).toContain('browser_frame');
+  expect(frameLines(stderr)).toEqual([]);
+});

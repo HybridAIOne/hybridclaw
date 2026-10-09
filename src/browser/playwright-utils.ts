@@ -105,6 +105,8 @@ export class PlaywrightBrowserSession<
 > implements BrowserSession
 {
   private readonly consoleLog: BrowserConsoleMessage[] = [];
+  /** Set by the provider that launched the page. */
+  headed = false;
 
   constructor(
     protected readonly page: TPage,

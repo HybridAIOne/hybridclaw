@@ -9,10 +9,11 @@ shared guard path for every leased Chromium worker.
 ```bash
 export MANAGED_BROWSER_POOL_TOKEN=replace-with-a-random-token
 docker compose -f infra/managed-browser/docker-compose.yml up --build
+hybridclaw plugin install managed-cloud
+hybridclaw plugin config managed-cloud endpointUrl http://127.0.0.1:8787
+hybridclaw secret set MANAGED_BROWSER_POOL_TOKEN "$MANAGED_BROWSER_POOL_TOKEN"
 hybridclaw config set browser.provider managed-cloud
-hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
-hybridclaw config set browser.managedCloud.poolTokenRef '{"source":"store","id":"MANAGED_BROWSER_POOL_TOKEN"}'
-hybridclaw browser-pool doctor
+hybridclaw gateway browser-pool doctor
 ```
 
 Tenant host policy lives in `tenants.example.yaml` by default. Production
@@ -23,7 +24,7 @@ deployment recipe. The Hetzner overlay is
 ## API
 
 - `GET /ping` returns a minimal unauthenticated liveness response.
-- `GET /health` returns node and lost-lease state for `browser-pool doctor`.
+- `GET /health` returns node and lost-lease state for `/browser-pool doctor`.
 - `POST /leases` creates a tenant-bound Chromium lease and returns `leaseId`,
   `nodeId`, and a CDP `cdpUrl`.
 - `POST /leases/:leaseId/navigation` runs the shared navigation guard and emits

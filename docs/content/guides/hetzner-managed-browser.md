@@ -31,10 +31,11 @@ docker compose \
 # In a separate terminal:
 ssh -N -L 8787:127.0.0.1:8787 root@your-hetzner-host
 
+hybridclaw plugin install managed-cloud
+hybridclaw plugin config managed-cloud endpointUrl http://127.0.0.1:8787
+hybridclaw secret set MANAGED_BROWSER_POOL_TOKEN "$MANAGED_BROWSER_POOL_TOKEN"
 hybridclaw config set browser.provider managed-cloud
-hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
-hybridclaw config set browser.managedCloud.poolTokenRef '{"source":"store","id":"MANAGED_BROWSER_POOL_TOKEN"}'
-hybridclaw browser-pool doctor
+hybridclaw gateway browser-pool doctor
 ```
 
 The overlay intentionally inherits the base host-loopback port publish
@@ -49,5 +50,6 @@ reverse proxy, terminate TLS and forward `X-Forwarded-Proto: https` and
 The tenant file is deny-by-default. Add only the hosts each tenant needs. The
 guard evaluates the tenant policy before opening upstream proxy connections,
 so denied HTTPS `CONNECT` targets are rejected before DNS or TCP egress.
-Set `browser.managedCloud.poolTokenRef` to a SecretRef containing the same token
-when the client connects to a token-protected pool.
+The `managed-cloud` plugin sends the `MANAGED_BROWSER_POOL_TOKEN` secret as a
+bearer token when it is set, so store the same token the pool was started with.
+See [Browser Provider Plugins](../reference/configuration.md#browser-provider-plugins).
