@@ -62,7 +62,7 @@ import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
-import { resolveAgentRuntimeToken } from '../security/agent-runtime-token.js';
+import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import { hostAgentNodePath } from '../skills/skill-node-modules.js';
@@ -196,10 +196,12 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
-function buildHostGatewayRuntimeEnv(): Record<string, string> {
+function buildHostGatewayRuntimeEnv(
+  runtimeScope: ExecutorRequest['runtimeScope'],
+): Record<string, string> {
   return {
     HYBRIDCLAW_GATEWAY_URL: GATEWAY_CLIENT_BASE_URL,
-    HYBRIDCLAW_GATEWAY_TOKEN: resolveAgentRuntimeToken(),
+    HYBRIDCLAW_GATEWAY_TOKEN: resolveWorkerRuntimeToken(runtimeScope),
   };
 }
 
@@ -606,6 +608,7 @@ function getOrSpawnHostProcess(
     | 'agentId'
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
+    | 'runtimeScope'
     | 'bashProxy'
   > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
@@ -652,7 +655,7 @@ function getOrSpawnHostProcess(
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
-    ...buildHostGatewayRuntimeEnv(),
+    ...buildHostGatewayRuntimeEnv(params.runtimeScope),
     NODE_PATH: hostAgentNodePath(
       storedRuntimeEnv.NODE_PATH || process.env.NODE_PATH,
     ),
@@ -1018,7 +1021,7 @@ async function runHostProcessInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: GATEWAY_CLIENT_BASE_URL,
-    gatewayApiToken: resolveAgentRuntimeToken(),
+    gatewayApiToken: resolveWorkerRuntimeToken(params.runtimeScope),
     browserProvider: params.browserProvider || BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
@@ -1113,6 +1116,7 @@ async function runHostProcessInner(
         agentId,
         workspacePathOverride: params.workspacePathOverride,
         workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        runtimeScope: params.runtimeScope,
         bashProxy: params.bashProxy,
       });
   } catch (err) {

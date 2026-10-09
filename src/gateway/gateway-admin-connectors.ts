@@ -518,31 +518,38 @@ function platformConnectorName(
   return provider === 'github' ? 'GitHub' : 'Microsoft 365';
 }
 
-async function readHybridAIPlatformConnectorStatuses(): Promise<
-  Map<string, HybridAIPlatformConnectorStatus>
-> {
+/**
+ * The platform's connector directory for this install's HybridAI account, or
+ * null when there is no key or the platform does not answer.
+ */
+export async function fetchHybridAIConnectorDirectory(
+  signal?: AbortSignal,
+): Promise<Record<string, unknown> | null> {
   let apiKey: string;
   try {
     apiKey = getHybridAIApiKey();
   } catch (error) {
-    if (error instanceof MissingRequiredEnvVarError) return new Map();
+    if (error instanceof MissingRequiredEnvVarError) return null;
     throw error;
   }
-
   try {
     const response = await fetch(
       resolveHybridAIUrl('/api/v1/connectors/directory'),
-      {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      },
+      { headers: { Authorization: `Bearer ${apiKey}` }, signal },
     );
-    if (!response.ok) return new Map();
-    return parseHybridAIPlatformConnectorStatuses(
-      await readJsonObject(response),
-    );
+    return response.ok ? await readJsonObject(response) : null;
   } catch {
-    return new Map();
+    return null;
   }
+}
+
+async function readHybridAIPlatformConnectorStatuses(): Promise<
+  Map<string, HybridAIPlatformConnectorStatus>
+> {
+  const directory = await fetchHybridAIConnectorDirectory();
+  return directory
+    ? parseHybridAIPlatformConnectorStatuses(directory)
+    : new Map();
 }
 
 function testResult(input: {

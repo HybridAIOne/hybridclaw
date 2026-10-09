@@ -32,6 +32,12 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import {
+  isPlainFileUnder,
+  isRealScopeDir,
+  listScopeDirNames,
+  scopeWorkspaceDir,
+} from '../scopes/scope-paths.js';
 import { appendDreamJournal } from './dream-journal.js';
 import type { MemoryBackend } from './memory-service.js';
 
@@ -630,9 +636,54 @@ function allocateDigestEntries(
   return [];
 }
 
-function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
+/**
+ * Every workspace the nightly run consolidates: each agent's, then each of
+ * its scopes' on its own. A scope's notes never reach another workspace's
+ * MEMORY.md, and in a scope no symlinked file is read (`confined`).
+ */
+function consolidationWorkspaces(): Array<{
+  agentId: string;
+  workspaceDir: string;
+  confined: boolean;
+}> {
+  return listAgents().flatMap((agent) => {
+    const workspaceDir = agentWorkspaceDir(agent.id);
+    if (!fs.existsSync(workspaceDir)) return [];
+    return [
+      { agentId: agent.id, workspaceDir, confined: false },
+      ...listScopeDirNames(workspaceDir)
+        .filter((scopeId) => isRealScopeDir(agent.id, scopeId))
+        .map((scopeId) => ({
+          agentId: agent.id,
+          workspaceDir: scopeWorkspaceDir(agent.id, scopeId),
+          confined: true,
+        })),
+    ];
+  });
+}
+
+function readMemoryFileIfPresent(
+  workspaceDir: string,
+  confined: boolean,
+): string | null {
+  const memoryPath = path.join(workspaceDir, 'MEMORY.md');
+  if (
+    confined
+      ? !isPlainFileUnder(workspaceDir, 'MEMORY.md')
+      : !fs.existsSync(memoryPath)
+  ) {
+    return null;
+  }
+  return fs.readFileSync(memoryPath, 'utf-8');
+}
+
+function collectDailyMemoryEntries(
+  workspaceDir: string,
+  confined = false,
+): DailyMemoryEntry[] {
   const dailyDir = path.join(workspaceDir, 'memory');
   if (!fs.existsSync(dailyDir)) return [];
+  if (confined && fs.lstatSync(dailyDir).isSymbolicLink()) return [];
 
   const today = currentDateStamp(
     undefined,
@@ -647,6 +698,7 @@ function collectDailyMemoryEntries(workspaceDir: string): DailyMemoryEntry[] {
     if (!match) continue;
     const date = match[1];
     if (!date || date >= today) continue;
+    if (confined && !isPlainFileUnder(workspaceDir, `memory/${name}`)) continue;
     const filePath = path.join(dailyDir, name);
     const content = readDailyMemoryFile(filePath);
     if (content == null) continue;
@@ -743,17 +795,19 @@ export class MemoryConsolidationEngine {
     });
     let dailyFilesCompiled = 0;
     let workspacesUpdated = 0;
-    for (const agent of listAgents()) {
-      const workspaceDir = agentWorkspaceDir(agent.id);
-      if (!fs.existsSync(workspaceDir)) continue;
+    for (const {
+      agentId,
+      workspaceDir,
+      confined,
+    } of consolidationWorkspaces()) {
       try {
-        const entries = collectDailyMemoryEntries(workspaceDir);
+        const entries = collectDailyMemoryEntries(workspaceDir, confined);
         const memoryPath = path.join(workspaceDir, 'MEMORY.md');
         const release = lockMemoryFile(memoryPath);
         try {
-          const existing = fs.existsSync(memoryPath)
-            ? fs.readFileSync(memoryPath, 'utf-8')
-            : readMemoryTemplate();
+          const existing =
+            readMemoryFileIfPresent(workspaceDir, confined) ??
+            readMemoryTemplate();
           const next = buildMemoryContent({ existing, entries });
           dailyFilesCompiled += entries.length;
           if (next === existing) continue;
@@ -773,7 +827,7 @@ export class MemoryConsolidationEngine {
         }
       } catch (err) {
         logger.warn(
-          { agentId: agent.id, workspaceDir, err },
+          { agentId, workspaceDir, err },
           'Memory consolidation skipped a workspace after a file error',
         );
       }
@@ -800,21 +854,21 @@ export class MemoryConsolidationEngine {
     let modelCleanups = 0;
     let fallbacksUsed = 0;
 
-    for (const agent of listAgents()) {
-      const workspaceDir = agentWorkspaceDir(agent.id);
-      if (!fs.existsSync(workspaceDir)) continue;
-
+    for (const {
+      agentId,
+      workspaceDir,
+      confined,
+    } of consolidationWorkspaces()) {
       try {
-        const entries = collectDailyMemoryEntries(workspaceDir);
+        const entries = collectDailyMemoryEntries(workspaceDir, confined);
         const memoryPath = path.join(workspaceDir, 'MEMORY.md');
-        const hasExistingMemory = fs.existsSync(memoryPath);
+        const storedMemory = readMemoryFileIfPresent(workspaceDir, confined);
+        const hasExistingMemory = storedMemory !== null;
         if (!hasExistingMemory && entries.length === 0) {
           continue;
         }
 
-        const existing = hasExistingMemory
-          ? fs.readFileSync(memoryPath, 'utf-8')
-          : readMemoryTemplate();
+        const existing = storedMemory ?? readMemoryTemplate();
         dailyFilesCompiled += entries.length;
         const statePath = path.join(workspaceDir, '.memory-cleanup.sha256');
         if (
@@ -827,7 +881,7 @@ export class MemoryConsolidationEngine {
         let next: string | null = null;
         try {
           const rewriteResult = await rewriteMemoryContentWithModel({
-            agentId: agent.id,
+            agentId,
             existing,
             entries,
             language: this.config.language,
@@ -836,7 +890,7 @@ export class MemoryConsolidationEngine {
           if (!next && rewriteResult.fallbackReason) {
             logger.warn(
               {
-                agentId: agent.id,
+                agentId,
                 workspaceDir,
                 fallbackReason: rewriteResult.fallbackReason,
               },
@@ -845,7 +899,7 @@ export class MemoryConsolidationEngine {
           }
         } catch (err) {
           logger.warn(
-            { agentId: agent.id, workspaceDir, err },
+            { agentId, workspaceDir, err },
             'Model-backed memory cleanup failed; falling back to deterministic consolidation',
           );
         }
@@ -860,12 +914,10 @@ export class MemoryConsolidationEngine {
 
         const release = lockMemoryFile(memoryPath);
         try {
-          const current = fs.existsSync(memoryPath)
-            ? fs.readFileSync(memoryPath, 'utf-8')
-            : null;
+          const current = readMemoryFileIfPresent(workspaceDir, confined);
           if (current !== (hasExistingMemory ? existing : null)) {
             logger.warn(
-              { agentId: agent.id },
+              { agentId, workspaceDir },
               'Memory changed during cleanup; skipping stale rewrite',
             );
             continue;
@@ -891,7 +943,7 @@ export class MemoryConsolidationEngine {
         }
       } catch (err) {
         logger.warn(
-          { agentId: agent.id, workspaceDir, err },
+          { agentId, workspaceDir, err },
           'Memory consolidation skipped a workspace after a file error',
         );
       }

@@ -10,6 +10,14 @@
   applies from the running worker's next tool call. Approval events name the
   rule that paused the call (`rule.pausedBy`) and what an always-allow would
   cover, so apps can show both on their approval cards.
+- **Event triggers**: "When something arrives, do this", set up in chat with
+  the new `trigger` tool or `/schedule add --on mail|slack|webhook`. New mail
+  (relayed, plus a regular look), Slack channel messages and calls to a
+  trigger's secret `/api/triggers/<token>` address queue a reply-only run;
+  mail is reread with connected tools, while Slack messages and webhook bodies
+  reach the model fenced as outside data. `list --json` shows each `trigger`.
+  The `connector-events` owner binding also accepts `outlook`, `mailbox` and
+  `slack` changes. See the event triggers guide.
 
 ## [0.39.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.6) - 2026-10-09
 

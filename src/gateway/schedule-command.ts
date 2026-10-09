@@ -29,6 +29,7 @@ import {
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
 import { parseIntegerArg, parseLowerArg } from '../command-parsing.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   getRecentMessages,
   getSessionById,
@@ -44,6 +45,13 @@ import {
 import { resolveModelProvider } from '../providers/factory.js';
 import { getAvailableModelList } from '../providers/model-catalog.js';
 import { formatModelForDisplay } from '../providers/model-names.js';
+import {
+  createTrigger,
+  describeTrigger,
+  forgetTrigger,
+  triggerJson,
+  triggerPath,
+} from '../scheduler/event-triggers.js';
 import {
   cronPromptHead,
   dbTaskLabel,
@@ -62,6 +70,7 @@ import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
+import { resolvePublicGatewayBaseUrl } from './gateway-url-utils.js';
 import {
   canManageScheduledTask,
   canReadScheduledTaskResults,
@@ -70,7 +79,7 @@ import {
 import { mainChatForWebTask } from './web-scheduled-delivery.js';
 
 const USAGE =
-  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
+  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>` or `schedule add --on mail|slack|webhook [--channel <slack channel>] [--contains <text>] [--title <title>] ["<cron>"] <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
 const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
@@ -115,6 +124,7 @@ function taskRevision(task: ScheduledTask): string {
         task.channel_id,
         task.reply_only ?? false,
         task.alert ?? null,
+        task.trigger ?? null,
       ]),
     )
     .digest('hex');
@@ -140,10 +150,16 @@ function taskJson(task: ScheduledTask) {
     consecutive_errors: task.consecutive_errors,
     alert: task.alert ?? null,
     reply_only: task.reply_only ?? false,
+    trigger: task.trigger ? triggerJson(task.trigger, publicBaseUrl()) : null,
   };
 }
 
 function scheduleLabel(task: ScheduledTask): string {
+  if (task.trigger) {
+    const path = triggerPath(task.trigger);
+    const look = task.cron_expr ? `, and on cron ${task.cron_expr}` : '';
+    return `${describeTrigger(task.trigger)}${look}${path ? ` (${triggerJson(task.trigger, publicBaseUrl()).url ?? path})` : ''}`;
+  }
   if (task.run_at) return `at ${task.run_at}`;
   if (task.every_ms) return `every ${task.every_ms}ms`;
   if (task.cron_expr) {
@@ -165,6 +181,10 @@ function readOptions(
   limit: string;
   alert: string;
   replyOnly: boolean;
+  on: string;
+  channel: string;
+  contains: string;
+  title: string;
   rest: string[];
   error: string | null;
 } {
@@ -174,6 +194,12 @@ function readOptions(
   let tz = '';
   let limit = '';
   let alert = '';
+  const named: Record<string, string> = {
+    '--on': '',
+    '--channel': '',
+    '--contains': '',
+    '--title': '',
+  };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (leadingOnly && rest.length > 0) {
@@ -182,7 +208,12 @@ function readOptions(
       json = true;
     } else if (arg === '--reply-only') {
       replyOnly = true;
-    } else if (arg === '--tz' || arg === '--limit' || arg === '--alert') {
+    } else if (
+      arg === '--tz' ||
+      arg === '--limit' ||
+      arg === '--alert' ||
+      arg in named
+    ) {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) {
         return {
@@ -191,19 +222,82 @@ function readOptions(
           limit,
           alert,
           replyOnly,
+          ...namedOptions(named),
           rest,
           error: `\`${arg}\` needs a value.`,
         };
       }
       if (arg === '--tz') tz = value;
       else if (arg === '--alert') alert = value;
-      else limit = value;
+      else if (arg === '--limit') limit = value;
+      else named[arg] = value;
       index += 1;
     } else {
       rest.push(arg);
     }
   }
-  return { json, tz, limit, alert, replyOnly, rest, error: null };
+  return {
+    json,
+    tz,
+    limit,
+    alert,
+    replyOnly,
+    ...namedOptions(named),
+    rest,
+    error: null,
+  };
+}
+
+function namedOptions(named: Record<string, string>) {
+  return {
+    on: named['--on'],
+    channel: named['--channel'],
+    contains: named['--contains'],
+    title: named['--title'],
+  };
+}
+
+/** `add --on <source>`: a trigger, with an optional cron for a mail trigger's regular look. */
+function addTrigger(
+  spec: string,
+  options: {
+    tz: string;
+    json: boolean;
+    on: string;
+    channel: string;
+    contains: string;
+    title: string;
+  },
+  req: GatewayCommandRequest,
+  session: Session,
+): GatewayCommandResult {
+  const cron = spec.match(/^"([^"]+)"\s+(.+)$/s);
+  let task: ScheduledTask;
+  try {
+    task = createTrigger({
+      sessionId: session.id,
+      channelId: req.channelId,
+      ownerUserId: req.userId ?? undefined,
+      source: options.on,
+      prompt: cron ? cron[2] : spec,
+      title: options.title,
+      channel: options.channel,
+      contains: options.contains,
+      cronExpr: cron?.[1],
+      tz: options.tz,
+    });
+  } catch (error) {
+    return badCommand(
+      'Invalid Trigger',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  if (options.json) {
+    return plainCommand(chatSafeJson({ version: 1, task: taskJson(task) }));
+  }
+  return plainCommand(
+    `Trigger #${task.id} created: ${scheduleLabel(task)} — ${task.prompt}`,
+  );
 }
 
 function findManageable(
@@ -484,7 +578,13 @@ function update(args: string[], session: Session): GatewayCommandResult {
   const schedules = [cron != null, runAt != null, everyMs != null].filter(
     Boolean,
   ).length;
-  if (schedules !== 1)
+  // A trigger runs when something arrives; only a mail trigger may also keep a cron.
+  if (task.trigger) {
+    if (runAt != null || everyMs != null)
+      return badCommand('Invalid Task', 'A trigger keeps no time schedule.');
+    if (cron != null && task.trigger.source !== 'mail')
+      return badCommand('Invalid Task', 'Only a mail trigger takes a cron.');
+  } else if (schedules !== 1)
     return badCommand('Invalid Task', 'Choose exactly one schedule.');
   if (cron != null) {
     if (typeof cron !== 'string' || !cron.trim())
@@ -567,7 +667,10 @@ export function handleScheduleCommand(
     );
 
   if (sub === 'add') {
-    return add(options.rest.join(' ').trim(), options, req, session);
+    const spec = options.rest.join(' ').trim();
+    return options.on
+      ? addTrigger(spec, options, req, session)
+      : add(spec, options, req, session);
   }
 
   if (sub === 'list') {
@@ -615,6 +718,7 @@ export function handleScheduleCommand(
     const task = findManageable(taskId, session);
     if (!task) return notFound(taskId);
     deleteJob(task.id);
+    if (task.trigger) forgetTrigger(task.id);
     rearmScheduler();
     return options.json
       ? plainCommand(chatSafeJson({ version: 1, removed: task.id }))
@@ -635,4 +739,9 @@ export function handleScheduleCommand(
   }
 
   return badCommand('Usage', USAGE);
+}
+
+/** Where webhook triggers are reached from outside, if this gateway is public. */
+function publicBaseUrl(): string | null {
+  return resolvePublicGatewayBaseUrl(getRuntimeConfig());
 }

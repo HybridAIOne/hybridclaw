@@ -107,6 +107,8 @@ export function buildHistoryWindowPrompt(
 
 interface DynamicContextMessageOptions {
   agentId?: string;
+  /** A scope's workspace: its own files and daily notes, no preferences file. */
+  workspaceDir?: string;
   now?: Date;
   retrievedContext?: string | null;
   sessionSummary?: string | null;
@@ -138,6 +140,8 @@ export function buildDynamicContextMessage(
 ): ChatMessage {
   const now = options instanceof Date ? options : options.now || new Date();
   const agentId = options instanceof Date ? undefined : options.agentId;
+  const workspaceDir =
+    options instanceof Date ? undefined : options.workspaceDir;
   const lines = [
     `${DYNAMIC_CONTEXT_MESSAGE_PREFIX}${now.toISOString().slice(0, 10)}`,
   ];
@@ -160,8 +164,10 @@ export function buildDynamicContextMessage(
   }
 
   if (agentId) {
-    dynamicSections.push(buildProactivePreferencesContext(agentId));
-    const contextFiles = loadStaticBootstrapFiles(agentId);
+    if (!workspaceDir) {
+      dynamicSections.push(buildProactivePreferencesContext(agentId));
+    }
+    const contextFiles = loadStaticBootstrapFiles(agentId, { workspaceDir });
     const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
     lines.push(
       `Daily note: memory/${currentDateStampInTimezone(userTimezone, now)}.md`,
@@ -178,6 +184,7 @@ export function buildDynamicContextMessage(
     const dailyMemoryFiles = loadRecentDailyMemoryFiles(agentId, {
       now,
       contextFiles,
+      workspaceDir,
     });
     if (HOSTNAME) {
       lines.push(`Host: ${HOSTNAME}`);
@@ -270,6 +277,8 @@ function renderReactionOnlyAnswers(sessionId: string | undefined): string {
 
 export function buildConversationContext(params: {
   agentId: string;
+  /** A scoped chat's workspace; the agent workspace when omitted. */
+  workspaceDir?: string;
   /** Verified owner supplied by background dispatch; null forbids personalization. */
   preferenceUserId?: string | null;
   sessionSummary?: string | null;
@@ -316,6 +325,7 @@ export function buildConversationContext(params: {
   const skills = loadSkills(
     agentId,
     normalizeSkillConfigChannelKind(runtimeInfo?.channel?.kind),
+    params.workspaceDir,
   );
   const previousUserContent = resolvePreviousUserContent(history);
   const explicitSkillInvocation =
@@ -328,6 +338,7 @@ export function buildConversationContext(params: {
       : null;
   const hookContext: PromptHookContext = {
     agentId,
+    workspaceDir: params.workspaceDir,
     skills,
     explicitSkillInvocation,
     purpose: 'conversation',
@@ -374,6 +385,7 @@ export function buildConversationContext(params: {
   ): ChatMessage =>
     buildDynamicContextMessage({
       agentId,
+      workspaceDir: params.workspaceDir,
       retrievedContext,
       sessionSummary,
       earlierAttachments,

@@ -106,6 +106,7 @@ import {
   type StakesMiddlewareResult,
 } from './stakes-middleware.js';
 import { normalizeText } from './text-normalization.js';
+import { classifyInboxCleanup } from './tools/inbox-cleanup.js';
 import {
   type ChatMessage,
   type EscalationTarget,
@@ -2914,6 +2915,8 @@ export class TrustedAgentApprovalRuntime {
     args: Record<string, unknown>,
   ): ClassifiedAction {
     const lowerTool = toolName.toLowerCase();
+    const inboxCleanup = classifyInboxCleanup(lowerTool, args);
+    if (inboxCleanup) return inboxCleanup;
 
     if (lowerTool === 'draft_transfer') {
       return {

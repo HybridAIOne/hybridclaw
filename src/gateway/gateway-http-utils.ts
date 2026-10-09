@@ -13,7 +13,26 @@ const MAX_REQUEST_BYTES = 1_000_000; // 1 MB
 
 export { parsePositiveInteger };
 
+// A body read once stays readable: a guard may check it before the handler.
+const readBodies = new WeakMap<IncomingMessage, Buffer>();
+
 export async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
+  const read = readBodies.get(req);
+  if (read) {
+    if (read.length > maxBytes) {
+      throw new GatewayRequestError(413, 'Request body too large.');
+    }
+    return read;
+  }
+  const body = await readRequestStream(req, maxBytes);
+  readBodies.set(req, body);
+  return body;
+}
+
+async function readRequestStream(
   req: IncomingMessage,
   maxBytes: number,
 ): Promise<Buffer> {

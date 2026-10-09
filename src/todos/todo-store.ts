@@ -7,7 +7,8 @@
  * the user's to do. A todo with a reminder owns one scheduled task in the chat
  * that set it, and the scheduler skips that run once the todo is done.
  * Owners follow the cron access rule (`scheduled-task-access.ts`): all web
- * chats of an agent share one list, any other chat keeps its own.
+ * chats of an agent share one list, except a scope's chats, which share
+ * theirs; any other chat keeps its own.
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -108,6 +109,8 @@ function save(owners: Map<string, TodoList>): void {
 
 export function todoOwnerOf(session: Session): string {
   if (session.channel_id === 'web' && session.agent_id) {
+    // A scope's chats keep their own list (product owner, 2026-10-09).
+    if (session.scope) return `scope:${session.agent_id}:${session.scope}`;
     return `web:${session.agent_id}`;
   }
   return `chat:${session.session_key || session.id}`;

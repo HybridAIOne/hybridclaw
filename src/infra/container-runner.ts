@@ -78,7 +78,7 @@ import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
-import { resolveAgentRuntimeToken } from '../security/agent-runtime-token.js';
+import { resolveWorkerRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactCredentialSecrets } from '../security/redact.js';
@@ -761,6 +761,7 @@ function getOrSpawnContainer(
     | 'agentId'
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
+    | 'runtimeScope'
     | 'bashProxy'
   > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
@@ -863,7 +864,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_GATEWAY_URL=${remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL)}`,
     '-e',
-    `HYBRIDCLAW_GATEWAY_TOKEN=${resolveAgentRuntimeToken()}`,
+    `HYBRIDCLAW_GATEWAY_TOKEN=${resolveWorkerRuntimeToken(params.runtimeScope)}`,
     '-e',
     `HYBRIDAI_BASE_URL=${HYBRIDAI_BASE_URL}`,
     '-e',
@@ -1237,7 +1238,7 @@ async function runContainerInner(
     modelBehavior: modelRuntime.modelBehavior,
     thinkingFormat: modelRuntime.thinkingFormat,
     gatewayBaseUrl: remapHostBaseUrlForContainer(GATEWAY_CLIENT_BASE_URL),
-    gatewayApiToken: resolveAgentRuntimeToken(),
+    gatewayApiToken: resolveWorkerRuntimeToken(params.runtimeScope),
     browserProvider: params.browserProvider || BROWSER_PROVIDER,
     browserAllowPrivateNetwork: BROWSER_ALLOW_PRIVATE_NETWORK,
     model: runtimeModel,
@@ -1340,6 +1341,7 @@ async function runContainerInner(
         agentId,
         workspacePathOverride: params.workspacePathOverride,
         workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        runtimeScope: params.runtimeScope,
         bashProxy: params.bashProxy,
       });
   } catch (err) {

@@ -73,3 +73,11 @@ test('a cloud owner binding discovers policies and cannot be overridden by event
   ).toBe(400);
   expect(sourceQueue).toHaveBeenCalledOnce();
 });
+
+test('an owner also gets Outlook, mailbox and Slack bindings for triggers', async () => {
+  const { post, sourceQueue } = await start('alice');
+  for (const source of ['outlook', 'mailbox', 'slack']) {
+    expect((await post({ bindingId: source, eventId: `${source}-1` })).status).toBe(202);
+    expect(sourceQueue).toHaveBeenLastCalledWith({ userId: 'alice', source, eventId: `${source}-1` });
+  }
+});

@@ -15,7 +15,13 @@ import {
 } from '../config/config.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { logger } from '../logger.js';
+import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
+import {
+  isScopeRunError,
+  resolveScopeRun,
+  scopeRunAgentParams,
+} from '../scopes/scope-run.js';
 import { formatAgentAssignmentHints } from '../skills/agent-scoreboard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput } from '../types/container.js';
@@ -53,10 +59,12 @@ import { firstNumber } from './gateway-utils.js';
 // (2026-10-08), and so is a cost estimate (2026-10-09).
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
+  'trigger',
   'todo',
   'draft_email',
   'estimate_cost',
   'draft_transfer',
+  'inbox_cleanup',
   'track',
   'memory',
   'browser_await_two_factor',
@@ -249,7 +257,27 @@ export async function runDelegationTaskWithRetry(
     onToolProgress,
     abortSignal,
   } = input;
-  const blockedTools = resolveSubagentBlockedTools(childDepth);
+  const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  // A scoped chat's subagents work in its scope, with its limits.
+  const scopeRun = await resolveScopeRun(
+    memoryService.getSessionById(parentSessionId),
+    agentId,
+  );
+  if (isScopeRunError(scopeRun)) {
+    return {
+      status: 'failed',
+      sessionId,
+      model: task.model,
+      error: scopeRun.error,
+      toolsUsed: [],
+      durationMs: 0,
+      attempts: 0,
+    };
+  }
+  const blockedTools = [
+    ...resolveSubagentBlockedTools(childDepth),
+    ...(scopeRun?.blockedTools ?? []),
+  ];
   const canDelegate = !blockedTools.includes('delegate');
   const maxAttempts = PROACTIVE_AUTO_RETRY_ENABLED
     ? PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS
@@ -259,7 +287,6 @@ export async function runDelegationTaskWithRetry(
   let lastError = 'Delegation failed with unknown error';
   let lastStatus: DelegationRunStatus = 'failed';
   let lastDuration = 0;
-  const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
   const requestMessages: ChatMessage[] = [
     {
       role: 'system',
@@ -298,6 +325,7 @@ export async function runDelegationTaskWithRetry(
         agentId,
         channelId,
         blockedTools,
+        ...scopeRunAgentParams(scopeRun),
         abortSignal,
         onToolProgress: (event) => {
           toolReported = true;

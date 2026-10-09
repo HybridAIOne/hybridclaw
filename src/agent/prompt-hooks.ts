@@ -110,6 +110,8 @@ export interface PromptRuntimeInfo {
 
 export interface PromptHookContext {
   agentId: string;
+  /** A scope's workspace to load the prompt files from (`scope-paths.ts`). */
+  workspaceDir?: string;
   sessionSummary?: string | null;
   retrievedContext?: string | null;
   skills: Skill[];
@@ -330,6 +332,7 @@ function buildBootstrapSystemBlocks(context: PromptHookContext): {
 } {
   const contextFiles = loadStaticBootstrapFiles(context.agentId, {
     omitChannelGuidance: isMobileClient(context),
+    workspaceDir: context.workspaceDir,
   }).filter((file) => {
     if (file.name === PROACTIVE_PREFERENCES_FILE) return false;
     const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
