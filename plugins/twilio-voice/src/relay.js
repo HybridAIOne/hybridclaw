@@ -40,7 +40,7 @@ function decodeCloseReason(reason) {
   return decoded || '<empty>';
 }
 
-/** What a turn says when it streamed nothing: the approval prompt or the reply. */
+/** What a turn says: the approval prompt when one is pending, else the reply. */
 function spokenResult(result) {
   const approval = result.pendingApproval;
   if (approval?.approvalId) {
@@ -56,7 +56,25 @@ function spokenResult(result) {
   return String(result.result || '');
 }
 
-export function createRelayCalls({ api, sessions, transition, agentId }) {
+/**
+ * The part of the reply that streaming never delivered. A container turn can
+ * return before its last stderr deltas arrive, so the stream may stop
+ * mid-sentence. A streamed tail that starts at a delta boundary and prefixes
+ * the reply marks what was already said; without one, the reply was rewritten
+ * after streaming and repeating it would speak it twice.
+ */
+function undeliveredSuffix(streamed, deltaStarts, reply) {
+  const final = reply.trimStart();
+  for (const start of deltaStarts) {
+    const said = streamed.slice(start).trim();
+    if (!said || !final.startsWith(said)) continue;
+    const rest = final.slice(said.length);
+    return /\s$/.test(streamed) ? rest.trimStart() : rest;
+  }
+  return '';
+}
+
+export function createRelayCalls({ api, sessions, transition }) {
   const logger = api.logger;
 
   async function runAgentTurn(
@@ -70,6 +88,9 @@ export function createRelayCalls({ api, sessions, transition, agentId }) {
       api.formatTextForSpeech(text),
     );
     let streamedText = false;
+    let streamed = '';
+    const deltaStarts = [];
+    let settled = false;
     const speak = (chunk) => {
       streamedText = true;
       return responseStream.push(chunk);
@@ -82,9 +103,12 @@ export function createRelayCalls({ api, sessions, transition, agentId }) {
       userId: session.userId,
       username: session.username,
       content: normalizeCallerSpeech(content),
-      agentId,
+      agentId: session.agentId,
       abortSignal: signal,
       onTextDelta: (delta) => {
+        if (settled || !delta) return;
+        deltaStarts.push(streamed.length);
+        streamed += delta;
         for (const chunk of chunker.push(delta)) {
           speak(chunk).catch((error) => {
             if (signal.aborted || isRelayDisconnected(error)) return;
@@ -105,6 +129,7 @@ export function createRelayCalls({ api, sessions, transition, agentId }) {
         );
       },
     });
+    settled = true;
     if (result.status === 'error') {
       logger.warn(
         { callSid: session.callSid, error: result.error },
@@ -113,6 +138,14 @@ export function createRelayCalls({ api, sessions, transition, agentId }) {
       await responseStream.reply(TURN_FAILED_REPLY, { language });
       return;
     }
+    // Narration streamed before an approval gate never contains the prompt
+    // itself, so the caller would not hear what to approve.
+    const rest = !streamed
+      ? ''
+      : result.pendingApproval?.approvalId
+        ? ` ${spokenResult(result)}`
+        : undeliveredSuffix(streamed, deltaStarts, spokenResult(result));
+    for (const chunk of chunker.push(rest)) await speak(chunk);
     for (const chunk of chunker.flush()) await speak(chunk);
     if (streamedText) return;
     const text = api.formatTextForSpeech(spokenResult(result));

@@ -33,6 +33,8 @@ plugins/*
 !plugins/tier-router/**
 !plugins/transformers-embeddings/
 !plugins/transformers-embeddings/**
+!plugins/twilio-voice/
+!plugins/twilio-voice/**
 plugins/*/node_modules/
 
 # IDE and OS

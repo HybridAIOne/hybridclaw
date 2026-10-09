@@ -373,6 +373,27 @@ test('getVoiceConfig and getPublicBaseUrl read the live config, frozen', () => {
   expect(api.getPublicBaseUrl()).toBe('https://voice.example.com');
 });
 
+test.each([
+  { defaultAgentId: 'support', listed: true, expected: 'support' },
+  { defaultAgentId: 'ghost', listed: false, expected: 'main' },
+])('getDefaultAgentId reads the live default: $defaultAgentId', ({
+  defaultAgentId,
+  listed,
+  expected,
+}) => {
+  const config = loadRuntimeConfig();
+  const api = createVoiceTransportApi(config);
+
+  config.agents = {
+    ...config.agents,
+    defaultAgentId,
+    list: listed ? [{ id: defaultAgentId }] : [],
+  };
+
+  expect(api.config.agents?.defaultAgentId).not.toBe(defaultAgentId);
+  expect(api.getDefaultAgentId()).toBe(expected);
+});
+
 test('formatTextForSpeech rewrites markdown for TTS', () => {
   const api = createVoiceTransportApi(loadRuntimeConfig());
 

@@ -316,7 +316,7 @@ test('the relay response stream serializes concurrent writes', async () => {
 });
 
 test('call state moves through the relay cycle and frees capacity at a terminal state', () => {
-  const sessions = createSessionStore({ agentId: 'main' });
+  const sessions = createSessionStore({ resolveAgentId: () => 'main' });
   const call = (callSid: string) => ({
     callSid,
     remoteIp: '127.0.0.1',
@@ -327,7 +327,7 @@ test('call state moves through the relay cycle and frees capacity at a terminal 
   const first = sessions.getOrCreate(call('CA1'), 1);
   expect(first).toMatchObject({
     channelId: 'voice:CA1',
-    gatewaySessionId: 'agent:main:channel:voice:chat:dm:peer:CA1',
+    gatewaySessionId: 'agent:main:channel:voice:chat:dm:peer:ca1',
     userId: '+14155550123',
     state: 'initiated',
   });

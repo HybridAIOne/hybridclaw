@@ -49,7 +49,7 @@ function applyCaller(session, { from, to, callerName }) {
   session.username = callerName || from || session.callSid;
 }
 
-export function createSessionStore({ agentId }) {
+export function createSessionStore({ resolveAgentId }) {
   const sessions = new Map();
   let activeCount = 0;
 
@@ -70,8 +70,12 @@ export function createSessionStore({ agentId }) {
         return existing;
       }
       if (activeCount >= maxConcurrentCalls) return null;
+      // A call keeps the agent it started with; a default-agent edit applies
+      // to the next call.
+      const agentId = resolveAgentId();
       const session = {
         callSid,
+        agentId,
         channelId: `voice:${callSid}`,
         gatewaySessionId: buildVoiceSessionKey(agentId, callSid),
         remoteIp,

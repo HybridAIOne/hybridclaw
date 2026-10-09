@@ -9,15 +9,25 @@ export function rawDataToString(raw) {
   return Buffer.from(raw).toString('utf8');
 }
 
+// Mirrors core buildSessionKey (container/shared/session-keys.js), which
+// trims and lowercases each segment; tests/voice-plugin-session-keys.test.ts
+// fails when the two diverge.
+const segment = (value) =>
+  encodeURIComponent(
+    String(value || '')
+      .trim()
+      .toLowerCase(),
+  );
+
 export function buildVoiceSessionKey(agentId, callSid) {
   return [
     'agent',
-    encodeURIComponent(agentId),
+    segment(agentId),
     'channel',
     'voice',
     'chat',
     'dm',
     'peer',
-    encodeURIComponent(callSid),
+    segment(callSid),
   ].join(':');
 }

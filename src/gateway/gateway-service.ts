@@ -130,6 +130,7 @@ import {
   SLACK_WEBHOOK_DEFAULT_TARGET,
   slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
+import { readTwilioVoicePluginState } from '../channels/voice/twilio-voice-plugin-state.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
 import {
@@ -4609,6 +4610,7 @@ export async function getGatewayStatus(
         runtimeConfig.speech.realtime.provider,
       ),
       maxConcurrentCalls: runtimeConfig.voice.maxConcurrentCalls,
+      pluginLoaded: readTwilioVoicePluginState().loaded,
     },
     whatsapp: {
       ...whatsappAuth,

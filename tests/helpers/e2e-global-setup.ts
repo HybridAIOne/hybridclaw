@@ -39,6 +39,12 @@ export function setup(): void {
     );
   }
 
+  if (process.env.HYBRIDCLAW_RUN_TWILIO_E2E !== '1') {
+    skipped.push(
+      '  HYBRIDCLAW_RUN_TWILIO_E2E=1                                     → Twilio voice plugin against a built gateway',
+    );
+  }
+
   if (skipped.length > 0) {
     console.log(
       `\nE2E tests skipped (set env vars to enable):\n${skipped.join('\n')}\n`,

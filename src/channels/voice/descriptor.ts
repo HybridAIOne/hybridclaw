@@ -19,9 +19,7 @@ export const descriptor = {
   supportsProactive: false,
 
   start: async () =>
-    (
-      await import('./twilio-plugin-notice.js')
-    ).warnIfTwilioVoicePluginMissing(),
+    (await import('./twilio-voice-compat.js')).warnIfTwilioVoicePluginMissing(),
   stop: async () => {},
   configChanged: () => false,
 } satisfies ChannelDescriptor;

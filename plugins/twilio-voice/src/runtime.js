@@ -75,8 +75,9 @@ function isReconnectableFailure(body) {
 
 export function createTwilioVoiceRuntime(api) {
   const logger = api.logger;
-  const agentId = api.config.agents?.defaultAgentId || 'main';
-  const sessions = createSessionStore({ agentId });
+  const sessions = createSessionStore({
+    resolveAgentId: () => api.getDefaultAgentId(),
+  });
   const replay = createReplayProtector(REPLAY_TTL_MS);
   let stopping = false;
   let missingTokenLogged = false;
@@ -94,7 +95,7 @@ export function createTwilioVoiceRuntime(api) {
     }
   }
 
-  const relay = createRelayCalls({ api, sessions, transition, agentId });
+  const relay = createRelayCalls({ api, sessions, transition });
   const realtime = createRealtimeCalls({ api, sessions, transition });
 
   function resolveAuthToken() {

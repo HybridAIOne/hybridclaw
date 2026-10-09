@@ -690,6 +690,12 @@ export interface HybridClawPluginApi {
    */
   getVoiceConfig(): Readonly<RuntimeConfig['voice']>;
   /**
+   * The agent that answers unaddressed inbound traffic, resolved like core
+   * (`agents.defaultAgentId`, else `main`) from current config, not the
+   * registration-time `config` snapshot.
+   */
+  getDefaultAgentId(): string;
+  /**
    * The gateway's publicly reachable HTTP(S) origin for inbound webhooks:
    * `ops.gatewayBaseUrl` when it is not a loopback or private address, else
    * `deployment.public_url` in cloud mode; null when neither is public.

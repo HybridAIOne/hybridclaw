@@ -93,8 +93,9 @@ function createHarness(
     close: vi.fn(),
     isOpen: true,
   };
+  const agents = { defaultAgentId: 'main' };
   const api = {
-    config: { agents: { defaultAgentId: 'main' } },
+    getDefaultAgentId: () => agents.defaultAgentId,
     getVoiceConfig: () => voice,
     getPublicBaseUrl: () =>
       options.publicBaseUrl === undefined ? PUBLIC_BASE : options.publicBaseUrl,
@@ -192,6 +193,7 @@ function createHarness(
 
   return {
     api,
+    agents,
     voice,
     logger,
     commands,
@@ -387,7 +389,7 @@ test('a relay turn streams the agent reply as speech tokens and normalizes appro
 
   expect(harness.api.dispatchInboundMessage).toHaveBeenCalledWith(
     expect.objectContaining({
-      sessionId: 'agent:main:channel:voice:chat:dm:peer:CA123',
+      sessionId: 'agent:main:channel:voice:chat:dm:peer:ca123',
       channelId: 'voice:CA123',
       userId: CALL.From,
       content: 'yes for session',
@@ -400,10 +402,97 @@ test('a relay turn streams the agent reply as speech tokens and normalizes appro
   ]);
 });
 
-test('a relay turn that streams nothing speaks the pending approval prompt', async () => {
+test('each call answers with the default agent current when it started', async () => {
+  const harness = createHarness();
+  await harness.post('webhook', CALL);
+  const first = (await harness.upgrade('relay')).socket;
+  first.receive({ type: 'setup', callSid: 'CA123', from: CALL.From, to: CALL.To });
+
+  harness.agents.defaultAgentId = 'support';
+  await harness.post('webhook', { ...CALL, CallSid: 'CA456' });
+  const second = (await harness.upgrade('relay')).socket;
+  second.receive({ type: 'setup', callSid: 'CA456', from: CALL.From, to: CALL.To });
+  first.receive({ type: 'prompt', voicePrompt: 'Hi', last: true });
+  second.receive({ type: 'prompt', voicePrompt: 'Hi', last: true });
+  await settle();
+
+  const turns = harness.api.dispatchInboundMessage.mock.calls.map(
+    ([request]) => [request.agentId, request.sessionId],
+  );
+  expect(turns).toEqual([
+    ['main', 'agent:main:channel:voice:chat:dm:peer:ca123'],
+    ['support', 'agent:support:channel:voice:chat:dm:peer:ca456'],
+  ]);
+});
+
+test.each([
+  {
+    case: 'deltas stop mid-sentence',
+    deltas: ['Hello **from'],
+    result: 'Hello **from the gateway**. All set.',
+    spoken: ['Hello from the gateway. All set.'],
+  },
+  {
+    case: 'narration precedes a cut-off final segment',
+    deltas: ['Let me check. ', 'It is '],
+    result: 'It is five **pm**.',
+    spoken: ['Let me check.', 'It is five pm.'],
+  },
+  {
+    case: 'the reply was rewritten after streaming',
+    deltas: ['Draft answer.'],
+    result: 'Guarded answer.',
+    spoken: ['Draft answer.'],
+  },
+  {
+    case: 'a delta arrives after the turn returned',
+    deltas: ['Done.'],
+    late: ' Extra.',
+    result: 'Done.',
+    spoken: ['Done.'],
+  },
+])('a relay turn speaks the undelivered reply when $case', async ({
+  deltas,
+  late,
+  result,
+  spoken,
+}) => {
+  let lateDelta: ((delta: string) => void) | undefined;
   const harness = createHarness({
-    dispatch: async () =>
-      ({
+    dispatch: async (request) => {
+      for (const delta of deltas) request.onTextDelta?.(delta);
+      lateDelta = request.onTextDelta;
+      return { status: 'success', result } as never;
+    },
+  });
+  await harness.post('webhook', CALL);
+  const { socket } = await harness.upgrade('relay');
+
+  socket.receive({ type: 'setup', callSid: 'CA123', from: CALL.From, to: CALL.To });
+  socket.receive({ type: 'prompt', voicePrompt: 'What time is it?', last: true });
+  await settle();
+  if (late) lateDelta?.(late);
+  await settle();
+
+  expect(socket.sent.map((frame) => frame.token)).toEqual(spoken);
+  expect(socket.sent.at(-1)?.last).toBe(true);
+});
+
+test.each([
+  { case: 'streams nothing', deltas: [], spoken: [] },
+  {
+    case: 'streams narration first',
+    deltas: ['Let me send that. '],
+    spoken: ['Let me send that.'],
+  },
+])('a relay turn that $case speaks the pending approval prompt', async ({
+  deltas,
+  spoken,
+}) => {
+  const harness = createHarness({
+    dispatch: async (request) => {
+      for (const delta of deltas) request.onTextDelta?.(delta);
+      return {
         status: 'success',
         result: 'raw',
         pendingApproval: {
@@ -411,7 +500,8 @@ test('a relay turn that streams nothing speaks the pending approval prompt', asy
           intent: 'send the **invoice**',
           reason: 'it emails a customer',
         },
-      }) as never,
+      } as never;
+    },
   });
   await harness.post('webhook', CALL);
   const { socket } = await harness.upgrade('relay');
@@ -420,13 +510,10 @@ test('a relay turn that streams nothing speaks the pending approval prompt', asy
   socket.receive({ type: 'prompt', voicePrompt: 'Send it', last: true });
   await settle();
 
-  expect(socket.sent).toEqual([
-    expect.objectContaining({
-      token:
-        'Approval needed for: send the invoice. Why: it emails a customer. Approval ID: appr-1',
-      last: true,
-    }),
-  ]);
+  const tokens = socket.sent.map((frame) => frame.token).join(' ');
+  expect(tokens.startsWith(spoken.join(' '))).toBe(true);
+  expect(tokens).toContain('Approval ID: appr-1');
+  expect(socket.sent.at(-1)?.last).toBe(true);
 });
 
 test('a dropped relay socket keeps the running agent turn alive', async () => {
@@ -497,7 +584,7 @@ test('a realtime stream passes µ-law audio straight through to the realtime ses
     audioEncoding: 'mulaw',
     caller: { from: CALL.From, to: CALL.To },
     session: {
-      sessionId: 'agent:main:channel:voice:chat:dm:peer:CA123',
+      sessionId: 'agent:main:channel:voice:chat:dm:peer:ca123',
       channelId: 'voice:CA123',
     },
   });

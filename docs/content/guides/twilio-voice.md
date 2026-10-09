@@ -44,19 +44,22 @@ and look for `Twilio voice plugin ready` in the gateway log.
 ### Upgrading From v0.39
 
 Before v0.40 Twilio voice was built into the gateway. An existing `voice.*`
-config keeps working unchanged once the plugin is installed, with one
-exception: the webhook URLs moved.
+config keeps answering calls after the upgrade with no manual step:
 
-1. Install the plugin as above. Until you do, a gateway with
-   `voice.enabled: true` logs a warning naming the install command and
-   answers nothing on the old `/voice/*` paths.
-2. In the Twilio console, change the number's voice webhook from
-   `https://<public-host>/voice/webhook` to
+1. On the first start, a config with `voice.enabled: true` gains an enabled
+   `twilio-voice` entry in `plugins.list`, so the gateway loads the copy that
+   ships with HybridClaw (npm package and Docker image alike). This happens
+   once; if you later disable or remove the entry, it stays that way.
+2. `https://<public-host>/voice/webhook` keeps answering incoming calls
+   through v0.41, and the gateway logs a warning the first time Twilio uses
+   it. Before upgrading past v0.41, change the number's voice webhook in the
+   Twilio console to
    `https://<public-host>/api/plugin-webhooks/twilio-voice/webhook`. The relay,
    stream, and action URLs follow automatically from the TwiML the plugin
    returns.
 3. `voice.webhookPath` no longer exists; the gateway drops it from the config
-   on startup. The plugin's paths are fixed.
+   on startup. If you had changed it from `/voice`, the old URL stops
+   answering, so update the Twilio console right away.
 
 ## What You Need
 
@@ -479,8 +482,9 @@ Its `unavailableReason` field is `null` when calls can be answered; otherwise
 it names what is missing (`voice.enabled is off`, an unset account SID or
 from number, or a missing realtime credential).
 
-If the log instead says `voice.enabled is set but Twilio voice now ships as
-the twilio-voice plugin`, the plugin is not installed.
+If the log instead says `voice.enabled is set but the twilio-voice plugin is
+not enabled` (or `failed to load`), the plugin is disabled, missing, or
+broken; see Troubleshooting below.
 
 ## Test Inbound Calls
 
@@ -637,6 +641,13 @@ carries the reason:
 - `voice.twilio.accountSid or voice.twilio.fromNumber is unset`
 - `realtime voice has no credential` (realtime mode only)
 - `plugin is stopping` (a plugin reload or gateway shutdown is in progress)
+
+A plugin runtime reload restarts every plugin, so it hangs up calls in
+progress (the caller hears the call end). Reloads happen on
+`plugin reload`, on `plugin install`, `reinstall`, `enable`, or
+`disable` for any plugin, on `plugin config` edits for any plugin, and when
+output-guard rules are saved in the console. Make those changes outside
+call hours. Editing `voice.*` settings does not reload anything.
 
 Settings are read per call, so fixing the reported setting is enough; no reload
 is needed.

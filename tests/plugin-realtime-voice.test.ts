@@ -290,6 +290,7 @@ test('a µ-law transport skips companding in both directions', async () => {
     audioEncoding: 'mulaw',
   });
   realtime.open();
+  realtime.serverEvent({ type: 'session.updated' });
 
   const callerFrame = Buffer.from([0x00, 0x7f, 0x80, 0xff]);
   session.handleCallerAudio(callerFrame);

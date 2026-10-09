@@ -1039,7 +1039,7 @@ describe('gateway bootstrap', () => {
     { loadedPluginIds: [], warns: true },
     { loadedPluginIds: ['twilio-voice'], warns: false },
   ])(
-    'voice.enabled names the twilio-voice plugin install when it is missing: %j',
+    'voice.enabled reports the twilio-voice plugin state at startup: %j',
     async ({ loadedPluginIds, warns }) => {
       const state = await importFreshGatewayMain({
         voiceEnabled: true,
@@ -1063,7 +1063,7 @@ describe('gateway bootstrap', () => {
       expectInfoLog(
         state,
         'Gateway channels',
-        expect.objectContaining({ voice: false }),
+        expect.objectContaining({ voice: !warns }),
       );
     },
   );

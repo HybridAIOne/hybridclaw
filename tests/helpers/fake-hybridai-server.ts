@@ -63,13 +63,15 @@ function chunk(model: string, delta: Record<string, unknown>, finish?: string) {
   })}\n\n`;
 }
 
+/** `host` is 127.0.0.1 unless agent containers must reach it (Docker bridge). */
 export async function startFakeHybridAIServer(
   port: number,
+  host = '127.0.0.1',
 ): Promise<FakeHybridAIServer> {
   let realtimeSocket: WebSocket | null = null;
   let responseCount = 0;
   const state: FakeHybridAIServer = {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://${host}:${port}`,
     reply: 'Hello **from** the agent. The weather is sunny today.',
     chatRequests: [],
     realtime: {
@@ -182,7 +184,7 @@ export async function startFakeHybridAIServer(
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
   state.close = () =>
     new Promise<void>((resolve) => {
       for (const client of websockets.clients) client.terminate();

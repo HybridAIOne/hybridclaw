@@ -26,7 +26,7 @@ hybridclaw plugin install ./plugins/qmd-memory
 hybridclaw plugin install ./plugins/transformers-embeddings
 hybridclaw plugin install ./plugins/media-tools
 hybridclaw plugin install ./plugins/brevo-email
-hybridclaw plugin install ./plugins/twilio-voice
+hybridclaw plugin install twilio-voice
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
 hybridclaw plugin install ./plugins/connector-events
@@ -539,7 +539,10 @@ Phone transports share the core phone-channel settings. `api.getVoiceConfig()`
 returns the current `voice.*` config (caller policy, relay language and
 greeting, concurrency) re-read on every call, so console edits apply to the
 next call without a plugin reload; `api.config` stays the registration-time
-snapshot. `api.getPublicBaseUrl()` returns the gateway's publicly reachable
+snapshot. `api.getDefaultAgentId()` returns the agent that answers unaddressed
+inbound traffic from the same live config, resolved like core
+(`agents.defaultAgentId` when it names a configured agent, else `main`).
+`api.getPublicBaseUrl()` returns the gateway's publicly reachable
 origin (`ops.gatewayBaseUrl` unless it is loopback or private, else
 `deployment.public_url` in cloud mode) or `null`, and
 `api.formatTextForSpeech(text)` rewrites agent text for a TTS engine (no

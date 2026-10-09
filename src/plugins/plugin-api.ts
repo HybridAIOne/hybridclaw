@@ -11,6 +11,7 @@ import type { ChannelInfo } from '../channels/channel.js';
 import type { ChannelTransportRegistration } from '../channels/channel-transport.js';
 import {
   type RuntimeConfig,
+  resolveDefaultAgentId,
   runtimeConfigPath,
 } from '../config/runtime-config.js';
 import { resolvePublicGatewayBaseUrl } from '../gateway/gateway-url-utils.js';
@@ -150,6 +151,9 @@ export function createPluginApi(params: {
     getVoiceConfig() {
       return deepFreezeClone(params.manager.getConfig().voice);
     },
+    getDefaultAgentId() {
+      return resolveDefaultAgentId(params.manager.getConfig());
+    },
     getPublicBaseUrl() {
       return resolvePublicGatewayBaseUrl(params.manager.getConfig());
     },
@@ -270,13 +274,13 @@ export function createPluginApi(params: {
       ) {
         return undefined;
       }
-      const value = process.env[normalized];
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed) return trimmed;
-      }
-      const stored = readStoredRuntimeSecret(normalized);
-      return stored?.trim() || undefined;
+      // Declared credentials follow core's runtime-secret rule: the encrypted
+      // store wins over the process environment, so a rotated `/secret set`
+      // value is not shadowed by a stale env var.
+      const stored = readStoredRuntimeSecret(normalized)?.trim();
+      if (stored && declaredCredentials.has(normalized)) return stored;
+      const value = process.env[normalized]?.trim();
+      return value || stored || undefined;
     },
     getMcpServerConfig(name: string): Readonly<McpServerConfig> | null {
       return params.manager.getMcpServerConfig(name);

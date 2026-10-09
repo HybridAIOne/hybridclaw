@@ -639,6 +639,8 @@ export interface GatewayStatus {
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
     realtimeConfigured: boolean;
     maxConcurrentCalls: number;
+    /** The `twilio-voice` plugin is enabled and loaded without an error. */
+    pluginLoaded: boolean;
   };
   whatsapp?: {
     linked: boolean;

@@ -165,6 +165,7 @@ export interface GatewayStatus {
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
     realtimeConfigured?: boolean;
     maxConcurrentCalls: number;
+    pluginLoaded?: boolean;
   };
   whatsapp?: {
     linked: boolean;

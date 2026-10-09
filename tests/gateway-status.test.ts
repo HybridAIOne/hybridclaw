@@ -1127,6 +1127,7 @@ test('getGatewayStatus includes voice Twilio credential status', async () => {
     authTokenSource: 'runtime-secrets',
     realtimeConfigured: expect.any(Boolean),
     maxConcurrentCalls: 8,
+    pluginLoaded: false,
   });
 });
 
