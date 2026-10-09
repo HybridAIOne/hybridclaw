@@ -157,7 +157,7 @@ async function createConnection(params?: { apiKey?: string }) {
   const finished = vi.fn();
   new WebchatVoiceConnection({
     ws: browser as never,
-    identity: { userId: 'user-1', username: 'Ada' },
+    identity: { userId: 'user-1', username: 'Ada', operatorId: 'operator-1' },
     remoteIp: '127.0.0.1',
     onFinished: finished,
     socketFactory: (url) => {
@@ -631,7 +631,12 @@ test('the mobile call remains ringing until its chat is preloaded', async () => 
     timeZone: 'Europe/Berlin',
   });
   realtime.open();
-  expect(loadVoiceHistory).toHaveBeenCalledWith('mobile-chat', 'hy', 'user-1');
+  expect(loadVoiceHistory).toHaveBeenCalledWith(
+    'mobile-chat',
+    'hy',
+    'user-1',
+    'operator-1',
+  );
   expect(browser.sentOfType('ready')).toEqual([]);
   expect(realtime.sentOfType('response.create')).toEqual([]);
   const item = realtime.sentOfType('conversation.item.create')[0].item;

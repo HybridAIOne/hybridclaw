@@ -46,7 +46,7 @@ function ownedSession(summary: string | null = null) {
     channel_id: 'web',
     session_summary: summary,
   });
-  mocks.owner.mockReturnValue('caller');
+  mocks.owner.mockReturnValue('caller-operator');
 }
 function turn(role: string, content: string, user_id = 'caller') {
   return { role, content, user_id };
@@ -67,7 +67,7 @@ test('compression auxiliary summarizes the previous summary and recent voice or 
     turn('assistant', '__MESSAGE_SEND_HANDLED__', 'assistant'),
     turn('user', ' '),
   ]);
-  const history = await loadWebchatVoiceHistory('chat', 'hy', 'caller');
+  const history = await loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator');
   expect(history).toEqual([
     {
       role: 'user',
@@ -97,7 +97,7 @@ test('compression auxiliary summarizes the previous summary and recent voice or 
 });
 
 test('a new chat does not call the auxiliary model', async () => {
-  expect(await loadWebchatVoiceHistory('new', 'hy', 'caller')).toEqual([]);
+  expect(await loadWebchatVoiceHistory('new', 'hy', 'caller', null)).toEqual([]);
   expect(mocks.history).not.toHaveBeenCalled();
   expect(mocks.summarize).not.toHaveBeenCalled();
 });
@@ -105,7 +105,7 @@ test('a new chat does not call the auxiliary model', async () => {
 test('another owner cannot send this conversation to the auxiliary model', async () => {
   ownedSession('Sensitive summary');
   await expect(
-    loadWebchatVoiceHistory('chat', 'hy', 'someone-else'),
+    loadWebchatVoiceHistory('chat', 'hy', 'someone-else', 'other-operator'),
   ).rejects.toThrow('Voice conversation not found');
   expect(mocks.history).not.toHaveBeenCalled();
   expect(mocks.summarize).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ test.each([
   { agent_id: 'hy', channel_id: 'discord' },
 ])('another agent or channel cannot be summarized: %j', async (session) => {
   mocks.session.mockReturnValue(session);
-  await expect(loadWebchatVoiceHistory('chat', 'hy', 'caller')).rejects.toThrow(
+  await expect(loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator')).rejects.toThrow(
     'Voice conversation not found',
   );
   expect(mocks.history).not.toHaveBeenCalled();
@@ -133,20 +133,20 @@ test('voice-only history uses its stored caller and excludes an unowned older su
     turn('user', 'Previous spoken request'),
     turn('assistant', 'Previous reply', 'assistant'),
   ]);
-  await loadWebchatVoiceHistory('voice-chat', 'hy', 'caller');
+  await loadWebchatVoiceHistory('voice-chat', 'hy', 'caller', null);
   expect(summaryInput()).toEqual([
     { role: 'user', text: 'Previous spoken request' },
     { role: 'assistant', text: 'Previous reply' },
   ]);
   await expect(
-    loadWebchatVoiceHistory('voice-chat', 'hy', 'someone-else'),
+    loadWebchatVoiceHistory('voice-chat', 'hy', 'someone-else', null),
   ).rejects.toThrow('Voice conversation not found');
   mocks.history.mockReturnValue([
     turn('user', 'Mine'),
     turn('user', 'Another person', 'other'),
   ]);
   await expect(
-    loadWebchatVoiceHistory('voice-chat', 'hy', 'caller'),
+    loadWebchatVoiceHistory('voice-chat', 'hy', 'caller', null),
   ).rejects.toThrow('Voice conversation not found');
   expect(mocks.summarize).toHaveBeenCalledTimes(1);
 });
@@ -162,7 +162,7 @@ test('summary input stays bounded and prioritizes the newest messages', async ()
     ),
     turn('user', 'The most recent question'),
   ]);
-  await loadWebchatVoiceHistory('chat', 'hy', 'caller');
+  await loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator');
   const input = summaryInput();
   expect(
     input.reduce((sum, item) => sum + item.text.length, 0),
@@ -174,7 +174,7 @@ test('summary input stays bounded and prioritizes the newest messages', async ()
 });
 
 test.each(['failure', 'empty'])(
-  'failed or empty auxiliary output cannot become a fake summary: %s',
+  'failed or empty auxiliary output starts the call without a summary: %s',
   async (mode) => {
     ownedSession();
     mocks.history.mockReturnValue([turn('user', 'Earlier chat')]);
@@ -182,11 +182,24 @@ test.each(['failure', 'empty'])(
       mocks.summarize.mockRejectedValue(new Error('offline'));
     else mocks.summarize.mockResolvedValue({ content: ' ' });
     await expect(
-      loadWebchatVoiceHistory('chat', 'hy', 'caller'),
-    ).rejects.toThrow();
+      loadWebchatVoiceHistory('chat', 'hy', 'caller', 'caller-operator'),
+    ).resolves.toEqual([]);
     expect(mocks.summarize).toHaveBeenCalledTimes(1);
   },
 );
+
+test('a chat is owned by the operator a written turn names, not by the user id it sends', async () => {
+  // A phone writes and calls with its account's user id; the chat's owner is
+  // the hashed operator of its token. Comparing the two refused every call.
+  ownedSession();
+  mocks.history.mockReturnValue([turn('user', 'Earlier chat', 'phone-user')]);
+  await expect(
+    loadWebchatVoiceHistory('chat', 'hy', 'phone-user', 'caller-operator'),
+  ).resolves.toHaveLength(1);
+  await expect(
+    loadWebchatVoiceHistory('chat', 'hy', 'caller-operator', null),
+  ).rejects.toThrow('Voice conversation not found');
+});
 
 test('every consult gets the fresh clock and caller timezone after midnight and the DST change', () => {
   vi.useFakeTimers();

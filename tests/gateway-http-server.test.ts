@@ -18675,7 +18675,14 @@ describe('gateway HTTP server', () => {
       expect.anything(),
       socket,
       expect.any(Buffer),
-      { userId: 'visitor-1', username: 'Visitor' },
+      {
+        userId: 'visitor-1',
+        username: 'Visitor',
+        // Chat ownership names the token, whatever user id the body gives.
+        operatorId: createHash('sha256')
+          .update('apiToken:voicetok00001')
+          .digest('hex'),
+      },
     );
 
     // Stream tokens are single-use: a replay is rejected.
@@ -18736,7 +18743,13 @@ describe('gateway HTTP server', () => {
       expect.anything(),
       socket,
       expect.any(Buffer),
-      { userId: 'apiToken:voicetok00001:webapp', username: null },
+      {
+        userId: 'apiToken:voicetok00001:webapp',
+        username: null,
+        operatorId: createHash('sha256')
+          .update('apiToken:voicetok00001')
+          .digest('hex'),
+      },
     );
   });
 
