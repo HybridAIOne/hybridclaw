@@ -478,6 +478,7 @@ import {
   resolveAgentAddressing,
   setActiveThreadAgentId,
 } from './agent-addressing.js';
+import { APPROVAL_ANSWER_SOURCE } from './approval-answer.js';
 import {
   handleApprovalsCommand,
   resolveSessionApprovalMode,
@@ -3608,6 +3609,7 @@ export function recordSuccessfulTurn(opts: {
   userMedia?: readonly MediaContextItem[];
   /** The dynamic context the user message was sent with, for replay. */
   userDynamicContext?: string | null;
+  userSource?: string | null;
   /** Notes the user sent while the turn ran, in the order the model saw them. */
   steerNotes?: readonly string[];
   resultText: string;
@@ -3779,6 +3781,7 @@ export function recordErrorTurn(opts: {
   userContent: string;
   userMedia?: readonly MediaContextItem[];
   userDynamicContext?: string | null;
+  userSource?: string | null;
   steerNotes?: readonly string[];
   error: string;
   tools: ErrorTurnToolRecord[];
@@ -8659,7 +8662,10 @@ export function getGatewayHistory(
   const history = page.history
     .filter((message) => {
       if (message.role === 'user') {
-        return !isDelegationResultsMessage(message.content);
+        return (
+          message.source !== APPROVAL_ANSWER_SOURCE &&
+          !isDelegationResultsMessage(message.content)
+        );
       }
       if (message.role !== 'assistant') return true;
       return (

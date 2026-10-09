@@ -159,6 +159,7 @@ import {
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
 import { DRAFT_TRANSFER_TOOL, SHOW_WIDGET_TOOL } from './app-widgets.js';
+import { APPROVAL_ANSWER_SOURCE } from './approval-answer.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -1335,6 +1336,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: routingUserContent,
         userMedia: blockedMedia,
+        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -2029,6 +2031,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         userMedia: media,
+        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
         resultText,
         toolCallCount: 0,
         startedAt,
@@ -2732,6 +2735,7 @@ async function handleGatewayMessageInner(
         canonicalScopeId: canonicalContextScope,
         userContent: storedUserContent,
         userMedia: media,
+        userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
         userDynamicContext: dynamicContext,
         steerNotes,
         error: errorMessage,
@@ -2927,6 +2931,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       userMedia: media,
+      userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
       userDynamicContext: dynamicContext,
       steerNotes,
       resultText,
@@ -3115,6 +3120,7 @@ async function handleGatewayMessageInner(
           canonicalScopeId: canonicalContextScope,
           userContent: buildStoredUserTurnContent(userTurnContent, media),
           userMedia: media,
+          userSource: req.approval ? APPROVAL_ANSWER_SOURCE : null,
           userDynamicContext:
             agentStage === 'pre-agent' ? null : dynamicContext,
           error: errorMsg,
