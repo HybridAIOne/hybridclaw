@@ -71,9 +71,10 @@ describe('pending approvals stay with the session that asked', () => {
 
     expect(reply(sessionB, `yes ${request.requestId}`)).toBeNull();
     requestApproval(sessionB, 'bash ./cleanup.sh');
-    const named = reply(sessionB, `yes ${request.requestId} for agent`);
-    expect(named?.approvedToolCall).toBeUndefined();
-    expect(named?.immediateMessage).toContain(String(request.requestId));
+    // Another session's id is not an answer here; the agent reads the message.
+    expect(
+      reply(sessionB, `yes ${request.requestId} for agent`),
+    ).toBeNull();
 
     expect(
       reply(startWorker(workspace, 'session-a'), `yes ${request.requestId}`)
