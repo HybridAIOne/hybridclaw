@@ -55,13 +55,30 @@ const SESSION_CWD_FILE = 'bash-cwd';
 // frame ahead of the command, so argv holds only constants.
 const readStdinField = (variable: string) =>
   `IFS= read -r -d '' ${variable} || exit 125`;
-const STATELESS_BASH_WRAPPER_SCRIPT = `${readStdinField('__hybridclaw_command')}
+// A login profile may reset PATH (Debian's /etc/profile does), dropping the
+// worker's entries such as the desktop app's bundled node. Append the ones it
+// dropped, so the profile's own entries still win.
+const RESTORE_WORKER_PATH = `${readStdinField('__hybridclaw_worker_path')}
+if shopt -q login_shell; then
+  IFS=: read -r -a __hybridclaw_path_dirs <<< "$__hybridclaw_worker_path"
+  for __hybridclaw_dir in "\${__hybridclaw_path_dirs[@]}"; do
+    [ -n "$__hybridclaw_dir" ] || continue
+    case ":$PATH:" in
+      *":$__hybridclaw_dir:"*) ;;
+      *) PATH="\${PATH:+$PATH:}$__hybridclaw_dir" ;;
+    esac
+  done
+  export PATH
+fi`;
+const STATELESS_BASH_WRAPPER_SCRIPT = `${RESTORE_WORKER_PATH}
+${readStdinField('__hybridclaw_command')}
 eval "$__hybridclaw_command"`;
 const PERSISTENT_BASH_WRAPPER_SCRIPT = `
 ${readStdinField('__hybridclaw_session_dir')}
 ${readStdinField('__hybridclaw_snapshot')}
 ${readStdinField('__hybridclaw_cwd_file')}
 ${readStdinField('__hybridclaw_default_cwd')}
+${RESTORE_WORKER_PATH}
 ${readStdinField('__hybridclaw_command')}
 __hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
 __hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
@@ -218,6 +235,11 @@ function describeInheritedShell(cwdPath: string): string | null {
   return `[The sandbox restarted since the previous bash call in this session: exported variables, aliases, and activated virtualenvs from earlier calls are gone; ${cwd}.]`;
 }
 
+// A docker-exec task sandbox keeps the PATH of its own image.
+function workerPath(): string {
+  return TASK_SANDBOX_FS_ENABLED ? '' : process.env.PATH || '';
+}
+
 /**
  * Runs one approved command. `notice` is set on the first call in a worker
  * that inherited the session's working directory from an earlier worker.
@@ -232,6 +254,7 @@ export async function runBash(params: BashRunParams): Promise<{
       result: await runBashProcess(
         ['-lc', STATELESS_BASH_WRAPPER_SCRIPT],
         params,
+        [workerPath()],
       ),
       notice: null,
     };
@@ -254,6 +277,7 @@ export async function runBash(params: BashRunParams): Promise<{
       session.snapshotPath,
       session.cwdPath,
       session.defaultCwd,
+      workerPath(),
     ],
   );
   if (result.error === undefined || result.status !== null) {

@@ -80,6 +80,47 @@ describe('reading back a stored reply', () => {
     expect(body.createdAt.endsWith('Z')).toBe(true);
   });
 
+  test('a stored reply says what it cost', async () => {
+    const { db, memoryService, phone, get } = await setup();
+    const reply = memoryService.storeMessage({
+      sessionId: 'ios-a',
+      userId: 'hybridclaw-ios',
+      username: null,
+      role: 'assistant',
+      content: 'Done.',
+    });
+    const read = () => get(phone, `sessionId=ios-a&id=${reply}`).body;
+    expect(read()).not.toHaveProperty('cost');
+    db.setMessageRoutingTrace(reply, {
+      version: 1,
+      status: 'complete',
+      mode: 'direct',
+      durationMs: 1_000,
+      attempts: [
+        {
+          id: 1,
+          kind: 'execution',
+          model: 'hybridai/gpt-paid',
+          zone: 'cloud',
+          reason: 'selected-model',
+          tier: null,
+          status: 'success',
+          durationMs: 1_000,
+          inputTokens: 1_000,
+          outputTokens: 100,
+          totalTokens: 1_100,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          tokensEstimated: false,
+          costUsd: 0.011712,
+          costSource: 'estimated',
+          modelCalls: 2,
+        },
+      ],
+    });
+    expect(read().cost).toEqual({ eur: 0.01, free: false, requests: 2 });
+  });
+
   test('other operators, other sessions and user turns look like missing messages', async () => {
     const { memoryService, phone, other, get } = await setup();
     const reply = memoryService.storeMessage({

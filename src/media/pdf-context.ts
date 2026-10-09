@@ -7,11 +7,15 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   PDF_PREVIEW_MAX_CHARS,
   readPdfPages,
 } from '../../container/shared/pdf-reader.js';
 import type { VisualAttachment } from '../../container/shared/visual-snapshots.js';
+import { containerDependencyRepairHint } from '../infra/host-runtime-setup.js';
+import { resolveInstallPath } from '../infra/install-root.js';
+import { logger } from '../logger.js';
 import type {
   ChatContentPart,
   ChatMessage,
@@ -19,6 +23,30 @@ import type {
 } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
 import { createMediaHostPathResolver } from './media-host-path.js';
+
+// Resolved from the install root: the gateway image runs an esbuild bundle in
+// bundle/, where pdf-reader's own module-relative default points outside /app.
+const PDF_RUNTIME_URL = pathToFileURL(
+  resolveInstallPath('skills', 'pdf', 'scripts', '_pdf_runtime.mjs'),
+).href;
+let warnedMissingPdfRuntime = false;
+
+function warnIfPdfRuntimeMissing(err: unknown): void {
+  const error = err as (NodeJS.ErrnoException & { cause?: unknown }) | null;
+  const code =
+    error?.code ?? (error?.cause as NodeJS.ErrnoException | undefined)?.code;
+  if (
+    warnedMissingPdfRuntime ||
+    (code !== 'MODULE_NOT_FOUND' && code !== 'ERR_MODULE_NOT_FOUND')
+  ) {
+    return;
+  }
+  warnedMissingPdfRuntime = true;
+  logger.warn(
+    { err },
+    `PDF preview needs the agent runtime's pdfjs-dist in ${resolveInstallPath('container', 'node_modules')}. ${containerDependencyRepairHint()}`,
+  );
+}
 
 // Agent decision, 2026-09-29: bound automatic preview work to four files;
 // full-document reading is explicit through read.pages, not automatic ingestion.
@@ -146,6 +174,7 @@ export async function injectPdfContextMessages(params: {
       } = await readPdfPages(filePath, {
         render: params.visualMediaAllowed ? 'always' : 'never',
         maxChars: PDF_PREVIEW_MAX_CHARS,
+        runtimeUrl: PDF_RUNTIME_URL,
         workspaceRoot: params.visualMediaAllowed ? workspaceRoot : undefined,
         outputDir,
       });
@@ -159,7 +188,8 @@ export async function injectPdfContextMessages(params: {
           ? 'Selected pages queued for model delivery'
           : 'Text only',
       });
-    } catch {
+    } catch (err) {
+      warnIfPdfRuntimeMissing(err);
       previews.push({
         path: reference,
         status: 'PDF preview failed; use read for the error',

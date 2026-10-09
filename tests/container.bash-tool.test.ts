@@ -331,7 +331,7 @@ describe.sequential('container bash tool persistence', () => {
     expect(call).toBeDefined();
     expect(call![1]).not.toContain(command);
     expect(JSON.stringify(call![1])).not.toContain('trailing whitespace');
-    expect(stdinFields(call![2])).toHaveLength(persistBashState ? 5 : 1);
+    expect(stdinFields(call![2])).toHaveLength(persistBashState ? 6 : 2);
     expect(stdinFields(call![2]).at(-1)).toBe(command);
   });
 

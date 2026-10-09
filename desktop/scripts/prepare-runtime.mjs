@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const RUNTIME_CACHE_VERSION = 2;
+const RUNTIME_CACHE_VERSION = 3;
 const currentFile = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(currentFile);
 const desktopDir = path.resolve(scriptsDir, '..');
@@ -27,6 +27,15 @@ const containerNodeModulesTarget = path.join(
   runtimeDepsDir,
   'container-node_modules',
 );
+// The shared skill libraries the agent images put on NODE_PATH; the desktop
+// gateway does the same, because the app ships no npm for `skill setup`.
+const toolsNodeModulesSource = path.join(
+  repoRoot,
+  'container',
+  'tools',
+  'node_modules',
+);
+const toolsNodeModulesTarget = path.join(runtimeDepsDir, 'tools-node_modules');
 const bundledNodePath = path.join(runtimeBinDir, 'node');
 const runtimeTarget = {
   platform:
@@ -246,7 +255,7 @@ async function stageNodeModules(sourceDir, targetDir, dependencyTree) {
   }
 }
 
-async function stageInstalledNodeModules(sourceDir, targetDir) {
+export async function stageInstalledNodeModules(sourceDir, targetDir) {
   await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(targetDir, { recursive: true });
 
@@ -254,7 +263,8 @@ async function stageInstalledNodeModules(sourceDir, targetDir) {
     if (entry.name === '.bin') continue;
 
     const entryPath = path.join(sourceDir, entry.name);
-    if (!entry.isDirectory()) continue;
+    // `file:` dependencies (container/tools stubs) install as symlinks.
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
     if (entry.name.startsWith('@')) {
       for (const scopedEntry of await fs.readdir(entryPath, {
@@ -301,6 +311,7 @@ async function buildRuntimeCacheKey() {
     path.join(repoRoot, 'container', 'package.json'),
     path.join(repoRoot, 'container', 'package-lock.json'),
     path.join(repoRoot, 'container', 'npm-shrinkwrap.json'),
+    path.join(repoRoot, 'container', 'tools', 'package-lock.json'),
     path.join(desktopDir, 'package.json'),
     currentFile,
   ];
@@ -335,6 +346,7 @@ async function runtimeStageIsCurrent(cacheKey) {
     await fs.access(bundledNodePath);
     await fs.access(rootNodeModulesTarget);
     await fs.access(containerNodeModulesTarget);
+    await fs.access(toolsNodeModulesTarget);
     return true;
   } catch {
     return false;
@@ -369,6 +381,11 @@ async function main() {
 
   await fs.access(rootNodeModulesSource);
   await fs.access(containerNodeModulesSource);
+  await fs.access(toolsNodeModulesSource).catch(() => {
+    throw new Error(
+      `${toolsNodeModulesSource} is missing; run \`npm run setup\` first.`,
+    );
+  });
 
   await fs.mkdir(runtimeBinDir, { recursive: true });
   await fs.copyFile(process.execPath, bundledNodePath);
@@ -382,6 +399,10 @@ async function main() {
   await stageInstalledNodeModules(
     containerNodeModulesSource,
     containerNodeModulesTarget,
+  );
+  await stageInstalledNodeModules(
+    toolsNodeModulesSource,
+    toolsNodeModulesTarget,
   );
   await writeRuntimeCacheManifest(cacheKey);
 }

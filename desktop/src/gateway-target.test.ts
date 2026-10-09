@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
   buildGatewayEnv,
+  buildGatewayNodePath,
   buildGatewayPath,
   isInAppUrl,
   normalizeGatewayBaseUrl,
@@ -60,10 +63,44 @@ describe('route helpers', () => {
 
 describe('buildGatewayEnv', () => {
   test('maps the gateway host and port into the child runtime env', () => {
-    const env = buildGatewayEnv('https://hybridclaw.local:19090');
+    const env = buildGatewayEnv('https://hybridclaw.local:19090', {
+      runtimeRoot: '/runtime',
+      nodeExecutable: '/runtime/bin/node',
+    });
     expect(env.GATEWAY_BASE_URL).toBe('https://hybridclaw.local:19090');
     expect(env.HEALTH_HOST).toBe('hybridclaw.local');
     expect(env.HEALTH_PORT).toBe('19090');
+  });
+
+  test('puts the skill libraries the app packages ahead of an inherited NODE_PATH', () => {
+    const desktopPackage = JSON.parse(
+      fs.readFileSync(
+        path.join(import.meta.dirname, '..', 'package.json'),
+        'utf8',
+      ),
+    ) as { build: { extraResources: Array<{ from: string; to: string }> } };
+    const packaged = desktopPackage.build.extraResources.find(
+      (resource) => resource.from === 'build/runtime-deps/tools-node_modules',
+    );
+    expect(packaged?.to.startsWith('hybridclaw-runtime/')).toBe(true);
+    const runtimeRoot = path.join('/Applications', 'HybridClaw.app');
+    const toolLibraries = path.join(
+      runtimeRoot,
+      path.relative('hybridclaw-runtime', packaged?.to ?? ''),
+    );
+
+    expect(buildGatewayNodePath(runtimeRoot, '/opt/inherited')).toBe(
+      [toolLibraries, '/opt/inherited'].join(path.delimiter),
+    );
+    expect(buildGatewayNodePath(runtimeRoot, undefined)).toBe(toolLibraries);
+  });
+
+  test('falls back to the bundled Node for skills and host agents', () => {
+    const env = buildGatewayEnv('http://127.0.0.1:9090', {
+      runtimeRoot: '/runtime',
+      nodeExecutable: '/runtime/bin/node',
+    });
+    expect(env.PATH?.split(path.delimiter).at(-1)).toBe('/runtime/bin');
   });
 
   test('extends a minimal GUI PATH with common Docker install locations', () => {

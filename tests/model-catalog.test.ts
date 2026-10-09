@@ -469,8 +469,9 @@ test('available model catalog prefixes HybridAI provider-family models', async (
     catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
       .pricingUsdPerToken,
   ).toEqual({
-    input: 0.000001,
-    output: 0.000002,
+    // HybridAI lists euros; the catalog keeps dollars.
+    input: 0.000001 * 1.1712,
+    output: 0.000002 * 1.1712,
     cacheRead: null,
     cacheWrite: null,
   });

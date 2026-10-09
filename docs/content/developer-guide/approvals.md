@@ -549,6 +549,14 @@ Notes:
 - In web chat, `Allow once` sends `/approve yes`, `Allow always` sends
   `/approve all`, and the session/agent buttons send their matching scoped
   approval commands.
+- A reply that names an id no request of the session is waiting on, such as
+  "no facade" or "yes 2024-10-09", is an ordinary message for the agent, not
+  an answer.
+- A client with its own approval card answers through `/api/chat` with
+  `approval: { approvalId, decision }` (`decision` is `yes`, `session`,
+  `agent`, `all`, or `no`) instead of `content`. The agent reads the matching
+  reply text, but history leaves the answer out, as it does for `/approve`, so
+  no client has to recognize answers by their wording.
 - For pinned-sensitive red actions, `session`, `agent`, and `all` degrade to a
   one-time approval instead of creating durable trust.
 

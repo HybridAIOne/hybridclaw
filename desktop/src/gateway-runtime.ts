@@ -160,7 +160,10 @@ export class GatewayRuntime extends EventEmitter {
       [gatewayEntry, 'gateway', 'start', '--foreground'],
       {
         cwd: this.runtimeRoot,
-        env: buildGatewayEnv(this.baseUrl),
+        env: buildGatewayEnv(this.baseUrl, {
+          runtimeRoot: this.runtimeRoot,
+          nodeExecutable,
+        }),
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );

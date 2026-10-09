@@ -151,6 +151,21 @@ describe('chatResultForClient', () => {
     },
   );
 
+  it('gives the phone the turn cost and an estimate as they are', () => {
+    const cost = { eur: 0.0123, free: false, requests: 3 };
+    const costEstimate = { low: 0.2, high: 0.5, free: false, requests: 20 };
+    const slim = chatResultForClient('mobile', {
+      ...skillsListTurn(),
+      cost,
+      costEstimate,
+    });
+    expect(slim.cost).toEqual(cost);
+    expect(slim.costEstimate).toEqual(costEstimate);
+    expect(chatResultForClient('mobile', skillsListTurn())).not.toHaveProperty(
+      'cost',
+    );
+  });
+
   it('sends the phone a result line without tool outputs', () => {
     const result = skillsListTurn();
     const full = resultLine(result);

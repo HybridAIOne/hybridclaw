@@ -9,6 +9,7 @@ const ADDRESS_MAX = 320;
 const SUBJECT_MAX = 998;
 const SOURCE_MAX = 500;
 const BODY_MAX = 20_000;
+const PLAIN_ADDRESS = /^[^\s@,;<>]+@[^\s@,;<>]+$/;
 
 function line(value, max, field) {
   if (value === undefined || value === null) return { ok: true };
@@ -27,11 +28,7 @@ function addresses(value, field) {
   const list = [];
   for (const item of value) {
     const text = typeof item === 'string' ? item.trim() : '';
-    if (
-      !text ||
-      text.length > ADDRESS_MAX ||
-      !/^[^\s@,;<>]+@[^\s@,;<>]+$/.test(text)
-    ) {
+    if (!text || text.length > ADDRESS_MAX || !PLAIN_ADDRESS.test(text)) {
       return {
         error: `"${field}" must hold plain email addresses such as name@example.com.`,
       };
@@ -40,6 +37,13 @@ function addresses(value, field) {
   }
   return { ok: true, value: list };
 }
+
+const FROM_MISSING =
+  '"from" is required: the user’s own address in the connected mail account the email is sent from. For a reply, use the address the original email was sent to; for a new email, look it up in that account first, such as the sender of a mail in their Sent folder. Never guess it.';
+const TO_MISSING =
+  '"to" is required: at least one recipient address. For a reply, use the original sender or its Reply-To. Never guess it; ask the user when you cannot find it.';
+const SUBJECT_MISSING =
+  '"subject" is required. For a reply, use the original subject with Re: in front.';
 
 export function normalizeEmailDraft(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args))
@@ -62,6 +66,15 @@ export function normalizeEmailDraft(args) {
     if (checked.error) return { error: checked.error };
     if (checked.value?.length) draft[field] = checked.value;
   }
+  // Every draft names its sender, recipients and subject: the apps show an
+  // email card only with all three.
+  if (!draft.from) return { error: FROM_MISSING };
+  if (!PLAIN_ADDRESS.test(draft.from))
+    return {
+      error: '"from" must be one plain email address such as name@example.com.',
+    };
+  if (!draft.to) return { error: TO_MISSING };
+  if (!draft.subject) return { error: SUBJECT_MISSING };
   draft.body = body;
   return { draft };
 }

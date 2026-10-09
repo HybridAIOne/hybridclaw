@@ -1,18 +1,32 @@
-import { type ChildProcess, execSync, spawn } from 'node:child_process';
+import {
+  type ChildProcess,
+  execFileSync,
+  execSync,
+  spawn,
+} from 'node:child_process';
 import fs from 'node:fs';
+import type http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import type { ChatMessage } from '../container/src/types.js';
 import {
   getAvailablePort,
   waitForHealth,
 } from './helpers/docker-test-setup.js';
+import {
+  type ModelRequestBody,
+  startScriptedModelServer,
+} from './helpers/scripted-model-server.js';
 
 /**
  * Exercises the real npm-install-to-first-request user journey:
- * npm pack → npm install -g → hybridclaw gateway start → /health → /docs
+ * npm pack → npm install -g → hybridclaw gateway start → /health → /docs,
+ * then host-sandbox turns that run the bundled office skill scripts.
  *
- * Uses a temporary npm prefix and a dummy API key (no LLM calls).
+ * Uses a temporary npm prefix and a dummy API key. Turns run against a
+ * scripted OpenAI-compatible model on the test host: a `RUN: <command>`
+ * prompt becomes one bash call whose output is the answer.
  */
 
 const NPM_E2E = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
@@ -21,9 +35,17 @@ const REQUEST_TIMEOUT_MS = 5_000;
 // CI maintenance (2026-09-22): allow shutdown plus removal of both installed
 // dependency trees on slower runners; startup/request timeouts stay separate.
 const CLEANUP_TIMEOUT_MS = 60_000;
+const TURN_TIMEOUT_MS = 120_000;
+const MODEL_ID = 'scripted';
+// Absolute: a host agent's bash does not necessarily inherit this PATH.
+const NODE = process.execPath;
 
 let tempDir: string;
 let gatewayProcess: ChildProcess | null = null;
+let modelServer: http.Server | undefined;
+let modelRequests: ModelRequestBody[] = [];
+/** The host agent's workspace, as its first bash call reports it. */
+let workspaceDir = '';
 let HOST_PORT: number;
 let GATEWAY_URL: string;
 
@@ -35,15 +57,13 @@ function dataDir(): string {
   return path.join(tempDir, 'hybridclaw-data');
 }
 
-function installedCliPath(): string {
+function installedPackageDir(): string {
   return path.join(
     npmPrefix(),
     'lib',
     'node_modules',
     '@hybridaione',
     'hybridclaw',
-    'dist',
-    'cli.js',
   );
 }
 
@@ -57,6 +77,89 @@ function installedCliEnv(): NodeJS.ProcessEnv {
     HYBRIDCLAW_ACCEPT_TRUST: 'true',
     HYBRIDCLAW_DISABLE_CONFIG_WATCHER: '1',
   };
+}
+
+function installedCliPath(): string {
+  return path.join(installedPackageDir(), 'dist', 'cli.js');
+}
+
+function cli(args: string[]): string {
+  return execFileSync(NODE, [installedCliPath(), ...args], {
+    encoding: 'utf-8',
+    timeout: 300_000,
+    env: installedCliEnv(),
+  });
+}
+
+function messageText(message: ChatMessage | undefined): string {
+  const content = message?.content;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => ('text' in part && part.text ? part.text : ''))
+    .join('\n');
+}
+
+function scriptedAgent(body: ModelRequestBody): Record<string, unknown> {
+  const last = body.messages.at(-1);
+  if (!body.tools?.length || !last) return { role: 'assistant', content: 'ok' };
+  if (last.role === 'tool') {
+    return { role: 'assistant', content: messageText(last) };
+  }
+  const command = /RUN: ([\s\S]+)$/.exec(messageText(last))?.[1];
+  if (!command) return { role: 'assistant', content: 'ok' };
+  const args = { command };
+  const exposed = body.tools.some((tool) => tool.function.name === 'bash');
+  return {
+    role: 'assistant',
+    content: '',
+    tool_calls: [
+      {
+        id: `call_${modelRequests.length}`,
+        type: 'function',
+        function: exposed
+          ? { name: 'bash', arguments: JSON.stringify(args) }
+          : {
+              name: 'tool_catalog',
+              arguments: JSON.stringify({
+                action: 'call',
+                name: 'bash',
+                arguments: args,
+              }),
+            },
+      },
+    ],
+  };
+}
+
+async function chat(sessionId: string, content: string): Promise<string> {
+  const res = await fetch(`${GATEWAY_URL}/api/chat`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WEB_API_TOKEN}`,
+      'Content-Type': 'application/json',
+      // Turns follow slow CLI steps; a pooled socket would outlive the
+      // gateway's 5s keep-alive and fail as "other side closed".
+      Connection: 'close',
+    },
+    body: JSON.stringify({ sessionId, agentId: 'main', content }),
+    signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+  });
+  const body = (await res.json()) as { status?: string; result?: string };
+  expect(res.status, JSON.stringify(body)).toBe(200);
+  expect(body.status, JSON.stringify(body)).toBe('success');
+  return String(body.result ?? '');
+}
+
+/** The `skill list` state of each office skill, e.g. `enabled`. */
+function officeSkillStates(): Record<string, string> {
+  const states: Record<string, string> = {};
+  for (const match of cli(['skill', 'list']).matchAll(
+    /^ {2}(pdf|xlsx|docx|pptx|office) \[([^\]]+)\]/gm,
+  )) {
+    states[match[1]] = match[2];
+  }
+  return states;
 }
 
 function verifyPnpmInstallBlocksExoticSubdeps(tarball: string): void {
@@ -111,6 +214,12 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
       env: { ...process.env, HOME: tempDir },
     });
 
+    const model = await startScriptedModelServer(scriptedAgent, {
+      model: MODEL_ID,
+    });
+    modelServer = model.server;
+    modelRequests = model.requests;
+
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
       JSON.stringify({
@@ -119,6 +228,17 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
           healthHost: '127.0.0.1',
           webApiToken: WEB_API_TOKEN,
         },
+        local: {
+          backends: {
+            vllm: {
+              enabled: true,
+              baseUrl: `http://127.0.0.1:${model.port}/v1`,
+            },
+          },
+        },
+        agents: { defaults: { model: `vllm/${MODEL_ID}` } },
+        // The CLI reads skill availability for this mode, like the gateway.
+        container: { sandboxMode: 'host' },
       }),
     );
 
@@ -193,6 +313,7 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
         ]);
       }
     }
+    modelServer?.close();
     if (tempDir) {
       try {
         await fs.promises.rm(tempDir, { recursive: true, force: true });
@@ -327,4 +448,114 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     const html = await res.text();
     expect(html).toContain('<title>HybridClaw Admin</title>');
   });
+
+  // ── Skill libraries: owned by the agent runtime, not the gateway ────
+
+  test('the gateway package does not carry skill-only libraries', () => {
+    const readJson = (file: string) =>
+      JSON.parse(fs.readFileSync(path.join(installedPackageDir(), file), 'utf8'));
+    const lockedPackages: Record<string, unknown> = readJson(
+      'npm-shrinkwrap.json',
+    ).packages;
+    // Skill libraries no gateway dependency pulls in transitively.
+    const skillOnly = Object.keys(
+      readJson('container/tools/package.json').dependencies,
+    ).filter((name) => !lockedPackages[`node_modules/${name}`]);
+    expect(skillOnly).toEqual(
+      expect.arrayContaining(['xlsx-populate', 'docx', 'csv-parse']),
+    );
+    for (const name of ['pdfjs-dist', ...skillOnly]) {
+      expect(
+        fs.existsSync(path.join(installedPackageDir(), 'node_modules', name)),
+        name,
+      ).toBe(false);
+    }
+    expect(
+      fs.existsSync(
+        path.join(installedPackageDir(), 'container', 'node_modules', 'pdfjs-dist'),
+      ),
+    ).toBe(true);
+  });
+
+  test(
+    'a host agent runs the pdf skill scripts with the runtime pdfjs-dist',
+    async () => {
+      const result = await chat(
+        'npm-e2e-pdf',
+        `RUN: pwd && ${NODE} skills/pdf/scripts/create_pdf.mjs report.pdf --text "Grüße aus Köln: 42 € — Łódź" && ${NODE} skills/pdf/scripts/extract_pdf_text.mjs report.pdf && ${NODE} skills/pdf/scripts/render_pdf_pages.mjs report.pdf pages`,
+      );
+      workspaceDir = result.split('\n')[0].trim();
+      expect(result).toContain('Grüße aus Köln: 42 € — Łódź');
+      expect(fs.readdirSync(path.join(workspaceDir, 'pages'))).toEqual([
+        'page_1.png',
+      ]);
+    },
+    TURN_TIMEOUT_MS,
+  );
+
+  test(
+    'the gateway previews a referenced PDF with the runtime pdfjs-dist',
+    async () => {
+      const pdfPath = path.join(workspaceDir, 'report.pdf');
+      expect(fs.existsSync(pdfPath)).toBe(true);
+      const before = modelRequests.length;
+      await chat('npm-e2e-preview', `Summarize ${pdfPath}`);
+      const sent = modelRequests
+        .slice(before)
+        .flatMap((request) => request.messages.map(messageText));
+      expect(
+        sent.some(
+          (text) =>
+            text.includes('[PDFPreview]') &&
+            text.includes('Grüße aus Köln: 42 € — Łódź'),
+        ),
+      ).toBe(true);
+    },
+    TURN_TIMEOUT_MS,
+  );
+
+  test(
+    'office skills become available after skill setup and run in a host agent',
+    async () => {
+      expect(officeSkillStates()).toMatchObject({
+        pdf: 'enabled',
+        office: 'enabled',
+        xlsx: expect.stringContaining('node_module:xlsx-populate'),
+        docx: 'node_module:docx',
+        pptx: 'node_module:pptxgenjs',
+      });
+
+      expect(cli(['skill', 'setup', 'xlsx'])).toContain('Set up xlsx');
+      expect(officeSkillStates()).toEqual({
+        docx: 'enabled',
+        office: 'enabled',
+        pdf: 'enabled',
+        pptx: 'enabled',
+        xlsx: 'enabled',
+      });
+
+      fs.writeFileSync(
+        path.join(workspaceDir, 'in.csv'),
+        'Name;Amount\nAlice;12,5\nBob;7\n',
+      );
+      const result = await chat(
+        'npm-e2e-office',
+        [
+          `RUN: ${NODE} skills/xlsx/scripts/create_xlsx.cjs out.xlsx --headers "Name,Amount" --rows "Alice,12.5;Bob,7" --json`,
+          `${NODE} skills/xlsx/scripts/import_delimited.cjs in.csv imported.xlsx --json`,
+          `${NODE} -e 'const d=require("docx");d.Packer.toBuffer(new d.Document({sections:[{children:[new d.Paragraph("hi")]}]})).then(b=>require("fs").writeFileSync("out.docx",b))'`,
+          `${NODE} -e 'const P=require("pptxgenjs");const p=new P();p.addSlide().addText("hi",{x:1,y:1});p.writeFile({fileName:"out.pptx"})'`,
+        ].join(' && '),
+      );
+      expect(result).toContain('"output_path": "out.xlsx"');
+      expect(result).toContain('"delimiter": ";"');
+      for (const file of ['out.xlsx', 'imported.xlsx', 'out.docx', 'out.pptx']) {
+        expect(
+          fs.statSync(path.join(workspaceDir, file)).size,
+          file,
+        ).toBeGreaterThan(0);
+      }
+    },
+    TURN_TIMEOUT_MS + 300_000,
+  );
 });

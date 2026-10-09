@@ -2427,12 +2427,10 @@ export class TrustedAgentApprovalRuntime {
     const parsedResponse = parseApprovalUserResponse(latest);
     if (!parsedResponse) return null;
 
+    // "no facade" or "yes 2024-10-09" names no pending request; it is a
+    // message for the agent, not an answer, as with boost questions.
     const target = this.resolvePendingTarget(parsedResponse.requestId);
-    if (!target) {
-      return {
-        immediateMessage: `No pending approval found for id "${parsedResponse.requestId}".`,
-      };
-    }
+    if (!target) return null;
 
     if (parsedResponse.kind === 'deny') {
       this.pending.delete(target.id);
@@ -2950,6 +2948,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'device_data' ||
       lowerTool === 'draft_email' ||
       lowerTool === 'proof' ||
+      lowerTool === 'estimate_cost' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
       (lowerTool === 'tool_catalog' &&

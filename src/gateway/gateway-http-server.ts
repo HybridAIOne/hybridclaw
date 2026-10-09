@@ -211,6 +211,7 @@ import {
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import { WIDGET_MIME_TYPE } from './app-widgets.js';
+import { approvalAnswerText, parseApprovalAnswer } from './approval-answer.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -247,6 +248,7 @@ import {
   openChatStreamTurn,
   rejoinChatStreamTurn,
 } from './chat-stream-turns.js';
+import { runCostEstimateToolAction } from './cost-estimate.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -3359,8 +3361,18 @@ async function handleApiChat(
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
   const media = await normalizeApiChatMediaItems(body.media);
+  const approval = parseApprovalAnswer(body.approval);
+  if (approval === null) {
+    sendJson(res, 400, {
+      error:
+        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, or no.',
+    });
+    return;
+  }
 
-  const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
+  const content = approval
+    ? approvalAnswerText(approval)
+    : body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
     sendJson(res, 400, {
       error: 'Missing `content` or `media` in request body.',
@@ -3402,6 +3414,7 @@ async function handleApiChat(
       }) || sessionId,
     username: body.username ?? 'web',
     content,
+    ...(approval ? { approval } : {}),
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     chatbotId: body.chatbotId,
@@ -3417,6 +3430,7 @@ async function handleApiChat(
       : {}),
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
+    ...(body.appNotice === true ? { appNotice: true } : {}),
   };
   if (rejoin) {
     if (
@@ -11407,6 +11421,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiTodo(req, res);
+            return;
+          }
+          if (pathname === '/api/cost-estimate' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await runCostEstimateToolAction(await readJsonBody(req)),
+            );
             return;
           }
           if (pathname === '/api/track' && method === 'POST') {

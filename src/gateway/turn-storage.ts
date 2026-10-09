@@ -27,6 +27,8 @@ export function storeTurnMessages(opts: {
   userContent: string;
   userMedia?: readonly MediaContextItem[];
   userDynamicContext?: string | null;
+  /** Provenance of the user's message, such as `APPROVAL_ANSWER_SOURCE`. */
+  userSource?: string | null;
   steerNotes?: readonly string[];
   assistantContent: string;
   artifacts?: ArtifactMetadata[] | null;
@@ -43,6 +45,7 @@ export function storeTurnMessages(opts: {
     content: opts.userContent,
     media: opts.userMedia,
     dynamicContext: opts.userDynamicContext,
+    source: opts.userSource,
   };
   const assistant = {
     userId: 'assistant',

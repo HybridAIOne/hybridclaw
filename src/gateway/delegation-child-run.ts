@@ -49,11 +49,13 @@ import { firstNumber } from './gateway-utils.js';
 // (engineering choice, 2026-09-28): schedules, todos, goals and durable memory
 // outlive a one-shot child, and the 2FA/resume tools wait on a user the child
 // cannot reach. Todos added 2026-09-30, goals 2026-10-01. An email draft or a
-// transfer is shown to the user, whom a child does not answer (2026-10-08).
+// transfer is shown to the user, whom a child does not answer (2026-10-08), and
+// so is a cost estimate (2026-10-09).
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
   'todo',
   'draft_email',
+  'estimate_cost',
   'draft_transfer',
   'track',
   'memory',
