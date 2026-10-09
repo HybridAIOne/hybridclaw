@@ -704,6 +704,31 @@ export function listActionAuditEntries(
   );
 }
 
+/**
+ * The `tool.call` and `tool.result` rows of these runs, in the order they
+ * were recorded: a receipt looks in its own run for the checks that ran after
+ * the action and the `proof` the model recorded (`receipts-command.ts`).
+ */
+export function listRunToolAuditEntries(
+  runs: readonly { sessionId: string; runId: string }[],
+): StructuredAuditEntry[] {
+  const wanted = new Set(
+    runs.map(({ sessionId, runId }) => `${sessionId}\u0000${runId}`),
+  );
+  const runIds = Array.from(new Set(runs.map(({ runId }) => runId)));
+  if (runIds.length === 0) return [];
+  const placeholders = runIds.map(() => '?').join(', ');
+  return queryHydratedAuditEntries<string[]>(
+    getAuditDatabase(),
+    `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM audit_events
+     WHERE run_id IN (${placeholders})
+       AND event_type IN ('tool.call', 'tool.result')
+     ORDER BY id ASC`,
+    ...runIds,
+  ).filter((entry) => wanted.has(`${entry.session_id}\u0000${entry.run_id}`));
+}
+
 export function getRecentApprovals(
   limit = 20,
   deniedOnly = false,

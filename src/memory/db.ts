@@ -11,6 +11,7 @@ export {
   getStructuredAuditForSession,
   getWeeklyAgentAnomalyRollups,
   listActionAuditEntries,
+  listRunToolAuditEntries,
   listStructuredAuditEntries,
   listStructuredAuditSessionIdsByPrefix,
   logAudit,
