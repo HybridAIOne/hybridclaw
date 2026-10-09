@@ -93,6 +93,8 @@ export interface ContainerInput extends SessionAttachmentAccess {
   client?: string;
   configuredDiscordChannels?: string[];
   activeMessageChannels?: string[];
+  /** The email channel's From address for this agent; shown on send approvals. */
+  emailSender?: string;
   skillCatalog?: SessionSkillCatalogEntry[];
   localToolMode?: 'full' | 'starred';
   localStarterTools?: string[];

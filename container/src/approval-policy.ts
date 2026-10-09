@@ -34,6 +34,11 @@ import {
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import {
+  messageToolEmailTarget,
+  messageToolTarget,
+  ownMailboxRefusal,
+} from './approval-review.js';
+import {
   changesApprovalState,
   guardApprovalStateChange,
   matchesApprovalStatePath,
@@ -2971,6 +2976,56 @@ export class TrustedAgentApprovalRuntime {
         action === 'read' ||
         action === 'member-info' ||
         action === 'channel-info';
+      const target = messageToolTarget(args);
+      const emailTarget = messageToolEmailTarget(args);
+      // Mail to other people goes from the user's own account, never the
+      // agent's mailbox (owner call, 2026-10-08).
+      const ownMailboxDenied =
+        action === 'send' && emailTarget ? ownMailboxRefusal() : undefined;
+      const emailSubjectMissing =
+        action === 'send' &&
+        Boolean(emailTarget) &&
+        !normalizeText(args.subject || args.title) &&
+        !normalizeText(args.inReplyTo);
+      // A message to someone named outright (an email address, a chat, a
+      // person) asks first in the default mode too, like a connector send;
+      // full access still runs it. Owner call, 2026-10-08: nothing goes out
+      // without a yes on the email itself. Talking in the current
+      // conversation, the one Hy is already answering in, stays yellow. The
+      // key names the recipient, so trusting one does not trust the next.
+      if (
+        !readonlyAction &&
+        (target ||
+          !['send', 'react', 'quote-reply', 'thread-reply'].includes(action))
+      ) {
+        return {
+          tier: 'red',
+          actionKey: `message:${action || 'unknown'}:${(target || 'current').toLowerCase()}`,
+          intent: emailTarget
+            ? `send an email to ${emailTarget}`
+            : `run message${action ? ` ${action}` : ''}${target ? ` to ${target}` : ''}`,
+          consequenceIfDenied:
+            'Nothing is sent or changed outside, and I will continue without this step.',
+          reason: ownMailboxDenied
+            ? ownMailboxDenied
+            : emailSubjectMissing
+              ? 'an email needs a subject the user can see before it is sent; call again with subject'
+              : emailTarget
+                ? 'this sends an email in your name'
+                : 'this sends or changes a message outside this conversation',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: true,
+          promotableRed: false,
+          stickyYellow: true,
+          // Every email card has a subject. Without one the channel would
+          // pick it after the user said yes, so the call goes back first.
+          ...(ownMailboxDenied || emailSubjectMissing
+            ? { hardDeny: true }
+            : {}),
+        };
+      }
       return {
         tier: readonlyAction ? 'green' : 'yellow',
         actionKey: action ? `message:${action}` : 'message',

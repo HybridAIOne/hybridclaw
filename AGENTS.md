@@ -622,6 +622,11 @@ When the user says "bump release":
 - Do not modify unrelated modules "while here".
 - Do not include personal identity, real phone numbers, or live config values
   in tests, examples, docs, or commits.
+- Never use real text from users, customers or the owner (messages, emails,
+  addresses, names of their contracts, companies or providers) in tests,
+  fixtures, PR descriptions or commit messages, even when a bug report quotes
+  it. Describe the case in general terms and use made-up examples
+  (`pat@example.com`).
 - Do not edit `.dockerignore` without verifying the resulting Docker image
   still contains all runtime-required files (especially `docs/content/`).
   Build the image and confirm the affected paths exist inside it before
