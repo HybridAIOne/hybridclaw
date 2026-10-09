@@ -10,12 +10,14 @@ import {
   getAgentMainSession,
   isAppDataChat,
 } from '../memory/agent-main-session.js';
+import { setMessageEmailDraft } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import type { ArtifactMetadata } from '../types/execution.js';
 import type { Session } from '../types/session.js';
 import { skipWorkNotification } from '../work/work-delivery.js';
 import { updateWork } from '../work/work-store.js';
 import { waitWhileAtComputer } from './computer-presence.js';
+import type { StoredProactiveMessage } from './fullauto-runtime.js';
 import { webNotificationSessionOperator } from './web-notification-store.js';
 import {
   notifyWebSession,
@@ -121,7 +123,7 @@ export function deliverWebScheduledMessage(
   text: string,
   source: string,
   artifacts?: ArtifactMetadata[],
-  storedMessage?: { sessionId: string; id: number },
+  storedMessage?: StoredProactiveMessage,
   workId?: string,
 ): { status: 'delivered' } {
   const session = memoryService.getSessionById(sessionId);
@@ -140,6 +142,10 @@ export function deliverWebScheduledMessage(
           artifacts,
           source,
         });
+  // A run kept apart from this chat stored its reply elsewhere; the copy here
+  // shows the same email card.
+  if (storedMessage?.emailDraft && storedMessage.sessionId !== session.id)
+    setMessageEmailDraft(messageId, storedMessage.emailDraft);
   if (workId)
     updateWork(workId, (work) => {
       work.sessionId = session.id;

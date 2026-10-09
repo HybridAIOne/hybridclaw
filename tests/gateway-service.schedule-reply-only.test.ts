@@ -65,11 +65,11 @@ async function load() {
   ]);
   // A run as the scheduler starts one for this task: apart from the chat,
   // under the task's own key, its reply delivered to the chat.
-  const fire = async (reply: string) => {
+  const fire = async (reply: string, toolExecutions: unknown[] = []) => {
     runAgentMock.mockResolvedValueOnce({
       status: 'success',
       result: reply,
-      toolExecutions: [],
+      toolExecutions,
       artifacts: [],
     });
     await runIsolatedScheduledTask({
@@ -130,6 +130,34 @@ test('a --reply-only run posts only its reply to the chat and rings with it', as
   expect(results.results.map((reply: { text: string }) => reply.text)).toEqual(
     [FIND],
   );
+});
+
+test('a draft the run showed reaches the chat as the same email card', async () => {
+  const { fire, memoryService } = await load();
+  const draft = {
+    from: 'me@example.com',
+    to: ['pat@example.com'],
+    subject: 'Re: Friday',
+    body: 'Hi Pat,\n\nSee you then.',
+  };
+  await fire('I drafted a reply to Pat.', [
+    {
+      name: 'draft_email',
+      arguments: JSON.stringify(draft),
+      result: 'ok',
+      durationMs: 1,
+    },
+  ]);
+  const [reply] = memoryService.getRecentMessages(MAIN_CHAT);
+  expect(reply.content).toContain('**Email draft (not sent)**');
+  const { getSessionAssistantMessage } = await import(
+    '../src/memory/db.ts'
+  );
+  expect(getSessionAssistantMessage(MAIN_CHAT, reply.id)?.emailDraft).toEqual({
+    ...draft,
+    reply: 'I drafted a reply to Pat.',
+    proactive: true,
+  });
 });
 
 test('a silent run posts nothing and rings nothing', async () => {

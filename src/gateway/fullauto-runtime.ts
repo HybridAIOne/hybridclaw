@@ -3,6 +3,8 @@
  * Proactive payloads may reference an already-persisted reply so transport
  * delivery never needs to store the same assistant message a second time.
  */
+
+import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import {
   FULLAUTO_COOLDOWN_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
@@ -20,9 +22,16 @@ import type { GatewayChatResult } from './gateway-types.js';
 const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
+/** A reply already stored, and the email card it showed, if any. */
+export interface StoredProactiveMessage {
+  sessionId: string;
+  id: number;
+  emailDraft?: MessageEmailDraft;
+}
+
 export interface ProactiveMessagePayload {
   workId?: string;
-  storedMessage?: { sessionId: string; id: number };
+  storedMessage?: StoredProactiveMessage;
   channelId?: string;
   text: string;
   artifacts?: ArtifactMetadata[];
