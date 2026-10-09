@@ -211,6 +211,7 @@ import {
 } from './admin-terminal.js';
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import { WIDGET_MIME_TYPE } from './app-widgets.js';
+import { approvalAnswerText, parseApprovalAnswer } from './approval-answer.js';
 import {
   ARTIFACT_CHECKLIST_PATH,
   handleArtifactChecklistRoute,
@@ -3359,8 +3360,18 @@ async function handleApiChat(
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
   const wantsStream = body.stream === true;
   const media = await normalizeApiChatMediaItems(body.media);
+  const approval = parseApprovalAnswer(body.approval);
+  if (approval === null) {
+    sendJson(res, 400, {
+      error:
+        'Invalid `approval`; expected an `approvalId` and a `decision` of yes, session, agent, all, or no.',
+    });
+    return;
+  }
 
-  const content = body.content?.trim() || buildMediaOnlyPromptContent(media);
+  const content = approval
+    ? approvalAnswerText(approval)
+    : body.content?.trim() || buildMediaOnlyPromptContent(media);
   if (!content) {
     sendJson(res, 400, {
       error: 'Missing `content` or `media` in request body.',
@@ -3402,6 +3413,7 @@ async function handleApiChat(
       }) || sessionId,
     username: body.username ?? 'web',
     content,
+    ...(approval ? { approval } : {}),
     ...(media.length > 0 ? { media } : {}),
     agentId: body.agentId,
     chatbotId: body.chatbotId,

@@ -254,6 +254,7 @@ export interface StoreTurnParams {
     content: string;
     media?: readonly MediaContextItem[];
     dynamicContext?: string | null;
+    source?: string | null;
   };
   /** Notes the user sent while the turn ran, stored after their message. */
   steerNotes?: readonly string[];
@@ -825,6 +826,7 @@ export class MemoryService {
       content: params.user.content,
       media: params.user.media,
       dynamicContext: params.user.dynamicContext,
+      source: params.user.source,
     });
     for (const content of params.steerNotes ?? []) {
       this.storeMessage({

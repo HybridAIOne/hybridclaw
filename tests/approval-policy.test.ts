@@ -1877,6 +1877,28 @@ approval:
     ).toEqual([]);
   });
 
+  test.each([
+    'no facade',
+    'yes 2024-10-09',
+  ])('"%s" with a pending approval is a message, not an answer', (text) => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    const pending = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({ command: 'rm -rf dist' }),
+      latestUserPrompt: 'Delete dist and rebuild cleanly',
+    });
+    expect(pending.decision).toBe('required');
+
+    expect(runtime.handleApprovalResponse([userMessage(text)])).toBeNull();
+    expect(
+      runtime.handleApprovalResponse([
+        userMessage(`yes ${pending.requestId}`),
+      ])?.approvalMode,
+    ).toBe('once');
+  });
+
   test('bare yes without a pending approval is treated as a normal prompt', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

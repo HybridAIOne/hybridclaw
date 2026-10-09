@@ -52,6 +52,7 @@ interface ConversationHistoryPageRow {
   routing_trace_json: string | null;
   reaction: string | null;
   email_draft_json: string | null;
+  source: string | null;
   created_at: string | null;
 }
 
@@ -829,6 +830,7 @@ export function getConversationHistoryPage(
          m.routing_trace_json,
          m.reaction,
          m.email_draft_json,
+         m.source,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -886,6 +888,7 @@ export function getConversationHistoryPage(
       ...(routingTrace ? { routingTrace } : {}),
       ...(row.reaction ? { reaction: row.reaction } : {}),
       ...(emailDraft ? { emailDraft } : {}),
+      ...(row.source ? { source: row.source } : {}),
       created_at: row.created_at,
     });
   }

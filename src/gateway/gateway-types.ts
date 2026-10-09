@@ -68,6 +68,7 @@ import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { GatewayApprovalAnswer } from './approval-answer.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export type GatewayMessageComponents = NonNullable<
@@ -259,6 +260,12 @@ export interface GatewayChatRequestBody {
    * call instead of calling tools silently.
    */
   toolStatus?: boolean;
+  /**
+   * Answers a pending approval, as its card's button does. The gateway sends
+   * the agent the reply text for it in place of `content`, and history leaves
+   * the answer out instead of showing it as a message from the user.
+   */
+  approval?: GatewayApprovalAnswer;
 }
 
 export interface GatewayChatRequest {
@@ -293,6 +300,7 @@ export interface GatewayChatRequest {
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
+  approval?: GatewayChatRequestBody['approval'];
   agentId?: GatewayChatRequestBody['agentId'];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];

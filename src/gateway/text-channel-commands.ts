@@ -3,11 +3,7 @@
  * Gateway services own approval policy; this adapter only translates text replies.
  */
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
-import {
-  APPROVAL_SCOPE_MODES,
-  APPROVE_TEXT_CHANNEL_USAGE,
-  type ApprovalScopeMode,
-} from '../approval-commands.js';
+import { APPROVE_TEXT_CHANNEL_USAGE } from '../approval-commands.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
 import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import { memoryService } from '../memory/memory-service.js';
@@ -20,6 +16,10 @@ import {
   normalizeEscalationTarget,
 } from '../types/execution.js';
 import { formatError, formatInfo } from '../utils/text-format.js';
+import {
+  type ApprovalAnswerDecision,
+  approvalAnswerText,
+} from './approval-answer.js';
 import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
@@ -43,10 +43,6 @@ import {
   getPendingApproval,
   rememberPendingApproval,
 } from './pending-approvals.js';
-
-function isApprovalScopeMode(value: string): value is ApprovalScopeMode {
-  return APPROVAL_SCOPE_MODES.includes(value as ApprovalScopeMode);
-}
 
 export interface HandledTextChannelApprovalResult {
   handled: true;
@@ -92,41 +88,20 @@ export function renderTextChannelCommandResult(
   return renderGatewayCommand(result);
 }
 
-function buildApprovalUserMessage(params: {
-  action: string;
-  approvalId: string;
-}): string | null {
-  const action = params.action.trim().toLowerCase();
-  const approvalId = params.approvalId.trim();
-  const withApprovalId = (base: string): string =>
-    approvalId ? `${base} ${approvalId}` : base;
-
-  if (action === 'yes' || action === '1') {
-    return withApprovalId('yes');
-  }
+// `/approve` actions and the numeric shortcuts of text channels.
+function approvalAnswerDecision(action: string): ApprovalAnswerDecision | null {
+  const normalized = action.trim().toLowerCase();
+  if (normalized === 'yes' || normalized === '1') return 'yes';
+  if (normalized === 'session' || normalized === '2') return 'session';
+  if (normalized === 'agent' || normalized === '3') return 'agent';
+  if (normalized === 'all' || normalized === '4') return 'all';
   if (
-    (isApprovalScopeMode(action) && action !== 'once') ||
-    action === '2' ||
-    action === '3' ||
-    action === '4'
+    normalized === 'no' ||
+    normalized === 'deny' ||
+    normalized === 'skip' ||
+    normalized === '5'
   ) {
-    const mode =
-      action === '2'
-        ? 'session'
-        : action === '3'
-          ? 'agent'
-          : action === '4'
-            ? 'all'
-            : action;
-    return approvalId ? `yes ${approvalId} for ${mode}` : `yes for ${mode}`;
-  }
-  if (
-    action === 'no' ||
-    action === 'deny' ||
-    action === 'skip' ||
-    action === '5'
-  ) {
-    return withApprovalId('no');
+    return 'no';
   }
   return null;
 }
@@ -189,8 +164,8 @@ export async function handleTextChannelApprovalCommand(params: {
     };
   }
 
-  const approvalContent = buildApprovalUserMessage({ action, approvalId });
-  if (!approvalContent) {
+  const decision = approvalAnswerDecision(action);
+  if (!decision) {
     return {
       handled: true,
       sessionId,
@@ -355,7 +330,8 @@ export async function handleTextChannelApprovalCommand(params: {
         channelId,
         userId,
         username,
-        content: approvalContent,
+        content: approvalAnswerText({ approvalId, decision }),
+        approval: { approvalId, decision },
         media: [],
       }),
     ),
