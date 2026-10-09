@@ -10,6 +10,15 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
 import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
+import {
+  APPROVAL_TRUST_STORE_FILES,
+  type ApprovalPauseCause,
+  type ApprovalTrustStore,
+  grantApprovalTrust,
+  LEGACY_AGENT_TRUST_STORE_FILE,
+  parseApprovalTrustStore,
+  serializeApprovalTrustStore,
+} from '../shared/approval-rules.js';
 import type { BoostAnswer } from '../shared/boost-offer.js';
 import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import {
@@ -249,6 +258,8 @@ export interface ToolApprovalEvaluation {
   reason: string;
   commandPreview: string;
   pinned: boolean;
+  /** Why a `required` call paused: the rule that raised it to red. */
+  pausedBy?: ApprovalPauseCause;
   implicitDelayMs?: number;
   hostHints: string[];
   anomaly?: BehaviorAnomalyScore;
@@ -279,6 +290,8 @@ export interface ToolCallContext {
   anomaly?: BehaviorAnomalyScore;
   anomalyElevated?: boolean;
   outOfBoundByAutonomy: boolean;
+  /** The rule that raised a call that was not red to red. */
+  raisedBy?: Exclude<ApprovalPauseCause, 'risky' | 'protected'>;
   escalationTarget?: EscalationTarget;
   helpers: ToolCallContextHelpers;
 }
@@ -367,8 +380,7 @@ const POLICY_PATH = path.join(
 );
 const AGENT_TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
-  '.hybridclaw',
-  'approval-agent-trust.json',
+  APPROVAL_TRUST_STORE_FILES.agent,
 );
 const PENDING_APPROVAL_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
@@ -379,12 +391,11 @@ const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
 type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
-  'approval-trust.json',
+  APPROVAL_TRUST_STORE_FILES.all,
 );
 const LEGACY_AGENT_TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
-  '.hybridclaw',
-  'approval-trust.json',
+  LEGACY_AGENT_TRUST_STORE_FILE,
 );
 const AGENT_ID_ENV = 'HYBRIDCLAW_AGENT_ID';
 const YELLOW_IMPLICIT_DELAY_MS = 5_000;
@@ -1412,55 +1423,6 @@ export function parseApprovalUserResponse(input: string): {
   return null;
 }
 
-interface PersistedApprovalTrustStore {
-  version: 2;
-  allowlistedActions: string[];
-  allowlistedFingerprints: string[];
-  updatedAt: string;
-}
-
-function parsePersistedTrustStore(
-  raw: string,
-): PersistedApprovalTrustStore | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return null;
-    const record = parsed as Record<string, unknown>;
-    const allowlistedActions = Array.isArray(record.allowlistedActions)
-      ? record.allowlistedActions
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-      : Array.isArray(record.trustedActions)
-        ? record.trustedActions
-            .map((value) => String(value || '').trim())
-            .filter(Boolean)
-        : [];
-    const allowlistedFingerprints = Array.isArray(
-      record.allowlistedFingerprints,
-    )
-      ? record.allowlistedFingerprints
-          .map((value) => String(value || '').trim())
-          .filter(Boolean)
-      : Array.isArray(record.trustedFingerprints)
-        ? record.trustedFingerprints
-            .map((value) => String(value || '').trim())
-            .filter(Boolean)
-        : [];
-    return {
-      version: 2,
-      allowlistedActions,
-      allowlistedFingerprints,
-      updatedAt:
-        typeof record.updatedAt === 'string'
-          ? record.updatedAt
-          : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
 function nextRule(): NextRule {
   return NEXT_RULE;
 }
@@ -1536,6 +1498,7 @@ function buildEvaluation(
       | 'expiresAtMs'
       | 'consequenceIfDenied'
       | 'reason'
+      | 'pausedBy'
     >
   > = {},
 ): ToolApprovalEvaluation {
@@ -1568,6 +1531,7 @@ function buildEvaluation(
     ...(typeof overrides.expiresAtMs === 'number'
       ? { expiresAtMs: overrides.expiresAtMs }
       : {}),
+    ...(overrides.pausedBy ? { pausedBy: overrides.pausedBy } : {}),
     intent: classified.intent,
     consequenceIfDenied:
       overrides.consequenceIfDenied || classified.consequenceIfDenied,
@@ -1794,6 +1758,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       const elevatedTier = elevateApprovalTier(currentTier);
       context.tier = elevatedTier;
       context.anomalyElevated = true;
+      if (elevatedTier === 'red') context.raisedBy = 'unusual';
       context.decision = 'auto';
     }
     return nextRule();
@@ -1803,6 +1768,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     const autonomyLevel = requireAutonomyLevel(context);
     const { stakes } = requireStakes(context);
     context.outOfBoundByAutonomy = false;
+    const wasRed = context.tier === 'red';
     if (autonomyLevel === 'confirm-each') {
       context.outOfBoundByAutonomy = true;
       context.baseTier = 'red';
@@ -1812,10 +1778,14 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       context.baseTier = 'red';
       context.tier = 'red';
     }
+    if (context.outOfBoundByAutonomy && !wasRed) {
+      context.raisedBy = 'workspace_policy';
+    }
     // Ask mode prompts for every side effect; green reads still run.
     if (context.helpers.approvalMode() === 'ask' && context.tier === 'yellow') {
       context.baseTier = 'red';
       context.tier = 'red';
+      context.raisedBy = 'ask_mode';
     }
     return nextRule();
   },
@@ -1970,6 +1940,9 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
         escalationRoute: 'approval_request',
         requestId: request.id,
         expiresAtMs: request.expiresAtMs,
+        pausedBy: requirePinned(context)
+          ? 'protected'
+          : context.raisedBy || 'risky',
       }),
     );
   },
@@ -2067,6 +2040,59 @@ export function runApprovalRulePipeline(context: ToolCallContext): Decision {
   return decision(buildPipelineFailureEvaluation(context, 'pipeline_fallback'));
 }
 
+interface DurableTrust {
+  readonly path: string;
+  readonly legacyPath?: string;
+  store: ApprovalTrustStore;
+  actions: Set<string>;
+  fingerprints: Set<string>;
+  /** The file's mtime and size when last read or written; '' when absent. */
+  version: string;
+}
+
+const EMPTY_TRUST_STORE: ApprovalTrustStore = {
+  actions: [],
+  fingerprints: [],
+  grants: [],
+};
+
+function emptyDurableTrust(
+  storePath: string,
+  legacyPath?: string,
+): DurableTrust {
+  return {
+    path: storePath,
+    ...(legacyPath ? { legacyPath } : {}),
+    store: EMPTY_TRUST_STORE,
+    actions: new Set(),
+    fingerprints: new Set(),
+    version: '-',
+  };
+}
+
+function setDurableTrust(trust: DurableTrust, store: ApprovalTrustStore) {
+  trust.store = store;
+  trust.actions = new Set(store.actions);
+  trust.fingerprints = new Set(store.fingerprints);
+}
+
+function hasDurableTrust(
+  trust: DurableTrust,
+  actionKey: string,
+  fingerprint: string,
+): boolean {
+  return trust.actions.has(actionKey) || trust.fingerprints.has(fingerprint);
+}
+
+function trustStoreVersion(storePath: string): string {
+  try {
+    const stat = fs.statSync(storePath);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return '';
+  }
+}
+
 export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
@@ -2080,10 +2106,10 @@ export class TrustedAgentApprovalRuntime {
   private readonly explicitApprovalCounts = new Map<string, number>();
   private readonly oneShotFingerprints = new Set<string>();
   private readonly sessionTrustedActions = new Set<string>();
-  private readonly agentTrustedActions = new Set<string>();
-  private readonly agentTrustedFingerprints = new Set<string>();
-  private readonly allowlistedActions = new Set<string>();
-  private readonly allowlistedFingerprints = new Set<string>();
+  // `yes for agent` and `yes for all` grants. The gateway revokes them by
+  // rewriting the files, so they are read again whenever a file changes.
+  private readonly agentTrust: DurableTrust;
+  private readonly workspaceTrust: DurableTrust;
   private readonly seenNetworkHosts = new Set<string>();
   // Files curl/wget calls saved this session; running one is fetched code.
   // Persisted per session: a worker restart between `curl -o f` and `sh f`
@@ -2121,18 +2147,13 @@ export class TrustedAgentApprovalRuntime {
     this.stakesClassifier = stakesClassifier;
     this.stakesMiddleware = createStakesMiddlewareSkill(this.stakesClassifier);
     this.behaviorAnomalyReranker = new BehaviorAnomalyReranker();
+    this.agentTrust = emptyDurableTrust(
+      this.agentTrustStorePath,
+      this.legacyAgentTrustStorePath,
+    );
+    this.workspaceTrust = emptyDurableTrust(this.trustStorePath);
     this.reloadPolicyIfNeeded(true);
-    this.loadPersistedTrustStore({
-      trustStorePath: this.agentTrustStorePath,
-      legacyTrustStorePath: this.legacyAgentTrustStorePath,
-      actionSet: this.agentTrustedActions,
-      fingerprintSet: this.agentTrustedFingerprints,
-    });
-    this.loadPersistedTrustStore({
-      trustStorePath: this.trustStorePath,
-      actionSet: this.allowlistedActions,
-      fingerprintSet: this.allowlistedFingerprints,
-    });
+    this.reloadTrustStoresIfNeeded();
     this.loadPersistedPendingApprovals();
   }
 
@@ -2217,7 +2238,10 @@ export class TrustedAgentApprovalRuntime {
 
   private createToolCallContextHelpers(): ToolCallContextHelpers {
     return {
-      reloadPolicyIfNeeded: () => this.reloadPolicyIfNeeded(),
+      reloadPolicyIfNeeded: () => {
+        this.reloadTrustStoresIfNeeded();
+        return this.reloadPolicyIfNeeded();
+      },
       cleanupExpiredPending: () => this.cleanupExpiredPending(),
       classifyAction: (toolName, args) => this.classifyAction(toolName, args),
       isPinnedRed: (input) => this.isPinnedRed(input),
@@ -2234,11 +2258,9 @@ export class TrustedAgentApprovalRuntime {
         this.sessionTrustedActions.has(actionKey) ||
         this.sessionTrustedActions.has(fingerprint),
       hasAgentTrust: (actionKey, fingerprint) =>
-        this.agentTrustedActions.has(actionKey) ||
-        this.agentTrustedFingerprints.has(fingerprint),
+        hasDurableTrust(this.agentTrust, actionKey, fingerprint),
       hasWorkspaceTrust: (actionKey, fingerprint) =>
-        this.allowlistedActions.has(actionKey) ||
-        this.allowlistedFingerprints.has(fingerprint),
+        hasDurableTrust(this.workspaceTrust, actionKey, fingerprint),
       getExplicitApprovalCount: (actionKey) =>
         this.explicitApprovalCounts.get(actionKey) || 0,
       approvalMode: () => this.approvalMode,
@@ -2335,63 +2357,63 @@ export class TrustedAgentApprovalRuntime {
     return this.loadedPolicy;
   }
 
-  private loadPersistedTrustStore(params: {
-    trustStorePath: string;
-    actionSet: Set<string>;
-    fingerprintSet: Set<string>;
-    legacyTrustStorePath?: string;
-  }): void {
-    params.actionSet.clear();
-    params.fingerprintSet.clear();
-    try {
-      const sourcePath = fs.existsSync(params.trustStorePath)
-        ? params.trustStorePath
-        : params.legacyTrustStorePath;
-      if (!sourcePath || !fs.existsSync(sourcePath)) return;
-      const raw = fs.readFileSync(sourcePath, 'utf-8');
-      const parsed = parsePersistedTrustStore(raw);
-      if (!parsed) return;
-      for (const actionKey of parsed.allowlistedActions) {
-        params.actionSet.add(actionKey);
+  /** Reads a grant store again when its file changed since the last read. */
+  private reloadTrustStoresIfNeeded(): void {
+    for (const trust of [this.agentTrust, this.workspaceTrust]) {
+      const sourcePath =
+        trust.legacyPath &&
+        !fs.existsSync(trust.path) &&
+        fs.existsSync(trust.legacyPath)
+          ? trust.legacyPath
+          : trust.path;
+      const version = trustStoreVersion(sourcePath);
+      if (sourcePath === trust.path && version === trust.version) continue;
+      let store: ApprovalTrustStore | null = null;
+      try {
+        if (version) {
+          store = parseApprovalTrustStore(fs.readFileSync(sourcePath, 'utf-8'));
+        }
+      } catch {
+        // ignore malformed trust state; session trust still applies
       }
-      for (const fingerprint of parsed.allowlistedFingerprints) {
-        params.fingerprintSet.add(fingerprint);
-      }
-      if (
-        params.legacyTrustStorePath &&
-        sourcePath === params.legacyTrustStorePath
-      ) {
-        this.persistPersistedTrustStore({
-          trustStorePath: params.trustStorePath,
-          actionSet: params.actionSet,
-          fingerprintSet: params.fingerprintSet,
-        });
-      }
-    } catch {
-      // ignore malformed trust state; session trust still applies
+      setDurableTrust(trust, store || EMPTY_TRUST_STORE);
+      trust.version = version;
+      if (sourcePath !== trust.path && store) this.persistTrustStore(trust);
     }
   }
 
-  private persistPersistedTrustStore(params: {
-    trustStorePath: string;
-    actionSet: ReadonlySet<string>;
-    fingerprintSet: ReadonlySet<string>;
-  }): void {
-    const payload: PersistedApprovalTrustStore = {
-      version: 2,
-      allowlistedActions: [...params.actionSet].sort(),
-      allowlistedFingerprints: [...params.fingerprintSet].sort(),
-      updatedAt: new Date().toISOString(),
-    };
+  private persistTrustStore(trust: DurableTrust): void {
     try {
-      const dir = path.dirname(params.trustStorePath);
-      fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = `${params.trustStorePath}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, params.trustStorePath);
+      fs.mkdirSync(path.dirname(trust.path), { recursive: true });
+      const tmpPath = `${trust.path}.tmp`;
+      fs.writeFileSync(
+        tmpPath,
+        serializeApprovalTrustStore(trust.store),
+        'utf-8',
+      );
+      fs.renameSync(tmpPath, trust.path);
+      trust.version = trustStoreVersion(trust.path);
     } catch {
       // ignore persistence failures and continue with in-memory trust
     }
+  }
+
+  private grantDurableTrust(
+    trust: DurableTrust,
+    target: PendingApproval,
+  ): void {
+    // A revoke since the last tool call must not come back with this write.
+    this.reloadTrustStoresIfNeeded();
+    setDurableTrust(
+      trust,
+      grantApprovalTrust(trust.store, {
+        actionKey: target.actionKey,
+        fingerprint: target.fingerprint,
+        intent: target.intent,
+        toolName: target.toolName,
+      }),
+    );
+    this.persistTrustStore(trust);
   }
 
   private loadPersistedPendingApprovals(): void {
@@ -2455,13 +2477,7 @@ export class TrustedAgentApprovalRuntime {
         this.oneShotFingerprints.add(target.fingerprint);
         mode = 'once';
       } else {
-        this.agentTrustedActions.add(target.actionKey);
-        this.agentTrustedFingerprints.add(target.fingerprint);
-        this.persistPersistedTrustStore({
-          trustStorePath: this.agentTrustStorePath,
-          actionSet: this.agentTrustedActions,
-          fingerprintSet: this.agentTrustedFingerprints,
-        });
+        this.grantDurableTrust(this.agentTrust, target);
       }
     } else if (requestedMode === 'all') {
       if (target.pinned) {
@@ -2469,13 +2485,7 @@ export class TrustedAgentApprovalRuntime {
         this.oneShotFingerprints.add(target.fingerprint);
         mode = 'once';
       } else {
-        this.allowlistedActions.add(target.actionKey);
-        this.allowlistedFingerprints.add(target.fingerprint);
-        this.persistPersistedTrustStore({
-          trustStorePath: this.trustStorePath,
-          actionSet: this.allowlistedActions,
-          fingerprintSet: this.allowlistedFingerprints,
-        });
+        this.grantDurableTrust(this.workspaceTrust, target);
       }
     } else {
       this.oneShotFingerprints.add(target.fingerprint);

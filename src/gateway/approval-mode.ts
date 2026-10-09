@@ -13,10 +13,14 @@ import {
   DEFAULT_APPROVAL_MODE,
   isApprovalMode,
 } from '../../container/shared/approval-mode.js';
-import { APPROVALS_MODE_USAGE } from '../approval-commands.js';
+import {
+  APPROVALS_MODE_USAGE,
+  APPROVALS_RULES_USAGE,
+} from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { updateSessionApprovalMode } from '../memory/db.js';
 import type { Session } from '../types/session.js';
+import { handleApprovalRulesCommand } from './approval-rules-command.js';
 import { isFullAutoEnabled } from './fullauto-runtime.js';
 import type {
   GatewayCommandRequest,
@@ -44,10 +48,15 @@ function describeMode(session: Session, mode: ApprovalMode): string {
 export function handleApprovalsCommand(params: {
   session: Session;
   req: GatewayCommandRequest;
+  /** The session agent's workspace, where its "always allow" grants live. */
+  workspacePath: string;
 }): GatewayCommandResult {
   const { session, req } = params;
   const sub = (req.args[1] || '').trim().toLowerCase();
-  const usage = `Usage: \`${APPROVALS_MODE_USAGE}\``;
+  const usage = `Usage: \`${APPROVALS_MODE_USAGE}\` or \`${APPROVALS_RULES_USAGE}\``;
+  if (sub === 'rules') {
+    return handleApprovalRulesCommand(params);
+  }
   if (sub !== 'mode') {
     return { kind: 'error', title: 'Usage', text: usage };
   }
