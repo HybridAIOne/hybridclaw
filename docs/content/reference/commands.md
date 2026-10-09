@@ -744,6 +744,19 @@ with `id`, `at`, `session`, `task`, `tool`, `service`, `action`, `to`,
 which the audit keeps next to arguments whose addresses it redacts. Never a
 mail's body.
 
+Each receipt also says whether the action really worked, as `proof`:
+`{"status", "evidence", "summary", "from", "subject", "path"}`. A connector's
+own tool (`hybridai__google__send_mail`) or `message` reporting success is
+`confirmed` by `service`. Anything else, such as an order placed in the
+browser, needs the agent's `proof` tool after it in the same turn, and that
+counts only when a matching check ran in between: a mail read for
+`evidence: "email"` (`from` is the sender's domain), `browser_screenshot` for
+`"screenshot"` (`path` is the copy under `receipts/` in the agent's home), a
+browser call for `"page"`. Without one, or when the agent recorded that it
+could not confirm it, the status is `unconfirmed`, with the agent's reason as
+`summary` when it gave one. `proof` is null for a failed action and for files
+the agent wrote, edited or deleted in its own workspace, and for commands.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session

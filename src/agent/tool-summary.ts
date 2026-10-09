@@ -58,7 +58,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Memory',
-    tools: ['memory', 'session_search', 'work'],
+    tools: ['memory', 'session_search', 'work', 'proof'],
   },
   {
     label: 'Skills',

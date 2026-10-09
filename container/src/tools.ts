@@ -102,6 +102,7 @@ import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
+import { PROOF_TOOL_DEFINITION, runProofTool } from './tools/proof.js';
 import {
   runGlobSearch,
   runGrepSearch,
@@ -3677,6 +3678,10 @@ async function executeToolInternal(
       );
       return ok ? text : failTool(text);
     }
+    case 'proof': {
+      const { ok, text } = runProofTool(args);
+      return ok ? text : failTool(text);
+    }
     case 'estimate_cost': {
       const { ok, text } = await runEstimateCostTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4305,6 +4310,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   TODO_TOOL_DEFINITION,
   TRIGGER_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
+  PROOF_TOOL_DEFINITION,
   ESTIMATE_COST_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,

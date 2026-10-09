@@ -2943,6 +2943,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
       lowerTool === 'draft_email' ||
+      lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
       (lowerTool === 'work' &&
         ['record', 'get', 'list'].includes(String(args.action))) ||
@@ -2959,7 +2960,9 @@ export class TrustedAgentApprovalRuntime {
             ? 'this only records or retrieves local work provenance'
             : lowerTool === 'draft_email'
               ? 'this only shows the user a draft; nothing is sent'
-              : 'this is a read-only operation',
+              : lowerTool === 'proof'
+                ? 'this only records whether an action was confirmed'
+                : 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
