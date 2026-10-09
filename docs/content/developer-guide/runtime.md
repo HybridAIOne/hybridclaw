@@ -457,6 +457,11 @@ Session behavior matches the routing rules above:
   only the text after the last tool as the reply (the `result` carries only
   that part). The agent is then asked to begin each tool-calling response with
   one short line such as "Checking the page…" instead of calling tools silently
+- a client that sends its own note to the agent through `/api/chat`, such as
+  "I saved my sign-in for example.com. Please continue." after the user acted
+  in the app, sets `appNotice: true`. The agent reads `content` as usual, but
+  the stored message is tagged `app-notice` and `/api/history` leaves it out,
+  as it does for approval answers, so clients never hide turns by their wording
 - Hy clients choose emoji reactions separately from the main chat model, using
   the phone model first and `auxiliary/eval_judge` second. No suitable emoji is
   a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove

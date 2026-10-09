@@ -266,6 +266,12 @@ export interface GatewayChatRequestBody {
    * the answer out instead of showing it as a message from the user.
    */
   approval?: GatewayApprovalAnswer;
+  /**
+   * `content` is the client's own note to the agent, not something the user
+   * wrote, such as "I saved my sign-in for example.com. Please continue." The
+   * agent reads it as usual; history leaves it out.
+   */
+  appNotice?: boolean;
 }
 
 export interface GatewayChatRequest {
@@ -301,6 +307,7 @@ export interface GatewayChatRequest {
   content: GatewayChatRequestBody['content'];
   media?: GatewayChatRequestBody['media'];
   approval?: GatewayChatRequestBody['approval'];
+  appNotice?: GatewayChatRequestBody['appNotice'];
   agentId?: GatewayChatRequestBody['agentId'];
   addressEnvelope?: GatewayAddressEnvelope;
   chatbotId?: GatewayChatRequestBody['chatbotId'];
