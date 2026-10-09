@@ -15,6 +15,7 @@ import {
 } from './approval-review.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
+import { compileBlockedTools } from './blocked-tools.js';
 import {
   boostApprovalOutput,
   dropPendingBoost,
@@ -2220,12 +2221,8 @@ function resolveTools(input: ContainerInput): ToolDefinition[] {
     tools = tools.filter((tool) => allowed.has(tool.function.name));
   }
   if (Array.isArray(input.blockedTools) && input.blockedTools.length > 0) {
-    const blocked = new Set(
-      input.blockedTools
-        .map((name) => String(name || '').trim())
-        .filter(Boolean),
-    );
-    tools = tools.filter((tool) => !blocked.has(tool.function.name));
+    const isBlocked = compileBlockedTools(input.blockedTools);
+    tools = tools.filter((tool) => !isBlocked(tool.function.name));
   }
   setUserMailContext({
     toolNames: tools.map((tool) => tool.function.name),
