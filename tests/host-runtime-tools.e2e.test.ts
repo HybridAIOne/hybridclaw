@@ -116,6 +116,13 @@ async function startGateway(params: {
 }): Promise<Gateway> {
   const dataDir = path.join(params.home, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
+  // A login profile that resets PATH, as Debian's /etc/profile does, here to
+  // a directory without node: agent bash finds `node` only because the
+  // worker PATH survives the reset.
+  fs.writeFileSync(
+    path.join(params.home, '.bash_profile'),
+    'PATH=/nonexistent-profile-bin\nexport PATH\n',
+  );
   const port = await getAvailablePort(params.preferredPort);
   fs.writeFileSync(
     path.join(dataDir, 'config.json'),
@@ -304,9 +311,9 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
           'host-runtime-image',
           [
             'RUN: pwd && echo "$NODE_PATH"',
-            `${NODE} skills/pdf/scripts/create_pdf.mjs report.pdf --text "${PDF_TEXT}"`,
-            `${NODE} skills/pdf/scripts/render_pdf_pages.mjs report.pdf pages`,
-            `${NODE} skills/xlsx/scripts/create_xlsx.cjs out.xlsx --headers "Name,Amount" --rows "Alice,12.5" --json`,
+            `node skills/pdf/scripts/create_pdf.mjs report.pdf --text "${PDF_TEXT}"`,
+            `node skills/pdf/scripts/render_pdf_pages.mjs report.pdf pages`,
+            `node skills/xlsx/scripts/create_xlsx.cjs out.xlsx --headers "Name,Amount" --rows "Alice,12.5" --json`,
           ].join(' && '),
         );
         const [cwd, nodePath] = result.split('\n');
@@ -427,9 +434,9 @@ describe.runIf(RUN)('host-sandbox runtime libraries outside the npm tarball', ()
           gateway,
           'host-runtime-setup',
           [
-            `RUN: ${NODE} skills/xlsx/scripts/create_xlsx.cjs out.xlsx --headers "Name" --rows "Alice" --json`,
-            `${NODE} -e 'const d=require("docx");d.Packer.toBuffer(new d.Document({sections:[{children:[new d.Paragraph("hi")]}]})).then(b=>console.log("docx bytes", b.length))'`,
-            `${NODE} -p 'require.resolve("pptxgenjs")'`,
+            `RUN: node skills/xlsx/scripts/create_xlsx.cjs out.xlsx --headers "Name" --rows "Alice" --json`,
+            `node -e 'const d=require("docx");d.Packer.toBuffer(new d.Document({sections:[{children:[new d.Paragraph("hi")]}]})).then(b=>console.log("docx bytes", b.length))'`,
+            `node -p 'require.resolve("pptxgenjs")'`,
           ].join(' && '),
         );
         expect(result).toContain('"output_path": "out.xlsx"');
