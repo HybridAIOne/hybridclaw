@@ -229,7 +229,6 @@ function createGatewayMainTestState(options?: {
       localBackends: {},
     })),
     getInFlightExecutorCount: vi.fn(() => 0),
-    getWorkflowByCompanionTaskId: vi.fn(() => null),
     handleGatewayCommand: vi.fn(async ({ args }: { args: string[] }) => {
       if (args[0] === 'info') {
         return { kind: 'info' as const, title: 'Info', text: 'Body' };
@@ -259,7 +258,6 @@ function createGatewayMainTestState(options?: {
     initTelegram: vi.fn(),
     initThreema: vi.fn(),
     initWhatsApp: vi.fn(),
-    initializeWorkflowRuntime: vi.fn(),
     initGatewayService: vi.fn(
       options?.initGatewayServiceImpl || (async () => {}),
     ),
@@ -324,7 +322,6 @@ function createGatewayMainTestState(options?: {
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     runManagedMediaCleanup: vi.fn(async () => {}),
     setDiscordMaintenancePresence: vi.fn(async () => {}),
-    executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
     setTimeout: vi.fn(() => ({ timer: true })),
     startGatewayHttpServer: vi.fn(() => ({
@@ -647,7 +644,6 @@ async function importFreshGatewayMain(options?: {
     getQueuedProactiveMessageCount: vi.fn(() => 0),
     markQueuedProactiveMessageFailed: state.markQueuedProactiveMessageFailed,
     pruneFailedProactiveMessages: vi.fn(() => 0),
-    getWorkflowByCompanionTaskId: state.getWorkflowByCompanionTaskId,
     initDatabase: state.initDatabase,
     listQueuedProactiveMessages: state.listQueuedProactiveMessages,
   }));
@@ -755,12 +751,6 @@ async function importFreshGatewayMain(options?: {
   vi.doMock('../src/gateway/managed-media-cleanup.js', () => ({
     runManagedMediaCleanup: state.runManagedMediaCleanup,
   }));
-  vi.doMock('../src/workflow/executor.js', () => ({
-    executeWorkflow: state.executeWorkflow,
-  }));
-  vi.doMock('../src/workflow/service.js', () => ({
-    initializeWorkflowRuntime: state.initializeWorkflowRuntime,
-  }));
 
   await import('../src/gateway/gateway.ts');
   const bootstrapDeadline = Date.now() + 10_000;
@@ -841,8 +831,6 @@ useCleanMocks({
     '../src/gateway/gateway-http-server.js',
     '../src/gateway/proactive-delivery.js',
     '../src/gateway/managed-media-cleanup.js',
-    '../src/workflow/executor.js',
-    '../src/workflow/service.js',
   ],
 });
 

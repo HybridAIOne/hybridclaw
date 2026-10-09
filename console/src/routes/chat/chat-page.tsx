@@ -90,6 +90,7 @@ import { SessionOutputs } from './session-outputs';
 import { useChatNotifications } from './use-chat-notifications';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
+import { useComputerPresence } from './use-computer-presence';
 import { useStickToBottom } from './use-stick-to-bottom';
 import { useVoiceSession } from './use-voice-session';
 import { VoicePanel } from './voice-panel';
@@ -526,6 +527,7 @@ export function ChatPage() {
     reasoningEffort: effectiveReasoningEffort,
   });
 
+  useComputerPresence(auth.token, chatApiReady);
   const notifications = useChatNotifications({
     token: auth.token,
     enabled: chatApiReady,

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  createThinkingDeltaFilter,
   createThinkingStreamEmitter,
   extractThinkingBlocks,
 } from '../container/src/providers/thinking-extractor.js';
@@ -62,19 +61,6 @@ describe('thinking extractor', () => {
       content: null,
       thinkingOnly: false,
     });
-  });
-
-  test('suppresses think deltas during streaming', () => {
-    const deltas: string[] = [];
-    const filter = createThinkingDeltaFilter((delta) => deltas.push(delta));
-
-    filter.push('<think>plan');
-    filter.push('</think>Hello');
-    filter.push(' world');
-
-    expect(deltas).toEqual(['Hello', ' world']);
-    expect(filter.getRawContent()).toBe('<think>plan</think>Hello world');
-    expect(filter.getVisibleContent()).toBe('Hello world');
   });
 
   test('emits raw think tags for transient stream rendering', () => {

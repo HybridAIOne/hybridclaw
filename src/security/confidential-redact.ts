@@ -291,25 +291,3 @@ export function scanForLeaks(
     severity,
   };
 }
-
-export function mergePlaceholderMaps(
-  base: ConfidentialPlaceholderMap,
-  next: ConfidentialPlaceholderMap,
-): ConfidentialPlaceholderMap {
-  for (const [token, original] of next.byPlaceholder) {
-    if (!base.byPlaceholder.has(token)) {
-      base.byPlaceholder.set(token, original);
-    }
-  }
-  for (const [ruleId, token] of next.byRuleId) {
-    if (!base.byRuleId.has(ruleId)) {
-      base.byRuleId.set(ruleId, token);
-    }
-  }
-  for (const [token, className] of next.byPlaceholderClass) {
-    if (!base.byPlaceholderClass.has(token)) {
-      base.byPlaceholderClass.set(token, className);
-    }
-  }
-  return base;
-}

@@ -518,18 +518,6 @@ export const trustedAgentsFixtures = {
   secretSamples: testSecretSamples,
 } as const;
 
-export function requireTestAgent(id: string): TestAgent {
-  const agent = testAgents.find((entry) => entry.id === id);
-  if (!agent) throw new Error(`Unknown test agent: ${id}`);
-  return agent;
-}
-
-export function requireTestClientOrg(id: string): TestClientOrg {
-  const clientOrg = testClientOrgs.find((entry) => entry.id === id);
-  if (!clientOrg) throw new Error(`Unknown test client org: ${id}`);
-  return clientOrg;
-}
-
 function buildTrustedAgentsConfidentialYaml(): string {
   return stringifyYaml({
     version: 1,

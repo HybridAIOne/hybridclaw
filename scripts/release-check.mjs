@@ -18,6 +18,10 @@ const requiredExactPaths = [
   'plugins/connector-events/hybridclaw.plugin.yaml',
   'plugins/connector-events/package.json',
   'plugins/connector-events/src/index.js',
+  // Human distillation ships as an install-on-demand plugin.
+  'plugins/distill/hybridclaw.plugin.yaml',
+  'plugins/distill/package.json',
+  'plugins/distill/src/index.js',
   'plugins/tier-router/hybridclaw.plugin.yaml',
   'plugins/tier-router/src/index.js',
   'plugins/tier-router/src/routing.js',

@@ -1075,3 +1075,40 @@ Fetch the current ISS latitude and longitude from the WhereTheISS API.
 > `1. Where is the ISS right now?`
 > `2. What country or ocean is that over?`
 > `3. Check again — has it moved significantly since the last check?`
+
+---
+
+## money-saving
+
+Compare prices before the user buys, find subscriptions and contracts in
+their mail and bank transactions, cancel contracts through the cancel button German law requires (§ 312k BGB),
+compare and switch electricity, gas, mobile, internet and car insurance, and
+claim compensation for delayed or cancelled flights (EU 261) and trains.
+
+**Prerequisites** — none. A mail connector finds contracts, bills and flights;
+a bank connector finds recurring payments.
+
+> 💡 **Tips & Tricks**
+>
+> The agent keeps what it found in `money/subscriptions.md` and
+> `money/claims.md` in its workspace.
+>
+> Pressing "jetzt kündigen" or a "zahlungspflichtig bestellen" button always
+> asks the user first, in every approval mode. So does sending a cancellation
+> or a claim by mail.
+>
+> Comparison sites block automated browsers, so tariffs come from web search
+> and the suppliers' own calculators. The agent hands the switch to the user
+> with a link unless asked to fill in the form.
+
+> 🎯 **Try it yourself**
+>
+> `Where do I get the Sony WH-1000XM6 cheapest?`
+>
+> `Which subscriptions am I paying for?`
+>
+> `Cancel my gym membership`
+>
+> `My flight from Munich to Lisbon was four hours late last month. Can I get money back?`
+>
+> `Is my electricity too expensive?`

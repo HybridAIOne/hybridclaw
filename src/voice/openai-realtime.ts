@@ -106,6 +106,7 @@ export interface OpenAIRealtimeClientOptions {
   audioFormat: RealtimeAudioFormat;
   instructions: string;
   tools: RealtimeFunctionTool[];
+  history?: RealtimeHistoryMessage[];
   turnDetection?: RealtimeTurnDetection;
   /** ISO 639-1 code the transcription expects; unset lets it detect. */
   transcriptionLanguage?: string;
@@ -113,8 +114,14 @@ export interface OpenAIRealtimeClientOptions {
   socketFactory?: RealtimeSocketFactory;
 }
 
-// Caller audio arriving before the realtime socket is ready is queued and
-// flushed on open, so speech from the first seconds of a call is not lost.
+export interface RealtimeHistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+// Caller audio arriving before session setup and history preload are ready is
+// queued, so speech from the first seconds of a call is not lost or answered
+// before the conversation context is available.
 // Rolling cap: ~5s of 20ms phone frames, ~40s of 171ms web chunks.
 const PENDING_AUDIO_LIMIT = 250;
 
@@ -131,11 +138,15 @@ export class OpenAIRealtimeClient {
   private anonymousResponseCount = 0;
   private autoResponse = true;
   private ready = false;
+  private initialized = false;
+  private readonly history: RealtimeHistoryMessage[];
+  private readonly pendingHistory = new Set<string>();
   private closed = false;
   private pendingAudio: string[] = [];
 
   constructor(options: OpenAIRealtimeClientOptions) {
     this.callbacks = options.callbacks;
+    this.history = options.history ?? [];
     this.turnDetection = options.turnDetection || {};
     const factory = options.socketFactory || defaultSocketFactory;
     const url = `${options.url}?model=${encodeURIComponent(options.model)}`;
@@ -174,7 +185,6 @@ export class OpenAIRealtimeClient {
           tool_choice: 'auto',
         },
       });
-      this.flushPendingAudio();
     });
     this.socket.on('message', (data) => {
       this.handleServerEvent(data);
@@ -243,7 +253,7 @@ export class OpenAIRealtimeClient {
 
   appendAudio(base64Audio: string): void {
     if (!base64Audio || this.closed) return;
-    if (this.socket.readyState !== SOCKET_OPEN) {
+    if (!this.ready || this.socket.readyState !== SOCKET_OPEN) {
       this.pendingAudio.push(base64Audio);
       if (this.pendingAudio.length > PENDING_AUDIO_LIMIT) {
         this.pendingAudio.shift();
@@ -353,9 +363,35 @@ export class OpenAIRealtimeClient {
     if (type === 'session.updated') {
       // Later session.update round-trips (auto-response toggles) must not
       // replay the greeting.
-      if (!this.ready) {
-        this.ready = true;
-        this.callbacks.onReady();
+      if (!this.initialized) {
+        this.initialized = true;
+        for (const [index, message] of this.history.entries()) {
+          const id = `voice_history_${index}`;
+          this.pendingHistory.add(id);
+          this.sendEvent({
+            type: 'conversation.item.create',
+            item: {
+              id,
+              type: 'message',
+              role: message.role,
+              content: [
+                {
+                  type:
+                    message.role === 'assistant' ? 'output_text' : 'input_text',
+                  text: message.text,
+                },
+              ],
+            },
+          });
+        }
+        this.finishHistory();
+      }
+      return;
+    }
+    if (type === 'conversation.item.done') {
+      const item = isRecord(parsed.item) ? parsed.item : null;
+      if (item && this.pendingHistory.delete(normalizeString(item.id))) {
+        this.finishHistory();
       }
       return;
     }
@@ -439,5 +475,12 @@ export class OpenAIRealtimeClient {
         normalizeString(error.message) || 'Unknown realtime error',
       );
     }
+  }
+
+  private finishHistory(): void {
+    if (this.ready || this.closed || this.pendingHistory.size > 0) return;
+    this.ready = true;
+    this.callbacks.onReady();
+    this.flushPendingAudio();
   }
 }

@@ -86,6 +86,7 @@ import type {
   ArtifactMetadata,
   BrowserFrame,
   PendingApproval,
+  SlideSamples,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { AdditionalMount } from '../types/security.js';
@@ -96,6 +97,10 @@ import {
   CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
   ensureBehaviorAnomalyTrajectoryStoreDir,
 } from './behavior-anomaly-runtime.js';
+import {
+  containerHostAliasArgs,
+  remapHostBaseUrlForContainer,
+} from './container-host-alias.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -123,6 +128,7 @@ import {
 } from './stream-debug.js';
 import {
   parseBrowserFrameLine,
+  parseSlideSamplesLine,
   parseToolProgressLine,
 } from './tool-progress-parser.js';
 import { WarmProcessPool } from './warm-process-pool.js';
@@ -140,6 +146,7 @@ import {
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
   pingWarmRunnerHealthEntry,
+  processLimitForRun,
   rememberStderrLine,
   removeWarmPoolEntry,
   sendWarmWorkerFrame,
@@ -275,9 +282,11 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
   if (stashBrowserFrameLine(entry, line)) return;
+  if (stashSlideSamplesLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
   const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
+  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
@@ -285,6 +294,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
       ...(browser ? { browser } : {}),
+      ...(slideSamples ? { slideSamples } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -355,8 +365,12 @@ export function isWarmContainerColdStartWithinBudget(): boolean {
   return warmPool.isWithinColdStartBudget();
 }
 
+// Runs past their capacity check whose container is not in the pool yet. They
+// count, or runs that start together all pass the check and overshoot it.
+let startingContainerProcesses = 0;
+
 function getTotalContainerProcessCount(): number {
-  return getTotalWarmProcessCount(pool, warmPool);
+  return getTotalWarmProcessCount(pool, warmPool) + startingContainerProcesses;
 }
 
 function removePoolEntry(entry: PoolEntry): void {
@@ -639,9 +653,10 @@ export function remapOutputArtifacts(
   output.artifacts = mapped;
 }
 
-/** Pool-entry state for the `[browser-frame]` line that precedes a result. */
+/** Pool-entry state for the side lines (`[browser-frame]`, `[slide-samples]`) that precede a result. */
 export interface BrowserFrameSink {
   pendingBrowserFrame?: BrowserFrame;
+  pendingSlideSamples?: SlideSamples;
   browserFrameWorkspace?: { path: string; displayRoot?: string };
 }
 
@@ -670,6 +685,41 @@ export function stashBrowserFrameLine(
   return true;
 }
 
+/** Keep a `[slide-samples]` line for the tool's result; true if it was one. */
+export function stashSlideSamplesLine(
+  entry: BrowserFrameSink,
+  line: string,
+): boolean {
+  const samples = parseSlideSamplesLine(line);
+  if (!samples) return false;
+  const workspace = entry.browserFrameWorkspace;
+  const looks = workspace
+    ? samples.looks.flatMap((look) => {
+        const image = resolveArtifactHostPath(
+          look.image,
+          workspace.path,
+          workspace.displayRoot,
+        );
+        return image ? [{ ...look, image }] : [];
+      })
+    : [];
+  // A picture that doesn't resolve would leave a look the user can't see.
+  entry.pendingSlideSamples =
+    looks.length === samples.looks.length ? { ...samples, looks } : undefined;
+  return true;
+}
+
+export function takeSlideSamples(
+  entry: BrowserFrameSink,
+  toolName: string,
+  phase: 'start' | 'finish',
+): SlideSamples | undefined {
+  if (phase !== 'finish' || toolName !== 'show_slide_samples') return undefined;
+  const samples = entry.pendingSlideSamples;
+  entry.pendingSlideSamples = undefined;
+  return samples;
+}
+
 export function takeBrowserFrame(
   entry: BrowserFrameSink,
   toolName: string,
@@ -679,13 +729,6 @@ export function takeBrowserFrame(
   const frame = entry.pendingBrowserFrame;
   entry.pendingBrowserFrame = undefined;
   return frame;
-}
-
-function remapHostBaseUrlForContainer(baseUrl: string): string {
-  return baseUrl.replace(
-    /\/\/(localhost|127\.0\.0\.1)([:/])/,
-    '//host.docker.internal$2',
-  );
 }
 
 function getContainerWorkspacePath(params: {
@@ -789,6 +832,7 @@ function getOrSpawnContainer(
     '--security-opt=no-new-privileges',
     '--pids-limit=256',
     `--network=${CONTAINER_NETWORK || 'bridge'}`,
+    ...containerHostAliasArgs(process.platform, CONTAINER_NETWORK || 'bridge'),
     '--tmpfs',
     '/tmp:rw,nosuid,size=512m',
     '-v',
@@ -1125,25 +1169,23 @@ async function runContainerInner(
   const runtimeModel = modelRuntime.model || model;
   const storedRuntimeEnv = readStoredRuntimeEnv();
   enforceWarmContainerPressure();
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  const processLimit = processLimitForRun(
+    MAX_CONCURRENT_CONTAINERS,
+    params.background,
+  );
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     stopWarmEntries(
       warmPool.evictForPressure({
         totalProcessCount: getTotalContainerProcessCount() + 1,
-        maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+        maxProcessCount: processLimit,
       }),
     );
   }
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     for (const entry of collectIdleSessionEvictions({
       pool,
       warmPool,
-      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+      maxProcessCount: processLimit,
     })) {
       logger.info(
         { sessionId: entry.sessionId, agentId: entry.agentId },
@@ -1153,21 +1195,27 @@ async function runContainerInner(
       removePoolEntry(entry);
     }
   }
-  if (
-    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  if (getTotalContainerProcessCount() >= processLimit && !pool.has(sessionId)) {
     return {
       status: 'error',
       result: null,
       toolsUsed: [],
-      error: `Too many active containers (${getTotalContainerProcessCount()}/${MAX_CONCURRENT_CONTAINERS}). Try again later.`,
+      error: `Too many active containers (${getTotalContainerProcessCount()}/${processLimit}). Try again later.`,
+      errorCode: 'busy',
     };
   }
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveContainerMcpServers();
+  // The container is spawned without another await after this one.
+  const starting = pool.has(sessionId) ? 0 : 1;
+  startingContainerProcesses += starting;
+  let mcpServers: Awaited<ReturnType<typeof resolveContainerMcpServers>>;
+  try {
+    mcpServers = await resolveContainerMcpServers();
+  } finally {
+    startingContainerProcesses -= starting;
+  }
   const existingEntry = pool.get(sessionId);
   const requestId = randomUUID();
 

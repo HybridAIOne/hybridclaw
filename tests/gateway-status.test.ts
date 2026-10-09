@@ -153,7 +153,6 @@ function mockHealthProbes(options?: {
       invalidate: vi.fn(),
     },
     checkConnection: vi.fn(),
-    checkModelConnection: vi.fn(),
     checkAllBackends: vi.fn(async () => new Map()),
   }));
 }
@@ -236,7 +235,6 @@ test('getGatewayStatus uses cached HybridAI health when probe exceeds deadline',
       invalidate: vi.fn(),
     },
     checkConnection: vi.fn(),
-    checkModelConnection: vi.fn(),
     checkAllBackends: vi.fn(async () => new Map()),
   }));
 
@@ -287,7 +285,6 @@ test('getGatewayStatus uses cached HybridAI health when probe rejects', async ()
       invalidate: vi.fn(),
     },
     checkConnection: vi.fn(),
-    checkModelConnection: vi.fn(),
     checkAllBackends: vi.fn(async () => new Map()),
   }));
 
@@ -4532,7 +4529,6 @@ test('model list refreshes local backend health before filtering models', async 
       invalidate,
     },
     checkConnection: vi.fn(),
-    checkModelConnection: vi.fn(),
     checkAllBackends: vi.fn(async () => new Map()),
   }));
   vi.doMock('../src/providers/hybridai-discovery.ts', () => ({
@@ -4610,7 +4606,6 @@ test('model clear does not refresh provider health probes', async () => {
       invalidate: invalidateLocal,
     },
     checkConnection: vi.fn(),
-    checkModelConnection: vi.fn(),
     checkAllBackends: vi.fn(async () => new Map()),
   }));
 

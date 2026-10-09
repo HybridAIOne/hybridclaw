@@ -238,14 +238,19 @@ test.each([false, true])('second-opinion validates the previous answer and attri
     },
   ]);
 
-  const { observeMSTeamsUser, listMSTeamsUsers } = await import(
-    '../src/memory/msteams-users.ts'
+  const { observeChannelUser, listChannelUsers } = await import(
+    '../src/memory/channel-users.ts'
   );
   const { flushTokenUsageBuffer } = await import(
     '../src/usage/token-usage-buffer.ts'
   );
   for (const userId of ['user-a', 'user-b']) {
-    observeMSTeamsUser({ tenantId: 'tenant-a', userId, isMessage: false });
+    observeChannelUser({
+      channelKind: 'msteams',
+      tenantId: 'tenant-a',
+      userId,
+      isMessage: false,
+    });
   }
 
   const result = await handleGatewayCommand({
@@ -297,7 +302,7 @@ test.each([false, true])('second-opinion validates the previous answer and attri
   });
   await flushTokenUsageBuffer();
   const users = new Map(
-    listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]),
+    listChannelUsers('msteams', 'tenant-a').map((user) => [user.userId, user]),
   );
   expect(users.get('user-a')?.totalTokens).toBe(teams ? 30 : 0);
   expect(users.get('user-b')?.totalTokens).toBe(0);

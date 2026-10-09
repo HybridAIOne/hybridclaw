@@ -191,7 +191,6 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   );
   const {
     cv,
-    getBestAgentsForSkill,
     getAgentScoreboard,
     recommendAgentsFor,
     clearAgentRecommendationCache,
@@ -285,7 +284,10 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     }),
   ]);
 
-  expect(getBestAgentsForSkill(context.skillName)[0]?.agent_id).toBe('lena');
+  expect(
+    context.dbModule.getAgentSkillScores({ skillName: context.skillName })[0]
+      ?.agent_id,
+  ).toBe('lena');
   expect(getAgentScoreboard()[0]).toMatchObject({
     agent_id: 'lena',
     total_executions: 2,
@@ -341,7 +343,12 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     )
     .run(context.skillName);
   staleScoreDatabase.close();
-  expect(getBestAgentsForSkill(context.skillName, 1)[0]?.agent_id).toBe('lena');
+  expect(
+    context.dbModule.getAgentSkillScores({
+      skillName: context.skillName,
+      limit: 1,
+    })[0]?.agent_id,
+  ).toBe('lena');
   recordSkillExecution({
     skillName: 'unrelated-skill',
     sessionId: 'session-unrelated',

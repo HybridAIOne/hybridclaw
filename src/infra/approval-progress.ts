@@ -3,6 +3,7 @@
  * facts for the authenticated client; never logs them or changes grant scope.
  * Review arguments are projected at the producer, separately from diagnostic prose.
  */
+import { parseBoostPrompt } from '../../container/shared/boost-offer.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import {
   normalizeEscalationTarget,
@@ -30,6 +31,7 @@ export function parseApprovalProgress(line: string): PendingApproval | null {
       return null;
     }
     const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
+    const boost = parseBoostPrompt(parsed.boost);
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -54,6 +56,7 @@ export function parseApprovalProgress(line: string): PendingApproval | null {
           ? parsed.expiresAt
           : null,
       ...(escalationTarget ? { escalationTarget } : {}),
+      ...(boost ? { boost } : {}),
     };
   } catch {
     return null;

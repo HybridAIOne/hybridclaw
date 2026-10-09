@@ -144,10 +144,10 @@ activity. Search by name or either identifier; **Refresh users** updates the tab
 Choose an agent from a user's **Agent** selector. The selection saves immediately
 and applies to their next message or command, including in group chats and channel
 threads. **Default** removes the assignment and uses the configured default agent.
-Assignments are stored in the
-gateway database, scoped to the configured Teams tenant. If an assigned agent is
-deleted or archived, the bot asks for an administrator to repair the mapping;
-it does not send that user's turn to another agent.
+Assignments are stored in the gateway database's channel-agnostic `channel_users`
+table, scoped to the configured Teams tenant. If an assigned agent is deleted or
+archived, the bot asks for an administrator to repair the mapping; it does not
+send that user's turn to another agent.
 
 User tracking, routing, and usage attribution require a configured **Tenant
 ID**. A bot without one (multi-tenant app registration) still answers, but uses

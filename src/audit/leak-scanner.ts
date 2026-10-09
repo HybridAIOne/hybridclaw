@@ -132,16 +132,6 @@ function indexFallsInsideAnySpan(
   return false;
 }
 
-function resolveScanEventTypes(): ReadonlySet<string> {
-  const override = (process.env.HYBRIDCLAW_LEAK_SCAN_EVENT_TYPES || '').trim();
-  if (!override) return PROMPT_BEARING_EVENT_TYPES;
-  const types = override
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return types.length > 0 ? new Set(types) : PROMPT_BEARING_EVENT_TYPES;
-}
-
 export interface LeakScanRecord {
   seq: number;
   timestamp: string;
@@ -401,7 +391,7 @@ export function scanAuditSessionForLeaks(
   dataDir: string = DATA_DIR,
   options: LeakScanOptions = {},
 ): LeakScanReport {
-  const scanTypes = options.scanEventTypes ?? resolveScanEventTypes();
+  const scanTypes = options.scanEventTypes ?? PROMPT_BEARING_EVENT_TYPES;
   const effectiveRuleSet = withResolvedSecretLeakRules(sessionId, ruleSet);
   const safeId = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
   const filePath = path.join(dataDir, AUDIT_DIR_NAME, safeId, WIRE_FILE_NAME);

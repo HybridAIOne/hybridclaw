@@ -1605,23 +1605,6 @@ export function resolveExplicitSkillInvocation(
   return parseSkillInvocation(content, skills);
 }
 
-/**
- * Expand explicit skill command invocations into a deterministic user payload.
- * Supports:
- * - /skill <name> [input]
- * - /skill:<name> [input]
- * - /<name> [input] (user-invocable skills)
- */
-export function expandSkillInvocation(
-  content: string,
-  skills: Skill[],
-): string {
-  const invocation = resolveSkillInvocationForTurn({ content, skills });
-  if (!invocation) return content;
-
-  return expandResolvedSkillInvocation(invocation, invocation.args);
-}
-
 export function expandResolvedSkillInvocation(
   invocation: SkillInvocation,
   args: string,

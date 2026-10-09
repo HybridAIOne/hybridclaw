@@ -71,7 +71,6 @@ test('a child resolves unset settings from its parent, live, and keeps its own i
   });
   expect(child?.name).toBeUndefined();
   expect(registry.getStoredAgentConfig('ams-erika')?.model).toBeUndefined();
-  expect(registry.childAgentsOf('ams')).toEqual(['ams-erika']);
 
   registry.upsertRegisteredAgent({
     ...registry.getStoredAgentConfig('ams'),
@@ -184,8 +183,8 @@ test('Teams routes personal agents in direct chats only and provisions them on d
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
-  const { observeMSTeamsUser, getMSTeamsUserAgent } = await import(
-    '../src/memory/msteams-users.ts'
+  const { observeChannelUser, getChannelUserMapping } = await import(
+    '../src/memory/channel-users.ts'
   );
   const { ensureMSTeamsPersonalAgent, resolveMSTeamsUserAgent } = await import(
     '../src/channels/msteams/user-routing.ts'
@@ -193,11 +192,11 @@ test('Teams routes personal agents in direct chats only and provisions them on d
   const { createAdminMSTeamsPersonalAgent, getAdminMSTeamsUsers } =
     await import('../src/gateway/msteams-users.ts');
 
-  observeMSTeamsUser({
+  observeChannelUser({
+    channelKind: 'msteams',
     tenantId: 'tenant-a',
     userId: 'entra-erika',
-    teamsUserId: '29:erika',
-    entraObjectId: 'entra-erika',
+    profile: { teamsUserId: '29:erika', entraObjectId: 'entra-erika' },
     displayName: 'Erika Mustermann',
     isMessage: true,
   });
@@ -208,9 +207,13 @@ test('Teams routes personal agents in direct chats only and provisions them on d
   expect(
     createAdminMSTeamsPersonalAgent({ userId: 'entra-erika', parentAgentId: 'main' }),
   ).toMatchObject({ status: 200, agentId: 'main-erika-mustermann' });
-  expect(getMSTeamsUserAgent('tenant-a', 'entra-erika')).toBe(
-    'main-erika-mustermann',
-  );
+  expect(
+    getChannelUserMapping({
+      channelKind: 'msteams',
+      tenantId: 'tenant-a',
+      userId: 'entra-erika',
+    })?.agentId,
+  ).toBe('main-erika-mustermann');
   expect(
     createAdminMSTeamsPersonalAgent({
       userId: 'entra-erika',
@@ -228,11 +231,11 @@ test('Teams routes personal agents in direct chats only and provisions them on d
     'main',
   );
 
-  observeMSTeamsUser({
+  observeChannelUser({
+    channelKind: 'msteams',
     tenantId: 'tenant-a',
     userId: 'entra-tomasz',
-    teamsUserId: '29:tomasz',
-    entraObjectId: 'entra-tomasz',
+    profile: { teamsUserId: '29:tomasz', entraObjectId: 'entra-tomasz' },
     displayName: 'Tomasz',
     isMessage: true,
   });

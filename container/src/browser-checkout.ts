@@ -17,6 +17,8 @@ export interface BrowserPageState {
 }
 
 export interface CheckoutAction {
+  /** A purchase spends money; a cancellation ends a contract. */
+  kind: 'purchase' | 'cancellation';
   host: string;
   /** The button's own words, or '' when the click target has no label. */
   label: string;
@@ -92,7 +94,8 @@ const PURCHASE_LABEL_RE = new RegExp(
     '^pay(?: now| securely| with|$|\\s+[$€£]|\\s+\\d)',
     '^(?:book|reserve) now',
     '^(?:subscribe|start (?:my |your )?subscription) (?:and|&|for|now)',
-    '^(?:zahlungs|kosten)pflichtig (?:bestellen|buchen|abonnieren|kaufen)',
+    '^(?:jetzt )?(?:zahlungs|kosten)pflichtig (?:bestellen|buchen|abonnieren|kaufen|abschließen|beauftragen|beantragen|wechseln)',
+    '^(?:wechsel|vertrag|tarif) (?:jetzt )?(?:verbindlich |zahlungspflichtig |kostenpflichtig )?(?:abschließen|beauftragen)$',
     '^jetzt (?:kaufen|bestellen|buchen|bezahlen|zahlen)',
     '^(?:kaufen|bestellen|bezahlen)$',
     '^(?:bestellung|kauf|buchung|zahlung) (?:abschließen|abschicken|absenden|bestätigen)',
@@ -102,25 +105,68 @@ const PURCHASE_LABEL_RE = new RegExp(
   'i',
 );
 
+// Words on the button that sends a cancellation or a withdrawal. German sites
+// must label it "jetzt kündigen" or an equally clear phrase (§ 312k BGB), and
+// the EU withdrawal button "Widerruf bestätigen", required from 19 June 2026. The entry
+// button, "Verträge hier kündigen", only opens the form and is absent, as is a
+// bare "Cancel", which closes dialogs.
+const CANCELLATION_LABEL_RE = new RegExp(
+  [
+    '^jetzt (?:verbindlich )?(?:kündigen|widerrufen)$',
+    '^(?:kündigung|widerruf) (?:jetzt )?(?:verbindlich )?(?:bestätigen|absenden|abschicken|abschließen|einreichen)$',
+    '^(?:verbindlich|endgültig) kündigen$',
+    '^(?:confirm|finish|complete|submit) (?:the |my |your )?(?:cancellation|withdrawal)$',
+    '^yes,? cancel(?: (?:my |the |your )?(?:subscription|membership|plan|contract))?$',
+    '^(?:cancel|end) (?:my |the |your )?(?:subscription|membership|plan|contract) now$',
+  ].join('|'),
+  'i',
+);
+
 // A page that is itself a checkout step. There, a click whose target the
 // agent cannot name, or Enter, may be the one that buys.
 const CHECKOUT_SEGMENT_RE =
   /^(?:checkout(?:[-_](?:payment|review|confirm|summary))?|payment|kasse|bezahlen|zahlung|zahlungsart|place-?order|order-?review|confirm-?order|spc)(?:\.\w{2,5})?$/i;
 
-export function isPurchaseLabel(label: string): boolean {
+// A cancellation form, where an unnamed click may be the one that sends it.
+const CANCELLATION_SEGMENT_RE =
+  /^(?:k(?:ü|ue)ndigung|k(?:ü|ue)ndigen|cancel(?:lation)?|widerruf)(?:[-_](?:formular|bestaetigung|bestätigung|confirm|form))?(?:\.\w{2,5})?$/i;
+
+function matchesLabel(label: string, pattern: RegExp): boolean {
   const normalized = label.replace(/\s+/g, ' ').trim();
   if (!normalized || normalized.length > 80) return false;
-  return PURCHASE_LABEL_RE.test(normalized);
+  return pattern.test(normalized);
+}
+
+export function isPurchaseLabel(label: string): boolean {
+  return matchesLabel(label, PURCHASE_LABEL_RE);
+}
+
+export function isCancellationLabel(label: string): boolean {
+  return matchesLabel(label, CANCELLATION_LABEL_RE);
+}
+
+function pathSegments(url: string): string[] {
+  try {
+    return new URL(url).pathname.split('/').map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+  } catch {
+    return [];
+  }
 }
 
 export function isCheckoutPage(url: string): boolean {
-  try {
-    return new URL(url).pathname
-      .split('/')
-      .some((segment) => CHECKOUT_SEGMENT_RE.test(segment));
-  } catch {
-    return false;
-  }
+  return pathSegments(url).some((segment) => CHECKOUT_SEGMENT_RE.test(segment));
+}
+
+export function isCancellationPage(url: string): boolean {
+  return pathSegments(url).some((segment) =>
+    CANCELLATION_SEGMENT_RE.test(segment),
+  );
 }
 
 function hostOf(url: string): string {
@@ -156,11 +202,11 @@ const PURCHASE_SELECTOR_RE =
 const ENTER_KEYS = new Set(['enter', 'return', 'numpadenter']);
 
 /**
- * The checkout this browser call would complete, or `null`.
+ * The checkout or cancellation this browser call would complete, or `null`.
  *
- * A click is a purchase when its label says so. On a checkout page, a click
- * the agent cannot name (coordinates, a ref from an older snapshot) and Enter
- * count too: there the cheap mistake is asking once too often.
+ * A click commits when its label says so. On a checkout or cancellation page,
+ * a click the agent cannot name (coordinates, a ref from an older snapshot)
+ * and Enter count too: there the cheap mistake is asking once too often.
  */
 export function classifyBrowserCheckout(
   toolName: string,
@@ -169,29 +215,34 @@ export function classifyBrowserCheckout(
   const tool = toolName.toLowerCase();
   const url = state.url;
   const host = hostOf(url);
+  const onPage = (): CheckoutAction | null => {
+    if (isCheckoutPage(url)) return { kind: 'purchase', host, label: '', url };
+    if (isCancellationPage(url)) {
+      return { kind: 'cancellation', host, label: '', url };
+    }
+    return null;
+  };
   if (tool === 'browser_click') {
     const label = clickLabel(args);
     if (label && isPurchaseLabel(label)) {
-      return { host, label, url };
+      return { kind: 'purchase', host, label, url };
+    }
+    if (label && isCancellationLabel(label)) {
+      return { kind: 'cancellation', host, label, url };
     }
     if (
       typeof args.selector === 'string' &&
       PURCHASE_SELECTOR_RE.test(args.selector)
     ) {
-      return { host, label: label || '', url };
+      return { kind: 'purchase', host, label: label || '', url };
     }
-    if (label === null && isCheckoutPage(url)) {
-      return { host, label: '', url };
-    }
-    return null;
+    return label === null ? onPage() : null;
   }
   if (tool === 'browser_press') {
     const key = String(args.key || '')
       .trim()
       .toLowerCase();
-    if (ENTER_KEYS.has(key) && isCheckoutPage(url)) {
-      return { host, label: '', url };
-    }
+    if (ENTER_KEYS.has(key)) return onPage();
   }
   return null;
 }

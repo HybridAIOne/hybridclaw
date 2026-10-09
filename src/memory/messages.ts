@@ -9,6 +9,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import { sanitizeToolHistory } from '../session/tool-history.js';
 import {
   type ActivityTrace,
@@ -50,6 +51,7 @@ interface ConversationHistoryPageRow {
   activity_trace_json: string | null;
   routing_trace_json: string | null;
   reaction: string | null;
+  email_draft_json: string | null;
   created_at: string | null;
 }
 
@@ -282,6 +284,26 @@ export function setMessageActivityTrace(
     .run(serializeActivityTrace(trace), messageId);
 }
 
+/** Stores the email draft a reply showed (`src/gateway/email-draft.ts`). */
+export function setMessageEmailDraft(
+  messageId: number,
+  draft: MessageEmailDraft,
+): void {
+  getMessageDatabase()
+    .prepare('UPDATE messages SET email_draft_json = ? WHERE id = ?')
+    .run(JSON.stringify(draft), messageId);
+}
+
+function parseEmailDraft(json: string | null): MessageEmailDraft | null {
+  if (!json) return null;
+  try {
+    const value = JSON.parse(json) as MessageEmailDraft;
+    return typeof value?.body === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setMessageRoutingTrace(
   messageId: number,
   trace: RoutingTrace,
@@ -427,6 +449,7 @@ export function getSessionAssistantMessage(
   | 'content'
   | 'artifacts'
   | 'source'
+  | 'emailDraft'
   | 'created_at'
 > | null {
   const row = queryOne<
@@ -437,12 +460,13 @@ export function getSessionAssistantMessage(
       content: string;
       artifacts_json: string | null;
       source: string | null;
+      email_draft_json: string | null;
       created_at: string;
     },
     [number, string]
   >(
     getMessageDatabase(),
-    `SELECT id, session_id, agent_id, content, artifacts_json, source, created_at
+    `SELECT id, session_id, agent_id, content, artifacts_json, source, email_draft_json, created_at
      FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'`,
     messageId,
     resolveSessionIdCompat(sessionId),
@@ -455,6 +479,7 @@ export function getSessionAssistantMessage(
     content: row.content,
     artifacts: parseMessageArtifacts(row.artifacts_json),
     source: row.source,
+    emailDraft: parseEmailDraft(row.email_draft_json) ?? undefined,
     created_at: row.created_at,
   };
 }
@@ -803,6 +828,7 @@ export function getConversationHistoryPage(
          m.activity_trace_json,
          m.routing_trace_json,
          m.reaction,
+         m.email_draft_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -846,6 +872,7 @@ export function getConversationHistoryPage(
     }
     const activityTrace = parseActivityTrace(row.activity_trace_json);
     const routingTrace = parseRoutingTrace(row.routing_trace_json);
+    const emailDraft = parseEmailDraft(row.email_draft_json);
     history.push({
       id: row.id,
       session_id: row.session_id,
@@ -858,6 +885,7 @@ export function getConversationHistoryPage(
       ...(activityTrace ? { activityTrace } : {}),
       ...(routingTrace ? { routingTrace } : {}),
       ...(row.reaction ? { reaction: row.reaction } : {}),
+      ...(emailDraft ? { emailDraft } : {}),
       created_at: row.created_at,
     });
   }

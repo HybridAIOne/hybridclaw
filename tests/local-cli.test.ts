@@ -52,6 +52,11 @@ async function importFreshCli(
   }));
   vi.doMock('../src/plugins/plugin-manager.ts', () => ({
     ensurePluginManagerInitialized: async () => ({}),
+    PluginManager: class {
+      async discoverPlugins() {
+        return [];
+      }
+    },
   }));
   return import('../src/cli.ts');
 }

@@ -68,14 +68,9 @@ const RUNTIME_PROVIDER_MODEL_PREFIXES: Array<[RuntimeProvider, string]> = [
   ['mlx', 'mlx/'],
 ];
 
-const RUNTIME_PROVIDER_ID_SET = new Set<string>(RUNTIME_PROVIDER_IDS);
 const OPENAI_COMPAT_RUNTIME_PROVIDER_ID_SET = new Set<string>(
   OPENAI_COMPAT_RUNTIME_PROVIDER_IDS,
 );
-
-export function isRuntimeProvider(value: unknown): value is RuntimeProvider {
-  return typeof value === 'string' && RUNTIME_PROVIDER_ID_SET.has(value);
-}
 
 export function isOpenAICompatRuntimeProvider(
   value: unknown,

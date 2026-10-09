@@ -198,28 +198,6 @@ function touchSemanticMemoryRows(entries: SemanticMemoryEntry[]): void {
   transaction(entries);
 }
 
-export function touchSemanticMemories(ids: number[]): void {
-  const uniqueIds = [
-    ...new Set(ids.map((id) => Math.floor(id)).filter((id) => id > 0)),
-  ];
-  if (uniqueIds.length === 0) return;
-  const touch = getSemanticMemoryDatabase().prepare(
-    `UPDATE semantic_memories
-     SET access_count = access_count + 1,
-         accessed_at = datetime('now')
-     WHERE id = ?
-       AND deleted = 0`,
-  );
-  const transaction = getSemanticMemoryDatabase().transaction(
-    (rowIds: number[]) => {
-      for (const id of rowIds) {
-        touch.run(id);
-      }
-    },
-  );
-  transaction(uniqueIds);
-}
-
 export interface SemanticRecallFilter {
   role?: string;
   source?: string;

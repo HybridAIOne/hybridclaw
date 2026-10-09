@@ -472,8 +472,6 @@ export type AdminChannelConfig =
   | AdminDiscordChannelConfig
   | AdminMSTeamsChannelConfig;
 
-export type AdminChannelTransport = 'discord' | 'msteams';
-
 export type AdminChannelEntry =
   | {
       id: string;
@@ -1340,94 +1338,6 @@ export interface AdminAgentMarkdownRevisionResponse {
   };
 }
 
-export interface AgentCard {
-  id: string;
-  name: string | null;
-  model: string | null;
-  chatbotId: string | null;
-  enableRag: boolean | null;
-  workspace: string | null;
-  workspacePath: string;
-  sessionCount: number;
-  activeSessions: number;
-  idleSessions: number;
-  stoppedSessions: number;
-  effectiveModels: string[];
-  lastActive: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  messageCount: number;
-  toolCalls: number;
-  recentSessionId: string | null;
-  status: 'active' | 'idle' | 'stopped' | 'unused';
-  monthlySpendUsd: number;
-}
-
-export interface AgentSessionCard {
-  id: string;
-  name: string;
-  task: string;
-  lastQuestion: string | null;
-  lastAnswer: string | null;
-  fullAutoEnabled: boolean;
-  model: string;
-  sessionId: string;
-  channelId: string;
-  channelName: string | null;
-  agentId: string;
-  startedAt: string;
-  lastActive: string;
-  runtimeMinutes: number;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  messageCount: number;
-  toolCalls: number;
-  status: 'active' | 'idle' | 'stopped';
-  watcher: string;
-  previewTitle: string;
-  previewMeta: string | null;
-  output: string[];
-}
-
-export interface AgentsOverviewResponse {
-  generatedAt: string;
-  version: string;
-  uptime: number;
-  ralph: {
-    enabled: boolean;
-    maxIterations: number;
-  };
-  totals: {
-    agents: {
-      all: number;
-      active: number;
-      idle: number;
-      stopped: number;
-      unused: number;
-      running: number;
-      totalInputTokens: number;
-      totalOutputTokens: number;
-      totalTokens: number;
-      totalCostUsd: number;
-    };
-    sessions: {
-      all: number;
-      active: number;
-      idle: number;
-      stopped: number;
-      running: number;
-      totalInputTokens: number;
-      totalOutputTokens: number;
-      totalTokens: number;
-      totalCostUsd: number;
-    };
-  };
-  agents: AgentCard[];
-  sessions: AgentSessionCard[];
-}
-
 export type AgentListItemSource =
   | { type: 'local' }
   | {
@@ -1730,15 +1640,6 @@ export interface AdminFleetTopologyInstance {
 export interface AdminFleetTopologyResponse {
   hq: AdminFleetTopologyHq;
   instances: AdminFleetTopologyInstance[];
-}
-
-export interface AdminFleetTopologyUpsertRequest {
-  peerId: string;
-  agentCardUrl?: string;
-  deliveryUrl?: string;
-  publicKeyFingerprint?: string;
-  publicKeyJwk?: JsonWebKey;
-  reason?: string;
 }
 
 export interface AdminA2APairingRequest {

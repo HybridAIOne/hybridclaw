@@ -166,9 +166,10 @@ Fax delivery should preserve:
 - delivery receipt or completion webhook payload
 - failure reason when delivery fails
 
-The skill emits audit intent for `fax.send.start`, `fax.send.delivered`, and
-`fax.send.failed`. Runtime integrations persist those rows through
-`src/fax/accounting.ts`, including provider message IDs.
+The skill helper returns audit intent for `fax.send.start`,
+`fax.send.delivered`, and `fax.send.failed`, including provider message IDs, in
+its JSON output. The gateway does not write these into the structured audit
+table; archive the helper output with the delivery evidence.
 
 Retention expectations for German legal, healthcare, tax, and public
 administration workflows:
@@ -185,5 +186,6 @@ Signature semantics:
 - a fax receipt is not proof that the underlying PDF has a qualified electronic signature
 - if a workflow depends on a signed original, archive the signed source document separately from the fax transport receipt
 
-Usage accounting records page-based cost through `UsageTotals.billable_units`
-with unit `fax-page`.
+The helper reports page-based cost as `costMeasurement` (system `UsageTotals`,
+unit `fax-page`). Fax pages are not added to `UsageTotals.billable_units`
+automatically.

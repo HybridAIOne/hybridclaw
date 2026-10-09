@@ -107,6 +107,13 @@ export interface PluginManifest {
   externalDependencies?: PluginExternalDependency[];
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
+  cliCommands?: PluginManifestCliCommand[];
+}
+
+/** A top-level `hybridclaw <name>` command the plugin's manifest declares. */
+export interface PluginManifestCliCommand {
+  name: string;
+  description: string;
 }
 
 export interface PluginCandidate {
@@ -468,6 +475,34 @@ export interface PluginCommandDefinition {
   ) => Promise<unknown> | unknown;
 }
 
+/**
+ * Runs a `cliCommands` entry of the manifest; built-in commands take
+ * precedence. The manifest carries the description shown in `hybridclaw help`.
+ */
+export interface PluginCliCommandDefinition {
+  name: string;
+  run: (args: string[]) => Promise<void> | void;
+}
+
+export interface PluginAdminRouteContext {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  /** Decoded `:name` path segments. */
+  params: Readonly<Record<string, string>>;
+}
+
+/**
+ * An authenticated route under `/api/admin/<pluginId>`. The gateway checks
+ * `rbacAction` before the handler runs; throw `WebhookHttpError` for a status.
+ */
+export interface PluginAdminRouteDefinition {
+  method: 'GET' | 'POST' | 'DELETE';
+  path: string;
+  rbacAction: AdminRbacAction;
+  handler: (context: PluginAdminRouteContext) => Promise<void> | void;
+}
+
 export interface PluginService {
   id: string;
   start?: () => Promise<void>;
@@ -680,6 +715,8 @@ export interface HybridClawPluginApi {
   registerService(svc: PluginService): void;
   registerInboundWebhook(webhook: PluginInboundWebhookDefinition): void;
   registerWebsocketWebhook(webhook: PluginWebsocketWebhookDefinition): void;
+  registerAdminRoute(route: PluginAdminRouteDefinition): void;
+  registerCliCommand(command: PluginCliCommandDefinition): void;
   dispatchInboundMessage(
     request: PluginDispatchInboundMessageRequest,
   ): Promise<GatewayChatResult>;

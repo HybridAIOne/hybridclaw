@@ -162,6 +162,7 @@ test('opens a µ-law phone session with the phone greeting', async () => {
 test('caller PCM frames go upstream as µ-law', async () => {
   const { session, realtime } = await createSession();
   realtime.open();
+  realtime.serverEvent({ type: 'session.updated' });
 
   const pcm = Buffer.alloc(320);
   pcm.writeInt16LE(1_000, 0);

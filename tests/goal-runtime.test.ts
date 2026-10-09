@@ -1,7 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { emitPostTurnEvent } from '../src/agent/post-turn-events.js';
 import { judgeGoalCompletion } from '../src/goals/goal-judge.js';
 import { getThreadGoal, setThreadGoal } from '../src/goals/goal-manager.js';
 import {
@@ -11,8 +10,8 @@ import {
   finishGoalContinuationRun,
   GOAL_CONTINUATION_SOURCE,
   isGoalInitialPromptScheduled,
+  maybeContinueGoalAfterTurn,
   pauseGoalForAgentBudgetHardStop,
-  registerGoalPostTurnSubscriber,
   scheduleGoalContinuation,
   setGoalContinuationRunHandler,
   setGoalContinuationRunning,
@@ -140,8 +139,7 @@ test('set can schedule the raw goal text as the first supervised turn', () => {
   clearScheduledGoalContinuation(session.id);
 });
 
-test('post-turn goal subscriber pauses on pending approval without spending a turn', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check pauses on pending approval without spending a turn', async () => {
   const session = makeSession('approval');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -158,8 +156,7 @@ test('post-turn goal subscriber pauses on pending approval without spending a tu
     approvalDecision: 'required',
   };
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -173,8 +170,6 @@ test('post-turn goal subscriber pauses on pending approval without spending a tu
       toolsUsed: [],
       toolExecutions: [requiredTool],
     },
-    runId: 'turn-a',
-    createdAt: new Date().toISOString(),
   });
 
   const goal = getThreadGoal(session.main_session_key);
@@ -184,8 +179,7 @@ test('post-turn goal subscriber pauses on pending approval without spending a tu
   expect(judgeGoalCompletion).not.toHaveBeenCalled();
 });
 
-test('post-turn goal subscriber pauses failed continuation turns', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check pauses failed continuation turns', async () => {
   const session = makeSession('agent-error');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -195,8 +189,7 @@ test('post-turn goal subscriber pauses failed continuation turns', async () => {
     targetAgentId: 'agent-a',
   });
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -210,8 +203,6 @@ test('post-turn goal subscriber pauses failed continuation turns', async () => {
       toolsUsed: [],
       error: 'agent failed',
     },
-    runId: 'turn-error',
-    createdAt: new Date().toISOString(),
   });
 
   const goal = getThreadGoal(session.main_session_key);
@@ -221,8 +212,7 @@ test('post-turn goal subscriber pauses failed continuation turns', async () => {
   expect(judgeGoalCompletion).not.toHaveBeenCalled();
 });
 
-test('post-turn goal subscriber hard-stops at max turns', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check hard-stops at max turns', async () => {
   const session = makeSession('budget');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -232,8 +222,7 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
     targetAgentId: 'agent-a',
   });
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -246,8 +235,6 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
       result: 'I completed the first step.',
       toolsUsed: [],
     },
-    runId: 'turn-b',
-    createdAt: new Date().toISOString(),
   });
   clearScheduledGoalContinuation(session.id);
 
@@ -266,8 +253,7 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
   );
 });
 
-test('post-turn goal subscriber sends conversation context to judge', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check sends conversation context to judge', async () => {
   const session = makeSession('judge-context');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -293,8 +279,7 @@ test('post-turn goal subscriber sends conversation context to judge', async () =
     'agent-a',
   );
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -307,8 +292,6 @@ test('post-turn goal subscriber sends conversation context to judge', async () =
       result: 'I fixed the failing assertion and reran npm test.',
       toolsUsed: [],
     },
-    runId: 'turn-context',
-    createdAt: new Date().toISOString(),
   });
   clearScheduledGoalContinuation(session.id);
 
@@ -329,8 +312,7 @@ test('post-turn goal subscriber sends conversation context to judge', async () =
   );
 });
 
-test('post-turn goal subscriber completes without scheduling another continuation', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check completes without scheduling another continuation', async () => {
   const session = makeSession('complete');
   const runHandler = vi.fn(async () => undefined);
   setGoalContinuationRunHandler(runHandler);
@@ -348,8 +330,7 @@ test('post-turn goal subscriber completes without scheduling another continuatio
     targetAgentId: 'agent-a',
   });
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -362,8 +343,6 @@ test('post-turn goal subscriber completes without scheduling another continuatio
       result: '4\n\nGoal complete.',
       toolsUsed: [],
     },
-    runId: 'turn-complete',
-    createdAt: new Date().toISOString(),
   });
 
   const goal = getThreadGoal(session.main_session_key);
@@ -373,8 +352,7 @@ test('post-turn goal subscriber completes without scheduling another continuatio
   expect(runHandler).not.toHaveBeenCalled();
 });
 
-test('post-turn goal subscriber caps assistant response sent to the judge', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check caps assistant response sent to the judge', async () => {
   const session = makeSession('judge-cap');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -384,8 +362,7 @@ test('post-turn goal subscriber caps assistant response sent to the judge', asyn
     targetAgentId: 'agent-a',
   });
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -398,8 +375,6 @@ test('post-turn goal subscriber caps assistant response sent to the judge', asyn
       result: 'x'.repeat(8_100),
       toolsUsed: [],
     },
-    runId: 'turn-cap',
-    createdAt: new Date().toISOString(),
   });
 
   expect(judgeGoalCompletion).toHaveBeenCalledWith(
@@ -450,8 +425,7 @@ test('scheduled continuation queues a direct rerun while runner is active', () =
   clearScheduledGoalContinuation(session.id);
 });
 
-test('post-turn goal subscriber pauses if a goal continuation was interrupted', async () => {
-  registerGoalPostTurnSubscriber();
+test('post-turn goal check pauses if a goal continuation was interrupted', async () => {
   const session = makeSession('interrupted');
   const controller = new AbortController();
   controller.abort();
@@ -463,8 +437,7 @@ test('post-turn goal subscriber pauses if a goal continuation was interrupted', 
     targetAgentId: 'agent-a',
   });
 
-  await emitPostTurnEvent({
-    type: 'post_turn',
+  await maybeContinueGoalAfterTurn({
     session,
     req: {
       source: GOAL_CONTINUATION_SOURCE,
@@ -478,8 +451,6 @@ test('post-turn goal subscriber pauses if a goal continuation was interrupted', 
       result: 'This was interrupted while finishing.',
       toolsUsed: [],
     },
-    runId: 'turn-interrupted',
-    createdAt: new Date().toISOString(),
   });
 
   const goal = getThreadGoal(session.main_session_key);

@@ -6,10 +6,16 @@
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 import path from 'node:path';
+import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
 import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
 import { isRetrySafeRun } from '../shared/retry-safety.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cancelBashProcesses } from './bash-process.js';
+import {
+  boostApprovalOutput,
+  dropPendingBoost,
+  handleBoostAnswer,
+} from './boost-offers.js';
 import {
   BROWSER_CACHE_DIRS,
   cleanupAllBrowserSessions,
@@ -604,6 +610,7 @@ function collectRequestedArtifacts(params: {
 interface PreparedToolCallExecution {
   call: ToolCall;
   approval: ToolApprovalEvaluation;
+  boost?: BoostAnswer;
 }
 
 interface CompletedToolCallExecution {
@@ -615,6 +622,7 @@ interface CompletedToolCallExecution {
   execution: ToolExecution;
   historyMessage: ChatMessage;
   artifacts: ArtifactMetadata[];
+  boostOffer?: BoostOffer;
 }
 
 // Tool starts this process has reported; the gateway parses them as progress.
@@ -744,7 +752,7 @@ async function executePreparedToolCall(
         }
       : (toolCatalog?.discoveryResult(call) ??
         (await withToolActivityHeartbeat(
-          () => executeToolWithMetadata(toolName, argsJson),
+          () => executeToolWithMetadata(toolName, argsJson, prepared.boost),
           emitStreamActivity,
         )));
   const toolDuration = Date.now() - toolStart;
@@ -813,6 +821,9 @@ async function executePreparedToolCall(
         : {}),
     },
     artifacts: extractToolArtifacts(toolName, result),
+    ...('boostOffer' in runtimeResult && runtimeResult.boostOffer
+      ? { boostOffer: runtimeResult.boostOffer }
+      : {}),
   };
 }
 
@@ -1281,6 +1292,19 @@ async function processRequestInner(
       accumulateApiUsage(tokenUsage, response);
     },
   });
+  // A boost offer is never a result for the model: it ends the turn as a
+  // question to the user (boost-offers.ts).
+  const askBoost = (completed: CompletedToolCallExecution, offer: BoostOffer) =>
+    boostApprovalOutput({
+      ...completed,
+      sessionId,
+      offer,
+      originalPrompt: effectiveUserPrompt,
+      toolsUsed,
+      toolExecutions,
+      artifacts,
+      tokenUsage: finalizeTokenUsage(tokenUsage),
+    });
 
   if (approvedToolCall) {
     // The tool may have been disabled while this approval was pending.
@@ -1315,7 +1339,9 @@ async function processRequestInner(
       toolName: approvedToolCall.toolName,
       argsJson: approvedToolCall.argsJson,
     });
-    if (approval.decision === 'required') {
+    // A boost answer repeats a call that already passed approval.
+    if (approval.decision === 'required' && !approvedToolCall.boost) {
+      dropPendingBoost(sessionId);
       const prompt = approvalRuntime.formatApprovalRequest(approval);
       const pendingApproval = buildPendingApproval(
         approval,
@@ -1370,10 +1396,11 @@ async function processRequestInner(
     turnToolHistory.recordAssistant(approvedMessage);
     history.push(approvedMessage);
     const completed = await executePreparedToolCall(
-      { call: approvedCall, approval },
+      { call: approvedCall, approval, boost: approvedToolCall.boost },
       toolCallHistory,
       toolCatalog,
     );
+    if (completed.boostOffer) return askBoost(completed, completed.boostOffer);
     appendCompletedToolCall({
       turnToolHistory,
       completed,
@@ -1986,7 +2013,9 @@ async function processRequestInner(
               }
             },
           );
+          const boosted = completedBatch.find((entry) => entry.boostOffer);
           for (const completed of completedBatch) {
+            if (completed.boostOffer) continue;
             if (completed.succeeded) {
               successfulToolCallsThisTurn += 1;
             }
@@ -2000,6 +2029,9 @@ async function processRequestInner(
               artifacts,
               artifactPaths,
             });
+          }
+          if (boosted?.boostOffer) {
+            return askBoost(boosted, boosted.boostOffer);
           }
           callIndex += preparedBatch.length;
           steered = steerAfterToolCalls({
@@ -2032,6 +2064,7 @@ async function processRequestInner(
         if (steered) break;
       }
       if (approval.decision === 'required') {
+        dropPendingBoost(sessionId);
         const prompt = approvalRuntime.formatApprovalRequest(approval);
         const pendingApproval = buildPendingApproval(
           approval,
@@ -2103,6 +2136,8 @@ async function processRequestInner(
         toolCallHistory,
         toolCatalog,
       );
+      if (completed.boostOffer)
+        return askBoost(completed, completed.boostOffer);
       if (completed.succeeded) {
         successfulToolCallsThisTurn += 1;
       }
@@ -2324,7 +2359,9 @@ async function main(): Promise<void> {
     media: firstInput.media,
     audioTranscriptsPrepended: firstInput.audioTranscriptsPrepended,
   });
-  const firstPrelude = approvalRuntime.handleApprovalResponse(firstMessages);
+  const firstPrelude =
+    handleBoostAnswer(firstInput.sessionId, firstMessages) ??
+    approvalRuntime.handleApprovalResponse(firstMessages);
   const firstPromptOverride = firstPrelude?.replayPrompt;
   const firstApprovedToolCall = firstPrelude?.approvedToolCall;
   const firstPreparedMessages = firstPromptOverride
@@ -2496,7 +2533,9 @@ async function main(): Promise<void> {
       mode: input.approvalMode,
       neverApproveTools: input.fullAutoNeverApproveTools,
     });
-    const prelude = approvalRuntime.handleApprovalResponse(preparedMessages);
+    const prelude =
+      handleBoostAnswer(input.sessionId, preparedMessages) ??
+      approvalRuntime.handleApprovalResponse(preparedMessages);
     const promptOverride = prelude?.replayPrompt;
     const approvedToolCall = prelude?.approvedToolCall;
     const messagesForRequest = promptOverride

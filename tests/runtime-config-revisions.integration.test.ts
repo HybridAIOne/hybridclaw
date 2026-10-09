@@ -369,15 +369,10 @@ describe('runtime config revisions integration', () => {
     ['classifier', 'classifiers/nda/weights.json'],
     ['team', 'agents/team-structure.json'],
     ['template', 'templates/judge.json'],
-  ] as const)('restores %s runtime asset revisions', (assetType, relativePath) => {
-    const restoreRevision = {
-      skill: configMod.restoreRuntimeSkillRevision,
-      knowledge: configMod.restoreRuntimeKnowledgeRevision,
-      cv: configMod.restoreRuntimeCvRevision,
-      classifier: configMod.restoreRuntimeClassifierRevision,
-      team: configMod.restoreRuntimeTeamRevision,
-      template: configMod.restoreRuntimeTemplateRevision,
-    }[assetType];
+  ] as const)('restores %s runtime asset revisions', async (assetType, relativePath) => {
+    const revisionsMod = await import(
+      '../src/config/runtime-config-revisions.js'
+    );
     const assetPath = path.join(tmpDir, relativePath);
     fs.mkdirSync(path.dirname(assetPath), { recursive: true });
     fs.writeFileSync(assetPath, `${assetType}: first\n`, 'utf-8');
@@ -402,17 +397,21 @@ describe('runtime config revisions integration', () => {
       route: `test.${assetType}.update`,
     });
 
-    const restoredContent = restoreRevision(assetPath, revisions[0].id, {
-      actor: 'asset-test',
-      route: `test.${assetType}.rollback`,
-      source: 'internal',
-    });
+    const restoredContent = configMod.restoreRuntimeAssetRevision(
+      assetType,
+      assetPath,
+      revisions[0].id,
+      {
+        actor: 'asset-test',
+        route: `test.${assetType}.rollback`,
+        source: 'internal',
+      },
+    );
 
     expect(restoredContent).toBe(`${assetType}: first\n`);
     expect(fs.readFileSync(assetPath, 'utf-8')).toBe(`${assetType}: first\n`);
     expect(
-      configMod.getLastKnownGoodRuntimeAssetState(assetType, assetPath)
-        ?.content,
+      revisionsMod.getRuntimeAssetRevisionState(assetType, assetPath)?.content,
     ).toBe(`${assetType}: first\n`);
   });
 });

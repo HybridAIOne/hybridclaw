@@ -57,5 +57,6 @@ export function extractGatewayChatApprovalEvent(
     ...(approval.escalationTarget
       ? { escalationTarget: approval.escalationTarget }
       : {}),
+    ...(approval.boost ? { boost: approval.boost } : {}),
   };
 }
