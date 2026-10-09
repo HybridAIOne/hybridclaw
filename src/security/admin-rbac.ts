@@ -149,6 +149,7 @@ const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   '/api/browser/take-over/close',
   '/api/browser/take-over/status',
   '/api/browser/tool',
+  '/api/cost-estimate',
   '/api/delegate',
   '/api/device-data',
   '/api/discord/action',

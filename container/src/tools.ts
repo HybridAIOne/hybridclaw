@@ -95,6 +95,10 @@ import {
   runDraftEmailTool,
 } from './tools/draft-email.js';
 import {
+  ESTIMATE_COST_TOOL_DEFINITION,
+  runEstimateCostTool,
+} from './tools/estimate-cost.js';
+import {
   PREFERENCES_TOOL_DEFINITION,
   runPreferencesTool,
 } from './tools/preferences.js';
@@ -3649,6 +3653,14 @@ async function executeToolInternal(
       const { ok, text } = runDraftEmailTool(args);
       return ok ? text : failTool(text);
     }
+    case 'estimate_cost': {
+      const { ok, text } = await runEstimateCostTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
     case 'todo': {
       const { ok, text } = await runTodoTool(args, {
         baseUrl: gatewayBaseUrl,
@@ -4269,6 +4281,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
+  ESTIMATE_COST_TOOL_DEFINITION,
   TRACK_TOOL_DEFINITION,
   PREFERENCES_TOOL_DEFINITION,
   SLIDE_SAMPLES_TOOL_DEFINITION,
