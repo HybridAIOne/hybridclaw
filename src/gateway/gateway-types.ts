@@ -170,6 +170,11 @@ export interface GatewayChatResult {
   assistantMessageId?: number;
   /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
   emailDraft?: MessageEmailDraft;
+  /**
+   * The new session's generated title, on the first turn's success result
+   * only, and only when it was ready before the reply; the turn never waits.
+   */
+  sessionTitle?: string;
 }
 
 export interface GatewayChatToolProgressEvent {

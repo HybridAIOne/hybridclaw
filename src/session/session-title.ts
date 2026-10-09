@@ -12,7 +12,8 @@ const TITLE_USER_INPUT_TRUNC = 500;
 const TITLE_SYSTEM_PROMPT = [
   'You generate short titles for chat sessions.',
   "Return ONLY the title text — no quotes, no surrounding punctuation, no prefix like 'Title:'.",
-  '3 to 7 words. Title-case.',
+  '3 to 7 words.',
+  "Write the title in the language of the user's message: Title-case in English, the language's normal capitalization otherwise.",
   "Describe the user's goal, not the assistant's response.",
 ].join(' ');
 
@@ -96,23 +97,34 @@ function isTransientTitleGenerationError(err: unknown): boolean {
   );
 }
 
-export interface MaybeAutoTitleSessionParams
-  extends GenerateSessionTitleParams {
+export interface StartSessionTitleParams extends GenerateSessionTitleParams {
   isFirstTurn: boolean;
 }
 
-export function maybeAutoTitleSession(
-  params: MaybeAutoTitleSessionParams,
-): void {
-  if (!params.isFirstTurn) return;
-  if (!params.userContent.trim()) return;
+/**
+ * A title request started with the turn. The model call runs alongside the
+ * reply; the title is stored only when the turn succeeds, never on a failed one.
+ */
+export interface SessionTitleRequest {
+  /** The title if it is already generated; never waits for it. */
+  readyTitle(): string | undefined;
+  /** Stores the title once it is generated. Call only after a successful turn. */
+  persist(): void;
+}
 
-  void (async () => {
-    try {
-      const title = await generateSessionTitle(params);
-      if (!title) return;
-      setSessionTitle(params.sessionId, title);
-    } catch (err) {
+export function startSessionTitle(
+  params: StartSessionTitleParams,
+): SessionTitleRequest | null {
+  if (!params.isFirstTurn) return null;
+  if (!params.userContent.trim()) return null;
+
+  let ready: string | undefined;
+  const generated = generateSessionTitle(params).then(
+    (title) => {
+      ready = title ?? undefined;
+      return title;
+    },
+    (err: unknown) => {
       const log = isTransientTitleGenerationError(err)
         ? logger.debug.bind(logger)
         : logger.warn.bind(logger);
@@ -120,6 +132,23 @@ export function maybeAutoTitleSession(
         { sessionId: params.sessionId, err },
         'Session title auto-update failed',
       );
-    }
-  })();
+      return null;
+    },
+  );
+  return {
+    readyTitle: () => ready,
+    persist: () => {
+      void generated.then((title) => {
+        if (!title) return;
+        try {
+          setSessionTitle(params.sessionId, title);
+        } catch (err) {
+          logger.warn(
+            { sessionId: params.sessionId, err },
+            'Session title auto-update failed',
+          );
+        }
+      });
+    },
+  };
 }
