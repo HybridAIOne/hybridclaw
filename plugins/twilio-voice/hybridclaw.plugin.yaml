@@ -1,0 +1,14 @@
+id: twilio-voice
+name: Twilio Voice
+version: 0.1.0
+kind: channel
+description: Inbound and outbound phone calls through Twilio, as ConversationRelay text turns or realtime speech-to-speech.
+entrypoint: src/index.js
+requires:
+  node: 22.x
+credentials:
+  - TWILIO_AUTH_TOKEN
+configSchema:
+  type: object
+  additionalProperties: false
+  properties: {}

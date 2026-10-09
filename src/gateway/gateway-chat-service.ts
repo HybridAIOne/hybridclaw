@@ -158,7 +158,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
-import { SHOW_WIDGET_TOOL } from './app-widgets.js';
+import { DRAFT_TRANSFER_TOOL, SHOW_WIDGET_TOOL } from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -410,16 +410,22 @@ async function routeEscalationApproval(params: {
 }
 
 /**
- * `show_slide_samples` and `show_widget` need a client that draws them: a
- * card of slide pictures to pick from, or a live widget under the reply. Only
- * the Hy app (`client: "mobile"`) does. Elsewhere the agent answers in words.
+ * `show_slide_samples`, `show_widget` and `draft_transfer` need a client that
+ * draws them: a card of slide pictures to pick from, a live widget under the
+ * reply, or a transfer card with a GiroCode. Only the Hy app
+ * (`client: "mobile"`) does. Elsewhere the agent answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
   client: GatewayChatRequest['client'],
 ): string[] | undefined {
   if (client === 'mobile') return blockedTools;
-  return [...(blockedTools ?? []), 'show_slide_samples', SHOW_WIDGET_TOOL];
+  return [
+    ...(blockedTools ?? []),
+    'show_slide_samples',
+    SHOW_WIDGET_TOOL,
+    DRAFT_TRANSFER_TOOL,
+  ];
 }
 
 function readGatewayPromptModeDefault(): PromptMode | undefined {

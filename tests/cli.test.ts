@@ -3200,6 +3200,7 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('to set required config keys: workspaceId'),
     );
+    expect(logSpy).toHaveBeenCalledWith('  hybridclaw gateway plugin reload');
   });
 
   it('prints missing binary guidance after plugin install', async () => {

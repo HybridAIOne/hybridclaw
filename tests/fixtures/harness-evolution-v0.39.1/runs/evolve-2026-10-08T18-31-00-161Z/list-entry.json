@@ -1,0 +1,14 @@
+{
+  "runId": "evolve-2026-10-08T18-31-00-161Z",
+  "targetRoot": "/tmp/hc-evolve-agent",
+  "suiteId": "stderr-memory-smoke",
+  "suiteName": "stderr memory smoke",
+  "roundCount": 2,
+  "bestPassAt1": 1,
+  "bestRound": 2,
+  "totalCostUsd": 0,
+  "seedDeltaMode": "fresh_seed",
+  "seedDeltaChangedSurfaceCount": 0,
+  "summaryPath": "/tmp/hc-evolve-agent/runs/evolve-2026-10-08T18-31-00-161Z/summary.json",
+  "createdAt": "2026-10-08T18:31:00.363Z"
+}

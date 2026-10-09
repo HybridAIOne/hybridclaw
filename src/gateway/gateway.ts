@@ -1,7 +1,5 @@
 /**
  * Owns channel startup and shutdown; webhook handlers only consume live runtimes.
- * Voice refreshes serialize config and secret changes, preserve healthy calls on
- * credential refresh, and cannot re-enable a channel during gateway shutdown.
  */
 
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
@@ -43,16 +41,10 @@ import {
 import { discordRuntimeLoader } from '../channels/channel-runtime-loaders.js';
 import type { ChannelPluginAvailabilityChange } from '../channels/channel-transport.js';
 import {
-  isVoiceRuntimeAvailable,
-  shutdownVoice,
-} from '../channels/voice/runtime.js';
-import {
   getConfigSnapshot,
   HEARTBEAT_CHANNEL,
   HEARTBEAT_INTERVAL,
   onConfigChange,
-  onRuntimeSecretsRefresh,
-  TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
 import { applyConfigSeedFromEnv } from '../config/config-seed.js';
 import {
@@ -136,9 +128,6 @@ import {
 import { deliverScheduledWebhook } from './scheduled-webhook-delivery.js';
 
 let detachConfigListener: (() => void) | null = null;
-let detachSecretsRefreshListener: (() => void) | null = null;
-let voiceIntegrationRefresh = Promise.resolve();
-let voiceIntegrationShuttingDown = false;
 let proactiveFlushTimer: ReturnType<typeof setInterval> | null = null;
 let memoryConsolidationTimer: ReturnType<typeof setTimeout> | null = null;
 let a2aLocalModeTransition = Promise.resolve();
@@ -349,60 +338,6 @@ async function refreshChannelIntegrationsForPluginAvailability(
   }
 }
 
-function refreshVoiceIntegration(restart = false): Promise<void> {
-  voiceIntegrationRefresh = voiceIntegrationRefresh
-    .then(async () => {
-      await a2aLocalModeTransition;
-      if (
-        voiceIntegrationShuttingDown ||
-        isA2ALocalModeEnabled(getConfigSnapshot())
-      )
-        return;
-      const voiceConfig = getConfigSnapshot().voice;
-      // Credential refreshes preserve healthy calls; config changes restart voice.
-      if (!restart) {
-        if (!voiceConfig.enabled) return;
-        if (isVoiceRuntimeAvailable()) {
-          if (!String(TWILIO_AUTH_TOKEN || '').trim()) {
-            await shutdownVoice();
-          }
-          return;
-        }
-      } else {
-        logger.info(
-          {
-            enabled: voiceConfig.enabled,
-            provider: voiceConfig.provider,
-            webhookPath: voiceConfig.webhookPath,
-          },
-          'Config changed, restarting Voice integration',
-        );
-        await shutdownVoice();
-      }
-      if (
-        voiceIntegrationShuttingDown ||
-        isA2ALocalModeEnabled(getConfigSnapshot())
-      )
-        return;
-      await CHANNEL_DESCRIPTORS.voice.start();
-    })
-    .catch((error) => {
-      logger.warn({ error }, 'Voice integration refresh failed');
-    });
-  return voiceIntegrationRefresh;
-}
-
-async function refreshVoiceIntegrationForConfigChange(
-  next: ReturnType<typeof getConfigSnapshot>,
-  prev: ReturnType<typeof getConfigSnapshot>,
-): Promise<void> {
-  if (shouldSkipChannelConfigRefresh(next, prev)) return;
-  const restart = CHANNEL_DESCRIPTORS.voice.configChanged(next, prev);
-  if (!restart && next.voice.twilio.authToken === prev.voice.twilio.authToken)
-    return;
-  await refreshVoiceIntegration(restart);
-}
-
 async function stopExternalChannelIntegrationsForA2ALocalMode(): Promise<void> {
   for (const descriptor of Object.values(CHANNEL_DESCRIPTORS)) {
     await runShutdownStep(`stop ${descriptor.kind} runtime`, descriptor.stop);
@@ -425,10 +360,6 @@ async function refreshChannelIntegrationForConfigChange(
   prev: RuntimeConfig,
 ): Promise<void> {
   if (shouldSkipChannelConfigRefresh(next, prev)) return;
-  if (descriptor.kind === 'voice') {
-    await refreshVoiceIntegrationForConfigChange(next, prev);
-    return;
-  }
   if (!descriptor.configChanged(next, prev)) return;
   logger.info(
     { channel: descriptor.kind },
@@ -500,14 +431,11 @@ function setupShutdown(broadcastShutdown: () => void): void {
   const shutdown = async (opts?: { drain?: boolean }) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    voiceIntegrationShuttingDown = true;
     logger.info('Shutting down gateway...');
     if (detachConfigListener) {
       detachConfigListener();
       detachConfigListener = null;
     }
-    detachSecretsRefreshListener?.();
-    detachSecretsRefreshListener = null;
     setChannelPluginAvailabilityListener(null);
     await runShutdownStep('set Discord maintenance presence', () =>
       discordRuntimeLoader.current()?.setDiscordMaintenancePresence(),
@@ -535,12 +463,6 @@ function setupShutdown(broadcastShutdown: () => void): void {
       stopAllExecutions();
     }
     for (const descriptor of Object.values(CHANNEL_DESCRIPTORS)) {
-      if (descriptor.kind === 'voice') {
-        await runShutdownStep(
-          'settle Voice refresh',
-          () => voiceIntegrationRefresh,
-        );
-      }
       await runShutdownStep(`stop ${descriptor.kind} runtime`, () =>
         descriptor.stop(opts),
       );
@@ -793,9 +715,6 @@ async function main(): Promise<void> {
       'Config changed, restarting observability ingest',
     );
     startObservabilityIngest();
-  });
-  detachSecretsRefreshListener = onRuntimeSecretsRefresh(() => {
-    void refreshVoiceIntegration();
   });
   startScheduler((request) =>
     runScheduledTask(request, {

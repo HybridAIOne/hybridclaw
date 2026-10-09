@@ -643,8 +643,9 @@ export interface GatewayStatus
     authTokenConfigured: boolean;
     authTokenSource: 'config' | 'env' | 'runtime-secrets' | null;
     realtimeConfigured: boolean;
-    webhookPath: string;
     maxConcurrentCalls: number;
+    /** The `twilio-voice` plugin is enabled and loaded without an error. */
+    pluginLoaded: boolean;
   };
   signal?: {
     enabled: boolean;

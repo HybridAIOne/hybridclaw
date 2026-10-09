@@ -2,8 +2,8 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   muLawToPcm16,
   pcm16ToMuLaw,
-} from '../src/channels/voice/audio-codec.js';
-import type { RealtimeSocket } from '../src/channels/voice/openai-realtime.js';
+} from '../src/voice/audio-codec.js';
+import type { RealtimeSocket } from '../src/voice/openai-realtime.js';
 
 const REALTIME_CONFIG = {
   provider: 'openai' as const,
@@ -74,6 +74,7 @@ async function createSession(params?: {
   apiKey?: string;
   sentFrames?: Buffer[];
   clearAudio?: () => void;
+  audioEncoding?: 'pcm16' | 'mulaw';
 }) {
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
@@ -104,6 +105,7 @@ async function createSession(params?: {
     {
       caller: { from: '+15550001111', to: '+15550002222' },
       session: SESSION_IDENTITY,
+      audioEncoding: params?.audioEncoding,
       sendAudio: (frame) => {
         sentFrames.push(frame);
       },
@@ -280,6 +282,42 @@ test('a sub-frame audio tail is zero-padded out instead of sticking', async () =
   );
   expect(sentFrames[0].subarray(200).equals(Buffer.alloc(120))).toBe(true);
   session.close();
+});
+
+test('a µ-law transport skips companding in both directions', async () => {
+  vi.useFakeTimers();
+  const { session, realtime, sentFrames } = await createSession({
+    audioEncoding: 'mulaw',
+  });
+  realtime.open();
+  realtime.serverEvent({ type: 'session.updated' });
+
+  const callerFrame = Buffer.from([0x00, 0x7f, 0x80, 0xff]);
+  session.handleCallerAudio(callerFrame);
+  const modelAudio = Buffer.alloc(160 * 2 + 40, 0x40);
+  realtime.serverEvent({
+    type: 'response.output_audio.delta',
+    delta: modelAudio.toString('base64'),
+  });
+  await vi.advanceTimersByTimeAsync(100);
+
+  const [append] = realtime.sentOfType('input_audio_buffer.append');
+  expect(append.audio).toBe(callerFrame.toString('base64'));
+  expect(sentFrames.map((frame) => frame.length)).toEqual([160, 160, 160]);
+  expect(Buffer.concat(sentFrames).subarray(0, 360).equals(modelAudio)).toBe(
+    true,
+  );
+  // µ-law silence is 0xff, not 0x00.
+  expect(sentFrames[2].subarray(40).equals(Buffer.alloc(120, 0xff))).toBe(
+    true,
+  );
+  session.close();
+});
+
+test('an unknown transport audio encoding fails instead of guessing', async () => {
+  await expect(
+    createSession({ audioEncoding: 'opus' as 'mulaw' }),
+  ).rejects.toThrow('Unsupported realtime voice audio encoding: opus');
 });
 
 test('consults dispatch through the plugin seam and persist transcripts', async () => {

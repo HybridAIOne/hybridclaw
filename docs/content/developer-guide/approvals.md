@@ -62,7 +62,7 @@ In practice, approvals cover:
 - File access and file operations. Reads are mostly green, while writes and
   edits are yellow. Deletion is red. Writes outside the workspace become red
   because of `approval.workspace_fence`.
-- Channel mutations such as `message send`, which are usually yellow.
+- Replies in the current conversation through `message send`, which are usually yellow.
 - Host app control such as `osascript` or `open -a ...`, which is red.
 - Trust scopes such as `yes`, `yes for session`, `yes for agent`, and `yes for
   all`.
@@ -88,8 +88,8 @@ calls are enforced by other layers.
 | Tier | Default behavior | Typical examples | Notes |
 | --- | --- | --- | --- |
 | Green | Runs immediately | read/search tools, image analysis, read-only MCP tools, allowlisted HTTP targets, unmatched network access when `network.default: allow` | No explicit approval required |
-| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | The short pre-execution interrupt window is disabled by default; enable it with `approval.implicit_delay_enabled: true` |
-| Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, MCP writes that reach outside, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
+| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends to the current conversation, browser actions, unmatched network access when `network.default: deny` | The short pre-execution interrupt window is disabled by default; enable it with `approval.implicit_delay_enabled: true` |
+| Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, MCP writes that reach outside, messages to a named recipient, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
 
 Two important transitions:
 
@@ -130,7 +130,8 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
 | Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test`, `git log \| head` | Includes bundled read-only PDF scripts. Every command the line runs must be read-only, including pipeline stages, later lines, `$(...)`, and what `find -exec` or `xargs` runs, so `cat x \| sort` is yellow. `2>&1`, `>&2`, and a redirect to `/dev/null` write no file, so `git status 2>&1` and `ls /opt/data 2>/dev/null` stay green |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
-| Channel mutations | Yellow | `message send` | May change channel state |
+| Current-conversation messages | Yellow | `message send`, `react`, `quote-reply` or `thread-reply` without `channelId`, `to`, `target` or a user | Hy is already talking there |
+| Messages to a named recipient | Red | `message send` to an email address, chat or person; `edit`, `delete`, `pin`, `thread-create` | Asks in `auto` too; `full` runs them. The trust key names the recipient. An email send carries a review (`transport: "email"`, From, To, Cc, Subject, body) so the phone shows it as the email card, and one without a subject is sent back to the model |
 | Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
 | Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE`, `cc -o FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
@@ -639,7 +640,7 @@ sessions because they read or mutate local runtime state.
 | `memory inspect`, `memory query` | Web, TUI, CLI gateway command client | Exposes local workspace/session memory internals |
 | `plugin install`, `plugin reinstall`, `plugin config`, `plugin disable` | Web, TUI, CLI gateway command client | Mutates local plugin and runtime state |
 | `skill install`, `skill setup` | Web, TUI, CLI gateway command client | Runs installer workflows on the local machine |
-| `voice call`, `voice info` | Web, TUI, CLI gateway command client | Places outbound Twilio calls and inspects local voice config |
+| `voice call`, `voice info` | Web, TUI, CLI gateway command client (`twilio-voice` plugin command, `adminAction: admin.channels.write`) | Places outbound Twilio calls and inspects local voice config |
 | `dream`, `eval` | Web, TUI, CLI gateway command client | Uses local workspaces and local loopback surfaces |
 
 Remote channels can still resolve normal pending approvals, but they cannot run

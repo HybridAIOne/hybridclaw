@@ -51,6 +51,7 @@ npm run eval -- --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 ```
 
 - managed suites today: `locomo`, `trace-judge`, `agent-risk`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
+- `npm run eval -- harness-evolve <subcommand>` runs the R10a harness-evolution loop against a coworker workspace on disk; it needs no running gateway. See [Harness Evolution](./harness-evolution.md).
 - `agent-risk` runs synthetic canary scenarios through the local
   OpenAI-compatible gateway for every top-level NIST AI RMF function, NIST AI
   600-1 GAI risk, and OWASP LLM Top 10 2025 item. It is automated eval

@@ -41,14 +41,3 @@ export function isDiscordInvalidTokenError(error: unknown): boolean {
       : '';
   return message.toLowerCase().includes('invalid token');
 }
-
-export function isVoiceGatewayAbort(
-  error: unknown,
-  abortSignal: AbortSignal,
-): boolean {
-  return (
-    abortSignal.aborted ||
-    (error instanceof Error &&
-      error.message === 'Voice websocket is not connected.')
-  );
-}

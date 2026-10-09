@@ -32,10 +32,8 @@ function createGatewayMainTestState(options?: {
   slackEnabled?: boolean;
   slackInitError?: Error;
   hasSlackCredentials?: boolean;
-  twilioAuthToken?: string;
   voiceEnabled?: boolean;
-  voiceConfigAuthToken?: string;
-  voiceInitError?: Error;
+  loadedPluginIds?: string[];
   whatsappEnabled?: boolean;
   whatsappLinked?: boolean;
   msteamsEnabled?: boolean;
@@ -59,12 +57,7 @@ function createGatewayMainTestState(options?: {
       | null
       | ((...args: unknown[]) => Promise<void>),
     lineMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
-    voiceMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
-    twilioAuthToken: options?.twilioAuthToken ?? options?.voiceConfigAuthToken ??
-      (options?.voiceEnabled ? 'test-key' : ''),
-    secretsRefreshListener: null as null | (() => void),
-    detachSecretsRefreshListener: vi.fn(),
-    shutdownVoice: vi.fn(async () => {}),
+    loadedPluginIds: options?.loadedPluginIds ?? [],
     whatsappMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -151,9 +144,7 @@ function createGatewayMainTestState(options?: {
         provider: 'twilio',
         twilio: {
           accountSid: options?.voiceEnabled ? 'AC123' : '',
-          authToken:
-            options?.voiceConfigAuthToken ??
-            (options?.voiceEnabled ? 'twilio-auth-token' : ''),
+          authToken: '',
           fromNumber: options?.voiceEnabled ? '+14155550123' : '',
         },
         relay: {
@@ -164,7 +155,6 @@ function createGatewayMainTestState(options?: {
           interruptible: true,
           welcomeGreeting: 'Hello! How can I help you today?',
         },
-        webhookPath: '/voice',
         maxConcurrentCalls: 8,
       },
       msteams: {
@@ -266,7 +256,6 @@ function createGatewayMainTestState(options?: {
     initSlackWebhook: vi.fn(),
     initTelegram: vi.fn(),
     initThreema: vi.fn(),
-    initVoice: vi.fn(),
     initWhatsApp: vi.fn(),
     initGatewayService: vi.fn(
       options?.initGatewayServiceImpl || (async () => {}),
@@ -364,9 +353,7 @@ async function importFreshGatewayMain(options?: {
   hasSlackCredentials?: boolean;
   whatsappEnabled?: boolean;
   voiceEnabled?: boolean;
-  twilioAuthToken?: string;
-  voiceConfigAuthToken?: string;
-  voiceInitError?: Error;
+  loadedPluginIds?: string[];
   whatsappInitError?: Error;
   whatsappTransportInstalled?: boolean;
   whatsappAuthLockError?: {
@@ -432,12 +419,6 @@ async function importFreshGatewayMain(options?: {
       throw options.imessageInitError;
     }
     state.imessageMessageHandler = messageHandler;
-  });
-  state.initVoice.mockImplementation((messageHandler) => {
-    if (options?.voiceInitError) {
-      throw options.voiceInitError;
-    }
-    state.voiceMessageHandler = messageHandler;
   });
   class MockWhatsAppAuthLockError extends Error {
     readonly lockPath: string;
@@ -556,14 +537,6 @@ async function importFreshGatewayMain(options?: {
     sendToThreemaChat: vi.fn(async () => {}),
     shutdownThreema: state.shutdownThreema,
   }));
-  state.shutdownVoice.mockImplementation(async () => {
-    state.voiceMessageHandler = null;
-  });
-  vi.doMock('../src/channels/voice/runtime.js', () => ({
-    initVoice: state.initVoice,
-    isVoiceRuntimeAvailable: () => state.voiceMessageHandler !== null,
-    shutdownVoice: state.shutdownVoice,
-  }));
   vi.doMock('../src/channels/msteams/runtime.js', () => ({
     initMSTeams: state.initMSTeams,
   }));
@@ -642,6 +615,10 @@ async function importFreshGatewayMain(options?: {
       }
       return {};
     }),
+    getPluginManager: () => ({
+      listPluginSummary: () =>
+        state.loadedPluginIds.map((id) => ({ id, enabled: true })),
+    }),
   }));
   vi.doMock('../src/config/config.js', () => ({
     DATA_DIR: options?.dataDir ?? '/tmp/hybridclaw-data',
@@ -657,13 +634,6 @@ async function importFreshGatewayMain(options?: {
       options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
     THREEMA_GATEWAY_SECRET: '',
-    get TWILIO_AUTH_TOKEN() {
-      return state.twilioAuthToken;
-    },
-    onRuntimeSecretsRefresh: (listener: () => void) => {
-      state.secretsRefreshListener = listener;
-      return state.detachSecretsRefreshListener;
-    },
     getConfigSnapshot: state.getConfigSnapshot,
     HEARTBEAT_CHANNEL: '',
     HEARTBEAT_INTERVAL: 1_000,
@@ -857,7 +827,6 @@ useCleanMocks({
     '../src/channels/imessage/runtime.js',
     '../src/channels/signal/runtime.js',
     '../src/channels/telegram/runtime.js',
-    '../src/channels/voice/runtime.js',
     '../src/channels/msteams/attachments.js',
     '../src/channels/msteams/runtime.js',
     '../src/channels/slack/runtime.js',
@@ -927,7 +896,6 @@ describe('gateway bootstrap', () => {
     expect(state.initTelegram).not.toHaveBeenCalled();
     expect(state.initLine).not.toHaveBeenCalled();
     expect(state.initWhatsApp).not.toHaveBeenCalled();
-    expect(state.initVoice).not.toHaveBeenCalled();
     expect(state.initIMessage).not.toHaveBeenCalled();
   });
 
@@ -1085,296 +1053,38 @@ describe('gateway bootstrap', () => {
     );
   });
 
-  test('starts voice integration automatically when enabled in config', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    expect(state.voiceMessageHandler).not.toBeNull();
-    expectInfoLog(
-      state,
-      'Gateway channels',
-      expect.objectContaining({
-        voice: true,
-      }),
-    );
-  });
-
-  test('starts voice integration when the Twilio auth token comes from shared secret resolution', async () => {
-    const state = await importFreshGatewayMain({
-      voiceEnabled: true,
-      voiceConfigAuthToken: '',
-      twilioAuthToken: 'twilio-auth-token',
-    });
-
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    expect(state.voiceMessageHandler).not.toBeNull();
-  });
-
-  test('starts enabled voice after a stored token refresh without a config change', async () => {
-    const state = await importFreshGatewayMain({
-      voiceEnabled: true,
-      voiceConfigAuthToken: '',
-      twilioAuthToken: '',
-    });
-    expect(state.initVoice).not.toHaveBeenCalled();
-    const before = structuredClone(state.currentConfig);
-
-    state.twilioAuthToken = 'test-key';
-    state.secretsRefreshListener?.();
-    state.secretsRefreshListener?.();
-    await settle();
-
-    expect(state.currentConfig).toEqual(before);
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    expect(state.voiceMessageHandler).not.toBeNull();
-  });
-
-  test('reload recovers a stopped voice runtime with unchanged config and credentials', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    await state.shutdownVoice();
-
-    state.secretsRefreshListener?.();
-    await settle();
-
-    expect(state.initVoice).toHaveBeenCalledTimes(2);
-    expect(state.voiceMessageHandler).not.toBeNull();
-  });
-
-  test('secret refresh and token rotation preserve an active voice runtime', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    const handler = state.voiceMessageHandler;
-    state.secretsRefreshListener?.();
-    state.twilioAuthToken = 'test-rotated-key';
-    state.secretsRefreshListener?.();
-    await settle();
-
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    expect(state.shutdownVoice).not.toHaveBeenCalled();
-    expect(state.voiceMessageHandler).toBe(handler);
-  });
-
-  test('updating a configured token preserves a healthy call and removing it stops voice', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    const previous = structuredClone(state.currentConfig);
-    const handler = state.voiceMessageHandler;
-    state.currentConfig.voice.twilio.authToken = 'test-rotated-key';
-    state.twilioAuthToken = 'test-rotated-key';
-    state.configChangeListener?.(state.currentConfig, previous);
-    await settle();
-    expect(state.voiceMessageHandler).toBe(handler);
-    expect(state.shutdownVoice).not.toHaveBeenCalled();
-
-    const withToken = structuredClone(state.currentConfig);
-    state.currentConfig.voice.twilio.authToken = '';
-    state.twilioAuthToken = '';
-    state.configChangeListener?.(state.currentConfig, withToken);
-    await settle();
-    expect(state.voiceMessageHandler).toBeNull();
-  });
-
   test.each([
-    { voiceEnabled: false, twilioAuthToken: 'test-key' },
-    { voiceEnabled: true, twilioAuthToken: '' },
-    { voiceEnabled: true, twilioAuthToken: 'test-key', a2aLocalMode: true },
+    { loadedPluginIds: [], warns: true },
+    { loadedPluginIds: ['twilio-voice'], warns: false },
   ])(
-    'secret refresh respects disabled voice, missing credentials, and A2A local mode: %j',
-    async (options) => {
+    'voice.enabled reports the twilio-voice plugin state at startup: %j',
+    async ({ loadedPluginIds, warns }) => {
       const state = await importFreshGatewayMain({
-        ...options,
-        skipBootstrapHandlerCheck: options.a2aLocalMode,
+        voiceEnabled: true,
+        loadedPluginIds,
       });
-      state.secretsRefreshListener?.();
-      await settle();
-      expect(state.initVoice).not.toHaveBeenCalled();
+
+      const installHint = expect.objectContaining({
+        installCommand: 'hybridclaw plugin install twilio-voice',
+      });
+      if (warns) {
+        expect(state.loggerWarn).toHaveBeenCalledWith(
+          installHint,
+          expect.stringContaining('twilio-voice'),
+        );
+      } else {
+        expect(state.loggerWarn).not.toHaveBeenCalledWith(
+          installHint,
+          expect.anything(),
+        );
+      }
+      expectInfoLog(
+        state,
+        'Gateway channels',
+        expect.objectContaining({ voice: !warns }),
+      );
     },
   );
-
-  test('removing the effective Twilio token stops voice until a token is restored', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    state.twilioAuthToken = '';
-    state.secretsRefreshListener?.();
-    await settle();
-    expect(state.shutdownVoice).toHaveBeenCalledTimes(1);
-    expect(state.voiceMessageHandler).toBeNull();
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-
-    state.twilioAuthToken = 'test-key';
-    state.secretsRefreshListener?.();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(2);
-  });
-
-  test('serializes token refresh with a voice config restart', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    let finishStop = () => {};
-    const stopped = new Promise<void>((resolve) => {
-      finishStop = resolve;
-    });
-    state.shutdownVoice.mockImplementationOnce(async () => {
-      await stopped;
-      state.voiceMessageHandler = null;
-    });
-    const previous = structuredClone(state.currentConfig);
-    state.currentConfig.voice.relay.language = 'de-DE';
-    state.configChangeListener?.(state.currentConfig, previous);
-    await settle();
-    expect(state.shutdownVoice).toHaveBeenCalledTimes(1);
-
-    state.secretsRefreshListener?.();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    finishStop();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(2);
-    expect(state.voiceMessageHandler).not.toBeNull();
-  });
-
-  test('a voice disable saved during recovery prevents restarting it', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    let finishStop = () => {};
-    const stopped = new Promise<void>((resolve) => {
-      finishStop = resolve;
-    });
-    state.shutdownVoice.mockImplementationOnce(async () => {
-      await stopped;
-      state.voiceMessageHandler = null;
-    });
-    const previous = structuredClone(state.currentConfig);
-    state.currentConfig.voice.relay.language = 'de-DE';
-    state.configChangeListener?.(state.currentConfig, previous);
-    await settle();
-    state.secretsRefreshListener?.();
-    const enabled = structuredClone(state.currentConfig);
-    state.currentConfig.voice.enabled = false;
-    state.configChangeListener?.(state.currentConfig, enabled);
-    finishStop();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
-    expect(state.voiceMessageHandler).toBeNull();
-  });
-
-  test('a queued recovery cannot start voice after gateway shutdown begins', async () => {
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((() => undefined) as never);
-    const state = await importFreshGatewayMain({
-      voiceEnabled: true,
-      twilioAuthToken: '',
-    });
-    state.twilioAuthToken = 'test-key';
-    state.secretsRefreshListener?.();
-    const sigint = state.processOn.mock.calls.find(
-      ([event]) => event === 'SIGINT',
-    )?.[1] as () => void;
-    sigint();
-    await settle();
-
-    expect(state.initVoice).not.toHaveBeenCalled();
-    expect(state.detachSecretsRefreshListener).toHaveBeenCalledTimes(1);
-    expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  test('a later refresh retries a failed voice startup', async () => {
-    const state = await importFreshGatewayMain({
-      voiceEnabled: true,
-      voiceInitError: new Error('test startup failure'),
-    });
-    expect(state.voiceMessageHandler).toBeNull();
-    state.initVoice.mockImplementation(async (handler) => {
-      state.voiceMessageHandler = handler;
-    });
-    state.secretsRefreshListener?.();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(2);
-    expect(state.voiceMessageHandler).not.toBeNull();
-  });
-
-  test('voice integration batches streamed text and strips markdown before speaking', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    state.handleGatewayMessage.mockImplementation(
-      async ({ onTextDelta }: { onTextDelta?: (delta: string) => void }) => {
-        onTextDelta?.('**Yes');
-        onTextDelta?.('** that works.');
-        return {
-          status: 'success' as const,
-          result: '**Yes** that works.',
-          toolsUsed: [],
-          artifacts: [],
-        };
-      },
-    );
-
-    const reply = vi.fn(async () => {});
-    const responseStream = {
-      push: vi.fn(async () => {}),
-    };
-
-    await state.voiceMessageHandler?.(
-      'session-voice',
-      null,
-      'voice:CA123',
-      'user-voice',
-      'Caller',
-      'hello',
-      [],
-      reply,
-      {
-        abortSignal: new AbortController().signal,
-        callSid: 'CA123',
-        twilioSessionId: 'VX123',
-        remoteIp: '127.0.0.1',
-        setupMessage: null,
-        responseStream,
-      },
-    );
-
-    expect(responseStream.push).toHaveBeenCalledTimes(1);
-    expect(responseStream.push).toHaveBeenCalledWith('Yes that works.');
-    expect(reply).not.toHaveBeenCalled();
-  });
-
-  test('voice integration normalizes approval phrases from speech transcripts', async () => {
-    const state = await importFreshGatewayMain({ voiceEnabled: true });
-    state.handleGatewayMessage.mockResolvedValue({
-      status: 'success',
-      result: 'Approved.',
-      toolsUsed: [],
-      artifacts: [],
-    });
-
-    const reply = vi.fn(async () => {});
-    const responseStream = {
-      push: vi.fn(async () => {}),
-    };
-
-    await state.voiceMessageHandler?.(
-      'session-voice',
-      null,
-      'voice:CA123',
-      'user-voice',
-      'Caller',
-      'Yes for a session.',
-      [],
-      reply,
-      {
-        abortSignal: new AbortController().signal,
-        callSid: 'CA123',
-        twilioSessionId: 'VX123',
-        remoteIp: '127.0.0.1',
-        setupMessage: null,
-        responseStream,
-      },
-    );
-
-    expect(state.handleGatewayMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: 'yes for session',
-        channelId: 'voice:CA123',
-        source: 'voice',
-      }),
-    );
-    expect(reply).toHaveBeenCalledWith('Approved.');
-  });
 
   test('keeps gateway startup running when iMessage integration fails to initialize', async () => {
     const state = await importFreshGatewayMain({
@@ -3656,51 +3366,5 @@ describe('gateway bootstrap', () => {
     expect(state.stopPeriodicCloudMemorySync).toHaveBeenCalledTimes(1);
     expect(state.shutdownSentry).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {
-    const state = await importFreshGatewayMain({
-      voiceEnabled: false,
-      twilioAuthToken: '',
-      voiceConfigAuthToken: '',
-    });
-    const previousConfig = state.currentConfig;
-    const nextConfig = {
-      ...state.currentConfig,
-      voice: {
-        enabled: true,
-        provider: 'twilio',
-        twilio: {
-          accountSid: 'AC123',
-          authToken: 'config-token',
-          fromNumber: '+14155550123',
-        },
-        relay: {
-          ...state.currentConfig.voice.relay,
-        },
-        webhookPath: '/voice',
-        maxConcurrentCalls: 8,
-      },
-    };
-
-    expect(state.initVoice).toHaveBeenCalledTimes(0);
-
-    state.currentConfig = nextConfig;
-    state.configChangeListener?.(nextConfig, previousConfig);
-    await settle();
-
-    expect(state.initVoice).toHaveBeenCalledTimes(0);
-    expect(state.loggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountSidConfigured: true,
-        authTokenConfigured: false,
-        fromNumberConfigured: true,
-      }),
-      'Voice integration disabled: Twilio credentials are incomplete',
-    );
-    state.twilioAuthToken = 'test-key';
-    state.secretsRefreshListener?.();
-    await settle();
-    expect(state.initVoice).toHaveBeenCalledTimes(1);
   });
 });

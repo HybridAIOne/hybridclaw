@@ -175,6 +175,7 @@ COPY --link --from=builder /app/plugins/tier-router ./plugins/tier-router
 COPY --link --from=builder /app/plugins/distill ./plugins/distill
 COPY --link --from=builder /app/plugins/media-tools ./plugins/media-tools
 COPY --link --from=builder /app/plugins/transformers-embeddings ./plugins/transformers-embeddings
+COPY --link --from=builder /app/plugins/twilio-voice ./plugins/twilio-voice
 COPY --link SECURITY.md TRUST_MODEL.md ./
 
 EXPOSE 9090

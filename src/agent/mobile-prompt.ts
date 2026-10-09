@@ -138,6 +138,15 @@ export const APP_SLIDE_DECK_LINES = [
 ];
 
 /**
+ * The app shows a `draft_transfer` file as a transfer card: each detail to
+ * copy and a GiroCode (EPC QR code) for the user's banking app. Banking apps
+ * take no link that opens a filled-in transfer, so the card is the handover.
+ */
+export const APP_TRANSFER_LINES = [
+  'When the user wants to pay an invoice, a bill or a reminder, or to send someone money in euros, call `draft_transfer` with recipient, IBAN, amount and reference taken from the invoice, the email or the user, and keep your reply to one short sentence: the app shows a card under it with each detail to copy and a GiroCode their banking app scans. You cannot pay or open the banking app yourself, and the card is how the transfer gets there, so never answer that you cannot hand it over. Never guess an IBAN or an amount: read the invoice first, and ask when a detail is missing.',
+];
+
+/**
  * The app draws a `show_widget` file inside the chat under the reply, at its
  * own height, in the app's colours, with the same network rules as a page. A
  * tap on a button may call `hy.ask(text)`, which sends that text as the user.

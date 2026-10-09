@@ -70,7 +70,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'App Widgets',
-    tools: ['show_widget'],
+    tools: ['show_widget', 'draft_transfer'],
   },
   {
     label: 'Vision',

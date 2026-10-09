@@ -23,7 +23,6 @@ import { EmailPage } from './routes/email';
 import { ExtensionsPage } from './routes/extensions';
 import { FederationPage } from './routes/federation';
 import { GatewayPage } from './routes/gateway';
-import { HarnessEvolutionPage } from './routes/harness-evolution';
 import { LocalModelsPage } from './routes/local-models';
 import { LogsPage } from './routes/logs';
 import { McpPage } from './routes/mcp';
@@ -392,12 +391,6 @@ const jobsRoute = createRoute({
   },
 });
 
-const harnessEvolutionRoute = createRoute({
-  getParentRoute: () => adminLayoutRoute,
-  path: '/admin/harness-evolution',
-  component: HarnessEvolutionPage,
-});
-
 const localModelsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/local-models',
@@ -639,7 +632,6 @@ const routeTree = rootRoute.addChildren([
     automationRoute,
     schedulerRoute,
     jobsRoute,
-    harnessEvolutionRoute,
     distillRoute,
     routingEvaluatorRoute,
     localModelsRoute,

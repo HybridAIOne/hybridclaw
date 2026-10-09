@@ -6,16 +6,16 @@ import { describe, expect, test } from 'vitest';
 import {
   initializeHarnessWorkspace,
   loadEvolutionEvalSuite,
-  readHarnessEvolutionSummary,
   renderEvolutionChart,
   runHarnessEvolutionLoop,
-} from '../src/evolution/harness-evolution.ts';
+} from '../eval-harness/src/harness-evolution.ts';
+import { readHarnessEvolutionSummary } from '../eval-harness/src/harness-evolution-runs.ts';
 import {
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,
   OWASP_LLM_TOP_10_2025,
   parseAgentRiskReferences,
-} from '../src/evolution/harness-risk-taxonomy.ts';
+} from '../eval-harness/src/harness-risk-taxonomy.ts';
 
 function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-risk-'));

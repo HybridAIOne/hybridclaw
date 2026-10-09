@@ -25,6 +25,15 @@ const LAZY_ONLY_PACKAGES = [
   'nodemailer',
 ];
 
+// Transports that ship as plugins (#1801): their wire-protocol code must not
+// reappear in the gateway graph. Twilio voice lives in plugins/twilio-voice;
+// core keeps only the shared realtime engine in src/voice/.
+const PLUGIN_OWNED_PROTOCOL_MARKERS = [
+  'x-twilio-signature',
+  'api.twilio.com',
+  '<ConversationRelay',
+];
+
 // Optional features that ship as plugins (AGENTS.md §3.4). Core must not
 // import them, nor regrow them under `src/`: human distillation moved to
 // `plugins/distill` (#1801) and reaches the gateway only through
@@ -178,6 +187,18 @@ test('gateway startup graph builds no plugin channel transport host', () => {
   expect(
     modules.filter((file) => file.startsWith('src/channels/line/')),
   ).toEqual([]);
+});
+
+test('gateway startup graph carries no plugin-owned transport protocol code', () => {
+  const { modules } = collectStartupPackages(GATEWAY_ENTRY);
+
+  const leaked = modules.flatMap((file) => {
+    const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    return PLUGIN_OWNED_PROTOCOL_MARKERS.filter((marker) =>
+      source.includes(marker),
+    ).map((marker) => `${file} (${marker})`);
+  });
+  expect(leaked).toEqual([]);
 });
 
 test('gateway startup graph does not statically load plugin-owned features', () => {

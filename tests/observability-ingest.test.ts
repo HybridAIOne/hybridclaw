@@ -854,3 +854,66 @@ test('observability ingest rate-limits repeated transient outage warnings', asyn
     vi.resetModules();
   }
 });
+
+test('observability ingest skips an event the server keeps failing to ingest', async () => {
+  vi.useFakeTimers();
+  vi.resetModules();
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+
+  try {
+    await configureObservabilityFixture();
+    const ingestedRunIds: string[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/agent-observability/ingest-token:ensure')) {
+          return new Response(
+            JSON.stringify({ success: true, token: 'ingest-token' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        const payload = JSON.parse(String(init?.body)) as {
+          events: Array<{ run_id: string }>;
+        };
+        const runIds = payload.events.map((event) => event.run_id);
+        if (runIds.includes('run-poison')) {
+          return new Response('{"error":"internal_error"}', { status: 500 });
+        }
+        ingestedRunIds.push(...runIds);
+        return new Response(
+          JSON.stringify({ status: 'accepted', inserted_events: runIds.length }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { startObservabilityIngest, stopObservabilityIngest } = await import(
+      '../src/audit/observability-ingest.ts'
+    );
+    initDatabase({ quiet: true });
+    for (const runId of ['run-0', 'run-1', 'run-poison', 'run-3']) {
+      await recordObservabilityBotSetEvent('session-poison', runId);
+    }
+
+    startObservabilityIngest();
+    await vi.advanceTimersByTimeAsync(600_000);
+    await vi.waitFor(() => {
+      expect(ingestedRunIds).toEqual(['run-0', 'run-1', 'run-3']);
+    });
+
+    const batchPosts = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith('/events:batch'),
+      ).length;
+    const postsAfterCatchUp = batchPosts();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(batchPosts()).toBe(postsAfterCatchUp);
+
+    stopObservabilityIngest();
+  } finally {
+    vi.useRealTimers();
+    vi.resetModules();
+  }
+});

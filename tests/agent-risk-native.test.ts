@@ -14,7 +14,7 @@ import {
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,
   OWASP_LLM_TOP_10_2025,
-} from '../src/evolution/harness-risk-taxonomy.ts';
+} from '../eval-harness/src/harness-risk-taxonomy.ts';
 
 const servers: http.Server[] = [];
 

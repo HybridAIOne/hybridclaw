@@ -2,13 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
 import {
   type AgentRiskReferences,
   NIST_AI_RMF_CORE_FUNCTIONS,
   NIST_GAI_PROFILE_RISKS,
   OWASP_LLM_TOP_10_2025,
-} from '../../src/evolution/harness-risk-taxonomy.js';
-import { HYBRIDCLAW_USER_AGENT } from '../../src/providers/user-agent.js';
+} from './harness-risk-taxonomy.js';
 import { normalizeOpenAIBaseUrl } from './openai-url.js';
 
 export type AgentRiskScenarioId =
