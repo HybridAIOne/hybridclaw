@@ -149,6 +149,7 @@ const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   NOTES_RUNTIME_PATH,
   '/api/browser/sign-in',
   '/api/browser/tool',
+  '/api/cost-estimate',
   '/api/delegate',
   '/api/device-data',
   '/api/discord/action',

@@ -9,6 +9,7 @@ import { logger } from '../logger.js';
 import { setMessageRoutingTrace } from '../memory/messages.js';
 import { redactSecretsDeep } from '../security/redact.js';
 import { captureRoutingTrace } from '../usage/routing-trace.js';
+import { taskCostFromRoutingTrace } from '../usage/task-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 
@@ -60,7 +61,10 @@ export async function withChatRoutingTrace(
       );
     }
   }
+  // The user's own cost is shown whatever the routing disclosure says.
+  const cost = taskCostFromRoutingTrace(safeTrace);
+  const withCost = cost ? { ...result, cost } : result;
   return getRuntimeConfig().routing.showRoutingInfo
-    ? { ...result, routingTrace: safeTrace }
-    : result;
+    ? { ...withCost, routingTrace: safeTrace }
+    : withCost;
 }

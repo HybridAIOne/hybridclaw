@@ -9,6 +9,7 @@ vi.mock('../src/memory/messages.js', () => ({ setMessageRoutingTrace: mocks.pers
 vi.mock('../src/usage/token-usage-buffer.js', () => ({ enqueueTokenUsage: mocks.usage }));
 vi.mock('../src/audit/audit-events.js', () => ({ makeAuditRunId: () => 'test-run', recordAuditEvent: mocks.audit }));
 vi.mock('../src/providers/model-catalog.js', () => ({ getModelCatalogMetadata: () => ({ zone: 'local', pricingUsdPerToken: {} }) }));
+vi.mock('../src/providers/hybridai-discovery.js', () => ({ isDiscoveredHybridAIFreeTierModel: () => false }));
 vi.mock('../src/logger.js', () => ({ logger: { warn: vi.fn() } }));
 const req = { sessionId: 'test-session', agentId: 'main', onRoutingTrace: vi.fn() } as unknown as GatewayChatRequest;
 beforeEach(() => { vi.clearAllMocks(); mocks.show = false; });
@@ -33,6 +34,12 @@ it('shows the same record that was persisted and preserves unknown cost', async 
   expect(req.onRoutingTrace).toHaveBeenCalledTimes(2);
   expect(result.routingTrace).toEqual(mocks.persist.mock.calls[0][1]);
   expect(result.routingTrace?.attempts[1].costUsd).toBeNull();
+});
+it('tells the user what the turn cost whatever the routing disclosure', async () => {
+  const result = await withChatRoutingTrace(req, work);
+  expect(result.routingTrace).toBeUndefined();
+  // $0.01 for the router in euros; the unpriced answer ran on the user's machine.
+  expect(result.cost).toEqual({ eur: 0.0085, free: false, requests: null });
 });
 it('preserves the answer on a persistence failure', async () => {
   mocks.persist.mockImplementationOnce(() => { throw new Error('disk full'); });
