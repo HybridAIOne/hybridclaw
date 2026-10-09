@@ -124,7 +124,7 @@ test('a task shown once comes back as steps, with nothing secret in them', async
   expect(JSON.stringify(result)).not.toContain('pat@example.com');
   expect(JSON.stringify(result)).not.toContain('next=');
   // A phone-sized page while the user drives, the agent's size afterwards.
-  expect(commands).toContainEqual(['set', 'viewport', '400', '820', '2']);
+  expect(commands).toContainEqual(['set', 'viewport', '500', '1080', '1']);
   expect(commands.at(-1)).toEqual(['set', 'viewport', '1280', '720', '1']);
   expect(gatewayCalls.at(-1)?.path).toBe('/api/browser/take-over/close');
 });

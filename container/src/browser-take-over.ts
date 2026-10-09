@@ -20,8 +20,10 @@ const CONNECT_TIMEOUT_MS = 3 * 60_000;
 // The gateway's limit; the tool stops a little after it.
 const TAKE_OVER_TIMEOUT_MS = 10 * 60_000 + 15_000;
 const MAX_STEPS = 120;
-// A phone's portrait screen in CSS pixels, drawn at twice the size.
-const PHONE_VIEWPORT = { width: 400, height: 820, scale: 2 };
+// A phone's portrait shape in CSS pixels. The stream pictures the whole window,
+// and Chrome's window is at least 500 wide, so a narrower page would leave an
+// empty strip that taps can't reach. At scale 1, pictures and input share pixels.
+const PHONE_VIEWPORT = { width: 500, height: 1080, scale: 1 };
 
 export interface TakeOverStep {
   kind: 'page' | 'click' | 'fill' | 'secret' | 'choose' | 'check' | 'press';
