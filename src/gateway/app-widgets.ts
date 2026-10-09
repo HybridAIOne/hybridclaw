@@ -11,3 +11,8 @@ export const WIDGET_MIME_TYPE = 'application/vnd.hybridai.widget+html';
  * shows as a card with a GiroCode. Only the app draws it, too.
  */
 export const DRAFT_TRANSFER_TOOL = 'draft_transfer';
+/**
+ * `show_dashboard` (container/src/tools/dashboard.ts): figures, charts and
+ * tables the app draws natively, each with its query. Only the app draws it.
+ */
+export const SHOW_DASHBOARD_TOOL = 'show_dashboard';

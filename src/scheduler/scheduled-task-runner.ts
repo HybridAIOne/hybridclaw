@@ -9,6 +9,7 @@ import {
 import { getChannel } from '../channels/channel-registry.js';
 import {
   DRAFT_TRANSFER_TOOL,
+  SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from '../gateway/app-widgets.js';
 import {
@@ -124,7 +125,7 @@ export async function runIsolatedScheduledTask(params: {
     taskId: taskId > 0 ? taskId : null,
   });
   const blockedTools = blockDeviceDataToolUnlessShared(
-    ['cron', SHOW_WIDGET_TOOL, DRAFT_TRANSFER_TOOL],
+    ['cron', SHOW_WIDGET_TOOL, DRAFT_TRANSFER_TOOL, SHOW_DASHBOARD_TOOL],
     owner,
   );
   const { messages, skills } = buildConversationContext({

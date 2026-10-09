@@ -158,7 +158,11 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
-import { DRAFT_TRANSFER_TOOL, SHOW_WIDGET_TOOL } from './app-widgets.js';
+import {
+  DRAFT_TRANSFER_TOOL,
+  SHOW_DASHBOARD_TOOL,
+  SHOW_WIDGET_TOOL,
+} from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -411,9 +415,10 @@ async function routeEscalationApproval(params: {
 }
 
 /**
- * `show_slide_samples`, `show_widget` and `draft_transfer` need a client that
- * draws them: a card of slide pictures to pick from, a live widget under the
- * reply, or a transfer card with a GiroCode. Only the Hy app
+ * `show_slide_samples`, `show_widget`, `draft_transfer` and `show_dashboard`
+ * need a client that draws them: a card of slide pictures to pick from, a live
+ * widget under the reply, a transfer card with a GiroCode, or a dashboard.
+ * Only the Hy app
  * (`client: "mobile"`) does. Elsewhere the agent answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
@@ -426,6 +431,7 @@ function blockAppOnlyToolsUnlessApp(
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
+    SHOW_DASHBOARD_TOOL,
   ];
 }
 

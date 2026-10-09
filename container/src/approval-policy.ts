@@ -2919,6 +2919,23 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
+    if (lowerTool === 'show_dashboard') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'show a dashboard in the chat',
+        consequenceIfDenied: 'I will give the figures in text instead.',
+        reason:
+          'this only writes a file under dashboards/ for the app to show and sends nothing',
+        commandPreview: normalizePreview(String(args.title ?? '')),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
     if (lowerTool === 'show_widget') {
       return {
         tier: 'green',

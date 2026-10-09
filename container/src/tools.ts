@@ -91,6 +91,11 @@ import {
 } from './runtime-paths.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  runShowDashboard,
+  SHOW_DASHBOARD_DEFINITION,
+  SHOW_DASHBOARD_TOOL,
+} from './tools/dashboard.js';
+import {
   DRAFT_EMAIL_TOOL_DEFINITION,
   runDraftEmailTool,
 } from './tools/draft-email.js';
@@ -3053,6 +3058,16 @@ async function executeToolInternal(
       }
     }
 
+    case SHOW_DASHBOARD_TOOL: {
+      try {
+        return runShowDashboard(args, writeWorkspaceFile);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'edit': {
       let tempDirToCleanup: string | null = null;
       try {
@@ -4314,6 +4329,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
+  SHOW_DASHBOARD_DEFINITION,
   {
     type: 'function',
     function: {
