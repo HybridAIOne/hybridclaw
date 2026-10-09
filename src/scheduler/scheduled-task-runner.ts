@@ -308,6 +308,7 @@ export async function runIsolatedScheduledTask(params: {
           storedMessage: {
             sessionId: activeSessionId,
             id: storedTurn.assistantMessageId,
+            ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
           },
           artifacts: output.artifacts,
         });
