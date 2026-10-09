@@ -683,16 +683,21 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
         .toBe(!before);
     });
 
+    // compat: remove after v0.41, with the `harness-evolve` case in src/cli.ts.
     test.each([
-      [['harness-evolve', 'list', '--target', '.'], 'Usage: hybridclaw'],
-      [['help', 'harness-evolve'], 'Unknown help topic: harness-evolve'],
-    ])('the installed CLI rejects %j', (argv, message) => {
+      [['harness-evolve', 'list', '--target', '.']],
+      [['help', 'harness-evolve']],
+    ])('the installed CLI points %j at the eval harness', (argv) => {
       const result = spawnSync(process.execPath, [CLI, ...argv], {
-        env: { PATH: process.env.PATH ?? '', HYBRIDCLAW_DATA_DIR: dataDir },
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: path.join(path.dirname(dataDir), 'home'),
+          HYBRIDCLAW_DATA_DIR: dataDir,
+        },
         encoding: 'utf-8',
       });
       expect(result.status).toBe(1);
-      expect(`${result.stdout}${result.stderr}`).toContain(message);
+      expect(result.stderr).toContain('`npm run eval -- harness-evolve`');
     });
   });
 });
