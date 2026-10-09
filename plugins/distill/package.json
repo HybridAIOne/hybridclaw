@@ -1,0 +1,11 @@
+{
+  "name": "hybridclaw-plugin-distill",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "HybridClaw human distillation: the coworker CLI and the admin console API",
+  "engines": {
+    "node": "22.x"
+  }
+}

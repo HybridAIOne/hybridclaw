@@ -110,6 +110,7 @@ export interface GoalJudgeEvent extends RuntimeEventPayload {
   assistant_response: string;
   conversation_context?: string | null;
   fallback_model?: string | null;
+  fallback_chatbot_id?: string | null;
   created_at: string;
 }
 

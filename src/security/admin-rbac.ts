@@ -3,7 +3,10 @@
  * never authenticates a request. HTTP authentication and local-host restrictions
  * remain the gateway's responsibility, outside these authorization mappings.
  * The gateway denies an admin route left unmapped here to every scoped caller
- * without a `*` claim, so each new admin route needs an entry.
+ * without a `*` claim, so each new core admin route needs an entry. Plugin
+ * admin routes are mapped by their registration instead, and may only name
+ * an action from this catalog; a plugin that needs its own actions adds them
+ * to `PLUGIN_ADMIN_RBAC_ACTIONS` in core.
  */
 import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
 import { RELATIONSHIP_MEMORY_PATH } from '../types/relationship-memory.js';
@@ -24,6 +27,26 @@ export const ADMIN_TOKEN_RBAC_ACTIONS = [
   'admin.tokens.create',
   'admin.tokens.revoke',
 ] as const;
+
+// Actions of plugin admin routes, `admin.<plugin-id>.<verb>`. (#1893 review,
+// 2026-10-08): they stay in this catalog so scoped tokens and roles can name
+// them while the plugin is not loaded; letting manifests declare their own
+// actions is deferred to an owner call.
+export const PLUGIN_ADMIN_RBAC_ACTIONS = [
+  'admin.distill.read',
+  'admin.distill.write',
+  'admin.distill.delete',
+] as const;
+
+const PLUGIN_ADMIN_NAMESPACES = new Set(
+  PLUGIN_ADMIN_RBAC_ACTIONS.map((action) => action.split('.')[1]),
+);
+
+/** True for `/api/admin/<plugin-id>[/...]` of a plugin with catalog actions. */
+export function isPluginAdminNamespacePath(pathname: string): boolean {
+  const namespace = /^\/api\/admin\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
+  return namespace !== undefined && PLUGIN_ADMIN_NAMESPACES.has(namespace);
+}
 
 export const ADMIN_RBAC_ACTIONS = [
   ...ADMIN_SECRET_RBAC_ACTIONS,
@@ -74,7 +97,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.scheduler.delete',
   'admin.channels.read',
   'admin.channels.write',
-  'admin.channels.delete',
   'admin.connectors.read',
   'admin.mcp.read',
   'admin.mcp.write',
@@ -89,8 +111,6 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.a2a.write',
   'admin.a2a.delete',
   'admin.fleet.read',
-  'admin.fleet.write',
-  'admin.fleet.delete',
   'admin.signal.read',
   'admin.signal.write',
   'admin.email_config.fetch',
@@ -103,9 +123,7 @@ export const ADMIN_RBAC_ACTIONS = [
   'admin.output_guard.read',
   'admin.output_guard.write',
   'admin.output_guard.preview',
-  'admin.distill.read',
-  'admin.distill.write',
-  'admin.distill.delete',
+  ...PLUGIN_ADMIN_RBAC_ACTIONS,
   'admin.skills.read',
   'admin.skills.write',
   'admin.skills.unblock',
@@ -207,14 +225,11 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.agents.delete',
     'admin.models.write',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.webhook_targets.write',
     'admin.a2a.write',
     'admin.a2a.delete',
-    'admin.fleet.write',
-    'admin.fleet.delete',
     'admin.signal.write',
   ],
   'admin.config_manager': [
@@ -224,7 +239,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.config.reload',
     'admin.models.write',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.webhook_targets.write',
@@ -264,7 +278,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.scheduler.write',
     'admin.scheduler.delete',
     'admin.channels.write',
-    'admin.channels.delete',
     'admin.mcp.write',
     'admin.mcp.delete',
     'admin.config.reload',
@@ -272,8 +285,6 @@ export const ADMIN_RBAC_ROLE_ACTIONS = {
     'admin.webhook_targets.write',
     'admin.a2a.write',
     'admin.a2a.delete',
-    'admin.fleet.write',
-    'admin.fleet.delete',
     'admin.signal.write',
     'admin.policy.write',
     'admin.policy.delete',
@@ -657,13 +668,8 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/admin/msteams/users/personal-agent') {
     return method === 'POST' ? 'admin.agents.write' : null;
   }
-  if (pathname === '/api/admin/channels') {
-    return actionForReadWriteDelete(
-      method,
-      'admin.channels.read',
-      'admin.channels.write',
-      'admin.channels.delete',
-    );
+  if (pathname === '/api/admin/channels' && method === 'GET') {
+    return 'admin.channels.read';
   }
   if (
     (pathname === '/api/admin/msteams/tab-manifest' ||
@@ -761,13 +767,8 @@ export function resolveAdminRbacAction(
   ) {
     return 'admin.a2a.write';
   }
-  if (pathname === '/api/admin/fleet-topology') {
-    return actionForReadWriteDelete(
-      method,
-      'admin.fleet.read',
-      'admin.fleet.write',
-      'admin.fleet.delete',
-    );
+  if (pathname === '/api/admin/fleet-topology' && method === 'GET') {
+    return 'admin.fleet.read';
   }
   if (pathname === '/api/admin/signal/link') {
     if (method === 'GET') return 'admin.signal.read';
@@ -812,12 +813,6 @@ export function resolveAdminRbacAction(
   }
   if (pathname === '/api/admin/output-guard/preview' && method === 'POST') {
     return 'admin.output_guard.preview';
-  }
-  if (isPathOrChild(pathname, '/api/admin/distill')) {
-    if (method === 'GET') return 'admin.distill.read';
-    if (method === 'POST') return 'admin.distill.write';
-    if (method === 'DELETE') return 'admin.distill.delete';
-    return null;
   }
   if (pathname === '/api/admin/skills') {
     if (method === 'GET') return 'admin.skills.read';

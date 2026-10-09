@@ -168,6 +168,24 @@ test('only malformed catalog call fields and unavailable call targets can receiv
 });
 
 
+test.each([undefined, null, '', 'search', 'LIST', 1, {}, []])('allows bounded correction of invalid catalog action %j', (action) => {
+  const catalog = new ToolCatalog(available);
+  const request = catalogCall({ action });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let failure: unknown;
+    try { catalog.resolveCall(request); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    const correction = catalog.recoverArgumentError(failure);
+    if (attempt < 2) {
+      expect(correction).toMatchObject({ isError: true, output: expect.stringContaining('action must be list, describe, or call') });
+      expect(catalog.resolveCall(catalogCall({ action: 'call', name: 'read', arguments: {} })).function.name).toBe('read');
+    } else {
+      expect(correction).toBeNull();
+    }
+  }
+});
+
+
 test('lists tools without a target name and still requires names for execution', () => {
   const catalog = new ToolCatalog(available);
   expect(catalog.discoveryResult(call('tool_catalog', { action: 'list' }))?.isError).toBe(false);

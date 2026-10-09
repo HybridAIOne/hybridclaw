@@ -31,36 +31,44 @@ let managedProviderKey: string | null = null;
 let reconnectInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
 let stopInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
 
+type ManagedTunnelFactory = (options: {
+  addr: string;
+  healthCheckIntervalMs: number;
+  publicUrl: string;
+}) => TunnelProvider;
+
 const TUNNEL_PROVIDER_META = {
   cloudflare: {
-    managed: true,
+    create: createCloudflareTunnelProvider,
     usesConfiguredPublicUrl: true,
     requiresPublicUrl: true,
   },
   manual: {
-    managed: false,
+    create: null,
     usesConfiguredPublicUrl: true,
     requiresPublicUrl: false,
   },
   ngrok: {
-    managed: true,
+    create: ({ addr, healthCheckIntervalMs }) =>
+      createNgrokTunnelProvider({ addr, healthCheckIntervalMs }),
     usesConfiguredPublicUrl: false,
     requiresPublicUrl: false,
   },
   ssh: {
-    managed: false,
+    create: null,
     usesConfiguredPublicUrl: true,
     requiresPublicUrl: false,
   },
   tailscale: {
-    managed: true,
+    create: ({ addr, healthCheckIntervalMs }) =>
+      createTailscaleTunnelProvider({ addr, healthCheckIntervalMs }),
     usesConfiguredPublicUrl: false,
     requiresPublicUrl: false,
   },
 } as const satisfies Record<
   RuntimeDeploymentKnownTunnelProvider,
   {
-    managed: boolean;
+    create: ManagedTunnelFactory | null;
     usesConfiguredPublicUrl: boolean;
     requiresPublicUrl: boolean;
   }
@@ -129,11 +137,17 @@ function getKnownTunnelProvider(
   return null;
 }
 
+function getManagedTunnelFactory(
+  provider: RuntimeDeploymentTunnelProvider | undefined,
+): ManagedTunnelFactory | null {
+  const knownProvider = getKnownTunnelProvider(provider);
+  return knownProvider ? TUNNEL_PROVIDER_META[knownProvider].create : null;
+}
+
 function isManagedTunnelProvider(
   provider: RuntimeDeploymentTunnelProvider | undefined,
 ): boolean {
-  const knownProvider = getKnownTunnelProvider(provider);
-  return knownProvider ? TUNNEL_PROVIDER_META[knownProvider].managed : false;
+  return getManagedTunnelFactory(provider) !== null;
 }
 
 function tunnelHealthForState(state: TunnelState): GatewayAdminTunnelHealth {
@@ -177,7 +191,8 @@ function stopStaleManagedProvider(provider: TunnelProvider): void {
 function getManagedTunnelProvider(): TunnelProvider | null {
   const config = getRuntimeConfig();
   const provider = config.deployment.tunnel.provider;
-  if (!isManagedTunnelProvider(provider)) {
+  const createManagedProvider = getManagedTunnelFactory(provider);
+  if (!createManagedProvider) {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
@@ -200,26 +215,11 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
-    if (provider === 'ngrok') {
-      managedProvider = createNgrokTunnelProvider({
-        addr,
-        healthCheckIntervalMs:
-          config.deployment.tunnel.health_check_interval_ms,
-      });
-    } else if (provider === 'tailscale') {
-      managedProvider = createTailscaleTunnelProvider({
-        addr,
-        healthCheckIntervalMs:
-          config.deployment.tunnel.health_check_interval_ms,
-      });
-    } else {
-      managedProvider = createCloudflareTunnelProvider({
-        addr,
-        healthCheckIntervalMs:
-          config.deployment.tunnel.health_check_interval_ms,
-        publicUrl: config.deployment.public_url,
-      });
-    }
+    managedProvider = createManagedProvider({
+      addr,
+      healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
+      publicUrl: config.deployment.public_url,
+    });
     managedProviderKey = key;
   }
   return managedProvider;

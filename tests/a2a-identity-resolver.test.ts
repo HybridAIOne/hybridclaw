@@ -35,7 +35,37 @@ describe('A2A identity resolver', () => {
     });
   });
 
-  test('invalidates cached trusted peer resolutions when trust records change', async () => {
+  test.each([
+    {
+      mutation: 'upsert',
+      mutate: (trust: typeof import('../src/a2a/trust-ledger.ts')) =>
+        trust.upsertA2ATrustedPublicKeyPeer({
+          peerId: 'peer-instance',
+          agentCardUrl: 'https://peer-b.example.com/.well-known/agent.json',
+          deliveryUrl: 'https://peer-b.example.com/a2a',
+          publicKeyFingerprint: 'B'.repeat(43),
+        }),
+      expected: {
+        url: 'https://peer-b.example.com',
+        publicKey: 'B'.repeat(43),
+      },
+    },
+    {
+      mutation: 'revoke',
+      mutate: (trust: typeof import('../src/a2a/trust-ledger.ts')) =>
+        trust.revokeA2ATrustedPublicKeyPeer('peer-instance'),
+      expected: 'peer-untrusted',
+    },
+    {
+      mutation: 'delete',
+      mutate: (trust: typeof import('../src/a2a/trust-ledger.ts')) =>
+        trust.deleteA2ATrustedPublicKeyPeer('peer-instance'),
+      expected: 'No A2A identity resolution found',
+    },
+  ])('invalidates the cached trusted peer resolution on trust $mutation', async ({
+    mutate,
+    expected,
+  }) => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const resolver = await import('../src/a2a/identity-resolver.ts');
     const trust = await import('../src/a2a/trust-ledger.ts');
@@ -55,18 +85,13 @@ describe('A2A identity resolver', () => {
       publicKey: 'A'.repeat(43),
     });
 
-    trust.upsertA2ATrustedPublicKeyPeer({
-      peerId: 'peer-instance',
-      agentCardUrl: 'https://peer-b.example.com/.well-known/agent.json',
-      deliveryUrl: 'https://peer-b.example.com/a2a',
-      publicKeyFingerprint: 'B'.repeat(43),
-    });
+    mutate(trust);
 
-    await expect(
-      resolver.resolveA2AIdentity('remote@team@peer-instance'),
-    ).resolves.toMatchObject({
-      url: 'https://peer-b.example.com',
-      publicKey: 'B'.repeat(43),
-    });
+    const resolution = resolver.resolveA2AIdentity('remote@team@peer-instance');
+    if (typeof expected === 'string') {
+      await expect(resolution).rejects.toThrow(expected);
+    } else {
+      await expect(resolution).resolves.toMatchObject(expected);
+    }
   });
 });

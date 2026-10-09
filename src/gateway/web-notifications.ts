@@ -22,6 +22,7 @@ import {
   readStoredRuntimeSecrets,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
+import { waitWhileAtComputer } from './computer-presence.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import {
   phoneAssistantName,
@@ -41,6 +42,7 @@ const titles: Record<WebNotificationKind, string> = {
   reminder: 'HybridClaw reminder',
   approval: 'HybridClaw needs your approval',
 };
+const SIGN_IN_TITLE = 'HybridClaw needs you to sign in';
 
 export function trackWebNotificationSession(
   sessionId: string,
@@ -173,22 +175,27 @@ export interface WebNotificationDelivery {
 
 /**
  * Records and broadcasts an alert. `phone: false` leaves the phone alert to
- * the caller, which gets the recorded notice back (null if none was new).
+ * the caller, which gets the recorded notice back (null if none was new). The
+ * phone alert waits while the owner is at a computer (`computer-presence.ts`).
  */
 export function notifyWebSession(
   sessionId: string,
   kind: WebNotificationKind,
   eventId: string = randomUUID(),
   operatorId?: string,
-  { phone = true }: { phone?: boolean } = {},
+  {
+    phone = true,
+    waitingFor,
+  }: { phone?: boolean; waitingFor?: WebNotification['waitingFor'] } = {},
 ): WebNotificationDelivery | null {
   try {
     const notification: WebNotification = {
       id: `${sessionId}:${kind}:${eventId}`,
       sessionId,
       kind,
+      ...(waitingFor ? { waitingFor } : {}),
       agentId: memoryService.getSessionById(sessionId)?.agent_id ?? null,
-      title: titles[kind],
+      title: waitingFor === 'sign_in' ? SIGN_IN_TITLE : titles[kind],
       createdAt: Date.now(),
     };
     const delivery = recordWebNotification(notification, operatorId);
@@ -201,12 +208,21 @@ export function notifyWebSession(
     ).catch(() =>
       logger.warn('Web push unavailable; notification remains in chat'),
     );
-    if (phone && delivery.state.preferences[kind] && delivery.devices.length)
-      void phoneAlert(notification)
-        .then((message) => sendMobilePush(delivery.devices, message))
-        .catch(() =>
+    if (phone && delivery.state.preferences[kind] && delivery.devices.length) {
+      const send = () =>
+        phoneAlert(notification).then((message) =>
+          sendMobilePush(delivery.devices, message),
+        );
+      if (
+        !waitWhileAtComputer(delivery.state.operatorId, notification.id, {
+          noticeId: notification.id,
+          send,
+        })
+      )
+        void send().catch(() =>
           logger.warn('Phone push unavailable; notification remains in chat'),
         );
+    }
     return {
       notification,
       state: delivery.state,
@@ -218,11 +234,17 @@ export function notifyWebSession(
   }
 }
 
+/**
+ * A finished turn rings as done, or as waiting for the user when it ended on
+ * an approval or, per `waitingForSignIn`, on a website the agent's browser
+ * needs the user to sign in to.
+ */
 export function notifyWebChatResult(
   operatorId: string | null,
   request: GatewayChatRequest,
   result: GatewayChatResult,
   notifiedApprovalId?: string | null,
+  waitingForSignIn = false,
 ): void {
   if (!operatorId || request.channelId !== 'web' || result.status !== 'success')
     return;
@@ -241,9 +263,10 @@ export function notifyWebChatResult(
   ) {
     notifyWebSession(
       sessionId,
-      'turn',
+      waitingForSignIn ? 'approval' : 'turn',
       String(result.assistantMessageId ?? randomUUID()),
       operatorId,
+      waitingForSignIn ? { waitingFor: 'sign_in' } : {},
     );
   }
 }

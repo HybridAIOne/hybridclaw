@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
@@ -49,6 +50,7 @@ import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type {
   AddressEnvelope,
+  AgentErrorCode,
   MediaContextItem,
   OutputPresentationMetadata,
 } from '../types/container.js';
@@ -56,6 +58,7 @@ import type {
   ArtifactMetadata,
   BrowserFrame,
   PendingApproval,
+  SlideSamples,
   ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
@@ -85,6 +88,12 @@ export interface GatewaySessionSwitcherEntry {
 export interface GatewayCommandResult {
   /** Command accepted an inline prompt for the normal chat execution path. */
   continueWithMessage?: boolean;
+  /**
+   * A chat slash command that continues into an ordinary agent turn: the turn
+   * stores `content` as the user's message and adds `instructions`, the
+   * command's own text, to the prompt as operator instructions.
+   */
+  continueWith?: { content: string; instructions: string };
   kind: 'plain' | 'info' | 'error';
   title?: string;
   text: string;
@@ -152,9 +161,12 @@ export interface GatewayChatResult {
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
+  errorCode?: AgentErrorCode;
   effectiveUserPrompt?: string;
   userMessageId?: number;
   assistantMessageId?: number;
+  /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
+  emailDraft?: MessageEmailDraft;
 }
 
 export interface GatewayChatToolProgressEvent {
@@ -167,6 +179,8 @@ export interface GatewayChatToolProgressEvent {
   durationMs?: number;
   /** On a browser tool's finish: the page it left the browser on. */
   browser?: BrowserFrame;
+  /** On `show_slide_samples`' finish: the looks the user picks from. */
+  slideSamples?: SlideSamples;
 }
 
 export interface GatewayChatTextDeltaEvent {
@@ -323,6 +337,8 @@ export interface GatewayCommandRequest {
   guildId: string | null;
   channelId: string;
   args: string[];
+  /** Files sent with a chat slash command, such as `/import`. */
+  media?: GatewayMediaItem[];
   userId?: string | null;
   username?: string | null;
   client?: GatewayChatRequest['client'];
@@ -365,6 +381,7 @@ export interface GatewayHistoryMessage {
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
   routingTrace?: RoutingTrace;
+  emailDraft?: MessageEmailDraft;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
@@ -1168,20 +1185,6 @@ export interface GatewayAdminChannelsResponse {
   channels: GatewayAdminChannel[];
 }
 
-export type GatewayAdminChannelUpsertRequest =
-  | {
-      transport?: 'discord';
-      guildId: string;
-      channelId: string;
-      config: RuntimeDiscordChannelConfig;
-    }
-  | {
-      transport: 'msteams';
-      guildId: string;
-      channelId: string;
-      config: RuntimeMSTeamsChannelConfig;
-    };
-
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
@@ -1294,15 +1297,6 @@ export interface GatewayAdminFleetTopologyInstance {
 export interface GatewayAdminFleetTopologyResponse {
   hq: GatewayAdminFleetTopologyHq;
   instances: GatewayAdminFleetTopologyInstance[];
-}
-
-export interface GatewayAdminFleetTopologyUpsertRequest {
-  peerId?: unknown;
-  agentCardUrl?: unknown;
-  deliveryUrl?: unknown;
-  publicKeyFingerprint?: unknown;
-  publicKeyJwk?: unknown;
-  reason?: unknown;
 }
 
 export interface GatewayAdminA2APairingRequest

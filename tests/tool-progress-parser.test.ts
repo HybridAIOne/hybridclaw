@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   parseBrowserFrameLine,
+  parseSlideSamplesLine,
   parseToolProgressLine,
 } from '../src/infra/tool-progress-parser.js';
 
@@ -137,4 +138,21 @@ test('parses browser frame lines and ignores everything else', () => {
   expect(parseBrowserFrameLine('[browser-frame] {"title":"no url"}')).toBeNull();
   expect(parseBrowserFrameLine('[browser-frame] not json')).toBeNull();
   expect(parseBrowserFrameLine('[tool] browser_click: {}')).toBeNull();
+});
+
+test('parses slide samples lines and keeps only known formats', () => {
+  expect(
+    parseSlideSamplesLine(
+      '[slide-samples] {"looks":[{"title":" Calm ","note":"","image":"a.png"}],"formats":["keynote"]}',
+    ),
+  ).toEqual({
+    looks: [{ title: 'Calm', image: 'a.png' }],
+    formats: ['powerpoint'],
+  });
+  expect(
+    parseSlideSamplesLine('[slide-samples] {"looks":[{"title":"Calm"}]}'),
+  ).toBeNull();
+  expect(parseSlideSamplesLine('[slide-samples] {"looks":[]}')).toBeNull();
+  expect(parseSlideSamplesLine('[slide-samples] not json')).toBeNull();
+  expect(parseSlideSamplesLine('[tool] show_slide_samples: {}')).toBeNull();
 });

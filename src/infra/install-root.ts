@@ -79,6 +79,13 @@ export function resolveInstallRoot(): string {
   return cachedInstallRoot;
 }
 
+// Same probe as scripts/postinstall-container.mjs: the published tarball
+// ships no top-level src/, and this also covers git-less source trees
+// (tarball/zip downloads), which the bootstrap script refuses to touch.
+export function isSourceCheckout(installRoot: string): boolean {
+  return fs.existsSync(path.join(installRoot, 'src'));
+}
+
 export function resolveInstallPath(...segments: string[]): string {
   return path.join(resolveInstallRoot(), ...segments);
 }

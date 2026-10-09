@@ -13,6 +13,7 @@
  * ring that phone.
  */
 
+import { randomUUID } from 'node:crypto';
 import type {
   MobilePushDevice,
   WebNotification,
@@ -23,6 +24,7 @@ import { readHybridAIApiKey } from '../auth/hybridai-auth.js';
 import { getConfigSnapshot, HYBRIDAI_BASE_URL } from '../config/config.js';
 import { logger } from '../logger.js';
 import { recordWorkPush, skipWorkNotification } from '../work/work-delivery.js';
+import { waitWhileAtComputer } from './computer-presence.js';
 import {
   deleteMobilePushDevice,
   mobilePushDeviceApp,
@@ -253,7 +255,8 @@ export async function sendMobilePush(
 
 /**
  * Alerts the phones of whoever opened `sessionId` in web chat that belong to
- * the app the chat was last used from.
+ * the app the chat was last used from. While that person is at a computer the
+ * alert waits (`computer-presence.ts`) and nothing counts as sent yet.
  */
 export async function notifySessionPhones(
   sessionId: string,
@@ -261,7 +264,24 @@ export async function notifySessionPhones(
 ): Promise<MobilePushResult> {
   if (!KIND_PATTERN.test(message.kind))
     throw new Error('Push kind must be a short lowercase identifier.');
-  return sendMobilePush(readSessionMobilePushDevices(sessionId), message);
+  const devices = readSessionMobilePushDevices(sessionId);
+  const send = () => sendMobilePush(devices, message);
+  if (
+    !waitWhileAtComputer(
+      webNotificationSessionOperator(sessionId),
+      `${sessionId}:${message.kind}:${randomUUID()}`,
+      { send },
+    )
+  )
+    return send();
+  const workId =
+    typeof message.data?.workId === 'string' ? message.data.workId : undefined;
+  skipWorkNotification(workId, 'at_computer');
+  return {
+    devices: devices.filter((device) => device.kinds.includes(message.kind))
+      .length,
+    sent: 0,
+  };
 }
 
 /**
@@ -365,16 +385,19 @@ export function phoneAssistantName(
   return agent?.displayName || agent?.name || 'Hy';
 }
 
-// What a finished reply and a waiting approval say under the assistant's name.
-// Each is also the app's key for it, so a phone shows it in its own language.
+// What a finished reply, and a turn that waits for the user, say under the
+// assistant's name. Each is also the app's key for it, so a phone shows it in
+// its own language. 2026-10-08 (product owner): what needs the user says that
+// the assistant is waiting for them.
 const REPLY_BODIES: Partial<Record<string, string>> = {
   turn: 'Done. Your reply is ready.',
-  approval: 'Needs your approval to go on.',
+  approval: 'Waiting for your approval to go on.',
+  sign_in: 'Waiting for you to sign in.',
 };
 
 /**
- * "Done" or "needs you": the assistant's name over what happened, never what
- * the reply or the request says. Other kinds show the name alone: a notice's
+ * "Done" or "waiting for you": the assistant's name over what happened, never
+ * what the reply or the request says, nor which site wants a sign-in. Other kinds show the name alone: a notice's
  * own title is for browsers and names the runtime, not the assistant.
  */
 export function replyAlert(options: {
@@ -382,7 +405,7 @@ export function replyAlert(options: {
   assistant: string;
 }): MobilePushMessage {
   const { notification } = options;
-  const body = REPLY_BODIES[notification.kind];
+  const body = REPLY_BODIES[notification.waitingFor ?? notification.kind];
   return {
     kind: notification.kind,
     title: options.assistant,

@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.39.1",
+  "version": "0.39.4",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "license": "MIT",
@@ -42,6 +42,7 @@
     "infra/managed-browser/",
     "plugins/concierge-router/",
     "plugins/connector-events/",
+    "plugins/distill/",
     "plugins/media-tools/",
     "plugins/line/",
     "plugins/vonage-voice/",

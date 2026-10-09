@@ -12,7 +12,6 @@ import {
   getGoalContinuationContext,
   isGoalContinuationRunning,
   isGoalInitialPromptScheduled,
-  registerGoalPostTurnSubscriber,
   setGoalContinuationRunHandler,
   setGoalContinuationRunning,
 } from '../goals/goal-runtime.js';
@@ -102,6 +101,5 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
 }
 
 export function initializeGoalContinuationRunner(): void {
-  registerGoalPostTurnSubscriber();
   setGoalContinuationRunHandler(runGoalContinuation);
 }

@@ -1,4 +1,5 @@
 import type { ApprovalMode } from '../../container/shared/approval-mode.js';
+import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
 import type { ActivityTrace } from './activity-trace.js';
 import type { ArtifactMetadata } from './execution.js';
 import type { RoutingTrace } from './routing-trace.js';
@@ -66,6 +67,8 @@ export interface StoredMessage {
    * user's on the agent's.
    */
   reaction?: string | null;
+  /** The email draft the reply showed as a card; its text is in `content` too. */
+  emailDraft?: MessageEmailDraft;
   created_at: string;
 }
 

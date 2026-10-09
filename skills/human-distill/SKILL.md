@@ -25,7 +25,10 @@ written into the agent identity files (`IDENTITY.md`, `SOUL.md`, `USER.md`,
 their workflows, preferences, and judgment. Every generated claim cites the
 corpus documents it came from; nothing is invented beyond the source.
 
-The deterministic engine is the `hybridclaw coworker` CLI. Your judgment
+The deterministic engine is the `hybridclaw coworker` CLI from the `distill`
+plugin. If `hybridclaw coworker` prints the general usage instead, the plugin
+is not installed: ask the operator to run `hybridclaw plugin install distill`
+rather than installing it yourself. Your judgment
 enters the pipeline through exactly one artefact: `extraction.json`. You never
 edit the persona files directly — the engine renders them from validated
 claims so every line stays cited, versioned, and reversible.

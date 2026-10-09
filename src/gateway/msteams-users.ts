@@ -5,21 +5,37 @@
  */
 import { getAgentById } from '../agents/agent-registry.js';
 import { createPersonalAgent } from '../agents/personal-agent.js';
-import { buildMSTeamsUserMarkdown } from '../channels/msteams/user-routing.js';
+import {
+  buildMSTeamsUserMarkdown,
+  readMSTeamsUserProfile,
+} from '../channels/msteams/user-routing.js';
 import { MSTEAMS_TENANT_ID } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import {
-  listMSTeamsUsers,
-  setMSTeamsUserAgent,
-} from '../memory/msteams-users.js';
+  listChannelUsers,
+  setChannelUserAgent,
+} from '../memory/channel-users.js';
+
+function listMSTeamsUsers() {
+  return listChannelUsers('msteams', MSTEAMS_TENANT_ID).map(
+    ({ profile, ...user }) => ({ ...user, ...readMSTeamsUserProfile(profile) }),
+  );
+}
+
+function setMSTeamsUserAgent(userId: string, agentId: string | null): boolean {
+  return setChannelUserAgent(
+    { channelKind: 'msteams', tenantId: MSTEAMS_TENANT_ID, userId },
+    agentId,
+  );
+}
 
 export function getAdminMSTeamsUsers() {
   const config = getRuntimeConfig();
   return {
-    users: listMSTeamsUsers(MSTEAMS_TENANT_ID),
+    users: listMSTeamsUsers(),
     defaultAgentId: resolveDefaultAgentId(config),
     personalAgentParent: config.msteams.personalAgentParent || null,
   };
@@ -42,7 +58,7 @@ export function createAdminMSTeamsPersonalAgent(body: unknown): {
   ) {
     return { status: 400, error: 'Expected a userId and parentAgentId.' };
   }
-  const user = listMSTeamsUsers(MSTEAMS_TENANT_ID).find(
+  const user = listMSTeamsUsers().find(
     (entry) => entry.userId === userId.trim(),
   );
   if (!user) {
@@ -64,7 +80,7 @@ export function createAdminMSTeamsPersonalAgent(body: unknown): {
     displayName: `${parent.displayName || parent.name || parent.id} · ${user.displayName || user.userId}`,
     userMarkdown: buildMSTeamsUserMarkdown(user),
   });
-  setMSTeamsUserAgent(MSTEAMS_TENANT_ID, user.userId, created.id);
+  setMSTeamsUserAgent(user.userId, created.id);
   return { status: 200, agentId: created.id };
 }
 
@@ -93,7 +109,7 @@ export function updateAdminMSTeamsUser(body: unknown): {
       return { status: 400, error: 'Select an existing, active agent.' };
     }
   }
-  if (!setMSTeamsUserAgent(MSTEAMS_TENANT_ID, userId, target)) {
+  if (!setMSTeamsUserAgent(userId, target)) {
     return {
       status: 404,
       error: 'Teams user not found in the configured tenant.',

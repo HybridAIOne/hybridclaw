@@ -547,6 +547,74 @@ describe('A2A runtime API', () => {
     expect(suspended?.prompt).toContain('no adapter is registered for "smtp"');
   });
 
+  test.each([
+    {
+      name: 'a prototype-key transport',
+      peerDescriptor: { transport: 'constructor' },
+      internalOnlyAdapters: false,
+      transport: 'constructor',
+    },
+    {
+      name: 'a transport missing from injected adapters',
+      peerDescriptor: {
+        transport: 'a2a',
+        url: 'http://127.0.0.1:65535/a2a',
+      },
+      internalOnlyAdapters: true,
+      transport: 'a2a',
+    },
+  ] as const)('fails delivery without enqueueing for $name', async ({
+    peerDescriptor,
+    internalOnlyAdapters,
+    transport,
+  }) => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+    const { listA2AOutboxItems } = await import('../src/a2a/a2a-outbound.ts');
+    const { internalTransportAdapter } = await import(
+      '../src/a2a/transport-registry.ts'
+    );
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    initDatabase({ quiet: true });
+
+    const confirmation = runtime.sendMessage(
+      {
+        id: 'msg-no-adapter',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'remote@team@peer-instance',
+        thread_id: 'thread-no-adapter',
+        intent: 'chat',
+        content: 'Can your peer agent receive this?',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        sessionId: 'session-a2a-no-adapter',
+        peerDescriptor,
+        ...(internalOnlyAdapters
+          ? { transportAdapters: { internal: internalTransportAdapter } }
+          : {}),
+      },
+    );
+
+    expect(confirmation).toMatchObject({
+      delivered: false,
+      failure_reason: `No A2A transport adapter registered for "${transport}".`,
+    });
+    expect(listA2AOutboxItems()).toEqual([]);
+    await flushAuditTrail();
+    const authorization = getRecentStructuredAuditForSession(
+      'session-a2a-no-adapter',
+      10,
+    ).find((event) => event.event_type === 'authorization.check');
+    expect(JSON.parse(authorization?.payload || '{}')).toMatchObject({
+      action: `a2a.transport:${transport}`,
+      allowed: false,
+    });
+  });
+
   test('encodes envelope ids before composing default escalation keys', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const escalation = await import('../src/gateway/interactive-escalation.ts');

@@ -534,7 +534,10 @@ up to 2,000 characters with its remaining space. `action=list` uses a separate
 execute those tools with
 `action=call` without a separate `describe` response. Larger schemas keep the
 explicit `describe` step. Discovery does not change the request's exposed
-functions, argument validation, permissions or approvals. Reconnects and trust
+functions, argument validation, permissions or approvals. Invalid catalog actions
+receive corrective tool results within the shared two-correction limit per
+request. No call in a rejected batch executes; earlier completed calls remain
+in history. Reconnects and trust
 config changes can change exposure on the next request, invalidating cached
 tool prefixes; a failed replacement never grants the old connection new trust.
 Routine lookups use

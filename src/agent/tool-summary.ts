@@ -46,7 +46,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Communication',
-    tools: ['message'],
+    tools: ['message', 'draft_email'],
   },
   {
     label: 'Scheduling',
@@ -67,6 +67,10 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     label: 'Phone Data',
     tools: ['device_data'],
+  },
+  {
+    label: 'App Widgets',
+    tools: ['show_widget'],
   },
   {
     label: 'Vision',

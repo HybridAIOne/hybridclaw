@@ -181,7 +181,7 @@ async function importRuntime() {
       setMemoryValue: setMemoryValueMock,
     };
   });
-  vi.doMock('../src/memory/msteams-users.js', () => ({ observeMSTeamsUser: observeUserMock, findMSTeamsUserEmail: findUserEmailMock }));
+  vi.doMock('../src/memory/channel-users.js', () => ({ observeChannelUser: observeUserMock, findChannelUserEmail: findUserEmailMock }));
   vi.doMock('../src/channels/msteams/user-routing.js', () => ({ resolveMSTeamsUserAgent: resolveUserAgentMock, ensureMSTeamsPersonalAgent: ensurePersonalAgentMock }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsAttachmentContext: buildTeamsAttachmentContextMock,
@@ -201,7 +201,7 @@ async function importRuntime() {
     cleanIncomingContent: cleanIncomingContentMock,
     extractPrimaryText: extractPrimaryTextMock,
     extractActorIdentity: vi.fn(() => ({
-      aadObjectId: 'user-aad-id',
+      aadObjectId: 'User-AAD-ID',
       displayName: 'User',
       userId: 'user-id',
       username: 'user',
@@ -308,10 +308,10 @@ describe('Microsoft Teams runtime webhook adapter', () => {
     runtime.initMSTeams(onMessage, onCommand);
     await runtime.handleMSTeamsWebhook(makeRequest({}), makeResponse());
     expect(resolveUserAgentMock).toHaveBeenCalledWith('teams-tenant-id', 'user-id', 'personal');
-    expect(ensurePersonalAgentMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'teams-tenant-id', userId: 'user-id', entraObjectId: 'user-aad-id', teamsUserId: '29:user-a' }));
+    expect(ensurePersonalAgentMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'teams-tenant-id', userId: 'user-id', entraObjectId: 'User-AAD-ID', teamsUserId: '29:user-a' }));
     expect(buildSessionIdMock).toHaveBeenCalledWith(expect.anything(), 'sales');
     expect(getMemberMock).toHaveBeenCalledWith(expect.anything(), '29:user-a');
-    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ teamsUserId: '29:user-a', entraObjectId: 'user-aad-id', email: 'user@example.com', isMessage: kind === 'message' }));
+    expect(observeUserMock).toHaveBeenCalledWith(expect.objectContaining({ channelKind: 'msteams', profile: { teamsUserId: '29:user-a', entraObjectId: 'user-aad-id' }, email: 'user@example.com', isMessage: kind === 'message' }));
     if (kind === 'message') expect(onMessage.mock.calls[0]?.at(-1)).toMatchObject({ agentId: 'sales' });
     else expect(onCommand.mock.calls[0]?.at(-1)).toEqual({ agentId: 'sales', tenantId: 'teams-tenant-id' });
   });

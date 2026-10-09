@@ -513,6 +513,7 @@ import {
   resolveFullAutoPrompt,
 } from './fullauto-workspace.js';
 import { mapLogicalAgentCard, mapSessionCard } from './gateway-agent-cards.js';
+import { getGatewayBuildDiagnostics } from './gateway-build-diagnostics.js';
 import {
   badCommand,
   infoCommand,
@@ -584,7 +585,6 @@ import {
   type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
   type GatewayAdminChannelsResponse,
-  type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminDiscordWebhookTargetRequest,
@@ -658,6 +658,7 @@ import {
   recordBootstrapOnboardingQuickMessage,
   recordBootstrapOnboardingStart,
 } from './hatching-completion.js';
+import { handleImportCommand } from './import-command.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import {
   interruptedDelegationsNote,
@@ -702,7 +703,6 @@ initializeGoalContinuationRunner();
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
 const TRACE_EXPORT_ALL_CONCURRENCY = 4;
-const GATEWAY_PROCESS_STARTED_AT = new Date().toISOString();
 const MAX_HISTORY_MESSAGES = 40;
 // Stable KV namespace (owner call, 2026-09-01): BOOTSTRAP belongs to the
 // agent workspace; per-session OPENING behavior remains unchanged.
@@ -4368,123 +4368,6 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
-type GatewayBuildDiagnostics = NonNullable<GatewayStatus['build']>;
-type GatewayBuildFileDiagnostics = GatewayBuildDiagnostics['files'][number];
-
-const GATEWAY_BUILD_FILE_PAIRS: Array<{
-  name: string;
-  sourcePath: string;
-  buildPath: string;
-}> = [
-  {
-    name: 'cli',
-    sourcePath: 'src/cli.ts',
-    buildPath: 'dist/cli.js',
-  },
-  {
-    name: 'gateway-service',
-    sourcePath: 'src/gateway/gateway-service.ts',
-    buildPath: 'dist/gateway/gateway-service.js',
-  },
-  {
-    name: 'gateway-http-proxy',
-    sourcePath: 'src/gateway/gateway-http-proxy.ts',
-    buildPath: 'dist/gateway/gateway-http-proxy.js',
-  },
-  {
-    name: 'container-tools',
-    sourcePath: 'container/src/tools.ts',
-    buildPath: 'container/dist/tools.js',
-  },
-];
-
-function readFileModifiedAt(
-  filePath: string,
-): { timeMs: number; iso: string } | null {
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) return null;
-    return {
-      timeMs: stat.mtimeMs,
-      iso: stat.mtime.toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function getBuildFileStatus(
-  packageRoot: string,
-  filePair: (typeof GATEWAY_BUILD_FILE_PAIRS)[number],
-): GatewayBuildFileDiagnostics {
-  const sourcePath = path.join(packageRoot, filePair.sourcePath);
-  const buildPath = path.join(packageRoot, filePair.buildPath);
-  const sourceModified = readFileModifiedAt(sourcePath);
-  const buildModified = readFileModifiedAt(buildPath);
-  let status: GatewayBuildFileDiagnostics['status'] = 'ok';
-  if (!sourceModified) {
-    status = 'missing_source';
-  } else if (!buildModified) {
-    status = 'missing_build';
-  } else if (sourceModified.timeMs > buildModified.timeMs + 1000) {
-    status = 'source_newer';
-  }
-
-  return {
-    name: filePair.name,
-    sourcePath,
-    sourceModifiedAt: sourceModified?.iso ?? null,
-    buildPath,
-    buildModifiedAt: buildModified?.iso ?? null,
-    status,
-  };
-}
-
-function readGitValue(packageRoot: string, args: string[]): string | null {
-  const result = spawnSync('git', args, {
-    cwd: packageRoot,
-    encoding: 'utf-8',
-    maxBuffer: 64 * 1024,
-    stdio: ['ignore', 'pipe', 'ignore'],
-    timeout: 1000,
-  });
-  if (result.status !== 0) return null;
-  const value = result.stdout.trim();
-  return value || null;
-}
-
-function isStaleBuildStatus(status: GatewayBuildFileDiagnostics['status']) {
-  return status === 'source_newer' || status === 'missing_build';
-}
-
-function getGatewayBuildDiagnostics(): GatewayBuildDiagnostics {
-  const packageRoot = resolveInstallRoot();
-  const files = GATEWAY_BUILD_FILE_PAIRS.map((filePair) =>
-    getBuildFileStatus(packageRoot, filePair),
-  );
-  const gitBranch = readGitValue(packageRoot, [
-    'rev-parse',
-    '--abbrev-ref',
-    'HEAD',
-  ]);
-
-  return {
-    version: APP_VERSION,
-    gitCommit: readGitValue(packageRoot, ['rev-parse', '--verify', 'HEAD']),
-    gitBranch: gitBranch === 'HEAD' ? null : gitBranch,
-    packageRoot,
-    entrypoint: process.argv[1] || null,
-    cwd: process.cwd(),
-    execPath: process.execPath,
-    nodeVersion: process.version,
-    pid: process.pid,
-    ppid: process.ppid,
-    startedAt: GATEWAY_PROCESS_STARTED_AT,
-    staleBuild: files.some((file) => isStaleBuildStatus(file.status)),
-    files,
-  };
-}
-
 export async function getGatewayStatus(
   options: GatewayHealthOptions = {},
 ): Promise<GatewayStatus> {
@@ -4664,7 +4547,7 @@ export async function getGatewayStatus(
     pid: process.pid,
     lifecycle: getGatewayLifecycleStatus(),
     version: APP_VERSION,
-    build: getGatewayBuildDiagnostics(),
+    build: getGatewayBuildDiagnostics(resolveInstallRoot()),
     uptime: Math.floor(process.uptime()),
     sessions: getSessionCount(),
     activeContainers: sandbox.activeSessions,
@@ -5622,67 +5505,6 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
     },
     channels,
   };
-}
-
-export function upsertGatewayAdminChannel(
-  input: GatewayAdminChannelUpsertRequest,
-): GatewayAdminChannelsResponse {
-  const guildId = input.guildId.trim();
-  const channelId = input.channelId.trim();
-  if (!guildId || !channelId) {
-    throw new Error('Both `guildId` and `channelId` are required.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    if (input.transport === 'msteams') {
-      const team = draft.msteams.teams[guildId] ?? {
-        requireMention: draft.msteams.requireMention,
-        replyStyle: draft.msteams.replyStyle,
-        channels: {},
-      };
-      team.channels[channelId] = input.config;
-      draft.msteams.teams[guildId] = team;
-      return;
-    }
-
-    const guild = draft.discord.guilds[guildId] ?? {
-      defaultMode: 'mention',
-      channels: {},
-    };
-    guild.channels[channelId] = input.config;
-    draft.discord.guilds[guildId] = guild;
-  });
-
-  return getGatewayAdminChannels();
-}
-
-export function removeGatewayAdminChannel(params: {
-  transport?: 'discord' | 'msteams';
-  guildId: string;
-  channelId: string;
-}): GatewayAdminChannelsResponse {
-  const guildId = params.guildId.trim();
-  const channelId = params.channelId.trim();
-  if (!guildId || !channelId) {
-    throw new Error('Both `guildId` and `channelId` are required.');
-  }
-
-  updateRuntimeConfig((draft) => {
-    if (params.transport === 'msteams') {
-      const team = draft.msteams.teams[guildId];
-      if (!team?.channels[channelId]) return;
-      delete team.channels[channelId];
-      draft.msteams.teams[guildId] = team;
-      return;
-    }
-
-    const guild = draft.discord.guilds[guildId];
-    if (!guild?.channels[channelId]) return;
-    delete guild.channels[channelId];
-    draft.discord.guilds[guildId] = guild;
-  });
-
-  return getGatewayAdminChannels();
 }
 
 function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
@@ -12784,6 +12606,9 @@ export async function handleGatewayCommand(
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));
+
+      case 'import':
+        return handleImportCommand(req, resolveSessionAgentId(session));
 
       case 'device-data':
         return handleDeviceDataCommand(req);

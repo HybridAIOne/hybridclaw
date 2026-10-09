@@ -283,6 +283,7 @@ export function startHeartbeat(
         agentId: resolvedAgentId,
         channelId: heartbeatChannelId,
         allowedTools: HEARTBEAT_ALLOWED_TOOLS,
+        background: true,
       });
       emitToolExecutionAuditEvents({
         sessionId,

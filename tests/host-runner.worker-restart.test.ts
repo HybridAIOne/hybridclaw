@@ -485,3 +485,75 @@ test('HostExecutor gives the worker the browser a run asks for, else the configu
   expect(firstInput(spawned[0])).toMatchObject({ browserProvider: 'local' });
   expect(firstInput(spawned[1])).toMatchObject({ browserProvider: 'mac-cua' });
 });
+
+test('HostExecutor keeps the last process for a user turn while background runs fill the rest', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const finishRuns: Array<() => void> = [];
+  spawnImpl = spawn;
+  readOutputImpl = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finishRuns.push(() =>
+          resolve({
+            status: 'success',
+            result: 'ok',
+            toolsUsed: [],
+            artifacts: [],
+          }),
+        );
+      }),
+  );
+  resolveModelRuntimeCredentialsImpl = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'token',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: true,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+  const run = (sessionId: string, background: boolean, signal?: AbortSignal) =>
+    executor.exec({
+      sessionId,
+      messages: [{ role: 'user', content: 'hello' }],
+      chatbotId: 'bot-a',
+      enableRag: true,
+      model: 'gpt-5',
+      agentId: 'default',
+      channelId: 'web',
+      background,
+      abortSignal: signal,
+    });
+
+  try {
+    const scheduled = ['cron:1', 'cron:2', 'cron:3', 'cron:4'].map((id) =>
+      run(id, true),
+    );
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(4));
+
+    const lateCron = new AbortController();
+    const late = run('cron:5', true, lateCron.signal);
+    const userTurn = run('web:phone', false);
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(5));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(spawn).toHaveBeenCalledTimes(5);
+
+    lateCron.abort();
+    await expect(late).resolves.toMatchObject({ status: 'error' });
+    for (const finish of finishRuns) finish();
+    const results = await Promise.all([...scheduled, userTurn]);
+    expect(results.every((result) => result.status === 'success')).toBe(true);
+  } finally {
+    executor.stopAll();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});

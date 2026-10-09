@@ -4,7 +4,10 @@ import {
   registerJudgeSubscriber,
 } from '../evals/judge-subscriber.js';
 import { isDatabaseInitialized } from '../memory/db.js';
-import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import {
+  type AuxiliaryModelCallParams,
+  callAuxiliaryModel,
+} from '../providers/auxiliary.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { emitRuntimeEvent } from '../skills/skill-run-events.js';
 import type { ChatMessage } from '../types/api.js';
@@ -47,6 +50,7 @@ export interface JudgeGoalCompletionParams {
   assistantResponse: string;
   conversationContext?: string | null;
   fallbackModel?: string | null;
+  fallbackChatbotId?: string | null;
   /** @internal Test injection only. Production callers should use the configured goal_judge model. */
   modelCaller?: (
     params: GoalJudgeModelCallParams,
@@ -223,29 +227,27 @@ function isEmptyGoalJudgeResponseError(error: unknown): boolean {
 }
 
 async function callGoalJudgeAuxiliaryModel(
+  params: JudgeGoalCompletionParams,
   messages: ChatMessage[],
-  fallbackModel?: string | null,
 ): Promise<GoalJudgeModelCallResponse> {
+  const request: AuxiliaryModelCallParams = {
+    task: 'goal_judge',
+    messages,
+    agentId: params.agentId,
+    fallbackModel: params.fallbackModel?.trim() || undefined,
+    fallbackChatbotId: params.fallbackChatbotId?.trim() || undefined,
+    maxTokens: GOAL_JUDGE_MAX_TOKENS,
+    temperature: 0,
+    timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
+  };
   try {
     return await callAuxiliaryModel({
-      task: 'goal_judge',
-      messages,
-      fallbackModel: fallbackModel?.trim() || undefined,
-      maxTokens: GOAL_JUDGE_MAX_TOKENS,
-      temperature: 0,
-      timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
+      ...request,
       extraBody: GOAL_JUDGE_STRUCTURED_BODY,
     });
   } catch (error) {
     if (!isEmptyGoalJudgeResponseError(error)) throw error;
-    return await callAuxiliaryModel({
-      task: 'goal_judge',
-      messages,
-      fallbackModel: fallbackModel?.trim() || undefined,
-      maxTokens: GOAL_JUDGE_MAX_TOKENS,
-      temperature: 0,
-      timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
-    });
+    return await callAuxiliaryModel(request);
   }
 }
 
@@ -277,7 +279,7 @@ async function judgeGoalCompletionDirect(
           temperature: 0,
           timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
         })
-      : await callGoalJudgeAuxiliaryModel(messages, params.fallbackModel);
+      : await callGoalJudgeAuxiliaryModel(params, messages);
     try {
       await recordGoalJudgeUsage({
         sessionId: params.sessionId,
@@ -331,6 +333,7 @@ export function ensureGoalJudgeSubscriberRegistered(): void {
         assistantResponse: goalEvent.assistant_response,
         conversationContext: goalEvent.conversation_context,
         fallbackModel: goalEvent.fallback_model,
+        fallbackChatbotId: goalEvent.fallback_chatbot_id,
       });
       resolveGoalJudgeRequest(goalEvent.request_id, result);
     },
@@ -356,6 +359,7 @@ export async function judgeGoalCompletion(
     assistant_response: params.assistantResponse,
     conversation_context: params.conversationContext?.trim() || null,
     fallback_model: params.fallbackModel?.trim() || null,
+    fallback_chatbot_id: params.fallbackChatbotId?.trim() || null,
     created_at: new Date().toISOString(),
   };
 

@@ -20,12 +20,17 @@ import { queuePhoneSourceChange } from '../scheduler/connector-events.js';
 import { beginTurnUser, currentTurnUser } from '../session/turn-user.js';
 
 export const DEVICE_DATA_TOOL = 'device_data';
-// Limits are engineering choices (2026-09-30): a week of calendar is about
-// 5 KiB, and a phone shares a handful of sources. An address book is bigger:
-// 2,000 contacts at about 100 bytes each (2026-10-01).
+// Limits are engineering choices (2026-09-30): a phone shares a handful of
+// sources of a few KiB. An address book is bigger: 2,000 contacts at about 100
+// bytes each (2026-10-01). So is a calendar from the past month to a year
+// ahead (2026-10-08); the app sends as many whole days as fit.
 export const MAX_DEVICE_SOURCES = 8;
 export const MAX_DEVICE_SOURCE_BYTES = 16 * 1024;
-export const MAX_CONTACTS_SOURCE_BYTES = 256 * 1024;
+export const MAX_LARGE_SOURCE_BYTES = 256 * 1024;
+const LARGE_SOURCES = new Set(['calendar', 'contacts']);
+// The app lists a calendar's upcoming days first, so its first entries are the
+// ones most often needed.
+const LISTED_FROM_THE_TOP = new Set(['calendar']);
 // A source larger than this is read by query only, so one call cannot fill
 // the model's context.
 const MAX_UNFILTERED_BYTES = MAX_DEVICE_SOURCE_BYTES;
@@ -42,8 +47,8 @@ type DeviceSources = Record<string, DeviceSource>;
 export class DeviceDataError extends Error {}
 
 export function deviceSourceLimit(source: string): number {
-  return source === 'contacts'
-    ? MAX_CONTACTS_SOURCE_BYTES
+  return LARGE_SOURCES.has(source)
+    ? MAX_LARGE_SOURCE_BYTES
     : MAX_DEVICE_SOURCE_BYTES;
 }
 
@@ -195,17 +200,30 @@ function fold(text: string): string {
 
 /**
  * A source is a title and one `- ` line per entry. With a query, only the
- * entries that contain every word of it; a large source needs one.
+ * entries that contain every word of it; a large source needs one, except
+ * that a calendar shows its first entries.
  */
-function renderSource(text: string, query: string[]): string {
+function renderSource(id: string, text: string, query: string[]): string {
   const lines = text.split('\n');
   const entries = lines.filter((line) => line.startsWith('- '));
   const rest = lines.filter((line) => !line.startsWith('- '));
   if (query.length === 0) {
     if (Buffer.byteLength(text) <= MAX_UNFILTERED_BYTES) return text;
+    const shown: string[] = [];
+    if (LISTED_FROM_THE_TOP.has(id)) {
+      let room = MAX_UNFILTERED_BYTES - Buffer.byteLength(rest.join('\n'));
+      for (const entry of entries) {
+        room -= Buffer.byteLength(entry) + 1;
+        if (room < 0) break;
+        shown.push(entry);
+      }
+    }
     return [
       ...rest,
-      `(${entries.length} entries, too many to list at once: call \`device_data\` again with this \`source\` and a \`query\`.)`,
+      ...shown,
+      shown.length > 0
+        ? `(${entries.length - shown.length} more entries: call \`device_data\` again with this \`source\` and a \`query\`, such as a day or a month.)`
+        : `(${entries.length} entries, too many to list at once: call \`device_data\` again with this \`source\` and a \`query\`.)`,
     ].join('\n');
   }
   const matches = entries.filter((line) => {
@@ -260,7 +278,7 @@ export function renderDeviceDataForSession(
           timestamp > now);
       const text = stale
         ? 'This snapshot is stale. Ask the user to open Hy to refresh it before relying on it; its entries are withheld.'
-        : renderSource(source.text, words);
+        : renderSource(id, source.text, words);
       return `[${id}, updated ${source.updatedAt}]\n${text}`;
     }),
   ].join('\n\n');

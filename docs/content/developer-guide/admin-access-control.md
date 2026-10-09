@@ -107,7 +107,10 @@ The route-level action catalog and role bundle source of truth is
 [`src/security/admin-rbac.ts`](../../../src/security/admin-rbac.ts). An admin
 route with no action mapping there is denied to scoped sessions and scoped API
 tokens unless they hold the `*` wildcard, so every new admin route needs an
-entry.
+entry. Plugin admin routes (`api.registerAdminRoute`) carry their action in
+the registration instead and must name one from this catalog; the
+`admin.distill.*` actions belong to the `distill` plugin's routes under
+`/api/admin/distill`.
 
 ## Local-Only Slash Commands
 
@@ -152,8 +155,8 @@ can still issue narrower sessions by using explicit `actions` or `scope` claims.
 | --- | --- | --- | --- |
 | `admin.viewer` | Read-only operator or auditor | Admin overview, statistics, logs, team, agents, models, sessions, email, scheduler, channels, MCP, config read, browser pool health, A2A, fleet, signal, email config fetch, audit, approvals, tools, plugins, output guard read, distill read, skills read, jobs read | Mutations, secrets, terminal streams, gateway lifecycle |
 | `admin.operator` | Day-to-day runtime operator | `admin.viewer` plus tunnel reconnect, session deletion, scheduler writes/deletes, browser pool start, distill writes/deletes, job writes/deletes | Secrets, policy changes, config reload/write, terminal streams, gateway lifecycle |
-| `admin.integrations_manager` | Integration owner | `admin.viewer` plus team/agent writes, model writes, channel/MCP writes and deletes, webhook target writes, A2A/fleet writes and deletes, signal writes | Secrets, policy changes, terminal streams, gateway lifecycle |
-| `admin.config_manager` | Runtime configuration owner | `admin.viewer` plus config write/reload, model writes, channel/MCP writes and deletes, webhook target writes, email config fetch | Secrets, policy changes, terminal streams, gateway lifecycle |
+| `admin.integrations_manager` | Integration owner | `admin.viewer` plus team/agent writes, model writes, channel writes, MCP writes and deletes, webhook target writes, A2A writes and deletes, signal writes | Secrets, policy changes, terminal streams, gateway lifecycle |
+| `admin.config_manager` | Runtime configuration owner | `admin.viewer` plus config write/reload, model writes, channel writes, MCP writes and deletes, webhook target writes, email config fetch | Secrets, policy changes, terminal streams, gateway lifecycle |
 | `admin.security_manager` | Security owner | `admin.viewer` plus runtime secret metadata/write/unset, policy writes/deletes, output guard writes/previews, skills write/unblock/upload | Terminal streams, gateway lifecycle |
 | `admin.terminal_operator` | Break-glass runtime maintainer | Terminal start, stop, stream, overview read, jobs read | General admin mutations, secrets, policy, config |
 | `admin.full` | Break-glass administrator | Entire admin action catalog | Nothing |

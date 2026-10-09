@@ -373,20 +373,20 @@ describe('plugin install', () => {
     );
   });
 
-  test('resolves a bare plugin id from cwd/plugins before falling back to npm', async () => {
+  test('resolves a bare plugin id the package does not bundle from cwd/plugins before falling back to npm', async () => {
     const homeDir = makeTempDir('hybridclaw-plugin-home-');
     const cwd = makeTempDir('hybridclaw-plugin-cwd-');
-    const sourceDir = path.join(cwd, 'plugins', 'mempalace-memory');
+    const sourceDir = path.join(cwd, 'plugins', 'project-memory');
     const runtimeConfig = createRuntimeConfigState();
     writePluginDir(sourceDir, {
-      pluginId: 'mempalace-memory',
-      pluginName: 'MemPalace Memory',
-      packageName: '@scope/mempalace-memory',
+      pluginId: 'project-memory',
+      pluginName: 'Project Memory',
+      packageName: '@scope/project-memory',
     });
 
     const runCommand = vi.fn();
     const { installPlugin } = await import('../src/plugins/plugin-install.js');
-    const result = await installPlugin('mempalace-memory', {
+    const result = await installPlugin('project-memory', {
       homeDir,
       cwd,
       runCommand,
@@ -395,11 +395,11 @@ describe('plugin install', () => {
       updateRuntimeConfig: runtimeConfig.updateRuntimeConfig,
     });
 
-    expect(result.pluginId).toBe('mempalace-memory');
+    expect(result.pluginId).toBe('project-memory');
     expect(result.pluginDir).toBe(
-      path.join(homeDir, 'plugins', 'mempalace-memory'),
+      path.join(homeDir, 'plugins', 'project-memory'),
     );
-    expect(result.source).toBe('mempalace-memory');
+    expect(result.source).toBe('project-memory');
     expect(runCommand).toHaveBeenCalledTimes(1);
     expect(runCommand).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -411,7 +411,7 @@ describe('plugin install', () => {
           '--no-package-lock',
           '--no-audit',
           '--no-fund',
-          '@scope/mempalace-memory',
+          '@scope/project-memory',
         ],
       }),
     );

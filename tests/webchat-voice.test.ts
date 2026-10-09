@@ -33,6 +33,7 @@ class FakeRealtimeSocket implements RealtimeSocket {
 
   open(): void {
     for (const listener of this.listeners.get('open') || []) listener();
+    this.serverEvent({ type: 'session.updated' });
   }
 
   serverEvent(event: Record<string, unknown>): void {
@@ -69,10 +70,11 @@ class FakeBrowserSocket {
     for (const listener of this.listeners.get('close') || []) listener();
   }
 
-  clientFrame(frame: Record<string, unknown>): void {
+  async clientFrame(frame: Record<string, unknown>): Promise<void> {
     for (const listener of this.listeners.get('message') || []) {
       listener(JSON.stringify(frame));
     }
+    await Promise.resolve();
   }
 
   sentOfType(type: string): Array<Record<string, unknown>> {
@@ -87,8 +89,41 @@ const handleGatewayMessage = vi.fn(async (_request: unknown) => ({
 }));
 
 const persistVoiceTranscript = vi.fn();
+const loadVoiceHistory = vi.fn(async () => [] as Array<{ role: 'user' | 'assistant'; text: string }>);
+const consultInstructions = vi.fn((timeZone?: string) => `Clock context for ${timeZone ?? 'unknown timezone'}`);
+
+function mockVoiceContext() {
+  vi.doMock('../src/gateway/webchat-voice-context.js', () => ({
+    loadWebchatVoiceHistory: loadVoiceHistory, voiceConsultInstructions: consultInstructions,
+  }));
+}
+
+// The agent's name and the user's details from USER.md, as the runtime reads them.
+const callContext = {
+  displayNameForAgent: vi.fn((_agentId: string) => 'Hy'),
+  readUserNames: vi.fn((_agentId: string) => ({
+    name: 'Anna' as string | null,
+    fullName: null as string | null,
+  })),
+  readUserTimezone: vi.fn((_agentId: string) => 'Europe/Berlin'),
+  formatCurrentTime: vi.fn(
+    (_timezone?: string) => 'Thursday, October 8th, 2026 — 21:30 (Europe/Berlin)',
+  ),
+};
+
+function mockCallContext(): void {
+  vi.doMock('../src/agents/agent-registry.js', () => ({
+    displayNameForAgent: callContext.displayNameForAgent,
+  }));
+  vi.doMock('../src/workspace.js', () => ({
+    readUserNames: callContext.readUserNames,
+    readUserTimezone: callContext.readUserTimezone,
+    formatCurrentTime: callContext.formatCurrentTime,
+  }));
+}
 
 async function createConnection(params?: { apiKey?: string }) {
+  mockVoiceContext();
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: params?.apiKey ?? 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
@@ -105,6 +140,7 @@ async function createConnection(params?: { apiKey?: string }) {
     persistVoiceTranscript,
     VOICE_MESSAGE_SOURCE: 'voice',
   }));
+  mockCallContext();
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: () => {},
@@ -133,6 +169,7 @@ async function createConnection(params?: { apiKey?: string }) {
 }
 
 async function loadWebchatVoiceModule() {
+  mockVoiceContext();
   vi.doMock('../src/config/config.js', () => ({
     OPENAI_API_KEY: 'test-key',
     HYBRIDAI_BASE_URL: 'https://hybridai.example',
@@ -149,6 +186,7 @@ async function loadWebchatVoiceModule() {
     persistVoiceTranscript,
     VOICE_MESSAGE_SOURCE: 'voice',
   }));
+  mockCallContext();
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: () => {},
@@ -167,10 +205,16 @@ async function flushAsync(): Promise<void> {
 afterEach(() => {
   handleGatewayMessage.mockClear();
   persistVoiceTranscript.mockClear();
+  loadVoiceHistory.mockReset();
+  loadVoiceHistory.mockResolvedValue([]);
+  consultInstructions.mockClear();
+  vi.doUnmock('../src/gateway/webchat-voice-context.js');
   vi.doUnmock('../src/config/config.js');
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/gateway/gateway-chat-service.js');
   vi.doUnmock('../src/gateway/voice-transcript-store.js');
+  vi.doUnmock('../src/agents/agent-registry.js');
+  vi.doUnmock('../src/workspace.js');
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
 });
@@ -178,7 +222,7 @@ afterEach(() => {
 test('start frame opens a PCM16 web realtime session and acks with ready', async () => {
   const { browser, realtime } = await createConnection();
 
-  browser.clientFrame({ type: 'start' });
+  await browser.clientFrame({ type: 'start' });
   realtime.open();
 
   const [sessionUpdate] = realtime.sentOfType('session.update');
@@ -198,7 +242,7 @@ test('start frame opens a PCM16 web realtime session and acks with ready', async
 test('a language in the start frame pins speech and transcription', async () => {
   const { browser, realtime } = await createConnection();
 
-  browser.clientFrame({ type: 'start', language: 'en' });
+  await browser.clientFrame({ type: 'start', language: 'en' });
   realtime.open();
 
   const [sessionUpdate] = realtime.sentOfType('session.update');
@@ -215,7 +259,7 @@ test('a language in the start frame pins speech and transcription', async () => 
 test('an unsupported language leaves the voice unpinned', async () => {
   const { browser, realtime } = await createConnection();
 
-  browser.clientFrame({ type: 'start', language: 'klingon' });
+  await browser.clientFrame({ type: 'start', language: 'klingon' });
   realtime.open();
 
   const [sessionUpdate] = realtime.sentOfType('session.update');
@@ -231,7 +275,7 @@ test('a valid canonical sessionId from the client is kept for consults', async (
   const { browser, realtime } = await createConnection();
   const sessionId = 'agent:main:channel:web:chat:dm:peer:abc123';
 
-  browser.clientFrame({ type: 'start', sessionId, agentId: 'main' });
+  await browser.clientFrame({ type: 'start', sessionId, agentId: 'main' });
   realtime.open();
 
   const [ready] = browser.sentOfType('ready');
@@ -272,7 +316,7 @@ test("a call from the phone app consults as the app's chat", async () => {
   const { browser, realtime } = await createConnection();
   const sessionId = 'main-0123456789abcdef';
 
-  browser.clientFrame({
+  await browser.clientFrame({
     type: 'start',
     sessionId,
     agentId: 'main',
@@ -297,7 +341,7 @@ test("a call from the phone app consults as the app's chat", async () => {
 test('an unknown client is not passed on to consults', async () => {
   const { browser, realtime } = await createConnection();
 
-  browser.clientFrame({ type: 'start', client: 'desktop' });
+  await browser.clientFrame({ type: 'start', client: 'desktop' });
   realtime.open();
   realtime.serverEvent({
     type: 'response.function_call_arguments.done',
@@ -311,12 +355,62 @@ test('an unknown client is not passed on to consults', async () => {
   expect(handleGatewayMessage.mock.calls[0][0]).not.toHaveProperty('client');
 });
 
-test('audio flows both ways and barge-in clears browser playback', async () => {
+function sentInstructions(realtime: FakeRealtimeSocket): string {
+  const [sessionUpdate] = realtime.sentOfType('session.update');
+  return String((sessionUpdate.session as Record<string, unknown>).instructions);
+}
+
+test('the voice picks up knowing its name, the user and the time', async () => {
   const { browser, realtime } = await createConnection();
-  browser.clientFrame({ type: 'start' });
+
+  await browser.clientFrame({ type: 'start', agentId: 'hy', client: 'mobile' });
   realtime.open();
 
-  browser.clientFrame({ type: 'audio', payload: 'dGVzdA==' });
+  expect(callContext.displayNameForAgent).toHaveBeenCalledWith('hy');
+  const instructions = sentInstructions(realtime);
+  expect(instructions).toContain('You are the realtime voice of Hy,');
+  expect(instructions).not.toContain('HybridClaw');
+  expect(instructions).toContain('User details: name Anna.');
+  expect(instructions).toContain(
+    'Current date and time for the user: Thursday, October 8th, 2026 — 21:30 (Europe/Berlin).',
+  );
+});
+
+test('a call goes ahead when the context cannot be read', async () => {
+  callContext.readUserNames.mockImplementationOnce(() => {
+    throw new Error('USER.md unreadable');
+  });
+  const { browser, realtime } = await createConnection();
+
+  await browser.clientFrame({ type: 'start', agentId: 'hy' });
+  realtime.open();
+
+  expect(browser.sentOfType('ready')).toHaveLength(1);
+  const instructions = sentInstructions(realtime);
+  // The console login's name stands in when USER.md has none.
+  expect(instructions).toContain('User details: name Ada.');
+});
+
+test.each([
+  ['an unknown session id', 'agent:main:channel:web:chat:dm:peer:unknown1'],
+  ['no session id', undefined],
+])('starting with %s gives no preloaded messages', async (_label, sessionId) => {
+  const { browser, realtime } = await createConnection();
+
+  await browser.clientFrame({ type: 'start', sessionId });
+  realtime.open();
+
+  expect(sentInstructions(realtime)).not.toContain('earlier_chat');
+  expect(realtime.sentOfType('conversation.item.create')).toEqual([]);
+  expect(loadVoiceHistory).toHaveBeenCalledTimes(1);
+});
+
+test('audio flows both ways and barge-in clears browser playback', async () => {
+  const { browser, realtime } = await createConnection();
+  await browser.clientFrame({ type: 'start' });
+  realtime.open();
+
+  await browser.clientFrame({ type: 'audio', payload: 'dGVzdA==' });
   expect(realtime.sentOfType('input_audio_buffer.append')).toEqual([
     { type: 'input_audio_buffer.append', audio: 'dGVzdA==' },
   ]);
@@ -334,7 +428,7 @@ test('audio flows both ways and barge-in clears browser playback', async () => {
 
 test('transcripts reach the browser with web roles', async () => {
   const { browser, realtime } = await createConnection();
-  browser.clientFrame({ type: 'start' });
+  await browser.clientFrame({ type: 'start' });
   realtime.open();
 
   realtime.serverEvent({
@@ -355,7 +449,7 @@ test('transcripts reach the browser with web roles', async () => {
 test('spoken turns persist into session history as voice messages', async () => {
   const { browser, realtime } = await createConnection();
   const sessionId = 'agent:main:channel:web:chat:dm:peer:abc123';
-  browser.clientFrame({ type: 'start', sessionId, agentId: 'main' });
+  await browser.clientFrame({ type: 'start', sessionId, agentId: 'main' });
   realtime.open();
 
   realtime.serverEvent({
@@ -406,7 +500,7 @@ test('consult tool activity streams to the browser as consult frames', async () 
     };
   });
   const { browser, realtime } = await createConnection();
-  browser.clientFrame({ type: 'start' });
+  await browser.clientFrame({ type: 'start' });
   realtime.open();
 
   realtime.serverEvent({
@@ -426,7 +520,7 @@ test('consult tool activity streams to the browser as consult frames', async () 
 test('malformed frames close the socket with a policy violation', async () => {
   const { browser, finished } = await createConnection();
 
-  browser.clientFrame({ type: 'bogus' });
+  await browser.clientFrame({ type: 'bogus' });
 
   expect(browser.sentOfType('error')).toHaveLength(1);
   expect(browser.closeCode).toBe(1008);
@@ -435,10 +529,10 @@ test('malformed frames close the socket with a policy violation', async () => {
 
 test('stop ends the session and closes the upstream socket', async () => {
   const { browser, realtime, finished } = await createConnection();
-  browser.clientFrame({ type: 'start' });
+  await browser.clientFrame({ type: 'start' });
   realtime.open();
 
-  browser.clientFrame({ type: 'stop' });
+  await browser.clientFrame({ type: 'stop' });
 
   expect(browser.sentOfType('ended')).toHaveLength(1);
   expect(browser.closeCode).toBe(1000);
@@ -449,7 +543,7 @@ test('stop ends the session and closes the upstream socket', async () => {
 test('starting without an OpenAI key fails closed', async () => {
   const { browser, finished } = await createConnection({ apiKey: '' });
 
-  browser.clientFrame({ type: 'start' });
+  await browser.clientFrame({ type: 'start' });
 
   const [error] = browser.sentOfType('error');
   expect(String(error.message)).toContain('OpenAI API key');
@@ -521,5 +615,131 @@ test('pending stream tokens are capped until stale mints expire', async () => {
     ).not.toBeNull();
   } finally {
     vi.useRealTimers();
+  }
+});
+
+test('the mobile call remains ringing until its chat is preloaded', async () => {
+  loadVoiceHistory.mockResolvedValue([
+    { role: 'assistant', text: 'The train leaves at eight.' },
+  ]);
+  const { browser, realtime } = await createConnection();
+  await browser.clientFrame({
+    type: 'start',
+    sessionId: 'mobile-chat',
+    agentId: 'hy',
+    client: 'mobile',
+    timeZone: 'Europe/Berlin',
+  });
+  realtime.open();
+  expect(loadVoiceHistory).toHaveBeenCalledWith('mobile-chat', 'hy', 'user-1');
+  expect(browser.sentOfType('ready')).toEqual([]);
+  expect(realtime.sentOfType('response.create')).toEqual([]);
+  const item = realtime.sentOfType('conversation.item.create')[0].item;
+  realtime.serverEvent({ type: 'conversation.item.done', item });
+  expect(browser.sentOfType('ready')).toEqual([
+    { type: 'ready', sessionId: 'mobile-chat' },
+  ]);
+  expect(realtime.sentOfType('response.create')).toHaveLength(1);
+  realtime.serverEvent({
+    type: 'response.function_call_arguments.done',
+    call_id: 'time',
+    name: 'consult_agent',
+    arguments: '{"request":"What time is it?"}',
+  });
+  await flushAsync();
+  expect(consultInstructions).toHaveBeenCalledWith('Europe/Berlin');
+  expect(handleGatewayMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      instructions: 'Clock context for Europe/Berlin',
+      content: 'What time is it?',
+    }),
+  );
+  browser.close();
+});
+
+test('a history loading failure cannot open a context-free call', async () => {
+  loadVoiceHistory.mockImplementation(() => {
+    throw new Error('not owned');
+  });
+  const { browser, realtime } = await createConnection();
+  await browser.clientFrame({ type: 'start', sessionId: 'someone-elses-chat' });
+  expect(browser.closeCode).toBe(1011);
+  expect(browser.sentOfType('ready')).toEqual([]);
+  expect(realtime.sent).toEqual([]);
+});
+
+test('a call whose history never finalizes times out while ringing', async () => {
+  vi.useFakeTimers();
+  try {
+    loadVoiceHistory.mockResolvedValue([
+      { role: 'user', text: 'Earlier turn' },
+    ]);
+    const { browser, realtime } = await createConnection();
+    await browser.clientFrame({ type: 'start' });
+    realtime.open();
+    await vi.advanceTimersByTimeAsync(20_001);
+    expect(browser.closeCode).toBe(1011);
+    expect(browser.sentOfType('ready')).toEqual([]);
+    expect(realtime.readyState).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test.each([42, null, [], 'Invalid/Zone', 'x'.repeat(101)])(
+  'rejects invalid voice start timezone %j',
+  async (timeZone) => {
+    const { browser, realtime } = await createConnection();
+    await browser.clientFrame({ type: 'start', timeZone });
+    expect(browser.closeCode).toBe(1008);
+    expect(realtime.sent).toEqual([]);
+    expect(browser.sentOfType('error')[0]?.message).toBe(
+      'Invalid voice timezone.',
+    );
+  },
+);
+
+test('hanging up during auxiliary summarization cannot open a late upstream call', async () => {
+  let finish!: (history: Awaited<ReturnType<typeof loadVoiceHistory>>) => void;
+  loadVoiceHistory.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const { browser, realtime } = await createConnection();
+  try {
+    await browser.clientFrame({ type: 'start' });
+    expect(browser.sentOfType('ready')).toEqual([]);
+    expect(realtime.url).toBe('');
+    browser.close();
+    finish([{ role: 'user', text: 'Previous conversation summary' }]);
+    await flushAsync();
+    expect(realtime.url).toBe('');
+    expect(realtime.sent).toEqual([]);
+  } finally {
+    finish([]);
+    browser.close();
+  }
+});
+
+test('a second start cannot launch another summary while the first is pending', async () => {
+  let finish!: (history: Awaited<ReturnType<typeof loadVoiceHistory>>) => void;
+  loadVoiceHistory.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const { browser, realtime } = await createConnection();
+  try {
+    await browser.clientFrame({ type: 'start' });
+    await browser.clientFrame({ type: 'start' });
+    expect(loadVoiceHistory).toHaveBeenCalledTimes(1);
+    expect(browser.closeCode).toBe(1008);
+    finish([]);
+    await flushAsync();
+    expect(realtime.url).toBe('');
+  } finally {
+    finish([]);
+    browser.close();
   }
 });
