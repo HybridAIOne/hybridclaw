@@ -47,9 +47,6 @@ import type {
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
   AdminFleetTopologyResponse,
-  AdminHarnessEvolutionManifestResponse,
-  AdminHarnessEvolutionResponse,
-  AdminHarnessEvolutionRunResponse,
   AdminHybridAIBot,
   AdminHybridAIBotsResponse,
   AdminInteractionResponse,
@@ -1799,41 +1796,6 @@ export function fetchAgentScoreboard(
 ): Promise<AdminAgentScoreboardResponse> {
   return requestJson<AdminAgentScoreboardResponse>(
     '/api/admin/agent-scoreboard',
-    { token },
-  );
-}
-
-export function fetchHarnessEvolutionRuns(
-  token: string,
-  targetRoot: string,
-): Promise<AdminHarnessEvolutionResponse> {
-  const params = new URLSearchParams({ targetRoot });
-  return requestJson<AdminHarnessEvolutionResponse>(
-    `/api/admin/harness-evolution?${params.toString()}`,
-    { token },
-  );
-}
-
-export function fetchHarnessEvolutionRun(
-  token: string,
-  targetRoot: string,
-  summaryPath: string,
-): Promise<AdminHarnessEvolutionRunResponse> {
-  const params = new URLSearchParams({ targetRoot, summaryPath });
-  return requestJson<AdminHarnessEvolutionRunResponse>(
-    `/api/admin/harness-evolution?${params.toString()}`,
-    { token },
-  );
-}
-
-export function fetchHarnessEvolutionManifest(
-  token: string,
-  targetRoot: string,
-  manifestPath: string,
-): Promise<AdminHarnessEvolutionManifestResponse> {
-  const params = new URLSearchParams({ targetRoot, manifestPath });
-  return requestJson<AdminHarnessEvolutionManifestResponse>(
-    `/api/admin/harness-evolution?${params.toString()}`,
     { token },
   );
 }

@@ -11,7 +11,6 @@ import {
   Dashboard,
   Flask,
   Gateway,
-  Harness,
   Jobs,
   Lightbulb,
   Logs,
@@ -115,11 +114,6 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Labs',
     defaultCollapsed: true,
     items: [
-      {
-        to: '/admin/harness-evolution',
-        label: 'Harness Evolution',
-        icon: Harness,
-      },
       { to: '/admin/distill', label: 'Distill', icon: Flask },
       {
         to: '/admin/routing-evaluator',

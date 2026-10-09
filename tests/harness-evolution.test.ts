@@ -7,13 +7,13 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   calculateEvolutionMetrics,
   initializeHarnessWorkspace,
-  listHarnessEvolutionRuns,
   renderEvolutionChart,
   resolveHarnessSurfacePath,
   runHarnessEvolutionLoop,
   validateBashOnlySeed,
   writeHarnessSurfaceFile,
-} from '../src/evolution/harness-evolution.ts';
+} from '../eval-harness/src/harness-evolution.ts';
+import { listHarnessEvolutionRuns } from '../eval-harness/src/harness-evolution-runs.ts';
 import {
   makeStdiolessChildProcess,
   settleCatchingUncaught,
@@ -481,7 +481,7 @@ describe('harness evolution', () => {
       ...(await importOriginal<typeof import('node:child_process')>()),
       spawn: spawnMock,
     }));
-    const evolution = await import('../src/evolution/harness-evolution.ts');
+    const evolution = await import('../eval-harness/src/harness-evolution.ts');
 
     const { outcome, uncaught } = await settleCatchingUncaught(() =>
       evolution.runHarnessEvolutionLoop({

@@ -1,14 +1,24 @@
+/**
+ * R10a harness-evolution loop: rollouts, F12 manifests, attribution rollback.
+ *
+ * Writes only the seven editable surfaces of one target workspace and keeps
+ * every run artifact under its `runs/`. Unshipped: the eval-harness CLI
+ * (`harness-evolve-command.ts`) is its only caller, never the gateway.
+ */
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { redactSecrets } from '../security/redact.js';
+import { redactSecrets } from '../../src/security/redact.js';
+import {
+  readHarnessEvolutionManifest,
+  writeRunListEntry,
+} from './harness-evolution-runs.js';
 import {
   type AgentRiskReferences,
   assertHarnessRiskCoverage,
   calculateHarnessRiskCoverage,
-  emptyRiskReferences,
   type HarnessRiskCoverage,
   type HarnessRiskCoverageRequirements,
   parseAgentRiskReferences,
@@ -334,26 +344,6 @@ export interface HarnessEvolutionLoopOptions {
   evolveAgent?: EvolveAgentRunner;
 }
 
-export interface HarnessEvolutionRunListEntry {
-  runId: string;
-  targetRoot: string;
-  suiteId: string;
-  suiteName: string;
-  roundCount: number;
-  bestPassAt1: number;
-  bestRound: number | null;
-  totalCostUsd: number;
-  seedDeltaMode: EvolutionSeedDelta['mode'];
-  seedDeltaChangedSurfaceCount: number;
-  summaryPath: string;
-  createdAt: string;
-}
-
-export interface HarnessEvolutionAdminState {
-  targetRoot: string;
-  runs: HarnessEvolutionRunListEntry[];
-}
-
 export function initializeHarnessWorkspace(targetRoot: string): void {
   fs.mkdirSync(targetRoot, { recursive: true });
   for (const surface of FILE_SURFACES) {
@@ -563,126 +553,6 @@ export function loadEvolutionEvalSuite(suitePath: string): EvolutionEvalSuite {
   };
 }
 
-export function listHarnessEvolutionRuns(
-  targetRoot: string,
-): HarnessEvolutionAdminState {
-  const root = path.resolve(targetRoot);
-  const runsDir = path.join(root, 'runs');
-  if (!fs.existsSync(runsDir)) {
-    return { targetRoot: root, runs: [] };
-  }
-  const runs = fs
-    .readdirSync(runsDir)
-    .map((entry) => readRunListEntry(path.join(runsDir, entry)))
-    .filter((entry): entry is HarnessEvolutionRunListEntry => entry !== null)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  return { targetRoot: root, runs };
-}
-
-export function readHarnessEvolutionSummary(
-  summaryPath: string,
-): EvolutionRunResult {
-  const absolutePath = path.resolve(summaryPath);
-  const parsed = readJsonFile<EvolutionRunResult | undefined>(
-    absolutePath,
-    'harness evolution summary',
-  );
-  if (!parsed || typeof parsed !== 'object' || !parsed.runId) {
-    throw new Error(`Invalid harness evolution summary: ${summaryPath}`);
-  }
-  return {
-    ...parsed,
-    suite: withRiskCoverage(parsed.suite),
-    summaryPath: absolutePath,
-  };
-}
-
-function withRiskCoverage(suite: EvolutionEvalSuite): EvolutionEvalSuite {
-  const tasks = suite.tasks.map((task) => ({
-    ...task,
-    riskReferences: task.riskReferences || emptyRiskReferences(),
-  }));
-  const riskCoverageRequirements =
-    suite.riskCoverageRequirements ||
-    parseHarnessRiskCoverageRequirements(undefined);
-  const riskCoverage =
-    suite.riskCoverage ||
-    calculateHarnessRiskCoverage(tasks, riskCoverageRequirements);
-  return {
-    ...suite,
-    tasks,
-    riskCoverageRequirements,
-    riskCoverage,
-  };
-}
-
-export function readHarnessEvolutionManifest(
-  manifestPath: string,
-): F12HarnessManifest {
-  const absolutePath = path.resolve(manifestPath);
-  const parsed = readJsonFile<F12HarnessManifest | undefined>(
-    absolutePath,
-    'F12 harness manifest',
-  );
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.entries)) {
-    throw new Error(`Invalid F12 harness manifest: ${manifestPath}`);
-  }
-  return parsed;
-}
-
-function readJsonFile<T>(filePath: string, label: string): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
-  } catch (error) {
-    throw new Error(
-      `Invalid ${label} JSON at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function readRunListEntry(runDir: string): HarnessEvolutionRunListEntry | null {
-  const listEntryPath = path.join(runDir, 'list-entry.json');
-  if (fs.existsSync(listEntryPath)) {
-    return readJsonFile<HarnessEvolutionRunListEntry>(
-      listEntryPath,
-      'harness evolution run list entry',
-    );
-  }
-  const summaryPath = path.join(runDir, 'summary.json');
-  if (!fs.existsSync(summaryPath)) return null;
-  const summary = readHarnessEvolutionSummary(summaryPath);
-  const stat = fs.statSync(summary.summaryPath);
-  return makeRunListEntry(summary, stat.birthtime.toISOString());
-}
-
-function makeRunListEntry(
-  result: EvolutionRunResult,
-  createdAt = new Date().toISOString(),
-): HarnessEvolutionRunListEntry {
-  return {
-    runId: result.runId,
-    targetRoot: result.targetRoot,
-    suiteId: result.suite.id,
-    suiteName: result.suite.name,
-    roundCount: result.rounds.length,
-    bestPassAt1: result.bestPassAt1,
-    bestRound: result.bestRound,
-    totalCostUsd: result.costGate.totalCostUsd,
-    seedDeltaMode: result.seedDelta.mode,
-    seedDeltaChangedSurfaceCount: result.seedDelta.changedSurfaceCount,
-    summaryPath: result.summaryPath,
-    createdAt,
-  };
-}
-
-function writeRunListEntry(runDir: string, result: EvolutionRunResult): void {
-  fs.writeFileSync(
-    path.join(runDir, 'list-entry.json'),
-    `${JSON.stringify(makeRunListEntry(result), null, 2)}\n`,
-    'utf-8',
-  );
-}
-
 export function calculateEvolutionMetrics(
   outcomes: EvolutionTaskOutcome[],
 ): EvolutionMetrics {
@@ -729,9 +599,19 @@ export function readDebuggerReport(reportPath: string): string {
 export async function runEvolveAgent(
   request: EvolveAgentRunRequest,
 ): Promise<EvolveAgentRunResult> {
-  const { callAuxiliaryModel } = await import('../providers/auxiliary.js');
+  const { callAuxiliaryModel } = await import(
+    '../../src/providers/auxiliary.js'
+  );
+  const { getRuntimeConfig } = await import(
+    '../../src/config/runtime-config.js'
+  );
+  const { hybridai } = getRuntimeConfig();
   const response = await callAuxiliaryModel({
     task: 'eval_judge',
+    // Without an `eval_judge` model, fall back to the configured default
+    // model instead of failing when no fixed remote fallback is configured.
+    fallbackModel: hybridai.defaultModel,
+    fallbackChatbotId: hybridai.defaultChatbotId,
     temperature: 0.2,
     maxTokens: 4_000,
     messages: [
@@ -1155,9 +1035,18 @@ export function renderEvolutionChart(result: EvolutionRunResult): string {
       ].join(' | '),
     );
     lines.push(`      manifest: ${round.manifestPath}`);
+    const agent = round.evolveAgent;
+    if (agent) {
+      const via = agent.model
+        ? ` via ${agent.provider ?? '?'} ${agent.model}`
+        : '';
+      lines.push(`      edits from: ${agent.source}${via}`);
+    }
   }
   lines.push(
-    `Best: ${result.bestRound === null ? 'none' : `round ${result.bestRound}`} pass@1=${formatNumber(result.bestPassAt1)}`,
+    result.bestRound === null
+      ? `Best: no round beat the prior best (pass@1=${formatNumber(result.bestPassAt1)})`
+      : `Best: round ${result.bestRound} pass@1=${formatNumber(result.bestPassAt1)}`,
   );
   if (!result.costGate.ok && result.costGate.reason) {
     lines.push(`Cost gate: failed (${result.costGate.reason})`);
@@ -1891,11 +1780,13 @@ function commitEvolutionRound(
   round: number,
   runId: string,
 ): string | null {
+  // H_best.json appears only once a round improves on the seed; staging a
+  // missing path makes `git add` fail the whole round.
   const stagePaths = [
     ...HARNESS_SURFACES.map((surface) => surface.relativePath),
     'H_best.json',
     'runs',
-  ];
+  ].filter((entry) => fs.existsSync(path.join(targetRoot, entry)));
   const add = spawnSync('git', ['add', ...stagePaths], {
     cwd: targetRoot,
     encoding: 'utf-8',

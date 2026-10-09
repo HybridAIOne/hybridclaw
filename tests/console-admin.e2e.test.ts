@@ -1,4 +1,9 @@
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import {
+  type ChildProcess,
+  execFileSync,
+  spawn,
+  spawnSync,
+} from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,6 +41,7 @@ const tempDirs: string[] = [];
 let gateway: ChildProcess | null = null;
 let gatewayLog = '';
 let baseUrl = '';
+let dataDir = '';
 let browser: Browser;
 let page: Page;
 const cspViolations: string[] = [];
@@ -44,7 +50,7 @@ async function startGateway(): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-console-e2e-'));
   tempDirs.push(root);
   const home = path.join(root, 'home');
-  const dataDir = path.join(root, 'data');
+  dataDir = path.join(root, 'data');
   fs.mkdirSync(home);
   fs.mkdirSync(dataDir);
   const port = await getAvailablePort(
@@ -613,6 +619,85 @@ describe.skipIf(!RUN)('admin console against a live gateway', () => {
       expect(content).toContain(
         'The e2e subject writes short, plain sentences.',
       );
+    });
+  });
+
+  // Harness evolution moved to `npm run eval -- harness-evolve`; installs that
+  // upgrade keep old bookmarks, scoped tokens, and shell habits.
+  describe('harness evolution leaves core', () => {
+    async function status(pathname: string, token?: string): Promise<number> {
+      const response = await fetch(`${baseUrl}${pathname}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return response.status;
+    }
+
+    test('the removed admin route is gone behind auth, not exposed before it', async () => {
+      const route = '/api/admin/harness-evolution?targetRoot=/tmp';
+      expect(await status(route, WEB_API_TOKEN)).toBe(404);
+      expect(await status(route)).toBe(401);
+    });
+
+    test('a scoped token that still lists the removed action keeps its other actions', async () => {
+      const { token } = await api<{ token: string }>('/api/admin/tokens', {
+        method: 'POST',
+        body: {
+          label: 'e2e-legacy-harness-scope',
+          actions: [
+            'admin.harness_evolution.read',
+            'admin.agent_scoreboard.read',
+          ],
+        },
+      });
+      expect(await status('/api/admin/agent-scoreboard', token)).toBe(200);
+      expect(
+        await status('/api/admin/harness-evolution?targetRoot=/tmp', token),
+      ).toBe(403);
+      expect(await status('/api/admin/config', token)).toBe(403);
+    });
+
+    test('a bookmarked console page shows Not Found and the sidebar has no entry', async () => {
+      await open('/admin/harness-evolution');
+      await page.getByText('Not Found', { exact: true }).waitFor();
+      await expect(
+        page.getByRole('link', { name: /Harness Evolution/ }).count(),
+      ).resolves.toBe(0);
+    });
+
+    test('adaptive skills settings are editable on the Config page', async () => {
+      await open('/admin/config?section=adaptiveSkills');
+      await page
+        .getByRole('button', { name: 'Adaptive Skills', exact: true })
+        .click();
+      const toggle = page.getByRole('switch', { name: 'Auto Apply Enabled' });
+      const before = (await toggle.getAttribute('aria-checked')) === 'true';
+      await toggle.click();
+      await page.getByRole('button', { name: 'Save changes' }).click();
+      await expect
+        .poll(async () => {
+          const { config } = await api<{
+            config: { adaptiveSkills: { autoApplyEnabled: boolean } };
+          }>('/api/admin/config');
+          return config.adaptiveSkills.autoApplyEnabled;
+        })
+        .toBe(!before);
+    });
+
+    // compat: remove after v0.41, with the `harness-evolve` case in src/cli.ts.
+    test.each([
+      [['harness-evolve', 'list', '--target', '.']],
+      [['help', 'harness-evolve']],
+    ])('the installed CLI points %j at the eval harness', (argv) => {
+      const result = spawnSync(process.execPath, [CLI, ...argv], {
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: path.join(path.dirname(dataDir), 'home'),
+          HYBRIDCLAW_DATA_DIR: dataDir,
+        },
+        encoding: 'utf-8',
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('`npm run eval -- harness-evolve`');
     });
   });
 });
