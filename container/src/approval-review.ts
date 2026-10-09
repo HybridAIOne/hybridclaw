@@ -4,6 +4,10 @@
  * Credentials and attachment bytes are not part of the review transport.
  */
 import { isRecord } from './search-utils.js';
+import {
+  INBOX_CLEANUP_TOOL,
+  inboxCleanupReview,
+} from './tools/inbox-cleanup.js';
 
 let emailSender: string | undefined;
 let userMailSendTools: string[] = [];
@@ -202,6 +206,7 @@ export function approvalReviewArguments(
   toolName: string,
   argsJson: string,
 ): string | undefined {
+  if (toolName === INBOX_CLEANUP_TOOL) return inboxCleanupReview(argsJson);
   if (toolName === 'message') {
     try {
       const args: unknown = JSON.parse(argsJson);
