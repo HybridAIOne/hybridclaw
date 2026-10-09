@@ -18,7 +18,11 @@ export function poolAuthHeaders(poolToken) {
 }
 
 export function normalizeManagedCloudEndpointUrl(endpointUrl) {
-  return (endpointUrl || DEFAULT_ENDPOINT_URL).replace(/\/+$/u, '');
+  // A scan instead of /\/+$/, which backtracks polynomially on many slashes.
+  const url = endpointUrl || DEFAULT_ENDPOINT_URL;
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end -= 1;
+  return url.slice(0, end);
 }
 
 function toRecord(payload, context) {

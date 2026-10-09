@@ -516,6 +516,31 @@ test('browser-use cloud provider refuses to start unmetered sessions', async () 
   expect(mock.connectOverCDP).not.toHaveBeenCalled();
 });
 
+test('browser-use cloud provider drops trailing slashes from the API base URL', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  const fetchMock = vi.fn(async () => {
+    throw new Error('offline');
+  });
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    baseUrl: `https://api.browser-use.test/api/v4${'/'.repeat(50_000)}`,
+    getApiKey: () => 'test-key',
+    fetch: fetchMock,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: { sessionId: 'session-slashes', agentId: 'agent' },
+    }),
+  ).rejects.toThrow(/offline/u);
+  expect(fetchMock).toHaveBeenCalledWith(
+    'https://api.browser-use.test/api/v4/browsers',
+    expect.anything(),
+  );
+});
+
 test('browser-use cloud provider names the credential when the API key is unset', async () => {
   const { BrowserUseCloudProvider } = await import(
     '../plugins/browser-use-cloud/src/provider.js'

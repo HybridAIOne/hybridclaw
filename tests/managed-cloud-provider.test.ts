@@ -177,6 +177,19 @@ afterEach(() => {
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
 });
 
+test.each([
+  ['http://pool.example:8787', 'http://pool.example:8787'],
+  ['http://pool.example:8787///', 'http://pool.example:8787'],
+  [`http://pool.example/${'/'.repeat(50_000)}`, 'http://pool.example'],
+  ['', 'http://127.0.0.1:8787'],
+])('managed cloud endpoint %# drops trailing slashes', async (input, expected) => {
+  const { normalizeManagedCloudEndpointUrl } = await import(
+    '../plugins/managed-cloud/src/provider.js'
+  );
+
+  expect(normalizeManagedCloudEndpointUrl(input)).toBe(expected);
+});
+
 test('managed cloud browser provider leases, navigates, screenshots, audits, meters, and closes', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;

@@ -16,7 +16,11 @@ const MINIMUM_BILLED_MINUTES = 1;
 const MAX_BROWSER_TIMEOUT_MINUTES = 240;
 
 function normalizeBaseUrl(baseUrl) {
-  return (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/u, '');
+  // A scan instead of /\/+$/, which backtracks polynomially on many slashes.
+  const url = baseUrl || DEFAULT_BASE_URL;
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end -= 1;
+  return url.slice(0, end);
 }
 
 // The session lifetime comes from `browser.timeoutMinutes` only:
