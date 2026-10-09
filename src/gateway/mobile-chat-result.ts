@@ -17,7 +17,8 @@ export function chatResultForClient(
   if (client !== 'mobile') return result;
   // The fields both apps decode (audit 2026-10-02), plus `toolsUsed` and
   // `sessionId`, which every result carries. Tool arguments and outputs,
-  // usage, prompts and routing stay on the gateway.
+  // token usage, prompts and routing stay on the gateway; of usage only the
+  // turn's cost goes, as one total (2026-10-09).
   return {
     status: result.status,
     result: result.result,
@@ -29,5 +30,7 @@ export function chatResultForClient(
     assistantMessageId: result.assistantMessageId,
     artifacts: result.artifacts,
     ...(result.emailDraft ? { emailDraft: result.emailDraft } : {}),
+    ...(result.cost ? { cost: result.cost } : {}),
+    ...(result.costEstimate ? { costEstimate: result.costEstimate } : {}),
   };
 }
