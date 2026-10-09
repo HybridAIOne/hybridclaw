@@ -3,8 +3,9 @@
  * a time: workspace notes (USER.md, MEMORY.md, daily notes), chat summaries,
  * and read-only shared memory synced from HybridAI. Every change names the
  * revision it was based on and is refused while the agent runs a turn, so a
- * stale screen never overwrites what the agent just wrote. Chat inventory and
- * export are not served here yet: `chats` stays empty and their actions 404.
+ * stale screen never overwrites what the agent just wrote. The same routes
+ * list, archive and delete the phone's chats (`data-controls-chats.ts`) and
+ * build the data export (`data-controls-export.ts`).
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -29,6 +30,15 @@ import { withMemoryDatabase } from '../memory/database.js';
 import { DATA_CONTROLS_PATH } from '../security/admin-rbac.js';
 import { isRecord } from '../utils/type-guards.js';
 import { readWorkspaceTemplate } from '../workspace-templates.js';
+import {
+  archiveChat,
+  type DataChat,
+  type DataDeletion,
+  deleteChat,
+  readChats,
+  readDeletions,
+} from './data-controls-chats.js';
+import { buildDataExport } from './data-controls-export.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 import { MAX_MARKDOWN_BYTES } from './system-files.js';
 
@@ -48,9 +58,10 @@ export interface DataMemory {
 
 export interface DataControlsSnapshot {
   version: 1;
-  chats: [];
+  chats: DataChat[];
   memories: DataMemory[];
-  deletedChats: [];
+  deletedChats: string[];
+  deletions: DataDeletion[];
   memoryRevision: string;
 }
 
@@ -153,11 +164,13 @@ export function readDataControls(): DataControlsSnapshot {
       });
     }
   }
+  const deletions = readDeletions();
   return {
     version: 1,
-    chats: [],
+    chats: readChats(),
     memories,
-    deletedChats: [],
+    deletedChats: deletions.map((deletion) => deletion.id),
+    deletions,
     memoryRevision: revisionOf(
       memories
         .filter((memory) => memory.kind !== 'shared')
@@ -366,11 +379,33 @@ export async function handleDataControlsRoute(
       sendJson(res, 200, { ...readDataControls() });
       return;
     }
+    if (action === '/export') {
+      if (method !== 'GET') {
+        res.setHeader('Allow', 'GET');
+        sendJson(res, 405, { error: 'Method not allowed.' });
+        return;
+      }
+      const snapshot = readDataControls();
+      const zip = await buildDataExport({
+        agents: workspaceAgents(),
+        memories: snapshot.memories,
+      });
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': zip.length,
+        'Content-Disposition': 'attachment; filename="Hy-data.zip"',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(zip);
+      return;
+    }
     if (
       ![
         '/memories/delete',
         '/memories/delete-all',
         '/memories/update',
+        '/chats/archive',
+        '/chats/delete',
       ].includes(action)
     ) {
       sendJson(res, 404, { error: 'Not found.' });
@@ -385,7 +420,11 @@ export async function handleDataControlsRoute(
     const body = await readJsonBody(req, 6 * MAX_MARKDOWN_BYTES + 1024);
     if (!isRecord(body))
       throw new GatewayRequestError(400, 'Expected a JSON object.');
-    if (action === '/memories/delete-all') {
+    if (action === '/chats/archive') {
+      archiveChat(body.id, body.revision, body.archived);
+    } else if (action === '/chats/delete') {
+      await deleteChat(body.id, body.revision, body.confirmation);
+    } else if (action === '/memories/delete-all') {
       if (body.confirmation !== 'delete') {
         throw new GatewayRequestError(400, 'confirmation_required');
       }

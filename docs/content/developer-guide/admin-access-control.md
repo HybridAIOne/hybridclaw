@@ -309,9 +309,10 @@ update. Older runtimes remain usable for browsing but cannot save or reset files
 
 ### What the agents remember
 
-`GET /api/data-controls` lists what the instance's agents remember, for the
-phone's Privacy & data screen: `{version: 1, memories, memoryRevision, chats: [],
-deletedChats: []}`. Each memory is `{id, agent, kind, title, content, revision}`:
+`GET /api/data-controls` lists the phone's chats and what the instance's agents
+remember, for the phone's Privacy & data screen: `{version: 1, chats, memories,
+memoryRevision, deletedChats, deletions}`. Each memory is `{id, agent, kind,
+title, content, revision}`:
 
 - `note`: `USER.md`, `MEMORY.md` and daily notes `memory/YYYY-MM-DD.md` of each
   agent workspace. An untouched `USER.md` or `MEMORY.md` template is left out.
@@ -335,5 +336,34 @@ returns 409. Shared memory returns 403, empty text 400 and text over 1 MB 413.
 Note writes take the same file lock as the agent's memory tool and schedule a
 cloud memory sync. Reading needs `data_controls.read` and changing needs
 `data_controls.write`; new owner phone tokens receive both, paired chat-only
-devices do not. Chat archive, chat deletion and export under this path are not
-served yet and return 404.
+devices do not.
+
+### The phone's chats and the data export
+
+A phone chat is everything stored under the id the phone sends to `/api/chat`
+(`main-…` for Hy's main chat, `ios-…` or `android-…` for side chats), across
+the session rows `/clear` or `/new` start under it. Each entry in `chats` is
+`{id, title, agent, updatedAt, messageCount, archived, revision}`; chats
+without messages and other channels (scheduled tasks, heartbeat, email,
+console chats) are not listed.
+
+- `POST /api/data-controls/chats/archive` with `{id, revision, archived}`
+  archives or restores a side chat. The main chat can't be archived (400).
+- `POST /api/data-controls/chats/delete` with `{id, revision, confirmation:
+  "delete"}` deletes every session row of the chat with its messages,
+  summaries, recallable memories, prompt logs, ratings, compaction archives,
+  the transcripts the agent's session search reads, and the cross-chat context
+  built from it. Notes in the workspace stay. A running turn in the chat
+  returns 409. The deletion is recorded in `deletions` as `{id, deletedAt,
+  lastMessageID}` (and its id in `deletedChats`), so other phones drop their
+  copy unless they hold a newer message under the same id.
+
+Archive flags and deletion records are kept in `kv_store` under the scope
+`data-controls`.
+
+`GET /api/data-controls/export` answers with `Hy-data.zip`: `README.txt`,
+`chats/` (every stored chat of every channel, as JSON and Markdown),
+`memories.json`, `files/<agent>/` (the documents the phone's file browser
+shows, without hidden, credential or runtime files) and, when the instance is
+signed in to HybridAI, `account.json` with the account profile and
+product-improvement choice. Above 100 MB it returns 413.
