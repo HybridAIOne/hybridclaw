@@ -1,4 +1,5 @@
 import type { ApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalRule } from '../shared/approval-rules.js';
 import type { BoostOffer, BoostPrompt } from '../shared/boost-offer.js';
 import type { ReasoningEffort } from '../shared/reasoning-effort.js';
 import type { SessionAttachmentAccess } from '../shared/session-attachment-access.js';
@@ -396,6 +397,11 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
+  /**
+   * The rule that paused the call and the kind of action an "always allow"
+   * (`yes for agent`) would cover from now on.
+   */
+  rule?: ApprovalRule;
   escalationTarget?: EscalationTarget;
   /** Set when the question is whether to spend one of the user's boosts. */
   boost?: BoostPrompt;

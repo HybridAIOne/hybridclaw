@@ -10411,7 +10411,11 @@ export async function handleGatewayCommand(
       }
 
       case 'approvals':
-        return handleApprovalsCommand({ session, req });
+        return handleApprovalsCommand({
+          session,
+          req,
+          workspacePath: resolveSessionRuntimeTarget(session).workspacePath,
+        });
 
       case 'fullauto': {
         const sub = parseLowerArg(req.args, 1);

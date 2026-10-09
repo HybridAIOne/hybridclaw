@@ -1,3 +1,4 @@
+import type { ApprovalRule } from '../../container/shared/approval-rules.js';
 import type { BoostPrompt } from '../../container/shared/boost-offer.js';
 import type {
   StakesScore as CanonicalStakesScore,
@@ -130,6 +131,11 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
+  /**
+   * The rule that paused the call and the kind of action an "always allow"
+   * (`yes for agent`) would cover from now on.
+   */
+  rule?: ApprovalRule;
   escalationTarget?: EscalationTarget;
   /** Set when the question is whether to spend one of the user's boosts. */
   boost?: BoostPrompt;
