@@ -76,7 +76,9 @@ import {
   resolveBrowserProfileHostDir,
   resolveDiscordMediaCacheHostDir,
   stashBrowserFrameLine,
+  stashSlideSamplesLine,
   takeBrowserFrame,
+  takeSlideSamples,
 } from './container-runner.js';
 import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
@@ -121,6 +123,7 @@ import {
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
   pingWarmRunnerHealthEntry,
+  processLimitForRun,
   rememberStderrLine,
   removeWarmPoolEntry,
   sendWarmWorkerFrame,
@@ -131,6 +134,8 @@ import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const HOST_CAPACITY_WAIT_MS = 15_000;
+// Nobody watches a background run, so it can queue behind user turns longer.
+const BACKGROUND_HOST_CAPACITY_WAIT_MS = 300_000;
 const HOST_CAPACITY_POLL_MS = 100;
 
 function resolveExecutorMaxTokens(params: {
@@ -242,24 +247,23 @@ function interruptedHostOutput(): ContainerOutput {
 
 async function waitForHostCapacity(
   sessionId: string,
+  limit: number,
+  waitMs: number,
   abortSignal?: AbortSignal,
 ): Promise<'available' | 'aborted' | 'timed_out'> {
-  const deadline = Date.now() + HOST_CAPACITY_WAIT_MS;
-  while (
-    getTotalHostProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
+  const deadline = Date.now() + waitMs;
+  while (getTotalHostProcessCount() >= limit && !pool.has(sessionId)) {
     stopWarmEntries(
       warmPool.evictForPressure({
         totalProcessCount: getTotalHostProcessCount() + 1,
-        maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+        maxProcessCount: limit,
       }),
     );
-    if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
+    if (getTotalHostProcessCount() < limit) break;
     for (const entry of collectIdleSessionEvictions({
       pool,
       warmPool,
-      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+      maxProcessCount: limit,
     })) {
       logger.info(
         { sessionId: entry.sessionId, agentId: entry.agentId },
@@ -268,7 +272,7 @@ async function waitForHostCapacity(
       stopHostProcess(entry);
       removePoolEntry(entry);
     }
-    if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
+    if (getTotalHostProcessCount() < limit) break;
     if (abortSignal?.aborted) return 'aborted';
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) return 'timed_out';
@@ -365,9 +369,11 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
   if (stashBrowserFrameLine(entry, line)) return;
+  if (stashSlideSamplesLine(entry, line)) return;
   const parsed = parseToolProgressLine(line);
   if (!parsed) return;
   const browser = takeBrowserFrame(entry, parsed.toolName, parsed.phase);
+  const slideSamples = takeSlideSamples(entry, parsed.toolName, parsed.phase);
 
   try {
     callback({
@@ -375,6 +381,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
       ...parsed,
       preview: redactCredentialSecrets(parsed.preview || ''),
       ...(browser ? { browser } : {}),
+      ...(slideSamples ? { slideSamples } : {}),
     });
   } catch (err) {
     logger.debug(
@@ -435,8 +442,12 @@ function stopHostProcess(entry: PoolEntry): void {
   }
 }
 
+// Runs past their capacity check whose process is not in the pool yet. They
+// count, or runs that start together all pass the check and overshoot it.
+let startingHostProcesses = 0;
+
 function getTotalHostProcessCount(): number {
-  return getTotalWarmProcessCount(pool, warmPool);
+  return getTotalWarmProcessCount(pool, warmPool) + startingHostProcesses;
 }
 
 function removePoolEntry(entry: PoolEntry): void {
@@ -941,11 +952,20 @@ async function runHostProcessInner(
   const runtimeModel = modelRuntime.model || model;
 
   enforceWarmHostPressure();
-  if (
-    getTotalHostProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
-    !pool.has(sessionId)
-  ) {
-    const capacityState = await waitForHostCapacity(sessionId, abortSignal);
+  const processLimit = processLimitForRun(
+    MAX_CONCURRENT_CONTAINERS,
+    params.background,
+  );
+  if (getTotalHostProcessCount() >= processLimit && !pool.has(sessionId)) {
+    const waitMs = params.background
+      ? BACKGROUND_HOST_CAPACITY_WAIT_MS
+      : HOST_CAPACITY_WAIT_MS;
+    const capacityState = await waitForHostCapacity(
+      sessionId,
+      processLimit,
+      waitMs,
+      abortSignal,
+    );
     if (capacityState === 'aborted') {
       return interruptedHostOutput();
     }
@@ -954,14 +974,23 @@ async function runHostProcessInner(
         status: 'error',
         result: null,
         toolsUsed: [],
-        error: `Too many active host agent processes (${getTotalHostProcessCount()}/${MAX_CONCURRENT_CONTAINERS}) after waiting ${HOST_CAPACITY_WAIT_MS}ms. Try again later.`,
+        error: `Too many active host agent processes (${getTotalHostProcessCount()}/${processLimit}) after waiting ${waitMs}ms. Try again later.`,
+        errorCode: 'busy',
       };
     }
   }
 
   const startTime = Date.now();
   const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
-  const mcpServers = await resolveHostMcpServers();
+  // The process is spawned without another await after this one.
+  const starting = pool.has(sessionId) ? 0 : 1;
+  startingHostProcesses += starting;
+  let mcpServers: Awaited<ReturnType<typeof resolveHostMcpServers>>;
+  try {
+    mcpServers = await resolveHostMcpServers();
+  } finally {
+    startingHostProcesses -= starting;
+  }
   const existingEntry = pool.get(sessionId);
   const requestId = randomUUID();
 

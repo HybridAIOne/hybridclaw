@@ -1,14 +1,12 @@
 import { expect, test } from 'vitest';
 
 import {
-  appendTerminalRowCount,
   countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
   formatTuiStreamDelta,
   getTuiStreamTrailingNewlines,
-  indentTuiBlock,
   wrapTuiBlock,
 } from '../src/tui-thinking.js';
 
@@ -163,13 +161,6 @@ test('returns two trailing newlines when streamed output ends mid-line', () => {
 
 test('returns one trailing newline when streamed output already ends on a newline', () => {
   expect(getTuiStreamTrailingNewlines(createTuiStreamFormatState())).toBe('\n');
-});
-
-test('increments terminal row counts from appended streamed chunks without rescanning prior output', () => {
-  expect(appendTerminalRowCount(0, '  hello')).toBe(1);
-  expect(appendTerminalRowCount(1, ' world')).toBe(1);
-  expect(appendTerminalRowCount(1, '\n  again')).toBe(2);
-  expect(appendTerminalRowCount(2, '\nmore\nend')).toBe(4);
 });
 
 test('derives trailing newlines from the post-flush stream state', () => {
@@ -341,10 +332,6 @@ test('gates visible output between split tool tags', () => {
     thinkingPreview: null,
     sawThinking: false,
   });
-});
-
-test('indents every line in a transient thinking block by two spaces', () => {
-  expect(indentTuiBlock('plan\nmore')).toBe('  plan\n  more');
 });
 
 test('wraps printed tui blocks while preserving the left indent', () => {

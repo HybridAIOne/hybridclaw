@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.1',
+  version: '0.39.4',
   highlights: [
-    'Import history into another agent',
-    'Skip first-run onboarding',
-    'Scheduled replies reach the main chat',
-    'Agent display names in the console',
+    'Try interactive widgets inside chat',
+    'Voice calls continue with chat context',
+    'Voice time answers use a fresh clock',
+    'Phone calendars cover a full year ahead',
   ],
 } as const;
 

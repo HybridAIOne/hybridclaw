@@ -278,6 +278,17 @@ describe('A2A public-key trust ledger', () => {
 
     trust.deleteA2ATrustedPublicKeyPeer('rotating-peer');
     expect(trust.getA2ATrustedPublicKeyPeer('rotating-peer')).toBeNull();
+
+    const { getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+    await flushAuditTrail();
+    expect(
+      getRecentStructuredAuditForSession('a2a:trust-ledger', 20).map(
+        (entry) => entry.event_type,
+      ),
+    ).toContain('a2a.trust.deleted');
   });
 });
 

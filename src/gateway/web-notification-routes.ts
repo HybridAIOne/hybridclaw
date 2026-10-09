@@ -13,6 +13,7 @@ import type {
 } from '../../container/shared/web-notifications.js';
 import { isRecord } from '../utils/type-guards.js';
 import { markWorkSeen } from '../work/work-delivery.js';
+import { isPresencePageId, noteComputerPresence } from './computer-presence.js';
 import { readJsonBody, sendJson } from './gateway-http-utils.js';
 import {
   acknowledgeWebNotifications,
@@ -49,6 +50,20 @@ export function resolveWebNotificationOperator(
     default:
       return null;
   }
+}
+
+/**
+ * Whose phones a browser's presence keeps quiet. A console login is a pass
+ * signed with the auth secret, which only the owner gets, so it speaks for the
+ * owner, whose phones are the owner token's (`ownerToken` above).
+ */
+export function resolvePresenceOperator(
+  kind: string,
+  operatorId: string,
+): string {
+  return kind === 'session'
+    ? notificationOperatorId('local-operator')
+    : operatorId;
 }
 
 export async function validateWebPushSubscription(
@@ -88,6 +103,7 @@ export async function handleWebNotificationRoute(
   res: ServerResponse,
   pathname: string,
   operatorId: string,
+  presenceOperatorId = operatorId,
 ): Promise<void> {
   const method = req.method || 'GET';
   res.setHeader('Cache-Control', 'no-store');
@@ -104,7 +120,16 @@ export async function handleWebNotificationRoute(
     return;
   }
   try {
-    if (pathname === '/api/push/seen' && method === 'POST') {
+    if (pathname === '/api/push/presence' && method === 'POST') {
+      const body = await readJsonBody(req);
+      if (
+        !isRecord(body) ||
+        !isPresencePageId(body.page) ||
+        typeof body.active !== 'boolean'
+      )
+        throw new Error('Expected a page id and whether it is in use.');
+      noteComputerPresence(presenceOperatorId, body.page, body.active);
+    } else if (pathname === '/api/push/seen' && method === 'POST') {
       const body = await readJsonBody(req);
       if (
         !isRecord(body) ||

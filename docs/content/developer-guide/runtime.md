@@ -172,6 +172,7 @@ agent archives skip and `reset yes` removes with the workspace.
 | Agent files, memory, transcripts, artifacts | Workspace | Kept |
 | Pending approvals, `yes for agent` and `yes for all` trust | Workspace `.hybridclaw/` and `approval-trust.json`, shared by the agent's sessions | Kept |
 | `yes for session` trust | Worker memory | Lost; the action asks again |
+| Open boost question (offer, tool call, expiry) | Session state dir `pending-boost.json` | Kept |
 | Files that `curl` or `wget` saved (fetched-code guard) | Session state dir | Kept |
 | Bash working directory | Session state dir | Kept |
 | Bash exported variables, aliases, activated virtualenvs | Worker temp dir | Lost; the first bash result in the next worker says so |
@@ -534,7 +535,10 @@ up to 2,000 characters with its remaining space. `action=list` uses a separate
 execute those tools with
 `action=call` without a separate `describe` response. Larger schemas keep the
 explicit `describe` step. Discovery does not change the request's exposed
-functions, argument validation, permissions or approvals. Reconnects and trust
+functions, argument validation, permissions or approvals. Invalid catalog actions
+receive corrective tool results within the shared two-correction limit per
+request. No call in a rejected batch executes; earlier completed calls remain
+in history. Reconnects and trust
 config changes can change exposure on the next request, invalidating cached
 tool prefixes; a failed replacement never grants the old connection new trust.
 Routine lookups use

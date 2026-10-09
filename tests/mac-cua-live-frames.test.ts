@@ -154,6 +154,7 @@ test('a mac-cua snapshot feeds its refs to the checkout guard, not the model', a
   expect(result).not.toHaveProperty('refs');
   expect(result.snapshot).toContain('[ref=e12]');
   expect(classifyBrowserCheckout('browser_click', { ref: '@e12' })).toEqual({
+    kind: 'purchase',
     host: 'shop.example',
     label: 'Jetzt kaufen',
     url: 'https://shop.example/checkout',

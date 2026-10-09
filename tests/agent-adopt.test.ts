@@ -79,10 +79,10 @@ test('adopt moves the phone thread, its task and memory and ends onboarding', as
   const { DATA_DIR } = await import('../src/config/config.ts');
   fs.mkdirSync(path.join(DATA_DIR, 'sessions', OLD), { recursive: true });
   fs.writeFileSync(path.join(DATA_DIR, 'sessions', OLD, 'state.json'), '{}');
-  const { archiveTranscript, listArchives } = await import(
+  const { archiveTranscript } = await import(
     '../src/memory/compaction-archive.ts'
   );
-  archiveTranscript({ sessionId: OLD, messages: [] });
+  const archive = archiveTranscript({ sessionId: OLD, messages: [] });
   const notifications = await import('../src/gateway/web-notification-store.ts');
   notifications.bindWebNotificationSession(OLD, 'operator', 'hy');
   expect(ctx.isBootstrapping('hy')).toBe(true);
@@ -119,7 +119,9 @@ test('adopt moves the phone thread, its task and memory and ends onboarding', as
     ctx.db.listMemoryValues('gateway.bootstrap_autostart.workspace.v1'),
   ).toEqual([]);
   expect(fs.existsSync(path.join(DATA_DIR, 'sessions', NEW, 'state.json'))).toBe(true);
-  expect(listArchives(NEW)).toHaveLength(1);
+  expect(fs.readdirSync(path.join(DATA_DIR, 'compaction-archives', NEW))).toEqual([
+    path.basename(archive.path),
+  ]);
   expect(notifications.webNotificationSessionOperator(NEW)).toBe('operator');
 
   expect(fs.readFileSync(path.join(ctx.hy, 'USER.md'), 'utf8')).toContain('Name: A');

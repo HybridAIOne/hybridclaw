@@ -237,23 +237,6 @@ export function failDelegationJob(publicId: string, error: string): void {
   });
 }
 
-export function cancelDelegationJob(publicId: string): boolean {
-  return withMemoryDatabase((database) => {
-    const normalized = normalizeDelegationJobId(publicId);
-    if (!normalized) return false;
-    const result = database
-      .prepare(
-        `UPDATE delegation_jobs
-         SET status = 'cancelled',
-             completed_at = datetime('now')
-         WHERE public_id = ?
-           AND status = 'queued'`,
-      )
-      .run(normalized);
-    return result.changes > 0;
-  });
-}
-
 export function getDelegationJob(publicId: string): DelegationJobRow | null {
   return withMemoryDatabase((database) => {
     const normalized = normalizeDelegationJobId(publicId);

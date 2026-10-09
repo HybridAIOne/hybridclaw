@@ -29,6 +29,8 @@ plugins/*
 !plugins/browser-use-cloud/**
 !plugins/camofox/
 !plugins/camofox/**
+!plugins/distill/
+!plugins/distill/**
 !plugins/mac-cua/
 !plugins/mac-cua/**
 !plugins/managed-cloud/

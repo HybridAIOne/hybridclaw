@@ -1,3 +1,4 @@
+import type { BoostPrompt } from '../../container/shared/boost-offer.js';
 import type {
   StakesScore as CanonicalStakesScore,
   StakesSignal as CanonicalStakesSignal,
@@ -128,6 +129,8 @@ export interface PendingApproval {
   allowAll: boolean;
   expiresAt: number | null;
   escalationTarget?: EscalationTarget;
+  /** Set when the question is whether to spend one of the user's boosts. */
+  boost?: BoostPrompt;
 }
 
 /** Where the agent's browser is after a browser tool ran. */
@@ -141,6 +144,16 @@ export interface BrowserFrame {
   signIn?: { host: string };
 }
 
+/** Set by `show_slide_samples`: sample slides to pick a new deck's look from. */
+export interface SlideSamples {
+  /** The card's heading; absent means the client's own. */
+  question?: string;
+  /** In slide order; `image` is a PNG served by `/api/artifact`. */
+  looks: Array<{ title: string; note?: string; image: string }>;
+  /** How the finished deck can be delivered: `powerpoint`, `google_slides`. */
+  formats: string[];
+}
+
 export interface ToolProgressEvent {
   sessionId: string;
   toolName: string;
@@ -150,6 +163,7 @@ export interface ToolProgressEvent {
   preview?: string;
   durationMs?: number;
   browser?: BrowserFrame;
+  slideSamples?: SlideSamples;
 }
 
 export interface ArtifactMetadata {

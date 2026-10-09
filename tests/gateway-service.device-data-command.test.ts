@@ -109,7 +109,7 @@ test('a malformed payload is refused and changes nothing', async () => {
     '/device-data set not-deflate',
     `/device-data set ${deflateRawSync(Buffer.from('not json')).toString('base64url')}`,
     `/device-data set ${payload({ 'Bad Id': 'x' })}`,
-    `/device-data set ${payload({ calendar: 'x'.repeat(17 * 1024) })}`,
+    `/device-data set ${payload({ calendar: 'x'.repeat(257 * 1024) })}`,
     '/device-data set',
     '/device-data',
   ]) {
@@ -178,9 +178,10 @@ test('contacts may be larger, and are read by query', async () => {
     version: 1,
     sources: ['calendar', 'contacts'],
   });
-  // Only an address book gets the larger limit.
+  // Only an address book and a calendar get the larger limit.
   for (const bad of [
-    payload({ calendar: 'x'.repeat(17 * 1024) }),
+    payload({ reminders: 'x'.repeat(17 * 1024) }),
+    payload({ calendar: 'x'.repeat(257 * 1024) }),
     payload({ contacts: 'x'.repeat(257 * 1024) }),
   ]) {
     expect((await send(`/device-data set ${bad}`)).kind).toBe('error');
@@ -210,4 +211,35 @@ test('contacts may be larger, and are read by query', async () => {
   // A small source is filtered the same way.
   expect(read('calendar', 'offsite')).toContain('Fri 2 Oct all day Offsite');
   expect(read('calendar', 'offsite')).not.toContain('Review');
+});
+
+test('a long calendar shows its first days, and the rest by query', async () => {
+  const { send, device } = await load();
+  const days = Array.from({ length: 365 }, (_, index) => {
+    const day = new Date(Date.UTC(2026, 9, 8 + index));
+    const stamp = day.toUTCString().slice(0, 16).replace(',', '');
+    return `- ${stamp} 09:00–09:30 Standup with the platform team (calendar: Work; source: Exchange)`;
+  });
+  const calendar = [
+    'Calendar, Thu 8 Oct 2026 to Thu 7 Oct 2027 (UTC):',
+    ...days,
+  ].join('\n');
+  expect(Buffer.byteLength(calendar)).toBeGreaterThan(16 * 1024);
+  expect(
+    (await send(`/device-data set ${payload({ calendar })} --json`)).json,
+  ).toEqual({ version: 1, sources: ['calendar'] });
+
+  device.beginDeviceDataTurn(APP_CHAT, 'user_a');
+  const whole = device.renderDeviceDataForSession(APP_CHAT, 'calendar', null);
+  expect(whole).toContain('Calendar, Thu 8 Oct 2026 to Thu 7 Oct 2027');
+  expect(whole).toContain('- Thu 08 Oct 2026 09:00');
+  expect(whole).not.toContain('Oct 2027 09:00');
+  expect(whole).toMatch(/\(\d+ more entries: call `device_data` again/);
+  expect(Buffer.byteLength(whole)).toBeLessThan(17 * 1024);
+  const later = device.renderDeviceDataForSession(
+    APP_CHAT,
+    'calendar',
+    'jun 2027',
+  );
+  expect(later.match(/^- .* Jun 2027 09:00/gm)).toHaveLength(30);
 });

@@ -79,8 +79,11 @@ the phone for every app's chats.
 
 A finished reply (`turn`) and a request for approval (`approval`) show the
 assistant's name as the title and a fixed line as the body, "Done. Your reply
-is ready." or "Needs your approval to go on.", never the reply or the request
-itself. That line is also sent as `loc-key`, so an app that translates it shows
+is ready." or "Waiting for your approval to go on.", never the reply or the
+request itself. A streamed turn that ends with the agent's browser asking the
+user to sign in to a website rings as an `approval` that says "Waiting for you
+to sign in.", without naming the site; its notice carries
+`"waitingFor": "sign_in"`. That line is also sent as `loc-key`, so an app that translates it shows
 it in the phone's language. The phone app calls the default agent Hy, so its
 alerts say Hy whatever the agent is named here; other agents go by their
 display name, then their name, and an agent without either is Hy too. A
@@ -95,6 +98,24 @@ reads with `GET /api/chat/message?sessionId=…&id=…`. A reply of a task added
 with `--alert` rings with its listed items instead of as a reminder; one added
 with `--reply-only` too rings like a reminder of the alert's kind. The message
 read back carries `source`, `schedule:<id>` for a reply a task posted.
+
+### Quiet while you are at a computer
+
+Phones stay quiet while the owner uses a chat page on a computer. The console's
+chat page reports itself with `POST /api/push/presence`
+(`{"page": "<random id>", "active": true}`) every 30 seconds while it is visible
+and has had a key press or pointer movement in the last five minutes, and sends
+`"active": false` when it is hidden (a locked screen hides it), goes idle or
+closes. A page that stops reporting counts as away after 75 seconds. A console
+login speaks for the owner, so it quiets the phones the owner's own phone
+token registered; any other identity quiets only its own phones.
+
+While a page is in use, every phone alert waits: finished replies, approvals,
+reminders, `--alert` tasks and plugin alerts. Each is still recorded and shown
+in the browser. When the last page goes away, each waiting alert whose notice
+is still unread rings after all, because the phone's conversations are not
+always the ones the computer shows. One read in the meantime does not ring.
+Waiting alerts live in memory and are lost if the gateway restarts.
 
 Apple's signing key is not on the gateway. The gateway hands each alert to
 HybridAI (`POST /v1/push` on `hybridai.baseUrl`), authenticated with the

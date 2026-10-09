@@ -2,6 +2,9 @@
  * Validates operator scheduling declarations at the config and IPC boundaries.
  * Server annotations cannot populate this config; approval is a separate policy.
  */
+/** The MCP server the runtime adds for the HybridAI platform's gateway tools. */
+export const HYBRIDAI_MCP_SERVER_NAME = 'hybridai';
+
 export function parseMcpToolBehaviorConfig(value) {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

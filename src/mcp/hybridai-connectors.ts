@@ -3,6 +3,8 @@
  * Exact operator overrides win; unlike MCP annotations, these defaults do not
  * trust every proxied connector or grant execution/approval permission.
  */
+
+import { HYBRIDAI_MCP_SERVER_NAME } from '../../container/shared/mcp-server-config.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   HYBRIDAI_BASE_URL,
@@ -10,7 +12,6 @@ import {
 } from '../config/config.js';
 import type { McpServerConfig } from '../types/models.js';
 
-export const HYBRIDAI_CONNECTORS_MCP_SERVER_NAME = 'hybridai';
 export const HYBRIDAI_CONNECTORS_MCP_PATH = '/api/v1/connectors/mcp';
 
 // Owner call, 2026-10-02: the platform's own web search only reads, so a batch
@@ -60,7 +61,7 @@ export function withAutoHybridAIConnectorsMcpServer(
   }
   if (!apiKey) return servers;
 
-  const existing = servers[HYBRIDAI_CONNECTORS_MCP_SERVER_NAME];
+  const existing = servers[HYBRIDAI_MCP_SERVER_NAME];
   if (existing?.enabled === false) return servers;
 
   const headers = { ...(existing?.headers || {}) };
@@ -68,7 +69,7 @@ export function withAutoHybridAIConnectorsMcpServer(
 
   return {
     ...servers,
-    [HYBRIDAI_CONNECTORS_MCP_SERVER_NAME]: {
+    [HYBRIDAI_MCP_SERVER_NAME]: {
       transport: 'http',
       url: existing?.url?.trim() || resolveGatewayUrl(options),
       headers,

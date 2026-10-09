@@ -273,10 +273,10 @@ test('a heartbeat turn starts on the bottom rung', async () => {
 test.each([false, true])('attributes Teams usage to the captured sender with tier routing=%s', async (routingEnabled) => {
   const fixture = await createFixture();
   fixture.updateRuntimeConfig((draft) => { draft.routing.enabled = routingEnabled; });
-  const { observeMSTeamsUser, listMSTeamsUsers } = await import('../src/memory/msteams-users.ts');
+  const { observeChannelUser, listChannelUsers } = await import('../src/memory/channel-users.ts');
   const { flushTokenUsageBuffer } = await import('../src/usage/token-usage-buffer.ts');
-  observeMSTeamsUser({ tenantId: 'tenant-a', userId: 'user-a', isMessage: true });
-  observeMSTeamsUser({ tenantId: 'tenant-a', userId: 'user-b', isMessage: true });
+  observeChannelUser({ channelKind: 'msteams', tenantId: 'tenant-a', userId: 'user-a', isMessage: true });
+  observeChannelUser({ channelKind: 'msteams', tenantId: 'tenant-a', userId: 'user-b', isMessage: true });
   runAgentMock.mockImplementation(async (params) => ({
     status: routingEnabled && params.model === 'lmstudio/test-cheap' ? 'error' : 'success',
     result: 'done',
@@ -295,7 +295,7 @@ test.each([false, true])('attributes Teams usage to the captured sender with tie
   });
   expect(result.status).toBe('success');
   await flushTokenUsageBuffer();
-  const users = new Map(listMSTeamsUsers('tenant-a').map((user) => [user.userId, user]));
+  const users = new Map(listChannelUsers('msteams', 'tenant-a').map((user) => [user.userId, user]));
   expect(users.get('user-a')?.totalTokens).toBe(routingEnabled ? 30 : 15);
   expect(users.get('user-b')?.totalTokens).toBe(0);
 });

@@ -22,9 +22,7 @@ import type {
   AdminApprovalsResponse,
   AdminAuditResponse,
   AdminBoardBudgetResponse,
-  AdminChannelConfig,
   AdminChannelsResponse,
-  AdminChannelTransport,
   AdminCommandResult,
   AdminConfig,
   AdminConfigReloadResponse,
@@ -47,7 +45,6 @@ import type {
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
   AdminFleetTopologyResponse,
-  AdminFleetTopologyUpsertRequest,
   AdminHarnessEvolutionManifestResponse,
   AdminHarnessEvolutionResponse,
   AdminHarnessEvolutionRunResponse,
@@ -100,7 +97,6 @@ import type {
   AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
-  AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
   SignalLinkResponse,
@@ -291,10 +287,9 @@ export async function requestJson<T>(
   return payload as T;
 }
 
-export function readStoredToken(): string {
+export function discardLegacyTokens(): void {
   removeSearchParams(['token', LOCAL_TOKEN_BOOTSTRAP_PARAM]);
   clearStoredToken();
-  return '';
 }
 
 function removeSearchParams(names: string[]): void {
@@ -313,19 +308,9 @@ function removeSearchParams(names: string[]): void {
   );
 }
 
-export function storeToken(token: string): void {
-  void token;
-  clearStoredToken();
-}
-
 export function clearStoredToken(): void {
   window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-}
-
-export function adminEventsUrl(token: string): string {
-  void token;
-  return '/api/events';
 }
 
 export function validateToken(token: string): Promise<GatewayStatus> {
@@ -575,31 +560,6 @@ export function deleteDistillCorpusDocument(
   );
 }
 
-export function upsertFleetTopologyInstance(
-  token: string,
-  body: AdminFleetTopologyUpsertRequest,
-): Promise<AdminFleetTopologyResponse> {
-  return requestJson<AdminFleetTopologyResponse>('/api/admin/fleet-topology', {
-    token,
-    method: 'POST',
-    body,
-  });
-}
-
-export function deleteFleetTopologyInstance(
-  token: string,
-  peerId: string,
-): Promise<AdminFleetTopologyResponse> {
-  const search = new URLSearchParams({ peerId });
-  return requestJson<AdminFleetTopologyResponse>(
-    `/api/admin/fleet-topology?${search.toString()}`,
-    {
-      token,
-      method: 'DELETE',
-    },
-  );
-}
-
 export function fetchA2AInbox(
   token: string,
   threadId?: string | null,
@@ -767,12 +727,6 @@ export function adminTerminalSocketUrl(
   );
   url.searchParams.set('sessionId', sessionId);
   return url.toString();
-}
-
-export function fetchAgentsOverview(
-  token: string,
-): Promise<AgentsOverviewResponse> {
-  return requestJson<AgentsOverviewResponse>('/api/agents', { token });
 }
 
 export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
@@ -1079,38 +1033,6 @@ export function deleteSession(
 
 export function fetchChannels(token: string): Promise<AdminChannelsResponse> {
   return requestJson<AdminChannelsResponse>('/api/admin/channels', { token });
-}
-
-export function saveChannel(
-  token: string,
-  payload: {
-    transport?: AdminChannelTransport;
-    guildId: string;
-    channelId: string;
-    config: AdminChannelConfig;
-  },
-): Promise<AdminChannelsResponse> {
-  return requestJson<AdminChannelsResponse>('/api/admin/channels', {
-    token,
-    method: 'PUT',
-    body: payload,
-  });
-}
-
-export function deleteChannel(
-  token: string,
-  transport: AdminChannelTransport,
-  guildId: string,
-  channelId: string,
-): Promise<AdminChannelsResponse> {
-  const params = new URLSearchParams({ transport, guildId, channelId });
-  return requestJson<AdminChannelsResponse>(
-    `/api/admin/channels?${params.toString()}`,
-    {
-      token,
-      method: 'DELETE',
-    },
-  );
 }
 
 export function fetchConfig(token: string): Promise<AdminConfigResponse> {

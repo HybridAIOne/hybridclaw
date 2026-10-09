@@ -59,7 +59,7 @@ hybridclaw coworker distill --alias maya --name "Maya Lindqvist" \
 
 > 💡 **Tips & Tricks**
 >
-> The deterministic engine is `hybridclaw coworker`; the `human-distill` skill drives intake, extraction, interviews, and mirroring.
+> The deterministic engine is `hybridclaw coworker` from the `distill` plugin (`hybridclaw plugin install distill`); the `human-distill` skill drives intake, extraction, interviews, and mirroring.
 >
 > Every persona claim must cite corpus document ids. Unsupported claims are flagged into the run report instead of written into identity files.
 >

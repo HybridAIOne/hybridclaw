@@ -1,13 +1,26 @@
+/**
+ * Admin console PTY manager: spawns `hybridclaw tui` sessions and bridges them
+ * to the `/api/admin/terminal/stream` websocket.
+ *
+ * node-pty is a native addon and loads only on the first startSession(), so a
+ * missing or broken prebuild fails that request (503, logged) and never gateway
+ * boot; keep it out of static imports. A failed load is retried on the next
+ * start, so `npm rebuild node-pty` recovers without a gateway restart. Auth and
+ * RBAC belong to the route in `gateway-http-server.ts`, not to this module.
+ */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import type { IncomingMessage } from 'node:http';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
-import { type IPty, spawn as spawnPty } from 'node-pty';
+import type { IPty } from 'node-pty';
 import type WebSocket from 'ws';
 import * as wsModule from 'ws';
+import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { resolveInstallRoot } from '../infra/install-root.js';
 import { logger } from '../logger.js';
+import { lazyModule } from '../utils/lazy-module.js';
 import type {
   AdminTerminalClientMessage,
   AdminTerminalServerMessage,
@@ -142,7 +155,26 @@ function ensureNodePtySpawnHelpersExecutable(installRoot: string): void {
   }
 }
 
-ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
+// require, not import(): Node's ESM loader caches a failed import of a CJS
+// package, so only require can pick up an addon rebuilt while the gateway runs.
+const requireFromHere = createRequire(import.meta.url);
+
+const nodePtyLoader = lazyModule(async () => {
+  ensureNodePtySpawnHelpersExecutable(INSTALL_ROOT);
+  try {
+    return requireFromHere('node-pty') as typeof import('node-pty');
+  } catch (error) {
+    logger.error(
+      { error, installRoot: INSTALL_ROOT },
+      'Unable to load node-pty; admin terminal unavailable',
+    );
+    throw new GatewayRequestError(
+      503,
+      'Admin terminal unavailable: the node-pty native module failed to load. Run `npm rebuild node-pty` in the HybridClaw install directory, then start the terminal again.',
+      { cause: error },
+    );
+  }
+});
 
 function formatLaunchCommand(command: string, args: string[]): string {
   return [command, ...args]
@@ -195,7 +227,7 @@ function encodeServerMessage(message: AdminTerminalServerMessage): string {
 export function createAdminTerminalManager(): {
   startSession: (
     options?: AdminTerminalStartOptions,
-  ) => AdminTerminalStartResponse;
+  ) => Promise<AdminTerminalStartResponse>;
   stopSession: (sessionId: string) => boolean;
   handleUpgrade: (
     req: IncomingMessage,
@@ -284,7 +316,8 @@ export function createAdminTerminalManager(): {
   };
 
   return {
-    startSession(options) {
+    async startSession(options) {
+      const { spawn: spawnPty } = await nodePtyLoader.load();
       if (sessions.size >= MAX_ACTIVE_SESSIONS) {
         throw new AdminTerminalCapacityError();
       }

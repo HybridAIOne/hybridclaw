@@ -31,14 +31,18 @@ import {
   planPluginDependencyInstall,
   resolveExecutableFromSearchDirs,
 } from './plugin-dependencies.js';
-import { loadPluginManifest, PluginManager } from './plugin-manager.js';
+import {
+  loadPluginManifest,
+  MANIFEST_FILE_NAME,
+  PluginManager,
+} from './plugin-manager.js';
+import { fetchPluginDirFromNpmSpec } from './plugin-npm-fetch.js';
 import type {
   PluginAvailableSummary,
   PluginBinaryRequirement,
   PluginManifest,
 } from './plugin-types.js';
 
-const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
 const PACKAGE_ROOT = resolveInstallRoot();
 
 interface PluginCommand {
@@ -228,7 +232,14 @@ function resolveProjectPluginDir(input: string, cwd: string): string | null {
   if (!installSource || looksLikeLocalPath(installSource)) {
     return null;
   }
-  for (const root of listPluginCatalogRoots(cwd)) {
+  // A bare id names the package's bundled plugin first, so a `plugins/<id>`
+  // under the current directory cannot turn the in-place install of a
+  // bundled plugin into a copy of the cwd's version.
+  const roots = listPluginCatalogRoots(cwd).sort(
+    (left, right) =>
+      Number(right.source === 'bundled') - Number(left.source === 'bundled'),
+  );
+  for (const root of roots) {
     const directCandidate = path.join(root.dir, installSource);
     if (
       fs.existsSync(directCandidate) &&
@@ -401,72 +412,6 @@ function assertPluginManifestDir(dir: string): void {
       `Plugin source at ${dir} is missing ${MANIFEST_FILE_NAME}.`,
     );
   }
-}
-
-function collectTopLevelNodeModuleDirs(nodeModulesRoot: string): string[] {
-  if (!fs.existsSync(nodeModulesRoot)) return [];
-  const dirs: string[] = [];
-  for (const entry of fs.readdirSync(nodeModulesRoot, {
-    withFileTypes: true,
-  })) {
-    if (entry.name === '.bin') continue;
-    if (entry.name.startsWith('@') && entry.isDirectory()) {
-      const scopeRoot = path.join(nodeModulesRoot, entry.name);
-      for (const scoped of fs.readdirSync(scopeRoot, { withFileTypes: true })) {
-        if (!scoped.isDirectory()) continue;
-        dirs.push(path.join(scopeRoot, scoped.name));
-      }
-      continue;
-    }
-    if (entry.isDirectory()) {
-      dirs.push(path.join(nodeModulesRoot, entry.name));
-    }
-  }
-  return dirs;
-}
-
-function findInstalledPluginDir(nodeModulesRoot: string): string {
-  const candidates = collectTopLevelNodeModuleDirs(nodeModulesRoot).filter(
-    (dir) => fs.existsSync(path.join(dir, MANIFEST_FILE_NAME)),
-  );
-  if (candidates.length === 1) {
-    const [candidate] = candidates;
-    if (candidate) return candidate;
-  }
-  if (candidates.length === 0) {
-    throw new Error(
-      `Installed npm package does not contain ${MANIFEST_FILE_NAME}.`,
-    );
-  }
-  throw new Error(
-    `Multiple plugin manifests were found in ${nodeModulesRoot}; installation is ambiguous.`,
-  );
-}
-
-function fetchPluginDirFromNpmSpec(
-  spec: string,
-  tempRoot: string,
-  runCommand: PluginInstallCommandRunner,
-): string {
-  fs.mkdirSync(tempRoot, { recursive: true });
-  fs.writeFileSync(
-    path.join(tempRoot, 'package.json'),
-    `${JSON.stringify({ name: 'hybridclaw-plugin-install', private: true }, null, 2)}\n`,
-    'utf-8',
-  );
-  runCommand({
-    command: 'npm',
-    args: [
-      'install',
-      '--ignore-scripts',
-      '--no-package-lock',
-      '--no-audit',
-      '--no-fund',
-      spec,
-    ],
-    cwd: tempRoot,
-  });
-  return findInstalledPluginDir(path.join(tempRoot, 'node_modules'));
 }
 
 function preparePluginSource(
@@ -693,8 +638,32 @@ function installPreparedPlugin(
 
   assertPluginManifestDir(sourceDir);
   const manifest = loadPluginManifest(path.join(sourceDir, MANIFEST_FILE_NAME));
-  const pluginDir = path.join(installRoot, manifest.id);
   const dependencyPlan = planPluginDependencyInstall(sourceDir, manifest);
+  // (#1893 review, 2026-10-08): a bundled plugin with nothing to install is
+  // enabled in place, so it upgrades with the package instead of freezing as
+  // a home copy against a newer plugin SDK. Plugins with deps still copy;
+  // an SDK version range for third-party plugins is deferred.
+  const homeCopyDir = path.join(installRoot, manifest.id);
+  const bundledRoot = path.join(PACKAGE_ROOT, 'plugins');
+  const bundled =
+    fs.existsSync(bundledRoot) &&
+    path.dirname(fs.realpathSync(sourceDir)) === fs.realpathSync(bundledRoot) &&
+    !hasInstallablePluginDependencies(dependencyPlan);
+  const pluginDir = bundled ? sourceDir : homeCopyDir;
+  const wasEnabled =
+    findPluginConfigEntry(options.getRuntimeConfig(), manifest.id)?.enabled ===
+    true;
+  if (bundled) {
+    if (fs.existsSync(homeCopyDir) && !options.replaceExisting) {
+      throw new Error(
+        `Plugin "${manifest.id}" is already installed at ${homeCopyDir}. Run \`hybridclaw plugin reinstall ${manifest.id}\` to use the bundled copy that upgrades with HybridClaw.`,
+      );
+    }
+    fs.rmSync(homeCopyDir, { recursive: true, force: true });
+    options.updateRuntimeConfig((draft) => {
+      ensurePluginConfigEntry(draft, manifest.id).enabled = true;
+    });
+  }
   let skipDependencyInstall = false;
   if (
     hasInstallablePluginDependencies(dependencyPlan) &&
@@ -713,7 +682,7 @@ function installPreparedPlugin(
 
   try {
     if (fs.existsSync(pluginDir)) {
-      if (options.replaceExisting) {
+      if (options.replaceExisting && !bundled) {
         backupDir = path.join(
           installRoot,
           `.${manifest.id}.backup-${randomUUID().slice(0, 8)}`,
@@ -766,7 +735,7 @@ function installPreparedPlugin(
           pluginId: manifest.id,
           pluginDir,
           source: sourceLabel,
-          alreadyInstalled: true,
+          alreadyInstalled: !bundled || wasEnabled,
           dependenciesInstalled:
             dependencySummary.usedPackageJson ||
             dependencySummary.installedNodePackages.length > 0 ||

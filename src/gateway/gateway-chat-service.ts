@@ -17,7 +17,6 @@ import { sendMessage as sendA2AMessage } from '../a2a/runtime.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
-import { emitPostTurnEvent } from '../agent/post-turn-events.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import {
   type PromptPartName,
@@ -57,6 +56,7 @@ import { preprocessContextReferences } from '../context-references/index.js';
 import {
   clearScheduledGoalContinuation,
   isGoalContinuationSource,
+  maybeContinueGoalAfterTurn,
   pauseActiveGoalForSession,
 } from '../goals/goal-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -72,6 +72,7 @@ import {
   createFreshSessionInstance,
   logAudit,
   resolveTurnSessionId,
+  setMessageEmailDraft,
   storeSemanticMemory,
   updateSessionRag,
 } from '../memory/db.js';
@@ -157,6 +158,7 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
+import { SHOW_WIDGET_TOOL } from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -170,6 +172,7 @@ import {
   blockDeviceDataToolUnlessShared,
 } from './device-data.js';
 import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
+import { replyWithEmailDraft, turnEmailDraft } from './email-draft.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -404,6 +407,19 @@ async function routeEscalationApproval(params: {
       },
     });
   }
+}
+
+/**
+ * `show_slide_samples` and `show_widget` need a client that draws them: a
+ * card of slide pictures to pick from, or a live widget under the reply. Only
+ * the Hy app (`client: "mobile"`) does. Elsewhere the agent answers in words.
+ */
+function blockAppOnlyToolsUnlessApp(
+  blockedTools: string[] | undefined,
+  client: GatewayChatRequest['client'],
+): string[] | undefined {
+  if (client === 'mobile') return blockedTools;
+  return [...(blockedTools ?? []), 'show_slide_samples', SHOW_WIDGET_TOOL];
 }
 
 function readGatewayPromptModeDefault(): PromptMode | undefined {
@@ -961,28 +977,17 @@ async function handleGatewayMessageInner(
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
-  const emitPostTurnForResult = async (
+  const continueGoalAfterResult = async (
     result: GatewayChatResult,
   ): Promise<void> => {
-    await emitPostTurnEvent({
-      type: 'post_turn',
-      session,
-      req: {
-        source: req.source,
-        guildId: req.guildId,
-        userId: req.userId,
-        username: req.username,
-        chatbotId: req.chatbotId,
-        model: req.model,
-        enableRag: req.enableRag,
-        onProactiveMessage: req.onProactiveMessage,
-        abortSignal: req.abortSignal,
-      },
-      channelType,
-      result,
-      runId,
-      createdAt: new Date().toISOString(),
-    });
+    try {
+      await maybeContinueGoalAfterTurn({ session, req, channelType, result });
+    } catch (error) {
+      logger.warn(
+        { runId, sessionId: session.id, error },
+        'Goal continuation after turn failed',
+      );
+    }
   };
   if (
     source !== 'fullauto' &&
@@ -1346,7 +1351,7 @@ async function handleGatewayMessageInner(
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
       };
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
     effectiveUserTurnContentExpanded = routingOutcome.userContent;
@@ -1706,7 +1711,7 @@ async function handleGatewayMessageInner(
       durationMs: Date.now() - startedAt,
       toolCallCount: 0,
     });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     return attachSessionIdentity(result);
   }
 
@@ -1846,7 +1851,10 @@ async function handleGatewayMessageInner(
   // 2026-10-02): a per-turn block changes the tool list and system prompt at
   // the front of the cached prefix. Photo questions dropped their
   // browser_vision block; [MediaContext] steers them to vision_analyze.
-  const blockedTools = blockDeviceDataToolUnlessShared(undefined, req.userId);
+  const blockedTools = blockAppOnlyToolsUnlessApp(
+    blockDeviceDataToolUnlessShared(undefined, req.userId),
+    req.client,
+  );
   const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const earlierAttachments = await buildEarlierAttachmentsPrompt({
     history,
@@ -2034,7 +2042,7 @@ async function handleGatewayMessageInner(
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
       };
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
     agentUserContent = preSendOutcome.userContent;
@@ -2194,6 +2202,7 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools,
@@ -2314,6 +2323,7 @@ async function handleGatewayMessageInner(
         approvalMode,
         fullAutoNeverApproveTools: neverAutoApproveTools,
         scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
+        background: isGoalContinuationSource(source),
         skillCatalog: buildEligibleSkillCatalog(skills),
         allowedTools: promptPartDefaults.toolsDisabled ? [] : req.allowedTools,
         blockedTools,
@@ -2780,6 +2790,7 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
+        errorCode: output.errorCode,
         userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
       };
@@ -2798,12 +2809,14 @@ async function handleGatewayMessageInner(
         durationMs,
         toolCallCount: toolExecutions.length,
       });
-      await emitPostTurnForResult(result);
+      await continueGoalAfterResult(result);
       return attachSessionIdentity(result);
     }
 
+    const emailDraft = turnEmailDraft(toolExecutions);
     const agentResultText =
-      output.result || buildEmptyAgentResponseFallback(output.artifacts);
+      output.result ||
+      (emailDraft ? '' : buildEmptyAgentResponseFallback(output.artifacts));
     const rawResultText =
       delegationAcknowledgement ||
       (sideEffectNotice
@@ -2889,6 +2902,10 @@ async function handleGatewayMessageInner(
       },
       'Gateway chat completed successfully',
     );
+    const shown = isSilentReply(resultText)
+      ? { content: resultText }
+      : replyWithEmailDraft(resultText, emailDraft);
+    resultText = shown.content;
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -2916,6 +2933,9 @@ async function handleGatewayMessageInner(
       promptOverheadTokens,
     });
     turnPersisted = true;
+    if (shown.emailDraft) {
+      setMessageEmailDraft(storedTurn.assistantMessageId, shown.emailDraft);
+    }
     tail.mark('storeTurn');
     if (onboardingAuditContext) {
       recordBootstrapOnboardingAssistantMessage(onboardingAuditContext, {
@@ -3021,9 +3041,10 @@ async function handleGatewayMessageInner(
         getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
+      ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     tail.mark('postTurn');
     maybeAutoTitleSession({
       ...autoTitleParams(),
@@ -3179,7 +3200,7 @@ async function handleGatewayMessageInner(
       durationMs,
       toolCallCount: 0,
     });
-    await emitPostTurnForResult(result);
+    await continueGoalAfterResult(result);
     return result;
   } finally {
     endDeviceDataTurn();

@@ -23,8 +23,8 @@ const MAX_SCHEMA_CHARS = 24_000;
 // Large input schemas retain describe and the existing output budget.
 const MAX_INLINE_SCHEMA_CHARS = 2_000;
 // Engineering choice, 2026-09-10: two catalog corrections per request.
-// Missing fields, lookups and unavailable call targets may recover; nothing in
-// a rejected batch executes, and the request fails once the budget is spent.
+// Invalid actions, missing fields, lookups and unavailable targets may recover;
+// nothing in a rejected batch executes. The request fails once the budget is spent.
 const MAX_CATALOG_CORRECTIONS = 2;
 const MAX_INDEXED_PARAMETERS = 8;
 const MAX_INDEX_SUMMARY_CHARS = 100;
@@ -319,7 +319,9 @@ export class ToolCatalog {
       return call;
     }
     if (args.action !== 'call')
-      throw new Error('Tool catalog action must be list, describe, or call.');
+      throw new CatalogArgumentError(
+        'Tool catalog action must be list, describe, or call.',
+      );
     if (typeof args.name !== 'string' || !args.name.trim())
       throw new CatalogArgumentError(
         'Tool catalog call requires a top-level name containing the exact tool name. Put the file path inside arguments.path, not name.',
@@ -375,7 +377,7 @@ export class ToolCatalog {
     const next =
       error instanceof CatalogUnavailableError
         ? 'Do not call that tool again in this request; its connector may be disconnected. Retry the other calls from this batch without it.'
-        : 'Correct the tool_catalog arguments and retry. describe requires name; call requires name and arguments matching the tool schema.';
+        : 'Correct the tool_catalog arguments and retry. list accepts query and offset; describe requires name; call requires name and arguments matching the tool schema.';
     return {
       output: `Error: ${error.message} No tool in this batch was executed. ${next}`,
       isError: true,

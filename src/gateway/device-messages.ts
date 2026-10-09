@@ -62,6 +62,8 @@ export function handleDeviceMessageRoute(
     artifacts: message.artifacts ?? [],
     // `schedule:<task id>` for a reply a task posted, so an app can tell its own.
     source: message.source ?? null,
+    // The email the reply showed as a card; its text is in `content` too.
+    ...(message.emailDraft ? { emailDraft: message.emailDraft } : {}),
     // SQLite stores UTC without a zone.
     createdAt: `${message.created_at.replace(' ', 'T')}Z`,
   });

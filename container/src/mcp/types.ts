@@ -32,6 +32,16 @@ export interface McpToolDefinition {
  */
 export const DEFER_LOADING_META = 'hybridai/deferLoading';
 
+/**
+ * Boost handshake with the HybridAI server (`container/shared/boost-offer.js`):
+ * every call says the runtime can ask the user (`BOOST_OFFERS_META`), a result
+ * may carry an offer (`BOOST_OFFER_META`), and the repeated call carries the
+ * user's answer (`BOOST_META`). All three ride in request or result `_meta`.
+ */
+export const BOOST_OFFERS_META = 'hybridai/boostOffers';
+export const BOOST_OFFER_META = 'hybridai/boostOffer';
+export const BOOST_META = 'hybridai/boost';
+
 /** Approval metadata plus an independent, operator-trusted scheduling decision. */
 export type McpToolBehavior = Pick<
   McpToolDefinition,

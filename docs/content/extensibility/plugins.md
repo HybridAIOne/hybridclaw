@@ -50,7 +50,11 @@ From a local TUI/web session you can also run:
 
 The install command:
 
-- copies the plugin into `~/.hybridclaw/plugins/<plugin-id>/`
+- copies the plugin into `~/.hybridclaw/plugins/<plugin-id>/`, except for a
+  plugin bundled with HybridClaw that has no dependencies to install: that one
+  is enabled in place with a `plugins.list[]` entry, so it upgrades together
+  with HybridClaw. `plugin reinstall <plugin-id>` replaces a home copy that an
+  older release left behind with that entry.
 - validates `hybridclaw.plugin.yaml`
 - installs npm dependencies when the plugin ships a `package.json` or npm
   install hints
@@ -83,8 +87,9 @@ The reinstall command:
 `hybridclaw plugin list` shows installed/discovered plugins first, then
 installable bundled or project-local plugins. Use `hybridclaw plugin list
 installed` or `hybridclaw plugin list available` to show only one section.
-When installing by bare plugin id, project-local plugins in `./plugins/` take
-priority over bundled plugins with the same id.
+When installing by bare plugin id, a plugin bundled with HybridClaw takes
+priority over a project-local `./plugins/<id>` with the same id, so running the
+install from a source checkout still enables the packaged copy.
 An exact npm package name also resolves to a matching `package.json` in those
 local plugin catalogs before HybridClaw contacts the registry. This lets the
 same canonical install source work in a source checkout and in packaged
@@ -150,6 +155,10 @@ in a hand-edited config are dropped when the plugin loads.
 - `managed-cloud`, `browser-use-cloud`, `camofox`, and `mac-cua` register
   browser providers selected with `browser.provider`; see
   [Browser Provider Plugins](../reference/configuration.md#browser-provider-plugins)
+- `distill` adds human distillation: the `hybridclaw coworker` CLI and the
+  admin console Distill page (`/api/admin/distill`). It ships in the npm
+  package but loads only once installed (`hybridclaw plugin install distill`);
+  see [Human Distillation](../guides/human-distillation.md).
 - `published-tools` serves admin-defined tools on an MCP endpoint (protocol
   `2026-07-28`) so hosts such as Microsoft Copilot can hand tasks to an agent;
   see [Published Tools (MCP)](../guides/published-tools.md).
@@ -222,7 +231,9 @@ Discovery sources:
 - explicit `plugins.list[].path` entries from runtime config
 
 Any valid plugin found in the home or project plugin directories is discovered
-automatically.
+automatically. The `hybridclaw <command>` CLI is the exception: it never
+discovers project plugins, so a checkout's `.hybridclaw/plugins/<id>` cannot
+replace the plugin that provides a CLI command.
 
 `plugins.list[]` is an override layer, not the activation gate. Use it to:
 
@@ -278,6 +289,8 @@ The manifest supports:
 - install hints under `install`
 - plugin config validation with `configSchema`
 - optional UI labels under `configUiHints`
+- top-level CLI commands under `cliCommands`, each with a `name` and a
+  `description` (see `registerCliCommand` below)
 
 `memoryProvider: true` is intentionally narrower than `kind: memory`. Use it
 only for plugins that should behave like a primary external memory system.
@@ -318,6 +331,9 @@ Currently wired runtime surfaces:
 - classifier middleware with `pre_send` and `post_receive` hooks
 - plugin tools
 - inbound webhooks on fixed plugin-owned routes
+- authenticated admin API routes under `/api/admin/<plugin-id>`
+  (`registerAdminRoute`)
+- top-level CLI commands (`registerCliCommand`)
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
 - services
 - channels
@@ -383,8 +399,10 @@ session an app sends the plugin's command from. Only phones that registered
 session was last chatted in from. `title` and `body` show on the lock
 screen; `data` holds flat keys delivered next to `aps` for the app to route
 by. The result counts the phones that take `kind` (`devices`) and those the
-alert reached APNs for (`sent`). The gateway does not deduplicate plugin
-alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
+alert reached APNs for (`sent`). While the owner is at a computer the alert
+waits and `sent` is 0; it rings when they leave
+([Quiet while you are at a computer](../guides/web-notifications.md#quiet-while-you-are-at-a-computer)).
+The gateway does not deduplicate plugin alerts. See [Web chat notifications](../guides/web-notifications.md#phones).
 
 ### Tools that read or write media
 
@@ -473,6 +491,59 @@ Use the exported `buildPluginInboundWebhookPath(...)` helper from
 Webhook handlers receive the raw Node `IncomingMessage` and `ServerResponse`
 plus the parsed `URL`, and can reuse `readWebhookJsonBody(...)`,
 `sendWebhookJson(...)`, and `WebhookHttpError` from the same SDK path.
+
+### Admin routes and CLI commands
+
+`api.registerAdminRoute({ method, path, rbacAction, handler })` adds an
+operator API route for the admin console. Unlike inbound webhooks, these
+routes sit behind the gateway's normal admin authentication:
+
+- `method` is `GET`, `POST`, or `DELETE`.
+- `path` is `/api/admin/<plugin-id>` or a child of it. A `:name` segment
+  captures one path segment; the decoded value arrives as `params.name`.
+- `rbacAction` must be an action from the core RBAC catalog
+  (`src/security/admin-rbac.ts`); the gateway checks it before the handler
+  runs, so scoped API tokens and sessions need that action. A plugin that
+  needs actions of its own adds `admin.<plugin-id>.<verb>` entries to
+  `PLUGIN_ADMIN_RBAC_ACTIONS` there; manifests cannot declare actions. While
+  such a plugin is not loaded, every caller gets 404 for its namespace, so
+  the console can tell "not installed" apart from "forbidden".
+- Registration throws on an unknown method or action, a path outside the
+  plugin's namespace, a path core already serves, or a path that overlaps
+  another registered route. A known path with another method answers 405.
+
+Handlers receive `{ req, res, url, params }`, write the
+response themselves, and throw `WebhookHttpError` for an error status.
+
+`api.registerCliCommand({ name, run })` adds a top-level `hybridclaw <name>`
+command that the manifest declares under `cliCommands`:
+
+```yaml
+cliCommands:
+  - name: coworker
+    description: Distill a human's source material into a coworker agent
+```
+
+The CLI looks plugin commands up only for names no built-in command handles,
+and routes by manifest: it imports only the one plugin that declares the name,
+register-only (no services, memory layers, or gateway hooks start), and opens
+the runtime database before `run(args)`. A name no manifest declares loads no
+plugin code; a name two enabled plugins declare fails. Project plugins
+(`<cwd>/.hybridclaw/plugins`) never provide CLI commands, so running
+`hybridclaw` inside an untrusted checkout does not execute its plugin code. A
+name that only a bundled, not-installed plugin declares fails with that
+plugin's install command. Plugin-manager logs go to stderr, so the command
+owns stdout. `hybridclaw help` lists the declared
+commands of installed plugins, and `hybridclaw help <name>` runs
+`<name> --help`. Registering a command the manifest does not declare fails.
+
+The plugin SDK also exports the host services a plugin should reuse rather
+than copy: `readWebhookBody` / `readWebhookJsonBody` for size-capped request
+bodies, `parseValueFlag` for `--flag value` / `--flag=value` CLI parsing,
+`recordAuditEvent`, `syncRuntimeAssetRevisionState` /
+`clearRuntimeAssetRevisions` (F4 revisions), the confidential-rule helpers
+(`loadConfidentialRules`, `dehydrateConfidential`, `scanForLeaks`), and the
+agent registry and workspace helpers. The `distill` plugin uses all of these.
 
 To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
