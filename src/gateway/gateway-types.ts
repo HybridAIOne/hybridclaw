@@ -69,6 +69,7 @@ import type { McpServerConfig } from '../types/models.js';
 import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
+import type { TurnReceipt } from './turn-receipt.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -169,6 +170,8 @@ export interface GatewayChatResult {
   assistantMessageId?: number;
   /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
   emailDraft?: MessageEmailDraft;
+  /** What the turn read, sent and changed, from its tool calls (`turn-receipt.ts`). */
+  receipt?: TurnReceipt;
 }
 
 export interface GatewayChatToolProgressEvent {

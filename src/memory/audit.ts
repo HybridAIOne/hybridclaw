@@ -711,6 +711,7 @@ export function listActionAuditEntries(
  */
 export function listRunToolAuditEntries(
   runs: readonly { sessionId: string; runId: string }[],
+  eventTypes: readonly string[] = ['tool.call', 'tool.result'],
 ): StructuredAuditEntry[] {
   const wanted = new Set(
     runs.map(({ sessionId, runId }) => `${sessionId}\u0000${runId}`),
@@ -718,15 +719,38 @@ export function listRunToolAuditEntries(
   const runIds = Array.from(new Set(runs.map(({ runId }) => runId)));
   if (runIds.length === 0) return [];
   const placeholders = runIds.map(() => '?').join(', ');
+  const types = eventTypes.map(() => '?').join(', ');
   return queryHydratedAuditEntries<string[]>(
     getAuditDatabase(),
     `SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
      FROM audit_events
      WHERE run_id IN (${placeholders})
-       AND event_type IN ('tool.call', 'tool.result')
+       AND event_type IN (${types})
      ORDER BY id ASC`,
     ...runIds,
+    ...eventTypes,
   ).filter((entry) => wanted.has(`${entry.session_id}\u0000${entry.run_id}`));
+}
+
+/**
+ * The run that stored this assistant message, from its `turn.end` row: a
+ * reply's receipt is built from that run's tool calls (`turn-receipt.ts`).
+ */
+export function runIdForAssistantMessage(
+  sessionId: string,
+  messageId: number,
+): string | null {
+  const row = getAuditDatabase()
+    .prepare(
+      `SELECT run_id FROM audit_events
+       WHERE session_id = ?
+         AND event_type = 'turn.end'
+         AND json_extract(payload, '$.assistantMessageId') = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .get(sessionId, messageId) as { run_id?: unknown } | undefined;
+  return typeof row?.run_id === 'string' ? row.run_id : null;
 }
 
 export function getRecentApprovals(

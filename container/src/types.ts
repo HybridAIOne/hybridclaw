@@ -349,6 +349,8 @@ export interface ToolExecution {
   blockedReason?: string;
   approvalTier?: 'green' | 'yellow' | 'red';
   approvalBaseTier?: 'green' | 'yellow' | 'red';
+  /** The approval policy's call: this changes or sends something. */
+  writeIntent?: boolean;
   autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
   stakesScore?: ToolExecutionStakesScore;

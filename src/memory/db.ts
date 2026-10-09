@@ -16,6 +16,7 @@ export {
   listStructuredAuditSessionIdsByPrefix,
   logAudit,
   logStructuredAuditEvent,
+  runIdForAssistantMessage,
   searchStructuredAudit,
 } from './audit.js';
 export * from './canonical-sessions.js';
