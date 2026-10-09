@@ -17,6 +17,7 @@ import { clearCanonicalContext } from '../memory/canonical-sessions.js';
 import { deleteArchives } from '../memory/compaction-archive.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
+import { scopeWorkspaceDir } from '../scopes/scope-paths.js';
 import { deleteGatewayAdminSession } from './gateway-session-deletion.js';
 import { deleteWebNotificationSession } from './web-notification-store.js';
 
@@ -54,6 +55,7 @@ interface SessionRow {
   messages: number;
   lastMessageId: number | null;
   lastMessageAt: string | null;
+  scope: string | null;
 }
 
 /** SQLite's `datetime('now')` has no zone; it is UTC. */
@@ -72,7 +74,7 @@ function sessionRows(chat?: string): SessionRow[] {
       db
         .prepare(
           `SELECT s.id, COALESCE(s.session_key, s.id) AS chat,
-                  COALESCE(s.agent_id, 'main') AS agent,
+                  COALESCE(s.agent_id, 'main') AS agent, s.scope AS scope,
                   s.is_current AS current, s.title, s.last_active AS lastActive,
                   COUNT(m.id) AS messages, MAX(m.id) AS lastMessageId,
                   MAX(m.created_at) AS lastMessageAt
@@ -201,8 +203,15 @@ function safeName(value: string): string {
 }
 
 /** What a session leaves outside the database, by session row id. */
-function removeSessionFiles(sessionId: string, agent: string): void {
-  const workspace = agentWorkspaceDir(agent);
+function removeSessionFiles(
+  sessionId: string,
+  agent: string,
+  scope: string | null,
+): void {
+  // A scoped chat keeps its transcript and tool results in its scope.
+  const workspace = scope
+    ? scopeWorkspaceDir(agent, scope)
+    : agentWorkspaceDir(agent);
   const safe = safeName(sessionId);
   deleteArchives(sessionId);
   for (const target of [
@@ -262,7 +271,7 @@ export async function deleteChat(
         db.prepare('DELETE FROM kv_store WHERE agent_id = ?').run(row.id);
       })(),
     );
-    removeSessionFiles(row.id, row.agent);
+    removeSessionFiles(row.id, row.agent, row.scope);
   }
   for (const agent of new Set(rows.map((row) => row.agent))) {
     clearCanonicalContext({ agentId: agent, userId: chat.id });
