@@ -30,6 +30,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       'browser_type',
       'browser_secret_type',
       'browser_sign_in',
+      'browser_take_over',
       'browser_upload',
       'browser_press',
       'browser_scroll',
@@ -50,7 +51,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Scheduling',
-    tools: ['cron', 'todo', 'track'],
+    tools: ['cron', 'trigger', 'todo', 'track'],
   },
   {
     label: 'Delegation',
@@ -70,7 +71,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'App Widgets',
-    tools: ['show_widget', 'draft_transfer'],
+    tools: ['show_widget', 'draft_transfer', 'show_dashboard'],
   },
   {
     label: 'Vision',

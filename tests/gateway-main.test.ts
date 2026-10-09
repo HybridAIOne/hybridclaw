@@ -726,6 +726,7 @@ async function importFreshGatewayMain(options?: {
     handleGatewayCommand: state.handleGatewayCommand,
     renderGatewayCommand: state.renderGatewayCommand,
     resumeEnabledFullAutoSessions: state.resumeEnabledFullAutoSessions,
+    runDashboardRefresh: vi.fn(),
   }));
   vi.doMock('../src/gateway/gateway-chat-service.js', () => ({
     handleGatewayMessage: state.handleGatewayMessage,

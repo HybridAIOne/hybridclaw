@@ -92,6 +92,11 @@ import {
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  runShowDashboard,
+  SHOW_DASHBOARD_DEFINITION,
+  SHOW_DASHBOARD_TOOL,
+} from './tools/dashboard.js';
+import {
   DRAFT_EMAIL_TOOL_DEFINITION,
   runDraftEmailTool,
 } from './tools/draft-email.js';
@@ -124,6 +129,7 @@ import {
   DRAFT_TRANSFER_TOOL,
   runDraftTransfer,
 } from './tools/transfer.js';
+import { runTriggerTool, TRIGGER_TOOL_DEFINITION } from './tools/trigger.js';
 import {
   runShowWidget,
   SHOW_WIDGET_DEFINITION,
@@ -2281,6 +2287,25 @@ function writeWorkspaceFile(userPath: string, contents: string): void {
   fs.writeFileSync(filePath, contents);
 }
 
+/** A workspace file's text, or '' when there is none. */
+function readWorkspaceText(userPath: string): string {
+  try {
+    if (TASK_SANDBOX_FS_ENABLED) {
+      const sandboxPath = resolveTaskSandboxPath(userPath);
+      if (!sandboxPath) return '';
+      const copied = copyTaskSandboxFileToTemp(sandboxPath);
+      try {
+        return fs.readFileSync(copied.localPath, 'utf-8');
+      } finally {
+        fs.rmSync(copied.tempDir, { recursive: true, force: true });
+      }
+    }
+    return fs.readFileSync(safeJoin(userPath), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 const MEMORY_ROOT_FILES = new Set(['MEMORY.md', 'USER.md']);
 const DAILY_MEMORY_FILE_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
 const ROOT_MEMORY_CHAR_LIMITS: Record<string, number> = {
@@ -3059,6 +3084,16 @@ async function executeToolInternal(
       }
     }
 
+    case SHOW_DASHBOARD_TOOL: {
+      try {
+        return runShowDashboard(args, writeWorkspaceFile, readWorkspaceText);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'edit': {
       let tempDirToCleanup: string | null = null;
       try {
@@ -3655,6 +3690,29 @@ async function executeToolInternal(
       const { ok, text } = runDraftEmailTool(args);
       return ok ? text : failTool(text);
     }
+    case 'trigger': {
+      if (args.action !== 'list') {
+        if (!scheduleSideEffectsEnabled)
+          return failTool('Error: triggers cannot be changed in this run.');
+        if (CHANNELS_WITHOUT_PROACTIVE_DELIVERY.has(gatewayChannelId))
+          return failTool(
+            'Error: a trigger cannot be set up from a heartbeat run.',
+          );
+      }
+      const { ok, text } = await runTriggerTool(
+        args,
+        {
+          baseUrl: gatewayBaseUrl,
+          apiToken: gatewayApiToken,
+          sessionId: currentSessionId,
+        },
+        {
+          tz: resolveCronTimezone() || undefined,
+          channelId: gatewayChannelId || undefined,
+        },
+      );
+      return ok ? text : failTool(text);
+    }
     case 'proof': {
       const { ok, text } = runProofTool(args);
       return ok ? text : failTool(text);
@@ -3963,6 +4021,7 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_take_over':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
     case 'browser_snapshot':
@@ -4293,6 +4352,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   SKILLS_LIST_TOOL_DEFINITION,
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
+  TRIGGER_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
   PROOF_TOOL_DEFINITION,
   ESTIMATE_COST_TOOL_DEFINITION,
@@ -4342,6 +4402,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   SHOW_WIDGET_DEFINITION,
   DRAFT_TRANSFER_DEFINITION,
+  SHOW_DASHBOARD_DEFINITION,
   {
     type: 'function',
     function: {

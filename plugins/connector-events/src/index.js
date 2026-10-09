@@ -1,6 +1,8 @@
 /**
  * Optional cloud change relay. Only configured binding IDs and opaque event IDs
  * are accepted; operator configuration fixes the user, source and policy.
+ * With an owner, `gmail`, `outlook`, `mailbox` and `slack` changes also run
+ * the owner's mail and Slack triggers.
  * The host scheduler supplies durable deduplication, debounce and quiet hours.
  */
 import { timingSafeEqual } from 'node:crypto';
@@ -9,6 +11,9 @@ import {
   sendWebhookJson,
   WebhookHttpError,
 } from '@hybridaione/hybridclaw/plugin-sdk';
+
+// Further owner sources, unless configured bindings already use the id.
+const OWNER_SOURCES = ['outlook', 'mailbox', 'slack'];
 
 function authenticated(req, token) {
   const header = req.headers.authorization;
@@ -48,6 +53,11 @@ export default {
         throw new Error('Invalid or duplicate connector event binding.');
       }
       bindings.set(binding.id, binding);
+    }
+    if (owner !== undefined) {
+      for (const source of OWNER_SOURCES)
+        if (!bindings.has(source))
+          bindings.set(source, { userId: owner, source });
     }
     api.registerInboundWebhook({
       name: 'change',

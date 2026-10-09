@@ -181,6 +181,11 @@ export interface GatewayChatResult {
   costEstimate?: TaskCostEstimate;
   /** What the turn read, sent and changed, from its tool calls (`turn-receipt.ts`). */
   receipt?: TurnReceipt;
+  /**
+   * The new session's generated title, on the first turn's success result
+   * only, and only when it was ready before the reply; the turn never waits.
+   */
+  sessionTitle?: string;
 }
 
 export interface GatewayChatToolProgressEvent {

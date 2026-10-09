@@ -106,6 +106,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'timezone',
   'preferences',
   'receipts',
+  'dashboard',
   'channel',
   'ralph',
   'goal',
@@ -668,6 +669,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'receipts':
       return ['receipts', ...parts.slice(1)];
 
+    case 'dashboard':
+      return ['dashboard', ...parts.slice(1)];
+
     // Sent by companion apps, so it stays out of menus and help.
     case 'device-data':
       return ['device-data', ...parts.slice(1)];
@@ -780,6 +784,13 @@ function buildSlashCommandCatalogDefinitions(
       name: 'receipts',
       description:
         'What the agent did outside its sandbox for you, and who allowed it',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps list, show and refresh with `--json`.
+      name: 'dashboard',
+      description: 'Your dashboards: list, show <id>, refresh <id>',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },

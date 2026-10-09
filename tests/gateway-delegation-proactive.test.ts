@@ -360,6 +360,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
     expect.objectContaining({
       blockedTools: [
         'cron',
+        'trigger',
         'todo',
         'draft_email',
         'estimate_cost',
@@ -368,6 +369,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
         'memory',
         'browser_await_two_factor',
         'browser_resume_interaction',
+        'browser_take_over',
       ],
     }),
   );

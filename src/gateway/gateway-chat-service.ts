@@ -114,7 +114,7 @@ import {
   scopeRunAgentParams,
 } from '../scopes/scope-run.js';
 import { buildSessionContext } from '../session/session-context.js';
-import { maybeAutoTitleSession } from '../session/session-title.js';
+import { startSessionTitle } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { buildEligibleSkillCatalog } from '../skills/skill-catalog.js';
 import {
@@ -165,7 +165,11 @@ import {
   setActiveThreadAgentId,
 } from './agent-addressing.js';
 import { enforceAgentBudgetHardStop } from './agent-budget-hard-stop.js';
-import { DRAFT_TRANSFER_TOOL, SHOW_WIDGET_TOOL } from './app-widgets.js';
+import {
+  DRAFT_TRANSFER_TOOL,
+  SHOW_DASHBOARD_TOOL,
+  SHOW_WIDGET_TOOL,
+} from './app-widgets.js';
 import { resolveSessionApprovalMode } from './approval-mode.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { withChatRoutingTrace } from './chat-routing-trace.js';
@@ -427,11 +431,11 @@ function receiptOf(
 }
 
 /**
- * `show_slide_samples`, `show_widget`, `draft_transfer` and `estimate_cost`
- * need a client that draws them: a card of slide pictures to pick from, a live
- * widget under the reply, a transfer card with a GiroCode, or a cost estimate
- * card. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent answers
- * in words.
+ * `show_slide_samples`, `show_widget`, `draft_transfer`, `estimate_cost` and
+ * `show_dashboard` need a client that draws them: a card of slide pictures to
+ * pick from, a live widget under the reply, a transfer card with a GiroCode, a
+ * cost estimate card, or a dashboard. Only the Hy app (`client: "mobile"`)
+ * does. Elsewhere the agent answers in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
@@ -444,6 +448,7 @@ function blockAppOnlyToolsUnlessApp(
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
     'estimate_cost',
+    SHOW_DASHBOARD_TOOL,
   ];
 }
 
@@ -1305,15 +1310,18 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
-  // Each success path returns after scheduling title work, so one turn enqueues
-  // at most one title request.
-  const autoTitleParams = () => ({
-    sessionId: req.sessionId,
-    agentId,
-    chatbotId,
-    model,
-    isFirstTurn: turnIndex === 1,
-  });
+  // The title only needs the user's message. It is requested once routing
+  // has accepted the turn (a privacy rejection sends nothing), runs alongside
+  // the reply, and is stored only by a success path: one request per turn.
+  const startTitle = (userContent: string) =>
+    startSessionTitle({
+      sessionId: req.sessionId,
+      agentId,
+      chatbotId,
+      model,
+      userContent,
+      isFirstTurn: turnIndex === 1 && !session.title,
+    });
   const explicitModelPinned = Boolean(
     req.model?.trim() || session.model?.trim() || onboardingModelPinned,
   );
@@ -1393,10 +1401,7 @@ async function handleGatewayMessageInner(
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
-      maybeAutoTitleSession({
-        ...autoTitleParams(),
-        userContent: routingUserContent,
-      });
+      startTitle(routingUserContent)?.persist();
       const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
@@ -1774,6 +1779,9 @@ async function handleGatewayMessageInner(
     return attachSessionIdentity(result);
   }
 
+  const titleRequest = startTitle(
+    buildStoredUserTurnContent(userTurnContent, media),
+  );
   const fetchedHistory = memoryService.getConversationHistory(
     req.sessionId,
     HISTORY_FETCH_LIMIT,
@@ -3089,6 +3097,7 @@ async function handleGatewayMessageInner(
     }
 
     tail.mark('pluginMemoryHooks');
+    const sessionTitle = titleRequest?.readyTitle();
     const result: GatewayChatResult = {
       status: 'success',
       result: resultText,
@@ -3123,14 +3132,12 @@ async function handleGatewayMessageInner(
       ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
       ...(costEstimate ? { costEstimate } : {}),
       ...receiptOf(toolExecutions),
+      ...(sessionTitle ? { sessionTitle } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     await continueGoalAfterResult(result);
     tail.mark('postTurn');
-    maybeAutoTitleSession({
-      ...autoTitleParams(),
-      userContent: storedUserContent,
-    });
+    titleRequest?.persist();
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,

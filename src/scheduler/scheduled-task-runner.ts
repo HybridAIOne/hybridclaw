@@ -9,6 +9,7 @@ import {
 import { getChannel } from '../channels/channel-registry.js';
 import {
   DRAFT_TRANSFER_TOOL,
+  SHOW_DASHBOARD_TOOL,
   SHOW_WIDGET_TOOL,
 } from '../gateway/app-widgets.js';
 import {
@@ -137,8 +138,10 @@ export async function runIsolatedScheduledTask(params: {
   const blockedTools = blockDeviceDataToolUnlessShared(
     [
       'cron',
+      'trigger',
       SHOW_WIDGET_TOOL,
       DRAFT_TRANSFER_TOOL,
+      SHOW_DASHBOARD_TOOL,
       ...(scopeRun?.blockedTools ?? []),
     ],
     owner,

@@ -79,6 +79,10 @@ proactive policies, so replacing a schedule does not require updating the relay.
 The same ownership, quiet-hour and burst checks apply. Explicit `bindings` remain
 available; their IDs must not collide with `gmail` when the owner binding is set.
 
+The owner also gets `outlook`, `mailbox` and `slack` bindings unless configured
+bindings use those IDs. Owner binding events also run the owner's mail or Slack
+[event triggers](./event-triggers.md).
+
 Hosts can install and configure the plugin before gateway startup with the
 [config seed](../reference/configuration.md#seeding-config-at-gateway-start):
 

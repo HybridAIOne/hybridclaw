@@ -33,6 +33,7 @@ import { isTodoReminderSettled } from '../todos/todo-store.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import { hasActionableHeartbeatFile } from '../workspace.js';
 import { isConnectorEventCurrent } from './connector-events.js';
+import { isTriggerRunCurrent, triggerRunPrompt } from './event-triggers.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
 
@@ -716,10 +717,18 @@ function arm(): void {
 async function dispatchDbTask(task: ScheduledTask): Promise<void> {
   if (!taskRunner) return;
   // A reminder of a todo that is already done has nothing to say.
-  if (isTodoReminderSettled(task.id) || !isConnectorEventCurrent(task)) return;
+  if (
+    isTodoReminderSettled(task.id) ||
+    !isConnectorEventCurrent(task) ||
+    !isTriggerRunCurrent(task)
+  )
+    return;
+  // A trigger shows when it last ran, whichever event ran it.
+  if (task.trigger_event && task.event_parent_id)
+    markJobRunStarted(task.event_parent_id);
   const prompt = wrapCronPrompt(
     dbTaskLabel(task.id),
-    task.prompt,
+    task.trigger || task.trigger_event ? triggerRunPrompt(task) : task.prompt,
     task.tz || undefined,
     task.channel_id,
   );

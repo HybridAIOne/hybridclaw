@@ -132,6 +132,10 @@ replacement, including when a gateway-owned browser window survives. Refresh
 the snapshot before using element refs after a restart. Checkout actions require
 one-time approval in every mode; see [Browser checkout](./approvals.md#action-reference).
 
+A take-over (`browser_take_over`) lives in gateway memory and in the waiting
+tool call. The worker restores its viewport when the take-over ends; a worker
+replaced mid-take-over loses it, and the gateway drops it after 10 minutes.
+
 ### Shell Execution
 
 Bash commands run asynchronously so tool activity heartbeats and worker signal
@@ -485,9 +489,14 @@ Session behavior matches the routing rules above:
   the rest, so the message is not answered twice
 - a streaming `/api/chat` client that sends `client: "mobile"` gets a `result`
   line with only `status`, `result`, `error`, `toolsUsed`, `sessionId`,
-  `userMessageId`, `assistantMessageId`, `artifacts`, and the chat's `scope`.
-  Tool arguments and outputs, usage, prompts, and routing are left out; the
-  `tool` lines already reported each call
+  `userMessageId`, `assistantMessageId`, and `artifacts`, plus `emailDraft`,
+  `sessionTitle` and the chat's `scope` when the turn has them. Tool
+  arguments and outputs, usage, prompts, and routing are left out; the `tool`
+  lines already reported each call
+- the first turn of a session starts its auxiliary title request once routing
+  has accepted the turn, so it runs alongside the model call. The success `result` carries `sessionTitle` only when
+  the title was ready before the reply; the turn never waits for it. The title
+  is stored once it arrives, and only when the turn succeeded
 
 ## Scopes
 

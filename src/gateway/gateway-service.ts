@@ -377,7 +377,7 @@ import {
 import { isSecretRefInput } from '../security/secret-refs.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { exportSessionSnapshotJsonl } from '../session/session-export.js';
-import { parseSessionKey } from '../session/session-key.js';
+import { buildSessionKey, parseSessionKey } from '../session/session-key.js';
 import {
   compactSessionNow,
   maybeCompactSession,
@@ -488,6 +488,10 @@ import {
 } from './chat-result.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
+import {
+  type DashboardRefreshRun,
+  handleDashboardCommand,
+} from './dashboard-command.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
 import { handleDeviceDataCommand } from './device-data-command.js';
 import {
@@ -4276,6 +4280,53 @@ function resolveSessionRuntimeTarget(session: Session): {
     agentId,
     workspacePath: path.resolve(agentWorkspaceDir(agentId)),
   };
+}
+
+const DASHBOARD_REFRESH_TIMEOUT_MS = 180_000;
+
+/**
+ * One agent run that fetches a dashboard's figures again (`/dashboard
+ * refresh`, or its schedule). It runs in a session of its own, so no chat
+ * sees it, with only the read tools the dashboard's queries name and
+ * `show_dashboard`.
+ */
+export async function runDashboardRefresh(
+  run: DashboardRefreshRun,
+): Promise<{ error?: string }> {
+  const { model, chatbotId } = resolveAgentForRequest({
+    agentId: run.agentId,
+  });
+  const session = memoryService.getOrCreateSession(
+    buildSessionKey(run.agentId, 'dashboard', 'refresh', run.dashboard.id),
+    null,
+    'web',
+    run.agentId,
+  );
+  const resolution = await resolveGatewayChatbotId({
+    model,
+    chatbotId,
+    sessionId: session.id,
+    channelId: 'web',
+    agentId: run.agentId,
+    trigger: 'chat',
+  });
+  if (resolution.error) return { error: resolution.error };
+  const output = await runAgent({
+    sessionId: session.id,
+    agentId: run.agentId,
+    model,
+    chatbotId: resolution.chatbotId,
+    enableRag: false,
+    channelId: 'web',
+    messages: [{ role: 'user', content: run.prompt }],
+    allowedTools: run.allowedTools,
+    scheduleSideEffectsEnabled: false,
+    maxWallClockMs: DASHBOARD_REFRESH_TIMEOUT_MS,
+  });
+  if (output.pendingApproval) {
+    return { error: 'A tool asked for your OK, which a refresh cannot give.' };
+  }
+  return output.error ? { error: output.error } : {};
 }
 
 function prunePendingSessionResets(now = Date.now()): void {
@@ -12458,6 +12509,13 @@ export async function handleGatewayCommand(
 
       case 'receipts':
         return handleReceiptsCommand(req, session);
+
+      case 'dashboard':
+        return handleDashboardCommand(
+          req,
+          resolveSessionAgentId(session),
+          runDashboardRefresh,
+        );
 
       case 'preferences':
         return handlePreferencesCommand(req);
