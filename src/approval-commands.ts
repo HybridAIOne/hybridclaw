@@ -31,9 +31,13 @@ export const APPROVE_TEXT_CHANNEL_USAGE = `\`${APPROVE_COMMAND_USAGE.replace(
 
 export const APPROVALS_MODE_USAGE = `/approvals mode [${APPROVAL_MODES.join('|')}]`;
 
+export const APPROVALS_RULES_USAGE =
+  '/approvals rules [revoke <number|action>] [--json]';
+
 export const APPROVALS_SLASH_COMMAND: CanonicalSlashCommandDefinition = {
   name: 'approvals',
-  description: 'Show or set how often this session asks for approval',
+  description:
+    'Show or set how often this session asks for approval, and list or revoke "always allow" rules',
   tuiMenu: { label: APPROVALS_MODE_USAGE, insertText: '/approvals mode ' },
   tuiOnly: true,
   options: [
@@ -47,6 +51,25 @@ export const APPROVALS_SLASH_COMMAND: CanonicalSlashCommandDefinition = {
         insertText: `/approvals mode ${mode}`,
         description: APPROVAL_MODE_PRESENTATION[mode].description,
       })),
+    },
+    {
+      kind: 'subcommand',
+      name: 'rules',
+      description: 'List or revoke the "always allow" rules of this agent',
+      tuiMenuEntries: [
+        {
+          id: 'approvals.rules',
+          label: '/approvals rules',
+          insertText: '/approvals rules',
+          description: 'List the "always allow" rules of this agent',
+        },
+        {
+          id: 'approvals.rules.revoke',
+          label: '/approvals rules revoke <number>',
+          insertText: '/approvals rules revoke ',
+          description: 'Ask again before an action you always allowed',
+        },
+      ],
     },
   ],
 };

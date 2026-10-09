@@ -11,10 +11,12 @@ export {
   getStructuredAuditForSession,
   getWeeklyAgentAnomalyRollups,
   listActionAuditEntries,
+  listRunToolAuditEntries,
   listStructuredAuditEntries,
   listStructuredAuditSessionIdsByPrefix,
   logAudit,
   logStructuredAuditEvent,
+  runIdForAssistantMessage,
   searchStructuredAudit,
 } from './audit.js';
 export * from './canonical-sessions.js';

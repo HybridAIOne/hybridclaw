@@ -1,8 +1,8 @@
 /**
  * The `result` line of a streamed `/api/chat` turn, cut to what the client
  * reads. The iOS and Android apps (`client: "mobile"`) read only the reply,
- * its status and error, the stored message ids, files, email draft and a new
- * chat's title; each tool call already reached them as a `tool` line.
+ * its status and error, the stored message ids, files, email draft, receipt
+ * and a new chat's title; each tool call already reached them as a `tool` line.
  *
  * Wire-only: the caller has used the full result (artifact capture,
  * notifications, activity trace) before it sends this one. NOT show-mode
@@ -17,7 +17,8 @@ export function chatResultForClient(
   if (client !== 'mobile') return result;
   // The fields both apps decode (audit 2026-10-02), plus `toolsUsed` and
   // `sessionId`, which every result carries. Tool arguments and outputs,
-  // usage, prompts and routing stay on the gateway.
+  // token usage, prompts and routing stay on the gateway; of usage only the
+  // turn's cost goes, as one total (2026-10-09).
   return {
     status: result.status,
     result: result.result,
@@ -29,6 +30,10 @@ export function chatResultForClient(
     assistantMessageId: result.assistantMessageId,
     artifacts: result.artifacts,
     ...(result.emailDraft ? { emailDraft: result.emailDraft } : {}),
+    ...(result.cost ? { cost: result.cost } : {}),
+    ...(result.costEstimate ? { costEstimate: result.costEstimate } : {}),
+    // What the turn read, sent and changed, shown beside the reply.
+    ...(result.receipt ? { receipt: result.receipt } : {}),
     ...(result.sessionTitle ? { sessionTitle: result.sessionTitle } : {}),
   };
 }

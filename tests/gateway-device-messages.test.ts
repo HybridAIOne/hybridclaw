@@ -80,6 +80,47 @@ describe('reading back a stored reply', () => {
     expect(body.createdAt.endsWith('Z')).toBe(true);
   });
 
+  test('a stored reply says what it cost', async () => {
+    const { db, memoryService, phone, get } = await setup();
+    const reply = memoryService.storeMessage({
+      sessionId: 'ios-a',
+      userId: 'hybridclaw-ios',
+      username: null,
+      role: 'assistant',
+      content: 'Done.',
+    });
+    const read = () => get(phone, `sessionId=ios-a&id=${reply}`).body;
+    expect(read()).not.toHaveProperty('cost');
+    db.setMessageRoutingTrace(reply, {
+      version: 1,
+      status: 'complete',
+      mode: 'direct',
+      durationMs: 1_000,
+      attempts: [
+        {
+          id: 1,
+          kind: 'execution',
+          model: 'hybridai/gpt-paid',
+          zone: 'cloud',
+          reason: 'selected-model',
+          tier: null,
+          status: 'success',
+          durationMs: 1_000,
+          inputTokens: 1_000,
+          outputTokens: 100,
+          totalTokens: 1_100,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          tokensEstimated: false,
+          costUsd: 0.011712,
+          costSource: 'estimated',
+          modelCalls: 2,
+        },
+      ],
+    });
+    expect(read().cost).toEqual({ eur: 0.01, free: false, requests: 2 });
+  });
+
   test('other operators, other sessions and user turns look like missing messages', async () => {
     const { memoryService, phone, other, get } = await setup();
     const reply = memoryService.storeMessage({
@@ -140,6 +181,72 @@ describe('reading back a stored reply', () => {
     ]) {
       expect(get(phone, query).status).toBe(400);
     }
+  });
+
+  test('a stored reply carries its receipt: what it read, sent and changed', async () => {
+    const { memoryService, phone, other, get } = await setup();
+    const { emitToolExecutionAuditEvents, recordAuditEvent } = await import(
+      '../src/audit/audit-events.ts'
+    );
+    const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
+    const id = memoryService.storeMessage({
+      sessionId: 'ios-a',
+      userId: 'user',
+      username: null,
+      role: 'assistant',
+      content: 'Sent.',
+    });
+    emitToolExecutionAuditEvents({
+      sessionId: 'ios-a',
+      runId: 'turn-1',
+      toolExecutions: [
+        {
+          name: 'hybridai__google__send_mail',
+          arguments: JSON.stringify({
+            to: 'pat@example.com',
+            subject: 'Friday',
+          }),
+          result: 'Error: quota exceeded',
+          durationMs: 5,
+          isError: true,
+          approvalTier: 'red',
+          approvalDecision: 'approved_once',
+          writeIntent: true,
+        },
+      ],
+    });
+    recordAuditEvent({
+      sessionId: 'ios-a',
+      runId: 'turn-1',
+      event: {
+        type: 'turn.end',
+        turnIndex: 1,
+        finishReason: 'completed',
+        assistantMessageId: id,
+      },
+    });
+    await flushAuditTrail();
+    const sent = {
+      version: 1,
+      more: 0,
+      items: [
+        expect.objectContaining({
+          kind: 'sent',
+          target: 'Friday',
+          to: ['@example.com'],
+          ok: false,
+          error: 'Error: quota exceeded',
+        }),
+      ],
+    };
+    expect(get(phone, `sessionId=ios-a&id=${id}`).body.receipt).toEqual(sent);
+    expect(
+      get(phone, `sessionId=ios-a&id=${id}&activityOffset=0`).body.receipt,
+    ).toEqual(sent);
+    expect(
+      get(phone, `sessionId=ios-a&id=${id}&activityOffset=20`).body,
+    ).not.toHaveProperty('receipt');
+    expect(get(other, `sessionId=ios-a&id=${id}`).status).toBe(404);
   });
 
   test('trace pages are opt-in, ordered, bounded and owned by the session operator', async () => {

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **Always-allow rules**: `/approvals rules` lists the action kinds an agent
+  may run without asking (from `yes for agent` and `yes for all`), with what
+  each covers and when it was granted, and `revoke` removes one. A revoke
+  applies from the running worker's next tool call. Approval events name the
+  rule that paused the call (`rule.pausedBy`) and what an always-allow would
+  cover, so apps can show both on their approval cards.
+
 ## [0.39.6](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.6) - 2026-10-09
 
 ### Added

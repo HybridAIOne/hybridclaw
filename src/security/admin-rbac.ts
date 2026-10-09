@@ -16,6 +16,8 @@ export const NOTES_RUNTIME_PATH = '/api/notes/runtime';
 
 export const SYSTEM_FILES_PATH = '/api/system/files';
 
+export const DATA_CONTROLS_PATH = '/api/data-controls';
+
 export const ADMIN_SECRET_RBAC_ACTIONS = [
   'secret.list_metadata',
   'secret.overwrite',
@@ -60,6 +62,8 @@ export const ADMIN_RBAC_ACTIONS = [
   'notes.write',
   'system_files.read',
   'system_files.write',
+  'data_controls.read',
+  'data_controls.write',
   'voice.session',
   'sign_ins.manage',
   'status.read',
@@ -145,6 +149,7 @@ const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   NOTES_RUNTIME_PATH,
   '/api/browser/sign-in',
   '/api/browser/tool',
+  '/api/cost-estimate',
   '/api/delegate',
   '/api/device-data',
   '/api/discord/action',
@@ -530,6 +535,13 @@ export function resolveAdminRbacAction(
   if (pathname === SYSTEM_FILES_PATH) {
     if (method === 'GET') return 'system_files.read';
     if (method === 'PUT' || method === 'POST') return 'system_files.write';
+    return null;
+  }
+  // What the agents remember, and changing it one memory at a time; see
+  // `gateway/data-controls.ts`.
+  if (isPathOrChild(pathname, DATA_CONTROLS_PATH)) {
+    if (method === 'GET') return 'data_controls.read';
+    if (method === 'POST') return 'data_controls.write';
     return null;
   }
   if (pathname === '/api/artifact' && method === 'GET') {

@@ -69,8 +69,49 @@ async function load() {
     await flushAuditTrail();
   };
 
-  return { run, act, scheduledRunSessionKey };
+  // One turn's tool calls, in order; each is a plain successful call unless
+  // it says otherwise.
+  const turn = async (sessionId: string, executions: Partial<Execution>[]) => {
+    runs += 1;
+    emitToolExecutionAuditEvents({
+      sessionId,
+      runId: `run-${runs}`,
+      toolExecutions: executions.map(
+        (execution) =>
+          ({
+            name: 'read',
+            arguments: '{}',
+            result: 'ok',
+            durationMs: 5,
+            isError: false,
+            blocked: false,
+            approvalTier: 'green',
+            approvalBaseTier: 'green',
+            approvalDecision: 'auto',
+            escalationRoute: 'none',
+            ...execution,
+          }) as Execution,
+      ),
+    });
+    await flushAuditTrail();
+  };
+
+  return { run, act, turn, scheduledRunSessionKey };
 }
+
+// An order placed in the browser, which the user allowed.
+const ORDER = {
+  name: 'browser_click',
+  arguments: JSON.stringify({ ref: 'e12' }),
+  approvalTier: 'red',
+  approvalBaseTier: 'red',
+  approvalDecision: 'approved_once',
+  approvalIntent: 'place an order on shop.example (button "Buy now")',
+  escalationRoute: 'approval_request',
+} as const;
+
+const proof = (args: Record<string, unknown>, result = '{"recorded":true}') =>
+  ({ name: 'proof', arguments: JSON.stringify(args), result }) as const;
 
 test('a sent mail is a receipt with its recipient, and who allowed it', async () => {
   const { run, act } = await load();
@@ -99,6 +140,8 @@ test('a sent mail is a receipt with its recipient, and who allowed it', async ()
         allowed: 'you',
         ok: true,
         error: null,
+        // Google's own tool said it went out.
+        proof: { status: 'confirmed', evidence: 'service' },
       },
     ],
   });
@@ -205,4 +248,105 @@ test('an app sees its web chats and its tasks, a peer only its own', async () =>
   expect((await run(APP_CHAT, ['receipts', '--bogus'])).text).toContain(
     'Usage',
   );
+});
+
+test('a browser order is confirmed only by a check after it', async () => {
+  const { run, turn } = await load();
+  await run(APP_CHAT, ['receipts']);
+  // Clicked, never checked.
+  await turn(APP_CHAT, [ORDER]);
+  // Claims a confirmation email it never read.
+  await turn(APP_CHAT, [
+    ORDER,
+    proof({
+      confirmed: true,
+      evidence: 'email',
+      summary: 'Order confirmed',
+      from: 'orders@shop.example',
+      subject: 'Your order',
+    }),
+  ]);
+  // Read the mail, then recorded it.
+  await turn(APP_CHAT, [
+    ORDER,
+    { name: 'hybridai__google__search_mail' },
+    proof({
+      confirmed: true,
+      evidence: 'email',
+      summary: 'Order 4711 confirmed',
+      from: 'Shop <orders@shop.example>',
+      subject: 'Your order 4711',
+    }),
+  ]);
+  // Took a screenshot, then recorded it.
+  await turn(APP_CHAT, [
+    ORDER,
+    { name: 'browser_screenshot' },
+    proof(
+      {
+        confirmed: true,
+        evidence: 'screenshot',
+        summary: 'Thank you page, order 4712',
+        screenshot: '.browser-artifacts/shot.png',
+      },
+      '{"recorded":true,"path":"receipts/proof-1000-shot.png"}',
+    ),
+  ]);
+  // Looked and found nothing.
+  await turn(APP_CHAT, [
+    ORDER,
+    { name: 'hybridai__google__search_mail' },
+    proof({ confirmed: false, summary: 'No confirmation email yet' }),
+  ]);
+
+  const receipts = (await run(APP_CHAT, ['receipts', '--json'])).json
+    .receipts as Array<{ proof: Record<string, unknown> }>;
+  expect(receipts.map((receipt) => receipt.proof)).toEqual([
+    {
+      status: 'unconfirmed',
+      evidence: null,
+      summary: 'No confirmation email yet',
+      from: null,
+      subject: null,
+      path: null,
+    },
+    {
+      status: 'confirmed',
+      evidence: 'screenshot',
+      summary: 'Thank you page, order 4712',
+      from: null,
+      subject: null,
+      path: 'receipts/proof-1000-shot.png',
+    },
+    {
+      status: 'confirmed',
+      evidence: 'email',
+      summary: 'Order 4711 confirmed',
+      from: '@shop.example',
+      subject: 'Your order 4711',
+      path: null,
+    },
+    expect.objectContaining({ status: 'unconfirmed', summary: null }),
+    expect.objectContaining({ status: 'unconfirmed', summary: null }),
+  ]);
+  const text = (await run(APP_CHAT, ['receipts'])).text;
+  expect(text).toContain("couldn't confirm it worked");
+  expect(text).toContain('confirmed by email: Order 4711 confirmed');
+});
+
+test('files the agent wrote need no proof', async () => {
+  const { run, turn } = await load();
+  await run(APP_CHAT, ['receipts']);
+  await turn(APP_CHAT, [
+    {
+      name: 'write',
+      arguments: JSON.stringify({ path: 'notes/plan.md' }),
+      approvalDecision: 'approved_once',
+      escalationRoute: 'approval_request',
+    },
+  ]);
+  const receipts = (await run(APP_CHAT, ['receipts', '--json'])).json
+    .receipts as Array<Record<string, unknown>>;
+  expect(receipts).toHaveLength(1);
+  expect(receipts[0].proof).toBeNull();
 });

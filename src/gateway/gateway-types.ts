@@ -68,8 +68,10 @@ import type { MemoryAccess, MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { RoutingTrace } from '../types/routing-trace.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { TaskCost, TaskCostEstimate } from '../usage/task-cost.js';
 import type { GatewayApprovalAnswer } from './approval-answer.js';
 import type { GatewayModelProviderKey } from './model-provider-keys.js';
+import type { TurnReceipt } from './turn-receipt.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -170,6 +172,12 @@ export interface GatewayChatResult {
   assistantMessageId?: number;
   /** The email the reply showed as a card (`draft_email`); its text is in `result` too. */
   emailDraft?: MessageEmailDraft;
+  /** What the turn cost the user, from its routing trace (`src/usage/task-cost.ts`). */
+  cost?: TaskCost;
+  /** What the task the reply asks about will likely cost (`estimate_cost`). */
+  costEstimate?: TaskCostEstimate;
+  /** What the turn read, sent and changed, from its tool calls (`turn-receipt.ts`). */
+  receipt?: TurnReceipt;
   /**
    * The new session's generated title, on the first turn's success result
    * only, and only when it was ready before the reply; the turn never waits.

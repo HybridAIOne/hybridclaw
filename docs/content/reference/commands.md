@@ -744,6 +744,19 @@ with `id`, `at`, `session`, `task`, `tool`, `service`, `action`, `to`,
 which the audit keeps next to arguments whose addresses it redacts. Never a
 mail's body.
 
+Each receipt also says whether the action really worked, as `proof`:
+`{"status", "evidence", "summary", "from", "subject", "path"}`. A connector's
+own tool (`hybridai__google__send_mail`) or `message` reporting success is
+`confirmed` by `service`. Anything else, such as an order placed in the
+browser, needs the agent's `proof` tool after it in the same turn, and that
+counts only when a matching check ran in between: a mail read for
+`evidence: "email"` (`from` is the sender's domain), `browser_screenshot` for
+`"screenshot"` (`path` is the copy under `receipts/` in the agent's home), a
+browser call for `"page"`. Without one, or when the agent recorded that it
+could not confirm it, the status is `unconfirmed`, with the agent's reason as
+`summary` when it gave one. `proof` is null for a failed action and for files
+the agent wrote, edited or deleted in its own workspace, and for commands.
+
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, `/aux`, `/second-opinion`, and
 related slash commands route through the same gateway command surface used by
 TUI and web chat. `/context` is local-only because it exposes session
@@ -808,6 +821,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents; web `/agent switch` starts hatching when `BOOTSTRAP.md` is active |
 | `/app <description>` or `/apps` | web chat | Start an app-building conversation or open the Apps gallery |
 | `/approvals mode [ask|auto|full]` | local and chat channels | Show or set how often this session asks for approval |
+| `/approvals rules [revoke <number|action>] [--json]` | local and chat channels | List or revoke the agent's "always allow" grants (`yes for agent`, `yes for all`) |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |
 | `/auth status <provider>` | local TUI/web | Show local auth and provider config state |

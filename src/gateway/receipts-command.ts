@@ -10,17 +10,24 @@
  * `scheduled-task-access.ts` draws; a messaging-channel chat sees only its own
  * and its own tasks'. Companion apps list them with `--json`, answered in one
  * line that survives a chat relay (`chatSafeJson`).
+ *
+ * Each receipt says whether the action really worked (`proof`): a connector's
+ * own tool reports that itself, and anything else, such as an order placed in
+ * the browser, needs a `proof` the model recorded after it in the same turn.
+ * That proof counts only when a matching check ran between the two: a mail
+ * read for a confirmation email, a screenshot for a screenshot, a browser call
+ * for a page. Otherwise the receipt says it could not be confirmed.
  */
 
 import {
   getSessionById,
   listActionAuditEntries,
+  listRunToolAuditEntries,
   listSessionIdsForAgentChannel,
   listSessionInstancesForKey,
 } from '../memory/db.js';
 import { resolveSessionIdCompat } from '../memory/sessions.js';
 import { scheduledRunSessionKey } from '../session/session-key.js';
-import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session } from '../types/session.js';
 import { readWork } from '../work/work-store.js';
 import {
@@ -32,14 +39,21 @@ import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from './gateway-types.js';
+import {
+  callIndex,
+  domains,
+  payloadOf,
+  proofFor,
+  type ReceiptProof,
+  type RunCall,
+  serviceOf,
+  short,
+} from './receipt-proof.js';
 import { chatSafeJson } from './schedule-command.js';
 import { listManageableScheduledTasks } from './scheduled-task-access.js';
 
 const USAGE =
   'Usage: `/receipts [--limit <n>]` lists what the agent did outside its sandbox for you, such as mails it sent, and who allowed each. Add `--json` for a machine-readable answer.';
-
-const TEXT_LIMIT = 200;
-const MAX_RECIPIENTS = 10;
 
 /**
  * Who let the action through. `you`: the user said yes to this one. `earlier`:
@@ -70,13 +84,9 @@ export interface Receipt {
   allowed: ReceiptAllowance;
   ok: boolean;
   error: string | null;
-}
-
-function short(value: unknown): string | null {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  const text = String(value).replace(/\s+/g, ' ').trim();
-  if (!text) return null;
-  return text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT - 1)}…` : text;
+  // Null for a failed action and for one that stays in the sandbox, such as
+  // a file it wrote.
+  proof: ReceiptProof | null;
 }
 
 // A start time as a calendar tool takes it: a string, or `{dateTime}` / `{date}`.
@@ -105,23 +115,47 @@ function allowance(decision: unknown): ReceiptAllowance {
   }
 }
 
-// `hybridai__google__send_mail` is Google's: the MCP server, then the service.
-function serviceOf(tool: string): string | null {
-  const parts = tool.split('__').filter(Boolean);
-  if (parts.length >= 3) return parts[1];
-  if (parts.length === 2) return parts[0];
-  return tool.startsWith('browser') ? 'browser' : null;
+function argumentsOf(call: Record<string, unknown>): Record<string, unknown> {
+  return call.arguments && typeof call.arguments === 'object'
+    ? (call.arguments as Record<string, unknown>)
+    : {};
 }
 
-function payloadOf(entry: StructuredAuditEntry): Record<string, unknown> {
-  try {
-    const value = JSON.parse(entry.payload) as unknown;
-    return value && typeof value === 'object'
-      ? (value as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+// The tool calls of each run, by `session\0run`, in order.
+function runCalls(
+  runs: { sessionId: string; runId: string }[],
+): Map<string, RunCall[]> {
+  const byRun = new Map<string, Map<number, RunCall>>();
+  for (const entry of listRunToolAuditEntries(runs)) {
+    const payload = payloadOf(entry);
+    const index = callIndex(payload.toolCallId);
+    if (index == null) continue;
+    const key = `${entry.session_id}\u0000${entry.run_id}`;
+    const calls = byRun.get(key) ?? new Map<number, RunCall>();
+    byRun.set(key, calls);
+    const call = calls.get(index) ?? {
+      index,
+      tool: String(payload.toolName ?? ''),
+      args: {},
+      senders: [],
+      ok: false,
+      result: '',
+    };
+    calls.set(index, call);
+    if (entry.event_type === 'tool.call') {
+      call.args = argumentsOf(payload);
+      call.senders = domains(payload.senderDomains);
+    } else {
+      call.ok = payload.isError !== true && payload.blocked !== true;
+      call.result = String(payload.resultFull ?? payload.resultSummary ?? '');
+    }
   }
+  return new Map(
+    [...byRun].map(([key, calls]) => [
+      key,
+      [...calls.values()].sort((a, b) => a.index - b.index),
+    ]),
+  );
 }
 
 /**
@@ -175,6 +209,12 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     const rows = calls.get(key);
     if (rows) rows[entry.event_type] = payload;
   }
+  const runs = runCalls(
+    [...meta.values()].map(({ session, runId }) => ({
+      sessionId: session,
+      runId,
+    })),
+  );
   const receipts: Receipt[] = [];
   for (const key of order) {
     const rows = calls.get(key) ?? {};
@@ -184,10 +224,7 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
     const info = meta.get(key);
     if (!call || !result || !info || result.blocked === true) continue;
     const tool = String(call.toolName ?? result.toolName ?? '');
-    const args =
-      call.arguments && typeof call.arguments === 'object'
-        ? (call.arguments as Record<string, unknown>)
-        : {};
+    const args = argumentsOf(call);
     const ok = result.isError !== true;
     const at = new Date(info.at);
     receipts.push({
@@ -199,12 +236,7 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
       tool,
       service: serviceOf(tool),
       action: short(rows['escalation.decision']?.proposedAction),
-      to: Array.isArray(call.recipientDomains)
-        ? call.recipientDomains
-            .map(short)
-            .filter((domain): domain is string => Boolean(domain))
-            .slice(0, MAX_RECIPIENTS)
-        : [],
+      to: domains(call.recipientDomains),
       subject: short(args.subject),
       title: short(args.summary ?? args.title),
       when: startTime(args),
@@ -212,6 +244,13 @@ export function listReceipts(requester: Session, limit: number): Receipt[] {
       allowed: allowance(decision?.approvalDecision),
       ok,
       error: ok ? null : short(result.resultSummary),
+      proof: ok
+        ? proofFor(
+            tool,
+            callIndex(call.toolCallId),
+            runs.get(`${info.session}\u0000${info.runId}`) ?? [],
+          )
+        : null,
     });
   }
   return receipts;
@@ -232,7 +271,16 @@ function line(receipt: Receipt): string {
     full: 'full autonomy',
     policy: 'no approval needed',
   }[receipt.allowed];
-  const outcome = receipt.ok ? who : `failed: ${receipt.error ?? 'error'}`;
+  const proof = receipt.proof
+    ? receipt.proof.status === 'unconfirmed'
+      ? " · couldn't confirm it worked"
+      : receipt.proof.evidence === 'service'
+        ? ''
+        : ` · confirmed by ${receipt.proof.evidence}${receipt.proof.summary ? `: ${receipt.proof.summary}` : ''}`
+    : '';
+  const outcome = receipt.ok
+    ? `${who}${proof}`
+    : `failed: ${receipt.error ?? 'error'}`;
   const task = receipt.task != null ? ` · task #${receipt.task}` : '';
   return `${receipt.at} — ${what}${details.length > 0 ? ` (${details.join(', ')})` : ''} · ${outcome}${task}`;
 }

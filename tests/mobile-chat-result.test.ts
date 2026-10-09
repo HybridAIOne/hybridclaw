@@ -156,6 +156,21 @@ describe('chatResultForClient', () => {
     },
   );
 
+  it('gives the phone the turn cost and an estimate as they are', () => {
+    const cost = { eur: 0.0123, free: false, requests: 3 };
+    const costEstimate = { low: 0.2, high: 0.5, free: false, requests: 20 };
+    const slim = chatResultForClient('mobile', {
+      ...skillsListTurn(),
+      cost,
+      costEstimate,
+    });
+    expect(slim.cost).toEqual(cost);
+    expect(slim.costEstimate).toEqual(costEstimate);
+    expect(chatResultForClient('mobile', skillsListTurn())).not.toHaveProperty(
+      'cost',
+    );
+  });
+
   it('sends the phone a result line without tool outputs', () => {
     const result = skillsListTurn();
     const full = resultLine(result);
@@ -164,5 +179,34 @@ describe('chatResultForClient', () => {
     expect(full.length).toBeGreaterThan(20_000);
     expect(slim.length).toBeLessThan(400);
     expect(slim).not.toContain('skill-0');
+  });
+
+  it('keeps the receipt, which the phone shows beside the reply', () => {
+    const receipt = {
+      version: 1 as const,
+      more: 0,
+      items: [
+        {
+          kind: 'read' as const,
+          tool: 'skills_list',
+          service: null,
+          target: 'skills',
+          to: [],
+          count: 1,
+          ok: true,
+          blocked: false,
+          error: null,
+          proof: null,
+        },
+      ],
+    };
+    const slim = chatResultForClient('mobile', {
+      ...skillsListTurn(),
+      receipt,
+    });
+    expect(slim.receipt).toEqual(receipt);
+    expect(chatResultForClient('mobile', skillsListTurn())).not.toHaveProperty(
+      'receipt',
+    );
   });
 });

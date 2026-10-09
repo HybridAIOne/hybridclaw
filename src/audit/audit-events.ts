@@ -125,11 +125,15 @@ function sanitizeAuditArguments(toolName: string, value: unknown): unknown {
   return out;
 }
 
-const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipients', 'toRecipients'];
+export const RECIPIENT_KEYS = ['to', 'cc', 'bcc', 'recipients', 'toRecipients'];
 
-// The domains a tool call writes to, as "@aa.com": the audit redacts the
-// addresses themselves, and a receipt still says where a mail went.
-function recipientDomains(args: Record<string, unknown>): string[] {
+// The domains of the addresses under `keys`, as "@aa.com": the audit redacts
+// the addresses themselves, and a receipt still says where a mail went, and
+// who sent the email that proved it (`proof`'s `from`).
+export function addressDomains(
+  args: Record<string, unknown>,
+  keys: readonly string[],
+): string[] {
   const domains = new Set<string>();
   const visit = (value: unknown): void => {
     if (typeof value === 'string') {
@@ -144,7 +148,7 @@ function recipientDomains(args: Record<string, unknown>): string[] {
       Object.values(value as Record<string, unknown>).forEach(visit);
     }
   };
-  for (const key of RECIPIENT_KEYS) visit(args[key]);
+  for (const key of keys) visit(args[key]);
   return [...domains].slice(0, 10);
 }
 
@@ -178,7 +182,11 @@ export function emitToolExecutionAuditEvents(input: {
       execution.name,
       argumentsObject,
     );
-    const recipients = recipientDomains(argumentsObject);
+    const recipients = addressDomains(argumentsObject, RECIPIENT_KEYS);
+    const senders =
+      execution.name === 'proof'
+        ? addressDomains(argumentsObject, ['from'])
+        : [];
     const anomaly = execution.anomaly
       ? {
           score: execution.anomaly.score,
@@ -209,6 +217,7 @@ export function emitToolExecutionAuditEvents(input: {
         toolName: execution.name,
         arguments: auditArguments,
         ...(recipients.length > 0 ? { recipientDomains: recipients } : {}),
+        ...(senders.length > 0 ? { senderDomains: senders } : {}),
         anomaly,
       },
     });
@@ -239,6 +248,9 @@ export function emitToolExecutionAuditEvents(input: {
         approvalTier: effectiveTier,
         approvalBaseTier: effectiveBaseTier,
         approvalDecision: effectiveDecision,
+        ...(typeof execution.writeIntent === 'boolean'
+          ? { writeIntent: execution.writeIntent }
+          : {}),
         reason: effectiveReason,
         anomaly,
       },

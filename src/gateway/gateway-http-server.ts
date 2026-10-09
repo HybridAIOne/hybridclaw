@@ -248,6 +248,11 @@ import {
   openChatStreamTurn,
   rejoinChatStreamTurn,
 } from './chat-stream-turns.js';
+import { runCostEstimateToolAction } from './cost-estimate.js';
+import {
+  DATA_CONTROLS_PATH,
+  handleDataControlsRoute,
+} from './data-controls.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -10534,6 +10539,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleSystemFilesRoute(req, res, method, url);
             return;
           }
+          if (
+            pathname === DATA_CONTROLS_PATH ||
+            pathname.startsWith(`${DATA_CONTROLS_PATH}/`)
+          ) {
+            await handleDataControlsRoute(req, res, method, pathname);
+            return;
+          }
           if (pathname.startsWith('/api/push/')) {
             if (!operatorId) {
               sendJson(res, 403, {
@@ -11420,6 +11432,21 @@ export function startGatewayHttpServer(): GatewayHttpServer {
               return;
             }
             await handleApiTodo(req, res);
+            return;
+          }
+          if (pathname === '/api/cost-estimate' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              await runCostEstimateToolAction(await readJsonBody(req)),
+            );
             return;
           }
           if (pathname === '/api/track' && method === 'POST') {

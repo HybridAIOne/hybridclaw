@@ -126,6 +126,7 @@ import {
   type ArtifactMetadata,
   normalizeEscalationTarget,
   type PendingApproval,
+  type ToolExecution,
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryAccess } from '../types/memory.js';
@@ -142,6 +143,7 @@ import {
   setRoutingTraceMode,
   startRoutingTraceAttempt,
 } from '../usage/routing-trace.js';
+import { takeTaskCostEstimate } from '../usage/task-cost.js';
 import {
   enqueueTokenUsage,
   readCacheTokenUsage,
@@ -254,6 +256,7 @@ import {
   sessionShowModeShowsThinking,
   sessionShowModeShowsTools,
 } from './show-mode.js';
+import { turnReceiptFromExecutions } from './turn-receipt.js';
 import { TurnTailTimer } from './turn-tail-timing.js';
 import { classifyRouting } from './unified-routing.js';
 import { userTurnSource } from './user-turn-source.js';
@@ -410,11 +413,20 @@ async function routeEscalationApproval(params: {
   }
 }
 
+// What the turn read, sent and changed, for the client to show beside the
+// reply (`turn-receipt.ts`).
+function receiptOf(
+  toolExecutions: ToolExecution[],
+): Pick<GatewayChatResult, 'receipt'> {
+  return { receipt: turnReceiptFromExecutions(toolExecutions) };
+}
+
 /**
- * `show_slide_samples`, `show_widget` and `draft_transfer` need a client that
- * draws them: a card of slide pictures to pick from, a live widget under the
- * reply, or a transfer card with a GiroCode. Only the Hy app
- * (`client: "mobile"`) does. Elsewhere the agent answers in words.
+ * `show_slide_samples`, `show_widget`, `draft_transfer` and `estimate_cost`
+ * need a client that draws them: a card of slide pictures to pick from, a live
+ * widget under the reply, a transfer card with a GiroCode, or a cost estimate
+ * card. Only the Hy app (`client: "mobile"`) does. Elsewhere the agent answers
+ * in words.
  */
 function blockAppOnlyToolsUnlessApp(
   blockedTools: string[] | undefined,
@@ -426,6 +438,7 @@ function blockAppOnlyToolsUnlessApp(
     'show_slide_samples',
     SHOW_WIDGET_TOOL,
     DRAFT_TRANSFER_TOOL,
+    'estimate_cost',
   ];
 }
 
@@ -654,6 +667,8 @@ async function handleGatewayMessageInner(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   const startedAt = Date.now();
+  // An estimate left by a turn that failed is not this turn's.
+  takeTaskCostEstimate(req.sessionId);
   // Tool progress arrives over IPC from the agent process, outside this
   // turn's async context; keep the turn span so tool spans nest under it.
   const turnTraceContext = captureActiveContext();
@@ -2462,6 +2477,7 @@ async function handleGatewayMessageInner(
         tokensEstimated: !output.tokenUsage?.apiUsageAvailable,
         costUsd: extractExplicitUsageCostUsd(output.tokenUsage) ?? undefined,
         costSource: explicitUsageCostSource(output.tokenUsage),
+        modelCalls: output.tokenUsage?.modelCalls,
       });
       enqueueTokenUsage({
         ...usageAttribution,
@@ -2533,6 +2549,7 @@ async function handleGatewayMessageInner(
           costUsd:
             extractExplicitUsageCostUsd(attempt.output.tokenUsage) ?? undefined,
           costSource: explicitUsageCostSource(attempt.output.tokenUsage),
+          modelCalls: attempt.output.tokenUsage?.modelCalls,
         });
         enqueueTokenUsage({
           ...usageAttribution,
@@ -2806,6 +2823,7 @@ async function handleGatewayMessageInner(
         errorCode: output.errorCode,
         userMessageId: storedErrorTurn.userMessageId,
         assistantMessageId: storedErrorTurn.assistantMessageId,
+        ...receiptOf(toolExecutions),
       };
       captureGatewayChatResultError({
         message: errorMessage,
@@ -2827,6 +2845,15 @@ async function handleGatewayMessageInner(
     }
 
     const emailDraft = turnEmailDraft(toolExecutions);
+    const estimated = takeTaskCostEstimate(req.sessionId);
+    const costEstimate = toolExecutions.some(
+      (execution) =>
+        execution.name === 'estimate_cost' &&
+        !execution.isError &&
+        !execution.blocked,
+    )
+      ? estimated
+      : undefined;
     const agentResultText =
       output.result ||
       (emailDraft ? '' : buildEmptyAgentResponseFallback(output.artifacts));
@@ -3057,6 +3084,8 @@ async function handleGatewayMessageInner(
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
       ...(shown.emailDraft ? { emailDraft: shown.emailDraft } : {}),
+      ...(costEstimate ? { costEstimate } : {}),
+      ...receiptOf(toolExecutions),
       ...(sessionTitle ? { sessionTitle } : {}),
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
