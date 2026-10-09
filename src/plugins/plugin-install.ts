@@ -98,6 +98,9 @@ export interface InstallPluginResult {
   pluginDir: string;
   source: string;
   alreadyInstalled: boolean;
+  // A bundled plugin enabled in place loads only through its plugins.list[]
+  // entry; a home copy auto-discovers without one.
+  enabledInPlace: boolean;
   dependenciesInstalled: boolean;
   dependencySummary: PluginDependencyInstallSummary;
   configuredRequiredBins: ConfiguredPluginBinaryRequirement[];
@@ -742,6 +745,7 @@ function installPreparedPlugin(
           pluginDir,
           source: sourceLabel,
           alreadyInstalled: !bundled || wasEnabled,
+          enabledInPlace: bundled,
           dependenciesInstalled:
             dependencySummary.usedPackageJson ||
             dependencySummary.installedNodePackages.length > 0 ||
@@ -805,6 +809,7 @@ function installPreparedPlugin(
       pluginDir,
       source: sourceLabel,
       alreadyInstalled: false,
+      enabledInPlace: false,
       dependenciesInstalled:
         dependencySummary.usedPackageJson ||
         dependencySummary.installedNodePackages.length > 0 ||

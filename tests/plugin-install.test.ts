@@ -260,6 +260,7 @@ describe('plugin install', () => {
       pluginDir: installedDir,
       source: sourceDir,
       alreadyInstalled: false,
+      enabledInPlace: false,
       dependenciesInstalled: true,
       dependencySummary: {
         usedPackageJson: false,
@@ -532,6 +533,7 @@ describe('plugin install', () => {
       pluginDir: installedDir,
       source: sourceDir,
       alreadyInstalled: false,
+      enabledInPlace: false,
       dependenciesInstalled: true,
       dependencySummary: {
         usedPackageJson: false,
@@ -877,6 +879,7 @@ describe('plugin install', () => {
       pluginDir: installedDir,
       source: installedDir,
       alreadyInstalled: true,
+      enabledInPlace: false,
       dependenciesInstalled: true,
       dependencySummary: {
         usedPackageJson: false,
@@ -946,6 +949,7 @@ describe('plugin install', () => {
       pluginDir: installedDir,
       source: sourceDir,
       alreadyInstalled: false,
+      enabledInPlace: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
       dependencySummary: {
@@ -1018,6 +1022,7 @@ describe('plugin install', () => {
       pluginDir: installedDir,
       source: '@scope/demo-plugin',
       alreadyInstalled: false,
+      enabledInPlace: false,
       replacedExistingInstall: true,
       dependenciesInstalled: true,
       dependencySummary: {
