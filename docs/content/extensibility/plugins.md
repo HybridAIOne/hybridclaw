@@ -29,10 +29,10 @@ hybridclaw plugin install ./plugins/brevo-email
 hybridclaw plugin install ./plugins/vonage-voice
 hybridclaw plugin install ./plugins/published-tools
 hybridclaw plugin install ./plugins/connector-events
-hybridclaw plugin install ./plugins/managed-cloud
-hybridclaw plugin install ./plugins/browser-use-cloud
-hybridclaw plugin install ./plugins/camofox
-hybridclaw plugin install ./plugins/mac-cua
+hybridclaw plugin install managed-cloud
+hybridclaw plugin install browser-use-cloud
+hybridclaw plugin install camofox
+hybridclaw plugin install mac-cua
 hybridclaw plugin install @scope/hybridclaw-plugin-example
 hybridclaw plugin reinstall ./plugins/example-plugin
 hybridclaw plugin uninstall example-plugin
@@ -154,7 +154,7 @@ in a hand-edited config are dropped when the plugin loads.
   turn-based by default, or realtime speech-to-speech with `mode: realtime`.
 - `managed-cloud`, `browser-use-cloud`, `camofox`, and `mac-cua` register
   browser providers selected with `browser.provider`; see
-  [Browser Provider Plugins](../reference/configuration.md#browser-provider-plugins)
+  [Browser Provider Plugins](../reference/configuration.md#browser-provider-plugins).
 - `distill` adds human distillation: the `hybridclaw coworker` CLI and the
   admin console Distill page (`/api/admin/distill`). It ships in the npm
   package but loads only once installed (`hybridclaw plugin install distill`);

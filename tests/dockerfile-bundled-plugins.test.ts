@@ -44,3 +44,28 @@ test('the image ships the distill plugin the admin console tells operators to in
     ),
   ).toBe(true);
 });
+
+// An upgraded v0.39 config that selected a vendor browser provider enables the
+// bundled plugin of that id, so the image must carry every one of them.
+test('the image ships every bundled browser provider plugin', () => {
+  const browserProviderPlugins = fs
+    .readdirSync(path.join(repoRoot, 'plugins'))
+    .filter((id) => {
+      const entry = path.join(repoRoot, 'plugins', id, 'src', 'index.js');
+      return (
+        fs.existsSync(entry) &&
+        fs.readFileSync(entry, 'utf-8').includes('registerBrowserProvider(')
+      );
+    })
+    .sort();
+
+  expect(browserProviderPlugins).toEqual([
+    'browser-use-cloud',
+    'camofox',
+    'mac-cua',
+    'managed-cloud',
+  ]);
+  expect(runtimeStagePlugins()).toEqual(
+    expect.arrayContaining(browserProviderPlugins),
+  );
+});

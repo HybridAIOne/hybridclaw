@@ -101,6 +101,7 @@ test('camofox provider launches a persistent profile with stealth launch options
     timeoutMs: 5_000,
   });
   const screenshot = await session.screenshot({ fullPage: true });
+  expect(session.headed).toBe(true);
   await provider.closeSession(session);
 
   expect(mock.Camoufox).toHaveBeenCalledWith({
@@ -258,6 +259,31 @@ test('camofox provider enforces launch timeout without forwarding it to Camoufox
     expect(context.close).toHaveBeenCalledTimes(1);
   } finally {
     vi.useRealTimers();
+  }
+});
+
+test('camofox provider without its dependencies names the plugin install step', async () => {
+  const root = makeTempRoot();
+  // The bundled plugin copy ships without node_modules.
+  vi.doMock('camoufox-js', () => {
+    throw new Error("Cannot find package 'camoufox-js'");
+  });
+  try {
+    const provider = new CamofoxProvider({
+      host,
+      profileRoot: path.join(root, 'browser-profiles'),
+      installDir: path.join(root, 'home', 'plugins', 'camofox'),
+      stealthPolicy: () => undefined,
+    });
+
+    const launch = provider.launchSession({ timeoutMs: 1_000 });
+
+    await expect(launch).rejects.toThrow('hybridclaw plugin install camofox');
+    await expect(launch).rejects.toThrow(
+      `npx camoufox-js fetch\` in ${path.join(root, 'home', 'plugins', 'camofox')}`,
+    );
+  } finally {
+    vi.doUnmock('camoufox-js');
   }
 });
 
