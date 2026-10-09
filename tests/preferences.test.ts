@@ -62,6 +62,16 @@ describe('runtime preferences', () => {
     expect(() => mergePreferences('u1', [{ ...event(), at: Date.now() + 999999 }])).toThrow();
     expect(readPreferences('u1')).toEqual([]);
   });
+  test('chat brief edits keep the feed-brief key and the app length limit', () => {
+    const end = beginTurnUser('chat', 'u1');
+    const brief = (key: string, text: string) => runPreferenceTool({ sessionId: 'chat', action: 'set', key, kind: 'brief', text });
+    expect(brief('coverage', 'Cycling').ok).toBe(false);
+    expect(brief('feed-brief', 'x'.repeat(1001)).ok).toBe(false);
+    expect(readPreferences('u1')).toEqual([]);
+    expect(brief('feed-brief', 'x'.repeat(1000)).ok).toBe(true);
+    expect(renderSessionPreferences('chat')).toContain('could not be saved');
+    end();
+  });
   test('command preserves Unicode, whitespace and quotes through a relay', () => {
     const events = [{ ...event(), text: 'Mehr Räder\nweniger "Krypto"' }];
     const token = Buffer.from(JSON.stringify(events)).toString('base64url');
