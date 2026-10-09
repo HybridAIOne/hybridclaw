@@ -100,3 +100,36 @@ test('createPluginApi reads optional declared credentials from stored runtime se
     }
   }
 });
+
+test.each([
+  { declared: 'credentials', expected: 'hai-stored-secret' },
+  { declared: 'requires.env', expected: 'env-value' },
+])('a stored secret and a different env value resolve like core for $declared', async ({
+  declared,
+  expected,
+}) => {
+  const { createPluginApi } = await import('../src/plugins/plugin-api.js');
+  const config = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'config.example.json'), 'utf-8'),
+  );
+  vi.stubEnv('HYBRIDAI_API_KEY', 'env-value');
+  try {
+    const api = createPluginApi({
+      manager: makePluginManagerStub() as never,
+      pluginId: 'demo-plugin',
+      pluginDir: '/tmp/demo-plugin',
+      registrationMode: 'full',
+      config,
+      pluginConfig: {},
+      declaredEnv: declared === 'requires.env' ? ['HYBRIDAI_API_KEY'] : [],
+      declaredCredentials:
+        declared === 'credentials' ? ['HYBRIDAI_API_KEY'] : [],
+      homeDir: '/tmp/home',
+      cwd: '/tmp/project',
+    });
+
+    expect(api.getCredential('HYBRIDAI_API_KEY')).toBe(expected);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

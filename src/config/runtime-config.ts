@@ -144,6 +144,7 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
+import { withLegacyTwilioVoicePlugin } from './legacy-twilio-voice.js';
 import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
@@ -174,7 +175,8 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 40;
+// 41: built-in Twilio voice becomes the bundled twilio-voice plugin.
+export const CONFIG_VERSION = 41;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_HYBRIDAI_ONBOARDING_MODEL = '';
@@ -709,7 +711,6 @@ export interface RuntimeVoiceConfig {
    */
   callerPolicy: VoiceCallerPolicy;
   allowFrom: string[];
-  webhookPath: string;
   maxConcurrentCalls: number;
 }
 
@@ -1859,7 +1860,6 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     callerPolicy: 'open',
     allowFrom: [],
-    webhookPath: '/voice',
     maxConcurrentCalls: 8,
   },
   speech: {
@@ -4243,7 +4243,6 @@ function normalizeVoiceConfig(
         { allowEmpty: true },
       ),
     },
-    webhookPath: normalizeApiPath(raw.webhookPath, fallback.webhookPath),
     maxConcurrentCalls: normalizeInteger(
       raw.maxConcurrentCalls,
       fallback.maxConcurrentCalls,
@@ -7809,10 +7808,16 @@ function normalizeRuntimeConfig(
       rawChannelInstructions,
       DEFAULT_RUNTIME_CONFIG.channelInstructions,
     ),
-    plugins: normalizeRuntimePluginsConfig(
-      rawPlugins,
-      DEFAULT_RUNTIME_CONFIG.plugins,
-      modelRouting.enabled,
+    plugins: withLegacyTwilioVoicePlugin(
+      normalizeRuntimePluginsConfig(
+        rawPlugins,
+        DEFAULT_RUNTIME_CONFIG.plugins,
+        modelRouting.enabled,
+      ),
+      {
+        version: sourceVersion,
+        voiceEnabled: normalizeBoolean(rawVoice.enabled, false),
+      },
     ),
     adaptiveSkills: {
       enabled: normalizeBoolean(

@@ -223,7 +223,6 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
         greeting: '',
         instructions: '',
       },
-      webhookPath: '/voice',
       maxConcurrentCalls: 8,
     },
     speech: {
@@ -417,7 +416,6 @@ describe('ChannelsPage', () => {
         authTokenConfigured: false,
         authTokenSource: null,
         realtimeConfigured: false,
-        webhookPath: '/voice',
         maxConcurrentCalls: 8,
       },
       email: {
@@ -1639,9 +1637,72 @@ describe('ChannelsPage', () => {
     ).toBeTruthy();
     expect(screen.getByText('Twilio auth token')).toBeTruthy();
     expect(screen.getByLabelText('Twilio account SID')).toBeTruthy();
-    expect(screen.getByLabelText('Webhook path')).toBeTruthy();
+    expect(screen.getByLabelText('Max concurrent calls')).toBeTruthy();
     expect(screen.getByLabelText('Channel instructions')).toBeTruthy();
   });
+
+  it.each([
+    { pluginLoaded: true, label: 'active', notLoaded: false },
+    { pluginLoaded: false, label: 'configured', notLoaded: true },
+  ])(
+    'reports a fully set up voice card as $label when pluginLoaded is $pluginLoaded',
+    async ({ pluginLoaded, label, notLoaded }) => {
+      const baseConfig = makeConfig();
+      fetchConfigMock.mockResolvedValue({
+        path: '/tmp/config.json',
+        config: makeConfig({
+          voice: {
+            ...baseConfig.voice,
+            enabled: true,
+            twilio: {
+              ...baseConfig.voice.twilio,
+              accountSid: 'AC123',
+              fromNumber: '+14155550123',
+            },
+          },
+        }),
+      });
+      const voiceStatus = {
+        enabled: true,
+        accountSidConfigured: true,
+        fromNumberConfigured: true,
+        authTokenConfigured: true,
+        authTokenSource: 'runtime-secrets' as const,
+        realtimeConfigured: false,
+        maxConcurrentCalls: 8,
+        pluginLoaded,
+      };
+      useAuthMock.mockReturnValue({
+        token: 'test-token',
+        gatewayStatus: { voice: voiceStatus },
+      });
+      validateTokenMock.mockResolvedValue({
+        status: 'ok',
+        webAuthConfigured: true,
+        version: 'test',
+        imageTag: null,
+        uptime: 1,
+        sessions: 0,
+        activeContainers: 0,
+        defaultModel: 'gpt-5',
+        ragDefault: true,
+        timestamp: new Date().toISOString(),
+        voice: voiceStatus,
+      });
+
+      renderChannelsPage();
+
+      const voiceButton = await screen.findByRole('button', {
+        name: /Voice/i,
+      });
+      await waitFor(() =>
+        expect(voiceButton.textContent || '').toContain(label),
+      );
+      expect((voiceButton.textContent || '').includes('not loaded')).toBe(
+        notLoaded,
+      );
+    },
+  );
 
   it('flags realtime speech readiness on the voice catalog card', async () => {
     fetchConfigMock.mockResolvedValue({
@@ -1655,7 +1716,6 @@ describe('ChannelsPage', () => {
       authTokenConfigured: false,
       authTokenSource: null,
       realtimeConfigured: true,
-      webhookPath: '/voice',
       maxConcurrentCalls: 8,
     };
     useAuthMock.mockReturnValue({

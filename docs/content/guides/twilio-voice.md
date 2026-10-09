@@ -1,23 +1,65 @@
 ---
 title: Twilio Voice
-description: Configure the Twilio ConversationRelay voice channel, expose the webhook safely, place test calls, and troubleshoot common setup failures.
+description: Install the Twilio Voice plugin, configure the phone channel, expose the webhook safely, place test calls, and troubleshoot common setup failures.
 sidebar_position: 7
 ---
 
 # Twilio Voice
 
-HybridClaw's phone channel uses Twilio ConversationRelay.
+Twilio phone calls are served by the `twilio-voice` plugin, which ships with
+HybridClaw and installs on demand. The plugin answers calls on the `voice`
+channel through Twilio ConversationRelay (turn-based) or Twilio Media Streams
+(realtime speech-to-speech):
 
-That means:
-
-- Twilio handles speech-to-text and text-to-speech.
-- HybridClaw receives text turns over WebSocket instead of raw audio frames.
+- In relay mode, Twilio handles speech-to-text and text-to-speech, and
+  HybridClaw receives text turns over WebSocket instead of raw audio frames.
 - The same gateway can handle inbound calls and place outbound calls through
   Twilio's Calls API.
+
+The plugin has no settings of its own: it reads the phone-channel settings
+from the core `voice.*` config (also edited in the admin console under
+Channels → Voice), so the same settings drive the
+[Vonage plugin](./vonage-voice.md) where they apply.
 
 This guide covers the Twilio-specific setup. For local file-based speech
 generation and generic audio tooling, see
 [Voice And TTS](./voice-tts.md).
+
+## Install The Plugin
+
+```bash
+hybridclaw plugin install twilio-voice
+```
+
+A running gateway picks the plugin up with `hybridclaw gateway plugin reload`
+(or `/plugin reload` from a local session); a restart works too. Confirm it
+loaded:
+
+```bash
+hybridclaw plugin list installed
+```
+
+and look for `Twilio voice plugin ready` in the gateway log.
+
+### Upgrading From v0.39
+
+Before v0.40 Twilio voice was built into the gateway. An existing `voice.*`
+config keeps answering calls after the upgrade with no manual step:
+
+1. On the first start, a config with `voice.enabled: true` gains an enabled
+   `twilio-voice` entry in `plugins.list`, so the gateway loads the copy that
+   ships with HybridClaw (npm package and Docker image alike). This happens
+   once; if you later disable or remove the entry, it stays that way.
+2. `https://<public-host>/voice/webhook` keeps answering incoming calls
+   through v0.41, and the gateway logs a warning the first time Twilio uses
+   it. Before upgrading past v0.41, change the number's voice webhook in the
+   Twilio console to
+   `https://<public-host>/api/plugin-webhooks/twilio-voice/webhook`. The relay,
+   stream, and action URLs follow automatically from the TwiML the plugin
+   returns.
+3. `voice.webhookPath` no longer exists; the gateway drops it from the config
+   on startup. If you had changed it from `/voice`, the old URL stops
+   answering, so update the Twilio console right away.
 
 ## What You Need
 
@@ -31,8 +73,8 @@ Important:
 
 - do not keep the Twilio auth token in plaintext config if you can avoid it
 - do not rely on `localhost` or `127.0.0.1` for Twilio callbacks
-- voice settings apply when saved; saving the Twilio token starts an enabled
-  voice channel once its required credentials are available
+- voice settings and the Twilio token are read on every call, so a saved
+  change applies to the next call without a reload
 
 ## How The Channel Works
 
@@ -47,9 +89,11 @@ The channel has two modes, selected with `voice.mode`:
 
 The relay flow is:
 
-1. Twilio sends an inbound webhook to HybridClaw.
+1. Twilio sends an inbound webhook to
+   `/api/plugin-webhooks/twilio-voice/webhook`.
 2. HybridClaw returns TwiML with `<Connect><ConversationRelay>`.
-3. Twilio opens the relay websocket.
+3. Twilio opens the relay websocket at
+   `/api/plugin-webhooks/twilio-voice/relay`.
 4. Twilio streams user speech as text.
 5. HybridClaw streams response text back.
 6. Twilio speaks that response to the caller.
@@ -88,7 +132,6 @@ Minimal config:
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
-    "webhookPath": "/voice",
     "maxConcurrentCalls": 8
   }
 }
@@ -102,11 +145,11 @@ Notes:
 - `ops.gatewayBaseUrl` must be the public URL Twilio sees, not a local one.
   With `deployment.mode` set to `cloud`, voice uses `deployment.public_url`
   instead while `ops.gatewayBaseUrl` is still a localhost or private address.
-- `voice.webhookPath` controls the base path for:
-  - `<webhookPath>/webhook`
-  - `<webhookPath>/relay` (relay mode)
-  - `<webhookPath>/stream` (realtime mode)
-  - `<webhookPath>/action`
+- the plugin serves fixed paths under `/api/plugin-webhooks/twilio-voice/`:
+  - `webhook` (the number's voice webhook)
+  - `relay` (relay mode websocket)
+  - `stream` (realtime mode websocket)
+  - `action` (call status callback)
 - `voice.twilio.fromNumber` must be an E.164 number like `+14155550123`.
 - leave `voice.twilio.authToken` empty when you store the real token in the
   encrypted secret store.
@@ -141,8 +184,8 @@ The realtime flow is:
 
 1. Twilio sends the same inbound webhook to HybridClaw.
 2. HybridClaw returns TwiML with `<Connect><Stream>` (Twilio Media Streams).
-3. Twilio opens a websocket at `<webhookPath>/stream` and streams the caller's
-   raw audio (8kHz µ-law).
+3. Twilio opens a websocket at `/api/plugin-webhooks/twilio-voice/stream` and
+   streams the caller's raw audio (8kHz µ-law).
 4. HybridClaw bridges that audio to an OpenAI realtime session, which listens,
    detects turns, and speaks directly — audio passes through in both
    directions without transcoding.
@@ -170,9 +213,9 @@ Requirements and notes:
   `hybridai` to pin one backend: `openai` needs the `OPENAI_API_KEY`
   environment variable or the encrypted secret store (same flow as the
   Twilio auth token, secret name `OPENAI_API_KEY`); `hybridai` needs only
-  the HybridAI credential — no OpenAI key required. The gateway refuses to
-  start the voice channel in realtime mode without a credential for the
-  selected provider.
+  the HybridAI credential — no OpenAI key required. Without a credential for
+  the selected provider, realtime calls are answered with a short spoken
+  "unavailable" notice and hang up.
 - `speech.realtime.voice` accepts any OpenAI realtime voice name (for example
   `marin`, `cedar`, `alloy`).
 - `speech.realtime.instructions` is appended to the built-in call
@@ -187,7 +230,7 @@ Requirements and notes:
   in addition to Twilio's per-minute call pricing.
 - The same realtime engine also powers voice mode in the web console chat
   (microphone button in the composer). Browser voice needs only the realtime
-  credential — it works even when the Twilio voice channel is disabled, and it
+  credential — it works without the Twilio plugin, and it
   uses the same `speech.realtime.*` provider, model, voice, greeting, and
   instructions settings. It is the quickest way to try realtime voice before
   wiring up a phone number.
@@ -228,7 +271,7 @@ Notes:
 - entries must include the country code. `+4915123456789` and
   `49 151 234 567-89` both work; a national format such as `0151 23456789`
   does not, because it normalizes to `+015123456789` and can never match what
-  the carrier sends. The gateway logs a warning at startup for allowlist
+  the carrier sends. The plugin logs a warning when it loads for allowlist
   entries that look like a national format.
 - a caller who withholds their number arrives with an empty `From` and so never
   matches an allowlist
@@ -276,25 +319,20 @@ Admin console:
 
 Important:
 
-- saving the secret through `/admin/channels` or `/secret set ...` refreshes
-  the running gateway and starts an enabled voice channel if its required
-  credentials are available
-- after writing secrets outside the running gateway (for example with
-  `hybridclaw secret set ...`), use **Reload Gateway** in the console to load
-  them and retry voice startup
-- an unchanged reload or token rotation keeps a healthy voice runtime running;
-  removing its effective Twilio token stops it
-- recovery respects `voice.enabled` and `deployment.a2a_local_mode`; it does
-  not enable channels or bypass Twilio signature validation
-- confirm `Voice integration started inside gateway` in the logs; credential
-  status alone does not prove the channel started
+- the plugin reads the token on every request, so a stored, rotated, or
+  removed token applies to the next call; live calls are not interrupted
+- without a token every signed request is rejected and the plugin logs
+  `Twilio voice has no TWILIO_AUTH_TOKEN` once
+- confirm `Twilio voice plugin ready` in the logs; credential status alone does
+  not prove the plugin loaded
 
 ## Expose The Webhook Publicly
 
 Twilio must be able to reach both:
 
-- `https://<public-host><voice.webhookPath>/webhook`
-- `wss://<public-host><voice.webhookPath>/relay`
+- `https://<public-host>/api/plugin-webhooks/twilio-voice/webhook`
+- `wss://<public-host>/api/plugin-webhooks/twilio-voice/relay` (or `/stream`
+  in realtime mode)
 
 For local development, use a public tunnel or reverse proxy such as:
 
@@ -310,6 +348,10 @@ Practical rule:
 
 - if Twilio sees `https://voice.example.com`, set
   `ops.gatewayBaseUrl = "https://voice.example.com"`
+- without a public `ops.gatewayBaseUrl` (or `deployment.public_url` in cloud
+  mode) the plugin validates signatures against the origin the request
+  arrived on, honouring `X-Forwarded-Host` and `X-Forwarded-Proto` from a
+  tunnel; `voice call` still needs the public URL
 
 ## ngrok Commands For Local Development
 
@@ -360,10 +402,8 @@ hybridclaw gateway voice info
 Then point Twilio at:
 
 ```text
-https://abc123.ngrok.app/voice/webhook
+https://abc123.ngrok.app/api/plugin-webhooks/twilio-voice/webhook
 ```
-
-If you changed `voice.webhookPath`, replace `/voice` with your configured path.
 
 Practical loop for local testing:
 
@@ -398,15 +438,13 @@ Important:
 In the Twilio console, configure your Twilio number's voice webhook to:
 
 ```text
-https://voice.example.com/voice/webhook
+https://voice.example.com/api/plugin-webhooks/twilio-voice/webhook
 ```
 
 Use `POST`.
 
-If you changed `voice.webhookPath`, use that path instead of `/voice`.
-
-HybridClaw will generate the matching relay and action URLs automatically from
-the same base path.
+HybridClaw generates the matching relay, stream, and action URLs
+automatically.
 
 ## Start And Verify
 
@@ -416,8 +454,8 @@ After config and secrets are in place, start the gateway if it is not running:
 hybridclaw gateway
 ```
 
-For an already running cloud gateway, save settings in the console and use
-**Reload Gateway** if voice needs to retry startup.
+Voice settings saved in the console apply to the next call; only installing
+or updating the plugin needs a plugin reload.
 
 Then verify:
 
@@ -437,13 +475,16 @@ What you want to see:
 Expected gateway startup log:
 
 ```text
-Voice integration started inside gateway
+Twilio voice plugin ready
 ```
 
-Common startup failures:
+Its `unavailableReason` field is `null` when calls can be answered; otherwise
+it names what is missing (`voice.enabled is off`, an unset account SID or
+from number, or a missing realtime credential).
 
-- `Voice integration disabled in config`
-- `Voice integration disabled: Twilio credentials are incomplete`
+If the log instead says `voice.enabled is set but the twilio-voice plugin is
+not enabled` (or `failed to load`), the plugin is disabled, missing, or
+broken; see Troubleshooting below.
 
 ## Test Inbound Calls
 
@@ -459,8 +500,8 @@ If the phone rings but the conversation never starts, the usual causes are:
 
 - `ops.gatewayBaseUrl` does not match the public host
 - the relay websocket is not publicly reachable over `wss://`
-- the voice runtime did not start; use **Reload Gateway** and inspect the
-  `Voice integration` startup logs
+- the plugin is not loaded; check `hybridclaw plugin list installed` and the
+  `Twilio voice plugin ready` log line
 
 ## Test Outbound Calls
 
@@ -484,6 +525,9 @@ hybridclaw gateway voice info
 
 The outbound command:
 
+- is available only to local operators (TUI, CLI, or a local web session, and
+  scoped web tokens that carry `admin.channels.write`); channel users are
+  refused
 - validates the number as E.164
 - checks that voice is enabled
 - checks that `TWILIO_AUTH_TOKEN` is available from the secret store
@@ -494,8 +538,8 @@ Important:
 
 - the command places the call through Twilio
 - the live conversation still depends on the inbound webhook and relay path
-- if the voice runtime is not actually running, Twilio may dial successfully
-  but fail when it tries to connect the relay websocket
+- if the plugin cannot answer (voice disabled, credentials missing), Twilio
+  dials successfully and the callee hears a short "unavailable" notice
 
 ## Admin Console Workflow
 
@@ -506,16 +550,15 @@ The fastest operator path is:
 3. enter the Twilio account SID
 4. store the Twilio auth token in the secret field
 5. set the Twilio number in E.164 format
-6. confirm the webhook path
-7. save and confirm `Voice integration started inside gateway` in the logs
+6. install the plugin with `hybridclaw plugin install twilio-voice` if you
+   have not yet
+7. save and confirm `Twilio voice plugin ready` in the logs
 
 Use the admin UI when you want a persistent config workflow. Use TUI or CLI
 when you want quick local testing.
 
 ## Tips And Tricks
 
-- Keep `voice.webhookPath` short and predictable. `/voice` is easier to debug
-  than deep nested proxy paths.
 - Set `ops.gatewayBaseUrl` even if your proxy forwards headers correctly. It
   makes outbound calling and generated callback URLs more deterministic.
 - Start with `interruptible: true`. That feels more natural on live phone
@@ -534,15 +577,14 @@ when you want quick local testing.
 
 ## Troubleshooting
 
-### No voice startup log appears
+### No `Twilio voice plugin ready` log appears
 
 Check:
 
-- `voice.enabled` is `true`
-- `voice.twilio.accountSid` is set
-- `voice.twilio.fromNumber` is set
-- `TWILIO_AUTH_TOKEN` exists in the encrypted secret store
-- use **Reload Gateway** to retry startup after the secret was added
+- the plugin is installed: `hybridclaw plugin list installed`
+- `hybridclaw plugin check twilio-voice` reports no load error
+- after installing, run `hybridclaw gateway plugin reload` or restart the
+  gateway
 
 ### `voice call` says the webhook is not public
 
@@ -567,8 +609,8 @@ The usual causes are:
 - TLS termination is configured for HTTPS but not WSS
 - the public hostname in `ops.gatewayBaseUrl` is different from the one Twilio
   actually uses
-- the voice runtime failed to start; use **Reload Gateway** and check the
-  `Voice integration` logs for missing credentials or a startup error
+- the plugin is not loaded, or the number still points at the pre-v0.40
+  `/voice/webhook` URL
 
 ### The called phone hears a Twilio trial message and then the call ends
 
@@ -591,19 +633,24 @@ relay path.
 
 ### The call says voice is unavailable
 
-This response means the webhook passed signature validation but the voice
-runtime is stopped or shutting down. Saving the Twilio auth token in the
-console retries startup automatically when Voice is enabled. **Reload Gateway**
-also retries a stopped channel without restarting the workspace container or
-requiring Voice to be toggled off and on.
+This response means the webhook passed signature validation but the plugin
+cannot answer right now. The `Twilio call refused: voice unavailable` log line
+carries the reason:
 
-Set logging to **On**, reload, and look for:
+- `voice.enabled is off`
+- `voice.twilio.accountSid or voice.twilio.fromNumber is unset`
+- `realtime voice has no credential` (realtime mode only)
+- `plugin is stopping` (a plugin reload or gateway shutdown is in progress)
 
-- `Voice integration started inside gateway`: startup succeeded
-- `Voice integration disabled: Twilio credentials are incomplete`: check the
-  account SID, auth token, and from number
-- another `Voice integration disabled:` or `Voice integration failed to start`
-  message: follow the reported startup error, including realtime credentials
+A plugin runtime reload restarts every plugin, so it hangs up calls in
+progress (the caller hears the call end). Reloads happen on
+`plugin reload`, on `plugin install`, `reinstall`, `enable`, or
+`disable` for any plugin, on `plugin config` edits for any plugin, and when
+output-guard rules are saved in the console. Make those changes outside
+call hours. Editing `voice.*` settings does not reload anything.
+
+Settings are read per call, so fixing the reported setting is enough; no reload
+is needed.
 
 ### Signature validation fails
 
@@ -614,6 +661,8 @@ Check:
 - `ops.gatewayBaseUrl` matches the external URL Twilio is calling
 
 ## Official Twilio References
+
+- [Media Streams WebSocket Messages](https://www.twilio.com/docs/voice/media-streams/websocket-messages)
 
 - [ConversationRelay Overview](https://www.twilio.com/docs/voice/conversationrelay)
 - [ConversationRelay TwiML `<ConversationRelay>`](https://www.twilio.com/docs/voice/twiml/connect/conversationrelay)

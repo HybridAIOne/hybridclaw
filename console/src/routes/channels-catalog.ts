@@ -27,6 +27,7 @@ interface ChannelCatalogOptions {
   threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
   voiceRealtimeConfigured?: boolean;
+  voicePluginLoaded?: boolean;
   whatsappLinked?: boolean;
   lineLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -362,8 +363,14 @@ function describeVoice(
   const realtimeConfigured = options.voiceRealtimeConfigured === true;
   const accountSid = config.voice.twilio.accountSid.trim();
   const fromNumber = config.voice.twilio.fromNumber.trim();
+  const pluginMissing =
+    config.voice.enabled && options.voicePluginLoaded === false;
   const active =
-    config.voice.enabled && !!accountSid && !!fromNumber && authTokenConfigured;
+    config.voice.enabled &&
+    !pluginMissing &&
+    !!accountSid &&
+    !!fromNumber &&
+    authTokenConfigured;
   const configured =
     active ||
     config.voice.enabled ||
@@ -378,9 +385,9 @@ function describeVoice(
 
   return {
     kind: 'voice',
-    summary: `Twilio · webhook ${config.voice.webhookPath}${
-      realtimeConfigured ? ' · realtime speech ready (web chat works)' : ''
-    }`,
+    summary: `Twilio · twilio-voice plugin${
+      pluginMissing ? ' not loaded' : ''
+    }${realtimeConfigured ? ' · realtime speech ready (web chat works)' : ''}`,
     statusTone,
     statusLabel:
       statusTone === 'active'

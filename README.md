@@ -129,7 +129,7 @@ npm run desktop
 | Area | Built in |
 | --- | --- |
 | Skills | 79 bundled skills, production business helpers, eval fixtures, packaged skill lifecycle, and human-distillation workflows |
-| Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, Twilio voice, web, incoming webhooks, and an install-on-demand WhatsApp plugin |
+| Channels | Discord, Slack, Signal, LINE self-chat, Telegram, Microsoft Teams, email, iMessage, fax, web, incoming webhooks, and install-on-demand WhatsApp, Twilio voice, and Vonage voice plugins |
 | Runtime | Gateway service, TUI client, web chat with Ideas, Outputs and notifications, Apps gallery, searchable admin console, loopback OpenAI-compatible API, and Docker or host execution with document and spreadsheet tooling |
 | Local models | Managed MLX setup on Apple silicon with macOS 15+, memory-aware model recommendations, live activity, configurable starter tools and skills, and optional local Laya routing |
 | Governance | Encrypted runtime secrets, scoped API tokens and device pairing, SecretRef credential isolation, per-session approval modes, sandbox controls, hash-chained audit trails, dependency license gates, SBOMs, and third-party notices |

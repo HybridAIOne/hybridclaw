@@ -11,7 +11,7 @@
  * this module only guarantees a validated, ordered event stream.
  */
 import WebSocket from 'ws';
-import { isRecord } from '../../utils/type-guards.js';
+import { isRecord } from '../utils/type-guards.js';
 
 const SOCKET_OPEN = 1;
 

@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import type { RuntimeConfig } from '../config/runtime-config.js';
 
 export function normalizeHttpBaseUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -51,6 +52,22 @@ export function resolveForwardedRequestOrigin(
   const proto = requestUsesHttps(req) ? 'https' : 'http';
   const host = forwardedHost || req.headers.host || fallbackHost;
   return `${proto}://${host}`;
+}
+
+/**
+ * The origin external services (phone carriers, webhook senders) can reach:
+ * `ops.gatewayBaseUrl` unless it is loopback or private, else
+ * `deployment.public_url` in cloud mode (#1446), else null. Local-mode tunnel
+ * URLs are not consulted.
+ */
+export function resolvePublicGatewayBaseUrl(
+  config: Pick<RuntimeConfig, 'ops' | 'deployment'>,
+): string | null {
+  const configured = normalizeHttpBaseUrl(config.ops.gatewayBaseUrl);
+  if (configured && !isPrivateHttpBaseUrl(configured)) return configured;
+  if (config.deployment.mode !== 'cloud') return null;
+  const publicUrl = normalizeHttpBaseUrl(config.deployment.public_url);
+  return publicUrl && !isPrivateHttpBaseUrl(publicUrl) ? publicUrl : null;
 }
 
 export function isPrivateHttpBaseUrl(value: string): boolean {
