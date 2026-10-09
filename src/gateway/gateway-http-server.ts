@@ -242,7 +242,11 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { CHAT_STEER_PATH, handleChatSteerRoute } from './chat-steer-route.js';
-import { openChatStreamTurn } from './chat-stream-turns.js';
+import {
+  chatStreamTurnKey,
+  openChatStreamTurn,
+  rejoinChatStreamTurn,
+} from './chat-stream-turns.js';
 import { renderDeviceDataForSession } from './device-data.js';
 import {
   DEVICE_CODE_PATH,
@@ -3337,11 +3341,15 @@ function serveConsoleIndex(pathname: string, res: ServerResponse): boolean {
   );
 }
 
+// `rejoin` reads the body as `/api/chat` would, then only joins that request's
+// turn while it runs (`POST /api/chat/rejoin`): a client whose stream broke
+// off gets the rest of it, and never a second turn.
 async function handleApiChat(
   req: IncomingMessage,
   res: ServerResponse,
   operatorId: string | null,
   authContext: ResolvedAuthContext,
+  rejoin = false,
 ): Promise<void> {
   const adminActions = adminActionClaimList(authContext.payload);
   const body = (await readJsonBody(req)) as Partial<ApiChatRequestBody>;
@@ -3406,6 +3414,14 @@ async function handleApiChat(
     ...(body.client === 'mobile' ? { client: body.client } : {}),
     ...(body.toolStatus === true ? { toolStatus: true } : {}),
   };
+  if (rejoin) {
+    if (
+      !rejoinChatStreamTurn(res, chatStreamTurnKey(operatorId, chatRequest))
+    ) {
+      sendJson(res, 404, { error: 'No turn is running for this request.' });
+    }
+    return;
+  }
   logger.debug(
     {
       sessionId: chatRequest.sessionId,
@@ -3788,7 +3804,7 @@ async function handleApiChatStream(
   // The same operator resending the same body is the same request.
   const stream = openChatStreamTurn(
     res,
-    JSON.stringify([operatorId, chatRequest]),
+    chatStreamTurnKey(operatorId, chatRequest),
   );
   if (!stream) return;
   const sendEvent = stream.send;
@@ -11311,6 +11327,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat' && method === 'POST') {
             await handleApiChat(req, res, operatorId, authContext);
+            return;
+          }
+          if (pathname === '/api/chat/rejoin' && method === 'POST') {
+            await handleApiChat(req, res, operatorId, authContext, true);
             return;
           }
           if (pathname === '/api/chat/branch' && method === 'POST') {

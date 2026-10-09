@@ -495,6 +495,11 @@ export function resolveAdminRbacAction(
   if (pathname === '/api/chat' && method === 'POST') {
     return 'chat.send';
   }
+  // The rest of the caller's own running turn; it never starts one, and the
+  // turn is named by the caller and the request.
+  if (pathname === '/api/chat/rejoin' && method === 'POST') {
+    return 'chat.send';
+  }
   // A file sent with a message is part of chatting: the upload only lands in
   // the uploaded-media cache, and a turn that names it is `chat.send` again.
   if (pathname === '/api/media/upload' && method === 'POST') {

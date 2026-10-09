@@ -7,7 +7,9 @@
  * "finished" alert (`notifyWebChatResult`); only `/stop` ends it early. If the
  * same caller resends the same request while the turn runs, the resend joins
  * that turn: it gets every line so far, then the rest. It does not queue a
- * second turn that would answer the message twice.
+ * second turn that would answer the message twice. A client that lost its
+ * connection and must not start the turn again rejoins with
+ * `rejoinChatStreamTurn`, which joins a running turn and never starts one.
  *
  * NOT the per-session turn queue (`handleGatewayMessage` orders a session's
  * turns). This module only decides which connections see a turn's lines.
@@ -83,6 +85,29 @@ function join(turn: RunningTurn, res: ServerResponse): void {
   // tick waits for the turn's synchronous context build. Send the opening
   // lines now; Node's own uncork on that tick then does nothing.
   res.socket?.uncork();
+}
+
+/** The name of a turn: the same caller sending the same request. */
+export function chatStreamTurnKey(
+  operatorId: string | null,
+  request: object,
+): string {
+  return JSON.stringify([operatorId, request]);
+}
+
+/**
+ * Joins `res` to the running turn `key`, as a resend would, without starting
+ * one. False when no such turn runs (it ended, or never started); `res` is
+ * then left for the caller to answer.
+ */
+export function rejoinChatStreamTurn(
+  res: ServerResponse,
+  key: string,
+): boolean {
+  const running = runningTurns.get(key);
+  if (!running) return false;
+  join(running, res);
+  return true;
 }
 
 /**
