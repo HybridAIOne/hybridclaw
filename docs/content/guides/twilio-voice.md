@@ -41,9 +41,9 @@ hybridclaw plugin list installed
 
 and look for `Twilio voice plugin ready` in the gateway log.
 
-### Upgrading From v0.39
+### Upgrading From v0.39.4 And Earlier
 
-Before v0.40 Twilio voice was built into the gateway. An existing `voice.*`
+Before v0.39.5 Twilio voice was built into the gateway. An existing `voice.*`
 config keeps answering calls after the upgrade with no manual step:
 
 1. On the first start, a config with `voice.enabled: true` gains an enabled
@@ -609,7 +609,7 @@ The usual causes are:
 - TLS termination is configured for HTTPS but not WSS
 - the public hostname in `ops.gatewayBaseUrl` is different from the one Twilio
   actually uses
-- the plugin is not loaded, or the number still points at the pre-v0.40
+- the plugin is not loaded, or the number still points at the pre-v0.39.5
   `/voice/webhook` URL
 
 ### The called phone hears a Twilio trial message and then the call ends
