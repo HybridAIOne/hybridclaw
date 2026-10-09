@@ -141,7 +141,10 @@ import {
   setMessageActivityTrace,
 } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
-import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
+import {
+  findPluginLoadError,
+  listLoadedPluginCommands,
+} from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
 import { runPreferenceTool } from '../preferences/preferences.js';
 import {
@@ -1058,7 +1061,9 @@ async function getGatewayBrowserSession(
     }
     gatewayBrowserSessions.delete(sessionId);
   }
-  const provider = createBrowserProvider(browserConfig);
+  const provider = createBrowserProvider(browserConfig, {
+    pluginLoadError: findPluginLoadError(browserConfig.provider),
+  });
   const skillName = normalizeGatewayBrowserSkillName(opts?.skillName);
   const session = await provider.launchSession({
     headed: opts?.headed,
@@ -1125,8 +1130,11 @@ async function handleApiBrowserTool(
         agentId,
         args,
         pageState,
-        // Native sessions drive a visible window on the gateway's desktop.
-        fields: { url, title: pageState.title, headed: true },
+        fields: {
+          url,
+          title: pageState.title,
+          headed: active.session.headed === true,
+        },
       });
       return;
     }
@@ -1145,7 +1153,11 @@ async function handleApiBrowserTool(
       sessionId,
       agentId,
       args,
-      fields: { url: pageState.url || url, title: pageState.title },
+      fields: {
+        url: pageState.url || url,
+        title: pageState.title,
+        headed: active.session.headed === true,
+      },
     });
     return;
   }

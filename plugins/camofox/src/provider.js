@@ -36,7 +36,7 @@ async function launchCamofoxContext(camofox, launchOptions, timeoutMs) {
   }
 }
 
-async function loadCamofoxModule(injected) {
+async function loadCamofoxModule(injected, installDir) {
   if (injected) return injected;
   if (camofoxModulePromise) return await camofoxModulePromise;
   camofoxModulePromise = import('camoufox-js');
@@ -45,8 +45,9 @@ async function loadCamofoxModule(injected) {
   } catch (error) {
     camofoxModulePromise = null;
     const cause = error instanceof Error ? error.message : String(error);
+    // The bundled copy has no dependencies; `plugin install` fetches them.
     throw new Error(
-      `Camofox is not available. Install the camofox plugin's dependencies, then run npx camoufox-js fetch in its directory. Cause: ${cause}`,
+      `Camofox is not available: run \`hybridclaw plugin install camofox\`, then \`npx camoufox-js fetch\` in ${installDir || 'the installed camofox plugin directory'}. Cause: ${cause}`,
     );
   }
 }
@@ -58,6 +59,7 @@ export class CamofoxProvider {
    * @param {{
    *   host: import('@hybridaione/hybridclaw/plugin-sdk').BrowserProviderHost,
    *   dataDir?: string,
+   *   installDir?: string,
    *   profileRoot?: string,
    *   headed?: boolean,
    *   launchOptions?: Record<string, unknown>,
@@ -105,11 +107,15 @@ export class CamofoxProvider {
       this.profileRoot,
       opts.profileDirHint,
     );
-    const camofox = await loadCamofoxModule(this.options.camofox);
+    const camofox = await loadCamofoxModule(
+      this.options.camofox,
+      this.options.installDir,
+    );
+    const headed = opts.headed ?? this.options.headed ?? false;
     const launchOptions = {
       ...this.options.launchOptions,
       user_data_dir: profileDir,
-      headless: !(opts.headed ?? this.options.headed ?? false),
+      headless: !headed,
     };
 
     const context = await launchCamofoxContext(
@@ -129,6 +135,7 @@ export class CamofoxProvider {
             skillName: policyContext.metering?.skillName,
           })),
     );
+    session.headed = headed;
     this.contexts.set(session, context);
     return session;
   }

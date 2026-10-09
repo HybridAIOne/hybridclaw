@@ -143,6 +143,7 @@ import {
 } from '../utils/normalized-strings.js';
 import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
+import { migrateLegacyBrowserPluginConfig } from './legacy-browser-plugin-migration.js';
 import {
   LocalModelConfigError,
   validateDefaultModelEndpoint,
@@ -6140,75 +6141,6 @@ function normalizeOptionalSecretRef(
 ): SecretRef | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   return parseSecretRefInput(value, path);
-}
-
-// compat: remove after v0.41 — through v0.39 the vendor browser providers
-// were core and kept their settings under browser.<section>. They are bundled
-// plugins now (#1801), each with the id of its provider kind. The selected
-// provider's settings move into a plugins.list[] entry, which also enables the
-// bundled plugin, so an upgraded install keeps the browser it chose; settings
-// of providers that were not selected are dropped. A secret ref becomes the
-// plugin's declared credential.
-const LEGACY_BROWSER_PLUGIN_SECTIONS: ReadonlyArray<{
-  section: string;
-  pluginId: string;
-  secretRef?: { key: string; credential: string };
-}> = [
-  { section: 'camofox', pluginId: 'camofox' },
-  {
-    section: 'managedCloud',
-    pluginId: 'managed-cloud',
-    secretRef: {
-      key: 'poolTokenRef',
-      credential: 'MANAGED_BROWSER_POOL_TOKEN',
-    },
-  },
-  {
-    section: 'browserUseCloud',
-    pluginId: 'browser-use-cloud',
-    secretRef: { key: 'apiKeyRef', credential: 'BROWSER_USE_API_KEY' },
-  },
-  { section: 'macCua', pluginId: 'mac-cua' },
-];
-
-function migrateLegacyBrowserPluginConfig(
-  rawBrowser: Record<string, unknown>,
-  rawPlugins: Record<string, unknown>,
-): Record<string, unknown> {
-  const list = Array.isArray(rawPlugins.list) ? [...rawPlugins.list] : [];
-  const provider = normalizeBrowserProviderKind(rawBrowser.provider, '');
-  const legacy = LEGACY_BROWSER_PLUGIN_SECTIONS.find(
-    (entry) => entry.pluginId === provider,
-  );
-  // The section is the migration's source: normalization drops it, so this
-  // runs once and never re-enables a plugin the operator removed later.
-  const section = legacy ? rawBrowser[legacy.section] : undefined;
-  if (
-    !legacy ||
-    !isRecord(section) ||
-    list.some((entry) => isRecord(entry) && entry.id === legacy.pluginId)
-  ) {
-    return rawPlugins;
-  }
-  const config: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(section)) {
-    if (value === '') continue;
-    if (key !== legacy.secretRef?.key) {
-      config[key] = value;
-      continue;
-    }
-    const refId = isRecord(value) ? value.id : undefined;
-    if (typeof refId === 'string' && refId !== legacy.secretRef.credential) {
-      console.warn(
-        `[runtime-config] the ${legacy.pluginId} plugin reads its secret from ${legacy.secretRef.credential}; store it under that name with \`hybridclaw secret set ${legacy.secretRef.credential} <value>\``,
-      );
-    }
-  }
-  console.warn(
-    `[runtime-config] moved browser.${legacy.section} into plugins.list[] and enabled the bundled ${legacy.pluginId} browser provider plugin`,
-  );
-  list.push({ id: legacy.pluginId, enabled: true, config });
-  return { ...rawPlugins, list };
 }
 
 function normalizeBrowserConfig(

@@ -484,8 +484,8 @@ hybridclaw config set browser.provider managed-cloud
 
 | Plugin (`browser.provider`) | What it drives | Config keys | Credential |
 |---|---|---|---|
-| `managed-cloud` | Chromium leased from an operator-run HybridClaw browser pool with its navigation guard ([Hetzner recipe](../guides/hetzner-managed-browser.md)) | `endpointUrl`, `defaultTenantId`, `pricing.actionUsd` | `MANAGED_BROWSER_POOL_TOKEN` (optional bearer token) |
-| `browser-use-cloud` | Remote Chromium sessions from the Browser Use Cloud API | `baseUrl`, `browser` (session options), `pricing` | `BROWSER_USE_API_KEY` |
+| `managed-cloud` | Chromium leased from an operator-run HybridClaw browser pool with its navigation guard ([Hetzner recipe](../guides/hetzner-managed-browser.md)) | `endpointUrl`, `defaultTenantId`, `pricing` (`'{"actionUsd":0.002}'`) | `MANAGED_BROWSER_POOL_TOKEN` (optional bearer token) |
+| `browser-use-cloud` | Remote Chromium sessions from the Browser Use Cloud API | `baseUrl`, `browser` (session options), `pricing` (`browserUsdPerMinute`, `actionUsd`) | `BROWSER_USE_API_KEY` |
 | `camofox` | The Camoufox stealth Firefox build on this host | `profileRoot`, `headed`, `launchOptions` (camoufox-js options) | — |
 | `mac-cua` | The operator's own macOS browser through the Cua Driver | `browser`, `driverCommand`, `driverArgs`, `screenshotMode` | — |
 
@@ -502,12 +502,19 @@ browser tool route; only `local` runs a browser of its own.
   with `browser.stealth.rules`.
 - `mac-cua` only runs on macOS; see the setup below.
 
+`pricing` and `browser` are objects: set them whole with a JSON value, such as
+`hybridclaw plugin config managed-cloud pricing '{"actionUsd":0.002}'`.
+
 A config from v0.39 or earlier that selected one of these providers keeps it:
 on first start, its `browser.<section>` settings move into the plugin's
-`plugins.list[]` entry, which enables the bundled plugin. A secret reference
+`plugins.list[]` entry, which enables the bundled plugin. Values v0.39 saved
+for settings that were never set (a 1-minute, 1x1 px Browser Use session and
+zero pricing) are dropped, so the plugin defaults apply. A secret reference
 becomes the plugin's credential; if it used another secret name, store the
 value under the credential name above. Settings of providers that were not
-selected are dropped.
+selected are dropped. `camofox` still needs its dependencies after the upgrade:
+run `hybridclaw plugin install camofox`, then `npx camoufox-js fetch` in
+`~/.hybridclaw/plugins/camofox`.
 
 ## mac-cua Driver Setup
 

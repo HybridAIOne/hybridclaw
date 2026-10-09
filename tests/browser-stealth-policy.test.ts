@@ -215,7 +215,6 @@ browser:
 });
 
 test('the container keeps its approval policy and hard-denies stealth when a stealth rule is unreadable', () => {
-  vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
   const policyPath = writePolicy(
     makeWorkspace(),
     `
@@ -238,8 +237,10 @@ browser:
   expect(loadPolicyFromDisk(policyPath).pinnedRed).toEqual([
     { pattern: 'custom-pinned-marker' },
   ]);
+  const runtime = new TrustedAgentApprovalRuntime(policyPath);
+  runtime.setBrowserProvider('camofox');
   expect(
-    new TrustedAgentApprovalRuntime(policyPath).evaluateToolCall({
+    runtime.evaluateToolCall({
       toolName: 'browser_navigate',
       argsJson: JSON.stringify({ url: 'https://login.example.com/' }),
       latestUserPrompt: 'Open the login page',

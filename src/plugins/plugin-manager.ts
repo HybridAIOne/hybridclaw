@@ -2709,6 +2709,11 @@ export function listLoadedPluginCommands(): PluginCommandSummary[] {
   return singleton.listRegisteredCommands();
 }
 
+export function findPluginLoadError(pluginId: string): string | undefined {
+  return singleton?.listPluginSummary().find((plugin) => plugin.id === pluginId)
+    ?.error;
+}
+
 export async function shutdownPluginManager(): Promise<void> {
   if (!singleton) return;
   const manager = singleton;

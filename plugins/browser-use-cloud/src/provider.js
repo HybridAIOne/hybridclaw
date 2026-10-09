@@ -19,14 +19,12 @@ function normalizeBaseUrl(baseUrl) {
   return (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/u, '');
 }
 
-function normalizeTimeoutMinutes(opts, browserConfig) {
-  const raw =
-    typeof browserConfig.timeoutMinutes === 'number'
-      ? browserConfig.timeoutMinutes
-      : typeof opts.timeoutMs === 'number'
-        ? Math.ceil(opts.timeoutMs / 60_000)
-        : undefined;
-  if (raw == null || !Number.isFinite(raw)) return undefined;
+// The session lifetime comes from `browser.timeoutMinutes` only:
+// SessionOptions.timeoutMs bounds the launch (the gateway passes 60s), and
+// reading it here gave every gateway session a 1-minute lifetime.
+function normalizeTimeoutMinutes(browserConfig) {
+  const raw = browserConfig.timeoutMinutes;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
   return Math.max(1, Math.min(MAX_BROWSER_TIMEOUT_MINUTES, Math.ceil(raw)));
 }
 
@@ -44,8 +42,8 @@ function estimateBilledCost(params) {
   return billedMinutes * params.pricing.browserUsdPerMinute;
 }
 
-function buildCreateBrowserBody(opts, browserConfig) {
-  const timeout = normalizeTimeoutMinutes(opts, browserConfig);
+function buildCreateBrowserBody(browserConfig) {
+  const timeout = normalizeTimeoutMinutes(browserConfig);
   const body = {};
   if (browserConfig.profileId !== undefined) {
     body.profileId = browserConfig.profileId;
@@ -250,7 +248,7 @@ export class BrowserUseCloudProvider {
     const metering = this.resolveMetering(opts);
 
     const apiKey = this.resolveApiKey();
-    const cloud = await this.createCloudSession(apiKey, opts);
+    const cloud = await this.createCloudSession(apiKey);
     let browser = null;
     try {
       const cdpUrl = normalizeCloudCdpUrl(cloud.cdpUrl);
@@ -379,12 +377,10 @@ export class BrowserUseCloudProvider {
     };
   }
 
-  async createCloudSession(apiKey, opts) {
+  async createCloudSession(apiKey) {
     return await this.requestJson(apiKey, '/browsers', {
       method: 'POST',
-      body: JSON.stringify(
-        buildCreateBrowserBody(opts, this.options.browser || {}),
-      ),
+      body: JSON.stringify(buildCreateBrowserBody(this.options.browser || {})),
     });
   }
 

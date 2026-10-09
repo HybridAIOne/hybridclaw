@@ -588,6 +588,44 @@ test('browser-use cloud provider rejects non-websocket CDP URLs and stops the cl
   );
 });
 
+// The gateway launches with timeoutMs 60s; that bounds the launch, not the
+// remote session, which would otherwise end after one minute.
+test('browser-use cloud provider leaves the session lifetime to timeoutMinutes alone', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
+  vi.resetModules();
+  const { BrowserUseCloudProvider } = await import(
+    '../plugins/browser-use-cloud/src/provider.js'
+  );
+  const mock = createMockPlaywright();
+  const fetchMock = vi.fn(async () =>
+    jsonResponse(
+      { id: 'cloud-session-launch', status: 'active', cdpUrl: 'https://x.test' },
+      201,
+    ),
+  );
+  const provider = new BrowserUseCloudProvider({
+    host: await testHost(),
+    getApiKey: () => 'bu_test_key',
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      timeoutMs: 60_000,
+      metering: { sessionId: 'session-launch', agentId: 'agent-launch' },
+    }),
+  ).rejects.toThrow(/ws:\/\//u);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    'https://api.browser-use.com/api/v4/browsers',
+    expect.objectContaining({ method: 'POST', body: '{}' }),
+  );
+});
+
 test('browser-use cloud provider stops cloud session when CDP connection fails', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;

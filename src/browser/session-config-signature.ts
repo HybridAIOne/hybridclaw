@@ -1,5 +1,5 @@
 import type { RuntimeBrowserConfig } from '../config/runtime-config.js';
-import { browserProviderRegistryRevision } from './provider-factory.js';
+import { browserProviderFingerprint } from './provider-factory.js';
 
 export function browserSessionConfigSignature(
   config: RuntimeBrowserConfig,
@@ -8,7 +8,7 @@ export function browserSessionConfigSignature(
     provider: config.provider,
     allowPrivateNetwork: config.allowPrivateNetwork,
     local: config.local,
-    // Plugin providers read their own config; a reload re-registers them.
-    registry: browserProviderRegistryRevision(),
+    // Plugin providers read their own config, carried in the fingerprint.
+    registration: browserProviderFingerprint(config.provider),
   });
 }

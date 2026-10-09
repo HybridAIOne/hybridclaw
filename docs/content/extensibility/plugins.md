@@ -348,12 +348,15 @@ directory confinement, audit and usage recording, the workspace stealth policy,
 secret-policy checks for native drivers, and the gateway's MCP SDK. A session
 that reads pages through the OS accessibility tree implements
 `nativeSnapshot`; the gateway then routes clicks by text or ref instead of DOM
-evaluation.
+evaluation. Set `session.headed` when the session shows a window on the
+gateway host; the gateway reports it to the agent.
 
 Register the provider with the plugin's own config and credentials in the
-closure; a plugin reload re-registers it, and the gateway rebuilds open
-sessions on their next call. A `browser.provider` that no plugin registers
-fails with an install hint; it never falls back to `local`.
+closure. A plugin reload re-registers it; the gateway rebuilds open sessions of
+that kind on their next call only when the plugin or its config changed, so
+reloading another plugin keeps them open. A `browser.provider` that no plugin
+registers fails with an install hint, or with the plugin's load error when it
+failed to load; it never falls back to `local`.
 
 ```js
 export default {

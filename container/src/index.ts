@@ -2279,6 +2279,7 @@ async function main(): Promise<void> {
   );
   setSessionContext(firstInput.sessionId);
   approvalRuntime.setSession(firstInput.sessionId);
+  approvalRuntime.setBrowserProvider(firstInput.browserProvider);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
   setGatewayContext(
@@ -2444,6 +2445,7 @@ async function main(): Promise<void> {
     setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
     approvalRuntime.setSession(input.sessionId);
+    approvalRuntime.setBrowserProvider(input.browserProvider);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);
     // Follow-up files carry no gateway token; reuse the one from stdin (a change

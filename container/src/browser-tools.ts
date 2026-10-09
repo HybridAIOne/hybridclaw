@@ -2429,7 +2429,7 @@ async function executeGatewayManagedBrowserTool(
       url: payload.url || args.url || '',
       title: payload.title || '',
       session_id: effectiveSessionId,
-      // The gateway reports a visible window (the operator's own browser).
+      // Whether the gateway's session shows a window on its host.
       headed: payload.headed === true,
     });
   }

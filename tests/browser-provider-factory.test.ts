@@ -5,7 +5,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { LocalBrowserPlaywrightModule } from '../src/browser/local-provider.js';
 import {
   type BrowserProviderRegistration,
-  browserProviderRegistryRevision,
   clearBrowserProviders,
   createBrowserProvider,
   registerBrowserProvider,
@@ -80,13 +79,16 @@ test('builds a plugin-registered provider with the gateway host', () => {
     launchSession: vi.fn(),
     closeSession: vi.fn(),
   };
-  registerBrowserProvider({
-    kind: 'browserbase',
-    create(host) {
-      received = host;
-      return built;
+  registerBrowserProvider(
+    {
+      kind: 'browserbase',
+      create(host) {
+        received = host;
+        return built;
+      },
     },
-  });
+    'browserbase:{}',
+  );
 
   const provider = createBrowserProvider(
     browserConfig({ provider: 'browserbase', allowPrivateNetwork: true }),
@@ -109,28 +111,39 @@ test.each<[string, Partial<BrowserProviderRegistration>, RegExp]>([
   ],
 ])('rejects registering %s', (_label, patch, error) => {
   expect(() =>
-    registerBrowserProvider({
-      kind: 'browserbase',
-      create: () => ({ launchSession: vi.fn(), closeSession: vi.fn() }),
-      ...patch,
-    } as BrowserProviderRegistration),
+    registerBrowserProvider(
+      {
+        kind: 'browserbase',
+        create: () => ({ launchSession: vi.fn(), closeSession: vi.fn() }),
+        ...patch,
+      } as BrowserProviderRegistration,
+      'browserbase:{}',
+    ),
   ).toThrow(error);
 });
 
-test('rejects a second registration of the same kind and bumps the revision on changes', () => {
+test('rejects a second registration of the same kind', () => {
   const registration: BrowserProviderRegistration = {
     kind: 'browserbase',
     create: () => ({ launchSession: vi.fn(), closeSession: vi.fn() }),
   };
-  const before = browserProviderRegistryRevision();
-  registerBrowserProvider(registration);
-  expect(() => registerBrowserProvider(registration)).toThrow(
+  registerBrowserProvider(registration, 'browserbase:{}');
+  expect(() => registerBrowserProvider(registration, 'browserbase:{}')).toThrow(
     /already registered/u,
   );
   clearBrowserProviders();
 
-  expect(browserProviderRegistryRevision()).toBe(before + 2);
   expect(() =>
     createBrowserProvider(browserConfig({ provider: 'browserbase' })),
   ).toThrow(/not available/u);
+});
+
+test('names the load error of a plugin that failed instead of asking to install it', () => {
+  const create = () =>
+    createBrowserProvider(browserConfig({ provider: 'camofox' }), {
+      pluginLoadError: 'launchOptions.timeout is managed by HybridClaw',
+    });
+
+  expect(create).toThrow(/failed to load: launchOptions\.timeout/u);
+  expect(create).not.toThrow(/plugin install/u);
 });

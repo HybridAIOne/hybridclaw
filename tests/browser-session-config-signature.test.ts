@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 import {
   clearBrowserProviders,
@@ -23,19 +23,41 @@ test('browser session config signature changes when private network access chang
   ).not.toBe(browserSessionConfigSignature(base));
 });
 
-// A plugin config edit reloads the plugin, which re-registers its provider;
-// cached sessions must not keep running on the old settings.
-test('browser session config signature changes when a provider re-registers', () => {
-  const before = browserSessionConfigSignature(base);
-  registerBrowserProvider({
-    kind: 'mac-cua',
-    create: () => ({
-      launchSession: async () => {
-        throw new Error('unused');
-      },
-      closeSession: async () => undefined,
-    }),
-  });
+function registerMacCua(fingerprint: string): void {
+  registerBrowserProvider(
+    {
+      kind: 'mac-cua',
+      create: () => ({
+        launchSession: async () => {
+          throw new Error('unused');
+        },
+        closeSession: async () => undefined,
+      }),
+    },
+    fingerprint,
+  );
+}
 
-  expect(browserSessionConfigSignature(base)).not.toBe(before);
+// A plugin reload re-registers every provider. Only a changed plugin or
+// plugin config may close the open sessions of its kind.
+test.each([
+  { label: 'its plugin config changed', next: 'mac-cua:{"browser":"safari"}', changes: true },
+  { label: 'another plugin reloaded', next: 'mac-cua:{"browser":"chrome"}', changes: false },
+])('browser session config signature on re-registration when $label', ({
+  next,
+  changes,
+}) => {
+  registerMacCua('mac-cua:{"browser":"chrome"}');
+  const before = browserSessionConfigSignature(base);
+  clearBrowserProviders();
+  registerBrowserProvider(
+    {
+      kind: 'browserbase',
+      create: () => ({ launchSession: vi.fn(), closeSession: vi.fn() }),
+    },
+    'browserbase:{}',
+  );
+  registerMacCua(next);
+
+  expect(browserSessionConfigSignature(base) !== before).toBe(changes);
 });

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { normalizeCamofoxLaunchOptions } from './launch-options.js';
 import { CamofoxProvider } from './provider.js';
 
@@ -15,6 +16,7 @@ export default {
           profileRoot: config.profileRoot || undefined,
           headed: config.headed === true,
           launchOptions,
+          installDir: path.join(api.runtime.homeDir, 'plugins', 'camofox'),
         }),
     });
   },

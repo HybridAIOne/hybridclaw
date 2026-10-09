@@ -177,6 +177,8 @@ function decodeDriverScreenshot(result) {
 }
 
 class MacCuaBrowserSession {
+  // The operator's own browser window on the gateway's desktop.
+  headed = true;
   awaitingTwoFactor = false;
   lastTwoFactorState = null;
   lastPage = null;

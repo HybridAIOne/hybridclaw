@@ -29,13 +29,17 @@ export interface BrowserProviderRegistration {
   create(host: BrowserProviderHost): BrowserProvider;
 }
 
-let providers = new Map<string, BrowserProviderRegistration>();
-// Bumped on every registry change so cached sessions built by a replaced
-// registration (a plugin reload or config edit) are rebuilt.
-let revision = 0;
+interface RegisteredBrowserProvider {
+  registration: BrowserProviderRegistration;
+  /** Equal across a reload only when the plugin and its config are unchanged. */
+  fingerprint: string;
+}
+
+let providers = new Map<string, RegisteredBrowserProvider>();
 
 export function registerBrowserProvider(
   registration: BrowserProviderRegistration,
+  fingerprint: string,
 ): void {
   const kind = String(registration?.kind || '');
   if (!kind || kind !== kind.trim().toLowerCase()) {
@@ -49,31 +53,32 @@ export function registerBrowserProvider(
   if (kind === LOCAL_BROWSER_PROVIDER || providers.has(kind)) {
     throw new Error(`Browser provider "${kind}" is already registered.`);
   }
-  providers.set(kind, registration);
-  revision += 1;
+  providers.set(kind, { registration, fingerprint });
 }
 
-export function browserProviderRegistryRevision(): number {
-  return revision;
+/**
+ * Cached sessions of `kind` are rebuilt when this changes, so reloading an
+ * unrelated plugin keeps them open. `''` when nothing registers the kind.
+ */
+export function browserProviderFingerprint(kind: string): string {
+  return providers.get(kind)?.fingerprint ?? '';
 }
 
 export function snapshotBrowserProviders(): Map<
   string,
-  BrowserProviderRegistration
+  RegisteredBrowserProvider
 > {
   return new Map(providers);
 }
 
 export function restoreBrowserProviders(
-  snapshot: Map<string, BrowserProviderRegistration>,
+  snapshot: Map<string, RegisteredBrowserProvider>,
 ): void {
   providers = new Map(snapshot);
-  revision += 1;
 }
 
 export function clearBrowserProviders(): void {
   providers.clear();
-  revision += 1;
 }
 
 export function createBrowserProvider(
@@ -81,6 +86,8 @@ export function createBrowserProvider(
   deps: {
     localPlaywright?: LocalBrowserPlaywrightModule;
     secretAudit?: (handle: SecretHandle, reason: string) => void;
+    /** Why the plugin with the kind's id failed to load, if it did. */
+    pluginLoadError?: string;
   } = {},
 ): BrowserProvider {
   if (config.provider === LOCAL_BROWSER_PROVIDER) {
@@ -92,7 +99,12 @@ export function createBrowserProvider(
       secretAudit: deps.secretAudit,
     });
   }
-  const registration = providers.get(config.provider);
+  const registration = providers.get(config.provider)?.registration;
+  if (!registration && deps.pluginLoadError) {
+    throw new Error(
+      `Browser provider "${config.provider}" is not available: the ${config.provider} plugin failed to load: ${deps.pluginLoadError}`,
+    );
+  }
   if (!registration) {
     throw new Error(
       `Browser provider "${config.provider}" is not available: no enabled plugin registers it. Install the plugin that provides it (for a bundled provider: hybridclaw plugin install ${config.provider}), or set browser.provider to "${LOCAL_BROWSER_PROVIDER}".`,

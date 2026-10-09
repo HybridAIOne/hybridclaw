@@ -25,6 +25,14 @@ docs/tools/
 docs/CNAME
 packages/
 plugins/*
+!plugins/browser-use-cloud/
+!plugins/browser-use-cloud/**
+!plugins/camofox/
+!plugins/camofox/**
+!plugins/mac-cua/
+!plugins/mac-cua/**
+!plugins/managed-cloud/
+!plugins/managed-cloud/**
 !plugins/media-tools/
 !plugins/media-tools/**
 !plugins/tier-router/

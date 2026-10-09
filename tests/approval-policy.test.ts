@@ -2081,10 +2081,10 @@ approval:
   });
 
   test('stealth browser activation is denied unless host policy allows it', () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
+    runtime.setBrowserProvider('camofox');
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
@@ -2103,7 +2103,6 @@ approval:
   });
 
   test('configured Camofox provider gates normal browser navigation as stealth activation', () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const policyPath = writeTempPolicy(`
 browser:
   stealth:
@@ -2114,6 +2113,7 @@ browser:
           host: example.com
 `);
     const runtime = new TrustedAgentApprovalRuntime(policyPath);
+    runtime.setBrowserProvider('camofox');
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
@@ -2130,10 +2130,10 @@ browser:
   });
 
   test('configured Camofox provider allows hostless browser navigation without stealth gate', () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
+    runtime.setBrowserProvider('camofox');
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'browser_navigate',
@@ -2150,7 +2150,6 @@ browser:
   });
 
   test('stealth browser activation requires explicit per-host approval even in full-auto', () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const policyPath = writeTempPolicy(`
 browser:
   stealth:
@@ -2161,6 +2160,7 @@ browser:
           host: example.com
 `);
     const runtime = new TrustedAgentApprovalRuntime(policyPath);
+    runtime.setBrowserProvider('camofox');
     runtime.setApprovalMode({ mode: 'full' });
 
     const evaluation = runtime.evaluateToolCall({
@@ -2180,7 +2180,6 @@ browser:
   });
 
   test('stealth browser approval can be trusted per host for the session', () => {
-    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
     const policyPath = writeTempPolicy(`
 browser:
   stealth:
@@ -2191,6 +2190,7 @@ browser:
           host: example.com
 `);
     const runtime = new TrustedAgentApprovalRuntime(policyPath);
+    runtime.setBrowserProvider('camofox');
     const originalPrompt = 'Use stealth mode for the login page';
     const argsJson = JSON.stringify({
       url: 'https://login.example.com/',
