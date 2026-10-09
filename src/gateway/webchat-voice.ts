@@ -87,6 +87,11 @@ const MAX_PENDING_STREAM_TOKENS = 32;
 export interface WebchatVoiceIdentity {
   userId: string | null;
   username: string | null;
+  /**
+   * The caller as chat ownership records it (`resolveWebNotificationOperator`):
+   * a hashed operator id, not `userId`. Only this may read an owned chat.
+   */
+  operatorId?: string | null;
 }
 
 interface PendingVoiceStreamToken {
@@ -310,7 +315,12 @@ export class WebchatVoiceConnection {
     }, PRELOAD_DEADLINE_MS);
     let history: Awaited<ReturnType<typeof loadWebchatVoiceHistory>>;
     try {
-      history = await loadWebchatVoiceHistory(sessionId, agentId, userId);
+      history = await loadWebchatVoiceHistory(
+        sessionId,
+        agentId,
+        userId,
+        this.identity.operatorId ?? null,
+      );
     } catch {
       this.fail('Voice conversation could not be prepared.', 1011);
       return;

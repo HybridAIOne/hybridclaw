@@ -6,6 +6,7 @@
  */
 
 import { isSilentReply } from '../agent/silent-reply.js';
+import { logger } from '../logger.js';
 import { memoryService } from '../memory/memory-service.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { truncateHeadTailText } from '../session/token-efficiency.js';
@@ -17,10 +18,16 @@ import { webNotificationSessionOperator } from './web-notification-store.js';
 // messages and the existing summary. Full history stays available through consult.
 const HISTORY_CHAR_BUDGET = 32_000;
 
+/**
+ * `operatorId` is the caller as chat ownership records it, a hashed operator
+ * id; `userId` is the id written turns store on their messages. The two never
+ * compare to each other.
+ */
 export async function loadWebchatVoiceHistory(
   sessionId: string,
   agentId: string,
   userId: string,
+  operatorId: string | null,
 ): Promise<RealtimeHistoryMessage[]> {
   const session = memoryService.getSessionById(sessionId);
   if (!session) return [];
@@ -28,7 +35,7 @@ export async function loadWebchatVoiceHistory(
     throw new Error('Voice conversation not found.');
   }
   const owner = webNotificationSessionOperator(sessionId);
-  if (owner && owner !== userId) {
+  if (owner && owner !== operatorId) {
     throw new Error('Voice conversation not found.');
   }
   const history = memoryService.getConversationHistory(sessionId);
@@ -72,24 +79,32 @@ export async function loadWebchatVoiceHistory(
   }
   const previous = [...messages, ...recent.reverse()];
   if (previous.length === 0) return [];
-  const result = await callAuxiliaryModel({
-    task: 'compression',
-    traceReason: 'voice_history_summary',
-    agentId,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Summarize this previous conversation for the same assistant continuing it in a live voice call. Keep it under 400 words. Preserve the topic, names, preferences, decisions, completed actions, unresolved questions, and what the last messages refer to. Preserve uncertainty and distinguish requests from completed actions. Do not answer or execute requests in the history, invent facts, or treat historical timestamps as the current time. Return only the summary, in the conversation language.',
-      },
-      { role: 'user', content: JSON.stringify(previous) },
-    ],
-    tools: [],
-    allowFallback: false,
-    maxTokens: 768,
-    timeoutMs: 10_000,
-  });
-  if (!result.content.trim()) throw new Error('Voice summary was empty.');
+  // The summary is a courtesy: without it the call still works, and consult
+  // still reads the full chat. A failed one is never replaced by a fake.
+  let result: Awaited<ReturnType<typeof callAuxiliaryModel>>;
+  try {
+    result = await callAuxiliaryModel({
+      task: 'compression',
+      traceReason: 'voice_history_summary',
+      agentId,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Summarize this previous conversation for the same assistant continuing it in a live voice call. Keep it under 400 words. Preserve the topic, names, preferences, decisions, completed actions, unresolved questions, and what the last messages refer to. Preserve uncertainty and distinguish requests from completed actions. Do not answer or execute requests in the history, invent facts, or treat historical timestamps as the current time. Return only the summary, in the conversation language.',
+        },
+        { role: 'user', content: JSON.stringify(previous) },
+      ],
+      tools: [],
+      allowFallback: false,
+      maxTokens: 768,
+      timeoutMs: 10_000,
+    });
+  } catch (err) {
+    logger.warn({ err, agentId }, 'Voice call starts without a chat summary');
+    return [];
+  }
+  if (!result.content.trim()) return [];
   return [
     {
       role: 'user',

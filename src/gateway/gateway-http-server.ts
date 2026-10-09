@@ -2827,6 +2827,7 @@ async function handleApiChatVoiceToken(
   req: IncomingMessage,
   res: ServerResponse,
   authContext: ResolvedAuthContext,
+  operatorId: string | null,
 ): Promise<void> {
   if (!isWebchatVoiceAvailable()) {
     sendJson(res, 503, { error: 'Realtime voice is not configured.' });
@@ -2841,6 +2842,9 @@ async function handleApiChatVoiceToken(
   const minted = mintWebchatVoiceStreamToken({
     userId: normalizeVoiceIdentityField(body.userId) || actor,
     username: normalizeVoiceIdentityField(body.username),
+    // Who owns a chat is recorded as the operator a written turn names, so a
+    // call into that chat is checked against the same id.
+    operatorId,
   });
   if (!minted) {
     sendJson(res, 429, { error: 'Too many pending voice stream tokens.' });
@@ -11297,7 +11301,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === WEBCHAT_VOICE_TOKEN_PATH && method === 'POST') {
-            await handleApiChatVoiceToken(req, res, authContext);
+            await handleApiChatVoiceToken(req, res, authContext, operatorId);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
@@ -11674,9 +11678,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         writeUpgradeError(socket, 503, 'Voice Unavailable');
         return;
       }
+      const voiceAuth: ResolvedAuthContext = voiceSessionPayload
+        ? { kind: 'session', payload: voiceSessionPayload }
+        : voiceRequestAuth;
       webchatVoiceManager.handleUpgrade(req, socket, head, {
         userId: resolveGatewayRequestUserId({ req, channelId: 'web' }) || null,
         username: null,
+        operatorId: resolveWebNotificationOperator(
+          voiceAuth.kind,
+          normalizeOptionalString(voiceAuth.payload?.sub) ||
+            resolveAdminSessionActor(voiceAuth.payload),
+          voiceAuth.tokenId,
+          isOwnerDeviceToken(voiceAuth.payload),
+        ),
       });
       return;
     }

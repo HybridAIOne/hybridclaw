@@ -95,10 +95,13 @@ model (such as Gemma) to summarize the session summary and recent user/assistant
 messages, then preloads that summary into the realtime conversation. It sends
 `ready` and starts the greeting only after the realtime service acknowledges
 that history. Historical requests are context, not instructions to execute again.
-Summarization uses no tools and no provider fallback. A missing or failed auxiliary
-model ends the call during setup. Summary generation and realtime preload have a
-20-second deadline. Existing history must belong to the authenticated user and
-requested agent before it is sent to either model.
+Summarization uses no tools and no provider fallback. When the auxiliary model
+is missing, fails or returns nothing, the call starts without a summary;
+consultations still read the full chat. Summary generation and realtime preload
+have a 20-second deadline. Existing history must belong to the caller and
+requested agent before it is sent to either model: a chat a client has written
+in belongs to the operator its token names (the same one that receives the
+chat's notifications), not to the `userId` sent with `/api/chat/voice/token`.
 
 The voice goes by the agent's display name (for example "Hy") and uses the
 user's name from `USER.md`. Its initial clock uses the device timezone when
