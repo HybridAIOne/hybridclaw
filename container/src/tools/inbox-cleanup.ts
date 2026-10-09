@@ -227,11 +227,9 @@ function addresses(value: string | null): string[] {
   return (value?.match(ADDRESS) ?? []).map((a) => a.toLowerCase());
 }
 
+// "Shop News <news@shop.test>" gives "Shop News"; apps show it as plain text.
 function displayName(from: string | null, address: string): string {
-  const name = from
-    ?.replace(/<[^>]*>/, '')
-    .replace(/^"|"$/g, '')
-    .trim();
+  const name = from?.split('<')[0].replaceAll('"', '').trim();
   return name && !name.includes('@') ? name : address;
 }
 
