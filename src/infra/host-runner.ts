@@ -65,6 +65,7 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveAgentRuntimeToken } from '../security/agent-runtime-token.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
+import { hostAgentNodePath } from '../skills/skill-node-modules.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import { KeyedSerialQueue } from '../utils/keyed-serial-queue.js';
@@ -652,6 +653,9 @@ function getOrSpawnHostProcess(
     ...buildSanitizedEnv(process.env),
     ...storedRuntimeEnv,
     ...buildHostGatewayRuntimeEnv(),
+    NODE_PATH: hostAgentNodePath(
+      storedRuntimeEnv.NODE_PATH || process.env.NODE_PATH,
+    ),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,

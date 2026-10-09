@@ -132,6 +132,10 @@
           cp -r container/dist "$INSTALL_DIR/container/dist"
           cp -r container/shared "$INSTALL_DIR/container/shared"
           cp -r container/src "$INSTALL_DIR/container/src"
+          # Locked manifest for `hybridclaw skill setup xlsx` (host-sandbox libraries).
+          mkdir -p "$INSTALL_DIR/container/tools"
+          cp container/tools/package.json container/tools/package-lock.json "$INSTALL_DIR/container/tools/"
+          cp -r container/tools/stubs "$INSTALL_DIR/container/tools/stubs"
           [ -d container/node_modules ] && cp -r container/node_modules "$INSTALL_DIR/container/node_modules"
 
           # Runtime asset trees

@@ -14,6 +14,10 @@ requires:
 metadata:
   hybridclaw:
     category: office
+    install:
+      - id: node-libs
+        kind: runtime-tools
+        label: Install the office Node libraries for host-sandbox agents
     short_description: "Create and edit Excel spreadsheets (.xlsx)."
     tags:
       - office

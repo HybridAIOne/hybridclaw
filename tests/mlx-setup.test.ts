@@ -19,7 +19,7 @@ import {
   readMlxInstallation,
   startMlxChild,
 } from '../src/inference/mlx-runtime.js';
-import { claimMlxSetup } from '../src/inference/mlx-setup-lock.js';
+import { claimSetupLock } from '../src/utils/setup-lock.js';
 
 const directories: string[] = [];
 const relays: Array<ReturnType<typeof startMlxRelay>> = [];
@@ -394,10 +394,10 @@ test('cancellation before response headers aborts the native relay request', asy
 test('installation lock refuses a competing live owner and releases cleanly', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mlx-setup-lock-'));
   directories.push(directory);
-  const release = claimMlxSetup(directory);
-  expect(() => claimMlxSetup(directory)).toThrow('Another local model setup');
+  const release = claimSetupLock(directory, 'local model setup');
+  expect(() => claimSetupLock(directory, 'local model setup')).toThrow('Another local model setup');
   release();
-  claimMlxSetup(directory)();
+  claimSetupLock(directory, 'local model setup')();
 });
 
 test('a busy 32 GiB Mac gets a smaller recommendation without double-counting speculative pages', () => {

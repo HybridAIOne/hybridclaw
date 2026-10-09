@@ -81,6 +81,14 @@ function detectMissingContainerDependencies(installRoot: string): string[] {
   return missing;
 }
 
+export function containerDependencyRepairHint(
+  installRoot: string = resolveInstallRoot(),
+): string {
+  return isSourceCheckout(installRoot)
+    ? 'If you are running from a source checkout, run `npm run setup` first.'
+    : `Run \`node ${containerBootstrapScriptPath(installRoot)}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`;
+}
+
 function formatMissingDependencyMessage(
   commandName: string,
   installRoot: string,
@@ -88,13 +96,10 @@ function formatMissingDependencyMessage(
 ): string {
   const noun = missingDependencies.length === 1 ? 'dependency' : 'dependencies';
   const list = missingDependencies.join(', ');
-  const hint = isSourceCheckout(installRoot)
-    ? 'If you are running from a source checkout, run `npm run setup` first.'
-    : `Run \`node ${containerBootstrapScriptPath(installRoot)}\` to install them; installs that skip lifecycle scripts (--ignore-scripts, pnpm) miss this step.`;
   return [
     `${commandName}: Host runtime is not ready.`,
     `Missing runtime ${noun}: ${list}.`,
-    hint,
+    containerDependencyRepairHint(installRoot),
   ].join(' ');
 }
 

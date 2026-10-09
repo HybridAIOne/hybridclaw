@@ -13,6 +13,10 @@ requires:
 metadata:
   hybridclaw:
     category: office
+    install:
+      - id: node-libs
+        kind: runtime-tools
+        label: Install the office Node libraries for host-sandbox agents
     short_description: "PPTX deck editing."
     tags:
       - office

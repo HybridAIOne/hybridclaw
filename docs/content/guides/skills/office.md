@@ -17,8 +17,8 @@ with bundled Node/JS tools.
 |---|---|---|
 | `node` | Required runtime — the skill is Node-only | System install |
 
-The Node libraries (`pdf-lib`, `pdfjs-dist`, `@napi-rs/canvas`) are bundled
-with HybridClaw. No external CLI tools are required.
+The Node libraries (`pdf-lib`, `pdfjs-dist`, `@napi-rs/canvas`) ship with
+the HybridClaw agent runtime. No external CLI tools are required.
 
 > 💡 **Tips & Tricks**
 >
@@ -82,6 +82,7 @@ using bundled Node scripts and `xlsx-populate`.
 | Dependency | Purpose | Install |
 |---|---|---|
 | `node` | Required runtime | System install |
+| Node libraries (host sandbox only) | `xlsx-populate`, `csv-parse`, `iconv-lite`, `xlsx` | `hybridclaw skill setup xlsx` |
 | LibreOffice (optional) | Formula recalculation and format conversion | See [Office Dependencies](../office-dependencies.md) |
 
 > 💡 **Tips & Tricks**
@@ -132,6 +133,7 @@ OOXML-preserving changes.
 | Dependency | Purpose | Install |
 |---|---|---|
 | `node` | Required runtime | System install |
+| Node libraries (host sandbox only) | `docx` | `hybridclaw skill setup docx` |
 | `pandoc` (optional) | Markdown-to-DOCX conversion | `brew install pandoc` |
 
 > 💡 **Tips & Tricks**
@@ -181,6 +183,7 @@ polished decks with pptxgenjs plus OOXML editing.
 | Dependency | Purpose | Install |
 |---|---|---|
 | `node` | Required runtime | System install |
+| Node libraries (host sandbox only) | `pptxgenjs` | `hybridclaw skill setup pptx` |
 | LibreOffice (optional) | Thumbnail export for visual QA | See [Office Dependencies](../office-dependencies.md) |
 
 > 💡 **Tips & Tricks**
