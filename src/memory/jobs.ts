@@ -2,7 +2,11 @@ import type Database from 'better-sqlite3';
 import { isValidTimezone } from '../../container/shared/workspace-time.js';
 import type { RuntimeSchedulerJob } from '../config/runtime-config.js';
 import { currentTurnUser } from '../session/turn-user.js';
-import type { ScheduledTask } from '../types/scheduler.js';
+import type {
+  ScheduledTask,
+  TaskTrigger,
+  TriggerEvent,
+} from '../types/scheduler.js';
 import { withMemoryDatabase } from './database.js';
 import { resolveSessionIdCompat } from './sessions.js';
 
@@ -34,6 +38,9 @@ export interface CreateJobInput {
   replyOnly?: boolean;
   ownerUserId?: string;
   eventParentId?: number;
+  title?: string;
+  trigger?: TaskTrigger;
+  triggerEvent?: TriggerEvent;
 }
 
 export interface TaskExecutionOptions {
@@ -178,12 +185,16 @@ function addOptionsOf(rawAction: string): {
     | import('../../container/shared/reasoning-effort.js').ReasoningEffort
     | null;
   freshSession?: boolean;
+  trigger?: TaskTrigger;
+  triggerEvent?: TriggerEvent;
 } {
   const action = parseJobJson<{
     alert?: unknown;
     replyOnly?: unknown;
     ownerUserId?: unknown;
     eventParentId?: unknown;
+    trigger?: unknown;
+    triggerEvent?: unknown;
     title?: string | null;
     model?: string | null;
     effort?:
@@ -210,7 +221,40 @@ function addOptionsOf(rawAction: string): {
       ? { eventParentId: action.eventParentId }
       : {}),
     ...(action?.replyOnly === true ? { replyOnly: true as const } : {}),
+    ...(isTaskTrigger(action?.trigger) ? { trigger: action.trigger } : {}),
+    ...(isTriggerEvent(action?.triggerEvent)
+      ? { triggerEvent: action.triggerEvent }
+      : {}),
   };
+}
+
+function isTaskTrigger(value: unknown): value is TaskTrigger {
+  if (!value || typeof value !== 'object') return false;
+  const trigger = value as Record<string, unknown>;
+  return (
+    (trigger.source === 'mail' ||
+      trigger.source === 'slack' ||
+      trigger.source === 'webhook') &&
+    ['token', 'channel', 'contains'].every(
+      (key) => trigger[key] === undefined || typeof trigger[key] === 'string',
+    )
+  );
+}
+
+function isTriggerEvent(value: unknown): value is TriggerEvent {
+  if (!value || typeof value !== 'object') return false;
+  const event = value as Record<string, unknown>;
+  const slack = event.slack as Record<string, unknown> | undefined;
+  return (
+    typeof event.at === 'string' &&
+    (event.body === undefined || typeof event.body === 'string') &&
+    (slack === undefined ||
+      (typeof slack === 'object' &&
+        slack !== null &&
+        typeof slack.channel === 'string' &&
+        typeof slack.user === 'string' &&
+        typeof slack.text === 'string'))
+  );
 }
 
 function scheduledJobFromRow(row: JobRow): ScheduledTask {
@@ -252,6 +296,8 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     fresh_session: options.freshSession ?? false,
     owner_user_id: options.ownerUserId ?? null,
     event_parent_id: options.eventParentId ?? null,
+    trigger: options.trigger ?? null,
+    trigger_event: options.triggerEvent ?? null,
   };
 }
 
@@ -380,6 +426,9 @@ export function createJob(input: CreateJobInput): number {
           ...(input.eventParentId
             ? { eventParentId: input.eventParentId }
             : {}),
+          ...(input.title ? { title: input.title } : {}),
+          ...(input.trigger ? { trigger: input.trigger } : {}),
+          ...(input.triggerEvent ? { triggerEvent: input.triggerEvent } : {}),
         }),
         JSON.stringify({
           kind: 'channel',

@@ -70,17 +70,19 @@ export function listManageableScheduledTasks(requester: Session): {
   tasks: ScheduledTask[];
   hiddenCount: number;
 } {
+  // A trigger's queued runs belong to the trigger, which is listed.
+  const all = getAllJobs({ kind: 'scheduled_task' }).filter(
+    (task) => !task.trigger_event,
+  );
   if (requester.channel_id !== 'web') {
     return {
-      tasks: getAllJobs({ kind: 'scheduled_task' }).filter((task) =>
-        isCreatingChat(task, requester),
-      ),
+      tasks: all.filter((task) => isCreatingChat(task, requester)),
       hiddenCount: 0,
     };
   }
   const tasks: ScheduledTask[] = [];
   let hiddenCount = 0;
-  for (const task of getAllJobs({ kind: 'scheduled_task' })) {
+  for (const task of all) {
     if (canManageScheduledTask(task, requester)) {
       tasks.push(task);
     } else if (

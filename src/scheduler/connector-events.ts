@@ -9,6 +9,7 @@ import { withMemoryDatabase } from '../memory/database.js';
 import { createJob, deleteJob, getAllJobs, getJob } from '../memory/jobs.js';
 import { getMemoryValue, setMemoryValue } from '../memory/kv.js';
 import type { ScheduledTask } from '../types/scheduler.js';
+import { queueTriggerRelayEvent } from './event-triggers.js';
 import { getScheduledTaskNextRunAt, rearmScheduler } from './scheduler.js';
 
 // Engineering choices (2026-10-03): debounce bursts for 15s, at most one extra
@@ -29,7 +30,13 @@ export interface ConnectorChange {
   eventId: string;
 }
 export interface ConnectorChangeResult {
-  status: 'queued' | 'coalesced' | 'duplicate' | 'scheduled' | 'ignored';
+  status:
+    | 'queued'
+    | 'coalesced'
+    | 'duplicate'
+    | 'scheduled'
+    | 'ignored'
+    | 'limited';
   taskId?: number;
 }
 const digest = (value: string) =>
@@ -42,6 +49,7 @@ function isPolicy(task: ScheduledTask, userId: string): boolean {
       task.owner_user_id === userId &&
       task.alert === 'proactive' &&
       task.reply_only &&
+      !task.trigger &&
       task.cron_expr &&
       !task.run_at &&
       !task.every_ms &&
@@ -159,7 +167,8 @@ export function queueConnectorChange(
 
 /** Pausing, editing or deleting the original policy invalidates queued work. */
 export function isConnectorEventCurrent(task: ScheduledTask): boolean {
-  if (!task.event_parent_id) return true;
+  // A trigger's runs answer to `isTriggerRunCurrent` (`event-triggers.ts`).
+  if (!task.event_parent_id || task.trigger_event) return true;
   const parent = getJob(task.event_parent_id, { kind: 'scheduled_task' });
   return Boolean(
     parent &&
@@ -184,7 +193,7 @@ export function queueConnectorSourceChange(
     if (isPolicy(task, change.userId))
       results.push(queueConnectorChange({ ...change, taskId: task.id }));
   }
-  return results;
+  return [...results, ...queueTriggerRelayEvent(change)];
 }
 
 /** Phone snapshot updates are a real event source; identical refreshes stay quiet. */

@@ -52,6 +52,7 @@ import { firstNumber } from './gateway-utils.js';
 // transfer is shown to the user, whom a child does not answer (2026-10-08).
 const SUBAGENT_BLOCKED_TOOLS = [
   'cron',
+  'trigger',
   'todo',
   'draft_email',
   'draft_transfer',

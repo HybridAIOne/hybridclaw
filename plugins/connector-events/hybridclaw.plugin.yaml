@@ -14,7 +14,7 @@ configSchema:
       type: string
       minLength: 1
       maxLength: 200
-      description: Verified owner whose current proactive policies the gmail binding wakes.
+      description: Verified owner whose proactive policies and mail or Slack triggers the gmail, outlook, mailbox and slack bindings wake.
     bindings:
       type: array
       default: []

@@ -360,6 +360,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
     expect.objectContaining({
       blockedTools: [
         'cron',
+        'trigger',
         'todo',
         'draft_email',
         'draft_transfer',

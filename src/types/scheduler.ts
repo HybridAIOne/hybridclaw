@@ -28,6 +28,32 @@ export interface ScheduledTask {
   reply_only?: boolean;
   /** Verified creator, retained across edits; never selected by model tool arguments. */
   owner_user_id?: string | null;
-  /** Original proactive policy; queued changes are cancelled if it changes. */
+  /** Original proactive policy or trigger; queued changes are cancelled if it changes. */
   event_parent_id?: number | null;
+  /** Runs when something arrives instead of (or besides) a time (`event-triggers.ts`). */
+  trigger?: TaskTrigger | null;
+  /** What arrived, on a trigger's queued run. */
+  trigger_event?: TriggerEvent | null;
+}
+
+export type TriggerSource = 'mail' | 'slack' | 'webhook';
+
+export interface TaskTrigger {
+  source: TriggerSource;
+  /** Webhook only: the secret part of its web address. */
+  token?: string;
+  /** Slack only: the channel name or id it watches; none watches every channel. */
+  channel?: string;
+  /** Slack only: text a message must contain. */
+  contains?: string;
+}
+
+/**
+ * Mail and relayed Slack changes carry nothing: the run reads the source with
+ * its tools. A Slack channel message and a webhook call carry what arrived.
+ */
+export interface TriggerEvent {
+  at: string;
+  slack?: { channel: string; user: string; text: string };
+  body?: string;
 }
