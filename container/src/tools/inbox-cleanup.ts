@@ -673,7 +673,7 @@ export function classifyInboxCleanup(
   if (args.action === 'apply') {
     const summary = applySummary(args);
     // Owner call, 2026-10-09: a bulk change to the user's mailbox asks every
-    // time, in every mode, after Muse deleted 15,200 emails under a standing rule.
+    // time, in every mode, after another agent deleted 15,200 emails under a rule.
     return {
       ...base,
       tier: 'red',

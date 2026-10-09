@@ -120,7 +120,7 @@ function newsletter(uid: number, extra: Partial<Mail> = {}): Mail {
   };
 }
 
-// The Muse incident: a keyword sorter counted "offer" as marketing and deleted
+// A known incident: a keyword sorter counted "offer" as marketing and deleted
 // contract negotiations. Here the inbox holds the same kind of mail.
 function seed(mailbox: FakeMailbox): void {
   mailbox.folders.Gesendet.mail = [
