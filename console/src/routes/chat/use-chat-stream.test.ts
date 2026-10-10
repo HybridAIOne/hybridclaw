@@ -1570,4 +1570,145 @@ describe('useChatStream', () => {
     // Session B's cache must not be polluted with session A's stream output.
     expect(harness.readSession('session-b')).toBeUndefined();
   });
+
+  it('preserves draft metadata and final approval facts even without a streamed event', async () => {
+    const harness = makeHarness();
+    const emailDraft = {
+      from: 'pat@example.com',
+      to: ['lee@example.com'],
+      subject: 'Friday',
+      body: 'See you then.',
+      reply: 'Please review.',
+    };
+    const pendingApproval = {
+      approvalId: 'mail-1',
+      prompt: 'Send email?',
+      intent: 'send email',
+      reason: 'external communication',
+      reviewArguments: JSON.stringify(emailDraft),
+      allowSession: false,
+      allowAgent: true,
+      allowAll: false,
+      expiresAt: null,
+    };
+    const cost = { eur: 0, free: true, requests: 1 };
+    const costEstimate = { low: 0, high: 0, free: true, requests: 2 };
+    const receipt = { version: 1 as const, items: [], more: 0 };
+    requestChatStreamMock.mockResolvedValue({
+      status: 'success',
+      messageRole: 'approval',
+      result: 'Review',
+      assistantMessageId: 42,
+      emailDraft,
+      pendingApproval,
+      cost,
+      costEstimate,
+      receipt,
+      scope: 'work',
+      apps: [{ id: 'app-1', title: 'Plan', kind: 'web' }],
+    });
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'pat',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    await act(async () => {
+      await result.current.sendMessage('/approve yes mail-0', [], {
+        hideUser: true,
+      });
+    });
+    expect(harness.messages.at(-1)).toMatchObject({
+      messageId: 42,
+      emailDraft,
+      pendingApproval: { ...pendingApproval, type: 'approval' },
+      cost,
+      costEstimate,
+      receipt,
+      scope: 'work',
+      apps: [{ id: 'app-1' }],
+    });
+  });
+  it('returns false on a failed turn so review actions can report failure', async () => {
+    const harness = makeHarness();
+    requestChatStreamMock.mockRejectedValue(new Error('Connection failed'));
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'pat',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    let completed = true;
+    await act(async () => {
+      completed = await result.current.sendMessage(
+        'Send the reviewed draft.',
+        [],
+      );
+    });
+    expect(completed).toBe(false);
+    expect(harness.messages.at(-1)?.content).toContain('Connection failed');
+  });
+  it('retains structured browser and slide tool payloads in the live trace', async () => {
+    const harness = makeHarness();
+    const browser = {
+      url: 'https://example.com/page',
+      title: 'Example',
+      frame: '/workspace/frame.jpg',
+    };
+    const slideSamples = {
+      looks: [{ title: 'Clean', image: '/workspace/slide.png' }],
+    };
+    requestChatStreamMock.mockImplementation(async (_url, options) => {
+      options.callbacks.onToolEvent({
+        type: 'tool',
+        phase: 'start',
+        toolName: 'browser',
+        toolCallId: 'call-1',
+      });
+      options.callbacks.onToolEvent({
+        type: 'tool',
+        phase: 'finish',
+        toolName: 'browser',
+        toolCallId: 'call-1',
+        browser,
+        slideSamples,
+      });
+      return {
+        status: 'success',
+        messageRole: 'assistant',
+        result: 'Review complete.',
+      };
+    });
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'pat',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+        }),
+      { wrapper: harness.wrapper },
+    );
+    await act(async () => {
+      await result.current.sendMessage('Review the page.', []);
+    });
+    const trace = harness.messages.find((message) => message.role === 'trace');
+    expect(trace?.role === 'trace' && trace.steps).toMatchObject([
+      { kind: 'tool', browser, slideSamples },
+    ]);
+  });
 });

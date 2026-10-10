@@ -147,6 +147,8 @@ no claims and may run them all.
 | `/skill unblock` | `admin.skills.unblock` |
 | `/skill install\|setup\|upgrade\|uninstall\|rollback` | `admin.skills.write` |
 | `/agent install <local path>` | `admin.agents.write` |
+| `/agent create`, `/agent model <name>` | `admin.agents.write` |
+| `/model default <name>` | `admin.models.write` |
 
 The gateway takes these actions from the verified credential, never from the
 request body. A device token holds none of them.

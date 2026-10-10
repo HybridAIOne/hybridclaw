@@ -104,6 +104,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'track',
   'name',
   'timezone',
+  'flavour',
   'preferences',
   'receipts',
   'dashboard',
@@ -663,6 +664,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'timezone':
       return ['timezone', ...parts.slice(1)];
 
+    case 'flavour':
+      return ['flavour', ...parts.slice(1)];
+
     case 'import':
       return ['import', ...parts.slice(1)];
 
@@ -776,6 +780,13 @@ function buildSlashCommandCatalogDefinitions(
       name: 'timezone',
       description:
         'Your time zone for schedules and dates: show, set <zone>, clear',
+      tuiOnly: true,
+      localSurfaces: ['tui', 'web'],
+    },
+    {
+      // Local chats only; companion apps set it from their settings with `--json`.
+      name: 'flavour',
+      description: 'Which models the agent uses: show, set openai|anthropic|eu',
       tuiOnly: true,
       localSurfaces: ['tui', 'web'],
     },

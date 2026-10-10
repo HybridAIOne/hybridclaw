@@ -3388,7 +3388,7 @@ test('agent create warns when model validation is skipped because no models are 
   const result = await handleGatewayCommand({
     sessionId: 'session-create-agent',
     guildId: null,
-    channelId: 'channel-create-agent',
+    channelId: 'tui',
     args: ['agent', 'create', 'research', '--model', 'garbage-model'],
   });
 
@@ -4758,25 +4758,25 @@ test('agent model sets the persistent model for the current session agent', asyn
   await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'switch', 'research'],
   });
   await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['model', 'set', 'hybridai/gpt-5-nano'],
   });
   const updated = await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'model', 'hybridai/gpt-5'],
   });
   const info = await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'model'],
   });
 

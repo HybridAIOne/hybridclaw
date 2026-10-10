@@ -250,6 +250,10 @@ import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
+import {
+  pendingChatApproval,
+  rememberChatApproval,
+} from './chat-approval-review.js';
 import { handleApiChatIdeas } from './chat-ideas.js';
 import {
   CHAT_REACTION_PATH,
@@ -522,6 +526,7 @@ import {
   detectCliSecretSetCommand,
   renderCliSecretSetCommandWarning,
 } from './secret-command-guard.js';
+import { type StructuredReply, structuredReply } from './structured-reply.js';
 import { handleSystemFilesRoute, SYSTEM_FILES_PATH } from './system-files.js';
 import {
   handleTextChannelApprovalCommand,
@@ -2062,6 +2067,8 @@ async function resolveApiChatSlashCommandResult(
   let sessionId = chatRequest.sessionId;
   let sessionKey: string | undefined;
   let mainSessionKey: string | undefined;
+  let approvalReply: StructuredReply = {};
+  let assistantMessageId: number | undefined;
   let handledApprovalCommand = false;
   let messageRole: GatewayChatResultMessageRole = 'command';
 
@@ -2077,6 +2084,8 @@ async function resolveApiChatSlashCommandResult(
       });
       if (!handled) continue;
       handledApprovalCommand = true;
+      approvalReply = structuredReply(handled);
+      assistantMessageId = handled.assistantMessageId;
       messageRole = handled.messageRole;
       sessionId = handled.sessionId || sessionId;
       sessionKey = handled.sessionKey || sessionKey;
@@ -2149,6 +2158,8 @@ async function resolveApiChatSlashCommandResult(
 
   return {
     status: 'success',
+    ...approvalReply,
+    ...(assistantMessageId ? { assistantMessageId } : {}),
     // A command with no visible output returns an empty result; the web console
     // renders nothing for it (like a shell command that succeeds silently)
     // rather than a "Done." block. Approvals keep an explicit confirmation.
@@ -3542,6 +3553,7 @@ async function handleApiChat(
     processedResult.sessionId || chatRequest.sessionId,
     processedResult,
   );
+  await rememberChatApproval(chatRequest, result);
   const capturedApps = await maybeCaptureChatArtifacts(chatRequest, result);
   if (capturedApps.length > 0) result.apps = capturedApps;
   notifyWebChatResult(operatorId, chatRequest, result);
@@ -3979,6 +3991,7 @@ async function handleApiChatStream(
       adminActions,
     );
     if (localCommandResult) {
+      await rememberChatApproval(chatRequest, localCommandResult);
       sendEvent({
         type: 'result',
         result: filterChatResultForSession(
@@ -4022,6 +4035,7 @@ async function handleApiChatStream(
       result.sessionId || chatRequest.sessionId,
       result,
     );
+    await rememberChatApproval(chatRequest, filteredResult);
     const pendingApproval = extractGatewayChatApprovalEvent(filteredResult);
     if (pendingApproval && pendingApproval.approvalId !== streamedApprovalId) {
       sendEvent(pendingApproval);
@@ -4363,6 +4377,10 @@ async function handleApiHistory(
     agentId: requestedAgentId,
     allowExistingSessionMessages: true,
   });
+  const pendingApproval = pendingChatApproval(
+    historyPage.sessionId,
+    operatorUserId ?? '',
+  );
   // These keys are returned only as chat-routing metadata for the web client.
   // Auth stays anchored to the existing API/session auth checks above, never to
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
@@ -4373,6 +4391,7 @@ async function handleApiHistory(
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: withWorkHistory(historyPage.sessionId, historyPage.history),
+    ...(pendingApproval ? { pendingApproval } : {}),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }

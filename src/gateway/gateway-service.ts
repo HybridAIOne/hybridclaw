@@ -494,6 +494,7 @@ import {
 } from './dashboard-command.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
 import { handleDeviceDataCommand } from './device-data-command.js';
+import { handleFlavourCommand } from './flavour-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -9587,6 +9588,13 @@ export async function handleGatewayCommand(
             );
           }
 
+          if (!isLocalOperator(req, 'admin.agents.write')) {
+            return badCommand(
+              'Agent Model Restricted',
+              '`agent model <name>` changes the agent for every chat and is only available from local TUI/web sessions. Use `model set <name>` for this session.',
+            );
+          }
+
           await refreshAvailableModelCatalogs({
             includeHybridAI: true,
           });
@@ -9633,6 +9641,12 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'create') {
+          if (!isLocalOperator(req, 'admin.agents.write')) {
+            return badCommand(
+              'Agent Create Restricted',
+              '`agent create` adds an agent to this runtime and is only available from local TUI/web sessions.',
+            );
+          }
           const newAgentId = parseIdArg(req.args, 2);
           if (!newAgentId) {
             return badCommand(
@@ -10062,6 +10076,16 @@ export async function handleGatewayCommand(
           listModifierArg === 'more' ||
           listModifierArg === 'all' ||
           listModifierArg === 'full';
+        if (
+          sub === 'default' &&
+          parseIdArg(req.args, 2) &&
+          !isLocalOperator(req, 'admin.models.write')
+        ) {
+          return badCommand(
+            'Default Model Restricted',
+            '`model default <name>` changes the model for every new session and is only available from local TUI/web sessions. Use `model set <name>` for this session.',
+          );
+        }
         const needsAvailableModels =
           sub === 'list' || sub === 'default' || sub === 'set';
         const modelCatalogRefreshResult = needsAvailableModels
@@ -12522,6 +12546,13 @@ export async function handleGatewayCommand(
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));
+
+      case 'flavour':
+        return handleFlavourCommand(
+          req,
+          session,
+          resolveSessionAgentId(session),
+        );
 
       case 'import':
         return handleImportCommand(req, resolveSessionAgentId(session));

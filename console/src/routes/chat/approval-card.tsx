@@ -1,9 +1,12 @@
 import { useMemo } from 'react';
+import { parseApprovalRule } from '../../../../container/shared/approval-rules.js';
+import { parseBoostPrompt } from '../../../../container/shared/boost-offer.js';
 import type { ChatStreamApproval } from '../../api/chat-types';
 import { Button } from '../../components/button';
 import type { ApprovalAction } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import type { ApprovalItemStatus } from './approval-lifecycle';
+import { ApprovalReview } from './approval-review';
 import css from './chat-page.module.css';
 
 const RESPONDED_CAPTION: Record<ApprovalAction, string> = {
@@ -128,6 +131,7 @@ function buildApprovalRows(approval: ChatStreamApproval): ApprovalDetailRow[] {
   };
 
   if (approval.intent) addRow('Action', approval.intent);
+  if (approval.reason) addRow('Reason', approval.reason);
   if (approval.commandPreview) {
     addRow(
       HTTP_METHOD_RE.test(approval.commandPreview) ? 'Request' : 'Preview',
@@ -171,9 +175,11 @@ export function ApprovalCard(props: {
   const isActive = status === 'active';
   const rows = useMemo(() => buildApprovalRows(approval), [approval]);
   const intro = useMemo(() => buildApprovalIntro(approval), [approval]);
-  const availableTrustButtons = TRUST_APPROVAL_BUTTONS.filter((btn) =>
-    btn.isAvailable(approval),
-  );
+  const rule = parseApprovalRule(approval.rule);
+  const boost = parseBoostPrompt(approval.boost);
+  const availableTrustButtons = boost
+    ? []
+    : TRUST_APPROVAL_BUTTONS.filter((btn) => btn.isAvailable(approval));
   const tierLabel = prettifyApprovalTier(approval.approvalTier);
 
   const handleAction = (action: ApprovalAction) => {
@@ -188,7 +194,9 @@ export function ApprovalCard(props: {
         {tierLabel ? (
           <span className={css.approvalTier}>{tierLabel}</span>
         ) : null}
-        <span className={css.approvalTitle}>Confirmation required</span>
+        <span className={css.approvalTitle}>
+          {boost ? 'Use a boost?' : 'Confirmation required'}
+        </span>
       </div>
       <p className={css.approvalIntro}>{intro}</p>
       {rows.length > 0 ? (
@@ -204,6 +212,19 @@ export function ApprovalCard(props: {
           ))}
         </dl>
       ) : null}
+      <ApprovalReview approval={approval} />
+      {rule ? (
+        <p className={css.approvalIntro}>
+          Paused by: {rule.pausedBy.replaceAll('_', ' ')}. An always-allow rule
+          covers {rule.label}.
+        </p>
+      ) : null}
+      {boost ? (
+        <p className={css.approvalIntro}>
+          Use one {boost.category} boost with {boost.modelName}. Available:{' '}
+          {boost.available}.
+        </p>
+      ) : null}
       {isActive ? (
         <>
           <div className={css.approvalPrimaryActions}>
@@ -212,7 +233,7 @@ export function ApprovalCard(props: {
               disabled={props.busy}
               onClick={() => handleAction('once')}
             >
-              Allow once
+              {boost ? 'Use boost' : 'Allow once'}
             </Button>
             <Button
               variant="danger"
@@ -220,7 +241,7 @@ export function ApprovalCard(props: {
               disabled={props.busy}
               onClick={() => handleAction('deny')}
             >
-              Cancel
+              {boost ? 'Continue normally' : 'Cancel'}
             </Button>
           </div>
           {availableTrustButtons.length > 0 ? (
@@ -234,7 +255,9 @@ export function ApprovalCard(props: {
                   disabled={props.busy}
                   onClick={() => handleAction(btn.action)}
                 >
-                  {btn.label}
+                  {rule && (btn.action === 'agent' || btn.action === 'all')
+                    ? `Always allow ${rule.label} ${btn.action === 'agent' ? 'for this agent' : 'for all agents'}`
+                    : btn.label}
                 </Button>
               ))}
             </div>
@@ -242,7 +265,11 @@ export function ApprovalCard(props: {
         </>
       ) : (
         <p className={css.approvalStatusLine}>
-          {inactiveCaption(status, props.respondedAction)}
+          {boost && status === 'responded'
+            ? props.respondedAction === 'deny'
+              ? 'Continuing without a boost.'
+              : 'Boost approved.'
+            : inactiveCaption(status, props.respondedAction)}
         </p>
       )}
     </div>

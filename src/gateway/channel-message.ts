@@ -110,6 +110,7 @@ export async function handlePendingApprovalRouting(params: {
   await rememberPendingApproval({
     sessionId: params.sessionId,
     approvalId: params.pendingApproval.approvalId,
+    approval: params.pendingApproval,
     prompt: storedPrompt,
     userId: approvalUserId,
     expiresAt: params.pendingApproval.expiresAt,
