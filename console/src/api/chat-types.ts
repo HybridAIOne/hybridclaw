@@ -1,4 +1,7 @@
 import type { ApprovalMode } from '../../../container/shared/approval-mode.js';
+import type { GatewayChatToolProgressEvent } from '../../../src/gateway/gateway-types';
+import type { StructuredReply } from '../../../src/gateway/structured-reply';
+import type { PendingApproval } from '../../../src/types/execution';
 import type { RoutingTrace } from '../../../src/types/routing-trace';
 
 export type { RoutingTrace } from '../../../src/types/routing-trace';
@@ -77,7 +80,7 @@ export interface ChatActivityTrace {
   elapsedMs?: number;
 }
 
-export interface ChatHistoryMessage {
+export interface ChatHistoryMessage extends StructuredReply {
   role: 'user' | 'assistant' | 'system';
   content: string;
   id?: number | string | null;
@@ -116,6 +119,7 @@ export interface ChatHistoryResponse {
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
   routingTrace?: RoutingTrace | null;
+  pendingApproval?: ChatStreamApproval | null;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';
@@ -202,32 +206,18 @@ export interface ChatStreamThinkingDelta {
   delta: string;
 }
 
-export interface ChatStreamToolEvent {
-  type: 'tool';
-  toolName: string;
-  /** The model's id for this call; pairs a finish with its start. */
-  toolCallId?: string;
-  phase: 'start' | 'finish';
-  preview?: string;
-  durationMs?: number;
-}
+export type ChatStreamToolEvent = GatewayChatToolProgressEvent;
 
-export interface ChatStreamApproval {
-  type: 'approval';
-  approvalId: string;
-  prompt: string;
-  summary?: string;
-  intent?: string;
-  reason?: string;
-  approvalTier?: 'green' | 'yellow' | 'red';
-  toolName?: string;
-  commandPreview?: string;
-  args?: unknown;
-  allowSession?: boolean;
-  allowAgent?: boolean;
-  allowAll?: boolean;
-  expiresAt?: number | null;
-}
+export type ChatStreamApproval = Pick<
+  PendingApproval,
+  'approvalId' | 'prompt'
+> &
+  Partial<Omit<PendingApproval, 'approvalId' | 'prompt'>> & {
+    type: 'approval';
+    summary?: string;
+    /** Legacy gateways may include this; review uses only reviewArguments. */
+    args?: unknown;
+  };
 
 export interface ChatStreamRoutingEvent {
   type: 'routing';
@@ -269,7 +259,8 @@ export interface A2ADeliveryDescriptor {
   status: A2ADeliveryState;
 }
 
-export interface ChatStreamResult {
+export interface ChatStreamResult extends StructuredReply {
+  pendingApproval?: PendingApproval;
   status?: string;
   error?: string;
   /** UI role for the result message. */
@@ -290,7 +281,6 @@ export interface ChatStreamResult {
   provider?: string;
   memoryAccess?: ChatMemoryAccess;
   artifacts?: ChatArtifact[];
-  apps?: Array<{ id: string; title: string; kind: 'web' | 'live' }>;
   toolsUsed?: string[];
   a2aDelivery?: A2ADeliveryDescriptor | null;
 }
@@ -331,7 +321,7 @@ export interface RateResponseResponse {
   rating: ResponseRatingValue | null;
 }
 
-export interface ChatMessage {
+export interface ChatMessage extends StructuredReply {
   id: string;
   // `command` is slash-command/console output (rendered as a distinct terminal
   // block); `system` is reserved for plain notices such as error messages.

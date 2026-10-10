@@ -2,6 +2,7 @@
  * Text approvals preserve the transport's caller attribution when execution resumes.
  * Gateway services own approval policy; this adapter only translates text replies.
  */
+
 import { isSilentReply, stripSilentToken } from '../agent/silent-reply.js';
 import { APPROVE_TEXT_CHANNEL_USAGE } from '../approval-commands.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
@@ -43,9 +44,11 @@ import {
   getPendingApproval,
   rememberPendingApproval,
 } from './pending-approvals.js';
+import { type StructuredReply, structuredReply } from './structured-reply.js';
 
-export interface HandledTextChannelApprovalResult {
+export interface HandledTextChannelApprovalResult extends StructuredReply {
   handled: true;
+  assistantMessageId?: number;
   sessionId: string;
   sessionKey?: string;
   mainSessionKey?: string;
@@ -392,6 +395,7 @@ export async function handleTextChannelApprovalCommand(params: {
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
+      approval: pendingApproval,
       prompt: getApprovalPromptText(pendingApproval, resultText),
       userId: escalationTarget?.recipient || userId,
       expiresAt: pendingApproval.expiresAt,
@@ -412,6 +416,8 @@ export async function handleTextChannelApprovalCommand(params: {
   await clearPendingApproval(approvalSessionId, { disableButtons: true });
   return {
     handled: true,
+    ...structuredReply(approvalResult),
+    assistantMessageId: approvalResult.assistantMessageId,
     sessionId: approvalSessionId,
     sessionKey: approvalResult.sessionKey,
     mainSessionKey: approvalResult.mainSessionKey,

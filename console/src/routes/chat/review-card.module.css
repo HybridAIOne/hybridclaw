@@ -1,0 +1,79 @@
+/*
+ * Complete review values wrap within the card, including nested action facts.
+ * Narrow approvals stack their fields; this layout never hides review data.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.88rem;
+}
+.details {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.details > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+}
+.details dt {
+  color: var(--muted-foreground);
+}
+.details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.details ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.details input,
+.details textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+}
+.body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin: 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fullDetails {
+  min-width: 0;
+}
+.fullDetails pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+}
+@media (max-width: 520px) {
+  .details > div {
+    grid-template-columns: 60px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .approvalReview .details > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}

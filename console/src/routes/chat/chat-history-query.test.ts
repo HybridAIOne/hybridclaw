@@ -548,3 +548,48 @@ it('hydrates persisted routing evidence without adding it to message text', () =
   );
   expect(result.messages[0]).toMatchObject({ content: 'Answer', routingTrace });
 });
+
+it('preserves structured draft and result fields and restores pending approval review', () => {
+  const emailDraft = {
+    from: 'pat@example.com',
+    to: ['lee@example.com'],
+    subject: 'Friday',
+    body: 'See you then.',
+    reply: 'Please review.',
+  };
+  const cost = { eur: 0.1, free: false, requests: 2 };
+  const receipt = { version: 1 as const, items: [], more: 0 };
+  const pendingApproval = {
+    type: 'approval' as const,
+    approvalId: 'mail-1',
+    prompt: 'Send email?',
+    reviewArguments: JSON.stringify(emailDraft),
+    expiresAt: Date.now() + 60_000,
+  };
+  const ui = buildChatHistoryUiData(
+    {
+      sessionId: 'mail-session',
+      history: [
+        {
+          role: 'assistant',
+          id: 42,
+          content: 'fallback draft text',
+          emailDraft,
+          cost,
+          receipt,
+          scope: 'work',
+        },
+      ],
+      pendingApproval,
+    },
+    'mail-session',
+  );
+  expect(ui.messages[0]).toMatchObject({
+    emailDraft,
+    cost,
+    receipt,
+    scope: 'work',
+    messageId: 42,
+  });
+  expect(ui.messages[1]).toMatchObject({ role: 'approval', pendingApproval });
+});
