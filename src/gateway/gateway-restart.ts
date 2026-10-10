@@ -246,37 +246,6 @@ export function requestGatewayRestart(
   };
 }
 
-// A gateway that is its container's main process cannot start itself again:
-// the helper would end with the container. It exits after draining with this
-// code instead, and the sandbox's on-failure restart policy starts the
-// container again.
-export const GATEWAY_CONTAINER_RESTART_EXIT_CODE = 75;
-
-// Restarts this gateway shortly, after the caller has answered its request:
-// through the restart helper when the CLI started it, or by exiting for the
-// container to restart when it is the container's main process.
-export function scheduleGatewayRestart(
-  params: {
-    pid?: number;
-    kill?: (pid: number, signal: NodeJS.Signals) => void;
-  } = {},
-): { requested: boolean; reason: string | null } {
-  const pid = params.pid ?? process.pid;
-  const kill =
-    params.kill ?? ((target, signal) => process.kill(target, signal));
-  if (pid !== 1) {
-    const restart = requestGatewayRestart({ currentPid: pid });
-    if (!restart.restartSupported) {
-      return { requested: false, reason: restart.restartReason };
-    }
-  }
-  setTimeout(() => {
-    if (pid === 1) process.exitCode = GATEWAY_CONTAINER_RESTART_EXIT_CODE;
-    kill(pid, 'SIGTERM');
-  }, 50);
-  return { requested: true, reason: null };
-}
-
 export async function requestExternalGatewayRestart(
   params: { state?: GatewayPidState | null } = {},
 ): Promise<GatewayExternalRestartResult> {

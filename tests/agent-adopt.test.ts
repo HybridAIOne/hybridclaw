@@ -229,47 +229,24 @@ test.each([
   expect(ctx.db.getSessionById(OLD)?.agent_id).toBe('main');
 });
 
-test('route restarts the gateway after an import, and only then', async () => {
-  const scheduleGatewayRestart = vi.fn(() => ({ requested: true, reason: null }));
-  vi.doMock('../src/gateway/gateway-restart.js', () => ({ scheduleGatewayRestart }));
+test('an import restarts the email channel onto the new default agent', async () => {
   const ctx = await setup();
   useMain(ctx);
-  const { handleAgentAdoptRoute } = await import('../src/gateway/agent-reset-route.ts');
-  async function post() {
-    const req = Object.assign(
-      Readable.from([
-        Buffer.from(
-          JSON.stringify({
-            confirmation: 'ADOPT AGENT',
-            from: 'main',
-            sessions: [{ from: OLD, to: NEW }],
-          }),
-        ),
-      ]),
-      { method: 'POST', headers: {} },
-    );
-    let body = '';
-    const res = {
-      status: 0,
-      writeHead(status: number) {
-        this.status = status;
-      },
-      end(chunk?: string) {
-        body = chunk ?? '';
-      },
-    };
-    await handleAgentAdoptRoute(req as never, res as never, '/api/admin/agents/hy/adopt');
-    return { status: res.status, json: JSON.parse(body) };
-  }
-  const first = await post();
-  expect(first.status).toBe(200);
-  expect(first.json).toMatchObject({ status: 'adopted', gatewayRestart: 'requested' });
-  expect(scheduleGatewayRestart).toHaveBeenCalledTimes(1);
-  const again = await post();
-  expect(again.json.status).toBe('already');
-  expect(again.json.gatewayRestart).toBeUndefined();
-  expect(scheduleGatewayRestart).toHaveBeenCalledTimes(1);
-  vi.doUnmock('../src/gateway/gateway-restart.js');
+  const { onRuntimeConfigChange, resolveDefaultAgentId } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { CHANNEL_DESCRIPTORS } = await import(
+    '../src/channels/channel-descriptors.ts'
+  );
+  const restartedFor: string[] = [];
+  const detach = onRuntimeConfigChange((next, prev) => {
+    if (CHANNEL_DESCRIPTORS.email.configChanged(next, prev)) {
+      restartedFor.push(resolveDefaultAgentId(next));
+    }
+  });
+  await ctx.adoptAgent({ to: 'hy', sessions: [{ from: OLD, to: NEW }] });
+  detach();
+  expect(restartedFor).toEqual(['hy']);
 });
 
 test('CLI confirms, sends the contract body and prints one JSON line', async () => {
