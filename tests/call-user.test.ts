@@ -7,11 +7,15 @@ const mocks = vi.hoisted(() => ({
   agent: vi.fn(),
   activeHours: vi.fn(),
   timezone: vi.fn(),
+  work: vi.fn(),
+  mainChat: vi.fn(),
 }));
 vi.mock('../src/auth/hybridai-auth.js', () => ({ readHybridAIApiKey: mocks.apiKey }));
 vi.mock('../src/memory/sessions.js', () => ({ getSessionById: mocks.getSession }));
 vi.mock('../src/agents/agent-registry.js', () => ({ getAgentById: mocks.agent }));
-vi.mock('../src/agent/proactive-policy.js', () => ({ isWithinActiveHours: mocks.activeHours }));
+vi.mock('../src/agent/proactive-policy.js', () => ({ isWithinCallHours: mocks.activeHours }));
+vi.mock('../src/work/work-tool.js', () => ({ currentWork: mocks.work }));
+vi.mock('../src/gateway/web-scheduled-delivery.js', () => ({ mainChatForWebTask: mocks.mainChat }));
 vi.mock('../src/workspace.js', () => ({ readUserTimezone: mocks.timezone }));
 vi.mock('../src/logger.js', () => ({ logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn() } }));
 
@@ -34,6 +38,8 @@ beforeEach(() => {
   mocks.agent.mockReturnValue({ id: 'hy', name: 'hy', displayName: 'Hy' });
   mocks.activeHours.mockReturnValue(true);
   mocks.timezone.mockReturnValue('Europe/Berlin');
+  mocks.work.mockReturnValue(null);
+  mocks.mainChat.mockReturnValue(null);
   relay = vi.fn(async (url: string) =>
     new Response(JSON.stringify({ status: url.endsWith('/devices') ? 'registered' : 'sent' })));
   vi.stubGlobal('fetch', relay);
@@ -111,6 +117,37 @@ describe('call_user', () => {
     mocks.getSession.mockReturnValue({ id: 'other', agent_id: 'hy' });
     expect(parsed(await tool.runCallUserTool({ reason: 'Hello', sessionId: 'session-b' })).status).toBe('not_allowed');
     expect(pushes()).toEqual([]);
+  });
+
+  test('a scheduled run kept apart from its chat calls from the chat its reply goes to', async () => {
+    const { tool, calls, operator, store } = await modules();
+    // A `--reply-only` run: its own session, which no one owns.
+    const runSession = 'session-cron-12';
+    mocks.work.mockImplementation((id: string) => (id === runSession ? { sessionId: 'session-side' } : null));
+    // Its replies go to the agent's main chat, which the phone app chats in.
+    mocks.mainChat.mockImplementation((id: string) => (id === 'session-side' ? { id: 'session-a' } : null));
+    const pending = tool.runCallUserTool({ reason: 'Your flight is delayed', sessionId: runSession });
+    const callId = await ringing();
+    expect(pushes()[0].payload).toMatchObject({ sessionId: 'session-a', agentId: 'hy' });
+    expect(calls.answerPhoneCall(callId, operator)).toMatchObject({ sessionId: 'session-a' });
+    expect(parsed(await pending).status).toBe('answered');
+    expect(mocks.mainChat).toHaveBeenCalledWith('session-side');
+
+    // Without a main chat it is the task's own chat; with no owner there, nothing rings.
+    calls.resetPhoneCallsForTests();
+    relay.mockClear();
+    mocks.mainChat.mockReturnValue(null);
+    expect(parsed(await tool.runCallUserTool({ reason: 'Hello', sessionId: runSession })).status).toBe('not_allowed');
+    store.bindWebNotificationSession('session-side', operator, 'hy');
+    const fromTaskChat = tool.runCallUserTool({ reason: 'Hello', sessionId: runSession });
+    await ringing();
+    expect(pushes()[0].payload.sessionId).toBe('session-side');
+    calls.answerPhoneCall(pushes()[0].payload.callId, operator);
+    expect(parsed(await fromTaskChat).status).toBe('answered');
+    // A run that is no scheduled task's has no owner either.
+    calls.resetPhoneCallsForTests();
+    mocks.work.mockReturnValue(null);
+    expect(parsed(await tool.runCallUserTool({ reason: 'Hello', sessionId: 'session-orphan' })).status).toBe('not_allowed');
   });
 
   test('outside active hours it rings only when the user asked for the call', async () => {

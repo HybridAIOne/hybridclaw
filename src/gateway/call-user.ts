@@ -2,21 +2,23 @@
  * The gateway side of the `call_user` tool (`POST /api/call-user`) and of the
  * phone declining a call (`POST /api/chat/voice/calls/<callId>/decline`).
  *
- * A call rings only the phones of the session's owner that turned on calls
- * from Hy (kind `call`), never while another call of theirs rings or is live,
- * outside active hours unless the user asked for it, or after three unanswered
- * calls in an hour. The tool answer waits for the outcome, so the turn knows
+ * A call rings only the phones of the chat owner that turned on calls from Hy
+ * (kind `call`), never while another call of theirs rings or is live, at night
+ * or outside active hours unless the user asked for it, or after three
+ * unanswered calls in an hour. A scheduled run kept apart from its chat calls
+ * from the chat its reply is delivered to. The tool answer waits for the outcome, so the turn knows
  * whether to write its message instead.
  *
  * NOT the call's state (`phone-calls.ts`) nor the live conversation
  * (`webchat-voice.ts`, which answers a call through its start frame's `callId`).
  */
 import type { ServerResponse } from 'node:http';
-import { isWithinActiveHours } from '../agent/proactive-policy.js';
+import { isWithinCallHours } from '../agent/proactive-policy.js';
 import { getAgentById } from '../agents/agent-registry.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { getSessionById } from '../memory/sessions.js';
 import { isRecord } from '../utils/type-guards.js';
+import { currentWork } from '../work/work-tool.js';
 import { readUserTimezone } from '../workspace.js';
 import { sendJson } from './gateway-http-utils.js';
 import { phoneAssistantName, ringPhonesForCall } from './mobile-push.js';
@@ -28,7 +30,11 @@ import {
   phoneCallRefusal,
   waitForPhoneCall,
 } from './phone-calls.js';
-import { readSessionCallDevices } from './web-notification-store.js';
+import {
+  readSessionCallDevices,
+  webNotificationSessionOperator,
+} from './web-notification-store.js';
+import { mainChatForWebTask } from './web-scheduled-delivery.js';
 
 export const CALL_USER_PATH = '/api/call-user';
 const DECLINE_PATH = /^\/api\/chat\/voice\/calls\/([0-9a-f-]{36})\/decline$/i;
@@ -97,6 +103,19 @@ function readText(
   return text || null;
 }
 
+/**
+ * The chat a call from this turn belongs to. A chat turn calls from its own
+ * chat. A scheduled run kept apart (`--reply-only`, a side chat's task, a
+ * fresh session) runs in a session no one owns, so it calls from where its
+ * reply goes: the agent's main chat, else the task's own chat.
+ */
+function callChatId(sessionId: string): string {
+  if (webNotificationSessionOperator(sessionId)) return sessionId;
+  const taskChat = currentWork(sessionId)?.sessionId;
+  if (!taskChat) return sessionId;
+  return mainChatForWebTask(taskChat)?.id ?? taskChat;
+}
+
 /** Rings the user's phone for the calling turn and waits for the outcome. */
 export async function runCallUserTool(
   body: unknown,
@@ -109,16 +128,18 @@ export async function runCallUserTool(
   const opening = readText(body, 'opening', MAX_OPENING_CHARS);
   const notes = readText(body, 'notes', MAX_NOTES_CHARS);
   const asked = body.asked === true;
-  const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
-  const session = sessionId ? getSessionById(sessionId) : undefined;
-  if (!session) throw new GatewayRequestError(404, 'Unknown session.');
-  const agentId = session.agent_id;
+  const turnSessionId =
+    typeof body.sessionId === 'string' ? body.sessionId : '';
+  const turnSession = turnSessionId ? getSessionById(turnSessionId) : undefined;
+  if (!turnSession) throw new GatewayRequestError(404, 'Unknown session.');
+  const sessionId = callChatId(turnSessionId);
+  const agentId = getSessionById(sessionId)?.agent_id ?? turnSession.agent_id;
 
   const { operatorId, devices } = readSessionCallDevices(sessionId);
   if (!operatorId || !devices.length) return answer('not_allowed');
   const refusal = phoneCallRefusal(operatorId, now.getTime());
   if (refusal === 'busy') return answer('busy');
-  if (!asked && !isWithinActiveHours(now, readUserTimezone(agentId)))
+  if (!asked && !isWithinCallHours(now, readUserTimezone(agentId)))
     return answer('quiet_hours');
   if (refusal === 'rate_limited') return answer('rate_limited');
 

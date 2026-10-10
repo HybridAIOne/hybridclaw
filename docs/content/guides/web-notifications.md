@@ -145,8 +145,10 @@ registers its PushKit token with the trailing `voip`, which keeps it apart from
 the phone's alert token, takes only kind `call` whatever kinds it names, and
 answers `"pushType": "voip"` with `"platform": "ios"`. An Android phone adds
 `call` to its kinds. A call rings the owner of the turn's chat, on phones of
-the chat's app (Hy when the chat was last used from the browser). It is never
-held while the owner is at a computer.
+the chat's app (Hy when the chat was last used from the browser). A scheduled
+run kept apart from its chat (`--reply-only`, a side chat's task or a fresh
+session) calls from the chat its reply goes to: the agent's main chat, else
+the task's own chat. A call is never held while the owner is at a computer.
 
 A call push has no sound or badge and carries `kind: "call"`, `id:
 "call:<callId>"`, `callId`, `sessionId`, `agentId`, `reason` (also the alert
@@ -158,10 +160,11 @@ field, because older relays refuse unknown fields.
 `call_user` takes `reason`, an optional `opening` (Hy's first sentence),
 `notes` (what to cover) and `asked` (the user asked for this call). Without
 ringing, it answers `not_allowed` when no phone of the owner takes calls,
-`busy` while another call from Hy rings or is live, `quiet_hours` outside the
-active hours (`proactive.activeHours`, read in the user's `USER.md` time zone)
-unless `asked` is true, and `rate_limited` after three unanswered calls in an
-hour. Otherwise it waits for the outcome: `answered` when the app starts a
+`busy` while another call from Hy rings or is live, `quiet_hours` when
+`asked` is not true and it is outside the proactive active hours
+(`proactive.activeHours`) where they are on, or outside 08:00–22:00 where they
+are off, read in the user's `USER.md` time zone, else the gateway's, and
+`rate_limited` after three unanswered calls in an hour. Otherwise it waits for the outcome: `answered` when the app starts a
 voice call with the call's `callId` ([Realtime Voice for Web
 Apps](voice-web-api.md)), `declined` from `POST
 /api/chat/voice/calls/<callId>/decline`, `missed` after 40 seconds, or

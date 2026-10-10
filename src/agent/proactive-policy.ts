@@ -47,6 +47,27 @@ export function isWithinActiveHours(
   return hour >= start || hour < end;
 }
 
+// 08:00–22:00 (product owner, 2026-10-10): the apps promise that Hy never
+// calls on its own at night, so an unasked call keeps to this window where
+// proactive active hours are off. Per-user call hours deferred.
+const CALL_HOURS_START = 8;
+const CALL_HOURS_END = 22;
+
+/**
+ * Whether Hy may call the user unasked at `now`: within the proactive active
+ * hours when they are on, else within 08:00–22:00. Read in `timezone` (the
+ * user's, where known), else the configured zone or the gateway's own.
+ */
+export function isWithinCallHours(
+  now = new Date(),
+  timezone?: string | null,
+): boolean {
+  if (PROACTIVE_ACTIVE_HOURS_ENABLED) return isWithinActiveHours(now, timezone);
+  const hour =
+    (timezone ? resolveHourInTimezone(now, timezone) : null) ?? now.getHours();
+  return hour >= CALL_HOURS_START && hour < CALL_HOURS_END;
+}
+
 export function proactiveWindowLabel(): string {
   if (!PROACTIVE_ACTIVE_HOURS_ENABLED) return 'always-on';
   const zone = PROACTIVE_ACTIVE_HOURS_TIMEZONE || 'local';
