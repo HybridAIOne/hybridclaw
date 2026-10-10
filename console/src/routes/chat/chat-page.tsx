@@ -84,6 +84,7 @@ import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
 import { ContextRing } from './context-ring';
+import { reviewedEmailInstruction } from './email-draft-card';
 import { EditInline, MessageBlock } from './message-block';
 import { NotificationSettings } from './notification-settings';
 import { SessionOutputs } from './session-outputs';
@@ -1502,6 +1503,13 @@ export function ChatPage() {
                       token={auth.token}
                       isStreaming={msg.id === stream.streamingMsgId}
                       onCopy={copyToClipboard}
+                      draftReviewOwner={userId}
+                      draftActionsDisabled={
+                        stream.isStreaming || msg.sessionId !== sessionId
+                      }
+                      onSendDraft={(draft) =>
+                        stream.sendMessage(reviewedEmailInstruction(draft), [])
+                      }
                       onEdit={handleEditOpen}
                       onRegenerate={handleRegenerate}
                       onRate={handleRateResponse}

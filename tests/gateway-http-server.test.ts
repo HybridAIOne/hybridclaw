@@ -13257,7 +13257,7 @@ describe('gateway HTTP server', () => {
     await pendingApprovals.clearPendingApproval('session-web-approve');
   });
 
-  test('does not mark /approve yes assistant output as command output on the web chat stream path', async () => {
+  test('preserves assistant role and structured reply fields after a web approval', async () => {
     const state = await importFreshHealth();
     const pendingApprovals = await import(
       '../src/gateway/pending-approvals.js'
@@ -13269,8 +13269,16 @@ describe('gateway HTTP server', () => {
       expiresAt: Date.now() + 60_000,
       userId: 'user-web',
     });
+    const emailDraft = {
+      from: 'pat@example.com', to: ['lee@example.com'], subject: 'Friday',
+      body: 'See you then.', reply: 'Please review.',
+    };
+    const cost = { eur: 0, free: true, requests: 1 };
+    const receipt = { version: 1, items: [], more: 0 };
     state.handleGatewayMessage.mockResolvedValue({
       status: 'success',
+      assistantMessageId: 42,
+      emailDraft, cost, receipt,
       result: 'Onboarding complete — BOOTSTRAP.md deleted.',
       sessionId: 'session-web-approve',
       toolsUsed: ['delete', 'read'],
@@ -13310,6 +13318,8 @@ describe('gateway HTTP server', () => {
         type: 'result',
         result: expect.objectContaining({
           status: 'success',
+          assistantMessageId: 42,
+          emailDraft, cost, receipt,
           messageRole: 'assistant',
           result:
             'Onboarding complete — BOOTSTRAP.md deleted.\n*Tools: `delete`, `read`*',
@@ -13318,7 +13328,7 @@ describe('gateway HTTP server', () => {
       },
     ]);
 
-    await pendingApprovals.clearPendingApproval('session-web-approve');
+    expect(pendingApprovals.getPendingApproval('session-web-approve')).toBeNull();
   });
 
   test('normalizes silent message-send chat responses', async () => {

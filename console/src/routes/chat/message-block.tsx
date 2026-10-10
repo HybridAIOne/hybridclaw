@@ -1,3 +1,8 @@
+import {
+  type EmailDraft,
+  normalizeEmailDraft,
+} from '../../../../container/shared/email-draft.js';
+import { EmailDraftCard } from './email-draft-card';
 import { RoutingTags } from './routing-tags';
 /**
  * Chat message presentation — renders persisted/streaming turns and explicit
@@ -425,6 +430,9 @@ export const MessageBlock = memo(function MessageBlock(props: {
   isStreaming: boolean;
   showRoutingInfo?: boolean;
   onCopy: (text: string) => void;
+  onSendDraft?: (draft: EmailDraft) => Promise<boolean>;
+  draftReviewOwner?: string;
+  draftActionsDisabled?: boolean;
   onEdit: (message: ChatMessage) => void;
   onRegenerate: (message: ChatMessage) => void;
   onRate?: (message: ChatMessage, rating: ResponseRatingValue | null) => void;
@@ -482,9 +490,22 @@ export const MessageBlock = memo(function MessageBlock(props: {
       isDraft ||
       msg.role === 'command' ||
       (isApproval && !shouldRenderApprovalCard));
+  const emailDraft = useMemo(
+    () =>
+      msg.role === 'assistant' &&
+      msg.emailDraft &&
+      typeof msg.emailDraft.reply === 'string'
+        ? normalizeEmailDraft(msg.emailDraft).draft
+        : undefined,
+    [msg.role, msg.emailDraft],
+  );
   const markdownContent = useMemo(
-    () => linkMarkdownToArtifacts(msg.content, msg.artifacts),
-    [msg.content, msg.artifacts],
+    () =>
+      linkMarkdownToArtifacts(
+        emailDraft ? (msg.emailDraft?.reply ?? msg.content) : msg.content,
+        msg.artifacts,
+      ),
+    [msg.content, msg.artifacts, emailDraft, msg.emailDraft],
   );
   const renderedHtml = useRenderedMarkdown(
     markdownContent,
@@ -617,6 +638,18 @@ export const MessageBlock = memo(function MessageBlock(props: {
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown output is rendered by marked and sanitized through sanitize-html
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />
+              {emailDraft ? (
+                <EmailDraftCard
+                  key={`${msg.sessionId}:${msg.messageId ?? msg.id}`}
+                  draft={emailDraft}
+                  reviewKey={`email-review:${JSON.stringify([props.draftReviewOwner, msg.sessionId, msg.messageId ?? msg.id])}`}
+                  disabled={
+                    props.isStreaming || Boolean(props.draftActionsDisabled)
+                  }
+                  onSend={props.onSendDraft}
+                  onCopy={props.onCopy}
+                />
+              ) : null}
               {showApprovalTextActions ? (
                 <div className={css.approvalTextActions}>
                   <Button

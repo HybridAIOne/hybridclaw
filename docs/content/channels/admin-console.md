@@ -185,6 +185,15 @@ prices remain unknown, and estimates can differ from the provider's bill.
   avatar-backed mention pills, and stable addressed-agent routing
 - the web chat route renders slash-command results distinctly and lets
   operators apply persisted thumbs-up/down ratings to assistant responses
+- chat shows structured email drafts with recipient, subject and body editing,
+  Copy and Discard actions, and an explicit Send request. Drafting sends nothing;
+  the runtime still checks for duplicate sends and asks for required approvals.
+  Browser storage remembers submitted/discarded status, not email content.
+- pending approval cards show complete allowlisted action details (including email
+  bodies, attachments and sharing permissions), rule scope and boost choices.
+  Live owned approvals survive reloads; expired or resolved requests have no
+  active review card. Pending action arguments are read-only: edit email drafts
+  before submitting them for sending.
 - chat offers opt-in browser and closed-tab push alerts, with unread conversation
   badges; see [Web chat notifications](../guides/web-notifications.md)
 - chat renders LaTeX equations with `$...$` or `\(...\)` inline and

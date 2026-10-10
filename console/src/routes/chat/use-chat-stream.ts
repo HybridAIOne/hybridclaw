@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import type { ReasoningEffort } from '../../../../container/shared/reasoning-effort.js';
+import { structuredReply } from '../../../../src/gateway/structured-reply';
 import { executeCommand } from '../../api/chat';
 import type {
   AssistantPresentation,
@@ -91,7 +92,7 @@ function commandStartsBootstrapAutostart(text: string): boolean {
 }
 
 export interface UseChatStreamReturn {
-  /** Returns true when a new send was started, false when rejected due to an active run. */
+  /** Returns true when a turn completed, false when rejected or failed. */
   sendMessage: (
     content: string,
     media: MediaItem[],
@@ -382,6 +383,8 @@ export function useChatStream(
             started.status = 'done';
             started.durationMs = event.durationMs;
             started.resultPreview = event.preview || undefined;
+            started.browser = event.browser;
+            started.slideSamples = event.slideSamples;
           } else {
             req.trace.push({
               kind: 'tool',
@@ -389,6 +392,8 @@ export function useChatStream(
               status: 'done',
               durationMs: event.durationMs,
               resultPreview: event.preview || undefined,
+              browser: event.browser,
+              slideSamples: event.slideSamples,
             });
           }
         }
@@ -479,7 +484,9 @@ export function useChatStream(
         flushRender();
 
         const finalText = result.result ?? req.assistantText ?? '';
-        const finalApproval = req.pendingApproval;
+        const finalApproval = result.pendingApproval
+          ? { ...result.pendingApproval, type: 'approval' as const }
+          : req.pendingApproval;
         const finalArtifacts = result.artifacts ?? [];
         const addressedAgentId =
           typeof result.addressEnvelope?.to === 'string'
@@ -505,6 +512,7 @@ export function useChatStream(
           base?: ChatUiMessage,
         ): ChatUiMessage => ({
           ...base,
+          ...structuredReply(result),
           id,
           role: finalRole,
           content: finalText,
@@ -644,6 +652,7 @@ export function useChatStream(
             },
           ];
         });
+        return false;
       } finally {
         activeRequestRef.current = null;
         setActiveSessionId(null);

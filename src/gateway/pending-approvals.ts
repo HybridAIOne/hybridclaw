@@ -1,7 +1,13 @@
+/**
+ * Durable channel prompts belong to a session and approving user. Complete
+ * review facts are a read-only copy of the runtime request; tool argument
+ * validation stays with the runtime approval policy, not this prompt cache.
+ */
 import {
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
+import type { PendingApproval } from '../types/execution.js';
 import { parseJsonObject } from '../utils/json-object.js';
 import {
   type ApprovalPresentation,
@@ -25,6 +31,8 @@ export interface PendingApprovalPrompt {
   approvalId: string;
   prompt: string;
   presentation?: ApprovalPresentation | null;
+  /** Complete allowlisted facts shown by structured chat clients. */
+  approval?: PendingApproval;
   createdAt: number;
   expiresAt: number;
   userId: string;
@@ -77,6 +85,13 @@ function normalizeDurablePendingApproval(
       !Array.isArray(raw.presentation)
         ? (raw.presentation as ApprovalPresentation)
         : createApprovalPresentation('text'),
+    approval:
+      raw.approval &&
+      typeof raw.approval === 'object' &&
+      !Array.isArray(raw.approval) &&
+      (raw.approval as PendingApproval).approvalId === approvalId
+        ? (raw.approval as PendingApproval)
+        : undefined,
     createdAt,
     expiresAt,
     userId,
@@ -99,6 +114,7 @@ function serializePendingApproval(
   return {
     approvalId: entry.approvalId,
     prompt: entry.prompt,
+    approval: entry.approval,
     presentation: entry.presentation ?? createApprovalPresentation('text'),
     createdAt: entry.createdAt,
     expiresAt: entry.expiresAt,
@@ -256,6 +272,7 @@ export async function rememberPendingApproval(params: {
   userId: string;
   expiresAt?: number | null;
   presentation?: ApprovalPresentation;
+  approval?: PendingApproval;
   commandAction?: PendingApprovalCommandAction | null;
   disableButtons?: (() => Promise<void>) | null;
 }): Promise<void> {
@@ -267,6 +284,7 @@ export async function rememberPendingApproval(params: {
   const entry: PendingApprovalPrompt = {
     approvalId: params.approvalId,
     prompt: params.prompt,
+    approval: params.approval,
     presentation: params.presentation ?? createApprovalPresentation('text'),
     createdAt,
     expiresAt,

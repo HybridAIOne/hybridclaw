@@ -1,3 +1,4 @@
+import { structuredReply } from '../../../../src/gateway/structured-reply';
 import { fetchChatHistory } from '../../api/chat';
 import type {
   A2ADeliveryDescriptor,
@@ -185,6 +186,7 @@ export function buildChatHistoryUiData(
           ? lastUserContent
           : null;
     const chatMessage: ChatMessage = {
+      ...structuredReply(msg),
       id: nextMsgId(),
       role: msg.role,
       content: msg.content,
@@ -213,6 +215,16 @@ export function buildChatHistoryUiData(
     }
     messages.push(chatMessage);
   });
+
+  if (raw.pendingApproval) {
+    messages.push({
+      id: `approval:${raw.pendingApproval.approvalId}`,
+      role: 'approval',
+      content: raw.pendingApproval.prompt,
+      sessionId: resolvedSessionId,
+      pendingApproval: raw.pendingApproval,
+    });
+  }
 
   return {
     messages: removeResolvedA2ADeliveryStatusMessages(messages),

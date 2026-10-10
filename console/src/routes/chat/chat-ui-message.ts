@@ -19,7 +19,11 @@ export interface TraceDraftStep {
   text: string;
 }
 
-export interface TraceToolStep {
+export interface TraceToolStep
+  extends Pick<
+    import('../../api/chat-types').ChatStreamToolEvent,
+    'browser' | 'slideSamples'
+  > {
   kind: 'tool';
   toolName: string;
   /** Live stream only: pairs a finish with its start. */

@@ -137,3 +137,107 @@ describe('ApprovalCard', () => {
     expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
   });
 });
+
+it('shows complete email, sharing and attachment facts without rendering HTML', () => {
+  const review = {
+    message: {
+      from: 'pat@example.com',
+      toRecipients: [{ emailAddress: { address: 'lee@example.com' } }],
+      cc: ['kim@example.com'],
+      bcc: ['sam@example.com'],
+      subject: 'Friday',
+      body: {
+        content: '<img src=x onerror=alert(1)>See you then.',
+        contentType: 'HTML',
+      },
+      attachments: [
+        { filename: 'agenda.pdf', path: '/workspace/agenda.pdf', size: 42 },
+      ],
+    },
+    permission: { emailAddress: 'lee@example.com', role: 'reader' },
+    total: 12,
+    left_alone: 3,
+  };
+  render(
+    <ApprovalCard
+      approval={makeApproval({
+        reviewArguments: JSON.stringify(review),
+        commandPreview: 'truncated preview',
+        rule: {
+          category: 'send_messages',
+          actionKey: 'message:email',
+          label: 'send email',
+          pausedBy: 'ask_mode',
+        },
+        allowAgent: true,
+        allowAll: true,
+      })}
+      busy={false}
+      onAction={vi.fn()}
+    />,
+  );
+  expect(
+    screen.getByRole('region', { name: 'Action details' }).textContent,
+  ).toContain('sam@example.com');
+  expect(screen.getByText('agenda.pdf')).toBeTruthy();
+  expect(screen.getByText('/workspace/agenda.pdf')).toBeTruthy();
+  expect(screen.getByText('reader')).toBeTruthy();
+  expect(document.querySelector('img')).toBeNull();
+  expect(
+    screen.getByRole('button', {
+      name: 'Always allow Send messages for this agent',
+    }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole('button', {
+      name: 'Always allow Send messages for all agents',
+    }),
+  ).toBeTruthy();
+});
+
+it('keeps malformed full details visible and does not derive them from a preview', () => {
+  render(
+    <ApprovalCard
+      approval={makeApproval({
+        reviewArguments: '{broken',
+        args: { subject: 'Do not use this' },
+      })}
+      busy={false}
+      onAction={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('{broken')).toBeTruthy();
+  expect(screen.queryByText('Do not use this')).toBeNull();
+});
+
+it('uses boost decisions and omits trust actions for boost prompts', () => {
+  const onAction = vi.fn();
+  render(
+    <ApprovalCard
+      approval={makeApproval({
+        boost: { category: 'image', modelName: 'Image model', available: 4 },
+        allowAll: true,
+        allowAgent: true,
+      })}
+      busy={false}
+      onAction={onAction}
+    />,
+  );
+  expect(screen.getByText(/Available: 4/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Always allow' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue normally' }));
+  expect(onAction).toHaveBeenCalledWith('deny', 'approve123');
+});
+
+it('preserves multiline prompt details and denial consequences as inert text', () => {
+  const prompt =
+    'Confirm action.\nIf you skip this, nothing will be changed.\nSecond line of the complete command.';
+  render(
+    <ApprovalCard
+      approval={makeApproval({ prompt })}
+      busy={false}
+      onAction={vi.fn()}
+    />,
+  );
+  expect(document.querySelector('pre')?.textContent).toBe(prompt);
+});
