@@ -505,6 +505,7 @@ export async function runGatewayScheduledTask(
   preferredAgentId?: string,
   replyOnly = false,
   taskOwner?: SchedulerDispatchRequest['taskOwner'],
+  taskRunId?: number,
 ): Promise<void> {
   let currentSessionId = origSessionId;
   const sessionResetPolicy = {
@@ -600,6 +601,7 @@ export async function runGatewayScheduledTask(
       : runKey,
     reasoningEffort: task?.effort ?? undefined,
     mainSessionKey: session.main_session_key,
+    taskRunId,
     onResult,
     onError,
   });

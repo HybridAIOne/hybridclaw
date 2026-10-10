@@ -2551,6 +2551,20 @@ function buildSlashCommandCatalogDefinitions(
             },
           ],
         },
+        {
+          kind: 'subcommand',
+          name: 'runs',
+          description:
+            "Show when a scheduled task's recent runs were due and how they ended",
+          options: [
+            {
+              kind: 'string',
+              name: 'id',
+              description: 'Task id',
+              required: true,
+            },
+          ],
+        },
       ],
     },
     APPROVALS_SLASH_COMMAND,
@@ -3575,7 +3589,8 @@ export function parseCanonicalSlashCommandArgs(
       if (
         subcommand === 'remove' ||
         subcommand === 'toggle' ||
-        subcommand === 'results'
+        subcommand === 'results' ||
+        subcommand === 'runs'
       ) {
         const id = normalizeStringOption(interaction, 'id', true);
         return id ? ['schedule', subcommand, id] : null;
