@@ -2977,6 +2977,7 @@ export class TrustedAgentApprovalRuntime {
       lowerTool === 'session_search' ||
       lowerTool === 'device_data' ||
       lowerTool === 'draft_email' ||
+      lowerTool === 'call_user' ||
       lowerTool === 'proof' ||
       lowerTool === 'estimate_cost' ||
       (lowerTool === 'work' &&
@@ -2994,9 +2995,11 @@ export class TrustedAgentApprovalRuntime {
             ? 'this only records or retrieves local work provenance'
             : lowerTool === 'draft_email'
               ? 'this only shows the user a draft; nothing is sent'
-              : lowerTool === 'proof'
-                ? 'this only records whether an action was confirmed'
-                : 'this is a read-only operation',
+              : lowerTool === 'call_user'
+                ? "this only rings the user's own phone"
+                : lowerTool === 'proof'
+                  ? 'this only records whether an action was confirmed'
+                  : 'this is a read-only operation',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: pathArgHints(lowerTool, args),
         hostHints: [],
