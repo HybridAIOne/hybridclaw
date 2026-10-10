@@ -49,6 +49,8 @@ export interface MobilePushMessage {
   threadId?: string;
   /** Flat keys delivered next to `aps` for the app to route by. */
   data?: Record<string, string | number | boolean>;
+  /** No alert sound: a ringing call brings its own ringtone. */
+  silent?: boolean;
 }
 
 export interface MobilePushResult {
@@ -96,7 +98,7 @@ export function buildApnsPayload(
   const payload = {
     aps: {
       alert,
-      sound: 'default',
+      ...(message.silent ? {} : { sound: 'default' }),
       ...(message.badge !== undefined ? { badge: message.badge } : {}),
       ...(message.threadId ? { 'thread-id': message.threadId } : {}),
     },
@@ -151,10 +153,18 @@ function relayApp(device: Pick<MobilePushDevice, 'app' | 'platform'>): {
   };
 }
 
+/**
+ * How long the relay may hold an undelivered push, in seconds. Only a call
+ * sets one; older relays refuse fields they do not know, so `push_type` and
+ * `ttl_seconds` go only with call pushes.
+ */
+type RelayTtl = number | undefined;
+
 async function relay(
   apiKey: string,
   device: MobilePushDevice,
   payload: Record<string, unknown>,
+  ttlSeconds: RelayTtl,
 ): Promise<RelayAnswer> {
   const workId =
     typeof payload.workId === 'string' ? payload.workId : undefined;
@@ -163,6 +173,8 @@ async function relay(
       token: device.token,
       environment: device.environment,
       ...relayApp(device),
+      ...(device.pushType === 'voip' ? { push_type: 'voip' } : {}),
+      ...(ttlSeconds ? { ttl_seconds: ttlSeconds } : {}),
       payload,
     }),
   );
@@ -204,17 +216,18 @@ async function deliver(
   apiKey: string,
   device: MobilePushDevice,
   payload: Record<string, unknown>,
+  ttlSeconds?: RelayTtl,
 ): Promise<boolean> {
-  let outcome = await relay(apiKey, device, payload);
+  let outcome = await relay(apiKey, device, payload, ttlSeconds);
   if (outcome === 'not_registered') {
     // Registered while HybridAI was unreachable: bind now and retry once.
     const bound = await bind(apiKey, device);
-    if (bound === 'registered') outcome = await relay(apiKey, device, payload);
+    if (bound === 'registered')
+      outcome = await relay(apiKey, device, payload, ttlSeconds);
     else if (bound === 'taken' || bound === 'unknown_app')
       outcome = 'unregistered';
   }
-  if (outcome === 'unregistered')
-    deleteMobilePushDevice(device.token, undefined, device.platform);
+  if (outcome === 'unregistered') deleteMobilePushDevice(device);
   else if (outcome !== 'sent')
     logger.warn('Phone push was refused by the relay');
   return outcome === 'sent';
@@ -225,8 +238,10 @@ export async function sendMobilePush(
   devices: MobilePushDevice[],
   message: MobilePushMessage,
 ): Promise<MobilePushResult> {
-  const targets = devices.filter((device) =>
-    device.kinds.includes(message.kind),
+  // A call token takes nothing but a call (`ringPhonesForCall`).
+  const targets = devices.filter(
+    (device) =>
+      device.pushType !== 'voip' && device.kinds.includes(message.kind),
   );
   const result = { devices: targets.length, sent: 0 };
   const workId =
@@ -247,6 +262,66 @@ export async function sendMobilePush(
         if (await deliver(apiKey, device, payload)) result.sent += 1;
       } catch {
         logger.warn('Phone push delivery failed');
+      }
+    }),
+  );
+  return result;
+}
+
+// 40 s (contract "Hy calls you", 2026-10-10): the relay drops a call push it
+// could not deliver by then, the same time the call rings for.
+const CALL_PUSH_TTL_SECONDS = 40;
+
+/** What a phone shows and routes by when Hy calls it. */
+export interface CallPush {
+  callId: string;
+  sessionId: string;
+  agentId: string;
+  /** The assistant's name on the ringing screen (`phoneAssistantName`). */
+  assistant: string;
+  reason: string;
+  expiresAt: number;
+}
+
+function callAlert(call: CallPush): MobilePushMessage {
+  return {
+    kind: 'call',
+    title: call.assistant,
+    body: clip(call.reason, 120),
+    silent: true,
+    data: {
+      id: `call:${call.callId}`,
+      callId: call.callId,
+      sessionId: call.sessionId,
+      agentId: call.agentId,
+      reason: clip(call.reason, 120),
+      expiresAt: new Date(call.expiresAt).toISOString(),
+    },
+  };
+}
+
+/**
+ * Rings the given phones for a call from Hy: an iPhone's call token as a VoIP
+ * push, any other phone that takes `call` as an alert, each kept by the relay
+ * for as long as the call rings. Never held while the owner is at a computer:
+ * a call is for now or not at all.
+ */
+export async function ringPhonesForCall(
+  devices: MobilePushDevice[],
+  call: CallPush,
+): Promise<MobilePushResult> {
+  const targets = devices.filter((device) => device.kinds.includes('call'));
+  const result = { devices: targets.length, sent: 0 };
+  const apiKey = targets.length ? relayKey() : null;
+  if (!apiKey) return result;
+  const payload = buildApnsPayload(callAlert(call));
+  await Promise.all(
+    targets.map(async (device) => {
+      try {
+        if (await deliver(apiKey, device, payload, CALL_PUSH_TTL_SECONDS))
+          result.sent += 1;
+      } catch {
+        logger.warn('Phone call push delivery failed');
       }
     }),
   );
@@ -424,9 +499,10 @@ function reply(value: Record<string, unknown>): string {
 }
 
 /**
- * `/push register <token> <sandbox|production> [kind,kind] [app] [ios|android]`,
- * `/push unregister <token> [ios|android]`, `/push status`. Answers one line of JSON for
- * the app that sends it. Phones belong to the operator the web session was
+ * `/push register <token> <sandbox|production> [kind,kind] [app] [ios|android] [voip]`,
+ * `/push unregister <token> [ios|android] [voip]`, `/push status`. Answers one line of JSON for
+ * the app that sends it. `voip` (iPhone only) registers the phone's PushKit
+ * token for calls from Hy, next to its alert token; it takes kind `call` only. Phones belong to the operator the web session was
  * opened by, so the command works from web chat only. `app` is the HybridAI
  * app the phone belongs to, as its chats name it in `appId`: only that app's
  * chats ring the phone, and HybridAI signs the alerts for that app. It
@@ -441,15 +517,30 @@ export async function runPushCommand(
     return reply({ error: 'Phones can be registered from web chat only.' });
   const sub = (args[1] || '').toLowerCase();
   const phonePlatform = (sub === 'register' ? args[6] : args[3]) || 'ios';
+  const pushTypeWord = sub === 'register' ? args[7] : args[4];
   const token =
     phonePlatform === 'android' ? args[2] || '' : (args[2] || '').toLowerCase();
-  if (sub === 'status')
+  if (sub === 'status') {
+    const devices = readMobilePushDevices(operatorId);
     return reply({
-      devices: readMobilePushDevices(operatorId).length,
+      devices: devices.length,
+      // What each phone takes, never its token.
+      phones: devices.map((device) => ({
+        platform: device.platform ?? 'ios',
+        ...(device.pushType ? { pushType: device.pushType } : {}),
+        app: mobilePushDeviceApp(device),
+        kinds: device.kinds,
+      })),
       relay: readHybridAIApiKey() !== null,
     });
+  }
   if (phonePlatform !== 'ios' && phonePlatform !== 'android')
     return reply({ error: 'Platform must be ios or android.' });
+  if (pushTypeWord !== undefined && pushTypeWord !== 'voip')
+    return reply({ error: 'Expected voip or nothing after the platform.' });
+  if (pushTypeWord === 'voip' && phonePlatform !== 'ios')
+    return reply({ error: 'Call (voip) tokens are for iPhones only.' });
+  const pushType = pushTypeWord === 'voip' ? ('voip' as const) : undefined;
   if (
     (sub === 'register' || sub === 'unregister') &&
     !(phonePlatform === 'android' ? FCM_TOKEN_PATTERN : TOKEN_PATTERN).test(
@@ -457,11 +548,12 @@ export async function runPushCommand(
     )
   )
     return reply({ error: 'Expected a valid phone token.' });
+  const tokenAddress = { token, platform: phonePlatform, pushType } as const;
   if (sub === 'unregister') {
-    deleteMobilePushDevice(token, operatorId, phonePlatform);
+    deleteMobilePushDevice(tokenAddress, operatorId);
     // Best effort, and only once no operator here holds the phone any more.
     const apiKey = relayKey();
-    if (apiKey && !mobilePushDeviceHeld(token, phonePlatform))
+    if (apiKey && !mobilePushDeviceHeld(tokenAddress))
       await platform(apiKey, 'DELETE', '/v1/push/devices', {
         token,
         ...(phonePlatform === 'android' ? { platform: phonePlatform } : {}),
@@ -474,7 +566,12 @@ export async function runPushCommand(
       return reply({ error: 'Environment must be sandbox or production.' });
     if (phonePlatform === 'android' && environment !== 'production')
       return reply({ error: 'Android uses the production environment.' });
-    const kinds = args[4] ? args[4].split(',') : DEFAULT_KINDS;
+    // A call token rings for calls and nothing else, whatever it asked for.
+    const kinds = pushType
+      ? ['call']
+      : args[4]
+        ? args[4].split(',')
+        : DEFAULT_KINDS;
     if (kinds.length > 8 || !kinds.every((kind) => KIND_PATTERN.test(kind)))
       return reply({ error: 'Expected up to 8 comma-separated kinds.' });
     const app = (args[5] || 'hy').toLowerCase();
@@ -484,19 +581,20 @@ export async function runPushCommand(
       return reply({ error: 'Android alerts are supported for Hy only.' });
     const address: Pick<
       MobilePushDevice,
-      'token' | 'environment' | 'app' | 'platform'
+      'token' | 'environment' | 'app' | 'platform' | 'pushType'
     > = {
       token,
       environment,
       app,
       ...(phonePlatform === 'android' ? { platform: 'android' as const } : {}),
+      ...(pushType ? { platform: 'ios' as const, pushType } : {}),
     };
     // Unreachable or unconfigured: kept anyway, bound on its first alert.
     const apiKey = relayKey();
     const bound = apiKey ? await bind(apiKey, address) : null;
     if (bound === 'taken' || bound === 'unknown_app') {
       // No alert could reach it from here.
-      deleteMobilePushDevice(token, operatorId, phonePlatform);
+      deleteMobilePushDevice(tokenAddress, operatorId);
       return reply({
         registered: false,
         reason: bound,
@@ -516,15 +614,20 @@ export async function runPushCommand(
     }
     // `app` tells an app that this runtime keeps phones per app; an older one
     // would ring it for every app's chats.
+    // `pushType` tells the app this runtime understood `voip`; an older one
+    // would have kept the call token as an alert token.
     return reply({
       registered: true,
-      ...(phonePlatform === 'android' ? { platform: phonePlatform } : {}),
+      ...(phonePlatform === 'android' || pushType
+        ? { platform: phonePlatform }
+        : {}),
+      ...(pushType ? { pushType } : {}),
       relay: readHybridAIApiKey() !== null,
       app,
     });
   }
   return reply({
     error:
-      'Usage: /push register <token> <sandbox|production> [kinds] [app] [ios|android] | unregister <token> [ios|android] | status',
+      'Usage: /push register <token> <sandbox|production> [kinds] [app] [ios|android] [voip] | unregister <token> [ios|android] [voip] | status',
   });
 }

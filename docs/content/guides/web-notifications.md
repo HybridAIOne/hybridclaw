@@ -54,8 +54,13 @@ belongs to the operator who opened that conversation, like a browser:
 ```
 /push register <APNs token in hex> <sandbox|production> [kind,kind] [app]
 /push unregister <APNs token in hex>
+/push register <PushKit token in hex> <sandbox|production> call hy ios voip
+/push unregister <PushKit token in hex> ios voip
 /push status
 ```
+
+`/push status` answers how many phones are registered and, for each, its
+`platform`, `app`, `kinds` and `pushType` (for a call token), never the token.
 
 Each answers one line of JSON. Without kinds a phone gets the three browser
 kinds, `turn`, `reminder` and `approval`, each only while the operator's
@@ -132,6 +137,38 @@ be reached, the phone is kept and bound on its first alert, which is then
 retried once. `/push unregister` releases the binding (`DELETE
 /v1/push/devices`) once no operator on the gateway holds the phone; that is
 best effort. In A2A local mode nothing is sent to HybridAI.
+
+### Calls from Hy
+
+The `call_user` tool rings the user's phone like an incoming call. An iPhone
+registers its PushKit token with the trailing `voip`, which keeps it apart from
+the phone's alert token, takes only kind `call` whatever kinds it names, and
+answers `"pushType": "voip"` with `"platform": "ios"`. An Android phone adds
+`call` to its kinds. A call rings the owner of the turn's chat, on phones of
+the chat's app (Hy when the chat was last used from the browser). A scheduled
+run kept apart from its chat (`--reply-only`, a side chat's task or a fresh
+session) calls from the chat its reply goes to: the agent's main chat, else
+the task's own chat. A call is never held while the owner is at a computer.
+
+A call push has no sound or badge and carries `kind: "call"`, `id:
+"call:<callId>"`, `callId`, `sessionId`, `agentId`, `reason` (also the alert
+body, at most 120 characters) and `expiresAt` (ISO 8601, 40 seconds after it
+rang). The gateway asks the relay to keep it for 40 seconds (`ttl_seconds`),
+and sends a call token with `push_type: "voip"`. Other pushes carry neither
+field, because older relays refuse unknown fields.
+
+`call_user` takes `reason`, an optional `opening` (Hy's first sentence),
+`notes` (what to cover) and `asked` (the user asked for this call). Without
+ringing, it answers `not_allowed` when no phone of the owner takes calls,
+`busy` while another call from Hy rings or is live, `quiet_hours` when
+`asked` is not true and it is outside the proactive active hours
+(`proactive.activeHours`) where they are on, or outside 08:00–22:00 where they
+are off, read in the user's `USER.md` time zone, else the gateway's, and
+`rate_limited` after three unanswered calls in an hour. Otherwise it waits for the outcome: `answered` when the app starts a
+voice call with the call's `callId` ([Realtime Voice for Web
+Apps](voice-web-api.md)), `declined` from `POST
+/api/chat/voice/calls/<callId>/decline`, `missed` after 40 seconds, or
+`failed` when no phone took the push. Calls live in gateway memory.
 
 ## Operations and security
 

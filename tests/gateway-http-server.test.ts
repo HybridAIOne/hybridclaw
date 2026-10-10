@@ -18822,6 +18822,59 @@ describe('gateway HTTP server', () => {
     );
   });
 
+  test('declines a ringing call from Hy only for the operator it rang, under voice.session', async () => {
+    const state = await importFreshHealth({
+      apiTokens: {
+        hck_voice_token: {
+          id: 'voicetok00001',
+          label: 'phone',
+          claims: { actions: ['voice.session'] },
+        },
+        hck_chat_only: {
+          id: 'chattok000001',
+          label: 'chat',
+          claims: { actions: ['chat.send'] },
+        },
+      },
+    });
+    const calls = await import('../src/gateway/phone-calls.js');
+    calls.resetPhoneCallsForTests();
+    const call = calls.createPhoneCall({
+      operatorId: createHash('sha256')
+        .update('apiToken:voicetok00001')
+        .digest('hex'),
+      sessionId: 'main-chat',
+      agentId: 'hy',
+      reason: 'Your 7:00 brief',
+      opening: null,
+      notes: null,
+      asked: true,
+    });
+    const decline = async (authorization?: string) => {
+      const res = makeResponse();
+      state.handler(
+        makeRequest({
+          method: 'POST',
+          url: `/api/chat/voice/calls/${call.callId}/decline`,
+          noAuth: true,
+          headers: authorization ? { authorization } : {},
+        }) as never,
+        res as never,
+      );
+      await waitForResponse(res, (next) => next.writableEnded);
+      return res;
+    };
+
+    expect((await decline()).statusCode).toBe(401);
+    expect((await decline('Bearer hck_chat_only')).statusCode).toBe(403);
+    const declined = await decline('Bearer hck_voice_token');
+    expect(declined.statusCode).toBe(200);
+    expect(JSON.parse(declined.body)).toEqual({ ok: true });
+    expect(await calls.waitForPhoneCall(call.callId)).toBe('declined');
+    // Nothing rings any more.
+    expect((await decline('Bearer hck_voice_token')).statusCode).toBe(404);
+  });
+
   test('returns 503 for voice token mints when realtime voice is unavailable', async () => {
     const state = await importFreshHealth({
       webchatVoiceAvailable: false,

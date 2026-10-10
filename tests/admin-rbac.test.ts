@@ -215,6 +215,12 @@ describe('admin RBAC role bundles', () => {
       'voice.session',
     );
     expect(resolveAdminRbacAction('/api/chat/voice/token', 'GET')).toBeNull();
+    expect(
+      resolveAdminRbacAction('/api/chat/voice/calls/abc/decline', 'POST'),
+    ).toBe('voice.session');
+    expect(
+      resolveAdminRbacAction('/api/chat/voice/calls/abc/decline', 'GET'),
+    ).toBeNull();
     expect(resolveAdminRbacAction('/api/sign-ins', 'GET')).toBe(
       'sign_ins.manage',
     );

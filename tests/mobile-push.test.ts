@@ -67,7 +67,7 @@ describe('/push command', () => {
     const { store, push, operator } = await modules();
     expect(await command(push, `push register ${TOKEN.toUpperCase()} production proactive,approval`)).toEqual({ registered: true, relay: true, app: 'hy' });
     expect(store.readMobilePushDevices(operator)).toEqual([{ token: TOKEN, environment: 'production', kinds: ['proactive', 'approval'], app: 'hy' }]);
-    expect(await command(push, 'push status')).toEqual({ devices: 1, relay: true });
+    expect(await command(push, 'push status')).toEqual({ devices: 1, phones: [{ platform: 'ios', app: 'hy', kinds: ['proactive', 'approval'] }], relay: true });
     expect(await command(push, `push register ${TOKEN} production`, 'discord-session')).toHaveProperty('error');
     expect(fs.statSync(`${directory}/web-notifications.json`).mode & 0o777).toBe(0o600);
     expect(await command(push, `push unregister ${TOKEN}`)).toEqual({ registered: false });
@@ -294,7 +294,7 @@ describe('phone delivery', () => {
     expect(relayed(1).body).toMatchObject({ token: TOKEN });
     // Hy is the relay's default; relays that predate other apps refuse the field.
     expect(relayed(1).body).not.toHaveProperty('app');
-    expect(await command(push, 'push status')).toEqual({ devices: 2, relay: true });
+    expect(await command(push, 'push status')).toMatchObject({ devices: 2, relay: true });
   });
 
   test('an app HybridAI does not sign for is refused and not kept', async () => {
@@ -467,5 +467,83 @@ describe('reminder alerts', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(calls()).toHaveLength(0);
     expect(store.readWebNotificationState(operator).notifications).toHaveLength(2);
+  });
+});
+
+describe('calls from Hy', () => {
+  const FCM = `ExampleToken:${'Ab9'.repeat(40)}`;
+
+  test('an iPhone registers its call (VoIP) token next to its alert token, for calls only', async () => {
+    const { store, push, operator } = await modules();
+    await command(push, `push register ${TOKEN} production turn`);
+    expect(await command(push, `push register ${OTHER_TOKEN} sandbox call hy ios voip`)).toEqual({ registered: true, platform: 'ios', pushType: 'voip', relay: true, app: 'hy' });
+    // The same token as alert and call token is two registrations.
+    expect(await command(push, `push register ${TOKEN} production turn,reminder hy ios voip`)).toMatchObject({ pushType: 'voip' });
+    expect(store.readMobilePushDevices(operator)).toEqual([
+      { token: TOKEN, environment: 'production', kinds: ['turn'], app: 'hy' },
+      { token: OTHER_TOKEN, environment: 'sandbox', app: 'hy', platform: 'ios', pushType: 'voip', kinds: ['call'] },
+      { token: TOKEN, environment: 'production', app: 'hy', platform: 'ios', pushType: 'voip', kinds: ['call'] },
+    ]);
+    // Binding is unchanged: a call token is just another token.
+    expect(calls('/v1/push/devices').at(-1)?.body).toEqual({ token: TOKEN, environment: 'production' });
+    expect((await command(push, 'push status')).phones).toEqual([
+      { platform: 'ios', app: 'hy', kinds: ['turn'] },
+      { platform: 'ios', pushType: 'voip', app: 'hy', kinds: ['call'] },
+      { platform: 'ios', pushType: 'voip', app: 'hy', kinds: ['call'] },
+    ]);
+    // Unregistering the call token keeps the alert token, and the other way round.
+    expect(await command(push, `push unregister ${TOKEN} ios voip`)).toEqual({ registered: false });
+    expect(store.readMobilePushDevices(operator).map((device) => [device.token, device.pushType])).toEqual([[TOKEN, undefined], [OTHER_TOKEN, 'voip']]);
+    // The alert token is still held, so the relay keeps the binding.
+    expect(calls('/v1/push/devices').filter((call) => call.method === 'DELETE')).toEqual([]);
+    expect(await command(push, `push unregister ${OTHER_TOKEN}`)).toEqual({ registered: false });
+    expect(store.readMobilePushDevices(operator)).toHaveLength(2);
+    expect(await command(push, `push unregister ${OTHER_TOKEN} ios voip`)).toEqual({ registered: false });
+    expect(store.readMobilePushDevices(operator)).toHaveLength(1);
+  });
+
+  test.each([
+    `push register ${FCM} production call hy android voip`,
+    `push register ${TOKEN} production call hy ios pushkit`,
+    `push unregister ${TOKEN} android voip`,
+  ])('refuses %s', async (text) => {
+    const { store, push, operator } = await modules();
+    expect(await command(push, text)).toHaveProperty('error');
+    expect(store.readMobilePushDevices(operator)).toEqual([]);
+  });
+
+  test('a call rings call tokens as VoIP and Android as an alert, silent, kept 40 s, and never at a computer', async () => {
+    const { store, push } = await modules();
+    await command(push, `push register ${TOKEN} production turn,reminder,approval`);
+    await command(push, `push register ${OTHER_TOKEN} production call hy ios voip`);
+    await command(push, `push register ${FCM} production turn,reminder,approval,call hy android`);
+    relay.mockClear();
+    const { devices } = store.readSessionCallDevices('session-a');
+    expect(devices.map((device) => device.token)).toEqual([OTHER_TOKEN, FCM]);
+    const expiresAt = Date.UTC(2026, 9, 10, 7, 0, 40);
+    expect(await push.ringPhonesForCall(devices, { callId: 'call-1', sessionId: 'session-a', agentId: 'hy', assistant: 'Hy', reason: 'Your 7:00 brief', expiresAt })).toEqual({ devices: 2, sent: 2 });
+    const payload = {
+      aps: { alert: { title: 'Hy', body: 'Your 7:00 brief' } },
+      kind: 'call',
+      id: 'call:call-1',
+      callId: 'call-1',
+      sessionId: 'session-a',
+      agentId: 'hy',
+      reason: 'Your 7:00 brief',
+      expiresAt: '2026-10-10T07:00:40.000Z',
+    };
+    expect(calls().map((call) => call.body)).toEqual([
+      { token: OTHER_TOKEN, environment: 'production', push_type: 'voip', ttl_seconds: 40, payload },
+      { token: FCM, environment: 'production', platform: 'android', ttl_seconds: 40, payload },
+    ]);
+    // Alerts never reach a call token, and carry neither new relay field.
+    relay.mockClear();
+    await push.notifySessionPhones('session-a', { kind: 'call', title: 'Hy' });
+    await push.notifySessionPhones('session-a', { kind: 'turn', title: 'Hy' });
+    expect(calls().map((call) => call.body.token)).toEqual([FCM, TOKEN, FCM]);
+    for (const call of calls()) {
+      expect(call.body).not.toHaveProperty('push_type');
+      expect(call.body).not.toHaveProperty('ttl_seconds');
+    }
   });
 });

@@ -43,7 +43,8 @@ export const DEVICE_VERIFICATION_PATH = '/admin/credentials';
 // (`/api/chat/message` under `chat.send`), so reminders reach the phone.
 // 2026-10-01: the phone also calls the agent (`/api/chat/voice/token` under
 // `voice.session`). A call is chatting by voice: its spoken requests run as
-// ordinary chat turns, so it grants nothing `chat.send` does not.
+// ordinary chat turns, so it grants nothing `chat.send` does not. The same
+// action declines a call from Hy (2026-10-10, `call-user.ts`).
 // 2026-10-01 (product owner): the phone saves the website sign-ins the agent's
 // browser asks for (`sign_ins.manage`). It writes them and lists their sites;
 // nothing reads a username or password back.
