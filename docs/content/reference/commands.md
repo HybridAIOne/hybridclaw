@@ -820,7 +820,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 |---|---|---|
 | `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents; web `/agent switch` starts hatching when `BOOTSTRAP.md` is active |
 | `/app <description>` or `/apps` | web chat | Start an app-building conversation or open the Apps gallery |
-| `/approvals mode [ask|auto|full]` | local and chat channels | Show or set how often this session asks for approval |
+| `/approvals mode [ask|auto|full] [--json]` | local and chat channels | Show or set how often this session asks for approval |
 | `/approvals rules [revoke <number|action>] [--json]` | local and chat channels | List or revoke the agent's "always allow" grants (`yes for agent`, `yes for all`) |
 | `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
 | `/audit [sessionId]|last|turn <n>|run <runId>` | local and chat channels | Show recent audit events or focused turn traces |

@@ -45,6 +45,17 @@ function describeMode(session: Session, mode: ApprovalMode): string {
   return lines.join('\n');
 }
 
+function modeResult(session: Session, json: boolean): GatewayCommandResult {
+  const mode = resolveSessionApprovalMode(session);
+  return json
+    ? { kind: 'plain', text: JSON.stringify({ approvalMode: mode }) }
+    : {
+        kind: 'info',
+        title: 'Approval Mode',
+        text: describeMode(session, mode),
+      };
+}
+
 export function handleApprovalsCommand(params: {
   session: Session;
   req: GatewayCommandRequest;
@@ -60,13 +71,12 @@ export function handleApprovalsCommand(params: {
   if (sub !== 'mode') {
     return { kind: 'error', title: 'Usage', text: usage };
   }
-  const next = (req.args[2] || '').trim().toLowerCase();
+  const json = req.args.includes('--json');
+  const next = (req.args.slice(2).find((arg) => arg !== '--json') || '')
+    .trim()
+    .toLowerCase();
   if (!next) {
-    return {
-      kind: 'info',
-      title: 'Approval Mode',
-      text: describeMode(session, resolveSessionApprovalMode(session)),
-    };
+    return modeResult(session, json);
   }
   if (!isApprovalMode(next)) {
     return { kind: 'error', title: 'Usage', text: usage };
@@ -87,9 +97,5 @@ export function handleApprovalsCommand(params: {
     });
   }
   const updated: Session = { ...session, approval_mode: next };
-  return {
-    kind: 'info',
-    title: 'Approval Mode',
-    text: describeMode(updated, resolveSessionApprovalMode(updated)),
-  };
+  return modeResult(updated, json);
 }
