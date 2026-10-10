@@ -3388,7 +3388,7 @@ test('agent create warns when model validation is skipped because no models are 
   const result = await handleGatewayCommand({
     sessionId: 'session-create-agent',
     guildId: null,
-    channelId: 'channel-create-agent',
+    channelId: 'tui',
     args: ['agent', 'create', 'research', '--model', 'garbage-model'],
   });
 

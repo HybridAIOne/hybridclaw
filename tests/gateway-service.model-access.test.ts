@@ -26,7 +26,7 @@ async function load() {
   const { getRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
-  const { getStoredAgentConfig } = await import(
+  const { findAgentConfig, getStoredAgentConfig } = await import(
     '../src/agents/agent-registry.ts'
   );
   initDatabase({ quiet: true });
@@ -45,11 +45,12 @@ async function load() {
     phones: [[...DEVICE_TOKEN_ACTIONS], [...OWNER_DEVICE_TOKEN_ACTIONS]],
     defaultModel: () => getRuntimeConfig().hybridai.defaultModel,
     agentModel: () => getStoredAgentConfig('main')?.model,
+    findAgent: (id: string) => findAgentConfig(id) ?? undefined,
   };
 }
 
-test('a phone changes the model of its own session, not the runtime default or the agent', async () => {
-  const { run, phones, defaultModel, agentModel } = await load();
+test('a phone changes the model of its own session, not the runtime default or the agents', async () => {
+  const { run, phones, defaultModel, agentModel, findAgent } = await load();
   const runtimeDefault = defaultModel();
   const savedAgentModel = agentModel();
 
@@ -58,6 +59,8 @@ test('a phone changes the model of its own session, not the runtime default or t
     expect(setDefault.title).toBe('Default Model Restricted');
     const setAgent = await run(['agent', 'model', 'phone-model'], phone);
     expect(setAgent.title).toBe('Agent Model Restricted');
+    const create = await run(['agent', 'create', 'phone-agent'], phone);
+    expect(create.title).toBe('Agent Create Restricted');
 
     // Reading them and choosing this session's model still work.
     expect((await run(['model', 'default'], phone)).kind).toBe('info');
@@ -68,10 +71,11 @@ test('a phone changes the model of its own session, not the runtime default or t
   }
   expect(defaultModel()).toBe(runtimeDefault);
   expect(agentModel()).toBe(savedAgentModel);
+  expect(findAgent('phone-agent')).toBeUndefined();
 });
 
-test('the local operator and a model admin still change the default and agent model', async () => {
-  const { run, defaultModel, agentModel } = await load();
+test('the local operator and an admin still change the default model and the agents', async () => {
+  const { run, defaultModel, agentModel, findAgent } = await load();
 
   expect((await run(['model', 'default', 'operator-model'])).kind).not.toBe(
     'error',
@@ -89,4 +93,11 @@ test('the local operator and a model admin still change the default and agent mo
     (await run(['agent', 'model', 'admin-model'], ['admin.agents.write'])).kind,
   ).toBe('info');
   expect(agentModel()).toBe('admin-model');
+
+  expect((await run(['agent', 'create', 'operator-agent'])).kind).toBe('info');
+  expect(
+    (await run(['agent', 'create', 'admin-agent'], ['admin.agents.write'])).kind,
+  ).toBe('info');
+  expect(findAgent('operator-agent')).toBeDefined();
+  expect(findAgent('admin-agent')).toBeDefined();
 });

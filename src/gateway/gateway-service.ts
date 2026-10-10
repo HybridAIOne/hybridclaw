@@ -9640,6 +9640,12 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'create') {
+          if (!isLocalOperator(req, 'admin.agents.write')) {
+            return badCommand(
+              'Agent Create Restricted',
+              '`agent create` adds an agent to this runtime and is only available from local TUI/web sessions.',
+            );
+          }
           const newAgentId = parseIdArg(req.args, 2);
           if (!newAgentId) {
             return badCommand(
