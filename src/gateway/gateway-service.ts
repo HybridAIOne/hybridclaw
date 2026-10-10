@@ -494,6 +494,7 @@ import {
 } from './dashboard-command.js';
 import { isDelegationResultsMessage } from './delegation-results-message.js';
 import { handleDeviceDataCommand } from './device-data-command.js';
+import { handleFlavourCommand } from './flavour-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -12522,6 +12523,13 @@ export async function handleGatewayCommand(
 
       case 'timezone':
         return handleTimezoneCommand(req, resolveSessionAgentId(session));
+
+      case 'flavour':
+        return handleFlavourCommand(
+          req,
+          session,
+          resolveSessionAgentId(session),
+        );
 
       case 'import':
         return handleImportCommand(req, resolveSessionAgentId(session));
