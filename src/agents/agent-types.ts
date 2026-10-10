@@ -115,6 +115,18 @@ export interface AgentsConfig {
   list?: AgentConfig[];
 }
 
+// Kept free of runtime-config so channel descriptors can compare configs
+// without an import cycle back through the channel registry.
+export function resolveConfiguredDefaultAgentId(agents: AgentsConfig): string {
+  const configured =
+    normalizeTrimmedString(agents.defaultAgentId) || DEFAULT_AGENT_ID;
+  return (agents.list ?? []).some(
+    (entry) => normalizeTrimmedString(entry.id) === configured,
+  )
+    ? configured
+    : DEFAULT_AGENT_ID;
+}
+
 export function normalizeAgentIdentityFields(params: {
   canonicalId?: string;
   ownerUserId?: string;

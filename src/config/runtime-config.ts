@@ -42,6 +42,7 @@ import {
   normalizeAgentIdentityFields,
   normalizeAgentProxyConfig,
   normalizeAgentWebSearchConfig,
+  resolveConfiguredDefaultAgentId,
   resolveSnakeCamelAlias,
   validateAgentInheritance,
   validateAgentOrgChart,
@@ -8641,18 +8642,7 @@ export function getRuntimeConfigLoadError(): RuntimeConfigLoadError | null {
 export function resolveDefaultAgentId(
   config: Pick<RuntimeConfig, 'agents'> = currentConfig,
 ): string {
-  const configured = normalizeString(
-    config.agents.defaultAgentId,
-    DEFAULT_AGENT_ID,
-    { allowEmpty: false },
-  );
-  const hasConfiguredAgent = (config.agents.list ?? []).some(
-    (entry) =>
-      normalizeString(entry.id, '', {
-        allowEmpty: false,
-      }) === configured,
-  );
-  return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
+  return resolveConfiguredDefaultAgentId(config.agents);
 }
 
 export function resolveSkillAutonomyLevel(

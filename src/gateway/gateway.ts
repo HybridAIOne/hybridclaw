@@ -502,9 +502,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
     }
-    // A restart requested of a gateway that is its container's main process
-    // exits with that code (scheduleGatewayRestart), so the container starts again.
-    process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0);
+    process.exit(0);
   };
   process.on('SIGINT', () => {
     void shutdown();
