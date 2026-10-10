@@ -4758,25 +4758,25 @@ test('agent model sets the persistent model for the current session agent', asyn
   await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'switch', 'research'],
   });
   await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['model', 'set', 'hybridai/gpt-5-nano'],
   });
   const updated = await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'model', 'hybridai/gpt-5'],
   });
   const info = await handleGatewayCommand({
     sessionId: 'session-agent-model',
     guildId: null,
-    channelId: 'channel-agent-model',
+    channelId: 'tui',
     args: ['agent', 'model'],
   });
 

@@ -9587,6 +9587,13 @@ export async function handleGatewayCommand(
             );
           }
 
+          if (!isLocalOperator(req, 'admin.agents.write')) {
+            return badCommand(
+              'Agent Model Restricted',
+              '`agent model <name>` changes the agent for every chat and is only available from local TUI/web sessions. Use `model set <name>` for this session.',
+            );
+          }
+
           await refreshAvailableModelCatalogs({
             includeHybridAI: true,
           });
@@ -10062,6 +10069,16 @@ export async function handleGatewayCommand(
           listModifierArg === 'more' ||
           listModifierArg === 'all' ||
           listModifierArg === 'full';
+        if (
+          sub === 'default' &&
+          parseIdArg(req.args, 2) &&
+          !isLocalOperator(req, 'admin.models.write')
+        ) {
+          return badCommand(
+            'Default Model Restricted',
+            '`model default <name>` changes the model for every new session and is only available from local TUI/web sessions. Use `model set <name>` for this session.',
+          );
+        }
         const needsAvailableModels =
           sub === 'list' || sub === 'default' || sub === 'set';
         const modelCatalogRefreshResult = needsAvailableModels

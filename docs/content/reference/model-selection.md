@@ -99,11 +99,12 @@ case:
   set, active `BOOTSTRAP.md` hatching turns use that model. When empty,
   onboarding follows the normal session, agent, and global model hierarchy
 - `/agent model <name>` sets the persistent model for the current session agent
+  (local TUI/web sessions only)
 - `/model set <name>` is a session-only override
 - `/model clear` removes the session override and falls back to the agent or
   global default
 - `/model default [name]` shows or sets the global default model for new
-  sessions
+  sessions; setting it needs a local TUI/web session
 - `/model info` shows the effective, session, agent, default, and configured
   auxiliary models
 
