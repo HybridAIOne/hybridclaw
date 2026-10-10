@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, test } from 'vitest';
@@ -28,6 +29,22 @@ const CONNECTOR_TOOLS: Record<string, ToolAnnotations> = {
     readOnlyHint: true,
     openWorldHint: true,
   },
+  hybridai__music_generate: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+  other__music_generate: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
+  hybridai__music_generate_destructive: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   notes__save_note: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -35,8 +52,9 @@ const CONNECTOR_TOOLS: Record<string, ToolAnnotations> = {
   },
 };
 
-function createRuntime(mode: ApprovalMode = 'auto') {
+function createRuntime(mode: ApprovalMode = 'auto', policy?: string) {
   const dir = makeTempDir();
+  if (policy) fs.writeFileSync(path.join(dir, 'policy.yaml'), policy);
   const runtime = new TrustedAgentApprovalRuntime(
     path.join(dir, 'policy.yaml'),
     path.join(dir, 'agent-trust.json'),
@@ -71,6 +89,69 @@ function userMessage(content: string): ChatMessage {
 }
 
 describe('MCP writes that reach outside', () => {
+  test('platform music generation is implicit in auto mode and still asks in ask mode', () => {
+    const call = {
+      toolName: 'hybridai__music_generate',
+      argsJson: '{"prompt":"A cheerful instrumental","seconds":10}',
+      latestUserPrompt: 'Make a short tune',
+    };
+    expect(createRuntime().evaluateToolCall(call)).toMatchObject({
+      tier: 'yellow',
+      decision: 'implicit',
+    });
+    expect(createRuntime('ask').evaluateToolCall(call).decision).toBe(
+      'required',
+    );
+  });
+
+  test('operator-pinned music generation still requires approval', () => {
+    const policy =
+      'approval:\n  pinned_red:\n    - tools: ["hybridai__music_generate"]\n';
+    for (const mode of ['auto', 'full'] as const) {
+      expect(
+        createRuntime(mode, policy).evaluateToolCall({
+          toolName: 'hybridai__music_generate',
+          argsJson: '{}',
+          latestUserPrompt: 'Make a tune',
+        }),
+      ).toMatchObject({ pinned: true, decision: 'required' });
+    }
+  });
+
+  test('the exception does not cover other servers or tools', () => {
+    for (const toolName of [
+      'other__music_generate',
+      'hybridai__music_generate_destructive',
+    ]) {
+      expect(
+        createRuntime().evaluateToolCall({
+          toolName,
+          argsJson: '{}',
+          latestUserPrompt: 'Make a tune',
+        }),
+      ).toMatchObject({ tier: 'red', decision: 'required' });
+    }
+  });
+
+  test('destructive metadata still wins for the platform music tool', () => {
+    const runtime = createRuntime();
+    runtime.setMcpToolBehaviorResolver((name) => {
+      const annotations = {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      };
+      return { kind: classifyMcpTool(name, annotations), annotations };
+    });
+    expect(
+      runtime.evaluateToolCall({
+        toolName: 'hybridai__music_generate',
+        argsJson: '{}',
+        latestUserPrompt: 'Make a tune',
+      }),
+    ).toMatchObject({ tier: 'red', decision: 'required' });
+  });
+
   test('a connector mail send asks first in the default mode', () => {
     expect(sendMail(createRuntime())).toMatchObject({
       tier: 'red',

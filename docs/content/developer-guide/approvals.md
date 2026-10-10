@@ -58,7 +58,10 @@ In practice, approvals cover:
   are classified by the hints their server sends (`readOnlyHint`,
   `destructiveHint`, `openWorldHint`), or by name when it sends none, into
   read/search/fetch, edit/state, or execute/delete groups. A write the server
-  marks `openWorldHint: true`, such as sending mail, is red.
+  marks `openWorldHint: true`, such as sending mail, is red. HybridAI music
+  generation is yellow: it creates a file for the user, so contacting the
+  provider does not require a sending approval in `auto`. `ask` still asks;
+  destructive metadata and explicit policy rules still take precedence.
 - File access and file operations. Reads are mostly green, while writes and
   edits are yellow. Deletion is red. Writes outside the workspace become red
   because of `approval.workspace_fence`.
