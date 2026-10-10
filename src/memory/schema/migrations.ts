@@ -15,6 +15,7 @@ import {
 } from '../../identity/agent-id.js';
 import { parseUserId } from '../../identity/user-id.js';
 import { logger } from '../../logger.js';
+import { createTaskRunsSchema } from '../../scheduler/task-runs-schema.js';
 import {
   buildSessionKey,
   inspectSessionKeyMigration,
@@ -26,7 +27,7 @@ import { createWorkSchema } from '../../work/work-schema.js';
 import { createChannelUsersSchema } from '../channel-users-schema.js';
 import { createSemanticMemoryIndexes } from '../semantic-memory-index.js';
 
-export const DATABASE_SCHEMA_VERSION = 75;
+export const DATABASE_SCHEMA_VERSION = 76;
 const AGENT_CANONICAL_ID_COLLISION_LIMIT = 20;
 const AUDIT_ACTOR_MIGRATION_BATCH_SIZE = 500;
 const ACTOR_ID_MAX_LENGTH =
@@ -4062,6 +4063,10 @@ export function runMigrations(
       );
     `);
     recordMigration(database, 75, 'Scope side chats');
+  }
+  if (currentVersion < 76) {
+    createTaskRunsSchema(database);
+    recordMigration(database, 76, 'Keep the run history of scheduled tasks');
   }
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
