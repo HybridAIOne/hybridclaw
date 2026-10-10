@@ -4,7 +4,7 @@
  * a channel merely because a caller classifies a target.
  */
 
-import { resolveDefaultAgentId } from '../../config/runtime-config.js';
+import { resolveConfiguredDefaultAgentId } from '../../agents/agent-types.js';
 import type { ChannelDescriptor } from '../channel-descriptor.js';
 import { emailRuntimeLoader } from '../channel-runtime-loaders.js';
 import { isEmailAddress } from './allowlist.js';
@@ -20,5 +20,6 @@ export const descriptor = {
   // Accounts without an agentId are bound to the default agent at start.
   configChanged: (next, prev) =>
     JSON.stringify(next.email) !== JSON.stringify(prev.email) ||
-    resolveDefaultAgentId(next) !== resolveDefaultAgentId(prev),
+    resolveConfiguredDefaultAgentId(next.agents) !==
+      resolveConfiguredDefaultAgentId(prev.agents),
 } satisfies ChannelDescriptor;
