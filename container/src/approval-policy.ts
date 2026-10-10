@@ -3649,7 +3649,12 @@ export class TrustedAgentApprovalRuntime {
       // 2026-10-02: the Hy app promises to send nothing without approval, and
       // scheduled runs read mail strangers wrote. The key names the tool, so
       // trusting one send does not trust the server's other writes.
-      if (annotations?.openWorldHint === true) {
+      // Owner call, 2026-10-10: subscribed music generation creates a file
+      // for the user; contacting its provider is not sending or publishing.
+      if (
+        annotations?.openWorldHint === true &&
+        lowerTool !== 'hybridai__music_generate'
+      ) {
         return {
           tier: 'red',
           actionKey: `${actionKey}:${rawToolName}`,
