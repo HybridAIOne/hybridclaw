@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## [0.39.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.9) - 2026-10-11
+
+### Added
+
+- **Web chat email drafts and approval reviews**: Edit recipients, subject and
+  body before submitting an email draft. Review complete action arguments,
+  attachments and trust scope, with pending reviews restored after a reload.
+  Submitting a draft does not mark it as a confirmed send.
+- **Model flavour**: `/flavour set openai|anthropic|eu` selects the agent's
+  model family for its chats and scheduled tasks, clearing the current chat's
+  model override. `/flavour show --json` reports the selection and available
+  choices; models missing from the HybridAI catalog cannot be selected.
+
+### Fixed
+
+- **Agent imports**: Importing one agent's history into another keeps the
+  gateway running, including in containers without a restart policy. Email
+  routing follows the new default agent immediately. The email descriptor
+  also avoids an import cycle through runtime configuration.
+- **Phone and remote command permissions**: Setting the global default model,
+  changing an agent's model with `/agent model`, and creating agents require
+  local operator access and the matching admin capability. Reading model
+  settings and changing a chat's own model remain available to phones.
+- **Music generation approvals**: Subscription-covered HybridAI music
+  generation runs without an extra sending approval in normal approval mode.
+  Ask mode, destructive calls and explicitly pinned rules still ask.
+- **Structured web replies**: Live replies, restored history and approval
+  continuations retain structured payloads and resumed message IDs. Live tool
+  traces retain browser and slide metadata.
+
+### Upgrade Notes
+
+- Use a local TUI or web session for `/model default <name>`,
+  `/agent model <name>` and `/agent create <id>`. Remote channels can use
+  `/model set <name>` to change only the current chat's model.
+- Custom callers of the agent-adopt API should use its import status; the
+  response no longer includes gateway-restart fields.
+
 ## [0.39.8](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.8) - 2026-10-10
 
 ### Fixed
