@@ -153,6 +153,7 @@ const AGENT_RUNTIME_ROUTES: ReadonlySet<string> = new Set([
   '/api/browser/take-over/close',
   '/api/browser/take-over/status',
   '/api/browser/tool',
+  '/api/call-user',
   '/api/cost-estimate',
   '/api/delegate',
   '/api/device-data',
@@ -569,6 +570,15 @@ export function resolveAdminRbacAction(
     return 'artifacts.read';
   }
   if (pathname === '/api/chat/voice/token' && method === 'POST') {
+    return 'voice.session';
+  }
+  // Declining a call from Hy is the phone's answer to a call; the route
+  // checks the call is the caller's (`call-user.ts`).
+  if (
+    pathname.startsWith('/api/chat/voice/calls/') &&
+    pathname.endsWith('/decline') &&
+    method === 'POST'
+  ) {
     return 'voice.session';
   }
   // Website sign-ins go in and come out only as site names; see

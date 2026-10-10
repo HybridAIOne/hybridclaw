@@ -104,6 +104,8 @@ export interface RealtimeCallContext {
    * Web surface only; phone calls have no earlier chat and ignore it.
    */
   chatRecap?: string | null;
+  /** The assistant called the user (`call_user`): why, and what to cover. */
+  placedCall?: { reason: string; notes?: string | null } | null;
 }
 
 export interface RealtimeBridgeOptions {
@@ -237,6 +239,14 @@ export function buildRealtimeInstructions(
   if (context?.now?.trim()) {
     sections.push(
       `Current date and time for the ${person}: ${context.now.trim()}.`,
+    );
+  }
+  const placedReason = context?.placedCall?.reason.trim();
+  if (placedReason) {
+    const notes = context?.placedCall?.notes?.trim();
+    const stop = /[.!?]$/.test(placedReason) ? '' : '.';
+    sections.push(
+      `You called the ${person}. Reason: ${placedReason}${stop}${notes ? ` What to cover: ${notes}` : ''}`,
     );
   }
   if (config.instructions.trim()) {

@@ -70,7 +70,7 @@ webchat voice frame protocol — JSON text frames both ways:
 
 | Direction | Frame | Meaning |
 | --- | --- | --- |
-| client → server | `{"type":"start","sessionId?":"…","agentId?":"…","client?":"mobile","language?":"en","timeZone?":"Europe/Berlin"}` | Start the session (within 10 s of connecting); `client: "mobile"` keeps a phone app's chat from resetting, as on `POST /api/chat`. `timeZone` supplies the caller's IANA timezone for live clock requests. Invalid timezones close the connection with code 1008. |
+| client → server | `{"type":"start","sessionId?":"…","agentId?":"…","client?":"mobile","language?":"en","timeZone?":"Europe/Berlin","callId?":"…"}` | Start the session (within 10 s of connecting); `client: "mobile"` keeps a phone app's chat from resetting, as on `POST /api/chat`. `timeZone` supplies the caller's IANA timezone for live clock requests. Invalid timezones close the connection with code 1008. `callId` answers a call from Hy (below). |
 | client → server | `{"type":"audio","payload":"<base64 PCM16>"}` | Microphone audio |
 | client → server | `{"type":"stop"}` | End the session |
 | server → client | `{"type":"ready","sessionId":"…"}` | Session is live |
@@ -110,6 +110,22 @@ supplied, otherwise the user's `USER.md` timezone. The voice model has one tool,
 a fresh gateway timestamp and the validated caller timezone. A failed
 consultation must not be replaced by a guessed answer.
 
+
+### Answering a call from Hy
+
+When Hy calls the user (`call_user`, see [Calls from
+Hy](web-notifications.md#calls-from-hy)), the phone app answers by starting a
+voice session with the push's `callId` in the `start` frame. If it names a
+ringing or answered call of the same operator, the call is answered, the
+session joins the call's `sessionId` and agent (whatever the frame says), and
+Hy opens with the call's opening line, or "Hi, it's Hy. <reason>.", instead of
+the configured greeting. Its instructions add why it called and what to cover.
+Any other `callId` is ignored and the session is an ordinary call. Another call
+from Hy stays `busy` until the session ends.
+
+The app declines with `POST /api/chat/voice/calls/<callId>/decline`, which
+takes the same credentials as `/api/chat/voice/token` (`voice.session`) and
+answers `{"ok": true}`, or 404 when no call of the caller rings under that id.
 
 Minimal client sketch:
 

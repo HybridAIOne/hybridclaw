@@ -817,3 +817,84 @@ test('a second start cannot launch another summary while the first is pending', 
     browser.close();
   }
 });
+
+test('picking up a call from Hy answers it, joins its chat and opens with why it called', async () => {
+  const { browser, realtime, finished } = await createConnection();
+  const calls = await import('../src/gateway/phone-calls.js');
+  calls.resetPhoneCallsForTests();
+  const call = calls.createPhoneCall({
+    operatorId: 'operator-1',
+    sessionId: 'main-chat',
+    agentId: 'hy',
+    reason: 'Your 7:00 brief',
+    opening: null,
+    notes: 'Weather, then the 9:00 meeting.',
+    asked: true,
+  });
+  const outcome = calls.waitForPhoneCall(call.callId);
+
+  await browser.clientFrame({
+    type: 'start',
+    callId: call.callId,
+    sessionId: 'agent:main:channel:web:chat:dm:peer:other',
+    agentId: 'main',
+    client: 'mobile',
+  });
+  expect(await outcome).toBe('answered');
+  realtime.open();
+
+  expect(browser.sentOfType('ready')).toEqual([
+    { type: 'ready', sessionId: 'main-chat' },
+  ]);
+  expect(loadVoiceHistory).toHaveBeenCalledWith(
+    'main-chat',
+    'hy',
+    'user-1',
+    'operator-1',
+  );
+  expect(sentInstructions(realtime)).toContain(
+    'You called the user. Reason: Your 7:00 brief. What to cover: Weather, then the 9:00 meeting.',
+  );
+  const opening = JSON.stringify(realtime.sentOfType('response.create'));
+  expect(opening).toContain("Hi, it's Hy. Your 7:00 brief.");
+  expect(opening).not.toContain('Hello from voice!');
+  // While the call is live no other call rings; hanging up ends it.
+  expect(calls.phoneCallRefusal('operator-1')).toBe('busy');
+  browser.close();
+  expect(finished).toHaveBeenCalled();
+  expect(calls.phoneCallRefusal('operator-1')).toBeNull();
+});
+
+test('a callId that is not the caller’s ringing call leaves an ordinary call', async () => {
+  const { browser, realtime } = await createConnection();
+  const calls = await import('../src/gateway/phone-calls.js');
+  calls.resetPhoneCallsForTests();
+  const foreign = calls.createPhoneCall({
+    operatorId: 'operator-2',
+    sessionId: 'their-chat',
+    agentId: 'hy',
+    reason: 'Theirs',
+    opening: 'Psst.',
+    notes: null,
+    asked: false,
+  });
+  await browser.clientFrame({ type: 'start', callId: foreign.callId });
+  realtime.open();
+
+  expect(String(browser.sentOfType('ready')[0].sessionId)).toMatch(
+    /^agent:main:channel:web:chat:dm:peer:/,
+  );
+  expect(sentInstructions(realtime)).not.toContain('You called the user');
+  expect(JSON.stringify(realtime.sentOfType('response.create'))).toContain(
+    'Hello from voice!',
+  );
+  expect(calls.phoneCallRefusal('operator-2')).toBe('busy');
+  expect(calls.declinePhoneCall(foreign.callId, 'operator-2')).toBe(true);
+  browser.close();
+});
+
+test('a call Hy placed opens with its own first sentence when it has one', async () => {
+  const { placedCallOpening } = await loadWebchatVoiceModule();
+  expect(placedCallOpening({ opening: 'Good morning!', reason: 'Wake up' })).toBe('Good morning!');
+  expect(placedCallOpening({ opening: null, reason: 'Wake up!' })).toBe("Hi, it's Hy. Wake up!");
+});

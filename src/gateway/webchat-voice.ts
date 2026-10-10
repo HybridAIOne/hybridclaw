@@ -27,6 +27,10 @@
  * the compression auxiliary reads the text. The summary is sent to the realtime
  * provider as ordinary conversation data, never system instructions.
  *
+ * A start frame's `callId` answers a call Hy placed (`call-user.ts`): the
+ * stream joins that call's chat and Hy opens with why it called instead of
+ * the greeting. Only the operator the call rang can answer it.
+ *
  * NOT the phone path: calls arrive through transport plugins
  * (`plugins/twilio-voice`, `plugins/vonage-voice`).
  */
@@ -68,6 +72,11 @@ import {
   readUserTimezone,
 } from '../workspace.js';
 import { handleGatewayMessage } from './gateway-chat-service.js';
+import {
+  answerPhoneCall,
+  leavePhoneCall,
+  type PhoneCall,
+} from './phone-calls.js';
 import { persistVoiceTranscript } from './voice-transcript-store.js';
 import {
   loadWebchatVoiceHistory,
@@ -150,6 +159,8 @@ interface ClientFrame {
   language?: unknown;
   timeZone?: unknown;
   scope?: unknown;
+  /** A call from Hy the user picked up (`call-user.ts`). */
+  callId?: unknown;
 }
 
 function sendFrame(ws: WebSocket, frame: Record<string, unknown>): void {
@@ -200,6 +211,15 @@ function loadVoiceCallContext(
   return { context, userName };
 }
 
+/** Hy's first words on a call it placed: its own opening, else why it called. */
+export function placedCallOpening(
+  call: Pick<PhoneCall, 'opening' | 'reason'>,
+): string {
+  if (call.opening) return call.opening;
+  const reason = call.reason.trim();
+  return `Hi, it's Hy. ${reason}${/[.!?]$/.test(reason) ? '' : '.'}`;
+}
+
 export interface WebchatVoiceConnectionOptions {
   ws: WebSocket;
   identity: WebchatVoiceIdentity;
@@ -214,6 +234,7 @@ export class WebchatVoiceConnection {
   private startTimer: NodeJS.Timeout | null = null;
   private closed = false;
   private starting = false;
+  private answeredCallId: string | null = null;
   private readonly ws: WebSocket;
   private readonly identity: WebchatVoiceIdentity;
   private readonly remoteIp: string;
@@ -301,10 +322,19 @@ export class WebchatVoiceConnection {
       this.fail(resolved.error, 1011);
       return;
     }
+    // A call from Hy the user picked up joins the chat it was placed from;
+    // any other callId leaves this an ordinary call.
+    const placedCall =
+      typeof frame.callId === 'string'
+        ? answerPhoneCall(frame.callId, this.identity.operatorId)
+        : null;
+    if (placedCall) this.answeredCallId = placedCall.callId;
     const agentId =
+      placedCall?.agentId ||
       (typeof frame.agentId === 'string' && frame.agentId.trim()) ||
       resolveDefaultAgentId(getRuntimeConfig());
-    const sessionId = resolveVoiceSessionId(frame.sessionId, agentId);
+    const sessionId =
+      placedCall?.sessionId ?? resolveVoiceSessionId(frame.sessionId, agentId);
     // A call from the phone app continues one of its chats, which must not
     // reset under it any more than when the app writes there.
     const client = frame.client === 'mobile' ? frame.client : undefined;
@@ -347,9 +377,17 @@ export class WebchatVoiceConnection {
     if (this.closed) return;
     const { context, userName } = loadVoiceCallContext(agentId, timeZone);
     const callerName = userName || (username === 'web' ? '' : username);
+    if (placedCall)
+      context.placedCall = {
+        reason: placedCall.reason,
+        notes: placedCall.notes,
+      };
     this.bridge = new RealtimeCallBridge({
       connection: resolved.connection,
-      config: voiceConfig,
+      // Hy called, so it opens with why instead of the configured greeting.
+      config: placedCall
+        ? { ...voiceConfig, greeting: placedCallOpening(placedCall) }
+        : voiceConfig,
       caller: { from: '', to: '', callerName },
       surface: 'web',
       context,
@@ -455,6 +493,8 @@ export class WebchatVoiceConnection {
     }
     this.bridge?.close();
     this.bridge = null;
+    if (this.answeredCallId) leavePhoneCall(this.answeredCallId);
+    this.answeredCallId = null;
     this.onFinished();
   }
 }
