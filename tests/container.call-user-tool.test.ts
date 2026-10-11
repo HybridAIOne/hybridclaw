@@ -46,6 +46,36 @@ test('the schema asks for a reason and says when to call', () => {
     'notes',
     'asked',
   ]);
-  expect(description).toContain('asked to be called');
-  expect(description).toContain('schedule a task');
+  // A named time or delay is a scheduled call, never one now, and asked.
+  expect(description).toContain('never call now: add a one-shot cron task');
+  expect(description).toContain('Set asked to true whenever the user requested the call');
+  expect(description).toContain('the voice says the opening, then tells the notes');
+});
+
+test('the schema stays small enough to be offered directly, not behind tool_catalog', () => {
+  // tool-catalog.ts keeps tools over 2,000 characters behind the catalog.
+  expect(JSON.stringify(CALL_USER_TOOL_DEFINITION).length).toBeLessThanOrEqual(
+    2000,
+  );
+});
+
+test('with connector tools deferred, call_user is still offered directly', async () => {
+  const { ToolCatalog } = await import('../container/src/tool-catalog.ts');
+  const connector = {
+    type: 'function' as const,
+    function: {
+      name: 'hybridai__mail__search',
+      description: 'Search mail',
+      parameters: { type: 'object' as const, properties: {}, required: [] },
+    },
+  };
+  const catalog = ToolCatalog.deferring(
+    [CALL_USER_TOOL_DEFINITION, connector],
+    new Set([connector.function.name]),
+    () => false,
+  );
+  expect(catalog?.tools.map((tool) => tool.function.name)).toEqual([
+    'call_user',
+    'tool_catalog',
+  ]);
 });
