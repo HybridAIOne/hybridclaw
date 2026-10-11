@@ -917,3 +917,42 @@ test('observability ingest skips an event the server keeps failing to ingest', a
     vi.resetModules();
   }
 });
+
+test('observability ingest stops requesting tokens once the API key is rejected', async () => {
+  vi.useFakeTimers();
+  vi.resetModules();
+  setupHome({ HYBRIDAI_API_KEY: 'test-key' });
+
+  try {
+    await configureObservabilityFixture();
+    const fetchMock = vi.fn(async () =>
+      Response.json({ message: 'Invalid API key' }, { status: 401 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const {
+      getObservabilityIngestState,
+      startObservabilityIngest,
+      stopObservabilityIngest,
+    } = await import('../src/audit/observability-ingest.ts');
+    initDatabase({ quiet: true });
+    await recordObservabilityBotSetEvent('session-rejected', 'run-rejected');
+
+    startObservabilityIngest();
+    await vi.waitFor(() => {
+      expect(getObservabilityIngestState().paused).toBe(true);
+    });
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      '/ingest-token:ensure',
+    );
+
+    stopObservabilityIngest();
+  } finally {
+    vi.useRealTimers();
+    vi.resetModules();
+  }
+});

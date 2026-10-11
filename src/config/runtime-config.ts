@@ -6771,6 +6771,14 @@ function normalizeRuntimeConfig(
     rawHybridAi.baseUrl,
     DEFAULT_RUNTIME_CONFIG.hybridai.baseUrl,
   );
+  const platformBaseUrl = normalizeBaseUrl(
+    process.env.HYBRIDAI_BASE_URL,
+    hybridBaseUrl,
+  );
+  const observabilityBaseUrl = normalizeBaseUrl(
+    rawObservability.baseUrl,
+    platformBaseUrl,
+  );
   const hybridDefaultChatbotId = normalizeString(
     rawHybridAi.defaultChatbotId,
     DEFAULT_RUNTIME_CONFIG.hybridai.defaultChatbotId,
@@ -7937,10 +7945,12 @@ function normalizeRuntimeConfig(
       // baseUrl for LLM calls (see applyRuntimeConfig), so the ingest default
       // must follow it too — otherwise a deployment pointed elsewhere via env
       // silently reports to the default platform host with a foreign API key.
-      baseUrl: normalizeBaseUrl(
-        rawObservability.baseUrl,
-        normalizeBaseUrl(process.env.HYBRIDAI_BASE_URL, hybridBaseUrl),
-      ),
+      // A file value equal to hybridai.baseUrl is the materialized default,
+      // not a deliberate override, so it follows the env too.
+      baseUrl:
+        observabilityBaseUrl === hybridBaseUrl
+          ? platformBaseUrl
+          : observabilityBaseUrl,
       ingestPath: normalizeApiPath(
         rawObservability.ingestPath,
         DEFAULT_RUNTIME_CONFIG.observability.ingestPath,
