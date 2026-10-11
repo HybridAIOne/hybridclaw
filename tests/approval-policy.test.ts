@@ -1187,7 +1187,7 @@ autonomy:
     expect(visionAnalyze.implicitDelayMs).toBeUndefined();
   });
 
-  test('media generation tools classify list as green and generation as yellow', () => {
+  test('image generation is green while video generation and transcription are yellow', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -1226,7 +1226,7 @@ autonomy:
     expect(imageList.tier).toBe('green');
     expect(videoList.tier).toBe('green');
     expect(audioList.tier).toBe('green');
-    expect(imageGenerate.tier).toBe('yellow');
+    expect(imageGenerate.tier).toBe('green');
     expect(imageGenerate.implicitDelayMs).toBeUndefined();
     expect(audioTranscribe.tier).toBe('yellow');
     expect(audioTranscribe.implicitDelayMs).toBeUndefined();

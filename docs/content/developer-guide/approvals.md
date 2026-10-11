@@ -135,7 +135,8 @@ or with `/approvals mode [ask|auto|full]` on any surface.
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Current-conversation messages | Yellow | `message send`, `react`, `quote-reply` or `thread-reply` without `channelId`, `to`, `target` or a user | Hy is already talking there |
 | Messages to a named recipient | Red | `message send` to an email address, chat or person; `edit`, `delete`, `pin`, `thread-create` | Asks in `auto` too; `full` runs them. The trust key names the recipient. An email send carries a review (`transport: "email"`, From, To, Cc, Subject, body) so the phone shows it as the email card, and one without a subject is sent back to the model |
-| Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
+| Image generation | Green | `image_generate`, `hybridai__image_generate` | Calls the configured provider and creates an image artifact without approval |
+| Video generation | Yellow | `video_generate` | External provider call plus generated media written to workspace |
 | Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag`, `git rm --cached`, `git diff --output=FILE`, `find -fprint FILE`, `cc -o FILE` | Write side effects inside the workspace; an absolute target outside it hits the workspace fence |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |
