@@ -35,6 +35,7 @@ export async function handleDecisionCompletion(params: {
   agentId: string;
   messages: ChatMessage[];
   wantsStream: boolean;
+  wantsJsonObject?: boolean;
   completionId: string;
   created: number;
   traceHeaders: Record<string, string>;
@@ -63,6 +64,9 @@ export async function handleDecisionCompletion(params: {
       agentId: resolved.agentId,
       temperature: 0,
       allowFallback: false,
+      ...(params.wantsJsonObject
+        ? { extraBody: { response_format: { type: 'json_object' } } }
+        : {}),
     }).catch((error: unknown) => {
       throw new OpenAICompatibleRequestError(
         503,

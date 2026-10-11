@@ -476,7 +476,9 @@ Session behavior matches the routing rules above:
 - Raw, non-streaming `/v1/chat/completions` requests to
   `auxiliary/quick_decision` or `auxiliary/eval_judge` use that auxiliary task
   without provider fallback and keep no session; with no model configured they
-  use the default model, and a failed call returns 503 `auxiliary_unavailable`. `model: "regular"` uses
+  use the default model, and a failed call returns 503 `auxiliary_unavailable`.
+  `response_format: {"type": "json_object"}` asks the auxiliary model for JSON
+  mode, which keeps small models from wrapping the answer in a code block. `model: "regular"` uses
   the default agent's regular model. Both use only the supplied messages and
   expose no tools. Avatar selection and idea categorization advance explicitly
   from the on-device model to auxiliary to regular when an answer fails validation;

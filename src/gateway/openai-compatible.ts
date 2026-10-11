@@ -936,6 +936,7 @@ export async function handleOpenAICompatibleChatCompletions(
         agentId,
         messages: input.messages,
         wantsStream: input.wantsStream,
+        wantsJsonObject: input.wantsJsonObject,
         completionId,
         created,
         traceHeaders: { 'X-HybridClaw-Agent-Id': agentId },

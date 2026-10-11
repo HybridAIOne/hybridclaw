@@ -22,6 +22,7 @@ type OpenAIChatCompletionRequestBody = {
   tool_choice?: unknown;
   functions?: unknown;
   function_call?: unknown;
+  response_format?: { type?: unknown } | null;
 };
 
 type OpenAIChatCompletionMessage = {
@@ -43,6 +44,7 @@ export interface ParsedOpenAICompatibleChatRequest {
   model: string;
   user: string;
   wantsStream: boolean;
+  wantsJsonObject: boolean;
   includeUsage: boolean;
   usesClientTools: boolean;
   evalProfile?: string;
@@ -843,6 +845,7 @@ export async function readOpenAICompatibleChatRequest(
     model,
     user: normalizeOptionalString(body.user) || 'openai',
     wantsStream,
+    wantsJsonObject: body.response_format?.type === 'json_object',
     includeUsage: normalizeIncludeUsage(body.stream_options),
     usesClientTools,
     ...(normalizeEvalProfileHeader(req.headers['x-hybridclaw-eval-profile'])

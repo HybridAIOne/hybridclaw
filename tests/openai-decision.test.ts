@@ -37,6 +37,14 @@ test.each(['quick_decision', 'eval_judge'])('auxiliary/%s answers from its own t
   expect(mocks.regular).not.toHaveBeenCalled();
 });
 
+test('a JSON object request asks the auxiliary model for JSON mode', async () => {
+  mocks.auxiliary.mockResolvedValue({ model: 'vllm/small', provider: 'vllm', content: '{"topic":"work"}' });
+  const { params } = request('auxiliary/quick_decision');
+  await handleDecisionCompletion({ ...params, wantsJsonObject: true });
+  expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({
+    extraBody: { response_format: { type: 'json_object' } } }));
+});
+
 test('auxiliary failure is unavailable for the client to decide its next step', async () => {
   mocks.auxiliary.mockRejectedValue(new Error('unavailable'));
   await expect(handleDecisionCompletion(request('auxiliary/quick_decision').params))
