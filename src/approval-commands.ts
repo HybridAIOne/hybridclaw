@@ -29,7 +29,7 @@ export const APPROVE_TEXT_CHANNEL_USAGE = `\`${APPROVE_COMMAND_USAGE.replace(
   '/approve action:',
 )}\``;
 
-export const APPROVALS_MODE_USAGE = `/approvals mode [${APPROVAL_MODES.join('|')}]`;
+export const APPROVALS_MODE_USAGE = `/approvals mode [${APPROVAL_MODES.join('|')}] [--json]`;
 
 export const APPROVALS_RULES_USAGE =
   '/approvals rules [revoke <number|action>] [--json]';
