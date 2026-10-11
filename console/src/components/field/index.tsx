@@ -21,18 +21,8 @@ import styles from './field.module.css';
 
 export type { FieldContextValue } from './context';
 export { mergeIds, useFieldContext, useFieldControlProps } from './context';
-export { validateField } from './validate-field';
 export type { Validator } from './validators';
-export {
-  compose,
-  loopbackUrl,
-  maxLength,
-  minLength,
-  oneOf,
-  pattern,
-  required,
-  url,
-} from './validators';
+export { compose, required } from './validators';
 
 export type FieldOrientation = 'vertical' | 'horizontal' | 'responsive';
 
@@ -41,51 +31,6 @@ const orientationClass: Record<FieldOrientation, string> = {
   horizontal: styles.orientationHorizontal,
   responsive: styles.orientationResponsive,
 };
-
-export type FieldSetProps = ComponentProps<'fieldset'>;
-
-export function FieldSet({ className, ...props }: FieldSetProps) {
-  return (
-    <fieldset
-      data-slot="field-set"
-      className={cx(styles.fieldSet, className)}
-      {...props}
-    />
-  );
-}
-
-export type FieldLegendVariant = 'legend' | 'label';
-
-export type FieldLegendProps = ComponentProps<'legend'> & {
-  variant?: FieldLegendVariant;
-};
-
-export function FieldLegend({
-  className,
-  variant = 'legend',
-  ...props
-}: FieldLegendProps) {
-  return (
-    <legend
-      data-slot="field-legend"
-      data-variant={variant}
-      className={cx(styles.legend, className)}
-      {...props}
-    />
-  );
-}
-
-export type FieldGroupProps = ComponentProps<'div'>;
-
-export function FieldGroup({ className, ...props }: FieldGroupProps) {
-  return (
-    <div
-      data-slot="field-group"
-      className={cx(styles.group, className)}
-      {...props}
-    />
-  );
-}
 
 export type FieldProps = ComponentProps<'div'> & {
   orientation?: FieldOrientation;
@@ -114,7 +59,7 @@ export type FieldProps = ComponentProps<'div'> & {
   /**
    * Controlled error — when provided, takes priority over any internal
    * state set by descendant controls. Useful for piping a
-   * `validateField` result onto a Field that wraps a raw `<Input>`.
+   * validation result onto a Field that wraps a raw `<Input>`.
    */
   error?: string | null;
   /**
@@ -441,30 +386,6 @@ export function FieldError({
       className={cx(styles.error, className)}
     >
       {content}
-    </div>
-  );
-}
-
-export type FieldSeparatorProps = ComponentProps<'div'> & {
-  children?: ReactNode;
-};
-
-export function FieldSeparator({
-  children,
-  className,
-  ...props
-}: FieldSeparatorProps) {
-  return (
-    <div
-      data-slot="field-separator"
-      data-content={children ? '' : undefined}
-      className={cx(styles.separator, className)}
-      {...props}
-    >
-      <span aria-hidden="true" className={styles.separatorLine} />
-      {children ? (
-        <span className={styles.separatorLabel}>{children}</span>
-      ) : null}
     </div>
   );
 }

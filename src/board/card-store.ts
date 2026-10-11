@@ -1,3 +1,8 @@
+/**
+ * Board cards are read from persisted rows; dependency edges retain audited revisions.
+ * Unlike workflow writers, this module does not create or mutate card fields.
+ * Gateway board views and budget summaries share this persisted read model.
+ */
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
@@ -15,11 +20,7 @@ import {
   withMemoryDatabase,
   withMemoryDatabaseRuntimeRevisionStore,
 } from '../memory/db.js';
-import {
-  emitRuntimeEvent,
-  type RuntimeEventPayload,
-  subscribeRuntimeEvents,
-} from '../skills/skill-run-events.js';
+import { emitRuntimeEvent } from '../skills/skill-run-events.js';
 
 export const BOARD_CARD_COLUMNS = [
   'triage',
@@ -28,10 +29,7 @@ export const BOARD_CARD_COLUMNS = [
   'in_review',
   'done',
 ] as const;
-
-const BOARD_CARD_STATE_VERSION = 1;
 const BOARD_EDGE_STATE_VERSION = 1;
-const BOARD_CARD_ASSET_PREFIX = 'board/cards';
 const BOARD_EDGE_ASSET_PREFIX = 'board/edges';
 const SOURCE_PREFIXES = ['autopilot', 'a2a', 'workflow'] as const;
 const SOURCE_ID_RE = /^(?!.*\.\.)[a-zA-Z0-9_.-]+$/;
@@ -83,23 +81,6 @@ export interface Edge {
   createdBy: BoardCardActor;
 }
 
-export interface CreateCardInput {
-  id?: string;
-  title: string;
-  body?: string;
-  owner: BoardCardOwner;
-  column?: BoardCardColumn;
-  status?: string;
-  source?: BoardCardSource;
-  parent?: string | null;
-}
-
-export type UpdateCardPatch = Partial<
-  Pick<Card, 'title' | 'body' | 'owner' | 'column' | 'status' | 'source'> & {
-    parent: string | null;
-  }
->;
-
 export interface ListCardsFilter {
   column?: BoardCardColumn;
   owner?: BoardCardOwner;
@@ -115,19 +96,6 @@ export interface BoardCardMutationContext {
   sessionId?: string | null;
   runId?: string | null;
   meta?: RuntimeConfigChangeMeta;
-}
-
-export interface BoardCardFieldDiff {
-  before: unknown;
-  after: unknown;
-}
-
-export interface BoardCardMutationEvent extends AuditEventPayload {
-  type: 'board.card_created' | 'board.card_updated' | 'board.card_deleted';
-  actor: BoardCardActor;
-  cardId: string;
-  diff: Record<string, BoardCardFieldDiff>;
-  at: string;
 }
 
 export interface BoardEdgeMutationEvent extends AuditEventPayload {
@@ -164,11 +132,6 @@ interface BoardEdgeRow {
   created_by: string;
 }
 
-interface PersistedBoardCardState {
-  version: typeof BOARD_CARD_STATE_VERSION;
-  card: Card;
-}
-
 interface StoredBoardCardEdge {
   id: string;
   fromCardId: string;
@@ -183,31 +146,6 @@ interface PersistedBoardEdgeState {
   edge: StoredBoardCardEdge;
 }
 
-export type BoardCardSubscriber = (event: BoardCardMutationEvent) => unknown;
-
-function isBoardCardMutationEvent(
-  event: RuntimeEventPayload,
-): event is BoardCardMutationEvent {
-  return (
-    event.type === 'board.card_created' ||
-    event.type === 'board.card_updated' ||
-    event.type === 'board.card_deleted'
-  );
-}
-
-export function subscribeBoardCardEvents(
-  subscriber: BoardCardSubscriber,
-): () => void {
-  return subscribeRuntimeEvents((event) => {
-    if (!isBoardCardMutationEvent(event)) return;
-    subscriber(event);
-  });
-}
-
-function boardCardAssetPath(id: string): string {
-  return path.join(BOARD_CARD_ASSET_PREFIX, `${encodeURIComponent(id)}.json`);
-}
-
 function boardEdgeAssetPath(id: string): string {
   return path.join(BOARD_EDGE_ASSET_PREFIX, `${encodeURIComponent(id)}.json`);
 }
@@ -216,14 +154,6 @@ function normalizeNonEmptyString(value: unknown, field: string): string {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) throw new Error(`${field} is required.`);
   return normalized;
-}
-
-function normalizeOptionalString(value: unknown, field: string): string | null {
-  if (value == null) return null;
-  if (typeof value !== 'string') {
-    throw new Error(`${field} must be a string.`);
-  }
-  return value.trim() || null;
 }
 
 function normalizeOptionalNonNegativeInteger(
@@ -455,32 +385,11 @@ function orientStoredEdgeForInput(
   };
 }
 
-function serializeCardState(card: Card): string {
-  return JSON.stringify({
-    version: BOARD_CARD_STATE_VERSION,
-    card,
-  } satisfies PersistedBoardCardState);
-}
-
 function serializeEdgeState(edge: StoredBoardCardEdge): string {
   return JSON.stringify({
     version: BOARD_EDGE_STATE_VERSION,
     edge,
   } satisfies PersistedBoardEdgeState);
-}
-
-function parseCardState(raw: string): Card {
-  const parsed = parseJsonObject(raw, 'Board card revision');
-  const state = parsed as Partial<PersistedBoardCardState>;
-  if (state.version !== BOARD_CARD_STATE_VERSION) {
-    throw new Error(
-      `Board card revision version must be ${BOARD_CARD_STATE_VERSION}.`,
-    );
-  }
-  if (!state.card || typeof state.card !== 'object') {
-    throw new Error('Board card revision card is required.');
-  }
-  return normalizeCardForPersistence(state.card as Card);
 }
 
 function parseEdgeState(raw: string): StoredBoardCardEdge {
@@ -495,24 +404,6 @@ function parseEdgeState(raw: string): StoredBoardCardEdge {
     throw new Error('Board edge revision edge is required.');
   }
   return normalizeStoredEdgeForPersistence(state.edge as StoredBoardCardEdge);
-}
-
-function normalizeCardForPersistence(card: Card): Card {
-  return {
-    id: normalizeNonEmptyString(card.id, 'id'),
-    title: normalizeNonEmptyString(card.title, 'title'),
-    body: typeof card.body === 'string' ? card.body : '',
-    owner: normalizeOwner(card.owner).owner,
-    column: normalizeColumn(card.column),
-    status: normalizeNonEmptyString(card.status, 'status'),
-    source: normalizeSource(card.source),
-    parent: normalizeOptionalString(card.parent, 'parent'),
-    createdAt: normalizeNonEmptyString(card.createdAt, 'createdAt'),
-    updatedAt: normalizeNonEmptyString(card.updatedAt, 'updatedAt'),
-    deletedAt: card.deletedAt
-      ? normalizeNonEmptyString(card.deletedAt, 'deletedAt')
-      : null,
-  };
 }
 
 function normalizeStoredEdgeForPersistence(
@@ -556,49 +447,6 @@ function canonicalizeEdgeInput(
   return { fromCardId, toCardId, kind };
 }
 
-function diffCards(
-  before: Card | null,
-  after: Card | null,
-): Record<string, BoardCardFieldDiff> {
-  const fields = [
-    'id',
-    'title',
-    'body',
-    'owner',
-    'column',
-    'status',
-    'source',
-    'parent',
-    'createdAt',
-    'updatedAt',
-    'deletedAt',
-  ] as const;
-  const diff: Record<string, BoardCardFieldDiff> = {};
-  for (const field of fields) {
-    const beforeValue = before?.[field] ?? null;
-    const afterValue = after?.[field] ?? null;
-    const equal =
-      field === 'owner'
-        ? JSON.stringify(beforeValue) === JSON.stringify(afterValue)
-        : beforeValue === afterValue;
-    if (equal) continue;
-    diff[field] = { before: beforeValue, after: afterValue };
-  }
-  return diff;
-}
-
-function emitBoardCardEvent(
-  event: BoardCardMutationEvent,
-  context?: BoardCardMutationContext,
-): void {
-  emitRuntimeEvent(event);
-  recordAuditEvent({
-    sessionId: context?.sessionId?.trim() || 'board',
-    runId: context?.runId?.trim() || makeAuditRunId('board-card'),
-    event,
-  });
-}
-
 function emitBoardEdgeEvent(
   event: BoardEdgeMutationEvent,
   context?: BoardCardMutationContext,
@@ -609,30 +457,6 @@ function emitBoardEdgeEvent(
     runId: context?.runId?.trim() || makeAuditRunId('board-edge'),
     event,
   });
-}
-
-function syncCardRevisionState(
-  database: Database.Database,
-  revisionSchemaName: string,
-  card: Card,
-  context: BoardCardMutationContext | undefined,
-): void {
-  syncRuntimeAssetRevisionStateInOpenDatabase(
-    database,
-    'board_card',
-    boardCardAssetPath(card.id),
-    {
-      actor: formatActorForRevision(context?.actor),
-      route: context?.meta?.route || 'board.card-store',
-      source: context?.meta?.source || card.source,
-    },
-    {
-      exists: true,
-      content: serializeCardState(card),
-    },
-    card.updatedAt,
-    { schemaName: revisionSchemaName },
-  );
 }
 
 function syncEdgeRevisionState(
@@ -666,45 +490,6 @@ function formatActorForRevision(actor?: BoardCardActorInput | null): string {
   const normalized = normalizeActor(actor);
   if ('system' in normalized) return `system:${normalized.system}`;
   return `${normalized.type}:${normalized.id}`;
-}
-
-function insertOrReplaceCard(database: Database.Database, card: Card): Card {
-  const normalized = normalizeCardForPersistence(card);
-  const owner = normalizeOwner(normalized.owner);
-  database
-    .prepare(
-      `INSERT INTO board_cards (
-         id, title, body, owner, owner_type, owner_id, "column", status, source, parent, created_at, updated_at, deleted_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         title = excluded.title,
-         body = excluded.body,
-         owner = excluded.owner,
-         owner_type = excluded.owner_type,
-         owner_id = excluded.owner_id,
-         "column" = excluded."column",
-         status = excluded.status,
-         source = excluded.source,
-         parent = excluded.parent,
-         updated_at = excluded.updated_at,
-         deleted_at = excluded.deleted_at`,
-    )
-    .run(
-      normalized.id,
-      normalized.title,
-      normalized.body,
-      owner.ownerJson,
-      owner.ownerType,
-      owner.ownerId,
-      normalized.column,
-      normalized.status,
-      normalized.source,
-      normalized.parent,
-      normalized.createdAt,
-      normalized.updatedAt,
-      normalized.deletedAt,
-    );
-  return normalized;
 }
 
 function selectCard(
@@ -886,53 +671,6 @@ function insertOrReplaceStoredEdge(
   return normalized;
 }
 
-export function createCard(
-  input: CreateCardInput,
-  context?: BoardCardMutationContext,
-): Card {
-  const timestamp = new Date().toISOString();
-  const card: Card = normalizeCardForPersistence({
-    id: input.id?.trim() || randomUUID(),
-    title: input.title,
-    body: input.body ?? '',
-    owner: input.owner,
-    column: input.column ?? 'triage',
-    status: input.status ?? 'queued',
-    source: input.source ?? 'manual',
-    parent: input.parent ?? null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    deletedAt: null,
-  });
-
-  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
-    const created = database.transaction(() => {
-      if (selectCard(database, card.id, { includeDeleted: true })) {
-        throw new Error(`Board card already exists: ${card.id}`);
-      }
-      const stored = insertOrReplaceCard(database, card);
-      syncCardRevisionState(database, revisionSchema, stored, context);
-      return stored;
-    })();
-    emitBoardCardEvent(
-      {
-        type: 'board.card_created',
-        actor: normalizeActor(context?.actor),
-        cardId: created.id,
-        diff: diffCards(null, created),
-        at: created.updatedAt,
-      },
-      context,
-    );
-    return created;
-  });
-}
-
-export function getCard(id: string): Card | null {
-  const normalizedId = normalizeNonEmptyString(id, 'id');
-  return withMemoryDatabase((database) => selectCard(database, normalizedId));
-}
-
 export function addEdge(
   fromCardId: string,
   toCardId: string,
@@ -1065,8 +803,6 @@ export function isBlocked(cardId: string): boolean {
   });
 }
 
-// This store is intentionally last-write-wins. R29.9 owns column/state-machine
-// conflict validation; this layer only persists the newest accepted mutation.
 export function listCards(filter: ListCardsFilter = {}): Card[] {
   return withMemoryDatabase((database) => {
     const clauses: string[] = [];
@@ -1128,145 +864,11 @@ export function listActiveCardAgentOwnerIds(): string[] {
   );
 }
 
-export function updateCard(
-  id: string,
-  patch: UpdateCardPatch,
-  context?: BoardCardMutationContext,
-): Card {
-  const normalizedId = normalizeNonEmptyString(id, 'id');
-  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
-    const { before, after } = database.transaction(() => {
-      const current = selectCard(database, normalizedId);
-      if (!current) throw new Error(`Board card not found: ${normalizedId}`);
-      const definedPatch = Object.fromEntries(
-        Object.entries(patch).filter(([, value]) => value !== undefined),
-      ) as UpdateCardPatch;
-      const next = normalizeCardForPersistence({
-        ...current,
-        ...definedPatch,
-        updatedAt: new Date().toISOString(),
-      });
-      const stored = insertOrReplaceCard(database, next);
-      syncCardRevisionState(database, revisionSchema, stored, context);
-      return { before: current, after: stored };
-    })();
-    emitBoardCardEvent(
-      {
-        type: 'board.card_updated',
-        actor: normalizeActor(context?.actor),
-        cardId: after.id,
-        diff: diffCards(before, after),
-        at: after.updatedAt,
-      },
-      context,
-    );
-    return after;
-  });
-}
-
-export function deleteCard(
-  id: string,
-  context?: BoardCardMutationContext,
-): Card {
-  const normalizedId = normalizeNonEmptyString(id, 'id');
-  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
-    const { before, after } = database.transaction(() => {
-      const current = selectCard(database, normalizedId);
-      if (!current) throw new Error(`Board card not found: ${normalizedId}`);
-      const now = new Date().toISOString();
-      const deleted = normalizeCardForPersistence({
-        ...current,
-        updatedAt: now,
-        deletedAt: now,
-      });
-      const stored = insertOrReplaceCard(database, deleted);
-      syncCardRevisionState(database, revisionSchema, stored, context);
-      return { before: current, after: stored };
-    })();
-    emitBoardCardEvent(
-      {
-        type: 'board.card_deleted',
-        actor: normalizeActor(context?.actor),
-        cardId: after.id,
-        diff: diffCards(before, after),
-        at: after.updatedAt,
-      },
-      context,
-    );
-    return after;
-  });
-}
-
-export function listCardRevisions(id: string) {
-  return listRuntimeAssetRevisions(
-    'board_card',
-    boardCardAssetPath(normalizeNonEmptyString(id, 'id')),
-  );
-}
-
 export function listEdgeRevisions(id: string) {
   return listRuntimeAssetRevisions(
     'board_edge',
     boardEdgeAssetPath(normalizeNonEmptyString(id, 'id')),
   );
-}
-
-export function restoreCardRevision(
-  id: string,
-  revisionId: number,
-  context?: BoardCardMutationContext,
-): Card {
-  const normalizedId = normalizeNonEmptyString(id, 'id');
-  const revision = getRuntimeAssetRevision(
-    'board_card',
-    boardCardAssetPath(normalizedId),
-    revisionId,
-  );
-  if (!revision) {
-    throw new Error(
-      `Board card revision ${revisionId} was not found for ${normalizedId}.`,
-    );
-  }
-  const restored = parseCardState(revision.content);
-  if (restored.id !== normalizedId) {
-    throw new Error(`Board card revision belongs to ${restored.id}.`);
-  }
-  if (restored.deletedAt) {
-    throw new Error(`Board card revision ${revisionId} is a deleted snapshot.`);
-  }
-
-  return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
-    const { before, after } = database.transaction(() => {
-      const current = selectCard(database, normalizedId, {
-        includeDeleted: true,
-      });
-      const next = normalizeCardForPersistence({
-        ...restored,
-        updatedAt: new Date().toISOString(),
-      });
-      const stored = insertOrReplaceCard(database, next);
-      syncCardRevisionState(database, revisionSchema, stored, {
-        ...context,
-        meta: {
-          actor: context?.meta?.actor,
-          route: context?.meta?.route || `board.card.rollback#${revisionId}`,
-          source: context?.meta?.source || 'rollback',
-        },
-      });
-      return { before: current, after: stored };
-    })();
-    emitBoardCardEvent(
-      {
-        type: 'board.card_updated',
-        actor: normalizeActor(context?.actor),
-        cardId: after.id,
-        diff: diffCards(before, after),
-        at: after.updatedAt,
-      },
-      context,
-    );
-    return after;
-  });
 }
 
 export function restoreEdgeRevision(

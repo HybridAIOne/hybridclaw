@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import { expect, test, vi } from 'vitest';
+import { seedBoardCard } from './helpers/board-card-fixtures.js';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
 const { runAgentMock } = vi.hoisted(() => ({
@@ -24,7 +26,8 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 
 useCleanMocks({
   restoreAllMocks: true,
-  cleanup: () => {
+  cleanup: async () => {
+    await cleanupGatewayRuntime();
     runAgentMock.mockReset();
     restoreEnvVar('HOME', ORIGINAL_HOME);
   },
@@ -458,24 +461,27 @@ test('admin jobs context includes board cards and dependency edges', async () =>
   process.env.HOME = homeDir;
   vi.resetModules();
 
-  const { initDatabase } = await import('../src/memory/db.ts');
-  const { createCard, addEdge } = await import('../src/board/card-store.ts');
+  const dbModule = await import('../src/memory/db.ts');
+  const { initDatabase } = dbModule;
+  const { addEdge } = await import('../src/board/card-store.ts');
   const { getGatewayAdminJobsContext } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
-  createCard({
+  seedBoardCard(dbModule, {
     id: 'edge-blocker',
     title: 'Edge blocker',
     owner: { agentId: 'main' },
+    createdAt: '2026-05-22T10:00:00.000Z',
   });
-  createCard({
+  seedBoardCard(dbModule, {
     id: 'edge-blocked',
     title: 'Edge blocked',
     body: 'Waiting on another card.',
     owner: { agentId: 'main' },
     column: 'in_review',
+    createdAt: '2026-05-22T10:00:01.000Z',
   });
   addEdge('edge-blocker', 'edge-blocked', 'blocks');
 
