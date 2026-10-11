@@ -14,7 +14,10 @@ import { listKnownToolNames } from '../agent/tool-summary.js';
 import { logger } from '../logger.js';
 import { reinstallPlugin } from '../plugins/plugin-install.js';
 import { isRecord } from '../utils/type-guards.js';
-import { CLOUD_DISABLED_SKILLS } from './cloud-defaults.js';
+import {
+  CLOUD_DISABLED_SKILLS,
+  CLOUD_QUICK_DECISION_MODEL,
+} from './cloud-defaults.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
@@ -133,9 +136,21 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
     );
   }
 
+  const { deployment, auxiliaryModels } = getRuntimeConfig();
+  const cloud = deployment.mode === 'cloud';
+  // A model someone chose stays; an empty one gets the cloud default.
+  const seedsQuickDecision = cloud && !auxiliaryModels.quick_decision.model;
+  if (seedsQuickDecision) {
+    updateRuntimeConfig(
+      (draft) => {
+        draft.auxiliaryModels.quick_decision.model = CLOUD_QUICK_DECISION_MODEL;
+      },
+      { route: SEED_ACTOR, source: 'internal' },
+    );
+  }
+
   const disabledSkills = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
-  const cloudSkills =
-    getRuntimeConfig().deployment.mode === 'cloud' ? CLOUD_DISABLED_SKILLS : [];
+  const cloudSkills = cloud ? CLOUD_DISABLED_SKILLS : [];
   const skillsToDisable = [
     ...new Set([...seed.disabledSkills, ...cloudSkills]),
   ].filter((name) => !disabledSkills.has(name));
@@ -188,6 +203,9 @@ export async function applyConfigSeed(seed: ConfigSeed): Promise<void> {
   logger.info(
     {
       changedKeys,
+      ...(seedsQuickDecision
+        ? { quickDecisionModel: CLOUD_QUICK_DECISION_MODEL }
+        : {}),
       disabledTools: toolsToDisable,
       disabledSkills: skillsToDisable,
       plugins: seed.plugins,

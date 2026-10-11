@@ -478,7 +478,10 @@ Session behavior matches the routing rules above:
   without provider fallback and keep no session; with no model configured they
   use the default model, and a failed call returns 503 `auxiliary_unavailable`.
   `response_format: {"type": "json_object"}` asks the auxiliary model for JSON
-  mode, which keeps small models from wrapping the answer in a code block. `model: "regular"` uses
+  mode, which keeps small models from wrapping the answer in a code block.
+  Cloud deployments (`deployment.mode: "cloud"`) seed an empty
+  `auxiliaryModels.quick_decision.model` with gemma-4-e4b on HybridAI's own GPU
+  (`hybridai/vllm:haigpu2:google/gemma-4-e4b-it`); a model set there stays. `model: "regular"` uses
   the default agent's regular model. Both use only the supplied messages and
   expose no tools. Avatar selection and idea categorization advance explicitly
   from the on-device model to auxiliary to regular when an answer fails validation;

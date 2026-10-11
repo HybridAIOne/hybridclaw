@@ -3,7 +3,10 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CLOUD_DISABLED_SKILLS } from '../src/config/cloud-defaults.js';
+import {
+  CLOUD_DISABLED_SKILLS,
+  CLOUD_QUICK_DECISION_MODEL,
+} from '../src/config/cloud-defaults.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 
 const makeTempDir = useTempDir('hybridclaw-config-seed-');
@@ -177,6 +180,22 @@ it('adds new cloud exclusions to an existing cloud sandbox on the next boot', as
   expect(getRuntimeSkillScopeDisabledNames(getRuntimeConfig())).toContain('hue');
 });
 
+it('gives cloud quick decisions their default model and keeps a chosen one', async () => {
+  const { applyConfigSeed, getRuntimeConfig, updateRuntimeConfig } =
+    await importSeed();
+  await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
+  expect(getRuntimeConfig().auxiliaryModels.quick_decision.model).toBe(
+    CLOUD_QUICK_DECISION_MODEL,
+  );
+  updateRuntimeConfig((draft) => {
+    draft.auxiliaryModels.quick_decision.model = 'hybridai/gpt-6-luna';
+  });
+  await applyConfigSeed({ ...CLOUD_SEED, plugins: [] });
+  expect(getRuntimeConfig().auxiliaryModels.quick_decision.model).toBe(
+    'hybridai/gpt-6-luna',
+  );
+});
+
 it('leaves local deployment skill choices intact', async () => {
   const {
     applyConfigSeed,
@@ -191,6 +210,7 @@ it('leaves local deployment skill choices intact', async () => {
   });
   const disabled = getRuntimeSkillScopeDisabledNames(getRuntimeConfig());
   for (const name of CLOUD_DISABLED_SKILLS) expect(disabled).not.toContain(name);
+  expect(getRuntimeConfig().auxiliaryModels.quick_decision.model).toBe('');
 });
 
 it('seeds installed plugin config while preserving other plugins and choices', async () => {

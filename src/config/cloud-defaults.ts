@@ -19,3 +19,8 @@ export const CLOUD_DISABLED_SKILLS = [
   'obsidian',
   'shelly',
 ] as const;
+
+// Owner call, 2026-10-11: Hy's app decisions run on HybridAI's own GPU. On the
+// apps' prompts it answered in 0.56 s (median) against 1.42 s for gpt-6-luna.
+export const CLOUD_QUICK_DECISION_MODEL =
+  'hybridai/vllm:haigpu2:google/gemma-4-e4b-it';
