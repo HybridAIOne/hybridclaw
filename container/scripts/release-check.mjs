@@ -1,18 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
 
-const requiredExactPaths = [
-  'package.json',
-  'dist/index.js',
-  // dist imports ../shared/*.js, which `tsc -b` emits next to each source.
-  ...fs
-    .readdirSync('shared')
-    .filter((name) => name.endsWith('.ts') && !name.endsWith('.d.ts'))
-    .map((name) => `shared/${name.slice(0, -'.ts'.length)}.js`),
-];
-const requiredPrefixes = ['dist/'];
+const requiredExactPaths = ['package.json', 'dist/index.js'];
+const requiredPrefixes = ['dist/', 'shared/dist/'];
 
 const forbiddenPathPatterns = [
   /^src\//,

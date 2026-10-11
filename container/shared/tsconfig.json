@@ -4,8 +4,9 @@
     "lib": ["ES2022", "ES2024.String"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "rootDir": ".",
-    "outDir": ".",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "composite": true,
     "strict": true,
     "skipLibCheck": true,
@@ -14,6 +15,5 @@
     "noUnusedParameters": true,
     "types": ["node"]
   },
-  "include": ["*.ts"],
-  "exclude": ["*.d.ts"]
+  "include": ["src/**/*"]
 }

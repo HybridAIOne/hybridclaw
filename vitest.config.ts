@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { containerSharedSources } from './scripts/vite-container-shared-sources.ts';
+import { containerSharedAlias } from './scripts/container-shared-alias.ts';
 
 /**
  * Shared test settings inherited by every project. Coverage lives at the
@@ -51,7 +51,7 @@ export default defineConfig({
     },
     projects: [
       {
-        plugins: [containerSharedSources()],
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'unit',
@@ -67,7 +67,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [containerSharedSources()],
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'integration',
@@ -77,7 +77,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [containerSharedSources()],
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'e2e',
@@ -87,7 +87,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [containerSharedSources()],
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'install-e2e',
@@ -96,7 +96,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [containerSharedSources()],
+        resolve: { alias: containerSharedAlias },
         test: {
           ...sharedTestConfig,
           name: 'live',

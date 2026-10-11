@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isValidTimezone } from '../../container/shared/workspace-time.js';
+import { isValidTimezone } from '#shared/workspace-time.js';
 import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
 import { resolveWorkspaceRelativePath } from '../gateway/gateway-utils.js';

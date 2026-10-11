@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
+import { isDynamicContextMessageText } from '#shared/dynamic-context.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import { stopSessionExecution } from '../agent/executor.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';

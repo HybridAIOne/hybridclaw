@@ -2,7 +2,7 @@ import type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '../shared/web-search-config.js';
+} from '#shared/web-search-config.js';
 import {
   decodeEntities,
   dedupeResults,
@@ -82,7 +82,7 @@ export type {
   SearchProviderMode,
   SearchProviderName,
   WebSearchConfig,
-} from '../shared/web-search-config.js';
+} from '#shared/web-search-config.js';
 
 export type SearchFreshness = 'day' | 'week' | 'month' | 'year';
 

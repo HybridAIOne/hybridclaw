@@ -20,7 +20,7 @@ import {
   parseApprovalTrustStore,
   revokeApprovalTrust,
   serializeApprovalTrustStore,
-} from '../../container/shared/approval-rules.js';
+} from '#shared/approval-rules.js';
 import { APPROVALS_RULES_USAGE } from '../approval-commands.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type { Session } from '../types/session.js';

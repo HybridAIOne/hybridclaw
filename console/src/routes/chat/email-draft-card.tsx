@@ -8,7 +8,7 @@ import {
   type EmailDraft,
   emailDraftText,
   normalizeEmailDraft,
-} from '../../../../container/shared/email-draft.js';
+} from '#shared/email-draft.js';
 import { Button } from '../../components/button';
 import css from './review-card.module.css';
 

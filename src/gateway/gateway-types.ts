@@ -1,7 +1,7 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
-import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
+import type { MessageEmailDraft } from '#shared/email-draft.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
 import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2AIncomingPairingRequest } from '../a2a/pairing.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';

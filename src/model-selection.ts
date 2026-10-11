@@ -1,4 +1,4 @@
-import { escapeRegExp } from '../container/shared/regex.js';
+import { escapeRegExp } from '#shared/regex.js';
 
 export function normalizeModelCandidates(models: string[]): string[] {
   const deduped = new Set<string>();

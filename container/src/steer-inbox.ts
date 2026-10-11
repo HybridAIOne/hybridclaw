@@ -9,7 +9,7 @@
  * the gateway delivered is never left behind by a turn that finished.
  *
  * NOT the gateway's half (src/infra/steer-inbox.ts) and NOT the on-disk
- * format (shared/steer-inbox.ts). Notes of a turn that fails or is stopped
+ * format (shared/src/steer-inbox.ts). Notes of a turn that fails or is stopped
  * are dropped with it, as its other work is.
  */
 import fs from 'node:fs';
@@ -19,7 +19,7 @@ import {
   closedSteerInboxDirName,
   type SteerNote,
   steerInboxDirName,
-} from '../shared/steer-inbox.js';
+} from '#shared/steer-inbox.js';
 import { decodeSteerNoteFile } from './ipc.js';
 import { IPC_DIR } from './runtime-paths.js';
 import type { ChatMessage, ToolCall } from './types.js';

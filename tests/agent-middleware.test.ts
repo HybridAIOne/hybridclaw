@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { applyClassifierMiddlewareSync } from '../container/shared/middleware-runner.js';
+import { applyClassifierMiddlewareSync } from '#shared/middleware-runner.js';
 import { createConfidentialLeakMiddlewareSkill } from '../src/agent/confidential-middleware.js';
 import { applyClassifierMiddleware } from '../src/agent/middleware.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';

@@ -5,7 +5,7 @@ import {
   currentDateStampInTimezone,
   nextDateBoundaryInTimezone,
   readUserTimezoneFile,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import { resolveDefaultAgentId } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';

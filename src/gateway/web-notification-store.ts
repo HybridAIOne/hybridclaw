@@ -13,7 +13,7 @@ import type {
   WebNotificationPreferences,
   WebNotificationState,
   WebPushSubscription,
-} from '../../container/shared/web-notifications.js';
+} from '#shared/web-notifications.js';
 import { DATA_DIR } from '../config/config.js';
 
 interface OperatorState {

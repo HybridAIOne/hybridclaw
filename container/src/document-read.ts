@@ -4,7 +4,7 @@
  * Path/approval decisions remain with read-path and tools, not this decoder.
  */
 import fs from 'node:fs/promises';
-import { saveVisualSnapshot } from '../shared/visual-snapshots.js';
+import { saveVisualSnapshot } from '#shared/visual-snapshots.js';
 import { readPdfFile } from './pdf-read.js';
 import { WORKSPACE_ROOT } from './runtime-paths.js';
 import type { ToolRunResult } from './types.js';

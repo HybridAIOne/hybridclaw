@@ -6,9 +6,9 @@
  * historical calls never grant permissions or approvals; replay never repeats side effects.
  */
 import path from 'node:path';
-import type { BoostAnswer, BoostOffer } from '../shared/boost-offer.js';
-import { normalizeLocalContextMode } from '../shared/local-tool-config.js';
-import { isRetrySafeRun } from '../shared/retry-safety.js';
+import type { BoostAnswer, BoostOffer } from '#shared/boost-offer.js';
+import { normalizeLocalContextMode } from '#shared/local-tool-config.js';
+import { isRetrySafeRun } from '#shared/retry-safety.js';
 import {
   setApprovalEmailSender,
   setUserMailContext,

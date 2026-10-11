@@ -12,7 +12,7 @@ import {
   fetchMlxWithIdleTimeout,
   MLX_IDLE_TIMEOUT_MS,
   MLX_MAX_RELAY_BYTES,
-} from '../../shared/mlx-http.js';
+} from '#shared/mlx-http.js';
 
 export async function fetchMlx(
   url: string,

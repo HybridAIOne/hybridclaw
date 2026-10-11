@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { encodeAuthenticatedInput } from '../container/shared/ipc-input-auth.js';
-import { ipcOutputFileName } from '../container/shared/ipc-output-files.js';
-import { IPC_RECONCILE_INTERVAL_MS } from '../container/shared/ipc-wakeup.js';
+import { encodeAuthenticatedInput } from '#shared/ipc-input-auth.js';
+import { ipcOutputFileName } from '#shared/ipc-output-files.js';
+import { IPC_RECONCILE_INTERVAL_MS } from '#shared/ipc-wakeup.js';
 import { mockIpcWatcher } from './helpers/ipc-watcher.js';
 import { useCleanMocks, useTempDir } from './test-utils.js';
 

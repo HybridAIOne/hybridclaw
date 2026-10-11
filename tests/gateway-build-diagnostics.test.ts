@@ -24,7 +24,7 @@ function writeBuildOutputs(root: string): void {
     'dist/gateway/gateway-service.js',
     'dist/gateway/gateway-http-proxy.js',
     'container/dist/tools.js',
-    'container/shared/network-policy.js',
+    'container/shared/dist/network-policy.js',
   ]) {
     writeFile(root, buildPath, BUILD_TIME);
   }
@@ -36,7 +36,7 @@ function writeSourceCheckout(root: string, containerToolsMtime: Date): void {
   writeFile(root, 'src/gateway/gateway-service.ts', BEFORE_BUILD);
   writeFile(root, 'src/gateway/gateway-http-proxy.ts', BEFORE_BUILD);
   writeFile(root, 'container/src/tools.ts', containerToolsMtime);
-  writeFile(root, 'container/shared/network-policy.ts', BEFORE_BUILD);
+  writeFile(root, 'container/shared/src/network-policy.ts', BEFORE_BUILD);
 }
 
 test('packaged install is not stale even when shipped container sources look newer', () => {
@@ -80,7 +80,7 @@ test('freshly built source checkout is not stale', () => {
 test('source checkout with container/shared edited after the build is stale', () => {
   const root = makeTempDir();
   writeSourceCheckout(root, BEFORE_BUILD);
-  writeFile(root, 'container/shared/network-policy.ts', AFTER_BUILD);
+  writeFile(root, 'container/shared/src/network-policy.ts', AFTER_BUILD);
 
   const build = getGatewayBuildDiagnostics(root);
 

@@ -10,14 +10,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import { isDynamicContextMessageText } from '../../container/shared/dynamic-context.js';
-import { buildMcpServerNamespaces } from '../../container/shared/mcp-tool-namespaces.js';
-import { getSupportedReasoningEfforts } from '../../container/shared/reasoning-effort.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
+import { isDynamicContextMessageText } from '#shared/dynamic-context.js';
+import { buildMcpServerNamespaces } from '#shared/mcp-tool-namespaces.js';
+import { getSupportedReasoningEfforts } from '#shared/reasoning-effort.js';
 import {
   currentDateStampInTimezone,
   extractUserTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { fetchA2AAgentCard } from '../a2a/a2a-agent-card.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {

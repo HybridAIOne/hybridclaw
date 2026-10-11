@@ -66,7 +66,7 @@ making any model calls (replace both occurrences of `site-name`):
 ```bash
 node --import tsx --input-type=module -e '
 import { loadMiniSkillInstructions } from "./src/skills/mini-skills.ts";
-import { MAX_MINI_SKILL_CHARS } from "./container/shared/skill-catalog.ts";
+import { MAX_MINI_SKILL_CHARS } from "./container/shared/src/skill-catalog.ts";
 const body = loadMiniSkillInstructions({ name: "site-name", mini: true,
   filePath: "skills/site-name/SKILL.md" });
 if (!body) throw new Error("Card is empty, unreadable, or too long.");

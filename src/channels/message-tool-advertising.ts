@@ -3,7 +3,7 @@ import {
   MESSAGE_TOOL_CHANNEL_KINDS,
   type MessageToolChannelKind,
   normalizeMessageToolChannelKinds,
-} from '../../container/shared/message-tool-channels.js';
+} from '#shared/message-tool-channels.js';
 import { listChannels } from './channel-registry.js';
 
 export type { MessageToolChannelKind };

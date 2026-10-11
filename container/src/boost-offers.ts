@@ -12,8 +12,8 @@
  * becomes session, agent or workspace trust.
  */
 import fs from 'node:fs';
-import type { BoostOffer } from '../shared/boost-offer.js';
-import { parseBoostOffer } from '../shared/boost-offer.js';
+import type { BoostOffer } from '#shared/boost-offer.js';
+import { parseBoostOffer } from '#shared/boost-offer.js';
 import {
   type ApprovalPrelude,
   latestUserMessageText,

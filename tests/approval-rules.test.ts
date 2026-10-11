@@ -6,7 +6,7 @@ import {
   grantApprovalTrust,
   parseApprovalTrustStore,
   revokeApprovalTrust,
-} from '../container/shared/approval-rules.js';
+} from '#shared/approval-rules.js';
 import { TrustedAgentApprovalRuntime } from '../container/src/approval-policy.js';
 import { buildPendingApproval } from '../container/src/tool-approval.js';
 import { parseApprovalProgress } from '../src/infra/approval-progress.js';

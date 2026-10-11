@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
-import type { ApprovalMode as SessionApprovalMode } from '../shared/approval-mode.js';
+import type { ApprovalMode as SessionApprovalMode } from '#shared/approval-mode.js';
 import {
   APPROVAL_TRUST_STORE_FILES,
   type ApprovalPauseCause,
@@ -18,21 +18,21 @@ import {
   LEGACY_AGENT_TRUST_STORE_FILE,
   parseApprovalTrustStore,
   serializeApprovalTrustStore,
-} from '../shared/approval-rules.js';
-import type { BoostAnswer } from '../shared/boost-offer.js';
-import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
+} from '#shared/approval-rules.js';
+import type { BoostAnswer } from '#shared/boost-offer.js';
+import { isAllowedHostlessBrowserNavigationUrl } from '#shared/browser-navigation.js';
 import {
   type BrowserStealthPolicyAccessEvaluation,
   type BrowserStealthPolicyState,
   evaluateBrowserStealthPolicyAccess,
   readBrowserStealthPolicyStateFromDocument,
-} from '../shared/browser-stealth-policy.js';
-import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
-import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
+} from '#shared/browser-stealth-policy.js';
+import type { ClassifierMiddlewareSkill } from '#shared/middleware-contract.js';
+import { applyClassifierMiddlewareSync } from '#shared/middleware-runner.js';
 import type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '#shared/network-policy.js';
 import {
   asRecord,
   DEFAULT_NETWORK_DEFAULT,
@@ -41,7 +41,7 @@ import {
   normalizeNetworkHostScope,
   normalizeNetworkPort,
   readNetworkPolicyState,
-} from '../shared/network-policy.js';
+} from '#shared/network-policy.js';
 import {
   messageToolEmailTarget,
   messageToolTarget,
@@ -116,12 +116,12 @@ import {
 export type {
   NetworkPolicyAction,
   NetworkRule,
-} from '../shared/network-policy.js';
+} from '#shared/network-policy.js';
 export {
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
-} from '../shared/network-policy.js';
+} from '#shared/network-policy.js';
 export type {
   StakesClassificationInput,
   StakesClassifier,

@@ -9,7 +9,7 @@
  * at it, which is how a later turn learns its scope was deleted.
  */
 import { randomBytes } from 'node:crypto';
-import { SCOPE_ID_RE } from '../../container/shared/scope-dirs.js';
+import { SCOPE_ID_RE } from '#shared/scope-dirs.js';
 import { withMemoryDatabase } from '../memory/database.js';
 import { queryAll, queryOne } from '../memory/sqlite.js';
 

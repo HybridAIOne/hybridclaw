@@ -11,7 +11,7 @@
  * A turn that runs a second request (model routing escalates) starts again
  * from the turn's messages, so each request is offered every note of the turn.
  * NOT the HTTP route (`gateway/chat-steer-route.ts`) and NOT the on-disk format
- * (`container/shared/steer-inbox.ts`).
+ * (`container/shared/src/steer-inbox.ts`).
  */
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -23,7 +23,7 @@ import {
   type SteerNote,
   steerInboxDirName,
   steerNoteFileName,
-} from '../../container/shared/steer-inbox.js';
+} from '#shared/steer-inbox.js';
 import { logger } from '../logger.js';
 
 interface BoundRequest {

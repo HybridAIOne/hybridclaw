@@ -12,7 +12,7 @@ import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
   isApprovalMode,
-} from '../../container/shared/approval-mode.js';
+} from '#shared/approval-mode.js';
 import {
   APPROVALS_MODE_USAGE,
   APPROVALS_RULES_USAGE,

@@ -9,7 +9,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import type { MessageEmailDraft } from '../../container/shared/email-draft.js';
+import type { MessageEmailDraft } from '#shared/email-draft.js';
 import { sanitizeToolHistory } from '../session/tool-history.js';
 import {
   type ActivityTrace,

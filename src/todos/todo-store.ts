@@ -18,7 +18,7 @@ import {
   currentDateStampInTimezone,
   isValidTimezone,
   resolveEffectiveTimezone,
-} from '../../container/shared/workspace-time.js';
+} from '#shared/workspace-time.js';
 import { SILENT_REPLY_TOKEN } from '../agent/silent-reply.js';
 import { DATA_DIR } from '../config/config.js';
 import { getSessionById } from '../memory/db.js';

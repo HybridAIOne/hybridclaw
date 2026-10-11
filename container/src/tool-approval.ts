@@ -6,7 +6,7 @@
  * (`approval-policy.ts`).
  */
 
-import { approvalRuleFor } from '../shared/approval-rules.js';
+import { approvalRuleFor } from '#shared/approval-rules.js';
 import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ApprovalPrelude,

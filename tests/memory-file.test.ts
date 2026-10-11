@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
-import { lockMemoryFile, writeMemoryFileAtomic } from '../container/shared/memory-file.js';
+import { lockMemoryFile, writeMemoryFileAtomic } from '#shared/memory-file.js';
 
 const directories: string[] = [];
 function temporaryFile() {
@@ -18,7 +18,7 @@ afterEach(() => {
 
 test('serializes read-modify-write across independent processes', async () => {
   const file = temporaryFile();
-  const moduleUrl = new URL('../container/shared/memory-file.ts', import.meta.url).href;
+  const moduleUrl = new URL('../container/shared/src/memory-file.ts', import.meta.url).href;
   await Promise.all(Array.from({ length: 8 }, (_, index) => new Promise<void>((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
       import fs from 'node:fs';

@@ -24,15 +24,15 @@ import {
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { type BoostAnswer, parseBoostOffer } from '../../shared/boost-offer.js';
+import { type BoostAnswer, parseBoostOffer } from '#shared/boost-offer.js';
 import {
   HYBRIDAI_MCP_SERVER_NAME,
   parseMcpToolBehaviorConfig,
-} from '../../shared/mcp-server-config.js';
+} from '#shared/mcp-server-config.js';
 import {
   buildMcpServerNamespaces,
   sanitizeMcpToolSegment,
-} from '../../shared/mcp-tool-namespaces.js';
+} from '#shared/mcp-tool-namespaces.js';
 import { emitRuntimeEvent } from '../extensions.js';
 import type { ToolDefinition, ToolRunResult } from '../types.js';
 import { classifyMcpTool, isResendSafe } from './tool-classifier.js';

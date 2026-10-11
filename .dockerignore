@@ -8,8 +8,7 @@ dist/
 bundle/
 container/dist/
 console/dist/
-container/shared/*.js
-container/shared/*.d.ts
+container/shared/dist/
 **/*.tsbuildinfo
 
 # Dependencies (reinstalled inside container)

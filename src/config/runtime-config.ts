@@ -13,15 +13,15 @@ import path from 'node:path';
 import {
   CONTEXT_GUARD_DEFAULTS,
   normalizeContextGuardConfig,
-} from '../../container/shared/context-guard-config.js';
+} from '#shared/context-guard-config.js';
 import {
   DEFAULT_LOCAL_STARTER_TOOLS,
   normalizeLocalContextMode,
   normalizeLocalStarredNames,
   normalizeLocalStarterTools,
   normalizeMcpToolMode,
-} from '../../container/shared/local-tool-config.js';
-import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
+} from '#shared/local-tool-config.js';
+import { parseMcpToolBehaviorConfig } from '#shared/mcp-server-config.js';
 import {
   type AgentConfig,
   type AgentDefaultsConfig,

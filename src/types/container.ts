@@ -1,8 +1,8 @@
-import type { ApprovalMode } from '../../container/shared/approval-mode.js';
-import type { ReasoningEffort } from '../../container/shared/reasoning-effort.js';
-import type { SessionAttachmentAccess } from '../../container/shared/session-attachment-access.js';
-import type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
-import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+import type { ApprovalMode } from '#shared/approval-mode.js';
+import type { ReasoningEffort } from '#shared/reasoning-effort.js';
+import type { SessionAttachmentAccess } from '#shared/session-attachment-access.js';
+import type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
+import type { WebSearchConfig } from '#shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -37,8 +37,8 @@ export interface MediaContextItem {
   unavailableReason?: string | null;
 }
 
-export type { SessionSkillCatalogEntry } from '../../container/shared/skill-catalog.js';
-export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
+export type { SessionSkillCatalogEntry } from '#shared/skill-catalog.js';
+export type { WebSearchConfig } from '#shared/web-search-config.js';
 
 export interface AddressEnvelope {
   to: string | string[];
@@ -52,7 +52,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see container/shared/ipc-output-files.ts. */
+  /** Names this request's reply file; see container/shared/src/ipc-output-files.ts. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -62,7 +62,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * container/shared/ipc-input-auth.ts); stripped by buildRedactedInput.
+   * container/shared/src/ipc-input-auth.ts); stripped by buildRedactedInput.
    */
   ipcAuthSecret?: string;
   baseUrl: string;

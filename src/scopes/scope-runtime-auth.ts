@@ -11,7 +11,7 @@
  * offered; this decides what the gateway does for a scope's worker.
  */
 import type { IncomingMessage } from 'node:http';
-import { SHELL_RUNTIME_ENV_PATH } from '../../container/shared/shell-runtime-env.js';
+import { SHELL_RUNTIME_ENV_PATH } from '#shared/shell-runtime-env.js';
 import { BROWSER_SIGN_IN_LOOKUP_PATH } from '../gateway/gateway-browser-sign-ins.js';
 import { readJsonBody } from '../gateway/gateway-http-utils.js';
 import { isDatabaseInitialized } from '../memory/database.js';

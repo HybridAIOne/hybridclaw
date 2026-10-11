@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config';
-import { containerSharedSources } from '../scripts/vite-container-shared-sources';
+import { containerSharedAlias } from '../scripts/container-shared-alias';
 
 export default defineConfig({
-  plugins: [containerSharedSources()],
+  resolve: { alias: containerSharedAlias },
   test: {
     environment: 'jsdom',
     globals: true,

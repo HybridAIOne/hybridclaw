@@ -830,7 +830,7 @@ tool-call rounds.
 
 Every executor request carries a random `requestId`. The agent writes its
 reply to `output-<requestId>.json` in the session IPC directory (naming in
-`container/shared/ipc-output-files.ts`), and `readOutput()` waits for that file
+`container/shared/src/ipc-output-files.ts`), and `readOutput()` waits for that file
 only:
 
 - A stopped agent's SIGTERM handler still answers its in-flight request, with
@@ -875,7 +875,7 @@ memory and never writes to disk or the environment.
 
 Every later turn arrives as `input.json` in the session IPC directory, which the
 agent can also reach. So the gateway wraps each follow-up in an authenticity
-envelope keyed by that secret (`container/shared/ipc-input-auth.ts`), and the
+envelope keyed by that secret (`container/shared/src/ipc-input-auth.ts`), and the
 agent runs a follow-up only when the envelope verifies against the secret it
 received on stdin. Input it cannot verify is dropped, never run.
 
@@ -888,7 +888,7 @@ echo and never turns a health file into a turn, so it needs no envelope.
 agent makes an inbox directory, `steer-<requestId>`, in the IPC directory when
 it takes a request of a user turn; the gateway delivers a note by renaming a
 finished file into it, signed with the per-worker secret like follow-up input
-(`container/shared/steer-inbox.ts`). An agent image without steering makes no
+(`container/shared/src/steer-inbox.ts`). An agent image without steering makes no
 inbox, so its turns refuse every note. The agent shows waiting notes to the
 model:
 

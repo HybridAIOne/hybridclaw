@@ -6,7 +6,7 @@
  * can become response ratings. The bound session operator owns both surfaces.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readSingleEmoji } from '../../container/shared/reactions.js';
+import { readSingleEmoji } from '#shared/reactions.js';
 import { logger } from '../logger.js';
 import { setMessageReaction } from '../memory/db.js';
 import type { ResponseRatingValue } from '../types/session.js';

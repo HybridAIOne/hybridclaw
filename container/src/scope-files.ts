@@ -7,7 +7,7 @@
  * NOT `memory` reads or writes, which stay on the chat's own files.
  */
 import fs from 'node:fs';
-import { listScopeDirNamesIn, SCOPES_DIRNAME } from '../shared/scope-dirs.js';
+import { listScopeDirNamesIn, SCOPES_DIRNAME } from '#shared/scope-dirs.js';
 
 const DAILY_NOTE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 

@@ -104,7 +104,7 @@ USER node
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 
 COPY --link --chown=1000:1000 --from=builder /app/dist/ dist/
-COPY --link --chown=1000:1000 --from=builder /app/shared/ shared/
+COPY --link --chown=1000:1000 --from=builder /app/shared/dist/ shared/dist/
 
 # Declared last: an ARG invalidates every instruction after it, so a version
 # bump here would otherwise rebuild the whole runtime stage.

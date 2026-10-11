@@ -3,7 +3,7 @@
  * Scheduling declarations never come from server discovery or grant approval;
  * OAuth connection state belongs to mcp-oauth, not this parser.
  */
-import { parseMcpToolBehaviorConfig } from '../../container/shared/mcp-server-config.js';
+import { parseMcpToolBehaviorConfig } from '#shared/mcp-server-config.js';
 import type { McpServerConfig } from '../types/models.js';
 
 export const MCP_SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;

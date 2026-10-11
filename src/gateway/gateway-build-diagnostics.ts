@@ -46,8 +46,8 @@ const GATEWAY_BUILD_FILE_PAIRS: Array<{
   },
   {
     name: 'container-shared',
-    sourcePath: 'container/shared/network-policy.ts',
-    buildPath: 'container/shared/network-policy.js',
+    sourcePath: 'container/shared/src/network-policy.ts',
+    buildPath: 'container/shared/dist/network-policy.js',
   },
 ];
 

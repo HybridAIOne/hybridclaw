@@ -9,7 +9,7 @@ import {
   closedSteerInboxDirName,
   decodeSteerNote,
   steerInboxDirName,
-} from '../container/shared/steer-inbox.js';
+} from '#shared/steer-inbox.js';
 import type { ExecutorRequest } from '../src/agent/executor-types.js';
 import type { ContainerOutput } from '../src/types/container.js';
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
