@@ -925,31 +925,30 @@ export async function handleOpenAICompatibleChatCompletions(
         type: 'authentication_error',
       });
     }
-    const prepared = prepareOpenAICompatibleRequest(input);
-    const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
-    const usesDecisionModel = isDecisionModel(prepared.model);
-    const executionSession =
-      input.usesClientTools || usesDecisionModel
-        ? null
-        : acquireOpenAIExecutionSession({ input, prepared });
     const completionId = `chatcmpl_${randomUUID().replace(/-/g, '')}`;
     const created = Math.floor(Date.now() / 1000);
+    if (isDecisionModel(input.model) && !input.evalProfile) {
+      // Decisions answer from the supplied messages alone and keep no session.
+      const agentId = resolveOpenAICompatibleAgentId({});
+      await handleDecisionCompletion({
+        res,
+        model: input.model,
+        agentId,
+        messages: input.messages,
+        wantsStream: input.wantsStream,
+        completionId,
+        created,
+        traceHeaders: { 'X-HybridClaw-Agent-Id': agentId },
+      });
+      return;
+    }
+    const prepared = prepareOpenAICompatibleRequest(input);
+    const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
+    const executionSession = input.usesClientTools
+      ? null
+      : acquireOpenAIExecutionSession({ input, prepared });
 
     try {
-      if (usesDecisionModel) {
-        await handleDecisionCompletion({
-          res,
-          model: prepared.model,
-          agentId: prepared.requestAgentId,
-          messages: input.messages,
-          wantsStream: input.wantsStream,
-          completionId,
-          created,
-          traceHeaders,
-        });
-        return;
-      }
-
       if (input.usesClientTools) {
         if (input.wantsStream) {
           await handleOpenAICompatibleStreamingToolChat(

@@ -26,11 +26,13 @@ function request(model: string, wantsStream = false) {
   };
 }
 
-test.each(['auxiliary/quick_decision', 'auxiliary/eval_judge'])('%s answers from the quick_decision task without implicit regular fallback', async model => {
+test.each(['quick_decision', 'eval_judge'])('auxiliary/%s answers from its own task without implicit regular fallback', async task => {
   mocks.auxiliary.mockResolvedValue({ model: 'vllm/small', provider: 'vllm', content: '{"emoji":"none"}' });
-  const { params, res } = request(model);
+  const { params, res } = request(`auxiliary/${task}`);
   await handleDecisionCompletion(params);
-  expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({ task: 'quick_decision', messages: params.messages, allowFallback: false, temperature: 0 }));
+  expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({ task, messages: params.messages, allowFallback: false, temperature: 0,
+    fallbackModel: 'vllm/primary', agentId: 'phone' }));
+  expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({ 'X-HybridClaw-Auxiliary-Task': task }));
   expect(JSON.parse(res.end.mock.calls[0][0]).choices[0].message.content).toBe('{"emoji":"none"}');
   expect(mocks.regular).not.toHaveBeenCalled();
 });

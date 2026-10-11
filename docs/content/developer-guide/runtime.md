@@ -474,10 +474,9 @@ Session behavior matches the routing rules above:
   👍/👎 response rating. The main chat model has no `react` tool, and emoji-only
   replies remain reply text. `/api/history` returns persisted reactions.
 - Raw, non-streaming `/v1/chat/completions` requests to
-  `auxiliary/quick_decision` (or `auxiliary/eval_judge` from older app builds)
-  use `auxiliaryModels.quick_decision` without provider fallback; with no model
-  configured they use the default model, and a failed call returns 503
-  `auxiliary_unavailable`. `model: "regular"` uses
+  `auxiliary/quick_decision` or `auxiliary/eval_judge` use that auxiliary task
+  without provider fallback and keep no session; with no model configured they
+  use the default model, and a failed call returns 503 `auxiliary_unavailable`. `model: "regular"` uses
   the default agent's regular model. Both use only the supplied messages and
   expose no tools. Avatar selection and idea categorization advance explicitly
   from the on-device model to auxiliary to regular when an answer fails validation;

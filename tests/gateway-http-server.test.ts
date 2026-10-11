@@ -5565,13 +5565,15 @@ describe('gateway HTTP server', () => {
     await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
+    expect(state.getOrCreateSession).not.toHaveBeenCalled();
     expect(state.callAuxiliaryModel).toHaveBeenCalledWith({
       task: 'quick_decision',
       messages: [
         { role: 'system', content: 'Return JSON only.' },
         { role: 'user', content: '{"question":"largest orders"}' },
       ],
-      fallbackModel: expect.any(String),
+      fallbackModel: 'gpt-5',
+      fallbackChatbotId: 'bot_1',
       agentId: 'main',
       temperature: 0,
       allowFallback: false,

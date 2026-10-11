@@ -5,7 +5,6 @@
  */
 import type { ServerResponse } from 'node:http';
 import { resolveAgentForRequest } from '../agents/agent-registry.js';
-import { HYBRIDAI_MODEL } from '../config/config.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
 import type { ChatMessage } from '../types/api.js';
@@ -13,14 +12,21 @@ import { callOpenAICompatibleModel } from './openai-compatible-model.js';
 import { OpenAICompatibleRequestError } from './openai-compatible-request.js';
 import { buildOpenAICompatibleCompletionResponse } from './openai-compatible-response.js';
 
-// App builds before quick_decision existed send `auxiliary/eval_judge`.
-const AUXILIARY_DECISION_MODELS = new Set([
-  'auxiliary/quick_decision',
-  'auxiliary/eval_judge',
-]);
+// `eval_judge` also reviews warehouse SQL; app UI decisions use `quick_decision`.
+const AUXILIARY_DECISION_TASKS = {
+  'auxiliary/eval_judge': 'eval_judge',
+  'auxiliary/quick_decision': 'quick_decision',
+} as const;
+type AuxiliaryDecisionModel = keyof typeof AUXILIARY_DECISION_TASKS;
+
+function isAuxiliaryDecisionModel(
+  model: string,
+): model is AuxiliaryDecisionModel {
+  return Object.hasOwn(AUXILIARY_DECISION_TASKS, model);
+}
 
 export function isDecisionModel(model: string): boolean {
-  return AUXILIARY_DECISION_MODELS.has(model) || model === 'regular';
+  return isAuxiliaryDecisionModel(model) || model === 'regular';
 }
 
 export async function handleDecisionCompletion(params: {
@@ -43,13 +49,18 @@ export async function handleDecisionCompletion(params: {
   let model: string;
   let content: string | null;
   let provider: string;
-  const auxiliary = AUXILIARY_DECISION_MODELS.has(params.model);
-  if (auxiliary) {
+  const task = isAuxiliaryDecisionModel(params.model)
+    ? AUXILIARY_DECISION_TASKS[params.model]
+    : null;
+  const resolved = resolveAgentForRequest({ agentId: params.agentId });
+  if (task) {
+    // An unconfigured task answers with the agent's own model.
     const answer = await callAuxiliaryModel({
-      task: 'quick_decision',
+      task,
       messages: params.messages,
-      fallbackModel: HYBRIDAI_MODEL,
-      agentId: params.agentId,
+      fallbackModel: resolved.model,
+      fallbackChatbotId: resolved.chatbotId,
+      agentId: resolved.agentId,
       temperature: 0,
       allowFallback: false,
     }).catch((error: unknown) => {
@@ -61,7 +72,6 @@ export async function handleDecisionCompletion(params: {
     });
     ({ model, content, provider } = answer);
   } else {
-    const resolved = resolveAgentForRequest({ agentId: params.agentId });
     model = resolved.model;
     const runtime = await resolveModelRuntimeCredentials({
       model,
@@ -87,9 +97,9 @@ export async function handleDecisionCompletion(params: {
   });
   params.res.writeHead(200, {
     ...params.traceHeaders,
-    ...(auxiliary
+    ...(task
       ? {
-          'X-HybridClaw-Auxiliary-Task': 'quick_decision',
+          'X-HybridClaw-Auxiliary-Task': task,
           'X-HybridClaw-Auxiliary-Provider': provider,
         }
       : {}),
