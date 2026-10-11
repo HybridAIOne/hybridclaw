@@ -106,6 +106,7 @@ function createHarness(
     formatTextForSpeech: formatTextForVoice,
     isRealtimeVoiceAvailable: () => true,
     createRealtimeVoiceSession: vi.fn(() => realtimeSession),
+    releaseSessionWorker: vi.fn(async () => true),
     dispatchInboundMessage: vi.fn(
       options.dispatch ||
         (async () => ({ status: 'success', result: 'Done.' }) as never),
@@ -712,4 +713,111 @@ test('voice call refuses to dial when Twilio cannot reach the gateway', async ()
     harness.commands[0].handler(['call', '+4915123456789'], {} as never),
   ).rejects.toThrow('Set `ops.gatewayBaseUrl`');
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+const CALL_SESSION_ID = 'agent:main:channel:voice:chat:dm:peer:ca123';
+type Harness = ReturnType<typeof createHarness>;
+
+async function startRelayCall(harness: Harness) {
+  await harness.post('webhook', CALL);
+  const { socket } = await harness.upgrade('relay');
+  socket.receive({ type: 'setup', callSid: 'CA123', from: CALL.From, to: CALL.To });
+  await settle();
+  return socket;
+}
+
+async function startRealtimeCall(harness: Harness) {
+  harness.voice.mode = 'realtime';
+  await harness.post('webhook', CALL);
+  const { socket } = await harness.upgrade('stream');
+  socket.receive({
+    event: 'start',
+    streamSid: 'MZ1',
+    start: { callSid: 'CA123', customParameters: { callReference: 'CA123' } },
+  });
+  return socket;
+}
+
+test.each([
+  [
+    'a relay call ends',
+    async (harness: Harness) => {
+      await startRelayCall(harness);
+      await harness.post('action', { ...CALL, SessionStatus: 'ended' });
+    },
+  ],
+  [
+    'a relay call fails',
+    async (harness: Harness) => {
+      await startRelayCall(harness);
+      await harness.post('action', { ...CALL, SessionStatus: 'failed' });
+    },
+  ],
+  [
+    'the relay reports an error',
+    async (harness: Harness) => {
+      const socket = await startRelayCall(harness);
+      socket.receive({ type: 'error', description: 'boom' });
+      await settle();
+      await harness.post('action', { ...CALL, SessionStatus: 'failed' });
+    },
+  ],
+  [
+    'a realtime stream stops',
+    async (harness: Harness) => {
+      const socket = await startRealtimeCall(harness);
+      socket.receive({ event: 'stop', streamSid: 'MZ1' });
+      socket.close();
+    },
+  ],
+  [
+    'a realtime stream socket closes',
+    async (harness: Harness) => {
+      const socket = await startRealtimeCall(harness);
+      socket.close();
+      await harness.post('action', { ...CALL, SessionStatus: 'ended' });
+    },
+  ],
+  [
+    'the plugin stops',
+    async (harness: Harness) => {
+      await startRelayCall(harness);
+      await harness.services[0].stop?.();
+    },
+  ],
+])('releases the call worker once when %s', async (_label, hangUp) => {
+  const harness = createHarness();
+
+  await hangUp(harness);
+
+  expect(harness.api.releaseSessionWorker).toHaveBeenCalledExactlyOnceWith(
+    CALL_SESSION_ID,
+  );
+});
+
+test('hanging up mid-turn releases the worker without aborting the turn', async () => {
+  let finishTurn: () => void = () => {};
+  let observed: AbortSignal | undefined;
+  const harness = createHarness({
+    dispatch: async (request) => {
+      observed = request.abortSignal;
+      await new Promise<void>((resolve) => {
+        finishTurn = resolve;
+      });
+      return { status: 'success', result: 'Late answer.' } as never;
+    },
+  });
+  const socket = await startRelayCall(harness);
+  socket.receive({ type: 'prompt', voicePrompt: 'hello there', last: true });
+  await settle();
+
+  await harness.post('action', { ...CALL, SessionStatus: 'ended' });
+
+  expect(harness.api.releaseSessionWorker).toHaveBeenCalledExactlyOnceWith(
+    CALL_SESSION_ID,
+  );
+  expect(observed?.aborted).toBe(false);
+  finishTurn();
+  await settle();
+  expect(observed?.aborted).toBe(false);
 });

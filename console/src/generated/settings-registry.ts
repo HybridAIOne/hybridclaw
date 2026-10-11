@@ -2728,7 +2728,7 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       path: 'voice.maxConcurrentCalls',
       section: 'voice',
       kind: 'number',
-      defaultValue: 8,
+      defaultValue: 5,
     },
     {
       path: 'voice.mode',

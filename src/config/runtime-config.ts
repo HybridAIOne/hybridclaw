@@ -1739,7 +1739,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     callerPolicy: 'open',
     allowFrom: [],
-    maxConcurrentCalls: 8,
+    // 5 (engineering call, 2026-10-11, #1930): matches container.maxConcurrent so
+    // every call can hold a worker; a separate voice worker budget is deferred.
+    maxConcurrentCalls: 5,
   },
   speech: {
     realtime: {

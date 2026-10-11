@@ -162,6 +162,8 @@ any two turns:
   worker signature (switching models within one provider does not);
 - when a new worker needs a slot at `container.maxConcurrent` and the least
   recently used worker has been idle for 10 seconds;
+- when a plugin releases the session after its conversation ends (a voice
+  call hangs up), once the running and queued turns finish;
 - on a crash or a gateway restart.
 
 The next worker is rebuilt from `ContainerInput`, so anything a later turn

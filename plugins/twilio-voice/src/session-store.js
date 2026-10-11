@@ -4,7 +4,8 @@
  *
  * A call counts toward capacity until it reaches a terminal state (`ended`,
  * `failed`) or is removed; illegal transitions throw so a protocol bug shows
- * up in the log instead of silently corrupting the count. Holds sockets and
+ * up in the log instead of silently corrupting the count. `onCallEnded`
+ * fires exactly once per call, when it leaves that count. Holds sockets and
  * abort controllers, which die with the plugin runtime.
  */
 import { buildVoiceSessionKey } from './utils.js';
@@ -49,9 +50,14 @@ function applyCaller(session, { from, to, callerName }) {
   session.username = callerName || from || session.callSid;
 }
 
-export function createSessionStore({ resolveAgentId }) {
+export function createSessionStore({ resolveAgentId, onCallEnded }) {
   const sessions = new Map();
   let activeCount = 0;
+
+  function endCall(session) {
+    activeCount = Math.max(0, activeCount - 1);
+    onCallEnded(session);
+  }
 
   return {
     get: (callSid) => sessions.get(callSid),
@@ -102,20 +108,18 @@ export function createSessionStore({ resolveAgentId }) {
           `Invalid voice session state transition: ${session.state} -> ${next}`,
         );
       }
-      if (!TERMINAL_STATES.has(session.state) && TERMINAL_STATES.has(next)) {
-        activeCount = Math.max(0, activeCount - 1);
-      }
+      const ending =
+        !TERMINAL_STATES.has(session.state) && TERMINAL_STATES.has(next);
       session.state = next;
+      if (ending) endCall(session);
       return session;
     },
 
     remove(callSid) {
       const session = sessions.get(callSid);
       if (!session) return;
-      if (!TERMINAL_STATES.has(session.state)) {
-        activeCount = Math.max(0, activeCount - 1);
-      }
       sessions.delete(callSid);
+      if (!TERMINAL_STATES.has(session.state)) endCall(session);
     },
   };
 }

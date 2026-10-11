@@ -287,7 +287,7 @@
       "interruptible": true,
       "welcomeGreeting": "Hello! How can I help you today?"
     },
-    "maxConcurrentCalls": 8
+    "maxConcurrentCalls": 5
   },
   "speech": {
     "realtime": {

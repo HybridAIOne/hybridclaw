@@ -287,8 +287,19 @@ export function createVonageRuntime(api, config) {
       const body = await readSignedPayload(ctx);
       if (!body) return;
       const event = parseVonageEventWebhook(body);
-      if (event && VONAGE_TERMINAL_CALL_STATUSES.has(event.status)) {
-        sessions.delete(event.uuid);
+      if (
+        event &&
+        VONAGE_TERMINAL_CALL_STATUSES.has(event.status) &&
+        sessions.delete(event.uuid)
+      ) {
+        api
+          .releaseSessionWorker(buildVoiceSessionKey(agentId, event.uuid))
+          .catch((error) =>
+            api.logger.warn(
+              { error, callUuid: event.uuid },
+              'Failed to release voice call worker',
+            ),
+          );
       }
       sendJson(ctx.res, 200, {});
     },

@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import {
   ConversationRelayResponseStream,
   mergePromptFragment,
@@ -316,7 +316,11 @@ test('the relay response stream serializes concurrent writes', async () => {
 });
 
 test('call state moves through the relay cycle and frees capacity at a terminal state', () => {
-  const sessions = createSessionStore({ resolveAgentId: () => 'main' });
+  const onCallEnded = vi.fn();
+  const sessions = createSessionStore({
+    resolveAgentId: () => 'main',
+    onCallEnded,
+  });
   const call = (callSid: string) => ({
     callSid,
     remoteIp: '127.0.0.1',
@@ -340,8 +344,10 @@ test('call state moves through the relay cycle and frees capacity at a terminal 
     'Invalid voice session state transition: interrupted -> twiml-issued',
   );
   sessions.transition('CA1', 'failed');
+  sessions.remove('CA1');
 
   expect(sessions.activeCount()).toBe(0);
+  expect(onCallEnded).toHaveBeenCalledExactlyOnceWith(first);
   expect(sessions.getOrCreate(call('CA2'), 1)).not.toBeNull();
 });
 

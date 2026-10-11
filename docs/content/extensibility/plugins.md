@@ -625,6 +625,14 @@ credentials are configured. The bundled `vonage-voice` (PCM) and
 `twilio-voice` (µ-law) plugins' realtime modes are the reference
 implementations.
 
+When a conversation is over, for example when a call hangs up, call
+`api.releaseSessionWorker(sessionId)` so the session's agent worker does not
+hold a `container.maxConcurrent` slot until the idle timeout. The release waits
+for the session's running and queued turns, so a reply still being stored or
+sent completes; it never aborts a turn. It resolves `true` when a worker was
+stopped and is a no-op for a session without one, so calling it once per
+terminal call state is safe.
+
 Phone transports share the core phone-channel settings. `api.getVoiceConfig()`
 returns the current `voice.*` config (caller policy, relay language and
 greeting, concurrency) re-read on every call, so console edits apply to the
