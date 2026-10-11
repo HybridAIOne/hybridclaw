@@ -6,19 +6,26 @@
  * and `register` rejects a command the manifest does not declare. The CLI
  * consults it only for a name no built-in command handles, so a plugin can
  * add commands but never replace one. NOT the gateway slash-command table
- * (`registerCommand`); these run in the CLI process, not in a session.
+ * (`registerCommand`); these run in the CLI process, not in a session. The
+ * manifest's `commands` (gateway slash-command names) is parsed here too, so
+ * both kinds share one naming rule.
  */
 import type {
   PluginCliCommandDefinition,
   PluginManifestCliCommand,
 } from './plugin-types.js';
 
-const CLI_COMMAND_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
+const COMMAND_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
-function assertCliCommandName(owner: string, name: string): void {
-  if (!CLI_COMMAND_NAME_RE.test(name)) {
+/** Shared by `cliCommands` and the gateway slash commands in `commands`. */
+export function assertPluginCommandName(
+  owner: string,
+  kind: 'CLI command' | 'command',
+  name: string,
+): void {
+  if (!COMMAND_NAME_RE.test(name)) {
     throw new Error(
-      `Plugin "${owner}" CLI command name "${name}" must be lowercase letters, digits, and dashes.`,
+      `Plugin "${owner}" ${kind} name "${name}" must be lowercase letters, digits, and dashes.`,
     );
   }
 }
@@ -37,7 +44,7 @@ export function normalizeManifestCliCommands(
     const record = (entry ?? {}) as Record<string, unknown>;
     const name = String(record.name ?? '').trim();
     const description = String(record.description ?? '').trim();
-    assertCliCommandName(pluginId, name);
+    assertPluginCommandName(pluginId, 'CLI command', name);
     if (!description) {
       throw new Error(
         `Plugin "${pluginId}" CLI command "${name}" needs a description.`,
@@ -51,6 +58,27 @@ export function normalizeManifestCliCommands(
     seen.add(name);
     return { name, description };
   });
+}
+
+/**
+ * Parses manifest `commands`, the gateway slash commands a plugin provides.
+ * Only names: the description comes from `registerCommand` once loaded; the
+ * names let the gateway name the plugin when it is not loaded.
+ */
+export function normalizeManifestCommands(
+  pluginId: string,
+  value: unknown,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`Plugin "${pluginId}" \`commands\` must be a list.`);
+  }
+  const names = value.map((entry) => String(entry ?? '').trim());
+  for (const name of names) assertPluginCommandName(pluginId, 'command', name);
+  if (new Set(names).size !== names.length) {
+    throw new Error(`Plugin "${pluginId}" declares a command twice.`);
+  }
+  return names;
 }
 
 export interface RegisteredPluginCliCommand {
@@ -67,7 +95,7 @@ export class PluginCliCommandRegistry {
     declared: readonly PluginManifestCliCommand[],
   ): void {
     const name = String(command.name || '');
-    assertCliCommandName(pluginId, name);
+    assertPluginCommandName(pluginId, 'CLI command', name);
     if (!declared.some((entry) => entry.name === name)) {
       throw new Error(
         `Plugin "${pluginId}" CLI command "${name}" is not declared in the manifest's \`cliCommands\`.`,

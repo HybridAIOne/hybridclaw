@@ -109,6 +109,8 @@ export interface PluginManifest {
   configSchema?: PluginConfigSchema;
   configUiHints?: Record<string, PluginConfigUiHint>;
   cliCommands?: PluginManifestCliCommand[];
+  /** Gateway slash commands (`registerCommand`) the plugin provides. */
+  commands?: string[];
 }
 
 /** A top-level `hybridclaw <name>` command the plugin's manifest declares. */

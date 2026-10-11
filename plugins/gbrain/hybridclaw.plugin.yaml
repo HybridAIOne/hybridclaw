@@ -18,6 +18,8 @@ externalDependencies:
     check: gbrain --version
     installHint: Install gbrain from https://github.com/garrytan/gbrain and ensure the CLI is on PATH, or point config.command at the compiled binary.
     installUrl: https://github.com/garrytan/gbrain
+commands:
+  - gbrain
 configSchema:
   type: object
   additionalProperties: false

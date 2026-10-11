@@ -9,6 +9,8 @@ requires:
 credentials:
   - VONAGE_PRIVATE_KEY
   - VONAGE_SIGNATURE_SECRET
+commands:
+  - vonage
 configSchema:
   type: object
   additionalProperties: false

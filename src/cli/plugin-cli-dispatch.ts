@@ -9,18 +9,24 @@
  * stdout stays its own. Project plugins (`<cwd>/.hybridclaw/plugins`) never
  * provide CLI commands, so running a command inside an untrusted checkout
  * cannot execute that checkout's code. A name only a disabled plugin declares
- * fails with the enable command, and one only a bundled plugin that is not
- * installed declares fails with the install command. Returns false when no
- * manifest declares the name; it never falls through to a different command.
+ * fails with the enable command, one only a bundled plugin that is not
+ * installed declares fails with the install command, and a plugin's gateway
+ * slash command fails with its `hybridclaw gateway <name>` form. Returns false
+ * when no manifest declares the name; it never falls through to a different
+ * command.
  */
-import path from 'node:path';
 import pino from 'pino';
-import { getRuntimeConfig } from '../config/runtime-config.js';
-import type { PluginManager } from '../plugins/plugin-manager.js';
-import type { PluginCandidate } from '../plugins/plugin-types.js';
+import {
+  describeUnloadedPluginCommandOwner,
+  findUnloadedPluginCommandOwner,
+} from '../plugins/plugin-command-owner.js';
+import { PluginManager } from '../plugins/plugin-manager.js';
+import type {
+  PluginCandidate,
+  PluginManifest,
+} from '../plugins/plugin-types.js';
 
-async function createCliPluginManager(): Promise<PluginManager> {
-  const { PluginManager } = await import('../plugins/plugin-manager.js');
+function createCliPluginManager(): PluginManager {
   return new PluginManager({
     logger: pino({ level: 'error' }, pino.destination(2)),
     includeProjectPlugins: false,
@@ -35,72 +41,52 @@ async function discoverCliCommandPlugins(
   );
 }
 
-function declaresCliCommand(candidate: PluginCandidate, name: string): boolean {
+function declaresCliCommand(manifest: PluginManifest, name: string): boolean {
   return (
-    candidate.manifest.cliCommands?.some((command) => command.name === name) ??
-    false
+    manifest.cliCommands?.some((command) => command.name === name) ?? false
   );
 }
 
-// `enabled: false` in plugins.list[] is the disabled state; discovering with
-// those entries switched on finds what they would load, from any source.
-async function findDisabledCliCommandOwner(
+// A gateway slash command typed as a top-level CLI command (`browser-pool`
+// used to be one) points at `hybridclaw gateway <name>`, which in turn names
+// the install or enable command when its plugin is not loaded.
+async function findGatewayCommandOwner(
   manager: PluginManager,
   name: string,
 ): Promise<string | null> {
-  const config = structuredClone(getRuntimeConfig());
-  const disabled = config.plugins.list.filter(
-    (entry) => entry.enabled === false,
+  const declares = (manifest: PluginManifest) =>
+    manifest.commands?.includes(name) ?? false;
+  const enabled = (await manager.discoverPlugins()).find((candidate) =>
+    declares(candidate.manifest),
   );
-  if (disabled.length === 0) return null;
-  for (const entry of disabled) entry.enabled = true;
-  const disabledIds = new Set(disabled.map((entry) => entry.id));
-  const owner = (await manager.discoverPlugins(config)).find(
-    (candidate) =>
-      disabledIds.has(candidate.id) && declaresCliCommand(candidate, name),
+  return (
+    enabled?.id ??
+    (await findUnloadedPluginCommandOwner(manager, declares))?.pluginId ??
+    null
   );
-  return owner?.id ?? null;
-}
-
-async function findBundledCliCommandOwner(
-  name: string,
-): Promise<string | null> {
-  const { listBundledInstallablePlugins } = await import(
-    '../plugins/plugin-install.js'
-  );
-  const { loadPluginManifest, MANIFEST_FILE_NAME } = await import(
-    '../plugins/plugin-manager.js'
-  );
-  for (const plugin of listBundledInstallablePlugins()) {
-    const manifest = loadPluginManifest(
-      path.join(plugin.dir, MANIFEST_FILE_NAME),
-    );
-    if (manifest.cliCommands?.some((command) => command.name === name)) {
-      return plugin.id;
-    }
-  }
-  return null;
 }
 
 export async function runPluginCliCommand(
   name: string,
   args: string[],
 ): Promise<boolean> {
-  const manager = await createCliPluginManager();
+  const manager = createCliPluginManager();
   const owners = (await discoverCliCommandPlugins(manager)).filter(
-    (candidate) => declaresCliCommand(candidate, name),
+    (candidate) => declaresCliCommand(candidate.manifest, name),
   );
   if (owners.length === 0) {
-    const disabledOwner = await findDisabledCliCommandOwner(manager, name);
-    if (disabledOwner) {
+    const unloaded = await findUnloadedPluginCommandOwner(manager, (manifest) =>
+      declaresCliCommand(manifest, name),
+    );
+    if (unloaded) {
       throw new Error(
-        `\`${name}\` is provided by the "${disabledOwner}" plugin, which is disabled. Enable it with \`hybridclaw plugin enable ${disabledOwner}\`.`,
+        describeUnloadedPluginCommandOwner(`\`${name}\``, unloaded),
       );
     }
-    const bundledOwner = await findBundledCliCommandOwner(name);
-    if (!bundledOwner) return false;
+    const gatewayOwner = await findGatewayCommandOwner(manager, name);
+    if (!gatewayOwner) return false;
     throw new Error(
-      `\`${name}\` is provided by the bundled "${bundledOwner}" plugin, which is not installed. Install it with \`hybridclaw plugin install ${bundledOwner}\`.`,
+      `\`${name}\` is a gateway command of the "${gatewayOwner}" plugin. Run \`${['hybridclaw gateway', name, ...args].join(' ')}\`.`,
     );
   }
   if (owners.length > 1) {
@@ -134,7 +120,7 @@ export async function runPluginCliCommand(
 /** Lists installed plugin commands for the main usage text, from manifests. */
 export async function printPluginCliCommandUsage(): Promise<void> {
   const commands = (
-    await discoverCliCommandPlugins(await createCliPluginManager())
+    await discoverCliCommandPlugins(createCliPluginManager())
   ).flatMap((candidate) => candidate.manifest.cliCommands ?? []);
   if (commands.length === 0) return;
   console.log('\n  Plugin commands:');
