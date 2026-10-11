@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
+import { releaseSessionWorker } from '../src/gateway/session-worker-release.js';
 import * as ipc from '../src/infra/ipc.js';
 import * as db from '../src/memory/db.js';
 import { createPluginApi } from '../src/plugins/plugin-api.js';
@@ -392,6 +393,12 @@ test.each([
 
   expect(api.config.agents?.defaultAgentId).not.toBe(defaultAgentId);
   expect(api.getDefaultAgentId()).toBe(expected);
+});
+
+test('releaseSessionWorker is the core turn-aware worker release', () => {
+  const api = createVoiceTransportApi(loadRuntimeConfig());
+
+  expect(api.releaseSessionWorker).toBe(releaseSessionWorker);
 });
 
 test('formatTextForSpeech rewrites markdown for TTS', () => {

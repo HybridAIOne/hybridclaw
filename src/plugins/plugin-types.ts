@@ -742,6 +742,13 @@ export interface HybridClawPluginApi {
   createRealtimeVoiceSession(
     options: PluginRealtimeVoiceSessionOptions,
   ): PluginRealtimeVoiceSession;
+  /**
+   * Stops the session's agent worker once its running and queued turns
+   * finish, without aborting them; call it when a conversation is over (a
+   * call hung up). Resolves true when a worker was stopped; a session
+   * without one is a no-op.
+   */
+  releaseSessionWorker(sessionId: string): Promise<boolean>;
   on<K extends PluginHookName>(
     event: K,
     handler: PluginHookHandlerMap[K],
