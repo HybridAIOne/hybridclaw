@@ -340,7 +340,7 @@ const TRACKED_FILES = [
   'container/package-lock.json',
   'container/tsconfig.json',
 ];
-const TRACKED_SOURCE_ROOT = 'container/src';
+const TRACKED_SOURCE_ROOTS = ['container/src', 'container/shared'];
 
 function isSourceCheckout(cwd: string): boolean {
   return fs.existsSync(path.join(cwd, '.git'));
@@ -514,9 +514,10 @@ function computeContainerFingerprint(
       }
     }
 
-    const sourceRoot = path.join(cwd, TRACKED_SOURCE_ROOT);
     const sourceFiles: string[] = [];
-    collectFilesRecursive(sourceRoot, sourceFiles);
+    for (const sourceRoot of TRACKED_SOURCE_ROOTS) {
+      collectFilesRecursive(path.join(cwd, sourceRoot), sourceFiles);
+    }
     sourceFiles.sort((a, b) => a.localeCompare(b));
 
     for (const fullPath of sourceFiles) {

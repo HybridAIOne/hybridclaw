@@ -475,6 +475,51 @@ describe('ensureContainerImageReady', () => {
     expect(logSpy).not.toHaveBeenCalledWith('Agent runtime ready.');
   });
 
+  test('rebuilds after a container/shared edit in a source checkout', async () => {
+    const cwd = createTempDir();
+    const homeDir = createTempDir();
+    writeTrackedFiles(cwd);
+    const sharedFile = path.join(cwd, 'container', 'shared', 'regex.js');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, 'export const a = 1;\n');
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    const spawnMock = vi.fn((command: string, args: string[]) => {
+      const dockerAvailable = mockDockerAvailable(command, args);
+      if (dockerAvailable) return dockerAvailable;
+      if (command === 'docker' && args[0] === 'image') {
+        return makeSpawnResult({ code: 0 });
+      }
+      if (command === 'npm' && args[1] === 'build:container') {
+        return makeSpawnResult({ code: 1, err: 'build failed' });
+      }
+      throw new Error(`Unexpected spawn: ${command} ${args.join(' ')}`);
+    });
+    const containerSetup = await importFreshContainerSetup({
+      homeDir,
+      spawnMock,
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const buildCalls = () =>
+      spawnMock.mock.calls.filter(([command]) => command === 'npm').length;
+
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    expect(buildCalls()).toBe(0);
+
+    fs.writeFileSync(sharedFile, 'export const a = 2;\n');
+    await containerSetup.ensureContainerImageReady({ commandName: 'test', cwd });
+    expect(buildCalls()).toBe(1);
+  });
+
   test('throws when the required image is missing and build fails', async () => {
     const cwd = createTempDir();
     writeTrackedFiles(cwd);
