@@ -29,7 +29,7 @@ function signedRequest(body: Record<string, unknown>) {
 
 function createHarness(mode: 'turn' | 'realtime') {
   const api = {
-    config: { agents: { defaultAgentId: 'main' } },
+    getDefaultAgentId: vi.fn(() => 'main'),
     isRealtimeVoiceAvailable: () => true,
     releaseSessionWorker: vi.fn(async () => true),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -77,6 +77,7 @@ test.each([
   async (mode, status) => {
     const { api, post } = createHarness(mode);
     await post('handleAnswer', { uuid: 'call-1', from: '+15550001111' });
+    api.getDefaultAgentId.mockReturnValue('other');
 
     await post('handleEvent', { uuid: 'call-1', status: 'answered' });
     expect(api.releaseSessionWorker).not.toHaveBeenCalled();

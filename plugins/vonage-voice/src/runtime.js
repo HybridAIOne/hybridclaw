@@ -287,13 +287,16 @@ export function createVonageRuntime(api, config) {
       const body = await readSignedPayload(ctx);
       if (!body) return;
       const event = parseVonageEventWebhook(body);
+      const session = event && sessions.get(event.uuid);
       if (
-        event &&
+        session &&
         VONAGE_TERMINAL_CALL_STATUSES.has(event.status) &&
         sessions.delete(event.uuid)
       ) {
         api
-          .releaseSessionWorker(buildVoiceSessionKey(agentId, event.uuid))
+          .releaseSessionWorker(
+            buildVoiceSessionKey(session.agentId, event.uuid),
+          )
           .catch((error) =>
             api.logger.warn(
               { error, callUuid: event.uuid },
