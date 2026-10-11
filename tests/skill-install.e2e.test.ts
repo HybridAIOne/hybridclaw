@@ -58,8 +58,6 @@ interface InstallPath {
   agentId: string;
   install: () => Promise<void>;
   remove: () => Promise<void>;
-  /** Install is broken on main; the linked issue tracks the fix. */
-  knownIssue?: string;
 }
 
 let gatewayUrl: string;
@@ -373,7 +371,6 @@ const INSTALL_PATHS: InstallPath[] = [
     label: '/skill import official/<name>',
     skill: 'competitor-monitoring',
     agentId: WRITER_AGENT,
-    knownIssue: 'https://github.com/HybridAIOne/hybridclaw/issues/1681',
     install: async () => {
       await slashCommand(['skill', 'import', 'official/competitor-monitoring']);
     },
@@ -471,8 +468,6 @@ const INSTALL_PATHS: InstallPath[] = [
     },
   },
 ];
-
-const WORKING_PATHS = INSTALL_PATHS.filter((entry) => !entry.knownIssue);
 
 /** The .claw agent is removed with its skill; `main` has no allowlist. */
 function expectPathRemoved({ skill, agentId }: InstallPath): Promise<void> {
@@ -634,9 +629,7 @@ describe.skipIf(!DOCKER_E2E)(
 
     describe('install', () => {
       for (const entry of INSTALL_PATHS) {
-        // A known-broken path stops here; its later checks would only
-        // restate the install failure.
-        (entry.knownIssue ? test.fails : test)(entry.label, async () => {
+        test(entry.label, async () => {
           await entry.install();
           installed.add(entry.label);
         });
@@ -646,7 +639,7 @@ describe.skipIf(!DOCKER_E2E)(
     // A path whose install failed skips its later steps, so one broken
     // path reads as one failure instead of one per step.
     describe('listed and used by an allowlisted agent', () => {
-      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+      test.for(INSTALL_PATHS)('$label', (entry, { skip }) => {
         skip(!installed.has(entry.label), 'install failed');
         return expectInstalled(entry.skill, entry.agentId);
       });
@@ -654,7 +647,7 @@ describe.skipIf(!DOCKER_E2E)(
 
     describe('after a gateway restart and agent config sync', () => {
       beforeAll(restartGateway, STARTUP_TIMEOUT_MS + 30_000);
-      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+      test.for(INSTALL_PATHS)('$label', (entry, { skip }) => {
         skip(!installed.has(entry.label), 'install failed');
         return expectInstalled(entry.skill, entry.agentId);
       });
@@ -678,7 +671,7 @@ describe.skipIf(!DOCKER_E2E)(
     });
 
     describe('removal', () => {
-      test.for(WORKING_PATHS)('$label', async (entry, { skip }) => {
+      test.for(INSTALL_PATHS)('$label', async (entry, { skip }) => {
         skip(!installed.has(entry.label), 'install failed');
         await entry.remove();
         await expectPathRemoved(entry);
@@ -687,7 +680,7 @@ describe.skipIf(!DOCKER_E2E)(
 
     describe('stays removed after a gateway restart', () => {
       beforeAll(restartGateway, STARTUP_TIMEOUT_MS + 30_000);
-      test.for(WORKING_PATHS)('$label', (entry, { skip }) => {
+      test.for(INSTALL_PATHS)('$label', (entry, { skip }) => {
         skip(!installed.has(entry.label), 'install failed');
         return expectPathRemoved(entry);
       });

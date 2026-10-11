@@ -89,6 +89,7 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'templates/SOUL.md',
     'templates/TOOLS.md',
     'skills/hybridclaw-help/SKILL.md',
+    'community-skills/competitor-monitoring/SKILL.md',
     // Browser provider plugins an upgraded config enables
     'plugins/browser-use-cloud/hybridclaw.plugin.yaml',
     'plugins/camofox/hybridclaw.plugin.yaml',
