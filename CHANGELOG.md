@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+## [0.39.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.11) - 2026-10-11
+
+### Changed
+
+- **Plugin command guidance**: Unavailable slash and CLI commands name their
+  plugin and explain how to install or enable it, or show its load error.
+  Gateway commands entered at the top level point to
+  `hybridclaw gateway <command>`.
+- **Voice capacity defaults**: `voice.maxConcurrentCalls` defaults to 5,
+  matching the default `container.maxConcurrent` limit.
+
+### Fixed
+
+- **Phone-call worker cleanup**: Twilio and Vonage release a call's agent
+  worker after its queued turns finish, freeing capacity for subsequent calls
+  without interrupting a reply. Vonage uses the current default agent for new
+  calls and retains that agent for the call's turns and hangup cleanup.
+- **Provider tool limits**: OpenAI, Codex and HybridAI requests automatically
+  defer MCP tools behind `tool_catalog` when needed to fit the 128-tool limit.
+  Requests still over the limit report the counts and remediation before
+  reaching the provider. A 400 response containing a tool count is not mistaken
+  for a server error.
+- **Observability ingestion**: A saved default observability URL follows
+  `HYBRIDAI_BASE_URL`, while distinct explicit overrides remain effective.
+  Rejected ingest-token requests pause ingestion until a configuration change
+  or restart instead of retrying every flush.
+- **Source-checkout container rebuilds**: Agent image fingerprints include
+  `container/shared/`, so changes to shared runtime code trigger a rebuild.
+
+### Upgrade Notes
+
+- If you raised `container.maxConcurrent`, explicitly set
+  `voice.maxConcurrentCalls` to your intended call capacity. Existing explicit
+  voice limits remain effective.
+
 ## [0.39.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.39.10) - 2026-10-11
 
 ### Added

@@ -1,10 +1,10 @@
 export const LATEST_RELEASE_NOTES = {
-  version: '0.39.10',
+  version: '0.39.11',
   highlights: [
-    'Hy can call your phone',
-    'See scheduled runs and failure notices',
-    'Generate images without an extra approval',
-    'App quick decisions use the default model',
+    'Back-to-back calls free agent capacity',
+    'Large MCP toolsets fit provider limits',
+    'Plugin commands explain how to enable them',
+    'Observability follows your platform URL',
   ],
 } as const;
 
