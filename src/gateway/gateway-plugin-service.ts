@@ -27,6 +27,7 @@ import {
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  isInstalledPluginDisabled,
   readPluginConfigEntry,
   readPluginConfigValue,
   setPluginEnabled,
@@ -724,7 +725,8 @@ export async function handlePluginGatewayCommand(params: {
     if (
       !pluginManager
         .listPluginSummary()
-        .some((summary) => summary.id === pluginId)
+        .some((summary) => summary.id === pluginId) &&
+      !(sub === 'enable' && (await isInstalledPluginDisabled(pluginId)))
     ) {
       if (sub === 'enable') {
         const installSource =
