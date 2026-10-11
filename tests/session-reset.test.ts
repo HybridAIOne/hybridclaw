@@ -694,56 +694,60 @@ test('resetSessionIfExpired recomputes expiry when a cached evaluation is stale'
   );
 });
 
-test('handleGatewayCommand flushes memories before auto-resetting an expired session', async () => {
-  const { dbModule, memoryService, runtimeConfigModule, dbPath } =
-    await initSessionTestContext();
-  const sessionId = 'gateway-auto-reset';
+test.each([true, false])(
+  'automatic reset requires a verified memory flush (%s)',
+  async (flushed) => {
+    runPreCompactionMemoryFlushMock.mockResolvedValue(flushed);
+    const { dbModule, memoryService, runtimeConfigModule, dbPath } =
+      await initSessionTestContext();
+    const sessionId = 'gateway-auto-reset';
 
-  runtimeConfigModule.updateRuntimeConfig((draft) => {
-    draft.sessionReset.defaultPolicy = {
-      mode: 'idle',
-      atHour: 4,
-      idleMinutes: 1,
-    };
-    draft.sessionCompaction.preCompactionMemoryFlush.enabled = true;
-  });
+    runtimeConfigModule.updateRuntimeConfig((draft) => {
+      draft.sessionReset.defaultPolicy = {
+        mode: 'idle',
+        atHour: 4,
+        idleMinutes: 1,
+      };
+      draft.sessionCompaction.preCompactionMemoryFlush.enabled = true;
+    });
 
-  dbModule.getOrCreateSession(sessionId, null, 'tui');
-  memoryService.storeMessage({
-    sessionId,
-    userId: 'user-1',
-    username: 'user',
-    role: 'user',
-    content: 'old context',
-  });
-  dbModule.updateSessionSummary(sessionId, 'summary');
-  updateLastActive(
-    dbPath,
-    sessionId,
-    formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
-  );
-
-  const { handleGatewayCommand } = await import(
-    '../src/gateway/gateway-service.ts'
-  );
-  const result = await handleGatewayCommand({
-    sessionId,
-    guildId: null,
-    channelId: 'tui',
-    args: ['help'],
-  });
-
-  expect(runPreCompactionMemoryFlushMock).toHaveBeenCalledTimes(1);
-  expect(runPreCompactionMemoryFlushMock).toHaveBeenCalledWith(
-    expect.objectContaining({
+    dbModule.getOrCreateSession(sessionId, null, 'tui');
+    memoryService.storeMessage({
       sessionId,
-      channelId: 'tui',
-      sessionSummary: 'summary',
-      olderMessages: expect.any(Array),
-    }),
-  );
+      userId: 'user-1',
+      username: 'user',
+      role: 'user',
+      content: 'old context',
+    });
+    dbModule.updateSessionSummary(sessionId, 'summary');
+    updateLastActive(
+      dbPath,
+      sessionId,
+      formatSqliteUtc(new Date(Date.now() - 2 * 60 * 60 * 1000)),
+    );
 
-  const session = dbModule.getSessionById(result.sessionId || sessionId);
-  expect(session?.reset_count).toBe(1);
-  expect(session?.message_count).toBe(0);
-});
+    const { handleGatewayCommand } = await import(
+      '../src/gateway/gateway-service.ts'
+    );
+    const result = await handleGatewayCommand({
+      sessionId,
+      guildId: null,
+      channelId: 'tui',
+      args: ['help'],
+    });
+
+    expect(runPreCompactionMemoryFlushMock).toHaveBeenCalledTimes(1);
+    expect(runPreCompactionMemoryFlushMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        channelId: 'tui',
+        sessionSummary: 'summary',
+        olderMessages: expect.any(Array),
+      }),
+    );
+
+    const session = dbModule.getSessionById(result.sessionId || sessionId);
+    expect(session?.reset_count).toBe(flushed ? 1 : 0);
+    expect(session?.message_count).toBe(flushed ? 0 : 1);
+  },
+);

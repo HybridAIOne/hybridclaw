@@ -1,3 +1,11 @@
+/**
+ * Session maintenance keeps history until its memory flush is verified or skipped.
+ * It handles compaction, not ordinary chat execution; a provider's successful
+ * reply is not evidence that durable memory was stored.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { runAgent } from '../agent/agent.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import { buildSystemPromptFromHooks } from '../agent/prompt-hooks.js';
@@ -29,6 +37,7 @@ import type { ChatMessage } from '../types/api.js';
 import type { CompactionResult } from '../types/memory.js';
 import type { Session, StoredMessage } from '../types/session.js';
 import { resolveHistoryBudgetTokens } from './context-budget.js';
+import { memoryFlushExcerpts, verifiedMemoryFlush } from './memory-flush.js';
 import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
@@ -79,32 +88,6 @@ function formatDateStampInLocalTimezone(now: Date): string {
     return `${year}-${month}-${day}`;
   }
   return now.toISOString().slice(0, 10);
-}
-
-function formatMessagesForPrompt(
-  messages: StoredMessage[],
-  maxMessages: number,
-  maxChars: number,
-): string {
-  const selected = messages.slice(-Math.max(1, maxMessages));
-  const lines: string[] = [];
-  let usedChars = 0;
-
-  for (const msg of selected) {
-    const role = (msg.role || 'unknown').toUpperCase();
-    const compact = msg.content.replace(/\r/g, '').trim();
-    const bounded =
-      compact.length > 1_200
-        ? `${compact.slice(0, 1_200)}\n...[truncated]`
-        : compact;
-    const entry = `[${role}] ${bounded}`;
-    const bytes = entry.length + 2;
-    if (usedChars + bytes > maxChars) break;
-    usedChars += bytes;
-    lines.push(entry);
-  }
-
-  return lines.join('\n\n');
 }
 
 function buildSystemPrompt(
@@ -160,22 +143,22 @@ export async function runPreCompactionMemoryFlush(params: {
   channelId: string;
   sessionSummary: string | null;
   olderMessages: StoredMessage[];
-}): Promise<void> {
-  if (!PRE_COMPACTION_MEMORY_FLUSH_ENABLED) return;
+}): Promise<boolean> {
+  if (!PRE_COMPACTION_MEMORY_FLUSH_ENABLED) return true;
 
-  const transcript = formatMessagesForPrompt(
+  const excerpts = memoryFlushExcerpts(
     params.olderMessages,
     PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES,
     PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS,
   );
-  if (!transcript) return;
+  if (!excerpts.length) return true;
 
   // A scoped chat's notes go to its scope; a deleted scope keeps nothing.
   const scopeRun = await resolveScopeRun(
     memoryService.getSessionById(params.sessionId),
     params.agentId,
   );
-  if (isScopeRunError(scopeRun)) return;
+  if (isScopeRunError(scopeRun)) return false;
 
   const now = new Date();
   const dateStamp = formatDateStampInLocalTimezone(now);
@@ -185,12 +168,13 @@ export async function runPreCompactionMemoryFlush(params: {
     `Store durable memories now using memory/${dateStamp}.md only (create memory/ if needed).`,
     "IMPORTANT: Append new content only to today's daily memory note. Do not write or rewrite MEMORY.md in this pass.",
     'Capture only stable, durable facts, preferences, and decisions worth preserving after compaction.',
-    'If there is nothing worth saving, reply MEMORY_FLUSH_SKIPPED.',
+    'Use memory action=append and report success only after it succeeds. If there is nothing worth saving, reply MEMORY_FLUSH_SKIPPED.',
+    'Preserve complete durable preferences and recurring-task requirements, including selection criteria, exclusions, source lists, and output formats. Do not turn transient execution failures or time-sensitive task results into durable preferences.',
+    'Read today’s note before appending to avoid saving the same facts again. Excerpts may continue across maintenance batches; preserve partial instructions for the next batch rather than discarding them.',
     '',
     `Current time: ${now.toISOString()}`,
     '',
     'Conversation excerpt (about to be compacted):',
-    transcript,
   ].join('\n');
 
   const systemPrompt = buildSystemPrompt(
@@ -205,7 +189,6 @@ export async function runPreCompactionMemoryFlush(params: {
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt });
   }
-  messages.push({ role: 'user', content: flushPrompt });
 
   let model = params.model;
   let chatbotId = params.chatbotId;
@@ -232,23 +215,45 @@ export async function runPreCompactionMemoryFlush(params: {
 
   const flushSessionId = `memory-flush:${params.sessionId}:${Date.now()}`;
   try {
-    const output = await runAgent({
-      sessionId: flushSessionId,
-      messages,
-      chatbotId,
-      enableRag: params.enableRag,
-      model,
-      agentId: params.agentId,
-      channelId: params.channelId,
-      allowedTools: ['memory'],
-      ...scopeRunAgentParams(scopeRun),
-    });
-    if (output.status === 'error') {
-      logger.warn(
-        { sessionId: params.sessionId, error: output.error },
-        'Pre-compaction memory flush failed',
-      );
-      return;
+    const relativePath = `memory/${dateStamp}.md`;
+    const filePath = path.join(
+      scopeRun?.workspaceDir ?? agentWorkspaceDir(params.agentId),
+      relativePath,
+    );
+    const readNote = () => {
+      try {
+        return fs.readFileSync(filePath, 'utf8');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return '';
+        throw err;
+      }
+    };
+    for (const [index, excerpt] of excerpts.entries()) {
+      const before = readNote();
+      const output = await runAgent({
+        sessionId: flushSessionId,
+        messages: [
+          ...messages,
+          {
+            role: 'user',
+            content: `${flushPrompt}\nBatch ${index + 1}/${excerpts.length}\n${excerpt}`,
+          },
+        ],
+        chatbotId,
+        enableRag: params.enableRag,
+        model,
+        agentId: params.agentId,
+        channelId: params.channelId,
+        allowedTools: ['memory'],
+        ...scopeRunAgentParams(scopeRun),
+      });
+      if (!verifiedMemoryFlush(output, relativePath, before, readNote())) {
+        logger.warn(
+          { sessionId: params.sessionId, error: output.error },
+          'Pre-compaction memory flush failed: no verified append or explicit skip',
+        );
+        return false;
+      }
     }
     memoryService.markSessionMemoryFlush(params.sessionId);
     const pluginManager =
@@ -266,11 +271,13 @@ export async function runPreCompactionMemoryFlush(params: {
         olderMessages: params.olderMessages,
       });
     }
+    return true;
   } catch (err) {
     logger.warn(
       { sessionId: params.sessionId, err },
       'Pre-compaction memory flush crashed',
     );
+    return false;
   } finally {
     stopSessionHostProcess(flushSessionId);
   }
@@ -403,11 +410,14 @@ async function runCompaction(
     }
   }
 
-  await runPreCompactionMemoryFlush({
-    ...params,
-    sessionSummary: session.session_summary,
-    olderMessages: candidate.olderMessages,
-  });
+  if (
+    !(await runPreCompactionMemoryFlush({
+      ...params,
+      sessionSummary: session.session_summary,
+      olderMessages: candidate.olderMessages,
+    }))
+  )
+    return null;
 
   let result: CompactionResult;
   try {

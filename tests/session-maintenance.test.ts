@@ -1,23 +1,36 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { CompactionResult } from '../src/types/memory.js';
 import type { StoredMessage } from '../src/types/session.js';
+import { useTempDir } from './test-utils.js';
 
-const { ensurePluginManagerInitializedMock, loggerMock, memoryServiceMock } =
-  vi.hoisted(() => ({
-    ensurePluginManagerInitializedMock: vi.fn(),
-    loggerMock: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-    },
-    memoryServiceMock: {
-      compactSession: vi.fn(),
-      getCompactionCandidateMessages: vi.fn(),
-      getRecentMessages: vi.fn(),
-      getSessionById: vi.fn(),
-      markSessionMemoryFlush: vi.fn(),
-    },
-  }));
+const {
+  ensurePluginManagerInitializedMock,
+  loggerMock,
+  memoryServiceMock,
+  flushConfig,
+  scopeRunMock,
+} = vi.hoisted(() => ({
+  flushConfig: { enabled: false },
+  scopeRunMock: {
+    resolveScopeRun: vi.fn().mockResolvedValue(null),
+    scopeRunAgentParams: vi.fn().mockReturnValue({}),
+  },
+  ensurePluginManagerInitializedMock: vi.fn(),
+  loggerMock: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
+  memoryServiceMock: {
+    compactSession: vi.fn(),
+    getCompactionCandidateMessages: vi.fn(),
+    getRecentMessages: vi.fn(),
+    getSessionById: vi.fn(),
+    markSessionMemoryFlush: vi.fn(),
+  },
+}));
 
 vi.mock('../src/agent/agent.js', () => ({
   runAgent: vi.fn(),
@@ -37,7 +50,9 @@ vi.mock('../src/config/config.js', () => ({
     trafficWindowMs: 60_000,
   },
   DATA_DIR: '/tmp/hybridclaw-test-data',
-  PRE_COMPACTION_MEMORY_FLUSH_ENABLED: false,
+  get PRE_COMPACTION_MEMORY_FLUSH_ENABLED() {
+    return flushConfig.enabled;
+  },
   PRE_COMPACTION_MEMORY_FLUSH_MAX_CHARS: 8_000,
   PRE_COMPACTION_MEMORY_FLUSH_MAX_MESSAGES: 100,
   SESSION_COMPACTION_BUDGET_RATIO: 0.5,
@@ -47,6 +62,10 @@ vi.mock('../src/config/config.js', () => ({
   SESSION_COMPACTION_THRESHOLD: 20,
   SESSION_COMPACTION_TOKEN_BUDGET: 1_000,
   onConfigChange: vi.fn(() => () => {}),
+}));
+
+vi.mock('../src/infra/host-runner.js', () => ({
+  stopSessionHostProcess: vi.fn(),
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({
@@ -71,6 +90,12 @@ vi.mock('../src/providers/model-catalog.js', () => ({
 
 vi.mock('../src/providers/task-routing.js', () => ({
   resolveTaskModelPolicy: vi.fn(async () => null),
+}));
+
+vi.mock('../src/scopes/scope-run.js', () => ({
+  ...scopeRunMock,
+  isScopeRunError: (value: { errorCode?: string } | null) =>
+    Boolean(value?.errorCode),
 }));
 
 vi.mock('../src/skills/skills.js', () => ({
@@ -126,7 +151,12 @@ const target = {
   channelId: 'web',
 };
 
+const makeTempDir = useTempDir('memory-flush-');
+
 afterEach(() => {
+  flushConfig.enabled = false;
+  scopeRunMock.resolveScopeRun.mockReset().mockResolvedValue(null);
+  scopeRunMock.scopeRunAgentParams.mockReset().mockReturnValue({});
   ensurePluginManagerInitializedMock.mockReset();
   loggerMock.debug.mockReset();
   loggerMock.info.mockReset();
@@ -251,7 +281,9 @@ test('maybeCompactSession stays idle while stored history fits the budget', asyn
 
   await maybeCompactSession({ ...target, promptOverheadTokens: 100 });
 
-  expect(memoryServiceMock.getCompactionCandidateMessages).not.toHaveBeenCalled();
+  expect(
+    memoryServiceMock.getCompactionCandidateMessages,
+  ).not.toHaveBeenCalled();
   expect(memoryServiceMock.compactSession).not.toHaveBeenCalled();
   expect(loggerMock.debug).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -365,4 +397,176 @@ test('resolveRetainedMessageCount always keeps the newest turn whole', async () 
   expect(resolveRetainedMessageCount(messages, 40, 10_000)).toBe(4);
   expect(resolveRetainedMessageCount(messages, 3, 10_000)).toBe(2);
   expect(resolveRetainedMessageCount([], 40, 10_000)).toBe(0);
+});
+
+async function prepareFlush() {
+  flushConfig.enabled = true;
+  const workspace = makeTempDir();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  vi.mocked(agentWorkspaceDir).mockReturnValue(workspace);
+  const { runAgent } = await import('../src/agent/agent.js');
+  vi.mocked(runAgent).mockReset();
+  const maintenance = await import('../src/session/session-maintenance.js');
+  const params = {
+    ...target,
+    sessionSummary: null,
+    olderMessages: [makeStoredMessage(1, 'user', 'Prefer technical history.')],
+  };
+  const append = () => {
+    vi.mocked(runAgent).mockImplementation(async (input) => {
+      const prompt = input.messages.at(-1)?.content ?? '';
+      const relativePath = String(prompt).match(
+        /memory\/\d{4}-\d{2}-\d{2}\.md/,
+      )?.[0];
+      if (!relativePath) throw new Error('Missing note path');
+      const filePath = path.join(workspace, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const content = 'Prefer technical history.';
+      const previous = fs.existsSync(filePath)
+        ? fs.readFileSync(filePath, 'utf8').trimEnd()
+        : '';
+      fs.writeFileSync(
+        filePath,
+        (previous ? previous + '\n\n' : '') + content + '\n',
+      );
+      return {
+        status: 'success',
+        result: 'Saved.',
+        toolsUsed: ['memory'],
+        toolExecutions: [
+          {
+            name: 'memory',
+            arguments: JSON.stringify({
+              action: 'append',
+              file_path: relativePath,
+              content,
+            }),
+            result: `Appended ${content.length} chars to ${relativePath}`,
+            durationMs: 1,
+          },
+        ],
+      };
+    });
+  };
+  return {
+    ...maintenance,
+    params,
+    workspace,
+    runAgent: vi.mocked(runAgent),
+    append,
+  };
+}
+
+test('memory flush marks and notifies only after a real append', async () => {
+  const { runPreCompactionMemoryFlush, params, append } = await prepareFlush();
+  const notifyMemoryFlush = vi.fn();
+  ensurePluginManagerInitializedMock.mockResolvedValue({ notifyMemoryFlush });
+  append();
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(true);
+  expect(memoryServiceMock.markSessionMemoryFlush).toHaveBeenCalledWith(
+    params.sessionId,
+  );
+  expect(notifyMemoryFlush).toHaveBeenCalledOnce();
+});
+
+test('unverified claims leave memory pending and prevent compaction', async () => {
+  const { compactSessionNow, params, runAgent } = await prepareFlush();
+  runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'Saved.',
+    toolsUsed: [],
+  });
+  memoryServiceMock.getSessionById.mockReturnValue({
+    id: params.sessionId,
+    session_summary: null,
+  });
+  memoryServiceMock.getRecentMessages.mockReturnValue([
+    ...params.olderMessages,
+    makeStoredMessage(2, 'user', 'Next request.'),
+  ]);
+  memoryServiceMock.getCompactionCandidateMessages.mockReturnValue({
+    olderMessages: params.olderMessages,
+    cutoffId: 2,
+  });
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+  await expect(compactSessionNow(params)).resolves.toBeNull();
+  expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
+  expect(memoryServiceMock.compactSession).not.toHaveBeenCalled();
+});
+
+test('explicit skip completes maintenance without creating a note', async () => {
+  const { runPreCompactionMemoryFlush, params, runAgent } =
+    await prepareFlush();
+  runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'MEMORY_FLUSH_SKIPPED',
+    toolsUsed: [],
+  });
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(true);
+  expect(memoryServiceMock.markSessionMemoryFlush).toHaveBeenCalledOnce();
+});
+
+test('a later batch failure leaves the flush pending', async () => {
+  const { runPreCompactionMemoryFlush, params, runAgent, append } =
+    await prepareFlush();
+  append();
+  const successful = runAgent.getMockImplementation();
+  runAgent.mockImplementationOnce(successful!).mockResolvedValue({
+    status: 'error',
+    result: null,
+    toolsUsed: [],
+    error: 'Provider unavailable.',
+  });
+  params.olderMessages.push(makeStoredMessage(2, 'user', 'x'.repeat(8000)));
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(false);
+  expect(runAgent).toHaveBeenCalledTimes(2);
+  expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
+});
+
+test('all batches must verify before the flush is marked complete', async () => {
+  const { runPreCompactionMemoryFlush, params, runAgent, append } =
+    await prepareFlush();
+  ensurePluginManagerInitializedMock.mockResolvedValue(null);
+  append();
+  params.olderMessages.push(makeStoredMessage(2, 'user', 'x'.repeat(8000)));
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(true);
+  expect(runAgent).toHaveBeenCalledTimes(3);
+  expect(memoryServiceMock.markSessionMemoryFlush).toHaveBeenCalledOnce();
+});
+
+test('scoped flushes verify the scoped note and do not notify main-workspace memory plugins', async () => {
+  const { runPreCompactionMemoryFlush, params, workspace, runAgent, append } =
+    await prepareFlush();
+  scopeRunMock.resolveScopeRun.mockResolvedValue({
+    workspaceDir: workspace,
+    agentId: 'main',
+    scope: { id: 'research' },
+    blockedTools: [],
+  });
+  scopeRunMock.scopeRunAgentParams.mockReturnValue({
+    workspacePathOverride: workspace,
+    runtimeScope: { agentId: 'main', scopeId: 'research' },
+  });
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+  vi.mocked(agentWorkspaceDir).mockReturnValue(makeTempDir());
+  const notifyMemoryFlush = vi.fn();
+  ensurePluginManagerInitializedMock.mockResolvedValue({ notifyMemoryFlush });
+  append();
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(true);
+  expect(runAgent).toHaveBeenCalledWith(
+    expect.objectContaining({ workspacePathOverride: workspace }),
+  );
+  expect(notifyMemoryFlush).not.toHaveBeenCalled();
+});
+
+test('a deleted scope cannot flush into the main workspace', async () => {
+  const { runPreCompactionMemoryFlush, params, runAgent } =
+    await prepareFlush();
+  scopeRunMock.resolveScopeRun.mockResolvedValue({
+    errorCode: 'scope_deleted',
+  });
+  await expect(runPreCompactionMemoryFlush(params)).resolves.toBe(false);
+  expect(runAgent).not.toHaveBeenCalled();
+  expect(memoryServiceMock.markSessionMemoryFlush).not.toHaveBeenCalled();
 });

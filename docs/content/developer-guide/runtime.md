@@ -996,7 +996,11 @@ Container-side sandboxed tool families:
 
 Prompt and runtime internals:
 
-- session compaction with pre-compaction memory flush
+- session compaction with pre-compaction memory flush: complete instructions
+  are processed in bounded batches, duplicate failed requests are collapsed,
+  and completion requires an append confirmed in the daily note or an explicit
+  no-memory skip. Unverified saves defer compaction and automatic session reset;
+  model claims alone do not mark the flush complete.
 - prompt hook pipeline: `bootstrap`, `memory`, `safety`, `proactivity`
 - hook config lives in `config.promptHooks`
 - delegated agent runs persist request logs, audit tool events, and model
