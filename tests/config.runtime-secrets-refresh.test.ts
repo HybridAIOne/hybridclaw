@@ -23,24 +23,15 @@ async function setup(authToken: unknown = '') {
   return { secrets, config };
 }
 
-test('notifies after resolving saved secrets, including unchanged reloads, and detaches', async () => {
+test('refreshes resolved exports from saved secrets without changing config', async () => {
   const { secrets, config } = await setup();
-  const observed: string[] = [];
-  const listener = vi.fn(() => {
-    observed.push(config.TWILIO_AUTH_TOKEN);
-  });
-  const detach = config.onRuntimeSecretsRefresh(listener);
   const before = config.getConfigSnapshot();
   secrets.saveNamedRuntimeSecrets({ TWILIO_AUTH_TOKEN: 'test-key' });
   config.refreshRuntimeSecretsFromEnv();
+  expect(config.TWILIO_AUTH_TOKEN).toBe('test-key');
   config.refreshRuntimeSecretsFromEnv();
-  expect(observed).toEqual(['test-key', 'test-key']);
+  expect(config.TWILIO_AUTH_TOKEN).toBe('test-key');
   expect(config.getConfigSnapshot()).toEqual(before);
-  expect(listener.mock.calls).toEqual([[], []]);
-
-  detach();
-  config.refreshRuntimeSecretsFromEnv();
-  expect(listener).toHaveBeenCalledTimes(2);
 });
 
 test('preserves a configured token when another secret is saved', async () => {
@@ -68,13 +59,12 @@ test('resolves configured secret references afresh after rotation and removal', 
   expect(config.TWILIO_AUTH_TOKEN).toBe('');
 });
 
-test('a failed refresh subscriber does not prevent other subscribers from running', async () => {
+test('refreshes environment secrets and clears exports when they are removed', async () => {
   const { config } = await setup();
-  config.onRuntimeSecretsRefresh(() => {
-    throw new Error('test subscriber failure');
-  });
-  const listener = vi.fn();
-  config.onRuntimeSecretsRefresh(listener);
-  expect(() => config.refreshRuntimeSecretsFromEnv()).not.toThrow();
-  expect(listener).toHaveBeenCalledOnce();
+  vi.stubEnv('TWILIO_AUTH_TOKEN', 'test-env-key');
+  config.refreshRuntimeSecretsFromEnv();
+  expect(config.TWILIO_AUTH_TOKEN).toBe('test-env-key');
+  vi.stubEnv('TWILIO_AUTH_TOKEN', '');
+  config.refreshRuntimeSecretsFromEnv();
+  expect(config.TWILIO_AUTH_TOKEN).toBe('');
 });

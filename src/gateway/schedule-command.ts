@@ -13,6 +13,9 @@
  * reply that says something is posted here, as the agent's message, so an
  * app can let a background check write into the conversation itself.
  *
+ * `runs` lists when each run was due and how it ended, missed due times
+ * included (`task-runs.ts`); it is read like `results`.
+ *
  * `update --json` validates a complete revision-bound editor payload before
  * writing. It preserves creation and delivery metadata; model, effort and
  * fresh-session options apply only to that task’s executions.
@@ -57,6 +60,11 @@ import {
   dbTaskLabel,
   rearmScheduler,
 } from '../scheduler/scheduler.js';
+import {
+  listTaskRuns,
+  MAX_TASK_RUNS,
+  taskRunsSummary,
+} from '../scheduler/task-runs.js';
 import type { ScheduledTask } from '../types/scheduler.js';
 import type { Session } from '../types/session.js';
 import { isRecord } from '../utils/type-guards.js';
@@ -79,7 +87,7 @@ import {
 import { mainChatForWebTask } from './web-scheduled-delivery.js';
 
 const USAGE =
-  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>` or `schedule add --on mail|slack|webhook [--channel <slack channel>] [--contains <text>] [--title <title>] ["<cron>"] <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
+  'Usage: `schedule add [--tz <zone>] [--alert <kind>] [--reply-only] "<cron>" <prompt>` or `schedule add at "<ISO time>" <prompt>` or `schedule add every <ms> <prompt>` or `schedule add --on mail|slack|webhook [--channel <slack channel>] [--contains <text>] [--title <title>] ["<cron>"] <prompt>`, `schedule list`, `schedule results <id> [--limit <n>]`, `schedule runs <id> [--limit <n>]`, `schedule remove <id>`, `schedule toggle <id>`, `schedule update --json <id> <base64url-JSON>`. Add `--json` for a machine-readable answer.';
 const ALERT_KIND = /^[a-z][a-z0-9_-]{0,31}$/;
 const DEFAULT_RESULTS = 20;
 // 200 runs (engineering choice, 2026-09-30): four days of a half-hourly task.
@@ -151,6 +159,7 @@ function taskJson(task: ScheduledTask) {
     alert: task.alert ?? null,
     reply_only: task.reply_only ?? false,
     trigger: task.trigger ? triggerJson(task.trigger, publicBaseUrl()) : null,
+    runs: taskRunsSummary(task.id),
   };
 }
 
@@ -498,6 +507,44 @@ function results(
   );
 }
 
+/**
+ * The task's run history, newest first: when each run was due, when it ran,
+ * how it ended (`done`, `failed`, `missed`, `skipped`, `running`), what it
+ * cost and the message it posted.
+ */
+function runs(
+  task: ScheduledTask,
+  options: { limit: string; json: boolean },
+): GatewayCommandResult {
+  const limit = options.limit
+    ? Number.parseInt(options.limit, 10)
+    : DEFAULT_RESULTS;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_TASK_RUNS) {
+    return badCommand(
+      'Invalid Limit',
+      `\`--limit\` takes a number from 1 to ${MAX_TASK_RUNS}.`,
+    );
+  }
+  const list = listTaskRuns(task.id, limit);
+  if (options.json) {
+    return plainCommand(
+      chatSafeJson({ version: 1, task: taskJson(task), runs: list }),
+    );
+  }
+  if (list.length === 0) {
+    return plainCommand(`Task #${task.id} has not run yet.`);
+  }
+  return infoCommand(
+    `Runs of Task #${task.id}`,
+    list
+      .map(
+        (run) =>
+          `${run.due_at} · ${run.outcome}${run.duration_ms != null ? ` · ${Math.round(run.duration_ms / 1000)} s` : ''}${run.error ? ` · ${run.error}` : ''}`,
+      )
+      .join('\n'),
+  );
+}
+
 function taskEditor(session: Session) {
   const inherited = resolveAgentForRequest({ session }).model;
   const models = [...new Set([inherited, ...getAvailableModelList()])];
@@ -707,11 +754,11 @@ export function handleScheduleCommand(
 
   const taskId = parseIntegerArg(options.rest, 0);
 
-  if (sub === 'results') {
+  if (sub === 'results' || sub === 'runs') {
     const task = taskId ? getJob(taskId, { kind: 'scheduled_task' }) : null;
     if (!task || !canReadScheduledTaskResults(task, session))
       return notFound(taskId);
-    return results(task, options);
+    return sub === 'runs' ? runs(task, options) : results(task, options);
   }
 
   if (sub === 'remove') {

@@ -987,6 +987,7 @@ function WhatsAppChannelEditor(props: {
 
 function LineChannelEditor(props: {
   form: UseFormControllerReturn<AdminConfig>;
+  transportAvailable: boolean | undefined;
   linked: boolean;
   pairingQrText: string | null;
   pairingQrSvg: string | null;
@@ -1014,7 +1015,7 @@ function LineChannelEditor(props: {
         )}
       />
 
-      {!props.linked ? (
+      {props.transportAvailable === false ? null : !props.linked ? (
         <div className="field whatsapp-pairing-field">
           <span>Pairing QR</span>
           {props.pairingQrSvg ? (
@@ -3779,6 +3780,7 @@ function renderSelectedEditor(
     pairingError: string | null;
   },
   lineStatus: {
+    transportAvailable: boolean | undefined;
     linked: boolean;
     pairingQrText: string | null;
     pairingQrSvg: string | null;
@@ -3822,6 +3824,7 @@ function renderSelectedEditor(
       return (
         <LineChannelEditor
           form={form}
+          transportAvailable={lineStatus.transportAvailable}
           linked={lineStatus.linked}
           pairingQrText={lineStatus.pairingQrText}
           pairingQrSvg={lineStatus.pairingQrSvg}
@@ -4112,6 +4115,9 @@ export function ChannelsPage() {
     pairingError: statusQuery.data?.whatsapp?.pairingError ?? null,
   };
   const lineStatus = {
+    transportAvailable: statusQuery.data?.channelPlugins?.find(
+      (plugin) => plugin.channel === 'line',
+    )?.transportAvailable,
     linked: statusQuery.data?.line?.linked ?? false,
     pairingQrText: statusQuery.data?.line?.pairingQrText ?? null,
     pairingQrSvg: statusQuery.data?.line?.pairingQrSvg ?? null,

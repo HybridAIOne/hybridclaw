@@ -5,8 +5,9 @@ import { useCleanMocks, useTempDir } from './test-utils.js';
 
 /**
  * The agent's real bash invocation (`bash -lc` + wrapper) under a login
- * profile that resets PATH the way Debian's /etc/profile does. The worker's
- * PATH entries the profile dropped come back after the profile's own.
+ * profile that resets PATH the way Debian's /etc/profile does, and a
+ * ~/.bash_logout that fails. The worker's PATH entries the profile dropped
+ * come back after the profile's own, and the logout never sets the status.
  */
 
 const PROBE = 'hybridclaw-login-path-probe';
@@ -34,6 +35,7 @@ describe.sequential('bash login shells keep the worker PATH', () => {
       path.join(home, '.bash_profile'),
       `PATH="${PROFILE_PATH}"\nexport PATH\n`,
     );
+    fs.writeFileSync(path.join(home, '.bash_logout'), 'false\n');
     fs.writeFileSync(path.join(workerBin, PROBE), '#!/bin/sh\necho probe-ok\n', {
       mode: 0o755,
     });
@@ -70,5 +72,14 @@ describe.sequential('bash login shells keep the worker PATH', () => {
     expect(await bash(PROBE)).toBe('probe-ok\n');
     await bash(`export PATH="${PROFILE_PATH}"`);
     expect(await bash(`printf '%s' "$PATH"`)).toBe(PROFILE_PATH);
+  });
+
+  test.each([
+    false,
+    true,
+  ])('a first call under set -e keeps the command exit status (persistent=%s)', async (persistBashState) => {
+    const { bash } = await setup(persistBashState);
+    expect(await bash('set -e; echo hi')).toBe('hi\n');
+    expect(await bash('set -e; (exit 3)')).toMatch(/exit code 3\b/);
   });
 });

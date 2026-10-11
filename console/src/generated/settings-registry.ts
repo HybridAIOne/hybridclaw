@@ -357,6 +357,24 @@ export const GENERATED_SETTINGS_REGISTRY: ReadonlyArray<GeneratedSettingEntry> =
       defaultValue: 'auto',
     },
     {
+      path: 'auxiliaryModels.quick_decision.maxTokens',
+      section: 'auxiliaryModels',
+      kind: 'number',
+      defaultValue: 0,
+    },
+    {
+      path: 'auxiliaryModels.quick_decision.model',
+      section: 'auxiliaryModels',
+      kind: 'string',
+      defaultValue: '',
+    },
+    {
+      path: 'auxiliaryModels.quick_decision.provider',
+      section: 'auxiliaryModels',
+      kind: 'string',
+      defaultValue: 'auto',
+    },
+    {
       path: 'auxiliaryModels.second_opinion.maxTokens',
       section: 'auxiliaryModels',
       kind: 'number',

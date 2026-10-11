@@ -72,13 +72,6 @@ export type FormRegistryContextValue = {
   ) => () => void;
 };
 
-export type FormStateContextValue = {
-  /** True iff no descendant Field is currently reporting an error. */
-  isValid: boolean;
-  /** Snapshot of every active error keyed by field id. */
-  errors: ReadonlyMap<string, string>;
-};
-
 /**
  * Sparse "signal" context — only changes on submit attempts, async submit
  * lifecycle, and explicit resets, not on every error tick. Field components
@@ -116,14 +109,6 @@ export const FormRegistryContext =
   createContext<FormRegistryContextValue | null>(null);
 
 /**
- * State context — re-evaluates on every error change. Consumed by save
- * buttons, summaries, anything that needs `isValid` to gate UI.
- */
-export const FormStateContext = createContext<FormStateContextValue | null>(
-  null,
-);
-
-/**
  * Signals context — only ticks on submit attempts and resets. Consumed by
  * Fields, which need `submitAttempted` and `resetSeq` but should not
  * re-render on every error change.
@@ -134,10 +119,6 @@ export const FormSignalsContext = createContext<FormSignalsContextValue | null>(
 
 export function useFormRegistry(): FormRegistryContextValue | null {
   return useContext(FormRegistryContext);
-}
-
-export function useFormState(): FormStateContextValue | null {
-  return useContext(FormStateContext);
 }
 
 export function useFormSignals(): FormSignalsContextValue | null {

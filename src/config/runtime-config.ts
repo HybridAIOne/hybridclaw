@@ -1030,16 +1030,6 @@ export interface RuntimeInstalledSkillManifest {
   updatedAt: string;
 }
 
-type RuntimeSkillAutonomyRuleIndex = Map<
-  string,
-  Map<string, SkillAutonomyLevel>
->;
-
-const skillAutonomyRuleIndexes = new WeakMap<
-  RuntimeSkillAutonomyConfig,
-  RuntimeSkillAutonomyRuleIndex
->();
-
 export interface RuntimeConfig {
   version: number;
   audit: RuntimeAuditConfig;
@@ -1210,6 +1200,7 @@ export interface RuntimeConfig {
     second_opinion: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
+    quick_decision: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -1993,6 +1984,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       model: '',
       maxTokens: 0,
     },
+    quick_decision: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
   },
   container: {
     sandboxMode: 'container',
@@ -2460,25 +2456,6 @@ function normalizeSkillAutonomyConfig(
       return byAgent || a.skillName.localeCompare(b.skillName);
     }),
   };
-}
-
-function getSkillAutonomyRuleIndex(
-  autonomy: RuntimeSkillAutonomyConfig,
-): RuntimeSkillAutonomyRuleIndex {
-  const cached = skillAutonomyRuleIndexes.get(autonomy);
-  if (cached) return cached;
-
-  const index: RuntimeSkillAutonomyRuleIndex = new Map();
-  for (const rule of autonomy.rules) {
-    let skillRules = index.get(rule.agentId);
-    if (!skillRules) {
-      skillRules = new Map<string, SkillAutonomyLevel>();
-      index.set(rule.agentId, skillRules);
-    }
-    skillRules.set(rule.skillName, rule.level);
-  }
-  skillAutonomyRuleIndexes.set(autonomy, index);
-  return index;
 }
 
 function normalizeSkillChannelDisabled(
@@ -8643,25 +8620,6 @@ export function resolveDefaultAgentId(
   config: Pick<RuntimeConfig, 'agents'> = currentConfig,
 ): string {
   return resolveConfiguredDefaultAgentId(config.agents);
-}
-
-export function resolveSkillAutonomyLevel(
-  config: Pick<RuntimeConfig, 'skills'> = currentConfig,
-  agentId: string,
-  skillName: string,
-): SkillAutonomyLevel {
-  const defaultLevel = config.skills.autonomy.defaultLevel;
-  if (!agentId || !skillName) {
-    throw new Error(
-      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
-    );
-  }
-
-  return (
-    getSkillAutonomyRuleIndex(config.skills.autonomy)
-      .get(agentId)
-      ?.get(skillName) ?? defaultLevel
-  );
 }
 
 export function isContainerSandboxModeExplicit(): boolean {

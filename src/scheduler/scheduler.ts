@@ -36,6 +36,12 @@ import { isConnectorEventCurrent } from './connector-events.js';
 import { isTriggerRunCurrent, triggerRunPrompt } from './event-triggers.js';
 import { HEARTBEAT_POLL_PROMPT } from './heartbeat-prompt.js';
 import { RESOURCE_HYGIENE_SYSTEM_EVENT } from './system-jobs.js';
+import {
+  finishTaskRun,
+  interruptTaskRuns,
+  noteTaskRun,
+  startTaskRun,
+} from './task-runs.js';
 
 const MAX_TIMER_DELAY_MS = 300_000; // 5 min safety net for clock drift
 const MAX_CONSECUTIVE_FAILURES = 5;
@@ -78,6 +84,8 @@ export interface SchedulerDispatchRequest {
     | { kind: 'webhook'; webhookUrl: string };
   /** The run works apart from `sessionId`, which only receives its reply. */
   replyOnly?: boolean;
+  /** The run's row in the task's run history (`task-runs.ts`). */
+  taskRunId?: number;
 }
 
 type TaskRunner = (request: SchedulerDispatchRequest) => Promise<void>;
@@ -714,15 +722,20 @@ function arm(): void {
   }, clamped);
 }
 
-async function dispatchDbTask(task: ScheduledTask): Promise<void> {
+async function dispatchDbTask(
+  task: ScheduledTask,
+  taskRunId?: number,
+): Promise<void> {
   if (!taskRunner) return;
   // A reminder of a todo that is already done has nothing to say.
   if (
     isTodoReminderSettled(task.id) ||
     !isConnectorEventCurrent(task) ||
     !isTriggerRunCurrent(task)
-  )
+  ) {
+    noteTaskRun(taskRunId, { skipped: true });
     return;
+  }
   // A trigger shows when it last ran, whichever event ran it.
   if (task.trigger_event && task.event_parent_id)
     markJobRunStarted(task.event_parent_id);
@@ -752,7 +765,64 @@ async function dispatchDbTask(task: ScheduledTask): Promise<void> {
       channelId: task.channel_id,
     },
     ...(task.reply_only ? { replyOnly: true } : {}),
+    ...(taskRunId ? { taskRunId } : {}),
   });
+}
+
+const DB_TASK_FAILED = {
+  'One-shot': 'One-shot task failed (task preserved)',
+  Interval: 'Interval task failed',
+  Cron: 'Cron task failed',
+} as const;
+
+/** Run history must never stop or fail a run. */
+function recordRun<T>(task: ScheduledTask, write: () => T): T | undefined {
+  try {
+    return write();
+  } catch (err) {
+    logger.warn({ taskId: task.id, err }, 'Task run history not recorded');
+    return undefined;
+  }
+}
+
+/** Fires a stored task for the time it was due; a one-shot goes once it ran. */
+function fireDbTask(
+  task: ScheduledTask,
+  dueMs: number,
+  kind: keyof typeof DB_TASK_FAILED,
+  details: Record<string, unknown>,
+): void {
+  logger.info(
+    { taskId: task.id, ...details, prompt: task.prompt },
+    `${kind} task firing`,
+  );
+  markJobRunStarted(task.id);
+  const run = recordRun(task, () => startTaskRun(task, dueMs));
+  dispatchDbTask(task, run)
+    .then(() => {
+      markJobSuccess(task.id);
+      if (run) recordRun(task, () => finishTaskRun(task, run));
+      if (task.run_at) deleteJob(task.id);
+    })
+    .catch((err) => {
+      const failure = markJobFailure(task.id, MAX_CONSECUTIVE_FAILURES, err);
+      if (run)
+        recordRun(task, () =>
+          finishTaskRun(task, run, {
+            error: err,
+            ...(failure.disabled
+              ? { pausedAfter: failure.consecutiveErrors }
+              : {}),
+          }),
+        );
+      logger.error({ taskId: task.id, err }, DB_TASK_FAILED[kind]);
+      if (failure.disabled) {
+        logger.warn(
+          { taskId: task.id, consecutiveErrors: failure.consecutiveErrors },
+          'Scheduled task auto-disabled after repeated failures',
+        );
+      }
+    });
 }
 
 async function dispatchConfigJob(job: RuntimeSchedulerJob): Promise<void> {
@@ -896,117 +966,36 @@ async function tick(): Promise<void> {
       try {
         if (task.run_at) {
           const runAtMs = parseSchedulerTimestampMs(task.run_at);
-          if (runAtMs != null && runAtMs <= nowMs && !task.last_run) {
-            logger.info(
-              { taskId: task.id, runAt: task.run_at, prompt: task.prompt },
-              'One-shot task firing',
-            );
-            markJobRunStarted(task.id);
-            dispatchDbTask(task)
-              .then(() => {
-                markJobSuccess(task.id);
-                deleteJob(task.id);
-              })
-              .catch((err) => {
-                const failure = markJobFailure(
-                  task.id,
-                  MAX_CONSECUTIVE_FAILURES,
-                  err,
-                );
-                logger.error(
-                  { taskId: task.id, err },
-                  'One-shot task failed (task preserved)',
-                );
-                if (failure.disabled) {
-                  logger.warn(
-                    {
-                      taskId: task.id,
-                      consecutiveErrors: failure.consecutiveErrors,
-                    },
-                    'Scheduled task auto-disabled after repeated failures',
-                  );
-                }
-              });
-          }
+          if (runAtMs != null && runAtMs <= nowMs && !task.last_run)
+            fireDbTask(task, runAtMs, 'One-shot', { runAt: task.run_at });
           continue;
         }
 
         if (task.every_ms) {
           const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
           const dueAt = lastRunMs > 0 ? lastRunMs + task.every_ms : 0;
-          if (dueAt <= nowMs) {
-            logger.info(
-              { taskId: task.id, everyMs: task.every_ms, prompt: task.prompt },
-              'Interval task firing',
-            );
-            markJobRunStarted(task.id);
-            dispatchDbTask(task)
-              .then(() => {
-                markJobSuccess(task.id);
-              })
-              .catch((err) => {
-                const failure = markJobFailure(
-                  task.id,
-                  MAX_CONSECUTIVE_FAILURES,
-                  err,
-                );
-                logger.error({ taskId: task.id, err }, 'Interval task failed');
-                if (failure.disabled) {
-                  logger.warn(
-                    {
-                      taskId: task.id,
-                      consecutiveErrors: failure.consecutiveErrors,
-                    },
-                    'Scheduled task auto-disabled after repeated failures',
-                  );
-                }
-              });
-          }
+          if (dueAt <= nowMs)
+            fireDbTask(task, dueAt || nowMs, 'Interval', {
+              everyMs: task.every_ms,
+            });
           continue;
         }
 
         if (!task.cron_expr) continue;
         if (disableTaskWithUnparsableCron(task)) continue;
+        // `prev()` leaves out a time equal to its start, and the timer is armed
+        // for the due time exactly, so it looks back from just after now.
         const cron = parseCronExpression(task.cron_expr, {
-          currentDateMs: nowMs,
+          currentDateMs: nowMs + 1,
           tz: task.tz || undefined,
         });
-        const prev = cron.prev();
+        const prevMs = cron.prev().toDate().getTime();
         const lastRunMs = parseSchedulerTimestampMs(task.last_run) ?? 0;
-
-        if (prev.toDate().getTime() > lastRunMs) {
-          logger.info(
-            {
-              taskId: task.id,
-              cron: task.cron_expr,
-              tz: task.tz,
-              prompt: task.prompt,
-            },
-            'Cron task firing',
-          );
-          markJobRunStarted(task.id);
-          dispatchDbTask(task)
-            .then(() => {
-              markJobSuccess(task.id);
-            })
-            .catch((err) => {
-              const failure = markJobFailure(
-                task.id,
-                MAX_CONSECUTIVE_FAILURES,
-                err,
-              );
-              logger.error({ taskId: task.id, err }, 'Cron task failed');
-              if (failure.disabled) {
-                logger.warn(
-                  {
-                    taskId: task.id,
-                    consecutiveErrors: failure.consecutiveErrors,
-                  },
-                  'Scheduled task auto-disabled after repeated failures',
-                );
-              }
-            });
-        }
+        if (prevMs > lastRunMs)
+          fireDbTask(task, prevMs, 'Cron', {
+            cron: task.cron_expr,
+            tz: task.tz,
+          });
       } catch (err) {
         logger.error(
           { taskId: task.id, cron: task.cron_expr, err },
@@ -1221,7 +1210,7 @@ async function tick(): Promise<void> {
 
         if (!job.schedule.expr) continue;
         const cron = parseCronExpression(job.schedule.expr, {
-          currentDateMs: nowMs,
+          currentDateMs: nowMs + 1,
           tz: job.schedule.tz || undefined,
           // Config-backed jobs can arrive from Monday-first weekday sources upstream.
           weekdayNumbering: 'monday-zero-based',
@@ -1381,6 +1370,11 @@ export function resetConfigJobRuntime(jobId: string): boolean {
 export function startScheduler(runner: TaskRunner): void {
   logger.info('Scheduler started');
   taskRunner = runner;
+  try {
+    interruptTaskRuns();
+  } catch (err) {
+    logger.warn({ err }, 'Interrupted task runs not recorded');
+  }
   registerChannel({
     kind: 'scheduler',
     id: 'scheduler',

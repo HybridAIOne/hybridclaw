@@ -26,18 +26,19 @@ function request(model: string, wantsStream = false) {
   };
 }
 
-test('auxiliary completion returns its answer without implicit regular fallback', async () => {
+test.each(['auxiliary/quick_decision', 'auxiliary/eval_judge'])('%s answers from the quick_decision task without implicit regular fallback', async model => {
   mocks.auxiliary.mockResolvedValue({ model: 'vllm/small', provider: 'vllm', content: '{"emoji":"none"}' });
-  const { params, res } = request('auxiliary/eval_judge');
+  const { params, res } = request(model);
   await handleDecisionCompletion(params);
-  expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({ messages: params.messages, allowFallback: false, temperature: 0 }));
+  expect(mocks.auxiliary).toHaveBeenCalledWith(expect.objectContaining({ task: 'quick_decision', messages: params.messages, allowFallback: false, temperature: 0 }));
   expect(JSON.parse(res.end.mock.calls[0][0]).choices[0].message.content).toBe('{"emoji":"none"}');
   expect(mocks.regular).not.toHaveBeenCalled();
 });
 
-test('auxiliary failure propagates for the client to decide its next step', async () => {
+test('auxiliary failure is unavailable for the client to decide its next step', async () => {
   mocks.auxiliary.mockRejectedValue(new Error('unavailable'));
-  await expect(handleDecisionCompletion(request('auxiliary/eval_judge').params)).rejects.toThrow('unavailable');
+  await expect(handleDecisionCompletion(request('auxiliary/quick_decision').params))
+    .rejects.toMatchObject({ statusCode: 503, code: 'auxiliary_unavailable', message: 'unavailable' });
   expect(mocks.regular).not.toHaveBeenCalled();
 });
 
@@ -53,7 +54,7 @@ test('regular decision uses the selected agent model and supplied context with n
   expect(mocks.auxiliary).not.toHaveBeenCalled();
 });
 
-test.each(['regular', 'auxiliary/eval_judge'])('streaming %s decisions fail before model execution', async model => {
+test.each(['regular', 'auxiliary/quick_decision'])('streaming %s decisions fail before model execution', async model => {
   await expect(handleDecisionCompletion(request(model, true).params)).rejects.toMatchObject({ statusCode: 400 });
   expect(mocks.regular).not.toHaveBeenCalled();
   expect(mocks.auxiliary).not.toHaveBeenCalled();
@@ -61,6 +62,7 @@ test.each(['regular', 'auxiliary/eval_judge'])('streaming %s decisions fail befo
 
 test('only explicit decision aliases bypass chat execution', () => {
   expect(isDecisionModel('regular')).toBe(true);
+  expect(isDecisionModel('auxiliary/quick_decision')).toBe(true);
   expect(isDecisionModel('auxiliary/eval_judge')).toBe(true);
   expect(isDecisionModel('auxiliary/vision')).toBe(false);
   expect(isDecisionModel('vllm/primary')).toBe(false);

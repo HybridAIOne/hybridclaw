@@ -18,8 +18,6 @@ import {
   type FormRegistryContextValue,
   FormSignalsContext,
   type FormSignalsContextValue,
-  FormStateContext,
-  type FormStateContextValue,
 } from './context';
 
 export {
@@ -27,12 +25,10 @@ export {
   type FormFieldContextValue,
   type FormRegistryContextValue,
   type FormSignalsContextValue,
-  type FormStateContextValue,
   useFormContext,
   useFormFieldContext,
   useFormRegistry,
   useFormSignals,
-  useFormState,
 } from './context';
 export {
   FormField,
@@ -319,7 +315,7 @@ export function Form({
 
   // Stable registry context — only the function references matter here, so
   // Fields that subscribe via useFormRegistry() don't re-render when the
-  // error map ticks (only consumers of FormStateContext do).
+  // error map ticks.
   const registry = useMemo<FormRegistryContextValue>(
     () => ({
       registerError: form.registerError,
@@ -327,13 +323,6 @@ export function Form({
       registerErrorSetter: form.registerErrorSetter,
     }),
     [form.registerError, form.registerValidator, form.registerErrorSetter],
-  );
-  const state = useMemo<FormStateContextValue>(
-    () => ({
-      isValid: form.isValid,
-      errors: form.errors,
-    }),
-    [form.isValid, form.errors],
   );
   // Sparse signals — Fields subscribe here, so they don't re-render every
   // time a sibling Field's error ticks (which would happen if we put
@@ -346,7 +335,7 @@ export function Form({
   // have to thread `form={form}` through every binding. This context's
   // value identity ticks on every draft change — that's intentional, the
   // FormFields downstream need a fresh value to render. Other contexts
-  // (state/signals/registry) stay stable across error ticks for
+  // (signals/registry) stay stable across error ticks for
   // re-render isolation.
   const formCtx = useMemo<AnyFormController | null>(() => {
     if (!('setField' in form && 'draft' in form)) return null;
@@ -357,17 +346,11 @@ export function Form({
   return (
     <FormContext.Provider value={formCtx}>
       <FormRegistryContext.Provider value={registry}>
-        <FormStateContext.Provider value={state}>
-          <FormSignalsContext.Provider value={signals}>
-            <form
-              noValidate={noValidate}
-              {...formProps}
-              onSubmit={handleSubmit}
-            >
-              {children}
-            </form>
-          </FormSignalsContext.Provider>
-        </FormStateContext.Provider>
+        <FormSignalsContext.Provider value={signals}>
+          <form noValidate={noValidate} {...formProps} onSubmit={handleSubmit}>
+            {children}
+          </form>
+        </FormSignalsContext.Provider>
       </FormRegistryContext.Provider>
     </FormContext.Provider>
   );

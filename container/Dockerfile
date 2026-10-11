@@ -64,7 +64,10 @@ WORKDIR /app
 # Hand /app to node before anything is written into it; a trailing `chown -R`
 # would copy every installed file into a second layer instead. `--link` copies
 # below resolve ownership without passwd, so they name node numerically.
-RUN mkdir -p /ms-playwright && chown node:node /app /ms-playwright
+# The skeleton ~/.bash_logout runs whenever a login shell calls exit, and an
+# agent command's set -e turns its failing clear_console test into exit 1.
+RUN mkdir -p /ms-playwright && chown node:node /app /ms-playwright \
+    && rm -f /home/node/.bash_logout
 
 COPY --link --chown=1000:1000 --from=builder /app/.npmrc /app/package.json /app/package-lock.json ./
 USER node

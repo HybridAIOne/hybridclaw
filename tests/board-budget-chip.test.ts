@@ -1,13 +1,20 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { seedBoardCard } from './helpers/board-card-fixtures.js';
+import { cleanupGatewayRuntime } from './helpers/gateway-test-setup.js';
+import { useCleanMocks, useTempDir } from './test-utils.js';
+
+const makeTempDir = useTempDir('hybridclaw-budget-chip-');
+useCleanMocks({
+  cleanup: cleanupGatewayRuntime,
+  resetModules: true,
+  unstubAllEnvs: true,
+});
 
 let tmpDir: string;
-let originalDataDir: string | undefined;
-let originalHome: string | undefined;
 
 const FIXED_NOW = new Date('2026-05-14T12:00:00.000Z');
 const FIXED_BILLING_WINDOW = '2026-05';
@@ -17,11 +24,7 @@ async function flushUsageNotifications(): Promise<void> {
 }
 
 async function loadBudgetContext() {
-  process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
-  process.env.HOME = tmpDir;
-  vi.resetModules();
   const dbModule = await import('../src/memory/db.js');
-  const boardModule = await import('../src/board/card-store.js');
   const budgetModule = await import('../src/board/budget-chip.js');
   const runtimeConfig = await import('../src/config/runtime-config.js');
   const eventsModule = await import('../src/skills/skill-run-events.js');
@@ -32,7 +35,6 @@ async function loadBudgetContext() {
   });
   return {
     dbModule,
-    boardModule,
     budgetModule,
     runtimeConfig,
     eventsModule,
@@ -41,20 +43,15 @@ async function loadBudgetContext() {
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-budget-chip-'));
-  originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
-  originalHome = process.env.HOME;
+  tmpDir = makeTempDir();
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', tmpDir);
+  vi.stubEnv('HOME', tmpDir);
   vi.useFakeTimers();
   vi.setSystemTime(FIXED_NOW);
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  if (originalDataDir === undefined) delete process.env.HYBRIDCLAW_DATA_DIR;
-  else process.env.HYBRIDCLAW_DATA_DIR = originalDataDir;
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe.sequential('board budget chips', () => {
@@ -90,14 +87,8 @@ describe.sequential('board budget chips', () => {
   });
 
   test('summarizes configured card-owner budgets and emits soft warn once per window', async () => {
-    const {
-      dbModule,
-      boardModule,
-      budgetModule,
-      runtimeConfig,
-      eventsModule,
-      metadata,
-    } = await loadBudgetContext();
+    const { dbModule, budgetModule, runtimeConfig, eventsModule, metadata } =
+      await loadBudgetContext();
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.agents.list = [
         { id: 'under', budget: { cap: 60, currency: 'USD', unit: 'USD' } },
@@ -111,32 +102,32 @@ describe.sequential('board budget chips', () => {
         { id: 'none' },
       ];
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-under',
       title: 'Under budget',
       owner: { agentId: 'under' },
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-warn',
       title: 'Warn budget',
       owner: { agentId: 'warn' },
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-hard',
       title: 'Hard budget',
       owner: { agentId: 'hard' },
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-token-warn',
       title: 'Token warn budget',
       owner: { agentId: 'token-warn' },
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-none',
       title: 'No budget',
       owner: { agentId: 'none' },
     });
-    boardModule.createCard({
+    seedBoardCard(dbModule, {
       id: 'card-done',
       title: 'Done card',
       owner: { agentId: 'done-owner' },
@@ -301,8 +292,6 @@ describe.sequential('board budget chips', () => {
   });
 
   test('migrates budget soft-warn units into the marker key', async () => {
-    process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
-    process.env.HOME = tmpDir;
     const dbPath = path.join(tmpDir, 'data', 'hybridclaw.db');
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const oldDatabase = new Database(dbPath);
@@ -350,7 +339,6 @@ describe.sequential('board budget chips', () => {
       oldDatabase.close();
     }
 
-    vi.resetModules();
     const dbModule = await import('../src/memory/db.js');
     dbModule.initDatabase({ quiet: true, dbPath });
 

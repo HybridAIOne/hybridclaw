@@ -40,13 +40,20 @@ test('approvals mode defaults to auto and persists a change with an audit record
   expect(updated.kind).toBe('info');
   expect(memoryService.getSessionById('s-mode')?.approval_mode).toBe('ask');
   expect(effective()).toBe('ask');
+  expect(JSON.parse((await run('mode', '--json')).text)).toEqual({
+    approvalMode: 'ask',
+  });
+  expect(JSON.parse((await run('mode', 'auto', '--json')).text)).toEqual({
+    approvalMode: 'auto',
+  });
+  await run('mode', 'ask');
 
   const { flushAuditTrail } = await import('../src/audit/audit-trail.ts');
   await flushAuditTrail();
   const audit = db
     .getRecentStructuredAuditForSession('s-mode')
     .filter((entry) => entry.event_type === 'approval.mode_changed');
-  expect(audit).toHaveLength(1);
+  expect(audit).toHaveLength(3);
   expect(JSON.parse(audit[0].payload)).toMatchObject({
     from: 'auto',
     to: 'ask',
@@ -65,10 +72,15 @@ test.each([
 });
 
 test('a running full-auto loop forces full access regardless of the stored mode', async () => {
-  const { db, run, effective } = await setup('s-loop');
+  const { db, memoryService, run, effective } = await setup('s-loop');
   await run('mode', 'ask');
   db.updateSessionFullAuto('s-loop', { enabled: true });
 
   expect(effective()).toBe('full');
   expect((await run('mode')).text).toContain('/fullauto off');
+  const result = await run('mode', 'auto', '--json');
+  expect(result.kind).toBe('plain');
+  expect(JSON.parse(result.text)).toEqual({ approvalMode: 'full' });
+  expect(effective()).toBe('full');
+  expect(memoryService.getSessionById('s-loop')?.approval_mode).toBe('auto');
 });

@@ -1038,6 +1038,8 @@ describe('ChannelsPage', () => {
       }),
     );
     screen.getByText('LINE plugin failed to load');
+    screen.getByText('Enabled');
+    expect(screen.queryByText('Pairing QR')).toBeNull();
     expect(
       screen.queryByRole('button', { name: 'Install LINE plugin' }),
     ).toBeNull();

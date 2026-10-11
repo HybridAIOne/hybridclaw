@@ -288,6 +288,7 @@ function scheduledJobFromRow(row: JobRow): ScheduledTask {
     last_error: row.last_error?.trim() || null,
     consecutive_errors: Math.max(0, Math.floor(row.consecutive_errors || 0)),
     created_at: row.created_at,
+    updated_at: row.updated_at,
     alert: options.alert ?? null,
     reply_only: options.replyOnly ?? false,
     title: options.title,

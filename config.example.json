@@ -503,6 +503,11 @@
       "provider": "auto",
       "model": "",
       "maxTokens": 0
+    },
+    "quick_decision": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
     }
   },
   "container": {
