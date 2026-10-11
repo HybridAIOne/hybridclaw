@@ -18,9 +18,9 @@ afterEach(() => {
 
 test('serializes read-modify-write across independent processes', async () => {
   const file = temporaryFile();
-  const moduleUrl = new URL('../container/shared/memory-file.js', import.meta.url).href;
+  const moduleUrl = new URL('../container/shared/memory-file.ts', import.meta.url).href;
   await Promise.all(Array.from({ length: 8 }, (_, index) => new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', `
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
       import fs from 'node:fs';
       import { waitForMemoryFileLock, writeMemoryFileAtomic } from ${JSON.stringify(moduleUrl)};
       const file = process.argv[1];
