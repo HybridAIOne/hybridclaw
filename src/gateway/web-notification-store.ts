@@ -233,6 +233,50 @@ export function deleteWebPushSubscription(
   writeStore(store);
 }
 
+/** What tells one registered phone token from another. */
+export type MobilePushDeviceAddress = Pick<
+  MobilePushDevice,
+  'token' | 'platform' | 'pushType'
+>;
+
+// An Android token and an iPhone's call (VoIP) token are kept apart from an
+// alert token, so one phone holds its alert and call registrations side by side.
+function mobilePushDeviceId(address: MobilePushDeviceAddress): string {
+  const prefix =
+    address.platform === 'android'
+      ? 'android:'
+      : address.pushType === 'voip'
+        ? 'voip:'
+        : '';
+  return notificationOperatorId(`${prefix}${address.token}`);
+}
+
+/**
+ * The phones a call from `sessionId` rings: its owner's phones that registered
+ * kind `call`, of the app the session was last chatted in from (Hy when none).
+ * Unlike alerts, a chat last used from the browser still rings the owner's
+ * phone, since the call is what the user turned on.
+ */
+export function readSessionCallDevices(sessionId: string): {
+  operatorId: string | null;
+  devices: MobilePushDevice[];
+} {
+  const store = readStore();
+  const key = notificationOperatorId(sessionId);
+  const operatorId = store.sessions[key] ?? null;
+  if (!operatorId) return { operatorId, devices: [] };
+  const app = store.sessionApps?.[key] ?? 'hy';
+  return {
+    operatorId,
+    devices: Object.values(
+      operatorState(store, operatorId).devices ?? {},
+    ).filter(
+      (device) =>
+        device.kinds.includes('call') && mobilePushDeviceApp(device) === app,
+    ),
+  };
+}
+
 export function readMobilePushDevices(operatorId: string): MobilePushDevice[] {
   return Object.values(operatorState(readStore(), operatorId).devices ?? {});
 }
@@ -242,9 +286,7 @@ export function saveMobilePushDevice(
   device: MobilePushDevice,
 ): void {
   const store = readStore();
-  const id = notificationOperatorId(
-    device.platform === 'android' ? `android:${device.token}` : device.token,
-  );
+  const id = mobilePushDeviceId(device);
   // One phone belongs to one operator, as a browser endpoint does.
   for (const state of Object.values(store.operators))
     delete state.devices?.[id];
@@ -257,29 +299,32 @@ export function saveMobilePushDevice(
   writeStore(store);
 }
 
-/** Whether any operator still has this phone registered. */
+/**
+ * Whether any operator still has this token registered: HybridAI binds a
+ * token once, whether an iPhone holds it as its alert or its call token.
+ */
 export function mobilePushDeviceHeld(
-  token: string,
-  platform: MobilePushDevice['platform'] = 'ios',
+  address: Pick<MobilePushDevice, 'token' | 'platform'>,
 ): boolean {
-  const id = notificationOperatorId(
-    platform === 'android' ? `android:${token}` : token,
-  );
-  return Object.values(readStore().operators).some(
-    (state) => state.devices?.[id] !== undefined,
+  const ids =
+    address.platform === 'android'
+      ? [mobilePushDeviceId(address)]
+      : [
+          mobilePushDeviceId({ token: address.token }),
+          mobilePushDeviceId({ token: address.token, pushType: 'voip' }),
+        ];
+  return Object.values(readStore().operators).some((state) =>
+    ids.some((id) => state.devices?.[id] !== undefined),
   );
 }
 
 /** Forgets a phone. Without an operator, whoever holds it (APNs said it is gone). */
 export function deleteMobilePushDevice(
-  token: string,
+  address: MobilePushDeviceAddress,
   operatorId?: string,
-  platform: MobilePushDevice['platform'] = 'ios',
 ): void {
   const store = readStore();
-  const id = notificationOperatorId(
-    platform === 'android' ? `android:${token}` : token,
-  );
+  const id = mobilePushDeviceId(address);
   const states = operatorId
     ? [operatorState(store, operatorId)]
     : Object.values(store.operators);

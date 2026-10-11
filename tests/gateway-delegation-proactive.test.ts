@@ -371,6 +371,7 @@ test('delegation batch queues status updates and wakes the parent with the resul
         'browser_await_two_factor',
         'browser_resume_interaction',
         'browser_take_over',
+        'call_user',
       ],
     }),
   );

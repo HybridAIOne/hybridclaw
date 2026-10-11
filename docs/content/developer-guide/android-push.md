@@ -9,4 +9,6 @@ The Hy Android app registers a Firebase token through an authenticated web chat 
 
 The token is case-sensitive. Android registrations are kept alongside Apple phones and forwarded with `platform: "android"` to the platform push relay. Android uses the production environment and the `hy` app. The reply includes `platform: "android"` so the phone can confirm this runtime supports it.
 
+To take calls from Hy, the app adds `call` to its kinds (`turn,reminder,approval,call`). A call reaches it as kind `call` with `ttl_seconds: 40`; see [Calls from Hy](../guides/web-notifications.md#calls-from-hy).
+
 The platform holds Firebase credentials and enforces account ownership. Configure Firebase on that relay and in the Android build; there is no Firebase service account key in a runtime sandbox. Reminders, finished replies and approvals use the existing per-session ownership, notification preferences and app routing.

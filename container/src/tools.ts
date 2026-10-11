@@ -92,6 +92,10 @@ import {
 import { scopeMemoryFiles, scopeTranscriptDirs } from './scope-files.js';
 import { resolveShellRuntimeEnv } from './shell-runtime-env.js';
 import {
+  CALL_USER_TOOL_DEFINITION,
+  runCallUserTool,
+} from './tools/call-user.js';
+import {
   runShowDashboard,
   SHOW_DASHBOARD_DEFINITION,
   SHOW_DASHBOARD_TOOL,
@@ -3727,6 +3731,14 @@ async function executeToolInternal(
       );
       return ok ? text : failTool(text);
     }
+    case 'call_user': {
+      const { ok, text } = await runCallUserTool(args, {
+        baseUrl: gatewayBaseUrl,
+        apiToken: gatewayApiToken,
+        sessionId: currentSessionId,
+      });
+      return ok ? text : failTool(text);
+    }
     case 'proof': {
       const { ok, text } = runProofTool(args);
       return ok ? text : failTool(text);
@@ -4367,6 +4379,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   WORK_TOOL_DEFINITION,
   TODO_TOOL_DEFINITION,
   TRIGGER_TOOL_DEFINITION,
+  CALL_USER_TOOL_DEFINITION,
   DRAFT_EMAIL_TOOL_DEFINITION,
   INBOX_CLEANUP_TOOL_DEFINITION,
   PROOF_TOOL_DEFINITION,

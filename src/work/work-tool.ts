@@ -6,7 +6,12 @@
 import { getSessionById } from '../memory/db.js';
 import { currentTurnUser } from '../session/turn-user.js';
 import { isRecord } from '../utils/type-guards.js';
-import { listWork, readWork, updateWork } from './work-store.js';
+import {
+  listWork,
+  readWork,
+  updateWork,
+  type WorkRecord,
+} from './work-store.js';
 
 const active = new Map<string, Set<string>>();
 export function beginWork(session: string, id: string): () => void {
@@ -18,6 +23,11 @@ export function beginWork(session: string, id: string): () => void {
     if (!runs.size) active.delete(session);
   };
 }
+/** The scheduled run working in `session` right now, when exactly one is. */
+export function currentWork(session: string): WorkRecord | null {
+  const runs = active.get(session);
+  return runs?.size === 1 ? readWork([...runs][0]) : null;
+}
 export function runWorkTool(body: unknown): {
   ok: boolean;
   result?: string;
@@ -27,8 +37,7 @@ export function runWorkTool(body: unknown): {
     if (!isRecord(body) || typeof body.sessionId !== 'string')
       throw new Error('Expected a session.');
     const owner = currentTurnUser(body.sessionId)?.userId;
-    const runs = active.get(body.sessionId);
-    const current = runs?.size === 1 ? readWork([...runs][0]) : null;
+    const current = currentWork(body.sessionId);
     const agent = current?.agentId ?? getSessionById(body.sessionId)?.agent_id;
     if (!owner || !agent) throw new Error('No verified user for this turn.');
     if (body.action === 'list')

@@ -47,7 +47,13 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Communication',
-    tools: ['message', 'draft_email', 'inbox_cleanup', 'estimate_cost'],
+    tools: [
+      'message',
+      'draft_email',
+      'inbox_cleanup',
+      'estimate_cost',
+      'call_user',
+    ],
   },
   {
     label: 'Scheduling',

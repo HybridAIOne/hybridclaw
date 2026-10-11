@@ -26,6 +26,11 @@ export interface MobilePushDevice {
   environment: 'sandbox' | 'production';
   /** Omitted for an Apple phone. */
   platform?: 'ios' | 'android';
+  /**
+   * An iPhone's PushKit token for calls (`/push register … ios voip`), kept
+   * apart from the same phone's alert token. Its kinds are only `call`.
+   */
+  pushType?: 'voip';
   /** Notification kinds the app handles; nothing else is sent to it. */
   kinds: string[];
   /**

@@ -35,6 +35,7 @@ const WEB_TOKEN = 'web-test-token';
 // Every route an agent runtime calls back into, as the runtime calls it.
 const AGENT_ROUTES = [
   '/api/browser/tool',
+  '/api/call-user',
   '/api/delegate',
   '/api/device-data',
   '/api/discord/action',

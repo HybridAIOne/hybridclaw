@@ -247,6 +247,11 @@ import {
   TAKE_OVER_STREAM_PATH,
 } from './browser-take-over.js';
 import {
+  CALL_USER_PATH,
+  handleDeclineCallRoute,
+  runCallUserTool,
+} from './call-user.js';
+import {
   extractGatewayChatApprovalEvent,
   formatGatewayChatApprovalSummary,
 } from './chat-approval.js';
@@ -11443,6 +11448,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiChatVoiceToken(req, res, authContext, operatorId);
             return;
           }
+          if (
+            method === 'POST' &&
+            handleDeclineCallRoute(res, pathname, operatorId)
+          )
+            return;
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -11554,6 +11564,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             );
             sendJson(res, 200, runTriggerToolAction(await readJsonBody(req)));
             return;
+          }
+          if (pathname === CALL_USER_PATH && method === 'POST') {
+            if (!hasGatewayApiAuth(req))
+              return sendJson(res, 401, { error: 'Unauthorized' });
+            return sendJson(
+              res,
+              200,
+              await runCallUserTool(await readJsonBody(req)),
+            );
           }
           if (pathname === '/api/todo' && method === 'POST') {
             if (!hasGatewayApiAuth(req)) {

@@ -2941,3 +2941,15 @@ network:
     );
   });
 });
+
+test('call_user only rings the user’s own phone, so it runs without asking', () => {
+  const runtime = createIsolatedApprovalRuntime('call-user');
+  const evaluation = runtime.evaluateToolCall({
+    toolName: 'call_user',
+    argsJson: JSON.stringify({ reason: 'Your 7:00 brief', asked: true }),
+    latestUserPrompt: 'Call me at 7 with my brief',
+  });
+  expect(evaluation.baseTier).toBe('green');
+  expect(evaluation.tier).toBe('green');
+  expect(evaluation.reason).toBe("this only rings the user's own phone");
+});

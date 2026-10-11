@@ -104,6 +104,15 @@ export interface RealtimeCallContext {
    * Web surface only; phone calls have no earlier chat and ignore it.
    */
   chatRecap?: string | null;
+  /**
+   * The assistant called the user (`call_user`): why, its first sentence, and
+   * what it called to tell them, which it says right after that sentence.
+   */
+  placedCall?: {
+    reason: string;
+    opening: string;
+    notes?: string | null;
+  } | null;
 }
 
 export interface RealtimeBridgeOptions {
@@ -239,6 +248,14 @@ export function buildRealtimeInstructions(
       `Current date and time for the ${person}: ${context.now.trim()}.`,
     );
   }
+  const placedReason = context?.placedCall?.reason.trim();
+  if (placedReason) {
+    const notes = context?.placedCall?.notes?.trim();
+    const stop = /[.!?]$/.test(placedReason) ? '' : '.';
+    sections.push(
+      `You called the ${person}. Reason: ${placedReason}${stop}${notes ? ` What to tell them: ${notes}\nThis is what you called to say, not background: tell it to the ${person} right after your opening line, and do not replace it with something else.` : ''}`,
+    );
+  }
   if (config.instructions.trim()) {
     sections.push(config.instructions.trim());
   }
@@ -255,6 +272,29 @@ export function buildRealtimeInstructions(
     );
   }
   return sections.join('\n');
+}
+
+/**
+ * What the voice says first: the configured greeting, or on a call the
+ * assistant placed, its opening line and then what it called to tell.
+ */
+export function firstResponseInstructions(
+  greeting: string,
+  languageName: string | null,
+  placedCall?: RealtimeCallContext['placedCall'],
+): string {
+  if (placedCall) {
+    const notes = placedCall.notes?.trim();
+    const language = languageName
+      ? `in ${languageName}`
+      : 'in the language of what follows';
+    return notes
+      ? `Start the call ${language}: say "${placedCall.opening}", then tell the user this, in natural spoken sentences and without changing the facts: ${notes}`
+      : `Start the call ${language} by saying: "${placedCall.opening}"`;
+  }
+  return languageName
+    ? `Greet the caller in ${languageName}, saying this in ${languageName}: "${greeting}"`
+    : `Greet the caller by saying: "${greeting}"`;
 }
 
 function toClientTurnDetection(
@@ -351,9 +391,11 @@ export class RealtimeCallBridge {
           const languageName = voiceLanguageName(options.language);
           options.onReady?.();
           this.client.createResponse(
-            languageName
-              ? `Greet the caller in ${languageName}, saying this in ${languageName}: "${options.config.greeting}"`
-              : `Greet the caller by saying: "${options.config.greeting}"`,
+            firstResponseInstructions(
+              options.config.greeting,
+              languageName,
+              options.context?.placedCall,
+            ),
           );
         },
         onAudioDelta: (base64Audio) => {
