@@ -9,6 +9,7 @@
  * NOT approval or the loop guard: this never decides whether a call may run.
  */
 
+import { BUILTIN_TOOLS } from '../shared/builtin-tools.js';
 import type { McpToolBehavior } from './mcp/types.js';
 import {
   isWithinRoot,
@@ -19,18 +20,10 @@ import {
 import { parseToolArgsJson } from './tool-args.js';
 import type { ToolCall } from './types.js';
 
-// Engineering choice, 2026-09-26: hermes-agent's read-only allowlist mapped to
-// HybridClaw's tools. Tools that write workspace artifacts (image_generate,
-// diagram_create) stay barriers. MCP reads require operator-trusted behavior.
-const READ_ONLY_TOOLS = new Set([
-  'device_data',
-  'session_search',
-  'skills_list',
-  'vision_analyze',
-  'web_extract',
-  'web_fetch',
-  'web_search',
-]);
+// MCP reads require operator-trusted behavior.
+const PARALLEL_SAFE_TOOLS = new Set(
+  BUILTIN_TOOLS.filter((tool) => tool.parallelSafe).map((tool) => tool.name),
+);
 const PATH_READERS = new Set(['glob', 'grep', 'read']);
 const PATH_WRITERS = new Set(['delete', 'edit', 'write']);
 
@@ -87,7 +80,7 @@ export function leadingParallelRun(
   const claims: PathClaim[] = [];
   for (const call of calls) {
     if (
-      !READ_ONLY_TOOLS.has(call.function.name) &&
+      !PARALLEL_SAFE_TOOLS.has(call.function.name) &&
       resolveMcpBehavior?.(call.function.name)?.parallelSafe !== true
     ) {
       const claim = claimPath(call);
