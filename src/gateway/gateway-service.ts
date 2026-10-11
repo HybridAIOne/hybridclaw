@@ -9179,7 +9179,7 @@ export async function prepareSessionAutoReset(params: {
     chatbotId: params.chatbotId,
   });
 
-  await runPreCompactionMemoryFlush({
+  const flushed = await runPreCompactionMemoryFlush({
     sessionId: existingSession.id,
     agentId: resolvedRuntime.agentId,
     chatbotId: resolvedRuntime.chatbotId,
@@ -9189,7 +9189,9 @@ export async function prepareSessionAutoReset(params: {
     sessionSummary: existingSession.session_summary,
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
-  return expiryEvaluation;
+  return flushed
+    ? expiryEvaluation
+    : { ...expiryEvaluation, isExpired: false, reason: null };
 }
 
 function buildGatewaySessionContextUsageSnapshot(
