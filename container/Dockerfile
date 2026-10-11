@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY tsconfig.json ./
 COPY shared/ shared/
 COPY src/ src/
-RUN npx tsc
+RUN npx tsc -b
 
 # --- Runtime base (no LibreOffice) ---
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime-lite

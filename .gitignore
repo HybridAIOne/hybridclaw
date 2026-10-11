@@ -60,3 +60,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 bundle/
+
+container/shared/*.js
+container/shared/*.d.ts
+*.tsbuildinfo

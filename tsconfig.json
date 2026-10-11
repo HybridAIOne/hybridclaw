@@ -14,5 +14,6 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "container"]
+  "exclude": ["node_modules", "dist", "container"],
+  "references": [{ "path": "./container/shared" }]
 }

@@ -52,7 +52,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   };
   sessionId: string;
   runId?: string;
-  /** Names this request's reply file; see container/shared/ipc-output-files.js. */
+  /** Names this request's reply file; see container/shared/ipc-output-files.ts. */
   requestId?: string;
   agentId?: string;
   messages: ChatMessage[];
@@ -62,7 +62,7 @@ export interface ContainerInput extends SessionAttachmentAccess {
   /**
    * Per-worker secret that authenticates later IPC inputs. Delivered only in
    * the first stdin payload and never written to a file (see
-   * container/shared/ipc-input-auth.js); stripped by buildRedactedInput.
+   * container/shared/ipc-input-auth.ts); stripped by buildRedactedInput.
    */
   ipcAuthSecret?: string;
   baseUrl: string;

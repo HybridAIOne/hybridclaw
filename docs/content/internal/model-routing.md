@@ -101,7 +101,7 @@ Escalation triggers must be **deterministic and observable** — v1 uses only:
 
 | Trigger | Detection | Exists? |
 |---|---|---|
-| Provider/model hard error (rate limit, auth, 5xx) | already classified by the fallback engine (`container/shared/provider-fallback.js`) | ✅ within-tier; across-tier is the new bit |
+| Provider/model hard error (rate limit, auth, 5xx) | already classified by the fallback engine (`container/shared/provider-fallback.ts`) | ✅ within-tier; across-tier is the new bit |
 | Malformed tool call / unparseable required structured output | schema validation at the tool boundary | ✅ validators exist; wiring to escalation is new |
 | Empty output, or narrate-only turn (a plan but no action and no answer) | one cheap retry, then escalate | pattern specced in roadmap R60; small guard |
 | Operator says so | `/escalate` (or `/model`) | `/model` ✅; `/escalate` trivial |

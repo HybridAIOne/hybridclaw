@@ -115,7 +115,7 @@ edits `./.hybridclaw/policy.yaml` in its own working directory
 (`src/policy/policy-cli.ts`).
 
 Writes go through one module that serializes them and replaces the file
-atomically with `writeMemoryFileAtomic` (`container/shared/memory-file.js`).
+atomically with `writeMemoryFileAtomic` (`container/shared/memory-file.ts`).
 Today three modules read, modify, and rewrite the file with plain
 `writeFileSync`: `policy-store.ts:348`, `secret-route-policy.ts:48`, and
 `remote-policy-authority.ts:690`. A worker that reloads during such a write

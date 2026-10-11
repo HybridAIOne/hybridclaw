@@ -1,7 +1,7 @@
 /**
  * File-based IPC between the gateway and the agent process: per request, one
  * input and one reply file (`output-<requestId>.json`, named in
- * `container/shared/ipc-output-files.js`) in the session's `ipc/` dir; auth
+ * `container/shared/ipc-output-files.ts`) in the session's `ipc/` dir; auth
  * material from the first stdin request is never written to disk. Directory
  * notifications only wake readers; periodic disk checks cover missed events.
  *
@@ -142,7 +142,7 @@ export function ensureAgentDirs(agentId: string): void {
  *
  * The file lives in a directory the agent's own tools can reach, so every input
  * is wrapped in an authenticity envelope keyed by the per-worker `authSecret`
- * the agent received on stdin (see container/shared/ipc-input-auth.js). The
+ * the agent received on stdin (see container/shared/ipc-input-auth.ts). The
  * agent rejects any input.json it cannot verify, so a follow-up forged by the
  * agent never becomes a turn.
  *

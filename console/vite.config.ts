@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { containerSharedSources } from '../scripts/vite-container-shared-sources';
 
 export default defineConfig({
   base: '/',
@@ -24,7 +25,7 @@ export default defineConfig({
       },
     },
   },
-  plugins: [react()],
+  plugins: [containerSharedSources(), react()],
   server: {
     host: '127.0.0.1',
     port: 4173,

@@ -2,7 +2,13 @@
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "DOM.AsyncIterable", "ES2022"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "DOM.AsyncIterable",
+      "ES2022",
+      "ES2024.String"
+    ],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
