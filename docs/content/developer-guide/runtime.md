@@ -467,14 +467,17 @@ Session behavior matches the routing rules above:
   the stored message is tagged `app-notice` and `/api/history` leaves it out,
   as it does for approval answers, so clients never hide turns by their wording
 - Hy clients choose emoji reactions separately from the main chat model, using
-  the phone model first and `auxiliary/eval_judge` second. No suitable emoji is
+  the phone model first and `auxiliary/quick_decision` second. No suitable emoji is
   a valid decision. `POST /api/chat/reaction` persists an emoji (or null to remove
   it) on a message in the caller's bound session: `role: "user"` is Hy's reaction;
   `role: "assistant"` (the default) is user feedback. Only feedback can become a
   👍/👎 response rating. The main chat model has no `react` tool, and emoji-only
   replies remain reply text. `/api/history` returns persisted reactions.
-- Raw, non-streaming `/v1/chat/completions` requests to `auxiliary/eval_judge`
-  use the auxiliary policy without provider fallback. `model: "regular"` uses
+- Raw, non-streaming `/v1/chat/completions` requests to
+  `auxiliary/quick_decision` (or `auxiliary/eval_judge` from older app builds)
+  use `auxiliaryModels.quick_decision` without provider fallback; with no model
+  configured they use the default model, and a failed call returns 503
+  `auxiliary_unavailable`. `model: "regular"` uses
   the default agent's regular model. Both use only the supplied messages and
   expose no tools. Avatar selection and idea categorization advance explicitly
   from the on-device model to auxiliary to regular when an answer fails validation;

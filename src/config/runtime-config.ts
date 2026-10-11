@@ -1200,6 +1200,7 @@ export interface RuntimeConfig {
     second_opinion: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
+    quick_decision: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -1979,6 +1980,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     cv_narration: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    quick_decision: {
       provider: 'auto',
       model: '',
       maxTokens: 0,

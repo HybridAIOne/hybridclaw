@@ -5546,13 +5546,13 @@ describe('gateway HTTP server', () => {
     expect(payload.model).toBe('gpt-5');
   });
 
-  test('routes auxiliary eval judge OpenAI requests through the auxiliary model caller', async () => {
+  test('routes quick decision OpenAI requests through the auxiliary model caller', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       method: 'POST',
       url: '/v1/chat/completions',
       body: {
-        model: 'auxiliary/eval_judge',
+        model: 'auxiliary/quick_decision',
         messages: [
           { role: 'system', content: 'Return JSON only.' },
           { role: 'user', content: '{"question":"largest orders"}' },
@@ -5566,7 +5566,7 @@ describe('gateway HTTP server', () => {
 
     expect(state.handleGatewayMessage).not.toHaveBeenCalled();
     expect(state.callAuxiliaryModel).toHaveBeenCalledWith({
-      task: 'eval_judge',
+      task: 'quick_decision',
       messages: [
         { role: 'system', content: 'Return JSON only.' },
         { role: 'user', content: '{"question":"largest orders"}' },
@@ -5582,7 +5582,7 @@ describe('gateway HTTP server', () => {
     expect(payload.choices[0].message.content).toBe(
       '{"status":"pass","summary":"ok","findings":[]}',
     );
-    expect(res.getHeader('x-hybridclaw-auxiliary-task')).toBe('eval_judge');
+    expect(res.getHeader('x-hybridclaw-auxiliary-task')).toBe('quick_decision');
     expect(res.getHeader('x-hybridclaw-auxiliary-provider')).toBe('vllm');
   });
 

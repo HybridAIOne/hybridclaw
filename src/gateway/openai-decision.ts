@@ -13,8 +13,14 @@ import { callOpenAICompatibleModel } from './openai-compatible-model.js';
 import { OpenAICompatibleRequestError } from './openai-compatible-request.js';
 import { buildOpenAICompatibleCompletionResponse } from './openai-compatible-response.js';
 
+// App builds before quick_decision existed send `auxiliary/eval_judge`.
+const AUXILIARY_DECISION_MODELS = new Set([
+  'auxiliary/quick_decision',
+  'auxiliary/eval_judge',
+]);
+
 export function isDecisionModel(model: string): boolean {
-  return model === 'auxiliary/eval_judge' || model === 'regular';
+  return AUXILIARY_DECISION_MODELS.has(model) || model === 'regular';
 }
 
 export async function handleDecisionCompletion(params: {
@@ -37,14 +43,21 @@ export async function handleDecisionCompletion(params: {
   let model: string;
   let content: string | null;
   let provider: string;
-  if (params.model === 'auxiliary/eval_judge') {
+  const auxiliary = AUXILIARY_DECISION_MODELS.has(params.model);
+  if (auxiliary) {
     const answer = await callAuxiliaryModel({
-      task: 'eval_judge',
+      task: 'quick_decision',
       messages: params.messages,
       fallbackModel: HYBRIDAI_MODEL,
       agentId: params.agentId,
       temperature: 0,
       allowFallback: false,
+    }).catch((error: unknown) => {
+      throw new OpenAICompatibleRequestError(
+        503,
+        error instanceof Error ? error.message : String(error),
+        { type: 'server_error', code: 'auxiliary_unavailable' },
+      );
     });
     ({ model, content, provider } = answer);
   } else {
@@ -74,9 +87,9 @@ export async function handleDecisionCompletion(params: {
   });
   params.res.writeHead(200, {
     ...params.traceHeaders,
-    ...(params.model === 'auxiliary/eval_judge'
+    ...(auxiliary
       ? {
-          'X-HybridClaw-Auxiliary-Task': 'eval_judge',
+          'X-HybridClaw-Auxiliary-Task': 'quick_decision',
           'X-HybridClaw-Auxiliary-Provider': provider,
         }
       : {}),
