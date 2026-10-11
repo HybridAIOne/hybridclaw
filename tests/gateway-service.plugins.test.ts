@@ -242,6 +242,7 @@ vi.mock('../src/plugins/plugin-install.js', () => ({
 }));
 
 vi.mock('../src/plugins/plugin-config.js', () => ({
+  isInstalledPluginDisabled: vi.fn(async () => false),
   readPluginConfigEntry: readPluginConfigEntryMock,
   readPluginConfigValue: readPluginConfigValueMock,
   setPluginEnabled: setPluginEnabledMock,
